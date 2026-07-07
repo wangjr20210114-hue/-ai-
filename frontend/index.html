@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>元宝 · 主动式 AI 助手</title>
+    <script>
+      // 首屏即应用已保存的主题，避免闪烁
+      (function () {
+        try {
+          var t = localStorage.getItem('yuanbao-theme');
+          document.documentElement.setAttribute('theme-mode', t === 'dark' ? 'dark' : 'light');
+        } catch (e) {
+          document.documentElement.setAttribute('theme-mode', 'light');
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

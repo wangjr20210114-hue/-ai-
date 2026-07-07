@@ -1,0 +1,1988 @@
+/* ============================================================
+   元宝风格主题：干净、现代、双主题（浅色 / 深色）
+   - 通过 [theme-mode] 切换 TDesign 内置主题
+   - 同时定义一套 --app-* 变量供自定义组件取色
+   ============================================================ */
+
+/* ---------- 浅色（默认） ---------- */
+:root {
+  --app-bg: #f4f6fb;
+  --app-bg-grad-1: rgba(64, 110, 240, 0.06);
+  --app-bg-grad-2: rgba(124, 92, 255, 0.05);
+  --app-panel: #ffffff;
+  --app-panel-2: #f7f8fc;
+  --app-border: rgba(0, 0, 0, 0.07);
+  --app-border-strong: rgba(0, 0, 0, 0.1);
+  --app-text: #1d2129;
+  --app-text-2: #5a6072;
+  --app-text-3: #939aad;
+  --app-user-bubble: linear-gradient(135deg, #4e7cff, #6a5cff);
+  --app-user-text: #ffffff;
+  --app-ai-bubble: #ffffff;
+  --app-shadow: 0 1px 3px rgba(20, 30, 60, 0.06), 0 4px 16px rgba(20, 30, 60, 0.05);
+
+  --td-brand-color: #2b5aed;
+  --td-brand-color-hover: #4e7cff;
+  --td-brand-color-active: #1f46c2;
+  --td-radius-default: 10px;
+  --td-radius-medium: 12px;
+}
+
+/* ---------- 深色 ---------- */
+:root[theme-mode='dark'] {
+  --app-bg: #16171c;
+  --app-bg-grad-1: rgba(78, 124, 255, 0.1);
+  --app-bg-grad-2: rgba(124, 92, 255, 0.08);
+  --app-panel: #1f2128;
+  --app-panel-2: #25272f;
+  --app-border: rgba(255, 255, 255, 0.08);
+  --app-border-strong: rgba(255, 255, 255, 0.14);
+  --app-text: rgba(255, 255, 255, 0.92);
+  --app-text-2: rgba(255, 255, 255, 0.6);
+  --app-text-3: rgba(255, 255, 255, 0.4);
+  --app-user-bubble: linear-gradient(135deg, #4e7cff, #7c5cff);
+  --app-user-text: #ffffff;
+  --app-ai-bubble: #292b34;
+  --app-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+
+  --td-brand-color: #4e7cff;
+  --td-brand-color-hover: #6a93ff;
+  --td-brand-color-active: #3a68e6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei',
+    'Segoe UI', sans-serif;
+  color: var(--app-text);
+  background: var(--app-bg);
+  background-image:
+    radial-gradient(circle at 12% 8%, var(--app-bg-grad-1), transparent 38%),
+    radial-gradient(circle at 88% 4%, var(--app-bg-grad-2), transparent 36%);
+  background-attachment: fixed;
+  overflow: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ============ 布局 ============ */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 4px;
+  padding: 4px;
+  position: relative;
+}
+
+.main-area {
+  flex: 1 1 auto;
+  min-width: 360px;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.insight-panel {
+  width: 320px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+
+/* 通用面板 */
+.panel {
+  background: var(--app-panel);
+  border: 1px solid var(--app-border);
+  border-radius: 16px;
+  box-shadow: var(--app-shadow);
+}
+
+/* ============ 顶栏 ============ */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 22px;
+  background: var(--app-panel);
+  border-bottom: 1px solid var(--app-border);
+}
+
+.brand-logo {
+  font-size: 18px;
+  font-weight: 700;
+  background: linear-gradient(90deg, #2b5aed, #7c5cff, #22b8d6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ============ 对话区 ============ */
+.chat-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 0;
+}
+
+.chat-inner {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.msg-row {
+  display: flex;
+  margin: 18px 0;
+  gap: 10px;
+  align-items: flex-start;
+}
+.msg-row.user {
+  flex-direction: row-reverse;
+}
+
+.msg-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #fff;
+}
+.msg-avatar.ai {
+  background: linear-gradient(135deg, #2b5aed, #7c5cff);
+}
+.msg-avatar.user {
+  background: var(--app-panel-2);
+  border: 1px solid var(--app-border);
+  color: var(--app-text-2);
+}
+
+.msg-bubble {
+  max-width: 100%;
+  padding: 12px 16px;
+  border-radius: 14px;
+  line-height: 1.7;
+  font-size: 14.5px;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+.msg-bubble.user {
+  white-space: pre-wrap;
+}
+.msg-bubble.user {
+  background: var(--app-user-bubble);
+  color: var(--app-user-text);
+  border-top-right-radius: 4px;
+}
+.msg-bubble.ai {
+  background: var(--app-ai-bubble);
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
+  border-top-left-radius: 4px;
+  box-shadow: var(--app-shadow);
+}
+
+/* AI 消息内 Markdown 样式 */
+.msg-bubble.ai .markdown-body {
+  white-space: normal;
+  overflow: visible;
+}
+.msg-bubble.ai .markdown-body > *:last-child {
+  display: inline;
+}
+.typing-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  background: #2b5aed;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 0.8s steps(2) infinite;
+}
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+.msg-bubble.ai .markdown-body h1 {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  color: var(--app-text);
+}
+.msg-bubble.ai .markdown-body h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 8px 0 4px;
+  color: var(--app-text);
+}
+.msg-bubble.ai .markdown-body h3 {
+  font-size: 13.5px;
+  font-weight: 600;
+  margin: 6px 0 2px;
+  color: var(--app-text);
+}
+.msg-bubble.ai .markdown-body p {
+  margin: 3px 0;
+  line-height: 1.55;
+}
+.msg-bubble.ai .markdown-body ul,
+.msg-bubble.ai .markdown-body ol {
+  margin: 2px 0;
+  padding-left: 18px;
+}
+.msg-bubble.ai .markdown-body li {
+  margin: 1px 0;
+  line-height: 1.5;
+}
+.msg-bubble.ai .markdown-body ul li { list-style: disc; }
+.msg-bubble.ai .markdown-body ol li { list-style: decimal; }
+.msg-bubble.ai .markdown-body strong { font-weight: 600; }
+.msg-bubble.ai .markdown-body em { font-style: italic; }
+.msg-bubble.ai .markdown-body blockquote {
+  border-left: 3px solid var(--td-brand-color);
+  padding-left: 8px;
+  margin: 4px 0;
+  color: var(--app-text-2);
+  font-size: 12.5px;
+}
+.msg-bubble.ai .markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--app-border);
+  margin: 6px 0;
+}
+.msg-bubble.ai .markdown-body a {
+  color: var(--td-brand-color);
+  text-decoration: none;
+}
+.msg-bubble.ai .markdown-body code {
+  background: var(--app-panel-2);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.msg-bubble.ai .markdown-body table,
+.travel-plan-markdown .markdown-body table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 12.5px;
+  width: 100%;
+  display: table;
+}
+.msg-bubble.ai .markdown-body th,
+.travel-plan-markdown .markdown-body th {
+  border: 1px solid var(--app-border);
+  padding: 5px 8px;
+  font-weight: 600;
+  background: var(--app-panel-2);
+  text-align: left;
+}
+.msg-bubble.ai .markdown-body td,
+.travel-plan-markdown .markdown-body td {
+  border: 1px solid var(--app-border);
+  padding: 5px 8px;
+  text-align: left;
+}
+.msg-bubble.ai .markdown-body tr,
+.travel-plan-markdown .markdown-body tr {
+  display: table-row;
+}
+.msg-bubble.ai .markdown-body thead,
+.travel-plan-markdown .markdown-body thead {
+  display: table-header-group;
+}
+.msg-bubble.ai .markdown-body tbody,
+.travel-plan-markdown .markdown-body tbody {
+  display: table-row-group;
+}
+
+/* 空态 */
+.chat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-text-2);
+  gap: 14px;
+  text-align: center;
+}
+.chat-empty-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #2b5aed, #7c5cff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 30px;
+  box-shadow: 0 8px 28px rgba(78, 124, 255, 0.35);
+}
+.chip {
+  padding: 8px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--app-border-strong);
+  background: var(--app-panel);
+  color: var(--app-text-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+.chip:hover {
+  color: var(--td-brand-color);
+  border-color: var(--td-brand-color);
+}
+
+/* ============ 输入区 ============ */
+.input-wrap {
+  max-width: 820px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 24px 18px;
+}
+.input-box {
+  background: var(--app-panel);
+  border: 1px solid var(--app-border-strong);
+  border-radius: 16px;
+  padding: 10px 12px;
+  box-shadow: var(--app-shadow);
+  transition: border-color 0.2s;
+}
+.input-box:focus-within {
+  border-color: var(--td-brand-color);
+}
+
+/* ============ 右侧洞察面板 ============ */
+.insight-card {
+  background: var(--app-panel);
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 14px;
+  box-shadow: var(--app-shadow);
+}
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text-2);
+  margin: 2px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.insight-empty {
+  padding: 18px 4px;
+  text-align: center;
+  color: var(--app-text-3);
+  font-size: 12.5px;
+  border: 1px dashed var(--app-border-strong);
+  border-radius: 12px;
+}
+
+/* ============ 右侧「我的」面板 ============ */
+.my-panel {
+  width: 340px;
+  flex: 0 0 340px;
+  min-width: 280px;
+  min-height: 300px;
+  overflow-y: auto;
+  padding: 4px 6px 4px 2px;
+  position: relative;
+}
+.my-panel-card {
+  background: var(--app-panel);
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 14px;
+  box-shadow: var(--app-shadow);
+}
+.my-panel-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.my-panel-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2b5aed, #7c5cff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+.my-panel-username {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--app-text);
+}
+.my-panel-subtext {
+  font-size: 11px;
+  color: var(--app-text-3);
+  margin-top: 2px;
+}
+.plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plan-item {
+  background: var(--app-panel-2);
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  animation: cardSlideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.plan-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.plan-item-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--app-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-item-meta {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.plan-item-departure {
+  font-size: 12px;
+  color: var(--app-text-2);
+  margin-top: 4px;
+}
+.plan-item-date {
+  font-size: 11px;
+  color: var(--app-text-3);
+  margin-top: 4px;
+}
+
+/* ============ 通用日程列表 ============ */
+.schedule-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ============ 日历视图 ============ */
+.calendar-panel {
+  padding: 12px;
+}
+.calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.calendar-month-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--app-text);
+}
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 4px;
+}
+.calendar-weekday {
+  text-align: center;
+  font-size: 10px;
+  color: var(--app-text-3);
+  padding: 2px 0;
+}
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.calendar-day {
+  aspect-ratio: 1;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s;
+  position: relative;
+  min-height: 30px;
+}
+.calendar-day:hover {
+  border-color: var(--td-brand-color);
+}
+.calendar-day.empty {
+  cursor: default;
+  pointer-events: none;
+}
+.calendar-day.today {
+  border: 1px solid var(--td-brand-color);
+}
+.calendar-day.today .calendar-day-num {
+  color: var(--td-brand-color);
+  font-weight: 700;
+}
+.calendar-day.selected {
+  outline: 2px solid var(--td-brand-color);
+  outline-offset: -1px;
+}
+.calendar-day-num {
+  font-size: 12px;
+  color: var(--app-text);
+}
+.calendar-day-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--td-brand-color);
+  margin-top: 1px;
+}
+.calendar-legend {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  justify-content: center;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--app-text-3);
+}
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+/* 当日日程列表 */
+.schedule-day-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.schedule-day-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--app-panel-2);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  animation: cardSlideIn 0.2s ease;
+}
+.schedule-day-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.schedule-day-item.done {
+  opacity: 0.4;
+}
+.schedule-day-item.done .schedule-day-title {
+  text-decoration: line-through;
+}
+.schedule-day-item.conflict {
+  border-color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.06);
+}
+.schedule-day-time {
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 38px;
+  padding-top: 1px;
+}
+.schedule-day-cat-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+.schedule-day-content {
+  flex: 1;
+  min-width: 0;
+}
+.schedule-day-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.schedule-day-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+  align-items: center;
+}
+.schedule-day-loc {
+  font-size: 10px;
+  color: var(--app-text-3);
+}
+.schedule-day-dur {
+  font-size: 10px;
+  color: var(--app-text-3);
+}
+.schedule-day-warn {
+  font-size: 10px;
+  color: #ff6b6b;
+  font-weight: 600;
+}
+.schedule-day-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+}
+.schedule-day-expand {
+  font-size: 10px;
+  color: var(--td-brand-color);
+  cursor: pointer;
+}
+.schedule-day-detail {
+  margin-top: 6px;
+  padding: 10px;
+  background: var(--app-panel);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.schedule-day-desc {
+  font-size: 12px;
+  color: var(--app-text-2);
+  margin-bottom: 8px;
+}
+.schedule-day-detail .markdown-body h1 { font-size: 14px; margin: 4px 0; }
+.schedule-day-detail .markdown-body h2 { font-size: 13px; margin: 4px 0; }
+.schedule-day-detail .markdown-body h3 { font-size: 12px; margin: 3px 0; }
+.schedule-day-detail .markdown-body p { font-size: 11.5px; margin: 2px 0; line-height: 1.5; }
+.schedule-day-detail .markdown-body li { font-size: 11.5px; margin: 1px 0; line-height: 1.4; }
+.schedule-day-detail .markdown-body table { font-size: 11px; }
+.schedule-day-detail .markdown-body td,
+.schedule-day-detail .markdown-body th { padding: 3px 5px; }
+
+/* ============ 地点选择卡片 ============ */
+.place-selector {
+  margin: 6px 0;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.place-selector-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: var(--app-panel-2);
+  border-bottom: 1px solid var(--app-border);
+  font-size: 12px;
+}
+.place-selector-icon { font-size: 14px; }
+.place-selector-type { font-weight: 600; color: var(--app-text); }
+.place-selector-keyword { color: var(--app-text-3); }
+.place-selector-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+.place-selector-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--app-border);
+  transition: background 0.12s;
+}
+.place-selector-item:last-child { border-bottom: none; }
+.place-selector-item:hover { background: var(--app-panel-2); }
+.place-selector-item.selected {
+  background: rgba(78, 124, 255, 0.08);
+  border-left: 3px solid var(--td-brand-color);
+}
+.place-item-content { flex: 1; min-width: 0; }
+.place-item-title {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--app-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.place-item-address {
+  font-size: 11px;
+  color: var(--app-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.place-item-meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+.place-item-tel { font-size: 10px; color: var(--app-text-3); }
+.place-item-dist { font-size: 10px; color: var(--td-brand-color); }
+
+/* ============ 路线地图 ============ */
+
+/* ============ 自适应时间线课程表 ============ */
+.schedule-timeline-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.schedule-timeline-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--app-border);
+}
+.schedule-timeline-date {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text);
+}
+
+/* 多天日程 */
+.schedule-timeline-multiday {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--app-border);
+}
+.schedule-timeline-multiday-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-left: 3px solid;
+  border-radius: 6px;
+  background: var(--app-panel-2);
+  font-size: 12px;
+}
+.multiday-title { font-weight: 500; color: var(--app-text); }
+.multiday-loc { color: var(--app-text-3); font-size: 11px; }
+
+/* 时间线列表 */
+.schedule-timeline-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.schedule-timeline-row {
+  display: flex;
+  flex-direction: column;
+}
+.schedule-timeline-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.time-start, .time-end {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--app-panel-2);
+}
+.time-arrow {
+  font-size: 10px;
+  opacity: 0.5;
+}
+
+/* 事件卡片 */
+.schedule-timeline-card {
+  position: relative;
+  border-left: 4px solid;
+  border-radius: 10px;
+  padding: 4px 0 4px 8px;
+  margin-left: 2px;
+  transition: box-shadow 0.15s;
+}
+.schedule-timeline-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+}
+.timeline-card-dot {
+  position: absolute;
+  top: 10px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.timeline-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-right: 20px;
+}
+.timeline-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.timeline-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text);
+}
+.timeline-card-cost {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--td-brand-color);
+  flex-shrink: 0;
+}
+.timeline-card-loc {
+  font-size: 11px;
+  color: var(--app-text-2);
+}
+.timeline-card-desc {
+  font-size: 11px;
+  color: var(--app-text-3);
+  line-height: 1.4;
+}
+
+/* 备选方案 */
+.timeline-card-alts-toggle {
+  font-size: 11px;
+  color: var(--td-brand-color);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(78,124,255,0.08);
+  align-self: flex-start;
+  transition: background 0.12s;
+}
+.timeline-card-alts-toggle:hover { background: rgba(78,124,255,0.15); }
+.timeline-card-alt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: var(--app-panel);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+.timeline-alt-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.timeline-alt-item:hover { background: var(--app-panel-2); }
+.timeline-alt-item.selected { background: rgba(78,124,255,0.08); }
+.alt-radio { font-size: 12px; color: var(--td-brand-color); flex-shrink: 0; margin-top: 1px; }
+.alt-body { flex: 1; min-width: 0; }
+.alt-name { font-size: 12px; font-weight: 500; color: var(--app-text); }
+.alt-addr { font-size: 10px; color: var(--app-text-3); }
+.alt-tel { font-size: 10px; color: var(--app-text-3); }
+
+/* 时间间隔 */
+.schedule-timeline-gap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0 2px 12px;
+}
+.gap-line {
+  flex: 1;
+  height: 1px;
+  border-top: 1px dashed var(--app-border);
+}
+.gap-text {
+  font-size: 10px;
+  color: var(--app-text-3);
+  flex-shrink: 0;
+}
+.schedule-timeline-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--app-text-3);
+  font-size: 13px;
+}
+.schedule-view-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  flex: 1;
+  min-height: 300px;
+}
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* ============ 当日路线地图 ============ */
+.daily-route-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.daily-route-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.daily-route-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text);
+}
+.daily-route-canvas {
+  width: 100%;
+  height: 200px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+}
+.daily-route-stops {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.daily-route-stop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+.daily-route-stop-num {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--td-brand-color);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.daily-route-stop-info { flex: 1; min-width: 0; }
+.daily-route-stop-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.daily-route-stop-addr {
+  font-size: 10px;
+  color: var(--app-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.daily-route-stop-seg {
+  font-size: 10px;
+  color: var(--app-text-3);
+  align-self: center;
+  padding: 2px 6px;
+  background: var(--app-panel-2);
+  border-radius: 4px;
+}
+.daily-route-empty {
+  text-align: center;
+  padding: 20px;
+  color: var(--app-text-3);
+  font-size: 12px;
+}
+
+/* ============ 旧版路线地图 ============ */
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.route-map-canvas {
+  border: 1px solid var(--app-border);
+}
+.route-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.route-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.route-info-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text);
+}
+.route-segments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--app-panel-2);
+  border-radius: 8px;
+}
+.route-segment {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.route-segment-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+.route-segment-content {
+  flex: 1;
+}
+.route-segment-route {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-text);
+}
+.route-segment-meta {
+  font-size: 11px;
+  color: var(--app-text-3);
+}
+.route-cost {
+  padding: 8px;
+  background: var(--app-panel-2);
+  border-radius: 8px;
+}
+.route-cost-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-text-2);
+  margin-bottom: 6px;
+}
+.route-cost-items {
+  display: flex;
+  gap: 12px;
+}
+.route-cost-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--app-text-3);
+}
+.route-cost-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--td-brand-color);
+}
+
+/* 天气信息 */
+.route-weather {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--app-panel-2);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.route-weather-icon { font-size: 16px; }
+.route-weather-temp { font-weight: 700; font-size: 14px; color: var(--app-text); }
+.route-weather-desc { color: var(--app-text-2); }
+.route-weather-tips {
+  color: var(--app-text-3);
+  font-size: 11px;
+  margin-left: auto;
+  text-align: right;
+  max-width: 200px;
+}
+
+/* 日期选择器 */
+.schedule-date-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  overflow-x: auto;
+}
+.schedule-date-item {
+  flex: 1;
+  min-width: 36px;
+  padding: 6px 4px;
+  border-radius: 10px;
+  border: 1px solid var(--app-border);
+  background: var(--app-panel-2);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s;
+  position: relative;
+}
+.schedule-date-item:hover {
+  border-color: var(--td-brand-color);
+}
+.schedule-date-item.active {
+  background: var(--td-brand-color);
+  border-color: var(--td-brand-color);
+}
+.schedule-date-item.active .schedule-date-label,
+.schedule-date-item.active .schedule-date-num {
+  color: #fff;
+}
+.schedule-date-label {
+  font-size: 10px;
+  color: var(--app-text-3);
+}
+.schedule-date-num {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--app-text);
+  line-height: 1.2;
+}
+.schedule-date-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #ff6b6b;
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+.schedule-date-title {
+  font-size: 12px;
+  color: var(--app-text-2);
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+/* 时间轴 */
+.schedule-timeline {
+  display: flex;
+  position: relative;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.schedule-time-axis {
+  width: 44px;
+  flex-shrink: 0;
+  position: relative;
+}
+.schedule-time-slot {
+  height: 30px;  /* 30分钟 = 30px */
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+}
+.schedule-time-label {
+  font-size: 10px;
+  color: var(--app-text-3);
+  position: absolute;
+  top: -5px;
+  left: 0;
+  background: var(--app-panel);
+  padding-right: 4px;
+}
+.schedule-time-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  border-top: 1px dashed var(--app-border);
+}
+
+.schedule-items-area {
+  flex: 1;
+  position: relative;
+  min-height: 420px;
+  padding-left: 4px;
+}
+
+.schedule-timeline-item {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  border-radius: 8px;
+  border-left: 3px solid;
+  background: var(--app-panel-2);
+  border-top: 1px solid var(--app-border);
+  border-right: 1px solid var(--app-border);
+  border-bottom: 1px solid var(--app-border);
+  padding: 3px 6px;
+  overflow: hidden;
+  animation: cardSlideIn 0.2s ease;
+  z-index: 1;
+}
+.schedule-timeline-item.done {
+  opacity: 0.4;
+}
+.schedule-timeline-item.done .schedule-tl-title {
+  text-decoration: line-through;
+}
+.schedule-timeline-item.conflict {
+  border-color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.08);
+  z-index: 2;
+}
+.schedule-tl-time {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--td-brand-color);
+}
+.schedule-tl-title {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--app-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.schedule-tl-loc {
+  font-size: 10px;
+  color: var(--app-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.schedule-tl-warn {
+  font-size: 9px;
+  color: #ff6b6b;
+  font-weight: 600;
+}
+.schedule-tl-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+/* 未定时日程 */
+.schedule-unscheduled {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--app-border);
+}
+.schedule-unscheduled-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--app-text-3);
+  margin-bottom: 6px;
+}
+.schedule-unscheduled-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--app-panel-2);
+  border-radius: 8px;
+  margin-bottom: 4px;
+}
+.schedule-unscheduled-item.done {
+  opacity: 0.4;
+}
+.schedule-unscheduled-item.done .schedule-item-title {
+  text-decoration: line-through;
+}
+.schedule-item-cat-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.schedule-item-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============ 追问建议 ============ */
+.msg-content-wrap {
+  min-width: 0;
+  flex: 1;
+  max-width: calc(100% - 44px);
+  display: flex;
+  flex-direction: column;
+}
+.msg-row.user .msg-content-wrap {
+  align-items: flex-end;
+}
+.followup-section {
+  margin-top: 10px;
+  padding-left: 2px;
+}
+.followup-label {
+  font-size: 12px;
+  color: var(--app-text-3);
+  margin-bottom: 6px;
+}
+.followup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.followup-chip {
+  display: inline-block;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--app-border-strong);
+  background: var(--app-panel);
+  color: var(--app-text-2);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.18s;
+  max-width: 100%;
+}
+.followup-chip:hover {
+  color: var(--td-brand-color);
+  border-color: var(--td-brand-color);
+  background: rgba(78, 124, 255, 0.05);
+}
+
+/* ============ 旅游计划表单 ============ */
+.travel-form {
+  background: var(--app-panel);
+  border: 1px solid var(--app-border-strong);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: var(--app-shadow);
+}
+.travel-form-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--app-text);
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-panel-2);
+}
+.travel-form-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.form-row-inline {
+  display: flex;
+  gap: 0;
+}
+.form-label {
+  font-size: 12px;
+  color: var(--app-text-2);
+  font-weight: 500;
+}
+.form-input-simple {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--app-border-strong);
+  border-radius: 6px;
+  background: var(--app-panel);
+  color: var(--app-text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.form-input-simple:focus {
+  border-color: var(--td-brand-color);
+}
+.travel-form-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--app-border);
+  background: var(--app-panel-2);
+}
+
+/* ============ 旅游推测建议 ============ */
+.travel-intent-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--app-panel);
+  border: 1px solid var(--app-border-strong);
+  border-radius: 12px;
+  box-shadow: var(--app-shadow);
+  animation: cardSlideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.travel-intent-text {
+  font-size: 13px;
+  color: var(--app-text-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.travel-intent-icon {
+  font-size: 16px;
+}
+
+/* ============ 对话式旅游助手 ============ */
+.travel-chat-wrapper {
+  margin-top: 12px;
+  max-width: 100%;
+}
+.travel-chat-assistant {
+  background: var(--app-panel);
+  border: 1px solid var(--app-border-strong);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: var(--app-shadow);
+  animation: cardSlideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.travel-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text);
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-panel-2);
+}
+.travel-chat-answers {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 8px 14px 0;
+  gap: 4px;
+}
+.travel-chat-question {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 14px 8px;
+}
+.travel-chat-q-icon {
+  color: var(--td-brand-color);
+  display: flex;
+  align-items: center;
+}
+.travel-chat-q-text {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--app-text);
+}
+.travel-chat-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 14px 8px;
+}
+.travel-chat-option {
+  padding: 8px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--app-border-strong);
+  background: var(--app-panel);
+  color: var(--app-text-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.18s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.travel-chat-option:hover {
+  color: var(--td-brand-color);
+  border-color: var(--td-brand-color);
+  background: rgba(78, 124, 255, 0.06);
+}
+.travel-chat-option.selected {
+  color: var(--td-brand-color);
+  border-color: var(--td-brand-color);
+  background: rgba(78, 124, 255, 0.1);
+  font-weight: 500;
+}
+.travel-chat-multi-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 14px 8px;
+  gap: 8px;
+}
+.travel-chat-other-btn {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px dashed var(--app-border-strong);
+  background: transparent;
+  color: var(--app-text-3);
+  font-size: 12px;
+  cursor: pointer;
+  margin: 0 14px 8px;
+  transition: all 0.18s;
+}
+.travel-chat-other-btn:hover {
+  color: var(--td-brand-color);
+  border-color: var(--td-brand-color);
+}
+.travel-chat-custom {
+  display: flex;
+  gap: 8px;
+  padding: 4px 14px 8px;
+  align-items: center;
+}
+.travel-chat-search {
+  padding: 4px 14px 8px;
+}
+.travel-chat-city-list {
+  margin-top: 6px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  overflow: hidden;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.travel-chat-city-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-panel);
+  color: var(--app-text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.travel-chat-city-item:last-child {
+  border-bottom: none;
+}
+.travel-chat-city-item:hover {
+  background: var(--app-panel-2);
+}
+.travel-chat-city-province {
+  font-size: 11px;
+  color: var(--app-text-3);
+}
+.travel-chat-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 6px 14px 10px;
+}
+.travel-chat-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 20px;
+}
+
+/* ============ 旅游计划卡片 ============ */
+.travel-plan-card {
+  background: var(--app-panel);
+  border: 1px solid var(--app-border-strong);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: var(--app-shadow);
+  animation: cardSlideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.travel-plan-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.travel-plan-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--app-text);
+}
+.travel-plan-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--app-text-2);
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.travel-plan-markdown {
+  background: var(--app-panel-2);
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  padding: 14px;
+  overflow-x: auto;
+}
+.travel-plan-markdown .markdown-body h1 {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 10px;
+  color: var(--app-text);
+}
+.travel-plan-markdown .markdown-body h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 14px 0 6px;
+  color: var(--app-text);
+}
+.travel-plan-markdown .markdown-body h3 {
+  font-size: 13.5px;
+  font-weight: 600;
+  margin: 10px 0 4px;
+  color: var(--app-text-2);
+}
+.travel-plan-markdown .markdown-body p {
+  margin: 6px 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--app-text);
+}
+.travel-plan-markdown .markdown-body ul {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.travel-plan-markdown .markdown-body li {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--app-text);
+  list-style: disc;
+}
+.travel-plan-markdown .markdown-body strong {
+  font-weight: 600;
+}
+.travel-plan-markdown .markdown-body blockquote {
+  border-left: 3px solid var(--td-brand-color);
+  padding-left: 10px;
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--app-text-2);
+}
+.travel-plan-markdown .markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--app-border);
+  margin: 12px 0;
+}
+.travel-plan-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* ============ 底部 Debug 栏 ============ */
+.debug-bar {
+  background: var(--app-panel);
+  border-top: 1px solid var(--app-border);
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.debug-bar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 22px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--app-text-2);
+}
+.debug-bar-title {
+  font-weight: 600;
+  margin-right: 4px;
+}
+.debug-bar-toggle {
+  opacity: 0.6;
+}
+.debug-bar.expanded {
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.06);
+}
+.debug-bar-body {
+  display: flex;
+  gap: 20px;
+  padding: 0 22px 12px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.debug-section {
+  flex: 1;
+  min-width: 200px;
+}
+.debug-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--app-text-3);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.debug-context {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--app-text-2);
+}
+.debug-empty {
+  font-size: 12px;
+  color: var(--app-text-3);
+  padding: 8px 0;
+}
+.debug-task {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.debug-task-desc {
+  color: var(--app-text-2);
+  margin-left: 4px;
+}
+
+/* ============ 滚动条 ============ */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--app-border-strong);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ============ 动画 ============ */
+@keyframes cardSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.proactive-card {
+  animation: cardSlideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.typing-dots span {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--td-brand-color);
+  animation: blink 1.2s infinite;
+}
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+
+/* ============================================================
+   Paper Reader 全屏论文阅读器
+   ============================================================ */
+.paper-reader-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.paper-reader {
+  width: 96vw;
+  height: 94vh;
+  background: var(--app-bg);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.paper-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-bg-2);
+  flex-shrink: 0;
+}
+
+.paper-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.paper-pdf-side {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  background: #525659;
+}
+
+.paper-ai-side {
+  width: 400px;
+  border-left: 1px solid var(--app-border);
+  display: flex;
+  flex-direction: column;
+  background: var(--app-bg-2);
+  flex-shrink: 0;
+}
+
+.paper-ai-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--app-border);
+  flex-shrink: 0;
+}
+
+.paper-ai-tab {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--app-text-3);
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.paper-ai-tab.active {
+  color: #2b5aed;
+  border-bottom-color: #2b5aed;
+  font-weight: 600;
+}
+
+.paper-ai-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.paper-upload-zone {
+  background: var(--app-bg-2);
+}
+
+.paper-search-zone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--app-bg-2);
+  padding: 20px;
+}
+
+.paper-result-card:hover {
+  border-color: #2b5aed !important;
+  box-shadow: 0 2px 8px rgba(43, 90, 237, 0.1);
+}
+
+.ctx-menu-item:hover {
+  background: rgba(43, 90, 237, 0.08) !important;
+}
+
+/* ============================================================
+   PDF.js TextLayer - 原生文本选择
+   ============================================================ */
+.pdf-text-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  opacity: 0.25;
+  line-height: 1;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  user-select: text;
+  forced-color-adjust: none;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.pdf-text-layer span,
+.pdf-text-layer br {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.pdf-text-layer ::selection {
+  background: rgba(43, 90, 237, 0.3);
+}

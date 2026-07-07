@@ -1,0 +1,75 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - img [ref=e6]
+      - generic [ref=e10]: 元宝主动服务 Demo
+      - generic "感知 · 预判 · 服务" [ref=e12]
+    - generic [ref=e13]:
+      - generic [ref=e15]:
+        - img [ref=e16]
+        - text: 0 tokens · ¥0.0000
+      - generic [ref=e31]: 连接中...
+  - generic [ref=e32]:
+    - complementary [ref=e33]:
+      - generic [ref=e34]: 主动服务场景
+      - generic [ref=e35]:
+        - button "搜索问答 AI回答后主动预判深度追问" [ref=e36] [cursor=pointer]:
+          - img [ref=e38]
+          - generic [ref=e42]:
+            - generic [ref=e43]: 搜索问答
+            - generic [ref=e44]: AI回答后主动预判深度追问
+        - button "写作 写作停顿时主动提供续写素材" [ref=e45] [cursor=pointer]:
+          - img [ref=e47]
+          - generic [ref=e52]:
+            - generic [ref=e53]: 写作
+            - generic [ref=e54]: 写作停顿时主动提供续写素材
+        - button "翻译 检测外文输入时无感翻译" [ref=e55] [cursor=pointer]:
+          - img [ref=e57]
+          - generic [ref=e61]:
+            - generic [ref=e62]: 翻译
+            - generic [ref=e63]: 检测外文输入时无感翻译
+        - button "文档总结 文档上传完成即主动总结" [ref=e64] [cursor=pointer]:
+          - img [ref=e66]
+          - generic [ref=e70]:
+            - generic [ref=e71]: 文档总结
+            - generic [ref=e72]: 文档上传完成即主动总结
+        - button "生图 描述场景时主动生成配图" [ref=e73] [cursor=pointer]:
+          - img [ref=e75]
+          - generic [ref=e81]:
+            - generic [ref=e82]: 生图
+            - generic [ref=e83]: 描述场景时主动生成配图
+        - button "腾讯会议 检测开会意图自动创建腾讯会议" [ref=e84] [cursor=pointer]:
+          - img [ref=e86]
+          - generic [ref=e93]:
+            - generic [ref=e94]: 腾讯会议
+            - generic [ref=e95]: 检测开会意图自动创建腾讯会议
+    - generic [ref=e96]:
+      - generic [ref=e97]:
+        - generic [ref=e98]: 搜索问答
+        - generic [ref=e99]: 当前场景 · AI 正在后台感知你的操作
+      - generic [ref=e101]:
+        - generic [ref=e102]: ✨
+        - generic [ref=e103]: 开始对话，体验 AI 主动服务
+        - generic [ref=e104]: 无需触发，AI 会在你操作时实时感知机会点，主动从右侧推送服务建议
+      - generic [ref=e105]:
+        - generic [ref=e106]:
+          - generic "什么是 Transformer 架构？" [ref=e108] [cursor=pointer]
+          - generic "黑洞是如何形成的？" [ref=e110] [cursor=pointer]
+        - generic [ref=e111]:
+          - textbox "输入内容，AI 会实时感知并主动服务…（Enter 发送）" [ref=e113]
+          - button "发送" [ref=e114] [cursor=pointer]:
+            - img [ref=e115]
+            - generic [ref=e119]: 发送
+    - complementary [ref=e120]:
+      - generic [ref=e121]: 主动服务建议
+      - generic [ref=e122]:
+        - text: 暂无主动服务建议
+        - text: 与 AI 交互后，建议将在此滑入
+      - generic [ref=e123]: AI 上下文理解
+      - generic [ref=e124]: 等待感知用户活动…
+      - generic [ref=e125]: Agent 任务时间线
+      - generic [ref=e128]:
+        - generic [ref=e129] [cursor=pointer]:
+          - text: 共 0 个任务
+          - img [ref=e131]
+        - generic [ref=e135]: 暂无任务
