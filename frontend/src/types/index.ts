@@ -96,9 +96,22 @@ export interface ChatMessage {
   autoShowTravelAssistant?: boolean;
 }
 
+export interface StoredFileInfo {
+  id: string;
+  original_name: string;
+  mime_type: string;
+  size_bytes: number;
+  page_count: number;
+  total_chars: number;
+  preview: string;
+  created_at: number;
+}
+
 export interface WSPayload {
   id?: string;
   session_id?: string;
+  user_id?: string;
+  conversation_id?: string;
   content?: string;
   delta?: string;
   error_type?: string;

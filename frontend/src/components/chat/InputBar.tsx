@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Button, Textarea, Upload } from 'tdesign-react';
+import { Button, MessagePlugin, Textarea, Upload } from 'tdesign-react';
 import { SendIcon, AttachIcon } from 'tdesign-icons-react';
 import type { UploadFile } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { WSMessage } from '../../types';
 import type { WSClient } from '../../services/websocket';
+import { saveConversationMessage, uploadDocument } from '../../services/api';
 
 interface Props {
   client: React.RefObject<WSClient | null>;
@@ -12,9 +13,11 @@ interface Props {
 
 /** 底部输入栏：文本输入 + 文档上传 + 发送（场景由后端自动推断）。 */
 export default function InputBar({ client }: Props) {
-  const { draft } = useAppState();
+  const { draft, conversationId } = useAppState();
   const dispatch = useAppDispatch();
   const [text, setText] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [sending, setSending] = useState(false);
 
   // 点击空态引导词 → 回填输入框
   useEffect(() => {
@@ -33,32 +36,60 @@ export default function InputBar({ client }: Props) {
     client.current?.send(msg);
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const content = text.trim();
-    if (!content) return;
-    dispatch({
-      type: 'ADD_MESSAGE',
-      payload: { id: Date.now().toString(), role: 'user', content, ts: Date.now() },
-    });
-    sendActivity(content, 'asked');
-    setText('');
+    if (!content || sending) return;
+    const message = {
+      id: Date.now().toString(),
+      role: 'user' as const,
+      content,
+      ts: Date.now(),
+    };
+    setSending(true);
+    try {
+      await saveConversationMessage(conversationId, message);
+      dispatch({ type: 'ADD_MESSAGE', payload: message });
+      sendActivity(content, 'asked');
+      setText('');
+    } catch (error) {
+      MessagePlugin.error(error instanceof Error ? error.message : '消息保存失败');
+    } finally {
+      setSending(false);
+    }
   };
 
-  const handleUpload = (files: UploadFile[]) => {
+  const handleUpload = async (files: UploadFile[]) => {
     const f = files[0];
-    if (!f) return;
-    const name = f.name || '文档.pdf';
-    dispatch({
-      type: 'ADD_MESSAGE',
-      payload: {
-        id: Date.now().toString(),
+    if (!f?.raw) return;
+    setUploading(true);
+    try {
+      const stored = await uploadDocument(conversationId, f.raw);
+      const userMessage = {
+        id: `upload-${Date.now()}`,
         role: 'user',
-        content: `已上传文档：${name}`,
+        content: `已上传文档：${stored.original_name}`,
         ts: Date.now(),
-      },
-    });
-    sendActivity(`请总结文档《${name}》的核心内容`, 'asked');
-    return files;
+      } as const;
+      const aiMessage = {
+        id: `file-${Date.now()}`,
+        role: 'ai',
+        content: `PDF 已安全保存并提取文本：${stored.page_count} 页，共 ${stored.total_chars} 字。\n\n[打开 ${stored.original_name}](/api/files/${stored.id}/content)\n\n> ${stored.preview.slice(0, 240).replace(/\s+/g, ' ')}…`,
+        ts: Date.now() + 1,
+        paperFileId: stored.id,
+        paperFileName: stored.original_name,
+      } as const;
+      dispatch({ type: 'ADD_MESSAGE', payload: userMessage });
+      dispatch({ type: 'ADD_MESSAGE', payload: aiMessage });
+      await Promise.all([
+        saveConversationMessage(conversationId, userMessage),
+        saveConversationMessage(conversationId, aiMessage),
+      ]);
+      MessagePlugin.success('PDF 已上传并建立持久索引');
+    } catch (error) {
+      MessagePlugin.error(error instanceof Error ? error.message : '上传失败');
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
@@ -74,7 +105,7 @@ export default function InputBar({ client }: Props) {
             const e = ctx.e as React.KeyboardEvent;
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
-              handleSend();
+              void handleSend();
             }
           }}
         />
@@ -88,15 +119,22 @@ export default function InputBar({ client }: Props) {
         >
           <Upload
             theme="custom"
+            accept=".pdf,application/pdf"
             autoUpload={false}
             requestMethod={() => Promise.resolve({ status: 'success', response: {} })}
-            onChange={handleUpload}
+            onChange={(files) => { void handleUpload(files as UploadFile[]); }}
           >
-            <Button variant="text" size="small" icon={<AttachIcon />}>
+            <Button variant="text" size="small" icon={<AttachIcon />} loading={uploading}>
               上传文档
             </Button>
           </Upload>
-          <Button theme="primary" icon={<SendIcon />} onClick={handleSend} disabled={!text.trim()}>
+          <Button
+            theme="primary"
+            icon={<SendIcon />}
+            onClick={() => { void handleSend(); }}
+            loading={sending}
+            disabled={!text.trim() || sending}
+          >
             发送
           </Button>
         </div>

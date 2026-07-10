@@ -20,13 +20,15 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, FileResponse
 
 from config import settings
+from database.repositories.conversation_repo import DEFAULT_CONVERSATION_ID, LOCAL_USER_ID
+from database.repositories.file_repo import get_file
+from services.file_service import store_pdf
 from services.hunyuan_service import _check_quota_error, QuotaExhaustedError
 from prompts.paper_prompts import (
     PAPER_TRANSLATE_PROMPT,
@@ -40,24 +42,26 @@ from prompts.paper_prompts import (
 
 router = APIRouter(prefix="/api/paper", tags=["paper"])
 
-UPLOAD_DIR = Path("./uploads/papers")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
 _paper_cache: dict[str, dict] = {}
 
 
-def _extract_text_from_pdf(pdf_path: str) -> str:
-    """用 pymupdf 提取 PDF 全文文本。"""
-    try:
-        import fitz
-    except ImportError:
-        return ""
-    doc = fitz.open(pdf_path)
-    texts = []
-    for page in doc:
-        texts.append(page.get_text())
-    doc.close()
-    return "\n\n".join(texts)
+async def _get_paper(file_id: str) -> dict | None:
+    cached = _paper_cache.get(file_id)
+    if cached:
+        return cached
+    stored = await get_file(file_id)
+    if not stored:
+        return None
+    metadata = stored.get("metadata") or {}
+    paper = {
+        "path": stored["storage_path"],
+        "filename": stored["original_name"],
+        "arxiv_id": metadata.get("arxiv_id", ""),
+        "title": metadata.get("title", stored["original_name"]),
+        "full_text": stored.get("extracted_text", ""),
+    }
+    _paper_cache[file_id] = paper
+    return paper
 
 
 def _sse(data: dict) -> str:
@@ -243,21 +247,17 @@ async def download_paper(
 
             # 安全标题
             safe_title = re.sub(r'[^\w\s\-]', '', title)[:60] or arxiv_id
-            file_id = uuid.uuid4().hex[:16]
-            file_path = UPLOAD_DIR / f"{file_id}_{safe_title}.pdf"
-            file_path.write_bytes(pdf_bytes)
-
-            # 提取全文文本
-            full_text = _extract_text_from_pdf(str(file_path))
-            if not full_text:
-                return {"error": "PDF 下载成功但无法提取文本，可能是扫描件"}
-
+            stored = await store_pdf(
+                pdf_bytes,
+                f"{safe_title}.pdf",
+                DEFAULT_CONVERSATION_ID,
+                {"source": "arxiv", "arxiv_id": arxiv_id, "title": title},
+            )
+            file_id = stored["id"]
+            full_text = stored["extracted_text"]
             _paper_cache[file_id] = {
-                "path": str(file_path),
-                "filename": f"{safe_title}.pdf",
-                "arxiv_id": arxiv_id,
-                "title": title,
-                "full_text": full_text,
+                "path": stored["storage_path"], "filename": stored["original_name"],
+                "arxiv_id": arxiv_id, "title": title, "full_text": full_text,
             }
 
             return {
@@ -285,7 +285,7 @@ async def save_paper(
     session_id: str = Form("default"),
 ) -> dict:
     """将已下载的论文保存到「我的阅读」。"""
-    paper = _paper_cache.get(file_id)
+    paper = await _get_paper(file_id)
     if not paper:
         return {"error": "文件不存在"}
 
@@ -296,7 +296,7 @@ async def save_paper(
     paper_id = uuid.uuid4().hex[:12]
     await db.execute(
         "INSERT INTO papers (id, session_id, file_id, title, arxiv_id, filename, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (paper_id, session_id, file_id, title, arxiv_id, paper.get("filename", ""), time.time()),
+        (paper_id, LOCAL_USER_ID, file_id, title, arxiv_id, paper.get("filename", ""), time.time()),
     )
     await db.commit()
     return {"ok": True, "paper_id": paper_id}
@@ -310,7 +310,7 @@ async def list_saved_papers(session_id: str) -> dict:
     db = await get_db()
     cursor = await db.execute(
         "SELECT id, file_id, title, arxiv_id, filename, created_at FROM papers WHERE session_id = ? ORDER BY created_at DESC",
-        (session_id,),
+        (LOCAL_USER_ID,),
     )
     rows = await cursor.fetchall()
     papers = []
@@ -332,7 +332,10 @@ async def delete_saved_paper(paper_id: str) -> dict:
     from database.connection import get_db
 
     db = await get_db()
-    await db.execute("DELETE FROM papers WHERE id = ?", (paper_id,))
+    await db.execute(
+        "DELETE FROM papers WHERE id = ? AND session_id = ?",
+        (paper_id, LOCAL_USER_ID),
+    )
     await db.commit()
     return {"ok": True}
 
@@ -346,22 +349,12 @@ async def upload_paper(file: UploadFile = File(...)) -> dict:
         return {"error": "请上传 PDF 文件"}
 
     content = await file.read()
-    if len(content) > 50 * 1024 * 1024:
-        return {"error": "文件过大，请上传 50MB 以下的 PDF"}
-
-    file_id = uuid.uuid4().hex[:16]
-    file_path = UPLOAD_DIR / f"{file_id}_{file.filename}"
-    file_path.write_bytes(content)
-
-    full_text = _extract_text_from_pdf(str(file_path))
-    if not full_text:
-        return {"error": "无法提取 PDF 文本，可能是扫描件或加密文件"}
-
-    _paper_cache[file_id] = {
-        "path": str(file_path),
-        "filename": file.filename,
-        "full_text": full_text,
-    }
+    try:
+        stored = await store_pdf(content, file.filename, DEFAULT_CONVERSATION_ID)
+    except ValueError as error:
+        return {"error": str(error)}
+    file_id = stored["id"]
+    full_text = stored["extracted_text"]
 
     return {
         "file_id": file_id,
@@ -374,7 +367,7 @@ async def upload_paper(file: UploadFile = File(...)) -> dict:
 @router.get("/file/{file_id}")
 async def get_paper_file(file_id: str):
     """返回 PDF 文件内容（供前端 pdf.js 渲染）。"""
-    paper = _paper_cache.get(file_id)
+    paper = await _get_paper(file_id)
     if not paper:
         return {"error": "文件不存在"}
     return FileResponse(paper["path"], media_type="application/pdf")
@@ -469,7 +462,7 @@ async def explain_formula(text: str = Form(...), session_id: str = Form("paper")
 
 @router.post("/analyze")
 async def analyze_paper(file_id: str = Form(...), session_id: str = Form("paper")):
-    paper = _paper_cache.get(file_id)
+    paper = await _get_paper(file_id)
     if not paper:
         return {"error": "文件不存在，请重新下载"}
     return StreamingResponse(
@@ -479,7 +472,7 @@ async def analyze_paper(file_id: str = Form(...), session_id: str = Form("paper"
 
 @router.post("/full-translate")
 async def full_translate(file_id: str = Form(...), session_id: str = Form("paper")):
-    paper = _paper_cache.get(file_id)
+    paper = await _get_paper(file_id)
     if not paper:
         return {"error": "文件不存在，请重新下载"}
     return StreamingResponse(
@@ -489,7 +482,7 @@ async def full_translate(file_id: str = Form(...), session_id: str = Form("paper
 
 @router.post("/terms")
 async def extract_terms(file_id: str = Form(...), session_id: str = Form("paper")):
-    paper = _paper_cache.get(file_id)
+    paper = await _get_paper(file_id)
     if not paper:
         return {"error": "文件不存在，请重新下载"}
     return StreamingResponse(
@@ -499,7 +492,7 @@ async def extract_terms(file_id: str = Form(...), session_id: str = Form("paper"
 
 @router.post("/qa")
 async def paper_qa(file_id: str = Form(...), question: str = Form(...), session_id: str = Form("paper")):
-    paper = _paper_cache.get(file_id)
+    paper = await _get_paper(file_id)
     if not paper:
         return {"error": "文件不存在，请重新下载"}
 

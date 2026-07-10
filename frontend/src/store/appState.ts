@@ -15,6 +15,8 @@ function initialTheme(): ThemeMode {
 }
 
 export interface AppState {
+  userId: string;
+  conversationId: string;
   sessionId: string;
   connected: boolean;
   theme: ThemeMode;
@@ -38,6 +40,7 @@ export type Action =
   | { type: 'SET_THINKING'; payload: boolean }
   | { type: 'SET_DRAFT'; payload: string }
   | { type: 'ADD_MESSAGE'; payload: ChatMessage }
+  | { type: 'HYDRATE_MESSAGES'; payload: ChatMessage[] }
   | { type: 'UPDATE_MESSAGE'; payload: { id: string; patch: Partial<ChatMessage>; delta?: string } }
   | { type: 'SET_PLANS'; payload: TravelPlan[] }
   | { type: 'ADD_PLAN'; payload: TravelPlan }
@@ -52,7 +55,9 @@ export type Action =
   | { type: 'CLEAR_ALL_STREAMING'; payload: Record<string, never> };
 
 export const initialState: AppState = {
-  sessionId: 'sess-' + Math.random().toString(36).slice(2, 10),
+  userId: 'local-user',
+  conversationId: 'default-conversation',
+  sessionId: 'local-user',
   connected: false,
   theme: initialTheme(),
   thinking: false,
@@ -71,6 +76,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'SET_THINKING': return { ...state, thinking: action.payload };
     case 'SET_DRAFT': return { ...state, draft: action.payload };
     case 'ADD_MESSAGE': return { ...state, messages: [...state.messages, action.payload] };
+    case 'HYDRATE_MESSAGES': return { ...state, messages: action.payload };
     case 'UPDATE_MESSAGE':
       return {
         ...state,

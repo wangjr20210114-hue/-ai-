@@ -6,6 +6,7 @@ from datetime import date
 
 from fastapi import APIRouter
 
+from database.repositories.conversation_repo import LOCAL_USER_ID
 from database.repositories.plan_repo import delete_plan, get_plan, list_plans, save_plan, update_plan
 from database.repositories.schedule_repo import (
     check_conflict,
@@ -98,7 +99,7 @@ async def analyze_travel_intent(req: dict) -> dict:
     ]
 
     try:
-        result, cost = await hunyuan_service.chat_json(messages, req.get("session_id", ""), ScenarioType.TRAVEL)
+        result, cost = await hunyuan_service.chat_json(messages, LOCAL_USER_ID, ScenarioType.TRAVEL)
     except ApiNotConfiguredError as e:
         return {"error": str(e)}
 
@@ -188,7 +189,7 @@ async def generate_plan(req: GeneratePlanRequest) -> dict:
 
     try:
         raw_output, cost = await hunyuan_service.chat_markdown(
-            messages, req.session_id, ScenarioType.TRAVEL
+            messages, LOCAL_USER_ID, ScenarioType.TRAVEL
         )
     except ApiNotConfiguredError as e:
         return {"error": str(e)}
@@ -212,7 +213,7 @@ async def generate_plan(req: GeneratePlanRequest) -> dict:
             pass
 
     plan = TravelPlan(
-        session_id=req.session_id,
+        session_id=LOCAL_USER_ID,
         title=f"{req.destination}{days}日{req.travel_style}行程",
         departure=req.departure,
         destination=req.destination,
@@ -259,21 +260,21 @@ async def generate_plan(req: GeneratePlanRequest) -> dict:
 @router.post("/travel/plans")
 async def create_plan(req: SavePlanRequest) -> dict:
     plan = TravelPlan(**req.plan)
-    plan.session_id = req.session_id
+    plan.session_id = LOCAL_USER_ID
     await save_plan(plan)
     return {"ok": True, "plan_id": plan.id}
 
 
 @router.get("/travel/plans/{session_id}")
 async def list_user_plans(session_id: str) -> dict:
-    plans = await list_plans(session_id)
+    plans = await list_plans(LOCAL_USER_ID)
     return {"plans": plans}
 
 
 @router.get("/travel/plans/{session_id}/{plan_id}")
 async def get_user_plan(session_id: str, plan_id: str) -> dict:
     plan = await get_plan(plan_id)
-    if plan is None or plan.session_id != session_id:
+    if plan is None or plan.session_id != LOCAL_USER_ID:
         return {"plan": None}
     return {"plan": plan.model_dump()}
 
@@ -281,11 +282,11 @@ async def get_user_plan(session_id: str, plan_id: str) -> dict:
 @router.put("/travel/plans/{session_id}/{plan_id}")
 async def update_user_plan(session_id: str, plan_id: str, req: SavePlanRequest) -> dict:
     existing = await get_plan(plan_id)
-    if existing is None or existing.session_id != session_id:
+    if existing is None or existing.session_id != LOCAL_USER_ID:
         return {"ok": False, "error": "计划不存在"}
     plan = TravelPlan(**req.plan)
     plan.id = plan_id
-    plan.session_id = session_id
+    plan.session_id = LOCAL_USER_ID
     plan.created_at = existing.created_at
     await update_plan(plan)
     return {"ok": True}
@@ -293,6 +294,9 @@ async def update_user_plan(session_id: str, plan_id: str, req: SavePlanRequest) 
 
 @router.delete("/travel/plans/{session_id}/{plan_id}")
 async def delete_user_plan(session_id: str, plan_id: str) -> dict:
+    existing = await get_plan(plan_id)
+    if existing is None or existing.session_id != LOCAL_USER_ID:
+        return {"ok": False}
     ok = await delete_plan(plan_id)
     return {"ok": ok}
 
@@ -301,17 +305,17 @@ async def delete_user_plan(session_id: str, plan_id: str) -> dict:
 
 @router.get("/schedules/{session_id}")
 async def list_user_schedules(session_id: str) -> dict:
-    items = await list_schedules(session_id)
+    items = await list_schedules(LOCAL_USER_ID)
     return {"schedules": items}
 
 
 @router.post("/schedules")
 async def create_schedule(req: SaveScheduleRequest) -> dict:
-    sched_data = {**req.schedule, "session_id": req.session_id}
+    sched_data = {**req.schedule, "session_id": LOCAL_USER_ID}
     item = ScheduleItem(**sched_data)
     await save_schedule(item)
     conflicts = await check_conflict(
-        req.session_id, item.start_time, item.duration_minutes, exclude_id=item.id
+        LOCAL_USER_ID, item.start_time, item.duration_minutes, exclude_id=item.id
     )
     return {"ok": True, "schedule_id": item.id, "conflicts": conflicts}
 
@@ -319,9 +323,9 @@ async def create_schedule(req: SaveScheduleRequest) -> dict:
 @router.put("/schedules/{session_id}/{schedule_id}")
 async def update_user_schedule(session_id: str, schedule_id: str, req: SaveScheduleRequest) -> dict:
     existing = await get_schedule(schedule_id)
-    if existing is None or existing.session_id != session_id:
+    if existing is None or existing.session_id != LOCAL_USER_ID:
         return {"ok": False, "error": "日程不存在"}
-    item_data = {**req.schedule, "session_id": session_id, "id": schedule_id, "created_at": existing.created_at}
+    item_data = {**req.schedule, "session_id": LOCAL_USER_ID, "id": schedule_id, "created_at": existing.created_at}
     item = ScheduleItem(**item_data)
     await update_schedule(item)
     return {"ok": True}
@@ -329,12 +333,18 @@ async def update_user_schedule(session_id: str, schedule_id: str, req: SaveSched
 
 @router.delete("/schedules/{session_id}/{schedule_id}")
 async def delete_user_schedule(session_id: str, schedule_id: str) -> dict:
+    existing = await get_schedule(schedule_id)
+    if existing is None or existing.session_id != LOCAL_USER_ID:
+        return {"ok": False}
     ok = await delete_schedule(schedule_id)
     return {"ok": ok}
 
 
 @router.patch("/schedules/{session_id}/{schedule_id}/done")
 async def toggle_schedule_done(session_id: str, schedule_id: str, done: bool = True) -> dict:
+    existing = await get_schedule(schedule_id)
+    if existing is None or existing.session_id != LOCAL_USER_ID:
+        return {"ok": False}
     ok = await toggle_done(schedule_id, done)
     return {"ok": ok}
 
@@ -534,7 +544,7 @@ async def create_meeting(req: MeetingCreateRequest) -> dict:
 
     try:
         result, cost = await hunyuan_service.chat_json(
-            messages, req.session_id, ScenarioType.MEETING, max_tokens=200
+            messages, LOCAL_USER_ID, ScenarioType.MEETING, max_tokens=200
         )
     except ApiNotConfiguredError as e:
         return {"error": str(e)}

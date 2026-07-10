@@ -1,6 +1,34 @@
-import type { TravelPlan, CityInfo, ScheduleItem, MeetingResult, TravelCollected } from '../types';
+import type { ChatMessage, TravelPlan, CityInfo, ScheduleItem, MeetingResult, StoredFileInfo, TravelCollected } from '../types';
 
 const BASE = '/api';
+
+export async function bootstrapApp(conversationId: string): Promise<{ messages: ChatMessage[] }> {
+  const res = await fetch(`${BASE}/bootstrap?conversation_id=${encodeURIComponent(conversationId)}`);
+  if (!res.ok) throw new Error('初始化会话失败');
+  return res.json();
+}
+
+export async function saveConversationMessage(conversationId: string, message: ChatMessage): Promise<void> {
+  const res = await fetch(`${BASE}/conversations/${encodeURIComponent(conversationId)}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: message.id, role: message.role, content: message.content, ts: message.ts, metadata: message }),
+  });
+  if (!res.ok) throw new Error('保存消息失败');
+}
+
+export async function uploadDocument(conversationId: string, file: File): Promise<StoredFileInfo> {
+  const body = new FormData();
+  body.append('conversation_id', conversationId);
+  body.append('file', file, file.name);
+  const res = await fetch(`${BASE}/files`, { method: 'POST', body });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.detail || '上传失败');
+  }
+  const data = await res.json();
+  return data.file;
+}
 
 // ============ 旅游计划 ============
 

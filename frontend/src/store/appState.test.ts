@@ -30,4 +30,13 @@ describe('app state reducer', () => {
     const updated = reducer(state, { type: 'CLEAR_ALL_STREAMING', payload: {} });
     expect(updated.messages[0].streaming).toBe(false);
   });
+
+  it('hydrates persisted messages for the stable local conversation', () => {
+    const restored = [{ ...userMessage, id: 'restored', content: 'after restart' }];
+    const updated = reducer(initialState, { type: 'HYDRATE_MESSAGES', payload: restored });
+
+    expect(updated.userId).toBe('local-user');
+    expect(updated.conversationId).toBe('default-conversation');
+    expect(updated.messages[0].content).toBe('after restart');
+  });
 });

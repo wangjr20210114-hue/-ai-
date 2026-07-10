@@ -24,6 +24,12 @@ from agent.events import AgentEvent
 from agent.orchestrator import AgentOrchestrator
 
 from config import settings
+from database.repositories.conversation_repo import (
+    DEFAULT_CONVERSATION_ID,
+    ensure_local_identity,
+    get_conversation,
+    history_lines,
+)
 from models.schemas import WSMessage
 from services.hunyuan_service import QuotaExhaustedError, _check_quota_error
 from skills.base_skill import SkillRegistry
@@ -52,16 +58,25 @@ def _build_orchestrator() -> AgentOrchestrator:
     )
 
 
-@router.websocket("/ws/{session_id}")
-async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
+@router.websocket("/ws/{conversation_id}")
+async def ws_endpoint(websocket: WebSocket, conversation_id: str) -> None:
+    await ensure_local_identity()
+    if conversation_id == "local-user":
+        conversation_id = DEFAULT_CONVERSATION_ID
+    if await get_conversation(conversation_id) is None:
+        await websocket.close(code=1008, reason="conversation not found")
+        return
     await websocket.accept()
     await websocket.send_text(
-        WSMessage(type="ack", payload={"session_id": session_id}).model_dump_json()
+        WSMessage(
+            type="ack",
+            payload={"user_id": "local-user", "conversation_id": conversation_id},
+        ).model_dump_json()
     )
 
-    history: list[str] = []
+    history = await history_lines(conversation_id)
     orchestrator = _build_orchestrator()
-    context = AgentContext(session_id=session_id, history=history)
+    context = AgentContext(session_id=conversation_id, history=history)
 
     try:
         while True:
@@ -91,7 +106,7 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
 
             try:
                 event = AgentEvent.user_activity(
-                    session_id=session_id,
+                    session_id=conversation_id,
                     text=text,
                     payload=msg.payload,
                 )

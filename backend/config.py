@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     db_path: str = "./yuanbao.db"
+    file_storage_dir: str = "./uploads/files"
     mock_mode: bool = False
 
     @property

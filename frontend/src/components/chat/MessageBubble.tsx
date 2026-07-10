@@ -3,7 +3,7 @@ import { Button, MessagePlugin } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ChatMessage, TravelPlan, WSMessage, SkillInfo, MeetingResult, ScheduleItem } from '../../types';
 import type { WSClient } from '../../services/websocket';
-import { createMeeting, generateImage } from '../../services/api';
+import { createMeeting, generateImage, saveConversationMessage } from '../../services/api';
 import TravelPlanCard from '../travel/TravelPlanCard';
 import TravelChatAssistant from '../travel/TravelChatAssistant';
 import PaperListCard from '../paper/PaperListCard';
@@ -17,7 +17,7 @@ interface Props {
 export default function MessageBubble({ message, client }: Props) {
   const isUser = message.role === 'user';
   const dispatch = useAppDispatch();
-  const { sessionId, messages } = useAppState();
+  const { sessionId, conversationId, messages } = useAppState();
   // 追问只在最后一条 AI 消息显示
   const isLastAIMessage = !isUser && messages[messages.length - 1]?.id === message.id;
 
@@ -44,16 +44,19 @@ export default function MessageBubble({ message, client }: Props) {
     || (message.travelIntent ? 'travel' : undefined)
     || (message.meetingIntent ? 'meeting' : undefined);
 
-  const handleFollowUp = (question: string) => {
-    dispatch({
-      type: 'ADD_MESSAGE',
-      payload: { id: Date.now().toString(), role: 'user', content: question, ts: Date.now() },
-    });
-    const msg: WSMessage = {
-      type: 'user_activity',
-      payload: { activity: 'asked', text: question },
-    };
-    client.current?.send(msg);
+  const handleFollowUp = async (question: string) => {
+    const followUpMessage = { id: Date.now().toString(), role: 'user' as const, content: question, ts: Date.now() };
+    try {
+      await saveConversationMessage(conversationId, followUpMessage);
+      dispatch({ type: 'ADD_MESSAGE', payload: followUpMessage });
+      const msg: WSMessage = {
+        type: 'user_activity',
+        payload: { activity: 'asked', text: question },
+      };
+      client.current?.send(msg);
+    } catch (error) {
+      MessagePlugin.error(error instanceof Error ? error.message : '消息保存失败');
+    }
   };
 
   const handleTravelPlanComplete = (plan: TravelPlan, startTs?: number, parsed?: Partial<ScheduleItem>[]) => {

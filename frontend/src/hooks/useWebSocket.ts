@@ -1,19 +1,27 @@
 import { useEffect, useRef } from 'react';
 import { MessagePlugin } from 'tdesign-react';
 import { WSClient } from '../services/websocket';
+import { bootstrapApp, saveConversationMessage } from '../services/api';
 import { useAppDispatch, useAppState } from '../store/appState';
-import type { WSMessage, SkillInfo, PaperInfo } from '../types';
+import type { WSMessage, SkillInfo, PaperInfo, ChatMessage } from '../types';
 
 /** 建立 WebSocket 连接并把消息分发到全局状态。 */
 export function useWebSocket() {
-  const { sessionId } = useAppState();
+  const { conversationId } = useAppState();
   const dispatch = useAppDispatch();
   const clientRef = useRef<WSClient | null>(null);
   const streamingIds = useRef<Set<string>>(new Set());
+  const streamMessages = useRef<Map<string, ChatMessage>>(new Map());
 
   useEffect(() => {
-    const client = new WSClient(sessionId);
+    const client = new WSClient(conversationId);
     clientRef.current = client;
+    let disposed = false;
+    const persist = (message: ChatMessage) => {
+      void saveConversationMessage(conversationId, message).catch((error) => {
+        console.warn('message persistence failed', error);
+      });
+    };
 
     const off = client.on((msg: WSMessage) => {
       switch (msg.type) {
@@ -27,15 +35,17 @@ export function useWebSocket() {
         case 'chat_reply': {
           dispatch({ type: 'SET_THINKING', payload: false });
           const msgId = 'ai-' + (msg.ts || Date.now());
+          const message: ChatMessage = {
+            id: msgId,
+            role: 'ai',
+            content: msg.payload.content || '',
+            ts: Date.now(),
+          };
           dispatch({
             type: 'ADD_MESSAGE',
-            payload: {
-              id: msgId,
-              role: 'ai',
-              content: msg.payload.content || '',
-              ts: Date.now(),
-            },
+            payload: message,
           });
+          persist(message);
           break;
         }
 
@@ -48,25 +58,26 @@ export function useWebSocket() {
           const iconMap: Record<string, string> = {
             paper: '📄', image: '🎨', search: '🔍', translation: '🔤', chat: '✨',
           };
+          const streamMessage: ChatMessage = {
+            id,
+            role: 'ai',
+            content: '',
+            ts: Date.now(),
+            streaming: true,
+            skill: intent ? {
+              intent,
+              mode: 'immediate',
+              content: '',
+              icon: iconMap[intent] || '✨',
+              action_label: '',
+              params: {},
+              data: msg.payload.status ? { status: msg.payload.status } : {},
+            } : undefined,
+          };
+          streamMessages.current.set(id, streamMessage);
           dispatch({
             type: 'ADD_MESSAGE',
-            payload: {
-              id,
-              role: 'ai',
-              // 生图时不设 content，用动画占位
-              content: '',
-              ts: Date.now(),
-              streaming: true,
-              skill: intent ? {
-                intent,
-                mode: 'immediate',
-                content: '',
-                icon: iconMap[intent] || '✨',
-                action_label: '',
-                params: {},
-                data: msg.payload.status ? { status: msg.payload.status } : {},
-              } : undefined,
-            },
+            payload: streamMessage,
           });
           break;
         }
@@ -77,6 +88,8 @@ export function useWebSocket() {
           if (!id) break;
           const status = msg.payload.status;
           if (status === 'thinking') {
+            const current = streamMessages.current.get(id);
+            if (current) streamMessages.current.set(id, { ...current, skill: undefined });
             // 切换到流式输出模式
             dispatch({
               type: 'UPDATE_MESSAGE',
@@ -87,6 +100,13 @@ export function useWebSocket() {
               },
             });
           } else {
+            const current = streamMessages.current.get(id);
+            if (current) {
+              streamMessages.current.set(id, {
+                ...current,
+                skill: { intent: 'search', mode: 'immediate', content: '', icon: '🔍', action_label: '', params: {}, data: { status: 'searching', statusText: status } },
+              });
+            }
             // 更新搜索状态文案
             dispatch({
               type: 'UPDATE_MESSAGE',
@@ -118,6 +138,8 @@ export function useWebSocket() {
           if (!id) break;
           const delta = msg.payload.delta || '';
           if (delta) {
+            const current = streamMessages.current.get(id);
+            if (current) streamMessages.current.set(id, { ...current, content: current.content + delta });
             dispatch({
               type: 'UPDATE_MESSAGE',
               payload: {
@@ -137,6 +159,20 @@ export function useWebSocket() {
           const papers: PaperInfo[] | undefined = msg.payload.papers;
           const imageUrl: string | undefined = msg.payload.image_url;
           const searchResults = msg.payload.search_results;
+          const imageDelta = imageUrl ? `\n\n![${msg.payload.image_prompt || '生成的图片'}](${imageUrl})` : '';
+          const current = streamMessages.current.get(id);
+          if (current) {
+            const completed: ChatMessage = {
+              ...current,
+              content: current.content + imageDelta,
+              streaming: false,
+              papers: papers && papers.length > 0 ? papers : undefined,
+              searchResults: searchResults && searchResults.total > 0 ? searchResults : undefined,
+              followUps: msg.payload.follow_ups && msg.payload.follow_ups.length > 0 ? msg.payload.follow_ups : undefined,
+            };
+            streamMessages.current.delete(id);
+            persist(completed);
+          }
 
           dispatch({
             type: 'UPDATE_MESSAGE',
@@ -174,34 +210,30 @@ export function useWebSocket() {
           };
 
           const msgId = 'ai-skill-' + (msg.ts || Date.now());
+          const savedMessage: ChatMessage = {
+            id: msgId,
+            role: 'ai',
+            content: skill.content,
+            ts: Date.now(),
+            skill,
+            followUps: s.follow_ups && s.follow_ups.length > 0 ? s.follow_ups : undefined,
+            autoShowTravelAssistant: skill.intent === 'travel' && skill.mode === 'auto',
+          };
 
           if (skill.mode === 'immediate') {
             dispatch({
               type: 'ADD_MESSAGE',
-              payload: {
-                id: msgId,
-                role: 'ai',
-                content: skill.content,
-                ts: Date.now(),
-                skill,
-                followUps: s.follow_ups && s.follow_ups.length > 0 ? s.follow_ups : undefined,
-              },
+              payload: savedMessage,
             });
+            persist(savedMessage);
             return;
           }
 
           dispatch({
             type: 'ADD_MESSAGE',
-            payload: {
-              id: msgId,
-              role: 'ai',
-              content: skill.content,
-              ts: Date.now(),
-              skill,
-              followUps: s.follow_ups && s.follow_ups.length > 0 ? s.follow_ups : undefined,
-              autoShowTravelAssistant: skill.intent === 'travel' && skill.mode === 'auto',
-            },
+            payload: savedMessage,
           });
+          persist(savedMessage);
           return;
         }
 
@@ -223,17 +255,27 @@ export function useWebSocket() {
       }
     });
 
-    client.connect(
-      () => dispatch({ type: 'SET_CONNECTED', payload: true }),
-      () => dispatch({ type: 'SET_CONNECTED', payload: false }),
-    );
+    void bootstrapApp(conversationId)
+      .then((data) => {
+        if (!disposed) dispatch({ type: 'HYDRATE_MESSAGES', payload: data.messages });
+      })
+      .catch((error) => console.warn('conversation bootstrap failed', error))
+      .finally(() => {
+        if (!disposed) {
+          client.connect(
+            () => dispatch({ type: 'SET_CONNECTED', payload: true }),
+            () => dispatch({ type: 'SET_CONNECTED', payload: false }),
+          );
+        }
+      });
 
     return () => {
+      disposed = true;
       off();
       client.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+  }, [conversationId]);
 
   return clientRef;
 }

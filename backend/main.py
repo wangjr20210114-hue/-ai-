@@ -9,6 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import router as rest_router
 from api.paper_routes import router as paper_router
+from api.conversation_routes import router as conversation_router
+from api.file_routes import router as file_router
+from api.agent_routes import router as agent_router
 from api.websocket import router as ws_router
 from config import settings
 from database.connection import close_db
@@ -38,6 +41,9 @@ app.add_middleware(
 
 app.include_router(rest_router)
 app.include_router(paper_router)
+app.include_router(conversation_router)
+app.include_router(file_router)
+app.include_router(agent_router)
 app.include_router(ws_router)
 
 
