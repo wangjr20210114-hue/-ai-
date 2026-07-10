@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 from fastapi import APIRouter
 
@@ -227,6 +228,23 @@ async def generate_plan(req: GeneratePlanRequest) -> dict:
     if json_str:
         parsed_schedules = await _parse_schedule_json(json_str, base_date, days, req.destination)
 
+    agent_plan = {}
+    try:
+        from agents.travel import TravelAgent
+        agent_plan = await TravelAgent().plan_trip_dict({
+            "departure": req.departure,
+            "destination": req.destination,
+            "days": days,
+            "start_date": req.start_date,
+            "end_date": req.end_date,
+            "travel_style": req.travel_style,
+            "scenery_preference": req.scenery_preference,
+            "budget": req.budget,
+            "extra_notes": req.extra_notes,
+        })
+    except Exception as e:
+        agent_plan = {"error": f"TravelAgent v1 规划失败：{type(e).__name__}: {e}"}
+
     return {
         "plan": plan.model_dump(),
         "cost": cost.model_dump(),
@@ -234,6 +252,7 @@ async def generate_plan(req: GeneratePlanRequest) -> dict:
         "end_date": req.end_date,
         "start_ts": start_ts,
         "parsed_schedules": parsed_schedules,
+        "agent_plan": agent_plan,
     }
 
 
@@ -510,7 +529,7 @@ async def create_meeting(req: MeetingCreateRequest) -> dict:
     # 1. LLM 提取会议信息
     messages = [
         {"role": "system", "content": MEETING_EXTRACT_PROMPT},
-        {"role": "user", "content": f"用户消息：{req.message}\n当前日期：2026-07-06"},
+        {"role": "user", "content": f"用户消息：{req.message}\n当前日期：{date.today().isoformat()}"},
     ]
 
     try:
@@ -548,6 +567,26 @@ async def create_meeting(req: MeetingCreateRequest) -> dict:
 async def meeting_status() -> dict:
     """检查 tmeet CLI 安装和授权状态。"""
     return await meeting_service.check_auth()
+
+
+# ============ AI 生图 ============
+
+@router.post("/image/generate")
+async def generate_image(req: dict) -> dict:
+    """调用混元文生图，返回图片 URL。"""
+    prompt = req.get("prompt", "")
+    if not prompt:
+        return {"error": "请提供图片描述"}
+
+    from services.hunyuan_service import hunyuan_service, ApiNotConfiguredError
+
+    try:
+        image_url = await hunyuan_service.text_to_image(prompt)
+        return {"ok": True, "image_url": image_url, "prompt": prompt}
+    except ApiNotConfiguredError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        return {"ok": False, "error": f"生图失败：{type(e).__name__}: {e}"}
 
 
 # ============ 日程解析 ============

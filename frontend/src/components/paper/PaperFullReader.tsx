@@ -4,8 +4,10 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Button, Loading, MessagePlugin, Textarea, Tag } from 'tdesign-react';
-import { CloseIcon } from 'tdesign-icons-react';
+import { CloseIcon, DownloadIcon, StarIcon } from 'tdesign-icons-react';
 import * as pdfjsLib from 'pdfjs-dist';
+import { savePaper } from '../../services/paperApi';
+import { useAppState } from '../../store/AppContext';
 import {
   loadPdf, extractParagraphs, isNonInteractiveParagraph,
   type PDFDocumentProxy, type Paragraph,
@@ -20,6 +22,7 @@ import MarkdownRenderer from '../common/MarkdownRenderer';
 interface Props {
   fileId: string;
   title: string;
+  arxivId?: string;
   onClose: () => void;
 }
 
@@ -40,7 +43,8 @@ interface PageData {
   rendered: boolean;
 }
 
-export default function PaperFullReader({ fileId, title, onClose }: Props) {
+export default function PaperFullReader({ fileId, title, arxivId, onClose }: Props) {
+  const { sessionId } = useAppState();
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const textLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
@@ -52,6 +56,8 @@ export default function PaperFullReader({ fileId, title, onClose }: Props) {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; text: string } | null>(null);
   const [floatBar, setFloatBar] = useState<{ x: number; y: number; text: string } | null>(null);
   const [scale, setScale] = useState(1.5);
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [aiResult, setAiResult] = useState<AIResult | null>(null);
   const [aiTab, setAiTab] = useState<'result' | 'qa'>('result');
@@ -280,6 +286,37 @@ export default function PaperFullReader({ fileId, title, onClose }: Props) {
             {doc && <Tag size="small" variant="light">{doc.numPages} 页</Tag>}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {/* 下载按钮 */}
+            <a
+              href={`/api/paper/file/${fileId}`}
+              download={`${title || 'paper'}.pdf`}
+              style={{ textDecoration: 'none' }}
+            >
+              <Button size="small" variant="outline" icon={<DownloadIcon />}>下载</Button>
+            </a>
+            {/* 收藏按钮 */}
+            <Button
+              size="small"
+              variant={saved ? 'primary' : 'outline'}
+              loading={saving}
+              icon={<StarIcon />}
+              onClick={async () => {
+                if (saved) return;
+                setSaving(true);
+                try {
+                  await savePaper(fileId, title, arxivId || '', sessionId);
+                  setSaved(true);
+                  MessagePlugin.success('已收藏到我的阅读');
+                } catch {
+                  MessagePlugin.error('收藏失败');
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            >
+              {saved ? '已收藏' : '收藏'}
+            </Button>
+            <span style={{ width: 1, height: 20, background: 'var(--app-border)', margin: '0 2px' }} />
             <Button size="small" variant="outline" onClick={() => runAI('analyze', '', '全文分析')}>📚 全文分析</Button>
             <Button size="small" variant="outline" onClick={() => runAI('full-translate', '', '全文翻译')}>🌍 全文翻译</Button>
             <Button size="small" variant="outline" onClick={() => runAI('terms', '', '术语提取')}>🔑 术语</Button>
@@ -457,8 +494,8 @@ export default function PaperFullReader({ fileId, title, onClose }: Props) {
         {ctxMenu && (
           <div style={{
             position: 'fixed', left: ctxMenu.x, top: ctxMenu.y,
-            background: 'var(--app-bg-2)', border: '1px solid var(--app-border)',
-            borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 9999,
+            background: '#ffffff', border: '1px solid #d0d0d0',
+            borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.25)', zIndex: 10001,
             padding: 4, minWidth: 150,
           }} onClick={(e) => e.stopPropagation()}>
             {[
@@ -468,8 +505,8 @@ export default function PaperFullReader({ fileId, title, onClose }: Props) {
               { label: '🧮 解释公式', action: 'formula' as AIAction },
             ].map(item => (
               <button key={item.action} className="ctx-menu-item"
-                style={{ display: 'block', width: '100%', padding: '6px 10px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12, textAlign: 'left', borderRadius: 4, color: 'var(--app-text)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--app-bg)')}
+                style={{ display: 'block', width: '100%', padding: '6px 10px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12, textAlign: 'left', borderRadius: 4, color: '#333' }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = '#f0f4ff')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
                 onClick={() => {
                   const titles: Record<string, string> = { translate: '翻译', summarize: '总结', explain: '解释术语', formula: '解释公式' };

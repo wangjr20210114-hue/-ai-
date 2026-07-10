@@ -25,6 +25,26 @@ export interface PaperInfo {
   pdf_url: string;
 }
 
+// ============ 搜索结果 ============
+export interface SearchResultItem {
+  source: string;           // "web" | "wechat" | "zhihu" | "baike" | "wsa"
+  title: string;
+  snippet: string;
+  url: string;
+  account_name?: string;    // 微信公众号名
+  gh_id?: string;           // 公众号原始ID
+  avatar?: string;          // 公众号头像URL
+  image?: string;           // 百科图片等
+}
+
+export interface SearchMeta {
+  query: string;
+  results: SearchResultItem[];
+  images: string[];
+  sources_used: string[];
+  total: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'ai';
@@ -48,6 +68,9 @@ export interface ChatMessage {
   paperTitle?: string;
   showPaperReader?: boolean;
 
+  // 搜索结果数据
+  searchResults?: SearchMeta;
+
   // 兼容旧字段
   travelIntent?: { type: string; destination: string; prompt: string; user_message?: string };
   meetingIntent?: { type: string; message: string; prompt: string };
@@ -60,6 +83,10 @@ export interface WSMessage {
     | 'suggestion'
     | 'chat_reply'
     | 'chat_thinking'
+    | 'stream_start'
+    | 'stream_delta'
+    | 'stream_end'
+    | 'search_status'
     | 'error'
     | 'ack'
     | 'ping'

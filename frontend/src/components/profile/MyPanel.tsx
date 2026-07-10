@@ -45,7 +45,7 @@ export default function MyPanel() {
   const [selectedAlts, setSelectedAlts] = useState<Record<string, number>>({});
   const [routeData, setRouteData] = useState<DailyRouteData | null>(null);
   const [savedPapers, setSavedPapers] = useState<SavedPaper[]>([]);
-  const [fullReaderPaper, setFullReaderPaper] = useState<{ fileId: string; title: string } | null>(null);
+  const [fullReaderPaper, setFullReaderPaper] = useState<{ fileId: string; title: string; arxivId?: string } | null>(null);
   const [deletePaperId, setDeletePaperId] = useState<string | null>(null);
 
   // 当前生效日期：课程表模式用 scheduleViewDate，否则用日历选中日期
@@ -306,7 +306,7 @@ export default function MyPanel() {
                   size="small"
                   variant="text"
                   icon={<FullscreenIcon />}
-                  onClick={() => setFullReaderPaper({ fileId: p.file_id, title: p.title })}
+                  onClick={() => setFullReaderPaper({ fileId: p.file_id, title: p.title, arxivId: p.arxiv_id })}
                 />
                 <Button
                   size="small"
@@ -497,6 +497,7 @@ export default function MyPanel() {
         <PaperFullReader
           fileId={fullReaderPaper.fileId}
           title={fullReaderPaper.title}
+          arxivId={fullReaderPaper.arxivId}
           onClose={() => setFullReaderPaper(null)}
         />
       )}

@@ -1,0 +1,21 @@
+"""Seed POI data for demo cities."""
+from __future__ import annotations
+
+from agents.travel.models import IndoorOutdoor, POI, POICategory
+
+
+SEED_POIS: list[POI] = [
+    POI("hz_west_lake", "西湖", "杭州", lat=30.2431, lng=120.1501, category=POICategory.SCENIC, tags=["经典", "自然", "Citywalk", "免费", "户外", "夜景"], ticket_price=0, duration_minutes=150, best_time=["上午", "傍晚"], popularity=0.98, rating=4.8, crowd_level=0.85, indoor_outdoor=IndoorOutdoor.OUTDOOR, weather_sensitivity=0.9, nearby_area="西湖湖滨"),
+    POI("hz_zhejiang_museum", "浙江省博物馆", "杭州", lat=30.2587, lng=120.1437, category=POICategory.MUSEUM, tags=["人文", "室内", "雨天", "免费", "亲子"], ticket_price=0, duration_minutes=120, best_time=["下午"], popularity=0.75, rating=4.6, crowd_level=0.45, indoor_outdoor=IndoorOutdoor.INDOOR, weather_sensitivity=0.1, nearby_area="西湖孤山"),
+    POI("hz_tea_museum", "中国茶叶博物馆", "杭州", lat=30.2186, lng=120.1126, category=POICategory.MUSEUM, tags=["人文", "室内", "茶文化", "雨天", "小众"], ticket_price=0, duration_minutes=100, best_time=["下午"], popularity=0.62, rating=4.6, crowd_level=0.35, indoor_outdoor=IndoorOutdoor.MIXED, weather_sensitivity=0.25, nearby_area="龙井"),
+    POI("hz_lingyin", "灵隐寺", "杭州", lat=30.2409, lng=120.1020, category=POICategory.SCENIC, tags=["人文", "经典", "祈福", "户外"], ticket_price=75, duration_minutes=150, best_time=["上午"], popularity=0.9, rating=4.7, crowd_level=0.8, indoor_outdoor=IndoorOutdoor.MIXED, weather_sensitivity=0.55, nearby_area="灵隐"),
+    POI("hz_longjing", "龙井村", "杭州", lat=30.2136, lng=120.1011, category=POICategory.SCENIC, tags=["自然", "茶文化", "小众", "户外", "拍照"], ticket_price=0, duration_minutes=120, best_time=["上午", "下午"], popularity=0.7, rating=4.5, crowd_level=0.45, indoor_outdoor=IndoorOutdoor.OUTDOOR, weather_sensitivity=0.65, nearby_area="龙井"),
+    POI("hz_hefang_street", "河坊街", "杭州", lat=30.2448, lng=120.1740, category=POICategory.SHOPPING, tags=["美食", "夜景", "购物", "人文"], avg_cost=80, duration_minutes=100, best_time=["晚上"], popularity=0.78, rating=4.2, crowd_level=0.75, indoor_outdoor=IndoorOutdoor.MIXED, weather_sensitivity=0.35, nearby_area="吴山"),
+    POI("hz_hubin_yintai", "湖滨银泰", "杭州", lat=30.2584, lng=120.1648, category=POICategory.SHOPPING, tags=["餐饮", "购物", "室内", "雨天", "夜景"], avg_cost=100, duration_minutes=90, best_time=["中午", "晚上"], popularity=0.8, rating=4.4, crowd_level=0.7, indoor_outdoor=IndoorOutdoor.INDOOR, weather_sensitivity=0.05, nearby_area="西湖湖滨"),
+    POI("hz_zhiweiguan", "知味观湖滨总店", "杭州", lat=30.2554, lng=120.1641, category=POICategory.RESTAURANT, tags=["杭帮菜", "小吃", "经典", "午餐"], avg_cost=60, duration_minutes=60, best_time=["中午"], popularity=0.76, rating=4.1, crowd_level=0.7, indoor_outdoor=IndoorOutdoor.INDOOR, weather_sensitivity=0.0, nearby_area="西湖湖滨"),
+    POI("hz_xinbailu", "新白鹿湖滨店", "杭州", lat=30.2571, lng=120.1635, category=POICategory.RESTAURANT, tags=["杭帮菜", "性价比", "午餐", "晚餐"], avg_cost=65, duration_minutes=60, best_time=["中午", "晚上"], popularity=0.72, rating=4.2, crowd_level=0.65, indoor_outdoor=IndoorOutdoor.INDOOR, weather_sensitivity=0.0, nearby_area="西湖湖滨"),
+    POI("bj_forbidden_city", "故宫博物院", "北京", lat=39.9163, lng=116.3972, category=POICategory.MUSEUM, tags=["经典", "人文", "博物馆", "亲子", "拍照"], ticket_price=60, duration_minutes=210, best_time=["上午"], popularity=0.99, rating=4.8, crowd_level=0.9, indoor_outdoor=IndoorOutdoor.MIXED, weather_sensitivity=0.35, nearby_area="天安门"),
+    POI("bj_national_museum", "中国国家博物馆", "北京", lat=39.9051, lng=116.4010, category=POICategory.MUSEUM, tags=["人文", "室内", "雨天", "免费", "亲子"], ticket_price=0, duration_minutes=180, best_time=["下午"], popularity=0.85, rating=4.7, crowd_level=0.65, indoor_outdoor=IndoorOutdoor.INDOOR, weather_sensitivity=0.05, nearby_area="天安门"),
+    POI("sh_museum", "上海博物馆", "上海", lat=31.2304, lng=121.4705, category=POICategory.MUSEUM, tags=["人文", "室内", "雨天", "免费"], ticket_price=0, duration_minutes=150, best_time=["下午"], popularity=0.82, rating=4.7, crowd_level=0.55, indoor_outdoor=IndoorOutdoor.INDOOR, weather_sensitivity=0.05, nearby_area="人民广场"),
+    POI("sh_bund", "外滩", "上海", lat=31.2397, lng=121.4998, category=POICategory.SCENIC, tags=["经典", "夜景", "免费", "户外", "Citywalk"], ticket_price=0, duration_minutes=90, best_time=["晚上"], popularity=0.95, rating=4.7, crowd_level=0.85, indoor_outdoor=IndoorOutdoor.OUTDOOR, weather_sensitivity=0.75, nearby_area="外滩"),
+]

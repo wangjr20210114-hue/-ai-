@@ -44,25 +44,71 @@ export function useWebSocket() {
           dispatch({ type: 'SET_THINKING', payload: false });
           const id = msg.payload.id || 'ai-stream-' + Date.now();
           streamingIds.current.add(id);
+          const intent = msg.payload.intent || '';
+          const iconMap: Record<string, string> = {
+            paper: '📄', image: '🎨', search: '🔍', translation: '🔤', chat: '✨',
+          };
           dispatch({
             type: 'ADD_MESSAGE',
             payload: {
               id,
               role: 'ai',
+              // 生图时不设 content，用动画占位
               content: '',
               ts: Date.now(),
               streaming: true,
-              skill: msg.payload.intent ? {
-                intent: msg.payload.intent,
+              skill: intent ? {
+                intent,
                 mode: 'immediate',
                 content: '',
-                icon: msg.payload.intent === 'paper' ? '📄' : '✨',
+                icon: iconMap[intent] || '✨',
                 action_label: '',
                 params: {},
-                data: {},
+                data: msg.payload.status ? { status: msg.payload.status } : {},
               } : undefined,
             },
           });
+          break;
+        }
+
+        // === 搜索进度状态 ===
+        case 'search_status': {
+          const id = msg.payload.id;
+          const status = msg.payload.status;
+          if (status === 'thinking') {
+            // 切换到流式输出模式
+            dispatch({
+              type: 'UPDATE_MESSAGE',
+              payload: {
+                id,
+                patch: { skill: undefined },
+                delta: '',
+              },
+            });
+          } else {
+            // 更新搜索状态文案
+            dispatch({
+              type: 'UPDATE_MESSAGE',
+              payload: {
+                id,
+                patch: {
+                  skill: {
+                    intent: 'search',
+                    mode: 'immediate',
+                    content: '',
+                    icon: '🔍',
+                    action_label: '',
+                    params: {},
+                    data: { status: 'searching', statusText: status },
+                  },
+                  // 如果有来源信息，提前存入
+                  ...(msg.payload.search_results ? {
+                    searchResults: msg.payload.search_results,
+                  } : {}),
+                },
+              },
+            });
+          }
           break;
         }
 
@@ -86,6 +132,8 @@ export function useWebSocket() {
           const id = msg.payload.id;
           streamingIds.current.delete(id);
           const papers: PaperInfo[] | undefined = msg.payload.papers;
+          const imageUrl: string | undefined = msg.payload.image_url;
+          const searchResults = msg.payload.search_results;
 
           dispatch({
             type: 'UPDATE_MESSAGE',
@@ -94,10 +142,14 @@ export function useWebSocket() {
               patch: {
                 streaming: false,
                 papers: papers && papers.length > 0 ? papers : undefined,
+                searchResults: searchResults && searchResults.total > 0 ? searchResults : undefined,
                 followUps: msg.payload.follow_ups && msg.payload.follow_ups.length > 0
                   ? msg.payload.follow_ups
                   : undefined,
+                // 生图结果：用 markdown 图片格式追加到 content
+                ...(imageUrl ? {} : {}),
               },
+              delta: imageUrl ? `\n\n![${msg.payload.image_prompt || '生成的图片'}](${imageUrl})` : undefined,
             },
           });
           break;
@@ -152,7 +204,18 @@ export function useWebSocket() {
 
         case 'error':
           dispatch({ type: 'SET_THINKING', payload: false });
-          MessagePlugin.error(msg.payload.message || '服务异常');
+          // 额度耗尽 → 清除所有流式状态并显示醒目错误
+          if (msg.payload.error_type === 'quota_exhausted') {
+            streamingIds.current.clear();
+            // 将所有正在流式的消息标记为已结束
+            dispatch({ type: 'CLEAR_ALL_STREAMING', payload: {} });
+            MessagePlugin.error({
+              content: msg.payload.message || 'API 额度已用尽，请稍后再试',
+              duration: 5000,
+            });
+          } else {
+            MessagePlugin.error(msg.payload.message || '服务异常');
+          }
           break;
       }
     });

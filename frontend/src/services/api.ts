@@ -254,3 +254,14 @@ export async function checkMeetingStatus(): Promise<{ ok: boolean; error?: strin
   if (!res.ok) return { ok: false, error: '检查失败' };
   return res.json();
 }
+
+// ============ AI 生图 ============
+
+export async function generateImage(prompt: string): Promise<{ ok: boolean; image_url?: string; error?: string }> {
+  const res = await fetch(`${BASE}/image/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt }),
+  });
+  return res.json();
+}

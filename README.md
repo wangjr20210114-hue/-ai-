@@ -1,5 +1,7 @@
 # 元宝主动服务 Demo
 
+> 当前仓库是功能原型基线，不是可长期无人值守运行的正式版主动式 Agent。基线状态见 [`docs/BASELINE.md`](docs/BASELINE.md)，完整改造路线见 [`docs/PROACTIVE_AGENT_REFACTOR_PLAN.md`](docs/PROACTIVE_AGENT_REFACTOR_PLAN.md)。
+
 面向元宝 C 端用户的**主动式 AI 服务**创新方案。通过"感知-预判-服务"三层管线架构，让 AI 从被动响应升级为主动协作者，在**搜索问答、写作、翻译、文档总结、生图、腾讯会议**六大日常场景中，无需用户触发即可实时识别机会点并主动提供服务。
 
 ## 核心特性
@@ -20,8 +22,8 @@
 | 状态管理 | React Context + useReducer |
 | 后端 | Python 3.11+ + FastAPI + WebSockets |
 | 数据库 | SQLite（aiosqlite 异步） |
-| LLM | 腾讯混元大模型 API（OpenAI 兼容） |
-| 外部 API | 腾讯会议 API（AK/SK HMAC-SHA256 鉴权） |
+| LLM | 混元 + DeepSeek（OpenAI 兼容接口；混元负责对话/视觉/生图，DeepSeek 负责意图识别和结构化任务） |
+| 外部 API | 腾讯地图、腾讯会议 tmeet CLI、arXiv、搜狗/WSA 搜索 |
 
 ## 架构
 
@@ -31,18 +33,20 @@
         → WebSocket 推送 → TDesign 气泡展示
 ```
 
-后端采用**工具驱动型 Agent** 架构（参考 claude-code-tudou）：
+后端采用**事件驱动 + 技能编排型 Agent** 架构：
 
-- `agent/`：编排器 / 上下文管理 / 意图预测 / 机会检测 / 奖励过滤
-- `tools/`：每个场景一个 Tool，继承 `BaseTool`，统一接口
-- `services/`：混元 API、腾讯会议 API、WebSocket Hub
+- `agent/orchestrator.py`：统一处理事件、意图识别、执行策略、技能分发与运行日志
+- `agent/context.py` / `events.py` / `policy.py` / `runtime.py`：会话上下文、事件模型、权限策略、执行记录
+- `skills/`：每个场景一个 Skill，继承 `BaseSkill`，声明能力、触发词、权限等级与执行入口
+- `services/`：混元/DeepSeek、搜索、地图、会议、论文等外部服务封装
+- `api/`：REST 路由与 WebSocket 端点，负责协议接入，不再承担核心 Agent 决策
 - `scenarios/scenario_type.py`：`ScenarioType` 枚举
 
 ### 扩展新场景（三步）
 
 1. 在 `scenarios/scenario_type.py` 的 `ScenarioType` 新增枚举值
-2. 在 `tools/` 继承 `BaseTool` 实现新 Tool 类
-3. 在 `agent/orchestrator.py` 的 `_build_tool_map()` 注册映射
+2. 在 `skills/` 继承 `BaseSkill` 实现新 Skill 类，并声明 `permission_level`
+3. 在 `agent/__init__.py` 注册技能，并在 `api/websocket.py` 的 handler map 绑定执行函数
 
 ## 快速开始
 
@@ -52,11 +56,11 @@
 cd backend
 python3 -m venv venv
 ./venv/bin/pip install -r requirements.txt
-cp .env.example .env      # 按需填入混元/腾讯会议密钥
+cp .env.example .env      # 按需填入混元、DeepSeek、地图、搜索等密钥
 ./venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-> 未配置真实密钥时，`MOCK_MODE=true` 会返回模拟数据，保证 Demo 可离线演示。
+> 当前代码默认不返回模拟数据；未配置真实密钥时会返回明确错误。`MOCK_MODE` 预留给后续离线演示模式。
 
 ### 前端
 
@@ -82,16 +86,16 @@ backend/
 ├── main.py                 # FastAPI 入口
 ├── config.py               # 配置（读取 .env）
 ├── api/                    # REST 路由 + WebSocket 端点
-├── agent/                  # 编排层
-├── tools/                  # 工具层（BaseTool + 6 场景 Tool）
-├── services/               # 混元 / 腾讯会议 / WebSocketHub
+├── agent/                  # 事件、上下文、策略、运行时、编排器
+├── skills/                 # 技能层（BaseSkill + 场景 Skill）
+├── services/               # LLM / 搜索 / 地图 / 会议 / 论文等服务
 ├── database/               # SQLite 连接、建表、仓储
 ├── models/schemas.py       # Pydantic 模型
 ├── prompts/templates.py    # LLM 提示词（含禁令式设计）
 └── scenarios/scenario_type.py  # 枚举
 frontend/
 └── src/
-    ├── components/         # chat / proactive / scenario / common
+    ├── components/         # chat / travel / paper / profile / common
     ├── hooks/              # useWebSocket
     ├── services/           # api / websocket
     ├── store/              # AppContext（Context + useReducer）
@@ -102,6 +106,10 @@ frontend/
 
 | 变量 | 说明 |
 | --- | --- |
-| `HUNYUAN_API_KEY` / `HUNYUAN_BASE_URL` / `HUNYUAN_MODEL` | 混元大模型 |
-| `TENCENT_MEETING_SECRET_ID` / `SECRET_KEY` / `APP_ID` / `SDK_ID` / `OPERATOR_ID` | 腾讯会议 |
-| `MOCK_MODE` | 为 `true` 时返回模拟数据 |
+| `HUNYUAN_API_KEY` / `HUNYUAN_BASE_URL` / `HUNYUAN_MODEL` | 混元对话/视觉模型 |
+| `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` | DeepSeek 意图识别、结构化任务、搜索总结 |
+| `HUNYUAN_IMAGE_API_KEY` / `HUNYUAN_IMAGE_BASE_URL` / `HUNYUAN_IMAGE_MODEL` | 混元文生图 |
+| `TENCENT_MAP_KEY` | 腾讯位置服务 |
+| `WSA_API_KEY` / `WSA_BASE_URL` | WSA 搜索兜底（可选） |
+| `tmeet auth login` | 腾讯会议通过 tmeet CLI 授权 |
+| `MOCK_MODE` | 预留离线演示开关（当前核心链路未实现模拟数据） |

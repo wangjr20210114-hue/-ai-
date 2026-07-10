@@ -53,7 +53,8 @@ type Action =
   | { type: 'UPDATE_SCHEDULE'; payload: ScheduleItem }
   | { type: 'DELETE_SCHEDULE'; payload: string }
   | { type: 'SET_TRAVEL_CONTEXT'; payload: any }
-  | { type: 'SHOW_SCHEDULE_VIEW'; payload: Date | null };
+  | { type: 'SHOW_SCHEDULE_VIEW'; payload: Date | null }
+  | { type: 'CLEAR_ALL_STREAMING'; payload: {} };
 
 const initialState: AppState = {
   sessionId: 'sess-' + Math.random().toString(36).slice(2, 10),
@@ -118,6 +119,13 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, travelContext: action.payload };
     case 'SHOW_SCHEDULE_VIEW':
       return { ...state, scheduleViewDate: action.payload };
+    case 'CLEAR_ALL_STREAMING':
+      return {
+        ...state,
+        messages: state.messages.map((m) =>
+          m.streaming ? { ...m, streaming: false } : m
+        ),
+      };
     default:
       return state;
   }

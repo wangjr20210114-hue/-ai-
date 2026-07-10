@@ -1,16 +1,19 @@
 """科研论文助读 API 路由。
 
+所有 LLM 调用（搜索参数解析、摘要翻译、段落翻译/总结/解释/分析/问答）
+均使用 DeepSeek。混元仅负责对话回答。
+
 流程：
-- POST /api/paper/search       搜索论文（LLM 生成推荐列表：标题/摘要/arXiv ID/链接）
+- POST /api/paper/search       搜索论文（arXiv API + DeepSeek 翻译摘要）
 - POST /api/paper/download     从 arXiv 下载 PDF，返回 file_id（后端自动完成）
 - POST /api/paper/upload       手动上传 PDF（备用）
-- POST /api/paper/translate    翻译段落（SSE 流式）
-- POST /api/paper/summarize    总结段落（SSE 流式）
-- POST /api/paper/explain      解释术语/公式（SSE 流式）
-- POST /api/paper/analyze      全文分析（SSE 流式）
-- POST /api/paper/full-translate 全文翻译（SSE 流式）
-- POST /api/paper/terms        提取术语（SSE 流式）
-- POST /api/paper/qa           论文问答（SSE 流式）
+- POST /api/paper/translate    翻译段落（SSE 流式，DeepSeek）
+- POST /api/paper/summarize    总结段落（SSE 流式，DeepSeek）
+- POST /api/paper/explain      解释术语/公式（SSE 流式，DeepSeek）
+- POST /api/paper/analyze      全文分析（SSE 流式，DeepSeek）
+- POST /api/paper/full-translate 全文翻译（SSE 流式，DeepSeek）
+- POST /api/paper/terms        提取术语（SSE 流式，DeepSeek）
+- POST /api/paper/qa           论文问答（SSE 流式，DeepSeek）
 """
 from __future__ import annotations
 
@@ -24,6 +27,7 @@ from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, FileResponse
 
 from config import settings
+from services.hunyuan_service import _check_quota_error, QuotaExhaustedError
 from prompts.paper_prompts import (
     PAPER_TRANSLATE_PROMPT,
     PAPER_SUMMARIZE_PROMPT,
@@ -62,34 +66,70 @@ def _sse(data: dict) -> str:
 
 # ============ 论文搜索 ============
 
-PAPER_SEARCH_PROMPT = """你是学术论文推荐助手。根据用户的自然语言需求推荐论文。
+PAPER_SEARCH_PROMPT = """你是学术论文搜索助手。根据用户的自然语言需求，构建 arXiv 搜索查询。
 
-## 核心原则：完全尊重用户的所有需求
-用户可能提出各种约束条件，你都必须严格遵守：
-- 数量："2篇"就推荐2篇，"5篇"就5篇，没说默认3篇
-- 年份："近5年"→ 2021年及之后；"近3年"→ 2023年及之后；"2023年以后"→ 2023年
-- 作者："作者是Yann LeCun"→ 只推荐该作者参与的论文
-- 机构："Google/DeepMind发的"→ 只推荐该机构的论文
-- 领域/方法："关于扩散模型"→ 只推荐该方向的论文
-- 类型："综述论文"→ 只推荐 survey/review 类型
-- 任何其他约束条件都要遵守
+## 你的任务：
+分析用户需求，提取搜索参数，输出 JSON 供系统调用 arXiv API。
 
-如果约束太多导致找不到足够论文，宁少不多，不要凑数。不确定真实存在的论文不要编造。
+## 参数说明：
+- query: arXiv 查询字符串
+- max_results: 数量（用户说"2篇"就2，没说默认5）
+- year_from: 起始年份（"近5年"→2021，"近3年"→2023，没说填 null）
 
-## 输出格式（严格 JSON）
-{
-  "papers": [
-    {
-      "title": "论文英文标题",
-      "arxiv_id": "1706.03762",
-      "authors": "作者1, 作者2",
-      "year": 2017,
-      "abstract_zh": "中文摘要（100-150字）",
-      "key_contribution": "一句话说明主要贡献",
-      "citations": "引用数（如不知道写'高引用'）"
-    }
-  ]
-}"""
+## arXiv 查询语法（极其重要）：
+- 关键词: "diffusion model"
+- 作者搜索（用引号包裹全名）: au:"Yungang Zhu"
+- 单姓搜索: au:LeCun
+- 组合: au:"Yungang Zhu" AND cat:cs
+- 标题: ti:attention
+- 中文人名转拼音: "朱允刚" → Yungang Zhu，搜索时用 au:"Yungang Zhu"
+
+## 重要规则：
+1. 作者全名必须用双引号包裹：au:"Yungang Zhu"（不是 au:Yungang Zhu）
+2. 中文人名转拼音：朱允刚 → Yungang Zhu
+3. 中文关键词转英文：扩散模型 → diffusion model
+4. 不要添加机构/学校作为搜索条件（arXiv 不索引学校信息）
+5. 简单优先：如果用户只指定作者，query 就只有 au:"名字"
+
+## 输出格式（严格 JSON）：
+{"query": "au:\"Yungang Zhu\"", "max_results": 5, "year_from": null}
+
+示例：
+用户"找朱允刚老师的论文" → {"query": "au:\"Yungang Zhu\"", "max_results": 5, "year_from": null}
+用户"2篇近3年扩散模型论文" → {"query": "diffusion model", "max_results": 2, "year_from": 2023}
+用户"LeCun关于自监督学习" → {"query": "au:LeCun AND self-supervised", "max_results": 5, "year_from": null}"""
+
+
+async def _parse_search_params(user_message: str) -> dict:
+    """用 DeepSeek 解析用户需求为 arXiv 搜索参数。"""
+    if not settings.deepseek_ready:
+        return {"query": user_message, "max_results": 5, "year_from": None}
+
+    messages = [
+        {"role": "system", "content": PAPER_SEARCH_PROMPT},
+        {"role": "user", "content": user_message},
+    ]
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{settings.deepseek_base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
+                json={
+                    "model": settings.deepseek_model,
+                    "messages": messages,
+                    "max_tokens": 200,
+                    "temperature": 0.3,
+                },
+            )
+            _check_quota_error(resp.status_code, resp.text, "DeepSeek")
+            resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"]["content"].strip()
+            content = re.sub(r"^```(?:json)?|```$", "", content, flags=re.MULTILINE).strip()
+            return json.loads(content)
+    except Exception as e:
+        print(f"[paper_search] DeepSeek parse failed: {e}")
+        return {"query": user_message, "max_results": 5, "year_from": None}
 
 
 @router.post("/search")
@@ -97,54 +137,79 @@ async def search_papers(
     topic: str = Form(...),
     user_message: str = Form(""),
 ) -> dict:
-    """搜索论文：LLM 根据用户完整需求生成推荐列表。"""
-    if not settings.llm_ready:
-        return {"error": "系统需要申请大模型 API，暂未接入"}
+    """搜索论文：LLM 解析需求 → arXiv API 真实搜索 → LLM 翻译摘要。"""
+    query_text = user_message.strip() if user_message.strip() else f"帮我找关于{topic}的论文"
 
-    # 优先用用户原始消息（包含"2篇""近5年"等约束），没有则用 topic
-    query = user_message.strip() if user_message.strip() else f"帮我找关于{topic}的论文"
+    # 1. LLM 解析搜索参数
+    params = await _parse_search_params(query_text)
+    arxiv_query = params.get("query", topic)
+    max_results = min(params.get("max_results", 5) or 5, 10)
+    year_from = params.get("year_from")
 
-    messages = [
-        {"role": "system", "content": PAPER_SEARCH_PROMPT},
-        {"role": "user", "content": query},
-    ]
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{settings.llm_base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {settings.llm_api_key}"},
-            json={
-                "model": settings.llm_model,
-                "messages": messages,
-                "max_tokens": 2000,
-                "temperature": 0.7,
-            },
-        )
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
-
-    # 从 LLM 输出中提取 JSON
-    content = content.strip()
-    content = re.sub(r"^```(?:json)?|```$", "", content, flags=re.MULTILINE).strip()
+    # 2. 调用 arXiv API 真实搜索
     try:
-        data = json.loads(content)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", content, re.DOTALL)
-        if match:
-            try:
-                data = json.loads(match.group())
-            except json.JSONDecodeError:
-                return {"error": "解析论文列表失败，请重试"}
-        else:
-            return {"error": "解析论文列表失败，请重试"}
+        import arxiv as arxiv_lib
 
-    papers = data.get("papers", [])
-    # 给每篇论文加上完整的 arXiv 链接
-    for p in papers:
-        arxiv_id = p.get("arxiv_id", "")
-        if arxiv_id:
-            p["arxiv_url"] = f"https://arxiv.org/abs/{arxiv_id}"
-            p["pdf_url"] = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+        sort_by = arxiv_lib.SortCriterion.Relevance
+        search = arxiv_lib.Search(
+            query=arxiv_query,
+            max_results=max_results * 2,  # 多搜一些，后面按年份过滤
+            sort_by=sort_by,
+        )
+        raw_results = list(arxiv_lib.Client().results(search))
+    except Exception as e:
+        return {"error": f"arXiv 搜索失败：{type(e).__name__}: {e}"}
+
+    # 3. 过滤 + 格式化
+    papers = []
+    for r in raw_results:
+        # 年份过滤
+        if year_from and r.published.year < year_from:
+            continue
+        arxiv_id = r.entry_id.split("/")[-1].split("v")[0]
+        papers.append({
+            "title": r.title.replace("\n", " ").strip(),
+            "arxiv_id": arxiv_id,
+            "authors": ", ".join(a.name for a in r.authors[:6]),
+            "year": r.published.year,
+            "abstract_zh": r.summary[:200].replace("\n", " "),  # 先用英文摘要，后面 LLM 翻译
+            "key_contribution": "",
+            "citations": "",
+            "arxiv_url": f"https://arxiv.org/abs/{arxiv_id}",
+            "pdf_url": f"https://arxiv.org/pdf/{arxiv_id}.pdf",
+        })
+        if len(papers) >= max_results:
+            break
+
+    # 4. DeepSeek 翻译摘要为中文（批量）
+    if papers and settings.deepseek_ready:
+        try:
+            paper_list = "\n".join(
+                f"[{i}] {p['title']}\n{p['abstract_zh']}"
+                for i, p in enumerate(papers)
+            )
+            messages = [
+                {"role": "system", "content": "你是学术翻译。将每篇论文的摘要翻译成中文（100字以内），并概括其核心贡献。输出 JSON 数组，每项格式 {\"index\": 0, \"abstract_zh\": \"中文摘要\", \"key_contribution\": \"一句话贡献\"}"},
+                {"role": "user", "content": paper_list},
+            ]
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"{settings.deepseek_base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
+                    json={"model": settings.deepseek_model, "messages": messages, "max_tokens": 1500, "temperature": 0.5},
+                )
+                _check_quota_error(resp.status_code, resp.text, "DeepSeek")
+                resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"].strip()
+                content = re.sub(r"^```(?:json)?|```$", "", content, flags=re.MULTILINE).strip()
+                translations = json.loads(content)
+                for t in translations:
+                    idx = t.get("index", -1)
+                    if 0 <= idx < len(papers):
+                        papers[idx]["abstract_zh"] = t.get("abstract_zh", papers[idx]["abstract_zh"])
+                        papers[idx]["key_contribution"] = t.get("key_contribution", "")
+        except Exception as e:
+            print(f"[paper_search] DeepSeek translate failed: {e}")
 
     return {"papers": papers, "topic": topic}
 
@@ -323,8 +388,9 @@ async def _stream_llm(
     session_id: str = "paper",
     max_tokens: int = 2000,
 ):
-    if not settings.llm_ready:
-        yield _sse({"error": "系统需要申请大模型 API，暂未接入"})
+    """流式 LLM 调用（DeepSeek）—— 用于论文翻译/总结/分析等附加功能。"""
+    if not settings.deepseek_ready:
+        yield _sse({"error": "系统需要配置 DeepSeek API，暂未接入"})
         return
 
     messages = [
@@ -336,16 +402,19 @@ async def _stream_llm(
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
                 "POST",
-                f"{settings.llm_base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.llm_api_key}"},
+                f"{settings.deepseek_base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
                 json={
-                    "model": settings.llm_model,
+                    "model": settings.deepseek_model,
                     "messages": messages,
                     "max_tokens": max_tokens,
                     "temperature": 0.6,
                     "stream": True,
                 },
             ) as resp:
+                if resp.status_code != 200:
+                    body = await resp.aread()
+                    _check_quota_error(resp.status_code, body.decode("utf-8", errors="replace"), "DeepSeek")
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
@@ -362,8 +431,10 @@ async def _stream_llm(
                     except (json.JSONDecodeError, IndexError):
                         continue
         yield _sse({"done": True})
+    except QuotaExhaustedError as e:
+        yield _sse({"error": str(e), "error_type": "quota_exhausted"})
     except httpx.HTTPStatusError as e:
-        yield _sse({"error": f"LLM API 错误: {e.response.status_code}"})
+        yield _sse({"error": f"DeepSeek API 错误: {e.response.status_code}"})
     except Exception as e:
         yield _sse({"error": f"请求失败: {type(e).__name__}: {e}"})
 
@@ -439,23 +510,26 @@ async def paper_qa(file_id: str = Form(...), question: str = Form(...), session_
     ]
 
     async def qa_stream():
-        if not settings.llm_ready:
-            yield _sse({"error": "系统需要申请大模型 API，暂未接入"})
+        if not settings.deepseek_ready:
+            yield _sse({"error": "系统需要配置 DeepSeek API，暂未接入"})
             return
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 async with client.stream(
                     "POST",
-                    f"{settings.llm_base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {settings.llm_api_key}"},
+                    f"{settings.deepseek_base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
                     json={
-                        "model": settings.llm_model,
+                        "model": settings.deepseek_model,
                         "messages": messages,
                         "max_tokens": 2000,
                         "temperature": 0.6,
                         "stream": True,
                     },
                 ) as resp:
+                    if resp.status_code != 200:
+                        body = await resp.aread()
+                        _check_quota_error(resp.status_code, body.decode("utf-8", errors="replace"), "DeepSeek")
                     resp.raise_for_status()
                     async for line in resp.aiter_lines():
                         if not line.startswith("data: "):
@@ -472,6 +546,8 @@ async def paper_qa(file_id: str = Form(...), question: str = Form(...), session_
                         except (json.JSONDecodeError, IndexError):
                             continue
             yield _sse({"done": True})
+        except QuotaExhaustedError as e:
+            yield _sse({"error": str(e), "error_type": "quota_exhausted"})
         except Exception as e:
             yield _sse({"error": f"请求失败: {type(e).__name__}: {e}"})
 

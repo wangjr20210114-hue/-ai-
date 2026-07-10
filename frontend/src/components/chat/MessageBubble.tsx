@@ -3,7 +3,7 @@ import { Button, MessagePlugin } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/AppContext';
 import type { ChatMessage, TravelPlan, WSMessage, SkillInfo } from '../../types';
 import type { WSClient } from '../../services/websocket';
-import { createMeeting } from '../../services/api';
+import { createMeeting, generateImage } from '../../services/api';
 import TravelPlanCard from '../travel/TravelPlanCard';
 import TravelChatAssistant from '../travel/TravelChatAssistant';
 import PaperListCard from '../paper/PaperListCard';
@@ -13,12 +13,13 @@ interface Props {
   message: ChatMessage;
   client: React.RefObject<WSClient | null>;
 }
-
 /** 单条消息气泡。AI 消息下方根据 skill.intent 渲染不同卡片。 */
 export default function MessageBubble({ message, client }: Props) {
   const isUser = message.role === 'user';
   const dispatch = useAppDispatch();
-  const { sessionId } = useAppState();
+  const { sessionId, messages } = useAppState();
+  // 追问只在最后一条 AI 消息显示
+  const isLastAIMessage = !isUser && messages[messages.length - 1]?.id === message.id;
 
   // 旅游状态
   const [travelPlan, setTravelPlan] = useState<TravelPlan | null>(message.travelPlanData || null);
@@ -94,6 +95,28 @@ export default function MessageBubble({ message, client }: Props) {
     }
   };
 
+  /** 生图 */
+  const [imageGenerating, setImageGenerating] = useState(false);
+  const [imageResult, setImageResult] = useState<any>(null);
+
+  const handleGenerateImage = async () => {
+    setImageGenerating(true);
+    const prompt = skill?.params?.prompt || compatSkill?.params?.prompt || message.content;
+    try {
+      const result = await generateImage(prompt);
+      setImageResult(result);
+      if (result.ok) {
+        MessagePlugin.success('图片生成成功！');
+      } else {
+        MessagePlugin.warning(result.error || '生成失败');
+      }
+    } catch {
+      MessagePlugin.error('生图失败');
+    } finally {
+      setImageGenerating(false);
+    }
+  };
+
   /** 通用技能动作处理 */
   const handleSkillAction = () => {
     if (!intent) return;
@@ -106,9 +129,11 @@ export default function MessageBubble({ message, client }: Props) {
       case 'meeting':
         handleCreateMeeting();
         break;
+      case 'image':
+        handleGenerateImage();
+        break;
       case 'translation':
       case 'news':
-      case 'image':
       case 'paper':
         MessagePlugin.info(`${skill?.action_label || '执行'}功能开发中，敬请期待`);
         setSkillActioned(false);
@@ -142,8 +167,63 @@ export default function MessageBubble({ message, client }: Props) {
             message.content
           ) : (
             <>
-              <MarkdownRenderer content={message.content} />
-              {message.streaming && (
+              {/* 生图动画：内容为空且正在流式 */}
+              {!isUser && intent === 'image' && message.streaming && !message.content && (
+                <div className="image-generating-anim">
+                  <div className="image-generating-spinner" />
+                  <span>正在生成图片</span>
+                  <span className="image-generating-dots">
+                    <span>.</span><span>.</span><span>.</span>
+                  </span>
+                </div>
+              )}
+              {/* 搜索动画：内容为空且正在搜索 */}
+              {!isUser && intent === 'search' && message.streaming && !message.content && (
+                <div className="image-generating-anim">
+                  <div className="image-generating-spinner" />
+                  <span>{message.skill?.data?.statusText || '正在搜索'}</span>
+                  <span className="image-generating-dots">
+                    <span>.</span><span>.</span><span>.</span>
+                  </span>
+                </div>
+              )}
+              {/* 搜索来源列表（回答顶部，可展开） */}
+              {!isUser && message.searchResults && message.searchResults.total > 0 && (
+                <div className="search-sources-bar">
+                  <details>
+                    <summary className="search-sources-label">
+                      已搜索 {message.searchResults.total} 个来源
+                      <span className="search-sources-types">
+                        {Array.from(new Set(message.searchResults.results.map(r => r.source))).map(s => {
+                          const labels: Record<string, string> = { wechat: '公众号', zhihu: '知乎', baike: '百科', web: '网页', wsa: '联网' };
+                          return <span key={s} className="search-source-type">{labels[s] || s}</span>;
+                        })}
+                      </span>
+                    </summary>
+                    <div className="search-sources-list">
+                      {message.searchResults.results.map((r, i) => {
+                        const labels: Record<string, string> = { wechat: '公众号', zhihu: '知乎', baike: '百科', web: '网页', wsa: '联网' };
+                        const typeLabel = labels[r.source] || '网页';
+                        const displayTitle = r.title || r.url || '';
+                        return (
+                          <a
+                            key={i}
+                            href={r.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="search-source-chip"
+                          >
+                            <span className="search-source-type">{typeLabel}</span>
+                            <span className="search-source-title">{displayTitle.length > 30 ? displayTitle.slice(0, 30) + '…' : displayTitle}</span>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  </details>
+                </div>
+              )}
+              {message.content && <MarkdownRenderer content={message.content} />}
+              {message.streaming && message.content && (
                 <span className="typing-cursor">▊</span>
               )}
             </>
@@ -348,7 +428,7 @@ export default function MessageBubble({ message, client }: Props) {
         )}
 
         {/* === 通用技能建议卡片（suggest 模式 + 未执行） === */}
-        {!isUser && compatSkill && compatSkill.mode !== 'immediate' && !showTravelAssistant && !travelPlan && !assistantCompleted && !meetingResult && !skillActioned && (
+        {!isUser && compatSkill && compatSkill.mode !== 'immediate' && !showTravelAssistant && !travelPlan && !assistantCompleted && !meetingResult && !imageResult && !skillActioned && (
           <div className="followup-section">
             <div className="travel-intent-card">
               <div className="travel-intent-text">
@@ -358,13 +438,39 @@ export default function MessageBubble({ message, client }: Props) {
               <Button
                 theme="primary"
                 size="small"
-                loading={meetingCreating && intent === 'meeting'}
+                loading={(meetingCreating && intent === 'meeting') || (imageGenerating && intent === 'image')}
                 onClick={handleSkillAction}
               >
-                {meetingCreating && intent === 'meeting'
+                {(meetingCreating && intent === 'meeting')
                   ? (meetingStatusText || '处理中...')
+                  : (imageGenerating && intent === 'image')
+                  ? '生成中...'
                   : compatSkill.action_label}
               </Button>
+            </div>
+          </div>
+        )}
+
+        {/* === 生图结果 === */}
+        {!isUser && intent === 'image' && imageResult && imageResult.ok && imageResult.image_url && (
+          <div className="followup-section">
+            <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--app-border)', maxWidth: 280 }}>
+              <img
+                src={imageResult.image_url}
+                alt={imageResult.prompt || '生成的图片'}
+                style={{ width: '100%', maxHeight: 280, objectFit: 'contain', display: 'block' }}
+              />
+            </div>
+          </div>
+        )}
+
+        {!isUser && intent === 'image' && imageResult && !imageResult.ok && (
+          <div className="followup-section">
+            <div className="travel-intent-card" style={{ borderColor: 'var(--td-error-color)' }}>
+              <div className="travel-intent-text">
+                <span className="travel-intent-icon">⚠️</span>
+                {imageResult.error}
+              </div>
             </div>
           </div>
         )}
@@ -376,8 +482,10 @@ export default function MessageBubble({ message, client }: Props) {
           </div>
         )}
 
-        {/* === 追问建议（放在最后） === */}
-        {!isUser && message.followUps && message.followUps.length > 0 && (
+        {/* 搜索结果不再单独展示卡片，已由 AI 自然穿插在 Markdown 回答中 */}
+
+        {/* === 追问建议（只在最后一条 AI 消息显示） === */}
+        {!isUser && isLastAIMessage && message.followUps && message.followUps.length > 0 && (
           <div className="followup-section">
             <div className="followup-label">猜你想继续问</div>
             <div className="followup-list">

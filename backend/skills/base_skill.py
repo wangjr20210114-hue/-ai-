@@ -1,27 +1,24 @@
-"""技能基类、结果模型、注册表。"""
+"""Skill base classes and registry."""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent.contracts import (
+    AgentPlan,
+    ConfirmationPolicy,
+    FailurePolicy,
+    PermissionLevel,
+    RiskLevel,
+    SkillSchema,
+)
+
 
 @dataclass
 class SkillResult:
-    """技能执行结果 — 统一格式，前端据此渲染不同卡片。
+    """Unified skill result rendered by transports such as WebSocket."""
 
-    Attributes:
-        intent:       技能标识（travel / meeting / news / image / translation / paper）
-        mode:         执行模式
-                      - "auto"：前端自动展开（如旅游助手直接弹出问答）
-                      - "suggest"：显示建议卡片 + 确认按钮（如创建会议前需确认）
-                      - "immediate"：直接返回结果文本（如翻译结果）
-        content:      Markdown 文本（建议话术或直接结果）
-        icon:         前端图标 emoji
-        action_label: 确认按钮文案（suggest 模式）
-        params:       LLM 提取的参数（传递给前端 / REST API）
-        data:         技能额外数据（前端渲染用）
-    """
     intent: str
     mode: str = "suggest"
     content: str = ""
@@ -32,49 +29,128 @@ class SkillResult:
 
 
 class BaseSkill(ABC):
-    """所有技能的基类。子类需实现 name / description / trigger_keywords / suggest。"""
+    """Base class for all Agent skills.
+
+    A skill owns its schema, permissions, planning hints, failure behavior, and
+    default rendering. The orchestrator should not need to know per-skill safety
+    rules except through this contract.
+    """
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """技能标识（如 'travel', 'meeting'）。"""
+        """Stable skill identifier, for example travel or meeting."""
 
     @property
     @abstractmethod
     def description(self) -> str:
-        """技能描述（用于 LLM 意图分类提示词）。"""
+        """Human/LLM-readable capability description."""
 
     @property
     @abstractmethod
     def trigger_keywords(self) -> list[str]:
-        """触发关键词（用于快速正则预检，节省 LLM 调用）。"""
+        """Fast keyword fallback for intent routing."""
+
+    @property
+    def schema(self) -> SkillSchema:
+        return SkillSchema(intent=self.name, description=self.description)
 
     @property
     def icon(self) -> str:
-        """前端图标 emoji。"""
         return "✨"
 
     @property
     def action_label(self) -> str:
-        """确认按钮文案。"""
         return "执行"
 
     @property
     def mode(self) -> str:
-        """执行模式：'auto' / 'suggest' / 'immediate'。"""
         return "suggest"
+
+    @property
+    def permission_level(self) -> PermissionLevel:
+        if self.mode == "auto":
+            return PermissionLevel.AUTO
+        if self.mode == "immediate":
+            return PermissionLevel.AUTO
+        return PermissionLevel.SUGGEST
+
+    @property
+    def risk_level(self) -> RiskLevel:
+        return RiskLevel.LOW
+
+    @property
+    def confirmation_policy(self) -> ConfirmationPolicy:
+        return ConfirmationPolicy(
+            required=self.permission_level == PermissionLevel.CONFIRM,
+            action_label=self.action_label,
+        )
+
+    @property
+    def failure_policy(self) -> FailurePolicy:
+        return FailurePolicy(max_retries=0, user_visible=True)
+
+    @property
+    def planner_steps(self) -> list[str]:
+        return ["prepare", "execute", "respond"]
+
+    async def can_handle(self, message: str, params: dict[str, Any]) -> bool:
+        return True
+
+    async def create_plan(
+        self,
+        *,
+        run_id: str,
+        session_id: str,
+        event_type: str,
+        message: str,
+        params: dict[str, Any],
+        rationale: str = "",
+    ) -> AgentPlan:
+        return AgentPlan(
+            run_id=run_id,
+            session_id=session_id,
+            event_type=event_type,
+            user_message=message,
+            intent=self.name,
+            skill_name=self.name,
+            params=params,
+            schema=self.schema,
+            permission_level=self.permission_level,
+            risk_level=self.risk_level,
+            confirmation=self.confirmation_policy,
+            failure_policy=self.failure_policy,
+            steps=self.planner_steps,
+            rationale=rationale,
+        )
+
+    async def execute(self, message: str, params: dict[str, Any], session_id: str) -> SkillResult:
+        return await self.handle(message, params, session_id)
+
+    async def render(self, result: SkillResult) -> SkillResult:
+        return result
+
+    async def failure_result(self, message: str, params: dict[str, Any], error: Exception) -> SkillResult:
+        return SkillResult(
+            intent=self.name,
+            mode="immediate",
+            content=f"处理 {self.name} 时出错：{type(error).__name__}: {error}",
+            icon=self.icon,
+            action_label=self.action_label,
+            params=params,
+            data={"error_type": type(error).__name__},
+        )
 
     @abstractmethod
     async def suggest(self, message: str, params: dict[str, Any]) -> SkillResult:
-        """生成建议或直接执行，返回 SkillResult。"""
+        """Create a user-visible suggestion or immediate result."""
 
     async def handle(self, message: str, params: dict[str, Any], session_id: str) -> SkillResult:
-        """REST API 调用时的执行入口（默认同 suggest）。"""
         return await self.suggest(message, params)
 
 
 class SkillRegistry:
-    """技能注册表 — 管理所有已注册技能，提供查询和关键词预检。"""
+    """Registry for all skills."""
 
     def __init__(self) -> None:
         self._skills: dict[str, BaseSkill] = {}
@@ -89,7 +165,6 @@ class SkillRegistry:
         return list(self._skills.values())
 
     def keyword_check(self, text: str) -> str | None:
-        """快速关键词预检，返回第一个匹配的技能名。"""
         for skill in self._skills.values():
             for kw in skill.trigger_keywords:
                 if kw in text:
@@ -97,12 +172,4 @@ class SkillRegistry:
         return None
 
     def build_llm_description(self) -> str:
-        """生成 LLM 意图分类提示词中的技能列表。"""
-        lines = []
-        for skill in self._skills.values():
-            lines.append(f"- **{skill.name}**: {skill.description}")
-        return "\n".join(lines)
-
-
-# 全局单例
-skill_registry = SkillRegistry()
+        return "\n".join(f"- **{skill.name}**: {skill.schema.to_prompt()}" for skill in self._skills.values())

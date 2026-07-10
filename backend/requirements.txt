@@ -6,3 +6,7 @@ pydantic-settings
 python-dotenv
 websockets
 certifi
+aiosqlite
+arxiv
+pymupdf
+python-multipart

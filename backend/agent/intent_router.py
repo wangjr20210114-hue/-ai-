@@ -1,20 +1,22 @@
-"""意图路由器：LLM 驱动的意图分类 + 技能调度。
+"""意图推断层（DeepSeek）+ 自动执行路由器。
 
-流程：
-1. 正则快速预检（0 次 API 调用）
-2. 若正则高置信命中 → 直接返回对应技能
-3. 否则 → LLM 分类（1 次 API 调用，支持主动检测）
-4. 路由到对应技能的 suggest() 方法
+核心原则：
+1. 意图推断用 DeepSeek（便宜快速），不生成回复内容
+2. 回复内容由混元根据完整对话历史自由生成
+3. 意图推断只决定"调用什么工具"，不影响大模型回复
 """
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from agent import register_all_skills
-from skills.base_skill import SkillRegistry, SkillResult
+import httpx
 
-# 全局注册表
+from agent import register_all_skills
+from config import settings
+from services.hunyuan_service import _check_quota_error, QuotaExhaustedError
+from skills.base_skill import SkillRegistry
+
 _registry = SkillRegistry()
 _skills_registered = False
 
@@ -26,100 +28,63 @@ def _ensure_registered() -> None:
         _skills_registered = True
 
 
-async def route_message(
+async def classify_intent(
     message: str,
-    session_id: str,
     history: list[str] | None = None,
-) -> SkillResult:
-    """分类用户意图并路由到对应技能。
+) -> dict[str, Any]:
+    """用 DeepSeek 推断用户意图。
 
     Returns:
-        SkillResult: 包含 intent / mode / content / params 等
+        {"intent": "travel|meeting|search|image|translation|paper|chat", "params": {...}}
     """
     _ensure_registered()
 
-    # 1. 正则快速预检
-    keyword_match = _registry.keyword_check(message)
+    from prompts.templates import INTENT_CLASSIFICATION_PROMPT
 
-    # 2. LLM 分类（支持主动检测和参数提取）
-    llm_result = await _llm_classify(message, history or [])
+    skill_desc = _registry.build_llm_description()
+    system_prompt = INTENT_CLASSIFICATION_PROMPT.replace("{{SKILLS}}", skill_desc)
 
-    intent = llm_result.get("intent", "chat")
-    params = llm_result.get("params", {})
-    suggestion_text = llm_result.get("suggestion", "")
+    # 构造对话历史
+    history_str = ""
+    if history:
+        history_str = "\n".join(history[-8:])
 
-    # 如果 LLM 返回 chat 但正则匹配了，用正则结果
-    if intent == "chat" and keyword_match:
-        intent = keyword_match
-        params = {}
-        suggestion_text = ""
+    user_content = f"用户消息：{message}"
+    if history_str:
+        user_content += f"\n\n对话历史：\n{history_str}"
 
-    # 3. 路由到技能
-    skill = _registry.get(intent)
-    if skill:
-        result = await skill.suggest(message, params)
-        # 如果 LLM 生成了更好的建议文案，覆盖技能默认文案
-        if suggestion_text and not params:
-            result.content = suggestion_text
-        return result
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
 
-    # 4. 兜底：通用对话
-    if suggestion_text:
-        return SkillResult(
-            intent="chat",
-            mode="immediate",
-            content=suggestion_text,
-        )
-
-    # 列出所有可用能力
-    skill_list = "\n".join(
-        f"- {s.icon} {s.description}" for s in _registry.all_skills()
-    )
-    return SkillResult(
-        intent="chat",
-        mode="immediate",
-        content=f"我目前支持以下能力：\n\n{skill_list}\n\n你想做什么呢？",
-    )
-
-
-async def _llm_classify(message: str, history: list[str]) -> dict[str, Any]:
-    """调用 LLM 进行意图分类。
-
-    Returns:
-        {"intent": "travel", "params": {...}, "suggestion": "..."}
-    """
-    _ensure_registered()
-
+    # 用 DeepSeek 推断（便宜快速）
     try:
-        from prompts.templates import INTENT_CLASSIFICATION_PROMPT
-        from services.hunyuan_service import hunyuan_service, ApiNotConfiguredError
-        from scenarios.scenario_type import ScenarioType
-
-        skill_desc = _registry.build_llm_description()
-        system_prompt = INTENT_CLASSIFICATION_PROMPT.replace("{{SKILLS}}", skill_desc)
-
-        # 构造对话历史
-        history_str = ""
-        if history:
-            history_str = "\n".join(history[-6:])
-
-        user_content = f"用户消息：{message}"
-        if history_str:
-            user_content += f"\n\n对话历史：\n{history_str}"
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ]
-
-        result, _ = await hunyuan_service.chat_json(
-            messages, "intent_router", ScenarioType.CHAT, max_tokens=300
-        )
-        return result
-
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{settings.deepseek_base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
+                json={
+                    "model": settings.deepseek_model,
+                    "messages": messages,
+                    "max_tokens": 200,
+                    "temperature": 0.1,  # 低温度，精确推断
+                },
+            )
+            _check_quota_error(resp.status_code, resp.text, "DeepSeek")
+            resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"]["content"].strip()
+            content = content.strip("`").strip()
+            if content.startswith("json"):
+                content = content[4:].strip()
+            result = json.loads(content)
+            return result
+    except QuotaExhaustedError:
+        raise
     except Exception as e:
-        # LLM 不可用时，回退到正则
-        print(f"[intent_router] LLM classify failed: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
-        return {"intent": "chat", "params": {}, "suggestion": ""}
+        print(f"[intent_router] DeepSeek classify failed: {e}")
+        # 回退到正则
+        keyword_match = _registry.keyword_check(message)
+        if keyword_match:
+            return {"intent": keyword_match, "params": {}}
+        return {"intent": "chat", "params": {}}
