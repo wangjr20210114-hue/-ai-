@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from database.connection import get_db
+from database.migrations import Migration, apply_migrations
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS travel_plans (
@@ -85,8 +86,7 @@ CREATE INDEX IF NOT EXISTS idx_papers_session ON papers(session_id);
 
 async def init_db() -> None:
     db = await get_db()
-    await db.executescript(SCHEMA)
-    await db.commit()
+    await apply_migrations(db, [Migration(1, "initial_schema", SCHEMA)])
     # 写入 POI 种子数据
     from services.poi_data import seed_pois
     await seed_pois(db)

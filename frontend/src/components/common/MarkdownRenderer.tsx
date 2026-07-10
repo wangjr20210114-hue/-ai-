@@ -101,7 +101,7 @@ function childrenToText(children: React.ReactNode): string {
   if (typeof children === 'string') return children;
   if (Array.isArray(children)) return children.map(childrenToText).join('');
   if (React.isValidElement(children)) {
-    const props = children.props as any;
+    const props = children.props as { children?: React.ReactNode };
     return childrenToText(props.children);
   }
   return '';
@@ -113,7 +113,7 @@ function stripImgMarkers(text: string): string {
 }
 
 /** 从 React children 中移除 ZIMG 标记 */
-function cleanImgMarkers(children: React.ReactNode, imgIds: number[]): React.ReactNode {
+function cleanImgMarkers(children: React.ReactNode): React.ReactNode {
   if (typeof children === 'string') {
     return stripImgMarkers(children);
   }
@@ -184,7 +184,7 @@ export default function MarkdownRenderer({ content }: { content: string }) {
                 />
               ));
               // 清理占位符后的文字
-              const cleanedChildren = cleanChildren(cleanImgMarkers(children, imgIds));
+              const cleanedChildren = cleanChildren(cleanImgMarkers(children));
               const hasText = stripCardMarkers(stripImgMarkers(rawText)).trim().length > 0;
               if (!hasText) {
                 return <>{imgEls}{cardEls}</>;

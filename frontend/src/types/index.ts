@@ -2,6 +2,25 @@
 
 export type ThemeMode = 'light' | 'dark';
 
+export interface SkillParams {
+  message?: string;
+  prompt?: string;
+  user_message?: string;
+  destination?: string;
+  [key: string]: unknown;
+}
+
+export interface TravelCollected {
+  destination?: string;
+  departure?: string;
+  start_date?: string;
+  end_date?: string;
+  days?: number | string;
+  travel_style?: string;
+  scenery_preference?: string;
+  [key: string]: string | number | undefined;
+}
+
 // ============ 技能结果（通用） ============
 export interface SkillInfo {
   intent: string;       // "travel", "meeting", "news", "image", "translation", "paper", "chat"
@@ -9,8 +28,8 @@ export interface SkillInfo {
   content: string;      // Markdown 文本
   icon: string;          // emoji
   action_label: string;  // 按钮文案
-  params: Record<string, any>;
-  data: Record<string, any>;
+  params: SkillParams;
+  data: Record<string, unknown>;
 }
 
 export interface PaperInfo {
@@ -59,7 +78,7 @@ export interface ChatMessage {
   // 旅游计划结果数据
   travelPlanData?: TravelPlan;
   travelStartTs?: number;
-  parsedSchedules?: any[];
+  parsedSchedules?: Partial<ScheduleItem>[];
 
   // 论文数据
   papers?: PaperInfo[];
@@ -77,6 +96,30 @@ export interface ChatMessage {
   autoShowTravelAssistant?: boolean;
 }
 
+export interface WSPayload {
+  id?: string;
+  session_id?: string;
+  content?: string;
+  delta?: string;
+  error_type?: string;
+  follow_ups?: string[];
+  image_prompt?: string;
+  image_url?: string;
+  intent?: string;
+  message?: string;
+  mode?: string;
+  icon?: string;
+  action_label?: string;
+  params?: SkillParams;
+  data?: Record<string, unknown>;
+  papers?: PaperInfo[];
+  search_results?: SearchMeta;
+  status?: string;
+  activity?: string;
+  text?: string;
+  [key: string]: unknown;
+}
+
 export interface WSMessage {
   type:
     | 'user_activity'
@@ -91,7 +134,7 @@ export interface WSMessage {
     | 'ack'
     | 'ping'
     | 'pong';
-  payload: Record<string, any>;
+  payload: WSPayload;
   ts?: number;
 }
 
@@ -108,7 +151,13 @@ export interface TravelPlan {
   budget: string;
   extra_notes: string;
   markdown_content: string;
-  baike_info: Record<string, any>;
+  baike_info: {
+    summary?: string;
+    highlights?: string[];
+    best_season?: string;
+    error?: string;
+    [key: string]: unknown;
+  };
   created_at: number;
   updated_at: number;
 }
@@ -151,7 +200,15 @@ export interface ScheduleItem {
   location: string;
   description: string;
   markdown_content: string;
-  extra: Record<string, any>;
+  extra: {
+    search_query?: string;
+    search_keyword?: string;
+    city?: string;
+    cost_estimate?: number;
+    description?: string;
+    place_type?: string;
+    [key: string]: unknown;
+  };
   done: boolean;
   created_at: number;
   updated_at: number;
@@ -160,6 +217,7 @@ export interface ScheduleItem {
 // ============ 会议 ============
 export interface MeetingResult {
   ok: boolean;
+  need_auth?: boolean;
   meeting_id?: string;
   meeting_code?: string;
   join_url?: string;

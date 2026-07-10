@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button, Textarea, Upload } from 'tdesign-react';
 import { SendIcon, AttachIcon } from 'tdesign-icons-react';
 import type { UploadFile } from 'tdesign-react';
-import { useAppDispatch, useAppState } from '../../store/AppContext';
+import { useAppDispatch, useAppState } from '../../store/appState';
 import type { WSMessage } from '../../types';
 import type { WSClient } from '../../services/websocket';
 

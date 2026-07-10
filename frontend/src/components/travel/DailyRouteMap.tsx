@@ -10,20 +10,12 @@ interface Props {
   onRouteLoaded?: (data: DailyRouteData | null) => void;
 }
 
-const PLACE_TYPE_ICONS: Record<string, string> = {
-  scenic: '🏛',
-  restaurant: '🍜',
-  hotel: '🏨',
-  transport: '🚗',
-  other: '📍',
-};
-
 /** 当日路线地图：连接当天所有日程地点的路线。 */
 export default function DailyRouteMap({ date, schedules, selectedAlts, onRouteLoaded }: Props) {
   const [loading, setLoading] = useState(true);
   const [routeData, setRouteData] = useState<DailyRouteData | null>(null);
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
+  const mapInstanceRef = useRef<TencentMapInstance | null>(null);
   const isInitialMount = useRef(true);
 
   // 提取当天日程的搜索关键词
@@ -146,7 +138,7 @@ export default function DailyRouteMap({ date, schedules, selectedAlts, onRouteLo
     const scriptId = 'qq-map-sdk-daily';
 
     const initMap = () => {
-      const TMap = (window as any).TMap;
+      const TMap = window.TMap;
       if (!TMap || !mapRef.current) return;
 
       // 清理旧地图
@@ -196,7 +188,7 @@ export default function DailyRouteMap({ date, schedules, selectedAlts, onRouteLo
 
       // 路线 polyline，过滤无效坐标
       if (routeData.polyline && routeData.polyline.length > 0) {
-        const pts: any[] = [];
+        const pts: unknown[] = [];
         for (let i = 0; i < routeData.polyline.length; i += 2) {
           const lat = routeData.polyline[i];
           const lng = routeData.polyline[i + 1];
@@ -221,7 +213,7 @@ export default function DailyRouteMap({ date, schedules, selectedAlts, onRouteLo
       }
     };
 
-    if (!(window as any).TMap) {
+    if (!window.TMap) {
       if (!document.getElementById(scriptId)) {
         const script = document.createElement('script');
         script.id = scriptId;

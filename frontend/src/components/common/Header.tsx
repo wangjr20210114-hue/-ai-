@@ -1,6 +1,6 @@
 import { Button, Tag, Tooltip } from 'tdesign-react';
 import { ModeDarkIcon, ModeLightIcon } from 'tdesign-icons-react';
-import { useAppDispatch, useAppState } from '../../store/AppContext';
+import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
 
 const THEME_KEY = 'travel-theme';

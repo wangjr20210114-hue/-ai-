@@ -121,9 +121,9 @@ export function streamPaper(
         }
       }
       onDone(full, error);
-    } catch (e: any) {
-      if (e.name !== 'AbortError') {
-        onDone(full, e.message || '请求失败');
+    } catch (error: unknown) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        onDone(full, error instanceof Error ? error.message : '请求失败');
       }
     }
   })();

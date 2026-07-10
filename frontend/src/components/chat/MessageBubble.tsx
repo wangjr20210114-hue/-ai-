@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
-import { useAppDispatch, useAppState } from '../../store/AppContext';
-import type { ChatMessage, TravelPlan, WSMessage, SkillInfo } from '../../types';
+import { useAppDispatch, useAppState } from '../../store/appState';
+import type { ChatMessage, TravelPlan, WSMessage, SkillInfo, MeetingResult, ScheduleItem } from '../../types';
 import type { WSClient } from '../../services/websocket';
 import { createMeeting, generateImage } from '../../services/api';
 import TravelPlanCard from '../travel/TravelPlanCard';
@@ -23,8 +23,8 @@ export default function MessageBubble({ message, client }: Props) {
 
   // 旅游状态
   const [travelPlan, setTravelPlan] = useState<TravelPlan | null>(message.travelPlanData || null);
-  const [travelStartTs, setTravelStartTs] = useState<number | undefined>(message.travelStartTs);
-  const [parsedSchedules] = useState<any[]>(message.parsedSchedules || []);
+  const [travelStartTs] = useState<number | undefined>(message.travelStartTs);
+  const [parsedSchedules] = useState<Partial<ScheduleItem>[]>(message.parsedSchedules || []);
   const [showTravelAssistant, setShowTravelAssistant] = useState(
     message.autoShowTravelAssistant || message.skill?.intent === 'travel'
   );
@@ -32,7 +32,7 @@ export default function MessageBubble({ message, client }: Props) {
 
   // 会议状态
   const [meetingCreating, setMeetingCreating] = useState(false);
-  const [meetingResult, setMeetingResult] = useState<any>(null);
+  const [meetingResult, setMeetingResult] = useState<MeetingResult | null>(null);
   const [meetingStatusText, setMeetingStatusText] = useState('');
 
   // 通用技能执行状态
@@ -56,7 +56,7 @@ export default function MessageBubble({ message, client }: Props) {
     client.current?.send(msg);
   };
 
-  const handleTravelPlanComplete = (plan: TravelPlan, startTs?: number, parsed?: any[]) => {
+  const handleTravelPlanComplete = (plan: TravelPlan, startTs?: number, parsed?: Partial<ScheduleItem>[]) => {
     setShowTravelAssistant(false);
     setAssistantCompleted(true);
     dispatch({
@@ -97,7 +97,7 @@ export default function MessageBubble({ message, client }: Props) {
 
   /** 生图 */
   const [imageGenerating, setImageGenerating] = useState(false);
-  const [imageResult, setImageResult] = useState<any>(null);
+  const [imageResult, setImageResult] = useState<Awaited<ReturnType<typeof generateImage>> | null>(null);
 
   const handleGenerateImage = async () => {
     setImageGenerating(true);
@@ -158,6 +158,13 @@ export default function MessageBubble({ message, client }: Props) {
     data: {},
   } : undefined);
 
+  const searchStatus = typeof message.skill?.data?.statusText === 'string'
+    ? message.skill.data.statusText
+    : '正在搜索';
+  const dataDestination = typeof compatSkill?.data?.destination === 'string'
+    ? compatSkill.data.destination
+    : undefined;
+
   return (
     <div className={`msg-row ${isUser ? 'user' : 'ai'}`}>
       <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>{isUser ? '我' : 'AI'}</div>
@@ -181,7 +188,7 @@ export default function MessageBubble({ message, client }: Props) {
               {!isUser && intent === 'search' && message.streaming && !message.content && (
                 <div className="image-generating-anim">
                   <div className="image-generating-spinner" />
-                  <span>{message.skill?.data?.statusText || '正在搜索'}</span>
+                  <span>{searchStatus}</span>
                   <span className="image-generating-dots">
                     <span>.</span><span>.</span><span>.</span>
                   </span>
@@ -237,7 +244,7 @@ export default function MessageBubble({ message, client }: Props) {
               initialDestination={
                 compatSkill?.params?.destination ||
                 compatSkill?.params?.user_message ||
-                compatSkill?.data?.destination
+                dataDestination
               }
               userMessage={compatSkill?.params?.user_message || compatSkill?.params?.message}
               onComplete={handleTravelPlanComplete}

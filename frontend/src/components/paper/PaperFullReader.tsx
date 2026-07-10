@@ -7,7 +7,7 @@ import { Button, Loading, MessagePlugin, Textarea, Tag } from 'tdesign-react';
 import { CloseIcon, DownloadIcon, StarIcon } from 'tdesign-icons-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { savePaper } from '../../services/paperApi';
-import { useAppState } from '../../store/AppContext';
+import { useAppState } from '../../store/appState';
 import {
   loadPdf, extractParagraphs, isNonInteractiveParagraph,
   type PDFDocumentProxy, type Paragraph,
@@ -131,12 +131,12 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
           textLayerDiv.style.height = `${viewport.height}px`;
           try {
             const textContent = await page.getTextContent();
-            await pdfjsLib.renderTextLayer({
-              textContent: textContent,
+            const textLayer = new pdfjsLib.TextLayer({
+              textContentSource: textContent,
               container: textLayerDiv,
               viewport: viewport,
-              textDivs: [],
-            }).promise;
+            });
+            await textLayer.render();
           } catch (e) {
             console.warn('TextLayer render failed for page', pg.pageNum, e);
           }
@@ -182,7 +182,7 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
   };
 
   // 鼠标释放：如果选中了文字，显示浮动工具条（不自动翻译）
-  const handleMouseUp = (e: React.MouseEvent, pageNum: number) => {
+  const handleMouseUp = () => {
     const sel = getSelectedText();
     if (sel && sel.length > 1) {
       // 稍延迟获取选区位置（等浏览器更新）
@@ -202,7 +202,7 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
   };
 
   // 单击：关闭浮动条，不做自动翻译
-  const handleClick = (e: React.MouseEvent, pageNum: number) => {
+  const handleClick = () => {
     setFloatBar(null);
   };
 
@@ -297,7 +297,8 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
             {/* 收藏按钮 */}
             <Button
               size="small"
-              variant={saved ? 'primary' : 'outline'}
+              theme={saved ? 'primary' : 'default'}
+              variant="outline"
               loading={saving}
               icon={<StarIcon />}
               onClick={async () => {
@@ -336,9 +337,9 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
                 key={pg.pageNum}
                 style={{ position: 'relative', marginBottom: 12, display: 'inline-block' }}
                 onMouseMove={(e) => handleMouseMove(e, pg.pageNum)}
-                onClick={(e) => handleClick(e, pg.pageNum)}
+                onClick={handleClick}
                 onDoubleClick={(e) => handleDoubleClick(e, pg.pageNum)}
-                onMouseUp={(e) => handleMouseUp(e, pg.pageNum)}
+                onMouseUp={handleMouseUp}
                 onContextMenu={(e) => handleContextMenu(e, pg.pageNum)}
               >
                 <canvas

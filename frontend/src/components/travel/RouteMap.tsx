@@ -1,10 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Button, Tag, Loading, MessagePlugin, Collapse } from 'tdesign-react';
-import { LocationIcon } from 'tdesign-icons-react';
-import { planRoute } from '../../services/api';
-import MarkdownRenderer from '../common/MarkdownRenderer';
-
-const { Panel: CollapsePanel } = Collapse;
+import { Tag, Loading, MessagePlugin } from 'tdesign-react';
+import { planRoute, type RoutePlanData } from '../../services/api';
 
 interface Props {
   departure: string;
@@ -14,7 +10,7 @@ interface Props {
 /** 路线地图组件：调用腾讯位置服务显示旅游路线 + 费用估算。 */
 export default function RouteMap({ departure, destination }: Props) {
   const [loading, setLoading] = useState(true);
-  const [routeData, setRouteData] = useState<any>(null);
+  const [routeData, setRouteData] = useState<RoutePlanData | null>(null);
   const mapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -45,33 +41,34 @@ export default function RouteMap({ departure, destination }: Props) {
     // 动态加载腾讯地图 JS SDK
     const scriptId = 'qq-map-sdk';
     const initMap = () => {
-      const TMap = (window as any).TMap;
-      if (!TMap) return;
+      const TMap = window.TMap;
+      const container = mapRef.current;
+      if (!TMap || !container) return;
 
       const originLoc = routeData.origin_location;
       const destLoc = routeData.destination_location;
+      if (!originLoc || !destLoc) return;
 
       // 计算中心点和缩放
       const centerLat = (originLoc.lat + destLoc.lat) / 2;
       const centerLng = (originLoc.lng + destLoc.lng) / 2;
 
-      const map = new TMap.Map(mapRef.current, {
+      const map = new TMap.Map(container, {
         center: new TMap.LatLng(centerLat, centerLng),
         zoom: 6,
       });
 
       // 起点 Marker
-      const markers: any[] = [];
-      markers.push(new TMap.MultiMarker({
+      new TMap.MultiMarker({
         map,
         geometries: [{
           id: 'origin',
           position: new TMap.LatLng(originLoc.lat, originLoc.lng),
         }],
-      }));
+      });
 
       // 终点 Marker
-      markers.push(new TMap.MultiMarker({
+      new TMap.MultiMarker({
         map,
         styles: {
           endpoint: new TMap.MarkerStyle({
@@ -83,28 +80,28 @@ export default function RouteMap({ departure, destination }: Props) {
           styleId: 'endpoint',
           position: new TMap.LatLng(destLoc.lat, destLoc.lng),
         }],
-      }));
+      });
 
       // 途经点 Marker
       if (routeData.waypoint_locations) {
-        routeData.waypoint_locations.forEach((wp: any, i: number) => {
-          markers.push(new TMap.MultiMarker({
+        routeData.waypoint_locations.forEach((wp, i) => {
+          new TMap.MultiMarker({
             map,
             geometries: [{
               id: `wp-${i}`,
               position: new TMap.LatLng(wp.lat, wp.lng),
             }],
-          }));
+          });
         });
       }
 
       // 绘制路线 polyline
       if (routeData.polyline && routeData.polyline.length > 0) {
-        const pts: any[] = [];
+        const pts: unknown[] = [];
         for (let i = 0; i < routeData.polyline.length; i += 2) {
           pts.push(new TMap.LatLng(routeData.polyline[i], routeData.polyline[i + 1]));
         }
-        const polyline = new TMap.MultiPolyline({
+        new TMap.MultiPolyline({
           map,
           styles: {
             style_blue: new TMap.PolylineStyle({
@@ -121,7 +118,7 @@ export default function RouteMap({ departure, destination }: Props) {
       }
     };
 
-    if (!(window as any).TMap) {
+    if (!window.TMap) {
       if (!document.getElementById(scriptId)) {
         const script = document.createElement('script');
         script.id = scriptId;
@@ -146,6 +143,7 @@ export default function RouteMap({ departure, destination }: Props) {
   }
 
   if (!routeData) return null;
+  const segments = routeData.segments ?? [];
 
   return (
     <div className="route-map-container">
@@ -157,7 +155,7 @@ export default function RouteMap({ departure, destination }: Props) {
         <div className="route-info-header">
           <span className="route-info-title">🚗 路线信息</span>
           <Tag size="small" theme="primary" variant="light">
-            {routeData.total_distance_km}km · {Math.round(routeData.total_duration_hours * 60)}分钟
+            {routeData.total_distance_km ?? 0}km · {Math.round((routeData.total_duration_hours ?? 0) * 60)}分钟
           </Tag>
         </div>
 
@@ -174,11 +172,11 @@ export default function RouteMap({ departure, destination }: Props) {
         )}
 
         {/* 路段详情 */}
-        {routeData.segments && (
+        {segments.length > 0 && (
           <div className="route-segments">
-            {routeData.segments.map((seg: any, i: number) => (
+            {segments.map((seg, i) => (
               <div key={i} className="route-segment">
-                <div className="route-segment-dot" style={{ background: i === 0 ? '#2b5aed' : i === routeData.segments.length - 1 ? '#FF0000' : '#7c5cff' }} />
+                <div className="route-segment-dot" style={{ background: i === 0 ? '#2b5aed' : i === segments.length - 1 ? '#FF0000' : '#7c5cff' }} />
                 <div className="route-segment-content">
                   <div className="route-segment-route">{seg.from} → {seg.to}</div>
                   <div className="route-segment-meta">

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { MessagePlugin } from 'tdesign-react';
 import { WSClient } from '../services/websocket';
-import { useAppDispatch, useAppState } from '../store/AppContext';
+import { useAppDispatch, useAppState } from '../store/appState';
 import type { WSMessage, SkillInfo, PaperInfo } from '../types';
 
 /** 建立 WebSocket 连接并把消息分发到全局状态。 */
@@ -74,6 +74,7 @@ export function useWebSocket() {
         // === 搜索进度状态 ===
         case 'search_status': {
           const id = msg.payload.id;
+          if (!id) break;
           const status = msg.payload.status;
           if (status === 'thinking') {
             // 切换到流式输出模式
@@ -114,6 +115,7 @@ export function useWebSocket() {
 
         case 'stream_delta': {
           const id = msg.payload.id;
+          if (!id) break;
           const delta = msg.payload.delta || '';
           if (delta) {
             dispatch({
@@ -130,6 +132,7 @@ export function useWebSocket() {
 
         case 'stream_end': {
           const id = msg.payload.id;
+          if (!id) break;
           streamingIds.current.delete(id);
           const papers: PaperInfo[] | undefined = msg.payload.papers;
           const imageUrl: string | undefined = msg.payload.image_url;

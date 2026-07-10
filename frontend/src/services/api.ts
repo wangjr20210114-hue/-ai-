@@ -1,4 +1,4 @@
-import type { TravelPlan, CityInfo, ScheduleItem, MeetingResult } from '../types';
+import type { TravelPlan, CityInfo, ScheduleItem, MeetingResult, TravelCollected } from '../types';
 
 const BASE = '/api';
 
@@ -7,10 +7,10 @@ const BASE = '/api';
 export async function analyzeTravelIntent(params: {
   session_id: string;
   message: string;
-  collected?: Record<string, any>;
+  collected?: TravelCollected;
   history?: string[];
 }): Promise<{
-  collected?: Record<string, any>;
+  collected?: TravelCollected;
   missing?: string[];
   next_question?: {
     field: string;
@@ -22,6 +22,7 @@ export async function analyzeTravelIntent(params: {
   };
   ready?: boolean;
   reasoning?: string;
+  context?: Record<string, unknown>;
   error?: string;
 }> {
   const res = await fetch(`${BASE}/travel/analyze`, {
@@ -51,7 +52,7 @@ export async function generateTravelPlan(params: {
   scenery_preference: string;
   budget: string;
   extra_notes: string;
-}): Promise<{ plan?: TravelPlan; cost?: any; error?: string; start_date?: string; end_date?: string; start_ts?: number; parsed_schedules?: any[] }> {
+}): Promise<{ plan?: TravelPlan; cost?: CostRecord; error?: string; start_date?: string; end_date?: string; start_ts?: number; parsed_schedules?: Partial<ScheduleItem>[] }> {
   const res = await fetch(`${BASE}/travel/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -105,7 +106,7 @@ export async function listSchedules(sessionId: string): Promise<ScheduleItem[]> 
   return data.schedules || [];
 }
 
-export async function saveSchedule(sessionId: string, schedule: Partial<ScheduleItem>): Promise<{ ok: boolean; schedule_id: string; conflicts?: any[] }> {
+export async function saveSchedule(sessionId: string, schedule: Partial<ScheduleItem>): Promise<{ ok: boolean; schedule_id: string; conflicts?: ScheduleItem[] }> {
   const res = await fetch(`${BASE}/schedules`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -187,21 +188,21 @@ export interface DailyRouteData {
   city: string;
   locations: DailyRouteLocation[];
   segments: { from: string; to: string; distance: number; duration: number; toll: number }[];
-  polyline: number[][];
+  polyline: number[];
   total_distance: number;
   total_duration: number;
   total_distance_km: number;
   total_duration_hours: number;
   total_toll: number;
   cost_estimate: { self_driving: number; taxi: number; toll: number; poi_cost?: number; total?: number };
-  weather: any;
+  weather: WeatherData;
   api_calls?: number;
   error?: string;
 }
 
 export async function planDailyRoute(params: {
   city: string;
-  locations: { keyword: string; lat?: number; lng?: number; name?: string; address?: string; alternatives?: any[] }[];
+  locations: { keyword: string; lat?: number; lng?: number; name?: string; address?: string; alternatives?: DailyRouteLocation['alternatives'] }[];
 }): Promise<DailyRouteData> {
   const res = await fetch(`${BASE}/map/daily-route`, {
     method: 'POST',
@@ -212,7 +213,7 @@ export async function planDailyRoute(params: {
   return res.json();
 }
 
-export async function planRoute(origin: string, destination: string, waypoints?: string[]): Promise<{
+export interface RoutePlanData {
   origin?: string;
   origin_location?: { lat: number; lng: number };
   destination?: string;
@@ -224,10 +225,13 @@ export async function planRoute(origin: string, destination: string, waypoints?:
   total_duration?: number;
   total_distance_km?: number;
   total_duration_hours?: number;
-  polyline?: number[][];
-  cost_estimate?: { self_driving: number; taxi: number; high_speed_rail: number };
+  polyline?: number[];
+  cost_estimate?: { self_driving: number; taxi: number; toll: number };
+  weather?: WeatherData;
   error?: string;
-}> {
+}
+
+export async function planRoute(origin: string, destination: string, waypoints?: string[]): Promise<RoutePlanData> {
   const res = await fetch(`${BASE}/map/route`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -235,6 +239,20 @@ export async function planRoute(origin: string, destination: string, waypoints?:
   });
   if (!res.ok) throw new Error('路线规划失败');
   return res.json();
+}
+
+export interface CostRecord {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_yuan: number;
+}
+
+export interface WeatherData {
+  error?: string;
+  temperature?: number;
+  weather?: string;
+  tips?: string;
 }
 
 // ============ 会议 ============
@@ -257,7 +275,7 @@ export async function checkMeetingStatus(): Promise<{ ok: boolean; error?: strin
 
 // ============ AI 生图 ============
 
-export async function generateImage(prompt: string): Promise<{ ok: boolean; image_url?: string; error?: string }> {
+export async function generateImage(prompt: string): Promise<{ ok: boolean; image_url?: string; prompt?: string; error?: string }> {
   const res = await fetch(`${BASE}/image/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

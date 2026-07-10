@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { Button, Tag, Loading, Input, MessagePlugin, Checkbox } from 'tdesign-react';
 import { CheckIcon } from 'tdesign-icons-react';
 import { searchCities, generateTravelPlan, analyzeTravelIntent } from '../../services/api';
-import { useAppDispatch, useAppState } from '../../store/AppContext';
-import type { TravelPlan } from '../../types';
+import { useAppDispatch, useAppState } from '../../store/appState';
+import type { ScheduleItem, TravelCollected, TravelPlan } from '../../types';
 
 interface Props {
   initialDestination?: string;
   userMessage?: string;
-  onComplete: (plan: TravelPlan, startTs?: number, parsedSchedules?: any[]) => void;
+  onComplete: (plan: TravelPlan, startTs?: number, parsedSchedules?: Partial<ScheduleItem>[]) => void;
   onCancel: () => void;
 }
 
@@ -18,6 +18,7 @@ interface QAQuestion {
   options: string[];
   multi: boolean;
   allow_custom: boolean;
+  is_date?: boolean;
 }
 
 /** Agent 驱动的旅游计划助手：AI 根据上下文推断还需要哪些信息。 */
@@ -26,9 +27,8 @@ export default function TravelChatAssistant({ initialDestination, userMessage, o
   const dispatch = useAppDispatch();
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [collected, setCollected] = useState<Record<string, any>>({});
+  const [collected, setCollected] = useState<TravelCollected>({});
   const [currentQuestion, setCurrentQuestion] = useState<QAQuestion | null>(null);
-  const [stepCount, setStepCount] = useState(0);
   const [history, setHistory] = useState<string[]>([]);
 
   // 多选状态
@@ -44,7 +44,7 @@ export default function TravelChatAssistant({ initialDestination, userMessage, o
 
   // 初始化：调用 AI 分析用户消息
   useEffect(() => {
-    const initCollected: Record<string, any> = {};
+    const initCollected: TravelCollected = {};
     if (initialDestination) {
       initCollected.destination = initialDestination;
     }
@@ -61,7 +61,7 @@ export default function TravelChatAssistant({ initialDestination, userMessage, o
     setCityResults([]);
   }, [currentQuestion?.field]);
 
-  const analyze = async (currentCollected: Record<string, any>) => {
+  const analyze = async (currentCollected: TravelCollected) => {
     setLoading(true);
     try {
       const res = await analyzeTravelIntent({
@@ -95,7 +95,6 @@ export default function TravelChatAssistant({ initialDestination, userMessage, o
         generatePlan(newCollected);
       } else if (res.next_question) {
         setCurrentQuestion(res.next_question);
-        setStepCount((prev) => prev + 1);
       } else {
         // 异常情况，直接生成
         generatePlan(newCollected);
@@ -107,7 +106,7 @@ export default function TravelChatAssistant({ initialDestination, userMessage, o
     }
   };
 
-  const generatePlan = async (info: Record<string, any>) => {
+  const generatePlan = async (info: TravelCollected) => {
     setGenerating(true);
     try {
       // 日期优先，没有日期才用天数
@@ -160,7 +159,7 @@ export default function TravelChatAssistant({ initialDestination, userMessage, o
 
   // 多选确认
   const handleMultiConfirm = () => {
-    let selected = [...multiSelected];
+    const selected = [...multiSelected];
     if (showCustom && customInput.trim()) {
       selected.push(customInput.trim());
     }
@@ -274,7 +273,7 @@ export default function TravelChatAssistant({ initialDestination, userMessage, o
           )}
 
           {/* 日期输入 */}
-          {(currentQuestion as any).is_date && (
+          {currentQuestion.is_date && (
             <div className="travel-chat-custom">
               <input
                 type="date"
@@ -325,13 +324,13 @@ export default function TravelChatAssistant({ initialDestination, userMessage, o
           )}
 
           {/* 自定义输入（非日期、非城市字段） */}
-          {currentQuestion.allow_custom && !(currentQuestion as any).is_date && !showCustom && (
+          {currentQuestion.allow_custom && !currentQuestion.is_date && !showCustom && (
             <button className="travel-chat-other-btn" onClick={() => setShowCustom(true)}>
               + 其他
             </button>
           )}
 
-          {currentQuestion.allow_custom && showCustom && currentQuestion.field !== 'departure' && currentQuestion.field !== 'destination' && !(currentQuestion as any).is_date && (
+          {currentQuestion.allow_custom && showCustom && currentQuestion.field !== 'departure' && currentQuestion.field !== 'destination' && !currentQuestion.is_date && (
             <div className="travel-chat-custom">
               <Input
                 value={customInput}

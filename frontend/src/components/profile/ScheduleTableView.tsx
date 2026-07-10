@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Button, Tag } from 'tdesign-react';
 import { ChevronLeftIcon, ChevronRightIcon, ArrowLeftIcon } from 'tdesign-icons-react';
-import { useAppState } from '../../store/AppContext';
-import type { ScheduleCategory } from '../../types';
+import { useAppState } from '../../store/appState';
+import type { ScheduleCategory, ScheduleItem } from '../../types';
 import { SCHEDULE_CATEGORY_COLORS } from '../../types';
 import type { DailyRouteLocation } from '../../services/api';
 
@@ -93,7 +93,7 @@ export default function ScheduleTableView({ selectedDate, onClose, onDateChange,
     routeLocations?.find((l) => l.id === scheduleId);
 
   // 从路线数据获取真实地名和备选方案
-  const getResolved = (event: any) => {
+  const getResolved = (event: ScheduleItem) => {
     const rl = findRouteLocation(event.id);
     if (!rl) return { name: event.location, alts: [] };
     return { name: rl.name || event.location, alts: rl.alternatives || [] };

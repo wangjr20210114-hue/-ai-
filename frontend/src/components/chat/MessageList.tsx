@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useAppDispatch, useAppState } from '../../store/AppContext';
+import { useAppDispatch, useAppState } from '../../store/appState';
 import MessageBubble from './MessageBubble';
 import type { WSClient } from '../../services/websocket';
 

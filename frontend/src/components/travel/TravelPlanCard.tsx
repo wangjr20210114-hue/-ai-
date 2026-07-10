@@ -1,8 +1,16 @@
 import { useState } from 'react';
 import { Button, Tag, MessagePlugin, Collapse } from 'tdesign-react';
 import { CheckIcon, DeleteIcon } from 'tdesign-icons-react';
-import { saveTravelPlan, deleteTravelPlan, updateTravelPlan, saveSchedule, deleteSchedule } from '../../services/api';
-import { useAppDispatch, useAppState } from '../../store/AppContext';
+import {
+  deleteSchedule,
+  deleteTravelPlan,
+  listSchedules,
+  saveSchedule,
+  saveTravelPlan,
+  updateSchedule,
+  updateTravelPlan,
+} from '../../services/api';
+import { useAppDispatch, useAppState } from '../../store/appState';
 import type { TravelPlan, ScheduleItem } from '../../types';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import RouteMap from './RouteMap';
@@ -12,7 +20,7 @@ const { Panel: CollapsePanel } = Collapse;
 interface Props {
   plan: TravelPlan;
   startTs?: number;
-  parsedSchedules?: any[];
+  parsedSchedules?: Partial<ScheduleItem>[];
   isSaved?: boolean;
   onSaved?: (plan: TravelPlan) => void;
   onDeleted?: (planId: string) => void;
@@ -41,7 +49,7 @@ export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isS
             description: `${plan.departure} → ${plan.destination}，${plan.travel_style}`,
             markdown_content: plan.markdown_content,
           };
-          await import('../../services/api').then(m => m.updateSchedule(sessionId, scheduleId, schedule));
+          await updateSchedule(sessionId, scheduleId, schedule);
         }
         MessagePlugin.success('日程已更新');
       } else {
@@ -69,7 +77,6 @@ export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isS
         }
 
         // 刷新右侧面板日程列表
-        const { listSchedules } = await import('../../services/api');
         const schedules = await listSchedules(sessionId);
         dispatch({ type: 'SET_SCHEDULES', payload: schedules });
 

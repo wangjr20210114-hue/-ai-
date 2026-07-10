@@ -3,10 +3,9 @@
  * 核心：extractParagraphs + detectColumns + detectFormula
  */
 import * as pdfjsLib from 'pdfjs-dist';
-// @ts-ignore - vite handles ?url
-import workerSrc from 'pdfjs-dist/build/pdf.worker.min.js?url';
+import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-(pdfjsLib as any).GlobalWorkerOptions.workerSrc = workerSrc;
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
 export type PDFDocumentProxy = pdfjsLib.PDFDocumentProxy;
 export type PDFPageProxy = pdfjsLib.PDFPageProxy;
@@ -40,7 +39,8 @@ export async function extractParagraphs(page: PDFPageProxy): Promise<Paragraph[]
   const textContent = await page.getTextContent();
   const items: TextItem[] = [];
 
-  for (const it of textContent.items as any[]) {
+  for (const it of textContent.items) {
+    if (!('str' in it)) continue;
     if (!it.str) continue;
     const tr = it.transform as number[];
     const m = pdfjsLib.Util.transform(viewport.transform, tr);

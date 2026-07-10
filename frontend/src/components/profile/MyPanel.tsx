@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Button, Tag, Empty, MessagePlugin, Dialog, Checkbox } from 'tdesign-react';
+import { Button, Tag, MessagePlugin, Dialog, Checkbox } from 'tdesign-react';
 import {
   UserIcon,
   DeleteIcon,
@@ -9,7 +9,7 @@ import {
   FileIcon,
   FullscreenIcon,
 } from 'tdesign-icons-react';
-import { useAppDispatch, useAppState } from '../../store/AppContext';
+import { useAppDispatch, useAppState } from '../../store/appState';
 import { listSchedules, deleteSchedule, toggleScheduleDone } from '../../services/api';
 import { listSavedPapers, deleteSavedPaper, type SavedPaper } from '../../services/paperApi';
 import MarkdownRenderer from '../common/MarkdownRenderer';
@@ -163,22 +163,6 @@ export default function MyPanel() {
     return ['', '闲', '正常', '较忙', '满'][level] || '';
   };
 
-  // 获取选中日期的日程
-  const daySchedules = useMemo(() => {
-    const dayStart = selectedDate.getTime() / 1000;
-    const dayEnd = dayStart + 86400;
-    return schedules
-      .filter((s) => {
-        if (s.start_time <= 0) return false;
-        if (s.duration_days > 0) {
-          const sEnd = s.start_time + s.duration_days * 86400;
-          return s.start_time < dayEnd && sEnd > dayStart;
-        }
-        return s.start_time >= dayStart && s.start_time < dayEnd;
-      })
-      .sort((a, b) => a.start_time - b.start_time);
-  }, [schedules, selectedDate]);
-
   // 获取当前查看日期的日程（用于路线规划）
   const routeDaySchedules = useMemo(() => {
     const dayStart = effectiveDate.getTime() / 1000;
@@ -198,21 +182,6 @@ export default function MyPanel() {
   // 未定时日程
   const unscheduledItems = schedules.filter((s) => s.start_time <= 0);
 
-  const formatTime = (ts: number) => {
-    const d = new Date(ts * 1000);
-    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-  };
-
-  const formatDateLabel = (d: Date) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
-    if (diff === 0) return '今天';
-    if (diff === 1) return '明天';
-    if (diff === -1) return '昨天';
-    return `${d.getMonth() + 1}月${d.getDate()}日`;
-  };
-
   const isToday = (d: Date) => {
     const today = new Date();
     return d.toDateString() === today.toDateString();
@@ -223,26 +192,6 @@ export default function MyPanel() {
   };
 
   const monthLabel = `${currentMonth.getFullYear()}年${currentMonth.getMonth() + 1}月`;
-
-  // 检查冲突
-  const checkConflicts = (items: ScheduleItem[]): Set<string> => {
-    const conflictIds = new Set<string>();
-    const timed = items.filter((s) => s.start_time > 0 && s.duration_minutes > 0);
-    for (let i = 0; i < timed.length; i++) {
-      const a = timed[i];
-      const aEnd = a.start_time + a.duration_minutes * 60;
-      for (let j = i + 1; j < timed.length; j++) {
-        const b = timed[j];
-        if (b.start_time < aEnd) {
-          conflictIds.add(a.id);
-          conflictIds.add(b.id);
-        }
-      }
-    }
-    return conflictIds;
-  };
-
-  const conflictIds = checkConflicts(daySchedules);
 
   return (
     <aside className="my-panel">
@@ -365,20 +314,21 @@ export default function MyPanel() {
         <div className="calendar-grid">
           {calendarDays.map((cell, i) => {
             if (!cell.date) return <div key={i} className="calendar-day empty" />;
-            const busy = getBusyLevel(cell.date);
-            const isT = isToday(cell.date);
-            const isSel = isSelected(cell.date);
+            const cellDate = cell.date;
+            const busy = getBusyLevel(cellDate);
+            const isT = isToday(cellDate);
+            const isSel = isSelected(cellDate);
             return (
               <button
                 key={i}
                 className={`calendar-day ${isT ? 'today' : ''} ${isSel ? 'selected' : ''}`}
                 style={{ background: busy.color }}
-                onClick={() => setSelectedDate(cell.date)}
+                onClick={() => setSelectedDate(cellDate)}
                 onDoubleClick={() => {
-                  setSelectedDate(cell.date);
-                  dispatch({ type: 'SHOW_SCHEDULE_VIEW', payload: cell.date });
+                  setSelectedDate(cellDate);
+                  dispatch({ type: 'SHOW_SCHEDULE_VIEW', payload: cellDate });
                 }}
-                title={busy.level > 0 ? `${busyLabel(busy.level)} (${getDayScheduleCount(cell.date)}项) · 双击查看详情` : '双击查看课程表'}
+                title={busy.level > 0 ? `${busyLabel(busy.level)} (${getDayScheduleCount(cellDate)}项) · 双击查看详情` : '双击查看课程表'}
               >
                 <span className="calendar-day-num">{cell.day}</span>
                 {busy.level > 0 && <span className="calendar-day-dot" />}
@@ -442,7 +392,6 @@ export default function MyPanel() {
                     <Checkbox
                       checked={item.done}
                       onChange={() => handleToggleDone(item.id, item.done)}
-                      size="small"
                     />
                     <Button
                       variant="text"

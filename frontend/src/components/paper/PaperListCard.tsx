@@ -3,11 +3,9 @@
  * 使用统一的 InfoCard 组件展示论文信息。
  */
 import { useState } from 'react';
-import { Button, MessagePlugin } from 'tdesign-react';
-import { DownloadIcon } from 'tdesign-icons-react';
+import { MessagePlugin } from 'tdesign-react';
 import type { PaperInfo, ChatMessage } from '../../types';
 import { downloadPaper } from '../../services/paperApi';
-import { useAppDispatch, useAppState } from '../../store/AppContext';
 import InfoCard from '../common/InfoCard';
 import PaperInlineReader from './PaperInlineReader';
 import PaperFullReader from './PaperFullReader';
@@ -24,8 +22,6 @@ interface DownloadedPaper {
 }
 
 export default function PaperListCard({ message }: Props) {
-  const dispatch = useAppDispatch();
-  const { sessionId } = useAppState();
   const papers: PaperInfo[] = message.papers || [];
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloaded, setDownloaded] = useState<Record<string, DownloadedPaper>>({});
@@ -75,7 +71,7 @@ export default function PaperListCard({ message }: Props) {
               sourceLabel="arXiv"
               url={paper.arxiv_url}
               tags={[
-                { label: paper.year },
+                { label: String(paper.year) },
                 { label: paper.citations },
                 { label: `arXiv:${paper.arxiv_id}` },
               ]}

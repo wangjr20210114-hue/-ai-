@@ -154,7 +154,7 @@ export default function PaperReader({ onClose, initialTopic }: Props) {
         MessagePlugin.error('PDF 下载成功但无法加载预览');
         setDownloadingId(null);
       }
-    } catch (e) {
+    } catch {
       MessagePlugin.error('下载失败');
     } finally {
       setDownloadingId(null);

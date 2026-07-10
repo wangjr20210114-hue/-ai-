@@ -1,4 +1,4 @@
-import { useAppState } from '../../store/AppContext';
+import { useAppState } from '../../store/appState';
 
 /** 连接状态指示器。 */
 export default function StatusIndicator() {
