@@ -1,3 +1,4 @@
+import { authorizedFetch } from '../../services/auth';
 /**
  * PaperFullReader：全屏论文阅读器。
  * 使用 PDF.js TextLayer 实现原生文本选择 + 段落交互。
@@ -70,7 +71,7 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
     renderedScaleRef.current = 0;  // 重置，让渲染 effect 重新执行
     (async () => {
       try {
-        const resp = await fetch(`/api/paper/file/${fileId}`);
+        const resp = await authorizedFetch(`/api/paper/file/${fileId}`);
         if (!resp.ok) return;
         const blob = await resp.blob();
         const buffer = await blob.arrayBuffer();

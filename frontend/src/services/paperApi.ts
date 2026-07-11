@@ -1,3 +1,4 @@
+import { authorizedFetch } from './auth';
 /**
  * 论文助读 API：搜索 → 下载 → 流式 LLM 调用。
  */
@@ -20,7 +21,7 @@ export interface PaperInfo {
 export async function searchPapers(topic: string): Promise<{ papers: PaperInfo[]; topic: string; error?: string }> {
   const fd = new FormData();
   fd.append('topic', topic);
-  const resp = await fetch(`${BASE}/search`, { method: 'POST', body: fd });
+  const resp = await authorizedFetch(`${BASE}/search`, { method: 'POST', body: fd });
   return resp.json();
 }
 
@@ -37,7 +38,7 @@ export async function downloadPaper(arxivId: string, title: string): Promise<{
   const fd = new FormData();
   fd.append('arxiv_id', arxivId);
   fd.append('title', title);
-  const resp = await fetch(`${BASE}/download`, { method: 'POST', body: fd });
+  const resp = await authorizedFetch(`${BASE}/download`, { method: 'POST', body: fd });
   return resp.json();
 }
 
@@ -48,19 +49,19 @@ export async function savePaper(fileId: string, title: string, arxivId: string, 
   fd.append('title', title);
   fd.append('arxiv_id', arxivId);
   fd.append('session_id', sessionId);
-  const resp = await fetch(`${BASE}/save`, { method: 'POST', body: fd });
+  const resp = await authorizedFetch(`${BASE}/save`, { method: 'POST', body: fd });
   return resp.json();
 }
 
 /** 列出「我的阅读」中的论文 */
 export async function listSavedPapers(sessionId: string): Promise<{ papers: SavedPaper[] }> {
-  const resp = await fetch(`${BASE}/saved/${sessionId}`);
+  const resp = await authorizedFetch(`${BASE}/saved/${sessionId}`);
   return resp.json();
 }
 
 /** 删除「我的阅读」中的论文 */
 export async function deleteSavedPaper(paperId: string): Promise<{ ok: boolean }> {
-  const resp = await fetch(`${BASE}/saved/${paperId}`, { method: 'DELETE' });
+  const resp = await authorizedFetch(`${BASE}/saved/${paperId}`, { method: 'DELETE' });
   return resp.json();
 }
 
@@ -89,7 +90,7 @@ export function streamPaper(
       const fd = new FormData();
       for (const [k, v] of Object.entries(params)) fd.append(k, v);
 
-      const resp = await fetch(`${BASE}/${endpoint}`, {
+      const resp = await authorizedFetch(`${BASE}/${endpoint}`, {
         method: 'POST',
         body: fd,
         signal: ctrl.signal,

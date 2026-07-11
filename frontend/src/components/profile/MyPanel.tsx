@@ -16,6 +16,9 @@ import MarkdownRenderer from '../common/MarkdownRenderer';
 import PaperFullReader from '../paper/PaperFullReader';
 import ScheduleTableView from './ScheduleTableView';
 import DailyRouteMap from '../travel/DailyRouteMap';
+import AgentActivityCenter from './AgentActivityCenter';
+import AgentIntelligencePanel from './AgentIntelligencePanel';
+import SystemSafetyPanel from './SystemSafetyPanel';
 import type { DailyRouteData } from '../../services/api';
 import {
   SCHEDULE_CATEGORY_LABELS,
@@ -217,6 +220,10 @@ export default function MyPanel() {
           />
         </div>
       </div>
+
+      <AgentActivityCenter />
+      <AgentIntelligencePanel />
+      <SystemSafetyPanel />
 
       {/* 我的阅读 */}
       <div className="my-panel-card">

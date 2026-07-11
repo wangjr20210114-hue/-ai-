@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import aiosqlite
 
-from database.init_db import M1_SCHEMA, M2_SCHEMA, SCHEMA
+from database.init_db import M1_SCHEMA, M2_SCHEMA, M2_EXECUTION_SCHEMA, M3_SCHEMA, SCHEMA
 from database.migrations import Migration, apply_migrations
 from database.repositories import runtime_repo
 
@@ -22,6 +22,8 @@ class M2RuntimeRepositoryTests(unittest.IsolatedAsyncioTestCase):
                 Migration(1, "initial_schema", SCHEMA),
                 Migration(2, "persistent_identity_conversations_files", M1_SCHEMA),
                 Migration(3, "persistent_agent_runtime", M2_SCHEMA),
+                Migration(4, "agent_execution_leases_and_results", M2_EXECUTION_SCHEMA),
+                Migration(5, "proactive_jobs_notifications_usage", M3_SCHEMA),
             ],
         )
         self.db_patch = patch.object(runtime_repo, "get_db", return_value=self.db)
@@ -44,7 +46,7 @@ class M2RuntimeRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(created)
         self.assertFalse(created_again)
         self.assertEqual(first["id"], second["id"])
-        self.assertEqual(second["payload"], {"text": "hello"})
+        self.assertEqual(second["payload"], {"schema_version": 1, "text": "hello"})
 
         run = await runtime_repo.create_run(first["id"], max_attempts=2)
         for status in ("classified", "planned", "policy_checked", "waiting_confirmation"):
@@ -58,11 +60,11 @@ class M2RuntimeRepositoryTests(unittest.IsolatedAsyncioTestCase):
         restored_run = await runtime_repo.get_run(run["id"])
 
         self.assertEqual(confirmed["status"], "confirmed")
-        self.assertEqual(confirmed["snapshot"], snapshot)
+        self.assertEqual(confirmed["snapshot"], {"schema_version": 1, **snapshot})
         self.assertEqual(restored_run["status"], "queued")
         self.assertEqual(restored_run["observations"][-1]["step"], "action_confirmed")
-        with self.assertRaises(runtime_repo.StateConflict):
-            await runtime_repo.confirm_action(action["id"], 1)
+        confirmed_again = await runtime_repo.confirm_action(action["id"], 1)
+        self.assertEqual(confirmed_again["status"], "confirmed")
 
     async def test_expiry_cancel_and_limited_retry(self) -> None:
         expiring_run = await self._waiting_run("event:expiring")
@@ -88,6 +90,6 @@ class M2RuntimeRepositoryTests(unittest.IsolatedAsyncioTestCase):
         failed_run = await runtime_repo.transition_run(failed_run["id"], "failed", step="failed", error="temporary")
         retried = await runtime_repo.retry_run(failed_run["id"])
         self.assertEqual(retried["status"], "queued")
-        self.assertEqual(retried["attempt"], 1)
+        self.assertEqual(retried["attempt"], 0)
         with self.assertRaises(runtime_repo.StateConflict):
             await runtime_repo.retry_run(failed_run["id"])

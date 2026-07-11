@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from datetime import date
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from database.repositories.conversation_repo import LOCAL_USER_ID
 from database.repositories.plan_repo import delete_plan, get_plan, list_plans, save_plan, update_plan
@@ -533,44 +533,17 @@ def _tsp_nearest_neighbor(matrix: list[list[dict]]) -> list[int]:
 
 # ============ 会议创建 ============
 
-@router.post("/meeting/create")
+@router.post("/meeting/create", deprecated=True)
 async def create_meeting(req: MeetingCreateRequest) -> dict:
-    """从用户消息中提取会议信息，调用 tmeet CLI 创建腾讯会议。"""
-    # 1. LLM 提取会议信息
-    messages = [
-        {"role": "system", "content": MEETING_EXTRACT_PROMPT},
-        {"role": "user", "content": f"用户消息：{req.message}\n当前日期：{date.today().isoformat()}"},
-    ]
-
-    try:
-        result, cost = await hunyuan_service.chat_json(
-            messages, LOCAL_USER_ID, ScenarioType.MEETING, max_tokens=200
-        )
-    except ApiNotConfiguredError as e:
-        return {"error": str(e)}
-
-    if not result.get("detected", False):
-        return {"ok": False, "error": "未检测到明确的会议意图"}
-
-    subject = result.get("subject", "快速会议")
-    start_iso = result.get("start_time", "")
-    duration = result.get("duration_minutes", 60)
-
-    if not start_iso:
-        return {"ok": False, "error": "无法确定会议时间"}
-
-    # 计算 end_time
-    try:
-        from datetime import datetime, timedelta
-        dt = datetime.fromisoformat(start_iso)
-        end_dt = dt + timedelta(minutes=duration)
-        end_iso = end_dt.isoformat()
-    except (ValueError, TypeError):
-        return {"ok": False, "error": f"时间格式错误: {start_iso}"}
-
-    # 2. 调用 tmeet 创建会议
-    meeting_result = await meeting_service.create_meeting(subject, start_iso, end_iso)
-    return meeting_result
+    del req
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "action_confirmation_required",
+            "message": "会议创建必须通过 Agent 建议卡确认，不能直接调用副作用接口",
+            "use": "发送会议需求到 WebSocket，并确认返回的 action_id/version",
+        },
+    )
 
 
 @router.get("/meeting/status")
@@ -579,24 +552,25 @@ async def meeting_status() -> dict:
     return await meeting_service.check_auth()
 
 
+@router.post("/meeting/setup/install")
+async def install_meeting_cli() -> dict:
+    """显式安装 tmeet；普通会议创建流程绝不会自动安装全局依赖。"""
+    return await meeting_service.install_cli()
+
+
 # ============ AI 生图 ============
 
-@router.post("/image/generate")
+@router.post("/image/generate", deprecated=True)
 async def generate_image(req: dict) -> dict:
-    """调用混元文生图，返回图片 URL。"""
-    prompt = req.get("prompt", "")
-    if not prompt:
-        return {"error": "请提供图片描述"}
-
-    from services.hunyuan_service import hunyuan_service, ApiNotConfiguredError
-
-    try:
-        image_url = await hunyuan_service.text_to_image(prompt)
-        return {"ok": True, "image_url": image_url, "prompt": prompt}
-    except ApiNotConfiguredError as e:
-        return {"ok": False, "error": str(e)}
-    except Exception as e:
-        return {"ok": False, "error": f"生图失败：{type(e).__name__}: {e}"}
+    del req
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "action_confirmation_required",
+            "message": "生图会消耗额度，必须通过 Agent 建议卡确认",
+            "use": "发送生图描述到 WebSocket，并确认返回的 action_id/version",
+        },
+    )
 
 
 # ============ 日程解析 ============

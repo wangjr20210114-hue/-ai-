@@ -1,46 +1,59 @@
 import type { WSMessage } from '../types';
+import { getLocalAccessToken } from './auth';
 
 type Listener = (msg: WSMessage) => void;
 
-/** WebSocket 连接管理：心跳保活 + 断线重连。 */
+/** WebSocket 连接管理：本地令牌 + 心跳保活 + 断线重连。 */
 export class WSClient {
   private ws: WebSocket | null = null;
-  private url: string;
+  private baseUrl: string;
   private listeners = new Set<Listener>();
   private heartbeat?: number;
   private reconnectTimer?: number;
   private manualClose = false;
+  private generation = 0;
 
   constructor(sessionId: string) {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    this.url = `${proto}://${location.host}/ws/${sessionId}`;
+    this.baseUrl = `${proto}://${location.host}/ws/${encodeURIComponent(sessionId)}`;
   }
 
   connect(onOpen?: () => void, onClose?: () => void) {
     this.manualClose = false;
-    this.ws = new WebSocket(this.url);
+    const generation = ++this.generation;
+    void getLocalAccessToken()
+      .then((token) => {
+        if (this.manualClose || generation !== this.generation) return;
+        this.ws = new WebSocket(this.baseUrl, [`agent-token.${token}`]);
 
-    this.ws.onopen = () => {
-      onOpen?.();
-      this.heartbeat = window.setInterval(() => this.send({ type: 'ping', payload: {} }), 20000);
-    };
+        this.ws.onopen = () => {
+          onOpen?.();
+          this.heartbeat = window.setInterval(() => this.send({ type: 'ping', payload: {} }), 20000);
+        };
 
-    this.ws.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data) as WSMessage;
-        this.listeners.forEach((l) => l(msg));
-      } catch {
-        // ignore malformed
-      }
-    };
+        this.ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data) as WSMessage;
+            this.listeners.forEach((listener) => listener(message));
+          } catch {
+            // Ignore malformed transport frames; backend validation handles client frames.
+          }
+        };
 
-    this.ws.onclose = () => {
-      window.clearInterval(this.heartbeat);
-      onClose?.();
-      if (!this.manualClose) {
-        this.reconnectTimer = window.setTimeout(() => this.connect(onOpen, onClose), 2000);
-      }
-    };
+        this.ws.onclose = () => {
+          window.clearInterval(this.heartbeat);
+          onClose?.();
+          if (!this.manualClose && generation === this.generation) {
+            this.reconnectTimer = window.setTimeout(() => this.connect(onOpen, onClose), 2000);
+          }
+        };
+      })
+      .catch(() => {
+        onClose?.();
+        if (!this.manualClose && generation === this.generation) {
+          this.reconnectTimer = window.setTimeout(() => this.connect(onOpen, onClose), 2000);
+        }
+      });
   }
 
   send(msg: WSMessage) {
@@ -56,8 +69,10 @@ export class WSClient {
 
   close() {
     this.manualClose = true;
+    this.generation += 1;
     window.clearInterval(this.heartbeat);
     window.clearTimeout(this.reconnectTimer);
     this.ws?.close();
+    this.ws = null;
   }
 }

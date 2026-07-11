@@ -10,13 +10,13 @@
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from config import settings
+from services.model_gateway import ModelRequest
 
 
-async def build_search_prompt(
+def prepare_search_prompt(
     query: str,
     results: list[dict[str, Any]],
     images: list[str],
@@ -158,53 +158,29 @@ async def build_search_prompt(
         "total": len(results),
     }
 
-    # 4. 流式调用 LLM（复用 hunyuan_service 的流式接口）
-    async def stream():
-        try:
-            import httpx
-            from services.hunyuan_service import _check_quota_error, QuotaExhaustedError
+    request = ModelRequest(
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        provider="deepseek",
+        model=settings.deepseek_model,
+        max_tokens=3000,
+        temperature=0.6,
+        operation="search_summary",
+    )
+    return request, search_meta
 
-            async with httpx.AsyncClient(timeout=60) as client:
-                async with client.stream(
-                    "POST",
-                    f"{settings.deepseek_base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
-                    json={
-                        "model": settings.deepseek_model,
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_content},
-                        ],
-                        "max_tokens": 3000,
-                        "temperature": 0.6,
-                        "stream": True,
-                    },
-                ) as resp:
-                    if resp.status_code != 200:
-                        body = await resp.aread()
-                        _check_quota_error(
-                            resp.status_code,
-                            body.decode("utf-8", errors="replace"),
-                            "DeepSeek",
-                        )
-                    resp.raise_for_status()
-                    async for line in resp.aiter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        data = line[6:]
-                        if data.strip() == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data)
-                            delta = chunk.get("choices", [{}])[0].get("delta", {})
-                            text = delta.get("content", "")
-                            if text:
-                                yield text
-                        except (json.JSONDecodeError, IndexError):
-                            continue
-        except QuotaExhaustedError:
-            raise
-        except Exception as e:
-            yield f"\n\n搜索总结失败：{e}"
 
-    return stream(), search_meta
+# Compatibility alias for older SearchAgent callers. The function now returns a
+# provider-neutral ModelRequest instead of opening an HTTP stream itself.
+async def build_search_prompt(
+    query: str,
+    results: list[dict[str, Any]],
+    images: list[str],
+    sources_used: list[str],
+    image_descriptions: list[dict[str, str]] | None = None,
+) -> tuple[ModelRequest, dict[str, Any]]:
+    return prepare_search_prompt(
+        query, results, images, sources_used, image_descriptions
+    )

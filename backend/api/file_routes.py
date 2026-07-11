@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from config import settings
@@ -31,6 +31,7 @@ def _public_file(item: dict[str, Any]) -> dict[str, Any]:
 
 @router.post("")
 async def upload_file(
+    request: Request,
     file: UploadFile = File(...),
     conversation_id: str = Form(DEFAULT_CONVERSATION_ID),
 ) -> dict[str, Any]:
@@ -41,7 +42,10 @@ async def upload_file(
         item = await store_pdf(content, file.filename or "document.pdf", conversation_id)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    return {"file": _public_file(item)}
+    public_item = _public_file(item)
+    signal = await request.app.state.file_collector.on_file_persisted(item, conversation_id)
+    await request.app.state.proactive_event_service.process_signal(signal.to_dict())
+    return {"file": public_item}
 
 
 @router.get("/{file_id}")

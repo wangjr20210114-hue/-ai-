@@ -23,8 +23,8 @@ from services.sogou_search_service import (
     wsa_search,
 )
 import asyncio
-import re
-import httpx
+
+from services.safe_http import request_public_url, safe_head_or_get
 
 # ============================================================
 # 1. 意图分类
@@ -198,11 +198,18 @@ async def _extract_page_image(url: str) -> str:
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         }
-        async with httpx.AsyncClient(timeout=8, headers=headers, follow_redirects=True) as client:
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                return ""
-            text = resp.text
+        response = await request_public_url(
+            "GET",
+            url,
+            headers=headers,
+            timeout_seconds=8,
+            max_redirects=3,
+            max_bytes=2 * 1024 * 1024,
+            allowed_content_types=("text/html", "application/xhtml+xml"),
+        )
+        if response.status_code != 200:
+            return ""
+        text = response.text
 
         # 提取 og:image
         m = re.search(r'<meta[^>]*property="og:image"[^>]*content="([^"]+)"', text, re.IGNORECASE)
@@ -255,12 +262,12 @@ async def _check_url_valid(url: str) -> bool:
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         }
-        async with httpx.AsyncClient(timeout=6, headers=headers, follow_redirects=True) as client:
-            resp = await client.head(url)
-            # 有些网站不支持 HEAD，用 GET
-            if resp.status_code == 405:
-                resp = await client.get(url)
-            return resp.status_code == 200
+        response = await safe_head_or_get(
+            url,
+            headers=headers,
+            timeout_seconds=6,
+        )
+        return response.status_code == 200
     except Exception:
         return False
 

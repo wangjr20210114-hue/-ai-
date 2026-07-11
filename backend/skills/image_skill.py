@@ -1,10 +1,19 @@
-"""Image generation skill."""
+"""Image generation side-effect skill."""
 from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel, ValidationError
+
 from agent.contracts import ConfirmationPolicy, FailurePolicy, PermissionLevel, RiskLevel, SkillParameter, SkillSchema
-from skills.base_skill import BaseSkill, SkillResult
+from skills.action_models import ImageActionInput
+from skills.base_skill import (
+    ActionInputError,
+    BaseSkill,
+    SkillExecutionContext,
+    SkillExecutionResult,
+    SkillResult,
+)
 
 
 class ImageSkill(BaseSkill):
@@ -14,7 +23,7 @@ class ImageSkill(BaseSkill):
 
     @property
     def description(self) -> str:
-        return "生成图片（混元文生图）。用户想生成图片、画图、AI作画"
+        return "生成图片（混元文生图，在用户确认额度消耗后执行）"
 
     @property
     def trigger_keywords(self) -> list[str]:
@@ -51,8 +60,26 @@ class ImageSkill(BaseSkill):
         return RiskLevel.MEDIUM
 
     @property
+    def side_effect(self) -> bool:
+        return True
+
+    @property
+    def action_input_model(self) -> type[BaseModel]:
+        return ImageActionInput
+
+    def estimated_cost_cny(self, input_model: BaseModel) -> float:
+        del input_model
+        from config import settings
+        return max(0.0, settings.image_generation_estimated_cost_cny)
+
+    @property
     def confirmation_policy(self) -> ConfirmationPolicy:
-        return ConfirmationPolicy(required=True, reason="生图会消耗独立额度", action_label=self.action_label, reversible=False)
+        return ConfirmationPolicy(
+            required=True,
+            reason="生图会消耗独立额度",
+            action_label=self.action_label,
+            reversible=False,
+        )
 
     @property
     def failure_policy(self) -> FailurePolicy:
@@ -60,35 +87,46 @@ class ImageSkill(BaseSkill):
 
     @property
     def planner_steps(self) -> list[str]:
-        return ["extract_image_prompt", "ask_confirmation", "generate_image", "render_image"]
+        return ["validate_image_prompt", "persist_confirmation_snapshot", "generate_image", "persist_result"]
+
+    async def prepare_action_input(self, message: str, params: dict[str, Any]) -> ImageActionInput:
+        prompt = str(params.get("prompt") or message).strip()
+        try:
+            return ImageActionInput(prompt=prompt)
+        except ValidationError as error:
+            raise ActionInputError("生图提示词不能为空，且不能超过 4000 字") from error
 
     async def suggest(self, message: str, params: dict[str, Any]) -> SkillResult:
-        prompt = params.get("prompt", message)
+        prompt = str(params.get("prompt") or message).strip()
+        preview = prompt if len(prompt) <= 60 else prompt[:60] + "…"
         return SkillResult(
             intent=self.name,
             mode=self.mode,
-            content=f"需要我帮你生成一张「{prompt[:30]}...」的图片吗？",
+            content=f"准备按以下提示词生成图片：\n\n> {preview}\n\n确认后将使用已保存的提示词快照。",
             icon=self.icon,
             action_label=self.action_label,
-            params={**params, "prompt": prompt},
+            params={},
             data={},
         )
 
-    async def handle(self, message: str, params: dict[str, Any], session_id: str) -> SkillResult:
-        prompt = params.get("prompt", message)
-        from services.hunyuan_service import ApiNotConfiguredError, hunyuan_service
-        try:
-            image_url = await hunyuan_service.text_to_image(prompt)
-            return SkillResult(
-                intent=self.name,
-                mode="immediate",
-                content=f"已为你生成图片：\n\n![生成的图片]({image_url})",
-                icon=self.icon,
-                action_label=self.action_label,
-                params={**params, "prompt": prompt},
-                data={"image_url": image_url},
-            )
-        except ApiNotConfiguredError as e:
-            return SkillResult(intent=self.name, mode="immediate", content=f"❌ {str(e)}", icon=self.icon, action_label=self.action_label, params=params)
-        except Exception as e:
-            return SkillResult(intent=self.name, mode="immediate", content=f"❌ 生图失败：{type(e).__name__}: {e}", icon=self.icon, action_label=self.action_label, params=params)
+    async def execute_action(
+        self,
+        input_model: BaseModel,
+        context: SkillExecutionContext,
+    ) -> SkillExecutionResult:
+        action = ImageActionInput.model_validate(input_model)
+        from services.hunyuan_service import hunyuan_service
+
+        image_url = await hunyuan_service.text_to_image(action.prompt)
+        if not image_url:
+            raise RuntimeError("生图服务没有返回图片地址")
+        return SkillExecutionResult(
+            content=f"图片生成成功：\n\n![生成的图片]({image_url})",
+            data={
+                "image_url": image_url,
+                "prompt": action.prompt,
+                "idempotency_key": context.idempotency_key,
+            },
+            provider_request_id=image_url,
+            usage={"image_generations": 1},
+        )

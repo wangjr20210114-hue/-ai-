@@ -207,6 +207,181 @@ CREATE INDEX IF NOT EXISTS idx_pending_actions_status ON pending_actions(status,
 """
 
 
+M2_EXECUTION_SCHEMA = """
+ALTER TABLE agent_runs ADD COLUMN lease_owner TEXT;
+ALTER TABLE agent_runs ADD COLUMN execution_lane TEXT NOT NULL DEFAULT 'interactive';
+ALTER TABLE pending_actions ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE pending_actions ADD COLUMN provider_request_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE pending_actions ADD COLUMN error TEXT NOT NULL DEFAULT '';
+ALTER TABLE pending_actions ADD COLUMN execution_started_at REAL;
+ALTER TABLE pending_actions ADD COLUMN reconciliation_required INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_agent_runs_lane_status ON agent_runs(execution_lane, status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_pending_actions_run ON pending_actions(run_id, created_at DESC);
+"""
+
+M3_SCHEMA = """
+CREATE TABLE IF NOT EXISTS scheduled_jobs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    job_type TEXT NOT NULL,
+    payload TEXT NOT NULL DEFAULT '{}',
+    next_run_at REAL NOT NULL,
+    interval_seconds INTEGER,
+    status TEXT NOT NULL DEFAULT 'enabled' CHECK(status IN ('enabled','paused','running','failed','completed')),
+    lease_owner TEXT,
+    lease_until REAL,
+    checkpoint TEXT NOT NULL DEFAULT '{}',
+    last_error TEXT NOT NULL DEFAULT '',
+    attempt INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_due ON scheduled_jobs(status, next_run_at, lease_until);
+
+CREATE TABLE IF NOT EXISTS notifications (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+    event_id TEXT REFERENCES agent_events(id) ON DELETE SET NULL,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    source_label TEXT NOT NULL DEFAULT '',
+    action_id TEXT REFERENCES pending_actions(id) ON DELETE SET NULL,
+    priority INTEGER NOT NULL DEFAULT 0,
+    dedup_key TEXT NOT NULL UNIQUE,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    read_at REAL,
+    dismissed_at REAL,
+    snoozed_until REAL
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS collector_checkpoints (
+    collector_name TEXT PRIMARY KEY,
+    checkpoint TEXT NOT NULL DEFAULT '{}',
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS notification_preferences (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    quiet_hours_start TEXT NOT NULL DEFAULT '23:00',
+    quiet_hours_end TEXT NOT NULL DEFAULT '08:00',
+    daily_limit INTEGER NOT NULL DEFAULT 20,
+    cooldown_seconds INTEGER NOT NULL DEFAULT 1800,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS usage_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+    provider TEXT NOT NULL DEFAULT '',
+    operation TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    units REAL NOT NULL DEFAULT 0,
+    estimated_cost REAL NOT NULL DEFAULT 0,
+    currency TEXT NOT NULL DEFAULT 'CNY',
+    status TEXT NOT NULL DEFAULT 'succeeded',
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_usage_records_run ON usage_records(run_id, created_at);
+
+INSERT OR IGNORE INTO notification_preferences(user_id, updated_at)
+VALUES('local-user', CAST(strftime('%s','now') AS REAL));
+"""
+
+
+
+PRODUCT_INTELLIGENCE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS memory_proposals (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_message_id TEXT NOT NULL DEFAULT '',
+    candidate_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'awaiting_confirmation' CHECK(status IN ('awaiting_confirmation','confirmed','rejected')),
+    version INTEGER NOT NULL DEFAULT 1,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_proposals_status ON memory_proposals(user_id,status,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS memories (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    memory_key TEXT NOT NULL,
+    value_json TEXT NOT NULL DEFAULT '{}',
+    confidence REAL NOT NULL DEFAULT 1.0,
+    source_message_id TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(user_id,memory_key)
+);
+CREATE INDEX IF NOT EXISTS idx_memories_user_updated ON memories(user_id,updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS feedback_records (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+    action_id TEXT REFERENCES pending_actions(id) ON DELETE SET NULL,
+    feedback_action TEXT NOT NULL CHECK(feedback_action IN ('helpful','unhelpful','dismissed','corrected')),
+    reason TEXT NOT NULL DEFAULT '',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_run ON feedback_records(run_id,created_at DESC);
+"""
+
+
+PROVIDER_CALLS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS provider_calls (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+    action_id TEXT NOT NULL REFERENCES pending_actions(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL DEFAULT '',
+    operation TEXT NOT NULL DEFAULT '',
+    idempotency_key TEXT NOT NULL,
+    request_hash TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL CHECK(status IN ('started','succeeded','failed','unknown')),
+    external_resource_id TEXT NOT NULL DEFAULT '',
+    response_json TEXT NOT NULL DEFAULT '{}',
+    error TEXT NOT NULL DEFAULT '',
+    started_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    finished_at REAL,
+    UNIQUE(user_id,idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_provider_calls_action ON provider_calls(action_id,updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_provider_calls_status ON provider_calls(status,updated_at);
+"""
+
+
+PRODUCT_CONTROLS_SCHEMA = """
+ALTER TABLE memories ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE memories ADD COLUMN sensitivity TEXT NOT NULL DEFAULT 'normal';
+ALTER TABLE feedback_records ADD COLUMN client_feedback_id TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_client_id ON feedback_records(user_id,client_feedback_id) WHERE client_feedback_id<>'';
+
+CREATE TABLE IF NOT EXISTS usage_preferences (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    daily_budget_cny REAL NOT NULL DEFAULT 20.0,
+    monthly_budget_cny REAL NOT NULL DEFAULT 300.0,
+    enforcement TEXT NOT NULL DEFAULT 'soft' CHECK(enforcement IN ('off','soft','hard')),
+    alert_threshold_percent INTEGER NOT NULL DEFAULT 80,
+    updated_at REAL NOT NULL
+);
+
+INSERT OR IGNORE INTO usage_preferences(user_id,daily_budget_cny,updated_at)
+VALUES('local-user',20.0,CAST(strftime('%s','now') AS REAL));
+"""
+
 async def _table_columns(db, table_name: str) -> set[str]:
     cursor = await db.execute(f"PRAGMA table_info({table_name})")
     return {str(row[1]) for row in await cursor.fetchall()}
@@ -269,6 +444,11 @@ async def init_db() -> None:
             Migration(1, "initial_schema", SCHEMA),
             Migration(2, "persistent_identity_conversations_files", M1_SCHEMA),
             Migration(3, "persistent_agent_runtime", M2_SCHEMA),
+            Migration(4, "agent_execution_leases_and_results", M2_EXECUTION_SCHEMA),
+            Migration(5, "proactive_jobs_notifications_usage", M3_SCHEMA),
+            Migration(6, "memory_feedback_product_intelligence", PRODUCT_INTELLIGENCE_SCHEMA),
+            Migration(7, "memory_versions_and_usage_preferences", PRODUCT_CONTROLS_SCHEMA),
+            Migration(8, "provider_call_reconciliation_ledger", PROVIDER_CALLS_SCHEMA),
         ],
     )
     await import_legacy_messages(db)

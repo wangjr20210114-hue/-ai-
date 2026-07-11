@@ -3,7 +3,7 @@ import { Button, MessagePlugin } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ChatMessage, TravelPlan, WSMessage, SkillInfo, MeetingResult, ScheduleItem } from '../../types';
 import type { WSClient } from '../../services/websocket';
-import { createMeeting, generateImage, saveConversationMessage } from '../../services/api';
+import { cancelPendingAction, confirmPendingAction, saveConversationMessage, waitForPendingAction } from '../../services/api';
 import TravelPlanCard from '../travel/TravelPlanCard';
 import TravelChatAssistant from '../travel/TravelChatAssistant';
 import PaperListCard from '../paper/PaperListCard';
@@ -17,7 +17,7 @@ interface Props {
 export default function MessageBubble({ message, client }: Props) {
   const isUser = message.role === 'user';
   const dispatch = useAppDispatch();
-  const { sessionId, conversationId, messages } = useAppState();
+  const { conversationId, messages } = useAppState();
   // 追问只在最后一条 AI 消息显示
   const isLastAIMessage = !isUser && messages[messages.length - 1]?.id === message.id;
 
@@ -51,7 +51,7 @@ export default function MessageBubble({ message, client }: Props) {
       dispatch({ type: 'ADD_MESSAGE', payload: followUpMessage });
       const msg: WSMessage = {
         type: 'user_activity',
-        payload: { activity: 'asked', text: question },
+        payload: { activity: 'asked', text: question, message_id: followUpMessage.id },
       };
       client.current?.send(msg);
     } catch (error) {
@@ -76,49 +76,93 @@ export default function MessageBubble({ message, client }: Props) {
     });
   };
 
+  type ImageActionResult = { ok: boolean; image_url?: string; prompt?: string; error?: string };
+  const [imageGenerating, setImageGenerating] = useState(false);
+  const [imageResult, setImageResult] = useState<ImageActionResult | null>(null);
+
+  const actionId = typeof skill?.data?.action_id === 'string' ? skill.data.action_id : '';
+  const actionVersion = typeof skill?.data?.action_version === 'number'
+    ? skill.data.action_version
+    : Number(skill?.data?.action_version || 0);
+
+  const executeConfirmedAction = async () => {
+    if (!actionId || actionVersion < 1) {
+      throw new Error('该建议卡缺少后端 Action 快照，请重新发送需求');
+    }
+    await confirmPendingAction(actionId, actionVersion);
+    return waitForPendingAction(actionId);
+  };
+
   const handleCreateMeeting = async () => {
     setMeetingCreating(true);
-    setMeetingStatusText('正在检查环境...');
-    const meetingMessage = skill?.params?.message || message.meetingIntent?.message || '';
+    setMeetingStatusText('已确认，等待后台 Executor...');
     try {
-      const result = await createMeeting(sessionId, meetingMessage);
-      setMeetingResult(result);
-      if (result.ok) {
+      const action = await executeConfirmedAction();
+      const data = action.result_json?.data || {};
+      if (action.status === 'succeeded') {
+        const result: MeetingResult = {
+          ok: true,
+          meeting_id: typeof data.meeting_id === 'string' ? data.meeting_id : undefined,
+          meeting_code: typeof data.meeting_code === 'string' ? data.meeting_code : undefined,
+          join_url: typeof data.join_url === 'string' ? data.join_url : undefined,
+          subject: typeof data.subject === 'string' ? data.subject : undefined,
+          start_time: typeof data.start_time === 'string' ? data.start_time : undefined,
+        };
+        setMeetingResult(result);
         MessagePlugin.success('腾讯会议创建成功！');
-      } else if (result.need_auth) {
-        MessagePlugin.warning('需要先授权腾讯会议');
       } else {
-        MessagePlugin.warning(result.error || '创建失败');
+        const error = action.error || '创建失败';
+        setMeetingResult({ ok: false, error, need_auth: error.includes('授权') });
+        MessagePlugin.warning(error);
       }
-    } catch {
-      MessagePlugin.error('创建会议失败');
+    } catch (error) {
+      const text = error instanceof Error ? error.message : '创建会议失败';
+      setMeetingResult({ ok: false, error: text });
+      MessagePlugin.error(text);
     } finally {
       setMeetingCreating(false);
       setMeetingStatusText('');
     }
   };
 
-  /** 生图 */
-  const [imageGenerating, setImageGenerating] = useState(false);
-  const [imageResult, setImageResult] = useState<Awaited<ReturnType<typeof generateImage>> | null>(null);
-
   const handleGenerateImage = async () => {
     setImageGenerating(true);
-    const prompt = skill?.params?.prompt || compatSkill?.params?.prompt || message.content;
     try {
-      const result = await generateImage(prompt);
-      setImageResult(result);
-      if (result.ok) {
+      const action = await executeConfirmedAction();
+      const data = action.result_json?.data || {};
+      if (action.status === 'succeeded') {
+        const result: ImageActionResult = {
+          ok: true,
+          image_url: typeof data.image_url === 'string' ? data.image_url : undefined,
+          prompt: typeof data.prompt === 'string' ? data.prompt : undefined,
+        };
+        setImageResult(result);
         MessagePlugin.success('图片生成成功！');
       } else {
-        MessagePlugin.warning(result.error || '生成失败');
+        const error = action.error || '生成失败';
+        setImageResult({ ok: false, error });
+        MessagePlugin.warning(error);
       }
-    } catch {
-      MessagePlugin.error('生图失败');
+    } catch (error) {
+      const text = error instanceof Error ? error.message : '生图失败';
+      setImageResult({ ok: false, error: text });
+      MessagePlugin.error(text);
     } finally {
       setImageGenerating(false);
     }
   };
+
+  const handleCancelAction = async () => {
+    if (!actionId) return;
+    try {
+      await cancelPendingAction(actionId);
+      setSkillActioned(true);
+      MessagePlugin.success('已取消该操作');
+    } catch (error) {
+      MessagePlugin.error(error instanceof Error ? error.message : '取消失败');
+    }
+  };
+
 
   /** 通用技能动作处理 */
   const handleSkillAction = () => {
@@ -457,6 +501,11 @@ export default function MessageBubble({ message, client }: Props) {
                   ? '生成中...'
                   : compatSkill.action_label}
               </Button>
+              {actionId && (intent === 'meeting' || intent === 'image') && (
+                <Button variant="outline" size="small" onClick={() => { void handleCancelAction(); }}>
+                  取消
+                </Button>
+              )}
             </div>
           </div>
         )}

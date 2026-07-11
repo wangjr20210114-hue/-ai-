@@ -1,90 +1,102 @@
-"""意图推断层（DeepSeek）+ 自动执行路由器。
-
-核心原则：
-1. 意图推断用 DeepSeek（便宜快速），不生成回复内容
-2. 回复内容由混元根据完整对话历史自由生成
-3. 意图推断只决定"调用什么工具"，不影响大模型回复
-"""
+"""Intent classification through the shared ModelGateway with deterministic fallback."""
 from __future__ import annotations
 
-import json
+import logging
 from typing import Any
 
-import httpx
+from pydantic import BaseModel, Field
 
 from agent import register_all_skills
 from config import settings
-from services.hunyuan_service import _check_quota_error, QuotaExhaustedError
+from services.model_gateway import CallContext, ModelGateway, ModelRequest
 from skills.base_skill import SkillRegistry
 
-_registry = SkillRegistry()
-_skills_registered = False
+logger = logging.getLogger(__name__)
 
 
-def _ensure_registered() -> None:
-    global _skills_registered
-    if not _skills_registered:
-        register_all_skills(_registry)
-        _skills_registered = True
+class IntentClassification(BaseModel):
+    intent: str = "chat"
+    params: dict[str, Any] = Field(default_factory=dict)
+    confidence: float | None = None
+    rationale: str = ""
+
+
+class IntentRouter:
+    def __init__(self, registry: SkillRegistry, gateway: ModelGateway | None) -> None:
+        self.registry = registry
+        self.gateway = gateway
+
+    def fallback(self, message: str, *, reason: str) -> dict[str, Any]:
+        keyword_match = self.registry.keyword_check(message)
+        return {
+            "intent": keyword_match or "chat",
+            "params": {},
+            "confidence": 0.0,
+            "rationale": reason,
+            "classification_mode": "keyword_fallback" if keyword_match else "chat_fallback",
+        }
+
+    async def classify(
+        self,
+        message: str,
+        history: list[str] | None = None,
+        *,
+        run_id: str | None = None,
+        conversation_id: str | None = None,
+    ) -> dict[str, Any]:
+        if self.gateway is None:
+            return self.fallback(message, reason="model_gateway_not_injected")
+
+        from prompts.templates import INTENT_CLASSIFICATION_PROMPT
+
+        system_prompt = INTENT_CLASSIFICATION_PROMPT.replace(
+            "{{SKILLS}}", self.registry.build_llm_description()
+        )
+        history_text = "\n".join((history or [])[-8:])
+        user_content = f"用户消息：{message}"
+        if history_text:
+            user_content += f"\n\n对话历史：\n{history_text}"
+        try:
+            result = await self.gateway.complete_json(
+                ModelRequest(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content},
+                    ],
+                    provider="deepseek",
+                    model=settings.deepseek_model,
+                    max_tokens=240,
+                    temperature=0.1,
+                    operation="intent_classification",
+                ),
+                IntentClassification,
+                CallContext(
+                    run_id=run_id,
+                    conversation_id=conversation_id,
+                    skill_name="intent_router",
+                ),
+            )
+        except Exception as error:  # classification has a safe deterministic fallback
+            logger.warning("intent classification fallback: %s: %s", type(error).__name__, error)
+            return self.fallback(message, reason=f"{type(error).__name__}: {error}")
+
+        if self.registry.get(result.intent) is None:
+            return self.fallback(message, reason=f"unknown_intent:{result.intent}")
+        return {
+            **result.model_dump(),
+            "classification_mode": "model_gateway",
+        }
+
+
+# Compatibility entry point for isolated callers and existing tests. Production
+# composes one shared IntentRouter in main.lifespan and injects it into Orchestrator.
+_schema_registry = SkillRegistry()
+register_all_skills(_schema_registry)
+_compat_router = IntentRouter(_schema_registry, gateway=None)
 
 
 async def classify_intent(
     message: str,
     history: list[str] | None = None,
 ) -> dict[str, Any]:
-    """用 DeepSeek 推断用户意图。
-
-    Returns:
-        {"intent": "travel|meeting|search|image|translation|paper|chat", "params": {...}}
-    """
-    _ensure_registered()
-
-    from prompts.templates import INTENT_CLASSIFICATION_PROMPT
-
-    skill_desc = _registry.build_llm_description()
-    system_prompt = INTENT_CLASSIFICATION_PROMPT.replace("{{SKILLS}}", skill_desc)
-
-    # 构造对话历史
-    history_str = ""
-    if history:
-        history_str = "\n".join(history[-8:])
-
-    user_content = f"用户消息：{message}"
-    if history_str:
-        user_content += f"\n\n对话历史：\n{history_str}"
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
-
-    # 用 DeepSeek 推断（便宜快速）
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(
-                f"{settings.deepseek_base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
-                json={
-                    "model": settings.deepseek_model,
-                    "messages": messages,
-                    "max_tokens": 200,
-                    "temperature": 0.1,  # 低温度，精确推断
-                },
-            )
-            _check_quota_error(resp.status_code, resp.text, "DeepSeek")
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"].strip()
-            content = content.strip("`").strip()
-            if content.startswith("json"):
-                content = content[4:].strip()
-            result = json.loads(content)
-            return result
-    except QuotaExhaustedError:
-        raise
-    except Exception as e:
-        print(f"[intent_router] DeepSeek classify failed: {e}")
-        # 回退到正则
-        keyword_match = _registry.keyword_check(message)
-        if keyword_match:
-            return {"intent": keyword_match, "params": {}}
-        return {"intent": "chat", "params": {}}
+    return await _compat_router.classify(message, history)

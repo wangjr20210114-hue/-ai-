@@ -42,3 +42,9 @@ htmlcov/
 # Logs
 *.log
 npm-debug.log*
+
+.venv/
+*.db
+*.db-wal
+*.db-shm
+.agent/

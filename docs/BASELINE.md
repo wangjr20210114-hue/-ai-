@@ -1,5 +1,7 @@
 # 项目基线说明
 
+> **状态更新（2026-07-11）**：本文件记录的是改造前 M0–M2 基线，已归档。当前实现已完成主动 Runtime、Supervisor、Collector、ModelGateway、Memory/Feedback/Usage、本地安全和备份恢复等核心改造。请以 [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) 和根目录 [`README.md`](../README.md) 为当前事实来源。
+
 ## 基线目标
 
 本基线保留当前已有的前后端功能、Agent 抽象、旅游/搜索/论文等新增模块，作为后续主动式 Agent 改造的唯一源码起点。

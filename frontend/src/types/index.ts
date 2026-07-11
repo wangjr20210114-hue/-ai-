@@ -238,3 +238,190 @@ export interface MeetingResult {
   start_time?: string;
   error?: string;
 }
+
+// ============ 主动式 Agent Runtime ============
+export interface PendingAction {
+  id: string;
+  run_id: string;
+  skill_name: string;
+  snapshot: {
+    schema_version?: number;
+    input?: Record<string, unknown>;
+    confirmation?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+  snapshot_hash: string;
+  version: number;
+  idempotency_key: string;
+  status: 'draft' | 'awaiting_confirmation' | 'confirmed' | 'executing' | 'succeeded' | 'failed' | 'cancelled' | 'expired';
+  expires_at?: number | null;
+  result_json?: {
+    schema_version?: number;
+    content?: string;
+    data?: Record<string, unknown>;
+    usage?: Record<string, unknown>;
+  };
+  provider_request_id?: string;
+  error?: string;
+  reconciliation_required?: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AgentObservation {
+  id: number;
+  run_id: string;
+  status: string;
+  step: string;
+  payload: Record<string, unknown>;
+  error: string;
+  ts: number;
+}
+
+export interface AgentRun {
+  id: string;
+  event_id?: string | null;
+  status: string;
+  intent: string;
+  plan_json: Record<string, unknown>;
+  execution_lane?: string;
+  attempt: number;
+  max_attempts: number;
+  error: string;
+  created_at: number;
+  updated_at: number;
+  finished_at?: number | null;
+  observations: AgentObservation[];
+  action?: PendingAction;
+}
+
+export interface AgentNotification {
+  id: string;
+  run_id?: string | null;
+  event_id?: string | null;
+  type: string;
+  title: string;
+  body: string;
+  reason: string;
+  source_label: string;
+  action_id?: string | null;
+  priority: number;
+  metadata: Record<string, unknown>;
+  created_at: number;
+  read_at?: number | null;
+  dismissed_at?: number | null;
+  snoozed_until?: number | null;
+}
+
+export interface NotificationPreferences {
+  quiet_hours_start: string;
+  quiet_hours_end: string;
+  daily_limit: number;
+  cooldown_seconds: number;
+  enabled: number | boolean;
+  updated_at: number;
+}
+
+export interface ScheduledJob {
+  id: string;
+  job_type: string;
+  payload: Record<string, unknown>;
+  next_run_at: number;
+  interval_seconds?: number | null;
+  status: string;
+  checkpoint: Record<string, unknown>;
+  last_error: string;
+}
+
+// ============ 记忆、反馈与使用预算 ============
+export interface MemoryProposal {
+  id: string;
+  source_message_id: string;
+  candidate_json: {
+    schema_version?: number;
+    key: string;
+    value: unknown;
+    confidence?: number;
+    reason?: string;
+    sensitivity?: string;
+    expected_memory_version?: number | null;
+  };
+  status: 'awaiting_confirmation' | 'confirmed' | 'rejected';
+  version: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AgentMemory {
+  id: string;
+  memory_key: string;
+  value_json: unknown;
+  confidence: number;
+  source_message_id: string;
+  sensitivity: string;
+  version: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface UsageAggregate {
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  units: number;
+  estimated_cost: number;
+}
+
+export interface UsagePreferences {
+  daily_budget_cny: number;
+  monthly_budget_cny: number;
+  enforcement: 'off' | 'soft' | 'hard';
+  alert_threshold_percent: number;
+  updated_at: number;
+}
+
+export interface UsageSummary {
+  daily: UsageAggregate;
+  monthly: UsageAggregate;
+  preferences: UsagePreferences;
+  alerts: { daily: boolean; monthly: boolean };
+}
+
+export interface FeedbackRecord {
+  id: string;
+  run_id?: string | null;
+  action_id?: string | null;
+  feedback_action: 'helpful' | 'unhelpful' | 'dismissed' | 'corrected';
+  reason: string;
+  metadata: Record<string, unknown>;
+  created_at: number;
+}
+
+export interface FeedbackResponse {
+  feedback: FeedbackRecord;
+  adjustment: {
+    applied: boolean;
+    requires_user_confirmation: boolean;
+    suggestions: Array<Record<string, unknown>>;
+  };
+}
+
+export interface SystemHealth {
+  status: 'ok' | 'degraded' | 'unhealthy';
+  version: string;
+  time: number;
+  components: Record<string, {
+    status: string;
+    [key: string]: unknown;
+  }>;
+  startup_recovery: Record<string, unknown>;
+  restore_applied?: Record<string, unknown> | null;
+}
+
+export interface RestoreStageResult {
+  staged: boolean;
+  restart_required: boolean;
+  created_at: number;
+  file_count: number;
+  database_size_bytes: number;
+}

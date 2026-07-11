@@ -1,3 +1,4 @@
+import { authorizedFetch } from '../../services/auth';
 /**
  * PaperInlineReader：内联在对话中的论文预览。
  * 极简：只渲染 PDF（高清晰度）+ 全屏按钮。
@@ -34,7 +35,7 @@ export default function PaperInlineReader({ fileId, fileName, title, onExpand }:
     let cancelled = false;
     (async () => {
       try {
-        const resp = await fetch(`/api/paper/file/${fileId}`);
+        const resp = await authorizedFetch(`/api/paper/file/${fileId}`);
         if (!resp.ok) { MessagePlugin.error('加载 PDF 失败'); setLoading(false); return; }
         const blob = await resp.blob();
         const buffer = await blob.arrayBuffer();

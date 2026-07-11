@@ -28,10 +28,10 @@ export default function InputBar({ client }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
 
-  const sendActivity = (content: string, activity: string) => {
+  const sendActivity = (content: string, activity: string, messageId: string) => {
     const msg: WSMessage = {
       type: 'user_activity',
-      payload: { activity, text: content },
+      payload: { activity, text: content, message_id: messageId },
     };
     client.current?.send(msg);
   };
@@ -49,7 +49,7 @@ export default function InputBar({ client }: Props) {
     try {
       await saveConversationMessage(conversationId, message);
       dispatch({ type: 'ADD_MESSAGE', payload: message });
-      sendActivity(content, 'asked');
+      sendActivity(content, 'asked', message.id);
       setText('');
     } catch (error) {
       MessagePlugin.error(error instanceof Error ? error.message : '消息保存失败');
@@ -147,7 +147,7 @@ export default function InputBar({ client }: Props) {
           marginTop: 8,
         }}
       >
-        输入消息，AI 会自动识别旅游或会议意图
+        消息会先持久化，再由 Agent 识别意图并安全执行
       </div>
     </div>
   );
