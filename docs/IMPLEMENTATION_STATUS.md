@@ -53,12 +53,13 @@
 - Snapshot SHA-256、Action version 和唯一 idempotency key。
 - 前端只提交 `action_id + version`。
 - 唯一 Executor 执行；成功结果先持久化，再做通知、Usage 或前端推送。
-- 外部结果不确定时进入 reconciliation_required，不自动重复创建会议或图片。
+- 外部调用先写 `provider_calls` 账本；成功响应先持久化，再提交 Action。
+- Provider 已成功但进程在 Action 提交前崩溃时，可从账本自动恢复成功；真正未知时进入 reconciliation_required，不重复创建会议或图片。
 - 已开始的外部副作用拒绝不安全取消。
 
 ### 3.4 主动运行
 
-- Supervisor 持久领取后台 Run 和 Job。
+- Supervisor 持久领取后台 Run 和 Job，并周期性回收过期租约，不依赖服务重启。
 - Scheduler 具备租约、checkpoint、失败次数和启动恢复。
 - ScheduleCollector 产生临近、逾期和冲突事件。
 - TravelWeatherCollector 识别旅行期内天气变化和户外风险，Provider 失败不覆盖旧 checkpoint。
@@ -83,7 +84,7 @@
 - 自动生成本地访问令牌；REST 和 WebSocket 使用同一身份边界。
 - Setup token 接口只允许回环客户端和白名单 Origin。
 - 任意网页抓取经过协议、DNS/IP、逐跳重定向、Content-Type 和大小校验。
-- 健康接口报告数据库、Supervisor、模型配置、认证和待恢复状态。
+- 健康接口报告数据库、Supervisor 心跳、最近维护、Run/Action/Job 队列、模型配置、认证和待恢复状态。
 - 请求日志携带 request_id、状态码和耗时，不记录令牌或 URL query。
 - 备份包含 SQLite 在线快照、托管文件和逐文件哈希，不包含 Secret；恢复在重启时原子执行并保留安全副本。
 
@@ -107,7 +108,7 @@
 - 分布式 worker、跨节点锁和高可用数据库。
 - 邮件、操作系统通知、真实外部日历和企业 IM Collector。
 - 任意复杂任务的通用 DAG/补偿工作流引擎。
-- Provider 级未知副作用自动对账。
+- Provider 级“按幂等键查询真实外部状态”的自动对账；当前已能利用本地 provider_calls 成功响应账本自动恢复。
 - 扫描 PDF OCR 和多模态文档索引。
 - 完整 Playwright 浏览器端到端测试矩阵及真实 Provider 沙箱测试。
 - 生产级指标后端、分布式 tracing 和外部告警平台。
@@ -156,11 +157,12 @@
 
 ### 自动化结果
 
-- 后端：**46/46 unittest 通过**。
+- 后端：**47/47 unittest 通过**。
 - 前端：**3/3 Vitest 通过**。
 - ESLint：通过，零错误。
 - TypeScript 与 Vite 生产构建：通过。
-- FastAPI/Uvicorn 真实启动：通过。
+- FastAPI 完整 lifespan E2E：通过（迁移、认证、Supervisor、Scheduler、健康接口）。
+- FastAPI/Uvicorn 应用导入：通过。
 - 本地令牌引导：通过。
 - `/api/system/health`：数据库与 Supervisor 状态通过。
 - 已知非阻塞项：前端主 chunk 大于 500KB。
@@ -170,7 +172,8 @@
 - 旧数据库迁移和数据不丢失。
 - Event 去重、状态冲突和不可变 Action。
 - 重复确认不重复执行 Provider。
-- 副作用租约过期进入人工核对。
+- 副作用租约过期进入核对；本地 Provider 成功账本存在时自动恢复。
+- Supervisor 周期维护可在不重启时回收过期 Run。
 - 流式断线仍持久化回答。
 - 显式取消终止模型流并写入 cancelled。
 - 日程三类事件和天气失败 checkpoint。
@@ -187,7 +190,7 @@
 | 至少三类主动来源 | 完成：日程、天气、文件 |
 | 去重、冷却、每日上限、静默时段 | 完成 |
 | 副作用确认参数不可变 | 完成 |
-| 幂等、未知结果不盲重试 | 完成；自动 Provider 对账待扩展 |
+| 幂等、未知结果不盲重试 | 完成；本地成功响应账本可自动恢复，Provider 远程状态查询待扩展 |
 | 长任务超时/取消/有限重试/重启恢复 | 完成核心；token 级续传不支持 |
 | Opportunity 和 Notification 可解释 | 完成 |
 | 记忆可查看、确认、删除、导出 | 完成 |
