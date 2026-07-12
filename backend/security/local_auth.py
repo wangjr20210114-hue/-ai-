@@ -81,7 +81,10 @@ class LocalTokenMiddleware(BaseHTTPMiddleware):
         if not settings.local_auth_enabled:
             return await call_next(request)
         path = request.url.path
-        if not path.startswith("/api/") or path == "/api/setup/access-token":
+        if not path.startswith("/api/") or path in (
+            "/api/setup/access-token",
+            "/api/search/basic",      # Public: EdgeOne Agent calls this internally
+        ):
             return await call_next(request)
         service: LocalAccessTokenService | None = getattr(
             request.app.state, "local_access_token_service", None

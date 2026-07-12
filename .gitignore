@@ -49,3 +49,5 @@ npm-debug.log*
 *.db-shm
 .agent/
 *.bak
+.edgeone/.token
+.agents/

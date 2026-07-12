@@ -4,11 +4,11 @@ import { SendIcon, AttachIcon } from 'tdesign-icons-react';
 import type { UploadFile } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { WSMessage } from '../../types';
-import type { WSClient } from '../../services/websocket';
+import type { ChatClient } from '../../services/chatClient';
 import { saveConversationMessage, uploadDocument } from '../../services/api';
 
 interface Props {
-  client: React.RefObject<WSClient | null>;
+  client: React.RefObject<ChatClient | null>;
 }
 
 /** 底部输入栏：文本输入 + 文档上传 + 发送（场景由后端自动推断）。 */

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ChatMessage, TravelPlan, WSMessage, SkillInfo, MeetingResult, ScheduleItem } from '../../types';
-import type { WSClient } from '../../services/websocket';
+import type { ChatClient } from '../../services/chatClient';
 import { cancelPendingAction, confirmPendingAction, saveConversationMessage, waitForPendingAction } from '../../services/api';
 import TravelPlanCard from '../travel/TravelPlanCard';
 import TravelChatAssistant from '../travel/TravelChatAssistant';
@@ -11,7 +11,7 @@ import MarkdownRenderer from '../common/MarkdownRenderer';
 
 interface Props {
   message: ChatMessage;
-  client: React.RefObject<WSClient | null>;
+  client: React.RefObject<ChatClient | null>;
 }
 /** 单条消息气泡。AI 消息下方根据 skill.intent 渲染不同卡片。 */
 export default function MessageBubble({ message, client }: Props) {

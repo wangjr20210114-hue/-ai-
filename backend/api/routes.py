@@ -35,6 +35,25 @@ from services.meeting_service import meeting_service
 router = APIRouter(prefix="/api")
 
 
+# ============ 搜索（供 EdgeOne Agent 调用）============
+
+@router.get("/search/basic")
+async def basic_search(q: str = ""):
+    """快速搜索接口，返回 results + media + image_descriptions。"""
+    if not q.strip():
+        return {"results": [], "media": [], "image_descriptions": []}
+    try:
+        from services.search_system import search as do_search
+        data = await do_search(q, intent="general", depth="basic")
+        return {
+            "results": data.get("results", []),
+            "media": data.get("media", []),
+            "image_descriptions": data.get("image_descriptions", []),
+        }
+    except Exception as e:
+        return {"results": [], "media": [], "image_descriptions": [], "error": str(e)}
+
+
 # ============ 旅游计划 ============
 
 @router.get("/cities")

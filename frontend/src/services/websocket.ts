@@ -15,7 +15,8 @@ export class WSClient {
 
   constructor(sessionId: string) {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    this.baseUrl = `${proto}://${location.host}/ws/${encodeURIComponent(sessionId)}`;
+    const host = location.host.includes('edgeone') ? '94.16.110.28:8000' : location.host;
+    this.baseUrl = `${proto}://${host}/ws/${encodeURIComponent(sessionId)}`;
   }
 
   connect(onOpen?: () => void, onClose?: () => void) {

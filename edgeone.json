@@ -1,0 +1,15 @@
+{
+  "buildCommand": "cd frontend && npm ci && npm run build",
+  "outputDirectory": "frontend/dist",
+  "framework": "vite",
+  "agents": {
+    "framework": "langgraph",
+    "timeout": 1800
+  },
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "http://94.16.110.28:8000/api/:path*"
+    }
+  ]
+}

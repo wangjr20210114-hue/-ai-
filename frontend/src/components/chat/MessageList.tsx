@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import MessageBubble from './MessageBubble';
-import type { WSClient } from '../../services/websocket';
+import type { ChatClient } from '../../services/chatClient';
 
 const STARTERS = [
   '我想去杭州旅游，3天行程',
@@ -11,7 +11,7 @@ const STARTERS = [
 ];
 
 interface Props {
-  client: React.RefObject<WSClient | null>;
+  client: React.RefObject<ChatClient | null>;
 }
 
 /** 消息列表（居中），自动滚动到底部；空态展示引导。 */

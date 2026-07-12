@@ -1,9 +1,9 @@
-import type { WSClient } from '../../services/websocket';
+import type { ChatClient } from '../../services/chatClient';
 import MessageList from './MessageList';
 import InputBar from './InputBar';
 
 interface Props {
-  client: React.RefObject<WSClient | null>;
+  client: React.RefObject<ChatClient | null>;
 }
 
 /** 对话主容器：消息流 + 输入栏（元宝式居中布局）。 */
