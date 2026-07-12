@@ -130,7 +130,7 @@ export default function InputBar({ client }: Props) {
                 上传文档
               </Button>
             </Upload>
-            <Checkbox checked={webSearch} onChange={(v) => setWebSearch(v as boolean)} size="small">
+            <Checkbox checked={webSearch} onChange={(v) => setWebSearch(v as boolean)}>
               联网搜索
             </Checkbox>
           </div>

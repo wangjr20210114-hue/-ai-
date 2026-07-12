@@ -31,11 +31,9 @@ class AgentPolicy:
                 risk_level=risk,
                 metadata={"reversible": plan.confirmation.reversible},
             )
-        # HIGH risk + AUTO: only escalate to confirm for side_effect skills
-        # (those that go through PendingAction + ActionExecutor). Non-side-effect
-        # skills handle execution directly in suggest()/execute() and should
-        # not be blocked by the confirmation guard in the orchestrator.
-        if risk == RiskLevel.HIGH and level == PermissionLevel.AUTO and plan.side_effect:
+        # High-risk work is never allowed to remain AUTO.  A skill that cannot
+        # produce a PendingAction will then fail closed in orchestration.
+        if risk == RiskLevel.HIGH and level == PermissionLevel.AUTO:
             return PolicyDecision(
                 permission_level=PermissionLevel.CONFIRM,
                 allowed=True,

@@ -1,10 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import InfoCard from './InfoCard';
+import type { RichMediaAsset, SearchMeta } from '../../types';
+import {
+  expandStructuredCards,
+  isSafeRemoteUrl,
+  replaceCitationMarkers,
+  resolveMediaReference,
+} from './richContent';
 
 const SOURCE_TYPE_MAP: Record<string, string> = {
   '公众号': 'wechat', '知乎': 'zhihu', '百科': 'baike', '网页': 'web',
@@ -29,18 +36,59 @@ function stripMd(text: string): string {
 }
 
 /**
- * 提取所有 [[img:url]] 并替换为占位符 ZIMG{N}Z
+ * Resolve structured [[image:media-id]] markers. Legacy [[img:url]] remains
+ * readable, but new answers never let the model provide the URL directly.
  */
-function extractImages(content: string): { text: string; images: Map<number, string> } {
-  const images = new Map<number, string>();
+function extractImages(
+  content: string,
+  media: RichMediaAsset[],
+): { text: string; images: Map<number, RichMediaAsset> } {
+  const images = new Map<number, RichMediaAsset>();
   let idx = 0;
-  const text = content.replace(/\[\[img:(https?:\/\/[^\]]+)\]\]/g, (_, url) => {
+  const text = content.replace(/\[\[(?:image|img):([^\]]+)\]\]/g, (marker, reference: string) => {
+    const asset = resolveMediaReference(reference.trim(), media);
+    if (!asset) return '';
     const id = idx;
     idx++;
-    images.set(id, url.trim());
+    images.set(id, asset);
     return `ZIMG${id}Z`;
   });
   return { text, images };
+}
+
+function RichImage({ asset }: { asset: RichMediaAsset }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div className="rich-image-fallback" role="status">
+        <span>图片暂时无法加载</span>
+        {asset.source_url && isSafeRemoteUrl(asset.source_url) && (
+          <a href={asset.source_url} target="_blank" rel="noreferrer">查看原始来源</a>
+        )}
+      </div>
+    );
+  }
+  return (
+    <figure className="rich-media-figure">
+      <img
+        src={asset.url}
+        alt={asset.alt || asset.caption || '回答配图'}
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+      {(asset.caption || asset.source_url) && (
+        <figcaption>
+          <span>{asset.caption}</span>
+          {asset.generated && <span className="rich-media-generated">AI 生成示意图</span>}
+          {asset.source_url && isSafeRemoteUrl(asset.source_url) && (
+            <a href={asset.source_url} target="_blank" rel="noreferrer">
+              图片来源{asset.source_title ? `：${asset.source_title}` : ''}
+            </a>
+          )}
+        </figcaption>
+      )}
+    </figure>
+  );
 }
 
 /**
@@ -52,6 +100,7 @@ function extractCards(content: string): { text: string; cards: Map<number, Parse
   const cardRegex = /\[\[card:([^|]+)\|([^|]+)\|([^|]+)(?:\|([^\]]*))?\]\]/g;
   let idx = 0;
   const text = content.replace(cardRegex, (_, sourceType, title, url, snippet) => {
+    if (!isSafeRemoteUrl(url.trim())) return '';
     const id = idx;
     idx++;
     cards.set(id, {
@@ -146,8 +195,14 @@ function cleanChildren(children: React.ReactNode): React.ReactNode {
   return children;
 }
 
-export default function MarkdownRenderer({ content }: { content: string }) {
-  const { text: t1, images } = extractImages(content);
+export default function MarkdownRenderer({ content, searchMeta }: { content: string; searchMeta?: SearchMeta }) {
+  const sources = searchMeta?.results || [];
+  const media = searchMeta?.media || [];
+  const groundedContent = expandStructuredCards(
+    replaceCitationMarkers(content, sources),
+    sources,
+  );
+  const { text: t1, images } = extractImages(groundedContent, media);
   const { text: mdText, cards } = extractCards(t1);
 
   return (
@@ -174,14 +229,7 @@ export default function MarkdownRenderer({ content }: { content: string }) {
             if (cardIds.length > 0 || imgIds.length > 0) {
               const cardEls = renderCards(cardIds, cards);
               const imgEls = imgIds.filter(id => images.has(id)).map(id => (
-                <img
-                  key={`img-${id}`}
-                  src={images.get(id)}
-                  alt=""
-                  loading="lazy"
-                  style={{ width: '100%', borderRadius: 8, margin: '8px 0', display: 'block' }}
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
+                <RichImage key={`img-${id}`} asset={images.get(id)!} />
               ));
               // 清理占位符后的文字
               const cleanedChildren = cleanChildren(cleanImgMarkers(children));
@@ -277,15 +325,20 @@ export default function MarkdownRenderer({ content }: { content: string }) {
             }
             return <td>{children}</td>;
           },
-          img: ({ src, alt }) => (
-            <img
-              src={src}
-              alt={alt || ''}
-              loading="lazy"
-              style={{ width: '100%', borderRadius: 8, margin: '8px 0' }}
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-            />
-          ),
+          img: ({ src, alt }) => {
+            const url = typeof src === 'string' ? src : '';
+            if (!isSafeRemoteUrl(url)) return null;
+            return (
+              <RichImage asset={{
+                id: `markdown-${url}`,
+                kind: 'image',
+                url,
+                alt: alt || '',
+                caption: alt || '',
+                generated: false,
+              }} />
+            );
+          },
         }}
       >
         {mdText}

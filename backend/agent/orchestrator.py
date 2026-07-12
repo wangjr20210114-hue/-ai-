@@ -182,6 +182,11 @@ class AgentOrchestrator:
     ) -> AgentPlan:
         intent = str(intent_result.get("intent") or self.fallback_intent)
         params = dict(intent_result.get("params") or {})
+        # Transport preferences are not intent-classification inputs.  Copy only
+        # explicitly supported client controls instead of merging the arbitrary
+        # event payload into a persisted execution plan.
+        if "web_search" in event.payload:
+            params["web_search"] = bool(event.payload["web_search"])
         skill = self.registry.get(intent)
 
         if skill is None and intent not in self.handlers:

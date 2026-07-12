@@ -10,6 +10,7 @@ from agent.cancellation import CancellationToken
 from agent.contracts import FailurePolicy, PermissionLevel, RiskLevel, SkillSchema
 from config import settings
 from services.model_gateway import CallContext, ModelGateway, ModelRequest
+from services.search_service import prepare_search_prompt
 from skills.base_skill import BaseSkill, SkillResult, SkillStreamEvent
 
 
@@ -110,7 +111,8 @@ class ChatSkill(BaseSkill):
                 "content": (
                     "你是元宝主动式 Agent，一个智能助手。"
                     "用 Markdown 格式回复。"
-                    "如果回答中涉及图片，可以将图片插入到合适的位置，使内容图文并茂。"
+                    "如果提供了结构化网络证据，严格遵守其中的引用与媒体 ID 协议；"
+                    "绝不自行输出图片 URL 或编造引用标记。"
                     "如果用户的问题涉及旅游、会议等你能提供的服务，在回答中自然地引导用户使用。"
                 ),
             },
@@ -123,10 +125,9 @@ class ChatSkill(BaseSkill):
         if web_search_enabled and self._should_search(message):
             search_data = await self._web_search(message)
             if search_data.get("results"):
-                messages.insert(1, {
-                    "role": "system",
-                    "content": f"以下是关于用户问题的网络搜索结果，可以参考这些信息回答：\n\n{search_data['context']}",
-                })
+                # Both entries are system messages so retrieved evidence cannot
+                # override the user's request or the assistant's safety rules.
+                messages[1:1] = search_data["prompt_messages"]
 
         full_text = ""
         async for chunk in self.gateway.stream_text(
@@ -171,32 +172,28 @@ class ChatSkill(BaseSkill):
         return not any(kw in message for kw in skip_keywords)
 
     async def _web_search(self, query: str) -> dict[str, Any]:
-        """Fetch web search results and build context for the LLM."""
+        """Fetch source-bound evidence and UI-resolvable media metadata."""
         try:
             from services.search_system import search as system_search
             aggregated = await system_search(query, intent="general", time_sensitive=False, depth="basic")
             results = list(aggregated.get("results") or [])
             if not results:
                 return {}
-            # Build context text from top results
-            context_parts = []
-            for r in results[:5]:
-                title = r.get("title", "")
-                snippet = r.get("snippet", "")
-                source = r.get("source", "")
-                context_parts.append(f"[{source}] {title}: {snippet}")
+            request, search_meta = prepare_search_prompt(
+                query=query,
+                results=results,
+                images=list(aggregated.get("images") or []),
+                sources_used=list(aggregated.get("sources_used") or []),
+                image_descriptions=list(aggregated.get("image_descriptions") or []),
+                media=list(aggregated.get("media") or []),
+                source_references=list(aggregated.get("source_references") or []),
+            )
             return {
                 "results": results,
-                "context": "\n".join(context_parts),
-                "search_meta": {
-                    "query": query,
-                    "results": results[:8],
-                    "images": list(aggregated.get("images") or [])[:3],
-                    "sources_used": list(aggregated.get("sources_used") or []),
-                    "total": len(results),
-                },
+                "prompt_messages": request.messages,
+                "search_meta": search_meta,
             }
-        except Exception as e:
+        except Exception:
             return {}
 
     async def _generate_follow_ups(self, user_message: str, ai_content: str, history: list[str]) -> list[str]:

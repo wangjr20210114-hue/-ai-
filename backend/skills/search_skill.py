@@ -115,6 +115,8 @@ class SearchSkill(BaseSkill):
         results = list(aggregated.get("results") or [])
         images = list(aggregated.get("images") or [])
         image_descriptions = list(aggregated.get("image_descriptions") or [])
+        media = list(aggregated.get("media") or [])
+        source_references = list(aggregated.get("source_references") or [])
         sources_used = list(aggregated.get("sources_used") or [])
 
         if not results:
@@ -130,6 +132,7 @@ class SearchSkill(BaseSkill):
                         "query": query,
                         "results": [],
                         "images": [],
+                        "media": [],
                         "sources_used": sources_used,
                         "total": 0,
                     },
@@ -146,6 +149,8 @@ class SearchSkill(BaseSkill):
             images,
             sources_used,
             image_descriptions,
+            media,
+            source_references,
         )
         yield SkillStreamEvent(
             event_type="search_status",

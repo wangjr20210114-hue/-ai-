@@ -88,14 +88,24 @@ export function useWebSocket() {
           if (!id) break;
           const status = msg.payload.status;
           if (status === 'thinking') {
+            const searchResults = msg.payload.search_results;
             const current = streamMessages.current.get(id);
-            if (current) streamMessages.current.set(id, { ...current, skill: undefined });
+            if (current) {
+              streamMessages.current.set(id, {
+                ...current,
+                skill: undefined,
+                searchResults: searchResults && searchResults.total > 0 ? searchResults : undefined,
+              });
+            }
             // 切换到流式输出模式
             dispatch({
               type: 'UPDATE_MESSAGE',
               payload: {
                 id,
-                patch: { skill: undefined },
+                patch: {
+                  skill: undefined,
+                  searchResults: searchResults && searchResults.total > 0 ? searchResults : undefined,
+                },
                 delta: '',
               },
             });

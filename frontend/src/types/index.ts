@@ -46,6 +46,7 @@ export interface PaperInfo {
 
 // ============ 搜索结果 ============
 export interface SearchResultItem {
+  id: string;
   source: string;           // "web" | "wechat" | "zhihu" | "baike" | "wsa"
   title: string;
   snippet: string;
@@ -56,10 +57,25 @@ export interface SearchResultItem {
   image?: string;           // 百科图片等
 }
 
+export interface RichMediaAsset {
+  id: string;
+  kind: 'image' | 'generated_image' | string;
+  url: string;
+  source_id?: string;
+  source_url?: string;
+  source_title?: string;
+  alt: string;
+  caption: string;
+  attribution?: string;
+  generated: boolean;
+}
+
 export interface SearchMeta {
+  schema_version?: number;
   query: string;
   results: SearchResultItem[];
   images: string[];
+  media: RichMediaAsset[];
   sources_used: string[];
   total: number;
 }

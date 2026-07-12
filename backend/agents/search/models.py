@@ -20,6 +20,8 @@ class SearchBundle:
     results: list[dict[str, Any]] = field(default_factory=list)
     images: list[str] = field(default_factory=list)
     image_descriptions: list[dict[str, str]] = field(default_factory=list)
+    media: list[dict[str, Any]] = field(default_factory=list)
+    source_references: list[dict[str, Any]] = field(default_factory=list)
     sources_used: list[str] = field(default_factory=list)
     total: int = 0
 

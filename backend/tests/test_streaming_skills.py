@@ -4,13 +4,18 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from services.model_gateway import ModelChunk, ProviderUsage
+from skills.chat_skill import ChatSkill
 from skills.paper_skill import PaperSkill
 from skills.search_skill import SearchSkill
 
 
 class FakeGateway:
+    def __init__(self) -> None:
+        self.requests = []
+
     async def stream_text(self, request, context, cancellation=None):
-        del request, context, cancellation
+        self.requests.append(request)
+        del context, cancellation
         yield ModelChunk(delta="第一段")
         yield ModelChunk(delta="第二段")
         yield ModelChunk(
@@ -23,6 +28,56 @@ class FakeGateway:
 
 
 class StreamingSkillTests(unittest.IsolatedAsyncioTestCase):
+    async def test_chat_skill_uses_structured_media_for_web_assisted_answers(self) -> None:
+        gateway = FakeGateway()
+        skill = ChatSkill(gateway)
+        search_result = {
+            "results": [{
+                "source": "web",
+                "title": "故宫介绍",
+                "snippet": "故宫位于北京。",
+                "url": "https://example.test/palace",
+            }],
+            "images": ["https://cdn.example.test/palace.jpg"],
+            "image_descriptions": [],
+            "media": [{
+                "id": "media-1",
+                "url": "https://cdn.example.test/palace.jpg",
+                "source_id": "source-1",
+                "source_url": "https://example.test/palace",
+                "source_title": "故宫介绍",
+                "alt": "故宫外景",
+                "caption": "故宫外景",
+            }],
+            "source_references": [{
+                "id": "source-1",
+                "source": "web",
+                "title": "故宫介绍",
+                "snippet": "故宫位于北京。",
+                "url": "https://example.test/palace",
+            }],
+            "sources_used": ["web"],
+        }
+        with (
+            patch("services.search_system.search", new=AsyncMock(return_value=search_result)),
+            patch.object(skill, "_generate_follow_ups", new=AsyncMock(return_value=[])),
+        ):
+            events = [
+                event
+                async for event in skill.stream(
+                    "给我介绍一下北京故宫",
+                    {"web_search": True},
+                    "default-conversation",
+                    [],
+                    run_id="run-chat",
+                )
+            ]
+
+        prompt = "\n".join(message["content"] for message in gateway.requests[0].messages)
+        self.assertIn("media-1", prompt)
+        self.assertNotIn("https://cdn.example.test/palace.jpg", prompt)
+        self.assertEqual(events[-1].data["search_results"]["media"][0]["id"], "media-1")
+
     async def test_search_skill_emits_progress_sources_and_final_answer(self) -> None:
         skill = SearchSkill(FakeGateway())
         search_result = {
@@ -37,6 +92,16 @@ class StreamingSkillTests(unittest.IsolatedAsyncioTestCase):
             ],
             "images": [],
             "image_descriptions": [],
+            "media": [],
+            "source_references": [
+                {
+                    "id": "source-1",
+                    "source": "web",
+                    "title": "Agent Architecture",
+                    "snippet": "event run action",
+                    "url": "https://example.test/agent",
+                }
+            ],
             "sources_used": ["web"],
         }
         with patch("services.search_system.search", new=AsyncMock(return_value=search_result)):

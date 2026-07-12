@@ -14,10 +14,20 @@ class SearchAgent:
             results=data.get("results", []),
             images=data.get("images", []),
             image_descriptions=data.get("image_descriptions", []),
+            media=data.get("media", []),
+            source_references=data.get("source_references", []),
             sources_used=data.get("sources_used", []),
             total=data.get("total", 0),
         )
 
     async def build_answer_stream(self, bundle: SearchBundle):
         from services.search_service import build_search_prompt
-        return await build_search_prompt(bundle.query, bundle.results, bundle.images, bundle.sources_used, bundle.image_descriptions)
+        return await build_search_prompt(
+            bundle.query,
+            bundle.results,
+            bundle.images,
+            bundle.sources_used,
+            bundle.image_descriptions,
+            bundle.media,
+            bundle.source_references,
+        )

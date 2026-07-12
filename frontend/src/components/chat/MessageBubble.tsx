@@ -276,7 +276,7 @@ export default function MessageBubble({ message, client }: Props) {
                   </details>
                 </div>
               )}
-              {message.content && <MarkdownRenderer content={message.content} />}
+              {message.content && <MarkdownRenderer content={message.content} searchMeta={message.searchResults} />}
               {message.streaming && message.content && (
                 <span className="typing-cursor">▊</span>
               )}

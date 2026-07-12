@@ -1,6 +1,6 @@
 # 元宝主动式 Agent
 
-> 当前版本：**本地单用户主动式 Agent 架构改造版（v4.1.0）**
+> 当前版本：**本地单用户主动式 Agent + 结构化图文回答（v4.2.0）**
 > 目标：在个人电脑上长期运行，可靠地感知事件、判断机会、遵守权限、征得确认、执行操作、恢复任务并向用户解释结果。
 
 本仓库已经从"LLM 意图分类 + WebSocket 固定工具调用"的功能原型，改造成以 **Event → Run → Plan → Policy → PendingAction → Executor → Observation/Notification** 为主线的持久化 Agent。它适合本机个人助手场景，但仍不是多用户云服务，也不应未经额外安全建设直接暴露到公网。
@@ -18,9 +18,10 @@
 | 主动 Collector | 已实现 | 日程临近/逾期/冲突、旅行天气风险、文件上传事件 |
 | 主动通知策略 | 已实现 | 去重、冷却、静默时段、每日上限、来源与原因 |
 | ChatSkill 联网搜索 | 已实现 | 默认开启联网搜索增强，输入栏可切换开关 |
+| 结构化图文回答 | 已实现 | 来源、图片和正文分离；模型只引用稳定 ID，前端安全解析、交错展示并提供图片出处 |
 | ChatSkill follow_ups | 已实现 | 所有 Skill 生成"猜你想继续问"追问，基于 BaseSkill 共享方法 |
 | 搜索 404 过滤 | 已实现 | HEAD/GET 双检 + 中文错误页面内容检测（知乎"荒原"等） |
-| 生图直接执行 | 已实现 | AUTO 模式，无需确认卡片，直接调用混元 API |
+| 生图确认执行 | 已实现 | 独立额度消耗属于外部副作用，先展示不可变确认卡片，再由唯一 Executor 调用混元 API |
 | 会议直接创建 | 已实现 | AUTO 模式，直接创建会议；支持"改到""调整"等修改已有会议 |
 | 记忆、反馈和预算 | 已实现 | 记忆需确认，反馈幂等，日/月预算可配置 |
 | 长任务取消 | 已实现 | 用户取消会中止模型流并持久化；断线不会自动取消 |
@@ -149,16 +150,19 @@ npm run dev
 ## 质量检查
 
 ```bash
-# 后端：当前 47 个 unittest
+# 后端：当前 52 个 unittest
 cd backend
 python -m unittest discover -s tests -v
 
-# 前端：当前 3 个 Vitest + ESLint + TypeScript/Vite
+# 前端：当前 5 个 Vitest + ESLint + TypeScript/Vite
 cd frontend
 npm test -- --run
 npm run lint
 npm run build
 ```
+
+图文回答的协议、信任边界、扩展方式和架构审查见
+[`docs/RICH_ANSWER_ARCHITECTURE.md`](docs/RICH_ANSWER_ARCHITECTURE.md)。
 
 ## 管理与恢复
 

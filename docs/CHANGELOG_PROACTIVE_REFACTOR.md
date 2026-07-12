@@ -1,6 +1,6 @@
 # 主动式 Agent 架构改造变更记录
 
-> 分支：`agent/proactive-runtime-refactor`
+> 分支：`agent/proactive-runtime-refactor-v2`
 > 基线提交：上传项目初始快照
 > 对照：`元宝主动式Agent_现有能力盘点与目标架构设计`
 
@@ -16,6 +16,8 @@
 8. **用户控制**：Action Center、Run 时间线、通知、记忆提案、长期记忆、反馈、预算和显式取消。
 9. **本地安全**：本地访问令牌、严格 CORS、REST/WS 共用鉴权、SSRF/重定向/响应大小保护。
 10. **产品恢复**：校验备份、重启原子恢复、健康快照、请求关联日志。
+11. **结构化图文回答**：检索结果生成稳定 `source-*` / `media-*` 标识；Chat/Search 共用 grounded prompt；前端安全解析图片、引用和来源卡片，兼容旧消息协议。
+12. **权限回归修复**：生图恢复为确认型副作用；高风险 AUTO 计划由策略层强制升级为确认，避免绕过统一 Action/Executor 链路。
 
 ## 数据库迁移
 
@@ -30,16 +32,16 @@
 
 ## 当前验证
 
-- 后端：46/46 unittest 通过。
+- 后端：52/52 unittest 通过。
 - 完整 FastAPI lifespan E2E 通过。
-- 前端：3/3 Vitest 通过。
+- 前端：5/5 Vitest 通过。
 - ESLint、TypeScript、Vite production build 通过。
 - Python compileall 与 FastAPI 应用导入通过。
 
 ## 仍需后续扩展
 
 - 旅游规划步骤级 checkpoint/workflow。
-- 搜索逐句引用和证据冲突展示。
+- 搜索引用覆盖率验证、来源时效评分和证据冲突专用展示。
 - 论文页码级分块索引与 OCR。
 - 邮件、系统日历、企业消息等授权 Collector。
 - 腾讯会议/生图 Provider 的远程 request-id 查询，实现真正外部状态自动核对。
