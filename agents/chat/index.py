@@ -9,16 +9,16 @@ import asyncio
 import time
 from ._llm import get_model
 from ._graph import build_graph
-from ._tools import search_web, search_images
+from ._tools import search_images
 
 
 SYSTEM_PROMPT = (
     "你是元宝主动式 Agent，一个智能助手。"
     "用 Markdown 格式回复。"
     "不要在回答中提及搜索、参考信息、来源等内部过程。"
-    "当用户问需要实时信息的问题时，使用 search_web 工具搜索。"
-    "当用户想看图片时，使用 search_images 工具。"
-    "回答中出现的图片使用 Markdown 语法 ![描述](url) 插入。"
+    "当用户问需要实时信息或最新事实时，使用 web_search 工具搜索。"
+    "当用户想看图片时，使用 search_images 工具获取图片。"
+    "回答中的图片使用 Markdown 语法 ![描述](url) 插入，图片要与段落内容相关。"
 )
 
 
@@ -30,8 +30,8 @@ async def handler(ctx):
 
     model = get_model(ctx.env)
 
-    # Tools: ours + platform
-    custom_tools = [search_web, search_images]
+    # Tools: EdgeOne web_search (built-in) + our vision-filtered image search
+    custom_tools = [search_images]
     platform_tools = []
     if ctx.tools:
         try:

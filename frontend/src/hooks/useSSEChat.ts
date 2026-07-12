@@ -77,11 +77,11 @@ class SSEChatClient {
       let streamId = '';
       let intent = 'chat';
 
-      // Start streaming message
+      // Start streaming with default "thinking" state
       streamId = 'ai-stream-' + Date.now();
       this.emit({
         type: 'stream_start',
-        payload: { id: streamId, intent },
+        payload: { id: streamId, intent: 'search' },
       });
 
       while (true) {
@@ -218,6 +218,15 @@ export function useSSEChat() {
             content: '',
             ts: Date.now(),
             streaming: true,
+            skill: {
+              intent: 'search',
+              mode: 'immediate',
+              content: '',
+              icon: '🔍',
+              action_label: '',
+              params: {},
+              data: { status: 'searching', statusText: '思考中…' },
+            },
           };
           streamMessages.current.set(id, streamMessage);
           dispatch({ type: 'ADD_MESSAGE', payload: streamMessage });

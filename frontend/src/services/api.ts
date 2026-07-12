@@ -1,24 +1,10 @@
 import type { ChatMessage, TravelPlan, CityInfo, ScheduleItem, MeetingResult, StoredFileInfo, TravelCollected } from '../types';
 
-import { authorizedFetch } from './auth';
-
-/** Detect if running on EdgeOne (preview or production). */
-const isEdgeOne = typeof window !== 'undefined' && window.location.host.includes('edgeone');
-
-/** Append eo_token/eo_time params needed for EdgeOne API auth. */
-function apiUrl(path: string): string {
-  if (!isEdgeOne) return path;
-  const p = new URLSearchParams(window.location.search);
-  const token = p.get('eo_token');
-  const time = p.get('eo_time');
-  if (token && time) return `${path}?eo_token=${token}&eo_time=${time}`;
-  return path;
-}
+import { authorizedFetch, isEdgeOne } from './auth';
 
 const BASE = '/api';
 
 export async function bootstrapApp(conversationId: string): Promise<{ messages: ChatMessage[] }> {
-  // On EdgeOne, bootstrap is optional (context.store handles history)
   if (isEdgeOne) return { messages: [] };
   const res = await authorizedFetch(`${BASE}/bootstrap?conversation_id=${encodeURIComponent(conversationId)}`);
   if (!res.ok) throw new Error('初始化会话失败');
@@ -26,6 +12,7 @@ export async function bootstrapApp(conversationId: string): Promise<{ messages: 
 }
 
 export async function saveConversationMessage(conversationId: string, message: ChatMessage): Promise<void> {
+  if (isEdgeOne) return; // context.store handles persistence
   const res = await authorizedFetch(`${BASE}/conversations/${encodeURIComponent(conversationId)}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
