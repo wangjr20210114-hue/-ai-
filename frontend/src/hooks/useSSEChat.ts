@@ -4,7 +4,7 @@ import { bootstrapApp, saveConversationMessage } from '../services/api';
 import { useAppDispatch, useAppState } from '../store/appState';
 import type { SkillInfo, PaperInfo, ChatMessage } from '../types';
 
-/** Generate a unique conversation ID (EdgeOne requires makers-conversation-id header). */
+/** Generate or get EdgeOne conversation ID. */
 function getOrCreateConversationId(): string {
   const key = 'eo_conv_id';
   let id = localStorage.getItem(key);
@@ -15,14 +15,25 @@ function getOrCreateConversationId(): string {
   return id;
 }
 
-/** SSE-based chat client – same interface as WSClient for minimal frontend changes. */
+/** Extract EdgeOne auth params from current URL for API calls. */
+function getEoAuthParams(): string {
+  const p = new URLSearchParams(window.location.search);
+  const token = p.get('eo_token');
+  const time = p.get('eo_time');
+  if (token && time) return `?eo_token=${token}&eo_time=${time}`;
+  return '';
+}
+
+/** SSE-based chat client — same interface as WSClient. */
 class SSEChatClient {
   private controller: AbortController | null = null;
   private listeners = new Set<(msg: any) => void>();
   private convId: string;
+  private authParams: string;
 
   constructor() {
     this.convId = getOrCreateConversationId();
+    this.authParams = getEoAuthParams();
   }
 
   get conversationId() {
@@ -40,7 +51,7 @@ class SSEChatClient {
     const signal = this.controller.signal;
 
     try {
-      const resp = await fetch('/chat', {
+      const resp = await fetch(`/chat${this.authParams}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

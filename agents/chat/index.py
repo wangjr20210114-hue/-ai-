@@ -24,7 +24,7 @@ SYSTEM_PROMPT = (
 
 async def handler(ctx):
     body = ctx.request.body or {}
-    message = body.get("message", "")
+    message = body.get("message") or body.get("text") or ""
     if not message:
         return {"error": "'message' is required"}, 400
 
