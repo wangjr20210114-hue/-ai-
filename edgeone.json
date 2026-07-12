@@ -6,10 +6,19 @@
     "framework": "langgraph",
     "timeout": 1800
   },
+  "cloudFunctions": {
+    "python": {
+      "includeFiles": []
+    }
+  },
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "http://94.16.110.28:8000/api/:path*"
+      "source": "/api/messages",
+      "destination": "/cloud-functions/messages"
+    },
+    {
+      "source": "/api/search/:path*",
+      "destination": "http://94.16.110.28:8000/api/search/:path*"
     }
   ]
 }

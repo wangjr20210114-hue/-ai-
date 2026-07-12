@@ -5,7 +5,18 @@ import { authorizedFetch, isEdgeOne } from './auth';
 const BASE = '/api';
 
 export async function bootstrapApp(conversationId: string): Promise<{ messages: ChatMessage[] }> {
-  if (isEdgeOne) return { messages: [] };
+  if (isEdgeOne) {
+    // Load from EdgeOne store via cloud function
+    try {
+      const res = await authorizedFetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_id: conversationId }),
+      });
+      if (res.ok) return res.json();
+    } catch { /* fall through */ }
+    return { messages: [] };
+  }
   const res = await authorizedFetch(`${BASE}/bootstrap?conversation_id=${encodeURIComponent(conversationId)}`);
   if (!res.ok) throw new Error('初始化会话失败');
   return res.json();

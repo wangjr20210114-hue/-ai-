@@ -4,10 +4,10 @@ import MessageBubble from './MessageBubble';
 import type { ChatClient } from '../../services/chatClient';
 
 const STARTERS = [
-  '我想去杭州旅游，3天行程',
-  '明天下午3点和团队开个需求评审会',
   '最近AI有什么新进展',
-  '这篇英文论文好难懂，帮我看看',
+  '帮我推荐几本明朝历史的书',
+  '北京故宫有什么好玩的',
+  '用Python写一个快速排序',
 ];
 
 interface Props {
