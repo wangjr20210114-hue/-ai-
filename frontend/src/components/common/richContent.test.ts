@@ -30,9 +30,8 @@ describe('rich content references', () => {
     expect(resolveMediaReference('javascript:alert(1)', [media])).toBeUndefined();
   });
 
-  it('turns trusted citation IDs into markdown links and drops unknown IDs', () => {
+  it('strips citation markers from content', () => {
     const result = replaceCitationMarkers('结论。[[cite:source-1]] [[cite:source-9]]', [source]);
-    expect(result).toContain('[1](<https://example.com/source>');
-    expect(result).not.toContain('source-9');
+    expect(result).toBe('结论。');
   });
 });

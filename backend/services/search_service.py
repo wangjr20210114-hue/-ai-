@@ -107,23 +107,3 @@ def prepare_search_prompt(
     )
     return request, rich_metadata
 
-
-async def build_search_prompt(
-    query: str,
-    results: list[dict[str, Any]],
-    images: list[str],
-    sources_used: list[str],
-    image_descriptions: list[dict[str, str]] | None = None,
-    media: list[dict[str, Any]] | None = None,
-    source_references: list[dict[str, Any]] | None = None,
-) -> tuple[ModelRequest, dict[str, Any]]:
-    """Compatibility entry point used by the older SearchAgent wrapper."""
-    return prepare_search_prompt(
-        query,
-        results,
-        images,
-        sources_used,
-        image_descriptions,
-        media,
-        source_references,
-    )

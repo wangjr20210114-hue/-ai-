@@ -44,7 +44,7 @@ class MeetingSkill(BaseSkill):
                 SkillParameter("duration_minutes", "integer", "会议时长分钟", False, 60),
             ],
             examples=["明天下午三点拉个需求评审会", "帮我约周五十点开会"],
-            output_modes=["confirmation_card", "meeting_result"],
+            output_modes=["meeting_result"],
         )
 
     @property

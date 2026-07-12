@@ -12,8 +12,8 @@
 
 - FastAPI 后端、React 前端和 SQLite 数据访问代码。
 - `agent/` 中的事件、计划、策略、运行时、响应器和技能注册机制。
-- `agents/` 中的旅游、论文、搜索领域实现。
-- 旅游、地图、会议、搜索、论文、翻译和生图相关服务。
+- `agents/travel/` 中的旅游领域实现。
+- `skills/` 中的 Chat、Search、Image、Meeting、Travel、Paper、Translation 技能实现。
 - 当前前端交互和样式实现。
 - 环境变量示例、依赖清单和项目说明。
 

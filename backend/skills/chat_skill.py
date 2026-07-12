@@ -10,8 +10,9 @@ from agent.cancellation import CancellationToken
 from agent.contracts import FailurePolicy, PermissionLevel, RiskLevel, SkillSchema
 from config import settings
 from services.model_gateway import CallContext, ModelGateway, ModelRequest
-from services.search_service import prepare_search_prompt
 from skills.base_skill import BaseSkill, SkillResult, SkillStreamEvent
+
+import re as _re
 
 
 def _history_messages(history: list[str], current_message: str) -> list[dict[str, str]]:
@@ -111,9 +112,8 @@ class ChatSkill(BaseSkill):
                 "content": (
                     "你是元宝主动式 Agent，一个智能助手。"
                     "用 Markdown 格式回复。"
-                    "如果提供了结构化网络证据，严格遵守其中的引用与媒体 ID 协议；"
-                    "绝不自行输出图片 URL 或编造引用标记。"
                     "如果用户的问题涉及旅游、会议等你能提供的服务，在回答中自然地引导用户使用。"
+                    "不要在回答中提及搜索、参考信息、来源等内部过程。"
                 ),
             },
             *_history_messages(history, message),
@@ -123,11 +123,62 @@ class ChatSkill(BaseSkill):
         # If web search is enabled, fetch search results and prepend context
         search_data: dict[str, Any] = {}
         if web_search_enabled and self._should_search(message):
+            # Emit searching status so frontend can show animation
+            yield SkillStreamEvent(
+                event_type="search_status",
+                data={"status": "searching", "query": message},
+            )
             search_data = await self._web_search(message)
+            # Inject search context and media info if we have results
+            context_text = search_data.get("context", "")
+            media_list = search_data.get("media", [])
+            has_real_content = any(
+                r.get("snippet", "").strip()
+                for r in search_data.get("results", [])[:6]
+            )
             if search_data.get("results"):
-                # Both entries are system messages so retrieved evidence cannot
-                # override the user's request or the assistant's safety rules.
-                messages[1:1] = search_data["prompt_messages"]
+                # Build natural context with media and source info
+                # Key principle: tell the model WHAT resources are available,
+                # not WHERE to place them. Let the model decide naturally.
+                context_text = search_data.get("context", "")
+                media_list = search_data.get("media", [])
+                resource_parts: list[str] = []
+                if media_list:
+                    media_lines = []
+                    for m in media_list:
+                        desc = m.get('caption') or m.get('alt', '图片')
+                        url = m.get('url', '')
+                        media_lines.append(f"![{desc}]({url})")
+                    resource_parts.append(
+                        f"以下图片供参考，每种图片的 alt 描述是该图片的视觉内容摘要：\n"
+                        f"{chr(10).join(media_lines)}\n\n"
+                        f"图片使用规则：\n"
+                        f"1. 只在图片内容与你当前段落主题直接相关时才插入，无关的图片不要放\n"
+                        f"2. 插入时可以把 alt 文本改写得更贴合当前段落上下文，让用户看到的描述与文字融为一体\n"
+                        f"3. 如果某张图片和任何段落都不匹配，就不要用它\n"
+                        f"4. 不要为了凑图而插入无关图片"
+                    )
+                # Tag results with stable IDs and include relevant sources
+                raw_results = search_data.get("results", [])
+                card_sources = [r for r in raw_results if r.get("source") in ("wechat", "zhihu", "baike")][:2]
+                if card_sources:
+                    card_lines = []
+                    for i, r in enumerate(card_sources):
+                        source_id = f"source-{i+1}"
+                        r["id"] = source_id
+                        source_label = {"wechat": "公众号", "zhihu": "知乎", "baike": "百科"}.get(r.get("source", ""), r.get("source", ""))
+                        card_lines.append(f"- {source_id}：[{source_label}] {r.get('title', '')[:40]}")
+                    resource_parts.append(
+                        f"可推荐来源（选对用户最有帮助的，不需要就不用）：\n"
+                        f"{chr(10).join(card_lines)}\n"
+                        f"推荐标记：[[card:source-id]]"
+                    )
+                resource_text = "\n\n".join(resource_parts)
+                if context_text:
+                    messages.insert(1, {
+                        "role": "system",
+                        "content": f"{context_text}\n\n{resource_text}".strip(),
+                    })
 
         full_text = ""
         async for chunk in self.gateway.stream_text(
@@ -172,26 +223,76 @@ class ChatSkill(BaseSkill):
         return not any(kw in message for kw in skip_keywords)
 
     async def _web_search(self, query: str) -> dict[str, Any]:
-        """Fetch source-bound evidence and UI-resolvable media metadata."""
+        """Fetch web search results and build context for the LLM."""
         try:
             from services.search_system import search as system_search
             aggregated = await system_search(query, intent="general", time_sensitive=False, depth="basic")
             results = list(aggregated.get("results") or [])
             if not results:
                 return {}
-            request, search_meta = prepare_search_prompt(
-                query=query,
-                results=results,
-                images=list(aggregated.get("images") or []),
-                sources_used=list(aggregated.get("sources_used") or []),
-                image_descriptions=list(aggregated.get("image_descriptions") or []),
-                media=list(aggregated.get("media") or []),
-                source_references=list(aggregated.get("source_references") or []),
-            )
+            # Build context text from top results — clean bracket artifacts from snippets
+            context_parts = []
+            for r in results[:6]:
+                title = r.get("title", "")
+                snippet = r.get("snippet", "")
+                source = r.get("source", "")
+                # Remove [[xxx] yyy] patterns that leak from search providers
+                snippet = _re.sub(r'\[\[[^\]]*\]([^\]]*)\]', r'\1', snippet).strip()
+                context_parts.append(f"[{source}] {title}: {snippet}")
+            # Build media list from search results
+            media_list = []
+            raw_media = list(aggregated.get("media") or [])
+            image_descs = list(aggregated.get("image_descriptions") or [])
+            # Build a url→description map for visual filtering
+            desc_by_url = {d.get("url", ""): d.get("description", "") for d in image_descs if d.get("url")}
+            for m in raw_media:
+                url = m.get("url", "")
+                caption = m.get("caption") or m.get("alt", "")
+                vision_desc = desc_by_url.get(url, "")
+                if vision_desc:
+                    caption = vision_desc
+                # Visual model already filtered irrelevant images in describe_images()
+                media_list.append({
+                    "id": m.get("id", ""),
+                    "kind": "image",
+                    "url": url,
+                    "caption": caption,
+                    "alt": caption,
+                    "source_url": m.get("source_url", ""),
+                    "source_id": m.get("source_id", ""),
+                    "source_title": m.get("source_title", ""),
+                    "generated": False,
+                })
+            # Also extract images from results as fallback
+            if not media_list:
+                images = list(aggregated.get("images") or [])[:3]
+                for i, img_url in enumerate(images):
+                    media_list.append({
+                        "id": f"media-{i+1}",
+                        "kind": "image",
+                        "url": img_url,
+                        "caption": "",
+                        "alt": "搜索图片",
+                        "source_url": "",
+                        "source_id": "",
+                        "generated": False,
+                    })
+            # Tag results with stable IDs for frontend card resolution
+            for i, r in enumerate(results[:8]):
+                if not r.get("id"):
+                    r["id"] = f"source-{i+1}"
             return {
                 "results": results,
-                "prompt_messages": request.messages,
-                "search_meta": search_meta,
+                "context": "\n".join(context_parts),
+                "media": media_list,
+                "search_meta": {
+                    "query": query,
+                    "results": results[:8],
+                    "media": media_list,
+                    "images": [m["url"] for m in media_list],
+                    "sources_used": list(aggregated.get("sources_used") or []),
+                    "total": len(results),
+                },
             }
         except Exception:
             return {}

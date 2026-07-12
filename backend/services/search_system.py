@@ -164,15 +164,14 @@ async def extract_media_candidates(results: list[dict[str, Any]]) -> list[dict[s
     """Extract images while preserving the source document relationship.
 
     来源：
-    1. 百科结果中的图片
-    2. 网页结果中尝试抓取页面内的图片（取前4条）
+    1. 百科/搜索结果中的 image 字段
+    2. 网页结果中抓取页面内的所有图片（前 6 条网页）
 
     注意：微信公众号头像属于微信公众平台版权资源，不提取使用。
     """
     candidates: list[dict[str, str]] = []
 
     for r in results:
-        # 百科图片
         if r.get("image"):
             candidates.append(
                 {
@@ -183,24 +182,23 @@ async def extract_media_candidates(results: list[dict[str, Any]]) -> list[dict[s
                     "origin": "result_image",
                 }
             )
-        # 微信头像不提取（版权限制）
 
-    # 尝试从前 4 条网页结果中提取图片（多提一条弥补移除头像的缺口）
-    web_results = [r for r in results if r.get("source") == "web" and r.get("url", "").startswith("http")][:4]
+    web_results = [r for r in results if r.get("url", "").startswith("http")][:6]
     if web_results:
-        tasks = [_extract_page_image(r["url"]) for r in web_results]
-        page_images = await asyncio.gather(*tasks, return_exceptions=True)
-        for result, img in zip(web_results, page_images):
-            if isinstance(img, str) and img:
-                candidates.append(
-                    {
-                        "url": img,
-                        "source_url": str(result.get("url") or ""),
-                        "source_title": str(result.get("title") or ""),
-                        "source_type": str(result.get("source") or "web"),
-                        "origin": "page_image",
-                    }
-                )
+        tasks = [_extract_page_images(r["url"]) for r in web_results]
+        page_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result, imgs in zip(web_results, page_results):
+            if isinstance(imgs, list):
+                for img_url in imgs:
+                    candidates.append(
+                        {
+                            "url": img_url,
+                            "source_url": str(result.get("url") or ""),
+                            "source_title": str(result.get("title") or ""),
+                            "source_type": str(result.get("source") or "web"),
+                            "origin": "page_image",
+                        }
+                    )
 
     deduplicated: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -209,7 +207,7 @@ async def extract_media_candidates(results: list[dict[str, Any]]) -> list[dict[s
             continue
         seen.add(item["url"])
         deduplicated.append(item)
-    return deduplicated[:8]
+    return deduplicated
 
 
 async def extract_images_from_results(results: list[dict[str, Any]]) -> list[str]:
@@ -217,10 +215,10 @@ async def extract_images_from_results(results: list[dict[str, Any]]) -> list[str
     return [item["url"] for item in await extract_media_candidates(results)]
 
 
-async def _extract_page_image(url: str) -> str:
-    """尝试从网页中提取第一张图片。"""
+async def _extract_page_images(url: str) -> list[str]:
+    """从网页中提取所有有意义的图片 URL。"""
     if not url or not url.startswith("http"):
-        return ""
+        return []
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -231,30 +229,35 @@ async def _extract_page_image(url: str) -> str:
             headers=headers,
             timeout_seconds=8,
             max_redirects=3,
-            max_bytes=2 * 1024 * 1024,
+            max_bytes=3 * 1024 * 1024,
             allowed_content_types=("text/html", "application/xhtml+xml"),
         )
         if response.status_code != 200:
-            return ""
+            return []
         text = response.text
+        images: list[str] = []
 
-        # 提取 og:image
-        m = re.search(r'<meta[^>]*property="og:image"[^>]*content="([^"]+)"', text, re.IGNORECASE)
-        if m:
-            img_url = m.group(1)
-            img_url = _fix_url_scheme(img_url)
-            if _is_meaningful_image(img_url):
-                return img_url
-
-        # 提取第一张 jpg/png/webp（也匹配协议相对路径 //xxx）
-        m = re.search(r'src="((?:https?:)?//[^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"', text, re.IGNORECASE)
-        if m:
+        # 1. og:image
+        for m in re.finditer(r'<meta[^>]*property="og:image"[^>]*content="([^"]+)"', text, re.IGNORECASE):
             img_url = _fix_url_scheme(m.group(1))
-            if _is_meaningful_image(img_url):
-                return img_url
-        return ""
+            if _is_meaningful_image(img_url) and img_url not in images:
+                images.append(img_url)
+
+        # 2. 所有 <img src="xxx.jpg">
+        for m in re.finditer(r'src="((?:https?:)?//[^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"', text, re.IGNORECASE):
+            img_url = _fix_url_scheme(m.group(1))
+            if _is_meaningful_image(img_url) and img_url not in images:
+                images.append(img_url)
+
+        # 3. data-src lazy loading
+        for m in re.finditer(r'data-src="((?:https?:)?//[^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"', text, re.IGNORECASE):
+            img_url = _fix_url_scheme(m.group(1))
+            if _is_meaningful_image(img_url) and img_url not in images:
+                images.append(img_url)
+
+        return images[:10]
     except Exception:
-        return ""
+        return []
 
 
 # 明显的默认图/占位符 URL 模式
@@ -570,18 +573,8 @@ async def search(query: str, intent: str = None, time_sensitive: bool = None, de
         try:
             from services.hunyuan_service import hunyuan_service
             image_descriptions = await hunyuan_service.describe_images(images[:5], context=query)
-            # 二次过滤：丢弃视觉描述为占位符/logo/默认图/纯装饰的图片
-            _USELESS_DESC = re.compile(
-                r"(占位符|默认图|空白|logo|图标|装饰|无内容|纯色|背景|视频|播放器|无法识别)",
-                re.IGNORECASE,
-            )
-            before = len(image_descriptions)
-            image_descriptions = [
-                item for item in image_descriptions
-                if not _USELESS_DESC.search(item["description"])
-            ]
-            if before != len(image_descriptions):
-                print(f"[search] vision filtered {before - len(image_descriptions)} useless images")
+            # Visual model already filters irrelevant images (ads, logos, etc.)
+            # via the "relevant" field in describe_images()
             if image_descriptions:
                 print(f"[search] vision kept {len(image_descriptions)} meaningful images")
             else:

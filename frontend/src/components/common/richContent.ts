@@ -11,14 +11,13 @@ export function isSafeRemoteUrl(value: string): boolean {
   }
 }
 
-export function replaceCitationMarkers(content: string, sources: SearchResultItem[]): string {
-  const byId = new Map(sources.map((source, index) => [source.id, { source, index }]));
-  return content.replace(/\[\[cite:(source-[a-zA-Z0-9_-]+)\]\]/g, (_match, sourceId: string) => {
-    const resolved = byId.get(sourceId);
-    if (!resolved || !isSafeRemoteUrl(resolved.source.url)) return '';
-    const title = (resolved.source.title || resolved.source.url).replace(/["\n]/g, ' ');
-    return `[${resolved.index + 1}](<${resolved.source.url}> "${title}")`;
-  });
+export function replaceCitationMarkers(content: string, _sources: SearchResultItem[]): string {
+  // Strip citation markers — we don't want numbered superscript links in the answer.
+  // Sources are still available in the search_results panel below the message.
+  let result = content.replace(/\[\[cite:(source-[a-zA-Z0-9_-]+)\]\]/g, '');
+  // Also strip any leaked [[xxx] yyy] patterns from search providers (e.g. [[wsa] title])
+  result = result.replace(/\[\[[^\]]*\][^\]]*\]/g, '');
+  return result.trim();
 }
 
 export function expandStructuredCards(content: string, sources: SearchResultItem[]): string {

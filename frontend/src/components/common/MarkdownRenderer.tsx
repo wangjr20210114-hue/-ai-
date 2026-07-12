@@ -58,16 +58,8 @@ function extractImages(
 
 function RichImage({ asset }: { asset: RichMediaAsset }) {
   const [failed, setFailed] = useState(false);
-  if (failed) {
-    return (
-      <div className="rich-image-fallback" role="status">
-        <span>图片暂时无法加载</span>
-        {asset.source_url && isSafeRemoteUrl(asset.source_url) && (
-          <a href={asset.source_url} target="_blank" rel="noreferrer">查看原始来源</a>
-        )}
-      </div>
-    );
-  }
+  // Hide broken images entirely instead of showing an error box
+  if (failed) return null;
   return (
     <figure className="rich-media-figure">
       <img
