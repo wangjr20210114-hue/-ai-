@@ -6,12 +6,7 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import InfoCard from './InfoCard';
 import type { RichMediaAsset, SearchMeta } from '../../types';
-import {
-  expandStructuredCards,
-  isSafeRemoteUrl,
-  replaceCitationMarkers,
-  resolveMediaReference,
-} from './richContent';
+import { isSafeRemoteUrl, replaceCitationMarkers } from './richContent';
 
 const SOURCE_TYPE_MAP: Record<string, string> = {
   '公众号': 'wechat', '知乎': 'zhihu', '百科': 'baike', '网页': 'web',
@@ -190,12 +185,7 @@ function cleanChildren(children: React.ReactNode): React.ReactNode {
 export default function MarkdownRenderer({ content, searchMeta }: { content: string; searchMeta?: SearchMeta }) {
   const sources = searchMeta?.results || [];
   const media = searchMeta?.media || [];
-  const groundedContent = expandStructuredCards(
-    replaceCitationMarkers(content, sources),
-    sources,
-  );
-  const { text: t1, images } = extractImages(groundedContent, media);
-  const { text: mdText, cards } = extractCards(t1);
+  const cleanedContent = replaceCitationMarkers(content, sources);
 
   return (
     <div className="markdown-body">
@@ -206,39 +196,7 @@ export default function MarkdownRenderer({ content, searchMeta }: { content: str
           h1: ({ children }) => <h1>{children}</h1>,
           h2: ({ children }) => <h2>{children}</h2>,
           h3: ({ children }) => <h3>{children}</h3>,
-          p: ({ children }) => {
-            const rawText = childrenToText(children);
-            // 处理图片占位符
-            const imgIds: number[] = [];
-            const imgRegex = /ZIMG(\d+)Z/g;
-            let imgMatch;
-            while ((imgMatch = imgRegex.exec(rawText)) !== null) {
-              imgIds.push(parseInt(imgMatch[1], 10));
-            }
-            // 处理卡片占位符
-            const cardIds = extractCardIds(rawText);
-
-            if (cardIds.length > 0 || imgIds.length > 0) {
-              const cardEls = renderCards(cardIds, cards);
-              const imgEls = imgIds.filter(id => images.has(id)).map(id => (
-                <RichImage key={`img-${id}`} asset={images.get(id)!} />
-              ));
-              // 清理占位符后的文字
-              const cleanedChildren = cleanChildren(cleanImgMarkers(children));
-              const hasText = stripCardMarkers(stripImgMarkers(rawText)).trim().length > 0;
-              if (!hasText) {
-                return <>{imgEls}{cardEls}</>;
-              }
-              return (
-                <>
-                  <p>{cleanedChildren}</p>
-                  {imgEls}
-                  {cardEls}
-                </>
-              );
-            }
-            return <p>{children}</p>;
-          },
+          p: ({ children }) => <p>{children}</p>,
           ul: ({ children }) => <ul>{children}</ul>,
           ol: ({ children }) => <ol>{children}</ol>,
           li: ({ children }) => {
@@ -331,9 +289,19 @@ export default function MarkdownRenderer({ content, searchMeta }: { content: str
               }} />
             );
           },
+          a: ({ href, children }) => {
+            const url = typeof href === 'string' ? href : '';
+            const text = typeof children === 'string' ? children : String(children || '');
+            // Render known source links as cards
+            const isCard = /zhihu\.com|weixin|baike\./i.test(url) || /知乎|公众号|百科/i.test(text);
+            if (isCard && url) {
+              return <InfoCard title={text} url={url} source="web" />;
+            }
+            return <a href={url} target="_blank" rel="noreferrer">{children}</a>;
+          },
         }}
       >
-        {mdText}
+        {cleanedContent}
       </ReactMarkdown>
     </div>
   );

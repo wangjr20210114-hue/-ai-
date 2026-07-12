@@ -208,6 +208,9 @@ export default function MessageBubble({ message, client }: Props) {
   const searchStatus = typeof message.skill?.data?.statusText === 'string'
     ? message.skill.data.statusText
     : '正在搜索';
+  const searchSources: string[] = Array.isArray(message.skill?.data?.sources)
+    ? message.skill.data.sources
+    : [];
   const dataDestination = typeof compatSkill?.data?.destination === 'string'
     ? compatSkill.data.destination
     : undefined;
@@ -231,14 +234,23 @@ export default function MessageBubble({ message, client }: Props) {
                   </span>
                 </div>
               )}
-              {/* 搜索动画：内容为空且正在搜索 */}
-              {!isUser && intent === 'search' && message.streaming && !message.content && (
-                <div className="image-generating-anim">
-                  <div className="image-generating-spinner" />
-                  <span>{searchStatus}</span>
-                  <span className="image-generating-dots">
-                    <span>.</span><span>.</span><span>.</span>
-                  </span>
+              {/* 搜索动画 */}
+              {!isUser && message.streaming && !message.content && (
+                <div className="image-generating-anim" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div className="image-generating-spinner" />
+                    <span>{searchStatus}</span>
+                    <span className="image-generating-dots">
+                      <span>.</span><span>.</span><span>.</span>
+                    </span>
+                  </div>
+                  {searchSources.length > 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--app-text-3)', lineHeight: 1.5 }}>
+                      {searchSources.map((s, i) => (
+                        <span key={i} style={{ marginRight: 8 }}>🔗 {s}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               {/* 搜索来源列表（回答顶部，可展开） */}

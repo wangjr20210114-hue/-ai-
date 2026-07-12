@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, MessagePlugin, Tag } from 'tdesign-react';
 import {
-  confirmMemoryProposal,
   deleteAgentMemory,
   exportAgentMemories,
   getUsageSummary,
   listAgentMemories,
-  listMemoryProposals,
-  rejectMemoryProposal,
   updateUsagePreferences,
 } from '../../services/api';
-import type { AgentMemory, MemoryProposal, UsageSummary } from '../../types';
+import type { AgentMemory, UsageSummary } from '../../types';
 
 function renderValue(value: unknown) {
   if (typeof value === 'string') return value;
@@ -23,7 +20,6 @@ function renderValue(value: unknown) {
 
 /** User-controlled memory and budget management. */
 export default function AgentIntelligencePanel() {
-  const [proposals, setProposals] = useState<MemoryProposal[]>([]);
   const [memories, setMemories] = useState<AgentMemory[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [dailyBudget, setDailyBudget] = useState('20');
@@ -33,12 +29,10 @@ export default function AgentIntelligencePanel() {
 
   const refresh = useCallback(async () => {
     try {
-      const [nextProposals, nextMemories, nextUsage] = await Promise.all([
-        listMemoryProposals('awaiting_confirmation'),
+      const [nextMemories, nextUsage] = await Promise.all([
         listAgentMemories(),
         getUsageSummary(),
       ]);
-      setProposals(nextProposals);
       setMemories(nextMemories);
       setUsage(nextUsage);
       setDailyBudget(String(nextUsage.preferences.daily_budget_cny));
@@ -52,32 +46,6 @@ export default function AgentIntelligencePanel() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  const confirmProposal = async (proposal: MemoryProposal) => {
-    setBusyId(proposal.id);
-    try {
-      await confirmMemoryProposal(proposal.id, proposal.version);
-      MessagePlugin.success('记忆已确认保存');
-      await refresh();
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '确认失败');
-    } finally {
-      setBusyId('');
-    }
-  };
-
-  const rejectProposal = async (proposal: MemoryProposal) => {
-    setBusyId(proposal.id);
-    try {
-      await rejectMemoryProposal(proposal.id);
-      MessagePlugin.success('已拒绝该记忆提案');
-      await refresh();
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '拒绝失败');
-    } finally {
-      setBusyId('');
-    }
-  };
 
   const removeMemory = async (memory: AgentMemory) => {
     setBusyId(memory.id);
@@ -137,34 +105,11 @@ export default function AgentIntelligencePanel() {
         </Tag>
       </div>
 
-      {proposals.length > 0 ? (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>待确认记忆</div>
-          {proposals.map((proposal) => (
-            <div key={proposal.id} style={{ padding: 8, border: '1px solid var(--app-border)', borderRadius: 8, marginBottom: 5 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 600 }}>{proposal.candidate_json.key}</div>
-              <pre style={{ margin: '4px 0', whiteSpace: 'pre-wrap', fontSize: 10.5, color: 'var(--app-text-2)' }}>
-                {renderValue(proposal.candidate_json.value)}
-              </pre>
-              <div style={{ fontSize: 10, color: 'var(--app-text-3)' }}>
-                置信度 {Math.round((proposal.candidate_json.confidence || 0) * 100)}% · {proposal.candidate_json.sensitivity || 'normal'}
-              </div>
-              <div style={{ display: 'flex', gap: 5, marginTop: 5 }}>
-                <Button size="small" theme="primary" loading={busyId === proposal.id} onClick={() => { void confirmProposal(proposal); }}>
-                  确认记住
-                </Button>
-                <Button size="small" variant="outline" onClick={() => { void rejectProposal(proposal); }}>拒绝</Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
       <details>
         <summary style={{ fontSize: 11.5, cursor: 'pointer' }}>长期记忆（{memories.length}）</summary>
         <div style={{ marginTop: 6 }}>
           {memories.length === 0 ? (
-            <div style={{ fontSize: 11, color: 'var(--app-text-3)' }}>暂无长期记忆。系统不会静默写入，必须经过确认。</div>
+            <div style={{ fontSize: 11, color: 'var(--app-text-3)' }}>暂无记忆。系统会在对话中自动提取并更新你的偏好和事实。</div>
           ) : memories.map((memory) => (
             <div key={memory.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--app-border)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>

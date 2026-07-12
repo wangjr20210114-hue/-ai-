@@ -4,6 +4,7 @@ import { useAppState } from './store/appState';
 import Header from './components/common/Header';
 import ChatInterface from './components/chat/ChatInterface';
 import MyPanel from './components/profile/MyPanel';
+import DebugPanel from './components/common/DebugPanel';
 
 function App() {
   const client = useWebSocket();
@@ -20,6 +21,7 @@ function App() {
         <ChatInterface client={client} />
         <MyPanel />
       </div>
+      <DebugPanel />
     </div>
   );
 }

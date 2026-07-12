@@ -183,16 +183,18 @@ async def extract_media_candidates(results: list[dict[str, Any]]) -> list[dict[s
                 }
             )
 
-    web_results = [r for r in results if r.get("url", "").startswith("http")][:6]
+    web_results = [r for r in results if r.get("url", "").startswith("http")][:10]
     if web_results:
         tasks = [_extract_page_images(r["url"]) for r in web_results]
         page_results = await asyncio.gather(*tasks, return_exceptions=True)
         for result, imgs in zip(web_results, page_results):
             if isinstance(imgs, list):
-                for img_url in imgs:
+                for img in imgs:
                     candidates.append(
                         {
-                            "url": img_url,
+                            "url": img["url"],
+                            "alt": img.get("alt", ""),
+                            "context": img.get("context", ""),
                             "source_url": str(result.get("url") or ""),
                             "source_title": str(result.get("title") or ""),
                             "source_type": str(result.get("source") or "web"),
@@ -215,47 +217,59 @@ async def extract_images_from_results(results: list[dict[str, Any]]) -> list[str
     return [item["url"] for item in await extract_media_candidates(results)]
 
 
-async def _extract_page_images(url: str) -> list[str]:
-    """从网页中提取所有有意义的图片 URL。"""
+async def _extract_page_images(url: str) -> list[dict[str, str]]:
+    """从网页中提取图片 URL、alt 和周围文字上下文。"""
     if not url or not url.startswith("http"):
         return []
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        }
+        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
         response = await request_public_url(
-            "GET",
-            url,
-            headers=headers,
-            timeout_seconds=8,
-            max_redirects=3,
+            "GET", url, headers=headers, timeout_seconds=8, max_redirects=3,
             max_bytes=3 * 1024 * 1024,
             allowed_content_types=("text/html", "application/xhtml+xml"),
         )
         if response.status_code != 200:
             return []
         text = response.text
-        images: list[str] = []
+        seen: set[str] = set()
+        images: list[dict[str, str]] = []
+
+        def _add(img_url: str, alt: str = "", context: str = "") -> None:
+            img_url = _fix_url_scheme(img_url)
+            if img_url and _is_meaningful_image(img_url) and img_url not in seen:
+                seen.add(img_url)
+                images.append({"url": img_url, "alt": alt.strip()[:120], "context": context[:200]})
 
         # 1. og:image
         for m in re.finditer(r'<meta[^>]*property="og:image"[^>]*content="([^"]+)"', text, re.IGNORECASE):
-            img_url = _fix_url_scheme(m.group(1))
-            if _is_meaningful_image(img_url) and img_url not in images:
-                images.append(img_url)
+            _add(m.group(1))
 
-        # 2. 所有 <img src="xxx.jpg">
-        for m in re.finditer(r'src="((?:https?:)?//[^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"', text, re.IGNORECASE):
-            img_url = _fix_url_scheme(m.group(1))
-            if _is_meaningful_image(img_url) and img_url not in images:
-                images.append(img_url)
+        # 2. <img> with src + alt + surrounding text context
+        img_re = re.compile(
+            r'<img[^>]*\bsrc="((?:https?:)?//[^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"[^>]*>', re.IGNORECASE
+        )
+        for m in img_re.finditer(text):
+            tag = m.group(0)
+            am = re.search(r'\balt="([^"]*)"', tag, re.IGNORECASE)
+            alt_text = (am.group(1) if am else "").strip()[:120]
+            # Capture ±200 chars around the img tag as context
+            start = max(0, m.start() - 200)
+            end = min(len(text), m.end() + 200)
+            ctx = re.sub(r'<[^>]+>', ' ', text[start:end])
+            ctx = re.sub(r'\s+', ' ', ctx).strip()[:200]
+            if alt_text:
+                ctx = f"{alt_text}。{ctx}"
+            _add(m.group(1), alt_text, ctx)
 
         # 3. data-src lazy loading
-        for m in re.finditer(r'data-src="((?:https?:)?//[^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"', text, re.IGNORECASE):
-            img_url = _fix_url_scheme(m.group(1))
-            if _is_meaningful_image(img_url) and img_url not in images:
-                images.append(img_url)
+        for m in re.finditer(
+            r'<img[^>]*\bdata-src="((?:https?:)?//[^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"[^>]*>', text, re.IGNORECASE
+        ):
+            tag = m.group(0)
+            am = re.search(r'\balt="([^"]*)"', tag, re.IGNORECASE)
+            _add(m.group(1), (am.group(1) if am else "").strip()[:120])
 
-        return images[:10]
+        return images[:20]
     except Exception:
         return []
 
@@ -567,20 +581,27 @@ async def search(query: str, intent: str = None, time_sensitive: bool = None, de
         ]
     images = [item["url"] for item in media_candidates]
 
-    # 7. 用混元视觉模型描述图片内容（图文交错的关键）
+    # 7. 用混元视觉模型描述图片内容并过滤无关图片
     image_descriptions: list[dict[str, str]] = []
     if images:
         try:
             from services.hunyuan_service import hunyuan_service
-            image_descriptions = await hunyuan_service.describe_images(images[:5], context=query)
-            # Visual model already filters irrelevant images (ads, logos, etc.)
-            # via the "relevant" field in describe_images()
+            ctx_map = {c["url"]: (c.get("context") or "").strip() for c in media_candidates if c.get("context", "").strip()}
+            image_descriptions, vision_attempted = await hunyuan_service.describe_images(images[:8], context=query, img_contexts=ctx_map)
             if image_descriptions:
                 print(f"[search] vision kept {len(image_descriptions)} meaningful images")
+                approved_urls = {d["url"] for d in image_descriptions}
+                media_candidates = [c for c in media_candidates if c["url"] in approved_urls]
+                images = [c["url"] for c in media_candidates]
             else:
-                print("[search] vision describe returned empty (model may be unavailable)")
+                reason = "all irrelevant" if vision_attempted else "vision unavailable"
+                print(f"[search] vision returned no relevant images ({reason}), showing none")
+                media_candidates = []
+                images = []
         except Exception as e:
-            print(f"[search] vision describe failed: {e}")
+            print(f"[search] vision failed, showing none: {e}")
+            media_candidates = []
+            images = []
 
     from services.rich_media_service import build_media_assets, build_source_references
 

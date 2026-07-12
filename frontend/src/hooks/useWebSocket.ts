@@ -87,6 +87,7 @@ export function useWebSocket() {
           const id = msg.payload.id;
           if (!id) break;
           const status = msg.payload.status;
+          const statusText = msg.payload.data?.statusText || msg.payload.statusText || '正在搜索…';
           if (status === 'thinking') {
             const searchResults = msg.payload.search_results;
             const current = streamMessages.current.get(id);
@@ -114,7 +115,7 @@ export function useWebSocket() {
             if (current) {
               streamMessages.current.set(id, {
                 ...current,
-                skill: { intent: 'search', mode: 'immediate', content: '', icon: '🔍', action_label: '', params: {}, data: { status: 'searching', statusText: status } },
+                skill: { intent: 'search', mode: 'immediate', content: '', icon: '🔍', action_label: '', params: {}, data: { status: 'searching', statusText } },
               });
             }
             // 更新搜索状态文案
@@ -130,7 +131,7 @@ export function useWebSocket() {
                     icon: '🔍',
                     action_label: '',
                     params: {},
-                    data: { status: 'searching', statusText: status },
+                    data: { status: 'searching', statusText },
                   },
                   // 如果有来源信息，提前存入
                   ...(msg.payload.search_results ? {

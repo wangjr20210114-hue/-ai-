@@ -264,3 +264,60 @@ async def clear_memories() -> int:
     cursor = await db.execute("DELETE FROM memories WHERE user_id=?", (LOCAL_USER_ID,))
     await db.commit()
     return max(0, cursor.rowcount)
+
+
+async def upsert_memory(
+    *,
+    key: str,
+    value: Any,
+    confidence: float = 0.5,
+    source_message_id: str = "",
+) -> dict[str, Any]:
+    """Insert or update a memory by key. Returns the memory record."""
+    db = await get_db()
+    now = time.time()
+    key = str(key).strip()
+    if not key:
+        raise ValueError("memory key is required")
+    await db.execute("BEGIN IMMEDIATE")
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM memories WHERE user_id=? AND memory_key=?",
+            (LOCAL_USER_ID, key),
+        )
+        existing = await cursor.fetchone()
+        if existing:
+            await db.execute(
+                "UPDATE memories SET value_json=?, confidence=?, source_message_id=?,"
+                "updated_at=?, version=version+1 WHERE id=? AND user_id=?",
+                (
+                    json.dumps(value, ensure_ascii=False),
+                    min(1.0, max(0.1, float(confidence))),
+                    source_message_id,
+                    now,
+                    existing["id"],
+                    LOCAL_USER_ID,
+                ),
+            )
+            memory_id = existing["id"]
+        else:
+            memory_id = f"memory-{uuid.uuid4().hex[:16]}"
+            await db.execute(
+                "INSERT INTO memories(id,user_id,memory_key,value_json,confidence,"
+                "source_message_id,created_at,updated_at,version,sensitivity) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (
+                    memory_id, LOCAL_USER_ID, key,
+                    json.dumps(value, ensure_ascii=False),
+                    min(1.0, max(0.1, float(confidence))),
+                    source_message_id, now, now, 1, "normal",
+                ),
+            )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    result = await get_memory(memory_id)
+    if result is None:
+        raise RuntimeError("memory upsert failed")
+    return result

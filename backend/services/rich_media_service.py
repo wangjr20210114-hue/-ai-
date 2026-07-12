@@ -79,7 +79,7 @@ async def build_media_assets(
     descriptions: list[dict[str, str]],
     sources: list[SourceReference],
     *,
-    limit: int = 5,
+    limit: int = 8,
 ) -> list[MediaAsset]:
     """Validate, deduplicate and bind images to their source documents."""
     description_by_url = {
@@ -112,7 +112,19 @@ async def build_media_assets(
         source = source_by_url.get(source_url)
         description = description_by_url.get(url, "")
         source_title = str(candidate.get("source_title") or (source.title if source else ""))
-        caption = description or source_title or "相关图片"
+        original_alt = str(candidate.get("alt") or "").strip()
+
+        # Caption priority: vision description > original alt > source title
+        if description:
+            caption = description
+            if original_alt and original_alt not in description:
+                caption = f"{description}（原文：{original_alt[:30]}）"
+        elif original_alt:
+            caption = original_alt
+        elif source_title:
+            caption = f"{source_title}（第{len(assets) + 1}张）"
+        else:
+            caption = "相关图片"
         assets.append(
             MediaAsset(
                 id=f"media-{len(assets) + 1}",
@@ -120,7 +132,7 @@ async def build_media_assets(
                 source_id=source.id if source else "",
                 source_url=source_url,
                 source_title=source_title,
-                alt=description or source_title or "搜索结果相关图片",
+                alt=caption,
                 caption=caption,
                 attribution=source_title,
             )

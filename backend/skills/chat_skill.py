@@ -6,13 +6,15 @@ from typing import Any, AsyncIterator
 
 import httpx
 
+import asyncio
+
 from agent.cancellation import CancellationToken
 from agent.contracts import FailurePolicy, PermissionLevel, RiskLevel, SkillSchema
 from config import settings
 from services.model_gateway import CallContext, ModelGateway, ModelRequest
 from skills.base_skill import BaseSkill, SkillResult, SkillStreamEvent
 
-import re as _re
+import re
 
 
 def _history_messages(history: list[str], current_message: str) -> list[dict[str, str]]:
@@ -112,7 +114,6 @@ class ChatSkill(BaseSkill):
                 "content": (
                     "你是元宝主动式 Agent，一个智能助手。"
                     "用 Markdown 格式回复。"
-                    "如果用户的问题涉及旅游、会议等你能提供的服务，在回答中自然地引导用户使用。"
                     "不要在回答中提及搜索、参考信息、来源等内部过程。"
                 ),
             },
@@ -123,12 +124,46 @@ class ChatSkill(BaseSkill):
         # If web search is enabled, fetch search results and prepend context
         search_data: dict[str, Any] = {}
         if web_search_enabled and self._should_search(message):
-            # Emit searching status so frontend can show animation
-            yield SkillStreamEvent(
-                event_type="search_status",
-                data={"status": "searching", "query": message},
-            )
             search_data = await self._web_search(message)
+            result_count = len(search_data.get("results", []))
+            media_count = len(search_data.get("media", []))
+
+            from urllib.parse import urlparse as _urlparse
+            searched_sources = []
+            for r in search_data.get("results", [])[:6]:
+                source = str(r.get("source", ""))
+                url = str(r.get("url", ""))
+                try:
+                    domain = _urlparse(url).netloc.replace("www.", "")[:25] if url.startswith("http") else ""
+                except Exception:
+                    domain = ""
+                label = f"{source}:{domain}" if domain else source
+                if label and label not in searched_sources:
+                    searched_sources.append(label)
+            if searched_sources:
+                yield SkillStreamEvent(
+                    event_type="search_status",
+                    data={
+                        "status": "analyzing",
+                        "statusText": f"已搜索 {', '.join(searched_sources[:5])}",
+                    },
+                )
+
+            # Phase 2: results summary
+            if result_count > 0:
+                source_titles = []
+                for r in search_data.get("results", [])[:5]:
+                    title = re.sub(r'\[\[[^\]]*\]\]', '', str(r.get("title", ""))).strip()[:25]
+                    if title:
+                        source_titles.append(title)
+                yield SkillStreamEvent(
+                    event_type="search_status",
+                    data={
+                        "status": "analyzing",
+                        "statusText": f"找到 {result_count} 条信息" + (f"，{media_count} 张图片" if media_count else "") + "，正在整理…",
+                        "sources": source_titles,
+                    },
+                )
             # Inject search context and media info if we have results
             context_text = search_data.get("context", "")
             media_list = search_data.get("media", [])
@@ -137,47 +172,47 @@ class ChatSkill(BaseSkill):
                 for r in search_data.get("results", [])[:6]
             )
             if search_data.get("results"):
-                # Build natural context with media and source info
-                # Key principle: tell the model WHAT resources are available,
-                # not WHERE to place them. Let the model decide naturally.
-                context_text = search_data.get("context", "")
-                media_list = search_data.get("media", [])
-                resource_parts: list[str] = []
-                if media_list:
-                    media_lines = []
-                    for m in media_list:
-                        desc = m.get('caption') or m.get('alt', '图片')
-                        url = m.get('url', '')
-                        media_lines.append(f"![{desc}]({url})")
-                    resource_parts.append(
-                        f"以下图片供参考，每种图片的 alt 描述是该图片的视觉内容摘要：\n"
-                        f"{chr(10).join(media_lines)}\n\n"
-                        f"图片使用规则：\n"
-                        f"1. 只在图片内容与你当前段落主题直接相关时才插入，无关的图片不要放\n"
-                        f"2. 插入时可以把 alt 文本改写得更贴合当前段落上下文，让用户看到的描述与文字融为一体\n"
-                        f"3. 如果某张图片和任何段落都不匹配，就不要用它\n"
-                        f"4. 不要为了凑图而插入无关图片"
-                    )
-                # Tag results with stable IDs and include relevant sources
                 raw_results = search_data.get("results", [])
-                card_sources = [r for r in raw_results if r.get("source") in ("wechat", "zhihu", "baike")][:2]
-                if card_sources:
-                    card_lines = []
-                    for i, r in enumerate(card_sources):
-                        source_id = f"source-{i+1}"
-                        r["id"] = source_id
-                        source_label = {"wechat": "公众号", "zhihu": "知乎", "baike": "百科"}.get(r.get("source", ""), r.get("source", ""))
-                        card_lines.append(f"- {source_id}：[{source_label}] {r.get('title', '')[:40]}")
-                    resource_parts.append(
-                        f"可推荐来源（选对用户最有帮助的，不需要就不用）：\n"
-                        f"{chr(10).join(card_lines)}\n"
-                        f"推荐标记：[[card:source-id]]"
-                    )
-                resource_text = "\n\n".join(resource_parts)
+                media_list = search_data.get("media", [])
+
+                # Score all candidates for relevance to the query
+                scored = await self._score_candidates(message, raw_results, media_list)
+
+                parts: list[str] = []
+                context_text = search_data.get("context", "")
+                relevant_media = scored.get("media", [])
+                relevant_links = scored.get("links", [])
+
                 if context_text:
+                    parts.append(f"## 搜索结果\n{context_text}")
+
+                if relevant_links:
+                    links = []
+                    for item in relevant_links:
+                        links.append(
+                            f"- [{item['source']}] {item['title'][:40]}（{item['score']}/10）\n"
+                            f"  {item['url']}"
+                        )
+                    parts.append(
+                        f"## 推荐阅读\n"
+                        f"这些链接与用户问题高度相关，请在回答中自然地引用，让用户点击深入了解。\n"
+                        f"{chr(10).join(links)}"
+                    )
+
+                if relevant_media:
+                    img_lines = []
+                    for m in relevant_media:
+                        img_lines.append(f"![{m['caption']}]({m['url']})（{m['score']}/10）")
+                    parts.append(
+                        f"## 可用图片\n"
+                        f"评分已标注。与段落匹配时用 Markdown 插入。\n"
+                        f"{chr(10).join(img_lines)}"
+                    )
+
+                if parts:
                     messages.insert(1, {
                         "role": "system",
-                        "content": f"{context_text}\n\n{resource_text}".strip(),
+                        "content": "\n\n".join(parts).strip(),
                     })
 
         full_text = ""
@@ -213,14 +248,151 @@ class ChatSkill(BaseSkill):
                     usage=chunk.usage.to_dict(),
                     provider_request_id=chunk.provider_request_id,
                 )
+                # Fire-and-forget: extract memory proposals from this conversation
+                asyncio.create_task(
+                    self._extract_and_upsert_memories(
+                        message, full_text, session_id
+                    )
+                )
 
     def _should_search(self, message: str) -> bool:
-        """Determine if the message would benefit from web search."""
-        # Don't search for very short/greeting messages
         if len(message) < 5:
             return False
         skip_keywords = ["你好", "你是谁", "谢谢", "再见", "帮我画", "生成图片"]
         return not any(kw in message for kw in skip_keywords)
+
+    async def _score_candidates(
+        self, query: str, results: list[dict[str, Any]], media_list: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Score all multimodal candidates (links, images) for relevance to query via DeepSeek."""
+        try:
+            import json as _json, httpx
+            candidates: list[dict] = []
+            for r in results:
+                src = str(r.get("source", ""))
+                url = str(r.get("url", "") or r.get("article_url", "")).strip()
+                if src in ("wechat", "zhihu", "baike"):
+                    candidates.append({"type": "link", "id": f"l{len(candidates)}",
+                        "source": src, "title": str(r.get("title", ""))[:50],
+                        "snippet": str(r.get("snippet", ""))[:100],
+                        "url": url or f"（{src}来源，无直接链接）"})
+            for m in media_list:
+                candidates.append({"type": "image", "id": m.get("id", ""),
+                    "caption": str(m.get("caption", ""))[:50], "url": str(m.get("url", ""))})
+            if not candidates:
+                return {"context": "", "links": [], "media": media_list}
+
+            ct = "\n".join(f"{c['id']} [{c['type']}] {c.get('title') or c.get('caption','')}: {c.get('snippet','')}"
+                          for c in candidates)
+            prompt = (f"用户查询：{query[:80]}\n\n为候选项评相关度1-10分并给理由：\n\n{ct}\n\n"
+                      f'返回JSON数组：{{"id":"x","score":1-10,"reason":"理由"}}')
+            async with httpx.AsyncClient(timeout=15) as cl:
+                r = await cl.post(f"{settings.deepseek_base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
+                    json={"model": settings.deepseek_model, "messages": [{"role":"user","content":prompt}],
+                          "max_tokens": 500, "temperature": 0.3})
+                r.raise_for_status()
+                raw = r.json()["choices"][0]["message"]["content"].strip()
+                # Strip ```json ... ``` markdown code blocks
+                raw = raw.strip("`")
+                if raw.startswith("json\n"):
+                    raw = raw[5:]
+                elif raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.strip()
+                scores = _json.loads(raw)
+            if not isinstance(scores, list):
+                return {"context": "", "links": [], "media": media_list}
+
+            sm = {s["id"]: (int(s["score"]), str(s.get("reason", ""))) for s in scores if isinstance(s, dict)}
+
+            links = []
+            for c in candidates:
+                if c["type"] != "link": continue
+                sc = sm.get(c["id"], (4, ""))
+                if sc[0] >= 4:
+                    lb = {"wechat": "公众号", "zhihu": "知乎", "baike": "百科"}.get(c["source"], c["source"])
+                    links.append({"source": lb, "title": c["title"], "url": c["url"], "score": sc[0], "reason": sc[1]})
+            links.sort(key=lambda x: -x["score"])
+
+            imgs = []
+            for c in candidates:
+                if c["type"] != "image": continue
+                sc = sm.get(c["id"], (5, ""))
+                if sc[0] >= 5:
+                    imgs.append({"caption": c["caption"], "url": c["url"], "score": sc[0], "reason": sc[1]})
+            imgs.sort(key=lambda x: -x["score"])
+
+            return {"context": "", "links": links, "media": imgs}
+        except Exception:
+            return {"context": "", "links": [], "media": media_list}
+
+    async def _extract_and_upsert_memories(
+        self,
+        user_message: str,
+        ai_response: str,
+        session_id: str,
+    ) -> None:
+        """Fire-and-forget: extract user facts from conversation and upsert directly."""
+        try:
+            import json as _json
+            import httpx
+
+            total_chars = len(user_message) + len(ai_response)
+            if total_chars < 30:
+                return
+
+            prompt = (
+                "从以下对话中提取关于用户的长期事实和偏好。\n\n"
+                "返回 JSON 数组（最多 2 条），每条格式：\n"
+                '{"key": "简短标签（如「喜欢猫」「住在北京」）",'
+                ' "value": "具体内容", "confidence": 0.3-1.0}\n\n'
+                "confidence 规则：明确陈述=0.9+，暗示=0.5-0.7，不确定=跳过\n"
+                "不要提取问候语、临时信息。如果本次对话改变了旧事实，confidence 应该更高。\n"
+            )
+            user_content = f"用户：{user_message}\n\nAI回复（摘要）：{ai_response[:1000]}"
+
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"{settings.deepseek_base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
+                    json={
+                        "model": settings.deepseek_model,
+                        "messages": [
+                            {"role": "system", "content": prompt},
+                            {"role": "user", "content": user_content},
+                        ],
+                        "max_tokens": 300,
+                        "temperature": 0.3,
+                    },
+                )
+                resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"].strip().strip("`").strip()
+                if content.startswith("json"):
+                    content = content[4:].strip()
+                items = _json.loads(content)
+                if not isinstance(items, list):
+                    return
+
+            from database.repositories import memory_repo
+
+            for item in items[:2]:
+                key = str(item.get("key", "")).strip()
+                value = item.get("value", "")
+                if not key or not value:
+                    continue
+                confidence = min(1.0, max(0.3, float(item.get("confidence") or 0.5)))
+                try:
+                    await memory_repo.upsert_memory(
+                        key=key,
+                        value=value,
+                        confidence=confidence,
+                        source_message_id=session_id or "",
+                    )
+                except Exception:
+                    pass  # Non-critical
+        except Exception:
+            pass  # Best-effort, never block
 
     async def _web_search(self, query: str) -> dict[str, Any]:
         """Fetch web search results and build context for the LLM."""
@@ -237,7 +409,7 @@ class ChatSkill(BaseSkill):
                 snippet = r.get("snippet", "")
                 source = r.get("source", "")
                 # Remove [[xxx] yyy] patterns that leak from search providers
-                snippet = _re.sub(r'\[\[[^\]]*\]([^\]]*)\]', r'\1', snippet).strip()
+                snippet = re.sub(r'\[\[[^\]]*\]([^\]]*)\]', r'\1', snippet).strip()
                 context_parts.append(f"[{source}] {title}: {snippet}")
             # Build media list from search results
             media_list = []
