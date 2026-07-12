@@ -119,6 +119,7 @@ class SearchSkill(BaseSkill):
 
         if not results:
             content = "抱歉，没有找到可验证的相关搜索结果。"
+            follow_ups = await self._generate_follow_ups(query, content)
             yield SkillStreamEvent(delta=content)
             yield SkillStreamEvent(
                 done=True,
@@ -132,6 +133,7 @@ class SearchSkill(BaseSkill):
                         "sources_used": sources_used,
                         "total": 0,
                     },
+                    "follow_ups": follow_ups,
                 },
             )
             return
@@ -159,6 +161,7 @@ class SearchSkill(BaseSkill):
                 full_text += chunk.delta
                 yield SkillStreamEvent(delta=chunk.delta)
             if chunk.done:
+                follow_ups = await self._generate_follow_ups(query, full_text)
                 yield SkillStreamEvent(
                     done=True,
                     content=full_text,
@@ -167,7 +170,35 @@ class SearchSkill(BaseSkill):
                         "search_results": search_meta,
                         "provider": chunk.provider,
                         "model": chunk.model,
+                        "follow_ups": follow_ups,
                     },
                     usage=chunk.usage.to_dict(),
                     provider_request_id=chunk.provider_request_id,
                 )
+
+    async def _generate_follow_ups(self, query: str, ai_content: str) -> list[str]:
+        """Generate 3 follow-up questions."""
+        try:
+            import json as _json
+            import httpx
+            from config import settings
+            messages = [
+                {"role": "system", "content": "根据对话上下文，推测用户接下来可能想问的 3 个问题。简短（10字以内），自然口语。输出 JSON 数组 [\"问题1\",\"问题2\",\"问题3\"]"},
+                {"role": "user", "content": f"用户搜索：{query}\n\nAI回答：{ai_content[:500]}"},
+            ]
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    f"{settings.deepseek_base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
+                    json={"model": settings.deepseek_model, "messages": messages, "max_tokens": 200, "temperature": 0.8},
+                )
+                resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"].strip().strip("`").strip()
+                if content.startswith("json"):
+                    content = content[4:].strip()
+                result = _json.loads(content)
+                if isinstance(result, list):
+                    return [str(q) for q in result[:3]]
+        except Exception:
+            pass
+        return []

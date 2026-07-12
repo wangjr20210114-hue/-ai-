@@ -48,3 +48,4 @@ npm-debug.log*
 *.db-wal
 *.db-shm
 .agent/
+*.bak

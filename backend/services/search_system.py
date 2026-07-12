@@ -255,19 +255,48 @@ def _fix_url_scheme(url: str) -> str:
 
 
 async def _check_url_valid(url: str) -> bool:
-    """检测 URL 是否可访问（200 且内容不为空）。"""
+    """检测 URL 是否可访问（200 且内容不是 404/error 页面）。"""
     if not url or not url.startswith("http"):
         return False
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
         response = await safe_head_or_get(
             url,
             headers=headers,
-            timeout_seconds=6,
+            timeout_seconds=8,
         )
-        return response.status_code == 200
+        if response.status_code != 200:
+            return False
+        body = response.content or b""
+        if body:
+            try:
+                body_str = body[:4096].decode("utf-8", errors="replace").lower()
+            except Exception:
+                body_str = ""
+            # Reject error pages — including Chinese ones that return 200
+            error_markers = [
+                "404 not found", "403 forbidden", "page not found",
+                "access denied", "page doesn't exist",
+                # Chinese error markers
+                "\u4f60\u4f3c\u4e4e\u6765\u5230\u4e86\u6ca1\u6709\u77e5\u8bc6\u5b58\u5728\u7684\u8352\u539f",  # 你似乎来到了没有知识存在的荒原
+                "\u9875\u9762\u4e0d\u5b58\u5728",  # 页面不存在
+                "\u9875\u9762\u5df2\u5220\u9664",  # 页面已删除
+                "\u9875\u9762\u672a\u627e\u5230",  # 页面未找到
+                "\u5185\u5bb9\u4e0d\u5b58\u5728",  # 内容不存在
+                "\u8be5\u9875\u9762\u65e0\u6cd5\u8bbf\u95ee",  # 该页面无法访问
+                "\u62b1\u6b49\uff0c\u60a8\u8bbf\u95ee\u7684\u9875\u9762\u4e0d\u5b58\u5728",  # 抱歉，您访问的页面不存在
+                "\u8d44\u6e90\u4e0d\u5b58\u5728",  # 资源不存在
+                "\u5df2\u5220\u9664",  # 已删除
+                "\u5ba1\u6838\u4e2d",  # 审核中
+                "\u8be5\u5185\u5bb9\u4e0d\u5b58\u5728",  # 该内容不存在
+                "\u672a\u627e\u5230\u76f8\u5173\u7ed3\u679c",  # 未找到相关结果
+            ]
+            if any(marker in body_str for marker in error_markers):
+                return False
+        return True
     except Exception:
         return False
 

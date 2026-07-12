@@ -69,6 +69,7 @@ class TravelSkill(BaseSkill):
     async def suggest(self, message: str, params: dict[str, Any]) -> SkillResult:
         dest = params.get("destination", "")
         prompt = f"好呀！我来帮你规划{dest + '的' if dest else ''}旅游行程吧 😊"
+        follow_ups = await self.generate_follow_ups(message, prompt)
         return SkillResult(
             intent=self.name,
             mode=self.mode,
@@ -76,5 +77,5 @@ class TravelSkill(BaseSkill):
             icon=self.icon,
             action_label=self.action_label,
             params={**params, "user_message": message},
-            data={"destination": dest},
+            data={"destination": dest, "follow_ups": follow_ups},
         )

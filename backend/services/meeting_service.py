@@ -99,6 +99,61 @@ class MeetingService:
             "end_time": end_iso,
         }
 
+    async def update_meeting(
+        self,
+        meeting_id: str,
+        *,
+        subject: str | None = None,
+        start_iso: str | None = None,
+        end_iso: str | None = None,
+    ) -> dict[str, Any]:
+        """Update an existing meeting via tmeet CLI."""
+        if not self._check_installed():
+            return {"ok": False, "error": "tmeet 未安装", "setup_required": True}
+        cmd = ["tmeet", "meeting", "update", "--meeting-id", meeting_id]
+        if subject:
+            cmd.extend(["--subject", subject])
+        if start_iso:
+            cmd.extend(["--start", start_iso])
+        if end_iso:
+            cmd.extend(["--end", end_iso])
+        cmd.extend(["--format", "json"])
+        result = await self._run(cmd, timeout=20)
+        if result["returncode"] != 0:
+            combined = (result["stderr"] + " " + result["stdout"]).strip()
+            lower = combined.lower()
+            if "auth" in lower or "login" in lower or "not logged" in lower:
+                return {"ok": False, "error": "tmeet 尚未授权", "need_auth": True}
+            return {"ok": False, "error": f"修改会议失败：{combined[:500] or '未知错误'}"}
+        try:
+            data = json.loads(result["stdout"])
+        except json.JSONDecodeError:
+            data = {}
+        return {
+            "ok": True,
+            "meeting_id": meeting_id,
+            "subject": subject or "",
+            "start_time": start_iso or "",
+            "end_time": end_iso or "",
+            "data": data,
+        }
+
+    async def list_meetings(self) -> dict[str, Any]:
+        """List pending/in-progress meetings for finding existing meetings to modify."""
+        if not self._check_installed():
+            return {"ok": False, "error": "tmeet 未安装", "setup_required": True}
+        result = await self._run(
+            ["tmeet", "meeting", "list", "--format", "json"],
+            timeout=15,
+        )
+        if result["returncode"] != 0:
+            return {"ok": False, "error": f"查询会议列表失败：{result['stderr'].strip()[:200]}"}
+        try:
+            data = json.loads(result["stdout"])
+        except json.JSONDecodeError:
+            data = []
+        return {"ok": True, "meetings": data if isinstance(data, list) else [data]}
+
     async def _run(self, command: list[str], timeout: int = 10) -> dict[str, Any]:
         process = await asyncio.create_subprocess_exec(
             *command,

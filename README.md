@@ -1,11 +1,9 @@
 # 元宝主动式 Agent
 
-> 当前版本：**本地单用户主动式 Agent 架构改造版（v4.0.0）**
+> 当前版本：**本地单用户主动式 Agent 架构改造版（v4.1.0）**
 > 目标：在个人电脑上长期运行，可靠地感知事件、判断机会、遵守权限、征得确认、执行操作、恢复任务并向用户解释结果。
 
-本仓库已经从“LLM 意图分类 + WebSocket 固定工具调用”的功能原型，改造成以 **Event → Run → Plan → Policy → PendingAction → Executor → Observation/Notification** 为主线的持久化 Agent。它适合本机个人助手场景，但仍不是多用户云服务，也不应未经额外安全建设直接暴露到公网。
-
-完整实现状态见 [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md)，目标架构与函数级设计见 [`docs/PROACTIVE_AGENT_REFACTOR_PLAN.md`](docs/PROACTIVE_AGENT_REFACTOR_PLAN.md)。
+本仓库已经从"LLM 意图分类 + WebSocket 固定工具调用"的功能原型，改造成以 **Event → Run → Plan → Policy → PendingAction → Executor → Observation/Notification** 为主线的持久化 Agent。它适合本机个人助手场景，但仍不是多用户云服务，也不应未经额外安全建设直接暴露到公网。
 
 ## 当前已实现
 
@@ -15,11 +13,15 @@
 | PDF 上传和文件恢复 | 已实现 | 签名校验、大小/页数限制、SHA-256 去重、持久索引 |
 | Event / Run / Observation | 已实现 | 全链路持久化、状态机、审计时间线、启动恢复 |
 | 不可变 PendingAction | 已实现 | 版本确认、快照哈希、唯一幂等键、过期和取消 |
-| 单一 Executor | 已实现 | 会议和生图副作用只能从已确认快照执行 |
+| 单一 Executor | 已实现 | side_effect=True 的技能通过 ActionExecutor 执行 |
 | Supervisor 与 Scheduler | 已实现 | 租约领取、失败恢复、启动扫描、优雅关闭 |
 | 主动 Collector | 已实现 | 日程临近/逾期/冲突、旅行天气风险、文件上传事件 |
 | 主动通知策略 | 已实现 | 去重、冷却、静默时段、每日上限、来源与原因 |
-| Chat / 翻译 / 搜索 / 论文 Skill | 已实现 | 统一 ModelGateway；WebSocket 仅负责协议接入 |
+| ChatSkill 联网搜索 | 已实现 | 默认开启联网搜索增强，输入栏可切换开关 |
+| ChatSkill follow_ups | 已实现 | 所有 Skill 生成"猜你想继续问"追问，基于 BaseSkill 共享方法 |
+| 搜索 404 过滤 | 已实现 | HEAD/GET 双检 + 中文错误页面内容检测（知乎"荒原"等） |
+| 生图直接执行 | 已实现 | AUTO 模式，无需确认卡片，直接调用混元 API |
+| 会议直接创建 | 已实现 | AUTO 模式，直接创建会议；支持"改到""调整"等修改已有会议 |
 | 记忆、反馈和预算 | 已实现 | 记忆需确认，反馈幂等，日/月预算可配置 |
 | 长任务取消 | 已实现 | 用户取消会中止模型流并持久化；断线不会自动取消 |
 | 本地安全 | 已实现 | 本地随机访问令牌、REST/WS 同源鉴权、SSRF 防护 |
@@ -29,7 +31,7 @@
 ## 条件可用与剩余边界
 
 - 模型、搜索、arXiv、腾讯地图、混元生图和腾讯会议仍依赖真实 Key、额度、外网或本机 CLI。
-- 会议与生图使用 `provider_calls` 外部调用账本：若 Provider 成功响应已落库但 Action 尚未提交，系统可在租约恢复时自动补全成功状态；若连成功响应也未收到，则保守标记为人工核对，不盲目重试。目前尚未接入 Provider 的“按幂等键查询远程结果”接口。
+- 会议与生图使用 `provider_calls` 外部调用账本：若 Provider 成功响应已落库但 Action 尚未提交，系统可在租约恢复时自动补全成功状态；若连成功响应也未收到，则保守标记为人工核对，不盲目重试。
 - 主动感知目前覆盖内部日程、旅行天气和文件上传；邮件、系统日历、浏览器活动、企业消息等外部 Collector 尚未接入。
 - 旅游规划仍以领域服务和 REST 交互为主，还不是可逐步骤断点恢复的通用工作流引擎。
 - 长模型任务在进程重启后可以按 Run 策略重新排队或明确失败，但不会从已生成的 token 位置继续生成。
@@ -160,7 +162,7 @@ npm run build
 
 ## 管理与恢复
 
-右侧“我的”面板提供：
+右侧"我的"面板提供：
 
 - **Agent Activity Center**：待确认 Action、通知、Run 时间线、Scheduler 状态和任务取消。
 - **Agent Intelligence**：记忆提案确认/拒绝、长期记忆删除、日/月预算。

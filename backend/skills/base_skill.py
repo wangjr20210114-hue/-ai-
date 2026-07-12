@@ -181,6 +181,7 @@ class BaseSkill(ABC):
             failure_policy=self.failure_policy,
             steps=self.planner_steps,
             rationale=rationale,
+            side_effect=self.side_effect,
         )
 
     async def execute(self, message: str, params: dict[str, Any], session_id: str) -> SkillResult:
@@ -236,6 +237,33 @@ class BaseSkill(ABC):
 
     async def handle(self, message: str, params: dict[str, Any], session_id: str) -> SkillResult:
         return await self.suggest(message, params)
+
+    async def generate_follow_ups(self, user_message: str, ai_content: str) -> list[str]:
+        """Generate 3 follow-up questions. Shared implementation for all skills."""
+        try:
+            import json as _json
+            import httpx
+            from config import settings
+            msgs = [
+                {"role": "system", "content": "根据对话上下文，推测用户接下来可能想问的 3 个问题。简短（10字以内），自然口语。输出 JSON 数组 [\"问题1\",\"问题2\",\"问题3\"]"},
+                {"role": "user", "content": f"用户问：{user_message}\n\nAI回答：{ai_content[:500]}"},
+            ]
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    f"{settings.deepseek_base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
+                    json={"model": settings.deepseek_model, "messages": msgs, "max_tokens": 200, "temperature": 0.8},
+                )
+                resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"].strip().strip("`").strip()
+                if content.startswith("json"):
+                    content = content[4:].strip()
+                result = _json.loads(content)
+                if isinstance(result, list):
+                    return [str(q) for q in result[:3]]
+        except Exception:
+            pass
+        return []
 
 
 class SkillRegistry:

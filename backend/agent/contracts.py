@@ -111,6 +111,8 @@ class AgentPlan:
     failure_policy: FailurePolicy = field(default_factory=FailurePolicy)
     steps: list[str] = field(default_factory=list)
     rationale: str = ""
+    trigger_origin: str = "user_request"
+    side_effect: bool = False
     created_at: float = field(default_factory=time.time)
 
 
@@ -167,6 +169,8 @@ def plan_to_dict(plan: AgentPlan) -> dict[str, Any]:
         "failure_policy": to_primitive(plan.failure_policy),
         "steps": list(plan.steps),
         "rationale": plan.rationale,
+        "trigger_origin": plan.trigger_origin,
+        "side_effect": plan.side_effect,
         "created_at": plan.created_at,
     }
 

@@ -53,7 +53,7 @@ class ImageSkill(BaseSkill):
 
     @property
     def permission_level(self) -> PermissionLevel:
-        return PermissionLevel.CONFIRM
+        return PermissionLevel.AUTO
 
     @property
     def risk_level(self) -> RiskLevel:
@@ -61,7 +61,7 @@ class ImageSkill(BaseSkill):
 
     @property
     def side_effect(self) -> bool:
-        return True
+        return False  # Image generation is treated as a creative output, not a destructive side effect
 
     @property
     def action_input_model(self) -> type[BaseModel]:
@@ -75,10 +75,10 @@ class ImageSkill(BaseSkill):
     @property
     def confirmation_policy(self) -> ConfirmationPolicy:
         return ConfirmationPolicy(
-            required=True,
-            reason="生图会消耗独立额度",
+            required=False,
+            reason="",
             action_label=self.action_label,
-            reversible=False,
+            reversible=True,
         )
 
     @property
@@ -87,7 +87,7 @@ class ImageSkill(BaseSkill):
 
     @property
     def planner_steps(self) -> list[str]:
-        return ["validate_image_prompt", "persist_confirmation_snapshot", "generate_image", "persist_result"]
+        return ["generate_image", "persist_result"]
 
     async def prepare_action_input(self, message: str, params: dict[str, Any]) -> ImageActionInput:
         prompt = str(params.get("prompt") or message).strip()
@@ -97,16 +97,41 @@ class ImageSkill(BaseSkill):
             raise ActionInputError("生图提示词不能为空，且不能超过 4000 字") from error
 
     async def suggest(self, message: str, params: dict[str, Any]) -> SkillResult:
+        """Directly generate image — no confirmation card."""
         prompt = str(params.get("prompt") or message).strip()
-        preview = prompt if len(prompt) <= 60 else prompt[:60] + "…"
+        if not prompt:
+            prompt = message.strip()
+        try:
+            from services.hunyuan_service import hunyuan_service
+            image_url = await hunyuan_service.text_to_image(prompt)
+        except Exception as e:
+            return SkillResult(
+                intent=self.name,
+                mode="immediate",
+                content=f"抱歉，生图失败了：{type(e).__name__}: {e}",
+                icon=self.icon,
+                action_label=self.action_label,
+                params={**params, "prompt": prompt},
+                data={"error": str(e)},
+            )
+        if not image_url:
+            return SkillResult(
+                intent=self.name,
+                mode="immediate",
+                content="抱歉，生图服务没有返回图片，请稍后重试。",
+                icon=self.icon,
+                action_label=self.action_label,
+                params={**params, "prompt": prompt},
+                data={"error": "empty_url"},
+            )
         return SkillResult(
             intent=self.name,
-            mode=self.mode,
-            content=f"准备按以下提示词生成图片：\n\n> {preview}\n\n确认后将使用已保存的提示词快照。",
+            mode="immediate",
+            content=f"已为你生成图片 🎨\n\n![{prompt}]({image_url})",
             icon=self.icon,
             action_label=self.action_label,
-            params={},
-            data={},
+            params={**params, "prompt": prompt},
+            data={"image_url": image_url, "prompt": prompt, "follow_ups": await self.generate_follow_ups(message, f"已生成图片: {prompt}")},
         )
 
     async def execute_action(

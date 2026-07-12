@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, MessagePlugin, Textarea, Upload } from 'tdesign-react';
+import { Button, Checkbox, MessagePlugin, Textarea, Upload } from 'tdesign-react';
 import { SendIcon, AttachIcon } from 'tdesign-icons-react';
 import type { UploadFile } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
@@ -18,6 +18,7 @@ export default function InputBar({ client }: Props) {
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [webSearch, setWebSearch] = useState(true);
 
   // 点击空态引导词 → 回填输入框
   useEffect(() => {
@@ -31,7 +32,7 @@ export default function InputBar({ client }: Props) {
   const sendActivity = (content: string, activity: string, messageId: string) => {
     const msg: WSMessage = {
       type: 'user_activity',
-      payload: { activity, text: content, message_id: messageId },
+      payload: { activity, text: content, message_id: messageId, web_search: webSearch },
     };
     client.current?.send(msg);
   };
@@ -117,17 +118,22 @@ export default function InputBar({ client }: Props) {
             marginTop: 8,
           }}
         >
-          <Upload
-            theme="custom"
-            accept=".pdf,application/pdf"
-            autoUpload={false}
-            requestMethod={() => Promise.resolve({ status: 'success', response: {} })}
-            onChange={(files) => { void handleUpload(files as UploadFile[]); }}
-          >
-            <Button variant="text" size="small" icon={<AttachIcon />} loading={uploading}>
-              上传文档
-            </Button>
-          </Upload>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Upload
+              theme="custom"
+              accept=".pdf,application/pdf"
+              autoUpload={false}
+              requestMethod={() => Promise.resolve({ status: 'success', response: {} })}
+              onChange={(files) => { void handleUpload(files as UploadFile[]); }}
+            >
+              <Button variant="text" size="small" icon={<AttachIcon />} loading={uploading}>
+                上传文档
+              </Button>
+            </Upload>
+            <Checkbox checked={webSearch} onChange={(v) => setWebSearch(v as boolean)} size="small">
+              联网搜索
+            </Checkbox>
+          </div>
           <Button
             theme="primary"
             icon={<SendIcon />}

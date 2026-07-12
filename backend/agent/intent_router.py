@@ -48,12 +48,18 @@ class IntentRouter:
             return self.fallback(message, reason="model_gateway_not_injected")
 
         from prompts.templates import INTENT_CLASSIFICATION_PROMPT
+        from datetime import datetime, timezone, timedelta
+
+        # Provide current date/time so the model can resolve relative dates like "明天"
+        tz = timezone(timedelta(hours=8))  # Asia/Shanghai
+        now = datetime.now(tz)
+        current_time_str = now.strftime("%Y-%m-%d %H:%M (%A)")
 
         system_prompt = INTENT_CLASSIFICATION_PROMPT.replace(
             "{{SKILLS}}", self.registry.build_llm_description()
         )
         history_text = "\n".join((history or [])[-8:])
-        user_content = f"用户消息：{message}"
+        user_content = f"当前时间：{current_time_str}\n用户消息：{message}"
         if history_text:
             user_content += f"\n\n对话历史：\n{history_text}"
         try:

@@ -27,11 +27,11 @@ class MeetingSkill(BaseSkill):
 
     @property
     def description(self) -> str:
-        return "创建腾讯会议（提取会议时间、主题，并在用户确认后执行）"
+        return "创建腾讯会议（提取会议时间、主题并直接创建）"
 
     @property
     def trigger_keywords(self) -> list[str]:
-        return ["开会", "会议", "碰头", "评审", "约个会", "拉个会"]
+        return ["开会", "会议", "碰头", "评审", "约个会", "拉个会", "改到", "改一下会议", "重新预约", "调整会议", "推迟会议"]
 
     @property
     def schema(self) -> SkillSchema:
@@ -57,11 +57,11 @@ class MeetingSkill(BaseSkill):
 
     @property
     def mode(self) -> str:
-        return "suggest"
+        return "auto"
 
     @property
     def permission_level(self) -> PermissionLevel:
-        return PermissionLevel.CONFIRM
+        return PermissionLevel.AUTO
 
     @property
     def risk_level(self) -> RiskLevel:
@@ -69,7 +69,7 @@ class MeetingSkill(BaseSkill):
 
     @property
     def side_effect(self) -> bool:
-        return True
+        return False  # Meeting creation is handled directly in suggest() for natural UX
 
     @property
     def action_input_model(self) -> type[BaseModel]:
@@ -78,20 +78,19 @@ class MeetingSkill(BaseSkill):
     @property
     def confirmation_policy(self) -> ConfirmationPolicy:
         return ConfirmationPolicy(
-            required=True,
-            reason="创建会议会调用外部服务并产生真实会议链接",
+            required=False,
+            reason="",
             action_label=self.action_label,
-            reversible=False,
+            reversible=True,
         )
 
     @property
     def failure_policy(self) -> FailurePolicy:
-        # Unknown external results must be reconciled, so automatic retry is disabled.
         return FailurePolicy(max_retries=0, user_visible=True)
 
     @property
     def planner_steps(self) -> list[str]:
-        return ["validate_meeting_input", "persist_confirmation_snapshot", "create_meeting", "notify_result"]
+        return ["parse_meeting_params", "create_meeting", "respond_with_result"]
 
     async def prepare_action_input(self, message: str, params: dict[str, Any]) -> MeetingActionInput:
         start_raw = str(params.get("start_time") or "").strip()
@@ -116,16 +115,154 @@ class MeetingSkill(BaseSkill):
             raise ActionInputError(str(error)) from error
 
     async def suggest(self, message: str, params: dict[str, Any]) -> SkillResult:
-        subject = params.get("subject", "快速会议")
-        time_str = params.get("start_time", "")
-        return SkillResult(
-            intent=self.name,
-            mode=self.mode,
-            content=f"准备创建腾讯会议「{subject}」，开始时间 {time_str}。确认后将严格按此参数执行。",
-            icon=self.icon,
-            action_label=self.action_label,
-            params={},
-        )
+        """Create or update meeting based on user intent."""
+        start_raw = str(params.get("start_time") or "").strip()
+        subject = str(params.get("subject") or "").strip() or "快速会议"
+        duration = int(params.get("duration_minutes") or 60)
+
+        # Detect reschedule intent
+        reschedule_keywords = ["改到", "改一下", "重新预约", "调整", "推迟", "移到", "换到"]
+        is_reschedule = any(kw in message for kw in reschedule_keywords)
+
+        # If no start time, ask naturally
+        if not start_raw:
+            if is_reschedule:
+                return SkillResult(
+                    intent=self.name, mode="immediate",
+                    content="好的，你想改到什么时间？告诉我新的日期和时间就行，比如「明天下午3点」 😊",
+                    icon=self.icon, action_label=self.action_label,
+                    params={**params, "user_message": message},
+                    data={"need_time": True, "is_reschedule": True},
+                )
+            return SkillResult(
+                intent=self.name,
+                mode="immediate",
+                content="好的，你想什么时候开会？告诉我具体日期和时间就行，比如「明天下午3点」 😊",
+                icon=self.icon,
+                action_label=self.action_label,
+                params={**params, "user_message": message},
+                data={"need_time": True},
+            )
+
+        # Parse time
+        try:
+            start = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+        except ValueError:
+            return SkillResult(
+                intent=self.name,
+                mode="immediate",
+                content=f'我没理解对时间「{start_raw}」，能再说一次吗？比如「7月13日下午3点」 😊',
+                icon=self.icon,
+                action_label=self.action_label,
+                params={**params, "user_message": message},
+                data={"time_parse_error": True},
+            )
+
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=LOCAL_TZ)
+        end = start + timedelta(minutes=duration)
+        time_desc = start.strftime("%m月%d日 %H:%M")
+
+        # Reschedule: find and update existing meeting
+        if is_reschedule:
+            try:
+                from services.meeting_service import meeting_service
+                list_result = await meeting_service.list_meetings()
+                if list_result.get("ok") and list_result.get("meetings"):
+                    meetings = list_result["meetings"]
+                    target = None
+                    if subject and subject != "快速会议":
+                        for m in meetings:
+                            m_subject = str(m.get("subject") or m.get("meeting_subject") or "")
+                            if subject in m_subject or m_subject in subject:
+                                target = m
+                                break
+                    if target is None and meetings:
+                        target = meetings[0]
+                    if target:
+                        meeting_id = str(target.get("meeting_id") or target.get("meetingId") or "")
+                        if meeting_id:
+                            update_result = await meeting_service.update_meeting(
+                                meeting_id,
+                                subject=subject if subject != "快速会议" else None,
+                                start_iso=start.isoformat(),
+                                end_iso=end.isoformat(),
+                            )
+                            if update_result.get("ok"):
+                                content = f"已将会议改到 {time_desc}。\n\n会议号：{target.get('meeting_code', '')}"
+                                join_url = str(target.get("join_url") or "")
+                                if join_url:
+                                    content += f"\n\n[点击加入会议]({join_url})"
+                                return SkillResult(
+                                    intent=self.name, mode="immediate", content=content,
+                                    icon=self.icon, action_label=self.action_label,
+                                    params={**params, "user_message": message},
+                                    data={"meeting_id": meeting_id, "is_reschedule": True, "follow_ups": await self.generate_follow_ups(message, content)},
+                                )
+                            else:
+                                error = update_result.get("error", "修改失败")
+                                return SkillResult(
+                                    intent=self.name, mode="immediate",
+                                    content=f"修改会议时出了问题：{error}",
+                                    icon=self.icon, action_label=self.action_label,
+                                    params={**params, "user_message": message},
+                                    data={"error": error},
+                                )
+            except Exception:
+                pass  # Fall through to create new meeting
+
+        # Create new meeting
+        try:
+            from services.meeting_service import meeting_service
+            result = await meeting_service.create_meeting(
+                subject,
+                start.isoformat(),
+                end.isoformat(),
+            )
+        except Exception as e:
+            return SkillResult(
+                intent=self.name,
+                mode="immediate",
+                content=f"创建会议时出了点问题：{type(e).__name__}: {e}",
+                icon=self.icon,
+                action_label=self.action_label,
+                params={**params, "user_message": message},
+                data={"error": str(e)},
+            )
+
+        if result.get("ok"):
+            meeting_code = result.get("meeting_code", "")
+            join_url = result.get("join_url", "")
+            content = f"已创建腾讯会议「{subject}」，时间是 {time_desc}。\n\n"
+            if meeting_code:
+                content += f"会议号：{meeting_code}\n"
+            if join_url:
+                content += f"\n[点击加入会议]({join_url})"
+            return SkillResult(
+                intent=self.name,
+                mode="immediate",
+                content=content,
+                icon=self.icon,
+                action_label=self.action_label,
+                params={**params, "user_message": message},
+                data={"meeting_code": meeting_code, "join_url": join_url, "subject": subject, "follow_ups": await self.generate_follow_ups(message, content)},
+            )
+        else:
+            error = result.get("error", "创建失败")
+            need_auth = result.get("need_auth", False)
+            if need_auth:
+                content = f"腾讯会议还没授权，请在终端运行 `tmeet auth login` 完成授权后重试。"
+            else:
+                content = f"创建会议失败了：{error}"
+            return SkillResult(
+                intent=self.name,
+                mode="immediate",
+                content=content,
+                icon=self.icon,
+                action_label=self.action_label,
+                params={**params, "user_message": message},
+                data={"error": error, "need_auth": need_auth},
+            )
 
     async def execute_action(
         self,
