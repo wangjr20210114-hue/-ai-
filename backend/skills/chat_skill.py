@@ -125,6 +125,8 @@ class ChatSkill(BaseSkill):
         search_data: dict[str, Any] = {}
         if web_search_enabled and self._should_search(message):
             search_data = await self._web_search(message)
+            # Augment with local place DB for location-based queries
+            asyncio.create_task(self._augment_with_places(message))
             result_count = len(search_data.get("results", []))
             media_count = len(search_data.get("media", []))
 

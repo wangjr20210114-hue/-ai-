@@ -231,18 +231,15 @@ async def generate_plan(req: GeneratePlanRequest) -> dict:
 
     agent_plan = {}
     try:
-        from agents.travel import TravelAgent
-        agent_plan = await TravelAgent().plan_trip_dict({
-            "departure": req.departure,
-            "destination": req.destination,
-            "days": days,
-            "start_date": req.start_date,
-            "end_date": req.end_date,
-            "travel_style": req.travel_style,
-            "scenery_preference": req.scenery_preference,
-            "budget": req.budget,
-            "extra_notes": req.extra_notes,
-        })
+        from agents.travel.memory_driven_orchestrator import handle_travel
+        msg = f"想去{req.destination}旅游，{days}天"
+        if req.start_date:
+            msg += f"，{req.start_date}出发"
+        agent_plan = await handle_travel(msg)
+        if agent_plan.get("action") == "ask":
+            agent_plan = {"mode": "ask", "reply": agent_plan["reply"], "preferences": agent_plan.get("preferences", {})}
+        else:
+            agent_plan["mode"] = "plan"
     except Exception as e:
         agent_plan = {"error": f"TravelAgent v1 规划失败：{type(e).__name__}: {e}"}
 

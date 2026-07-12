@@ -266,6 +266,47 @@ async def clear_memories() -> int:
     return max(0, cursor.rowcount)
 
 
+CLUSTER_RULES = [
+    # (keyword list, merge target key)
+    (["喜欢", "偏好", "爱", "常用", "经常"], "旅行偏好"),
+    (["餐饮", "餐厅", "美食", "吃", "菜"], "饮食偏好"),
+    (["户外", "爬山", "徒步", "自然", "风景"], "户外偏好"),
+    (["酒店", "住宿", "民宿", "预算", "省钱", "奢侈"], "住宿偏好"),
+    (["交通", "飞机", "高铁", "自驾"], "出行方式"),
+]
+
+
+async def cluster_and_merge() -> int:
+    """Cluster similar memories and merge into higher-level preferences."""
+    db = await get_db()
+    all_memories = await list_memories()
+    merged = 0
+
+    for keywords, target_key in CLUSTER_RULES:
+        matching = [m for m in all_memories if any(kw in str(m.get("memory_key", "")) for kw in keywords)]
+        if len(matching) < 2:
+            continue
+        # Merge: concatenate values, take max confidence
+        values = []
+        max_conf = 0.0
+        for m in matching:
+            v = m.get("value_json")
+            if isinstance(v, str):
+                values.append(v)
+            max_conf = max(max_conf, float(m.get("confidence", 0.5)))
+        if not values:
+            continue
+        merged_value = "；".join(values)
+        await upsert_memory(key=target_key, value=merged_value, confidence=max_conf)
+        # Delete merged low-level memories
+        for m in matching:
+            await db.execute("DELETE FROM memories WHERE id=? AND user_id=?", (m["id"], LOCAL_USER_ID))
+        merged += len(matching)
+        await db.commit()
+
+    return merged
+
+
 async def upsert_memory(
     *,
     key: str,
