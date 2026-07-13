@@ -49,3 +49,6 @@ npm-debug.log*
 *.db-shm
 .agent/
 *.bak
+# Local secrets and generated EdgeOne artifacts
+.env
+.edgeone/
