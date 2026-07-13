@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import httpx
 from pydantic import BaseModel
 
 from agent.cancellation import AgentCancelledError, CancellationToken
 from agent.errors import ProviderAuthenticationError
+from config import settings
 from services.model_gateway import (
     CallContext,
     ModelGateway,
@@ -150,6 +151,28 @@ class ModelGatewayTests(unittest.IsolatedAsyncioTestCase):
                 CallContext(run_id="run-auth"),
             )
         await gateway._client.aclose()
+
+    async def test_mock_mode_supports_json_and_streaming_without_network(self) -> None:
+        gateway = ModelGateway()
+        with patch.object(settings, "mock_mode", True):
+            intent = await gateway.complete_json(
+                ModelRequest(messages=[]),
+                IntentPayload,
+                CallContext(run_id="mock-intent"),
+            )
+            self.assertEqual(intent.intent, "chat")
+            self.assertEqual(intent.confidence, 1.0)
+
+            chunks = []
+            async for chunk in gateway.stream_text(
+                ModelRequest(messages=[]),
+                CallContext(run_id="mock-stream"),
+            ):
+                chunks.append(chunk)
+            self.assertIn("链路均正常", "".join(item.delta for item in chunks))
+            self.assertTrue(chunks[-1].done)
+            self.assertEqual(chunks[-1].provider, "mock")
+        await gateway.close()
 
 
 if __name__ == "__main__":

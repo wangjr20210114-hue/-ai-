@@ -1,5 +1,6 @@
-/** Minimal client interface shared by WSClient and SSEChatClient. */
+/** Minimal client interface shared by the local and Makers transports. */
 export interface ChatClient {
-  send(msg: any): Promise<void> | void;
+  send(message: unknown): Promise<void> | void;
+  stop?(): Promise<void>;
   close(): void;
 }

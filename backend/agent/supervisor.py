@@ -189,7 +189,7 @@ class AgentSupervisor:
                     await asyncio.wait_for(
                         self._wake_event.wait(), timeout=self.poll_interval_seconds
                     )
-                except TimeoutError:
+                except asyncio.TimeoutError:
                     pass
             except asyncio.CancelledError:
                 raise

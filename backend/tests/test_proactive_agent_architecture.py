@@ -156,7 +156,7 @@ class ProactiveAgentArchitectureTests(unittest.IsolatedAsyncioTestCase):
             item.stop()
         await self.db.close()
 
-    async def test_user_message_creates_immutable_action_before_side_effect(self) -> None:
+    async def test_image_request_executes_directly_without_pending_action(self) -> None:
         registry = SkillRegistry()
         registry.register(ImageSkill())
         runtime = PersistentRuntime()
@@ -171,9 +171,19 @@ class ProactiveAgentArchitectureTests(unittest.IsolatedAsyncioTestCase):
         application = AgentApplicationService(runtime=runtime, orchestrator=orchestrator)
         websocket = FakeWebSocket()
 
-        with patch(
-            "agent.intent_router.classify_intent",
-            new=AsyncMock(return_value={"intent": "image", "params": {"prompt": "一艘乘风破浪的小船"}}),
+        with (
+            patch(
+                "agent.intent_router.classify_intent",
+                new=AsyncMock(return_value={"intent": "image", "params": {"prompt": "一艘乘风破浪的小船"}}),
+            ),
+            patch(
+                "services.hunyuan_service.hunyuan_service.text_to_image",
+                new=AsyncMock(return_value="https://example.test/image.png"),
+            ) as provider,
+            patch(
+                "skills.base_skill.BaseSkill.generate_follow_ups",
+                new=AsyncMock(return_value=[]),
+            ),
         ):
             run = await application.handle_user_message(
                 conversation_id=conversation_repo.DEFAULT_CONVERSATION_ID,
@@ -183,24 +193,19 @@ class ProactiveAgentArchitectureTests(unittest.IsolatedAsyncioTestCase):
                 client_message_id="client-message-1",
             )
 
-        self.assertEqual(run["status"], "waiting_confirmation")
+        self.assertEqual(run["status"], "succeeded")
         self.assertEqual(run["intent"], "image")
-        action = run["action"]
-        self.assertEqual(action["status"], "awaiting_confirmation")
-        self.assertEqual(action["snapshot"]["input"]["prompt"], "一艘乘风破浪的小船")
-        self.assertEqual(action["snapshot"]["input"]["schema_version"], 1)
+        self.assertIsNone(await runtime_repo.get_action_for_run(run["id"]))
+        self.assertEqual(provider.await_count, 1)
         messages = await conversation_repo.list_messages(conversation_repo.DEFAULT_CONVERSATION_ID)
         self.assertEqual(messages[-1]["id"], "client-message-1")
-        self.assertTrue(any('"action_id"' in message for message in websocket.messages))
+        self.assertTrue(any("https://example.test/image.png" in message for message in websocket.messages))
 
-    async def test_confirmed_action_executes_once_through_single_executor(self) -> None:
+    async def test_image_skill_cannot_create_a_pending_action(self) -> None:
         registry = SkillRegistry()
         image_skill = ImageSkill()
         registry.register(image_skill)
         runtime = PersistentRuntime()
-        notifications = NotificationService()
-        executor = AgentExecutor(registry=registry, runtime=runtime, notifications=notifications)
-
         event, _ = await runtime_repo.create_event("user.message", {"text": "画图"}, "event:image")
         run = await runtime.start_run(event["id"])
         await runtime.set_classification(run["id"], "image", {"params": {"prompt": "星空"}})
@@ -213,26 +218,9 @@ class ProactiveAgentArchitectureTests(unittest.IsolatedAsyncioTestCase):
         )
         from agent.contracts import plan_to_dict
 
-        await runtime.set_plan(run["id"], plan_to_dict(plan), execution_lane="background", max_attempts=1)
-        await runtime.transition(run["id"], "planned", "policy_checked", step="policy_checked")
-        await runtime.transition(run["id"], "policy_checked", "waiting_confirmation", step="confirmation_required")
-        action = await ActionService().create_pending_action(run["id"], plan, image_skill)
-        await runtime_repo.confirm_action(action["id"], action["version"])
-
-        with patch(
-            "services.hunyuan_service.hunyuan_service.text_to_image",
-            new=AsyncMock(return_value="https://example.test/image.png"),
-        ) as provider:
-            result = await executor.execute_run(run["id"], worker_id="test-worker")
-            duplicate = await runtime_repo.confirm_action(action["id"], action["version"])
-
-        self.assertEqual(result.status, "succeeded")
-        self.assertEqual(duplicate["status"], "succeeded")
-        self.assertEqual(provider.await_count, 1)
-        saved_action = await runtime_repo.get_action(action["id"])
-        saved_run = await runtime_repo.get_run(run["id"])
-        self.assertEqual(saved_action["result_json"]["data"]["image_url"], "https://example.test/image.png")
-        self.assertEqual(saved_run["status"], "succeeded")
+        await runtime.set_plan(run["id"], plan_to_dict(plan), execution_lane="interactive", max_attempts=1)
+        with self.assertRaisesRegex(ValueError, "not a side-effecting action"):
+            await ActionService().create_pending_action(run["id"], plan, image_skill)
 
     async def test_provider_call_ledger_recovers_success_after_crash_window(self) -> None:
         registry = SkillRegistry()

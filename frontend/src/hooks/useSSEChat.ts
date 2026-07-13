@@ -1,202 +1,181 @@
 import { useEffect, useRef } from 'react';
 import { MessagePlugin } from 'tdesign-react';
 import { bootstrapApp, saveConversationMessage } from '../services/api';
+import { withEdgeOneAuth } from '../services/auth';
+import { makersConversationHeaders } from '../services/conversation';
+import { splitSseFrames } from '../services/sse';
 import { useAppDispatch, useAppState } from '../store/appState';
-import type { SkillInfo, PaperInfo, ChatMessage } from '../types';
+import type { ChatMessage } from '../types';
 
-/** Generate or get EdgeOne conversation ID. */
-function getOrCreateConversationId(): string {
-  const key = 'eo_conv_id';
-  let id = localStorage.getItem(key);
-  if (!id) {
-    id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    localStorage.setItem(key, id);
-  }
-  return id;
-}
+type ClientEvent = { type: string; payload: Record<string, unknown> };
 
-/** Extract EdgeOne auth params from current URL for API calls. */
-function getEoAuthParams(): string {
-  const p = new URLSearchParams(window.location.search);
-  const token = p.get('eo_token');
-  const time = p.get('eo_time');
-  if (token && time) return `?eo_token=${token}&eo_time=${time}`;
-  return '';
-}
-
-/** SSE-based chat client — same interface as WSClient. */
 class SSEChatClient {
   private controller: AbortController | null = null;
-  private listeners = new Set<(msg: any) => void>();
-  private convId: string;
-  private authParams: string;
+  private listeners = new Set<(message: ClientEvent) => void>();
 
-  constructor() {
-    this.convId = getOrCreateConversationId();
-    this.authParams = getEoAuthParams();
+  constructor(private readonly conversationId: string) {}
+
+  private emit(message: ClientEvent) {
+    for (const listener of this.listeners) listener(message);
   }
 
-  get conversationId() {
-    return this.convId;
-  }
-
-  /** Simulates WSClient.send() — POST /chat with SSE. */
-  async send(msg: any) {
-    // Handle ping internally (EdgeOne agent has its own heartbeat)
-    if (msg.type === 'ping') return;
-
-    const body = msg.payload || {};
-    this.controller?.abort();
-    this.controller = new AbortController();
-    const signal = this.controller.signal;
-
-    try {
-      const resp = await fetch(`/chat${this.authParams}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'makers-conversation-id': this.convId,
-        },
-        body: JSON.stringify(body),
-        signal,
-      });
-
-      if (!resp.ok) {
-        this.emit({ type: 'error', payload: { message: `HTTP ${resp.status}` } });
-        return;
-      }
-
-      const reader = resp.body?.getReader();
-      if (!reader) {
-        this.emit({ type: 'error', payload: { message: '无法读取响应流' } });
-        return;
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let streamId = '';
-      let intent = 'chat';
-
-      // Start streaming with default "thinking" state
-      streamId = 'ai-stream-' + Date.now();
-      this.emit({
-        type: 'stream_start',
-        payload: { id: streamId, intent: 'search' },
-      });
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const raw = line.slice(6).trim();
-          if (raw === '[DONE]') {
-            this.emit({ type: 'stream_end', payload: { id: streamId } });
-            return;
-          }
-
-          try {
-            const event = JSON.parse(raw);
-            switch (event.type) {
-              case 'ai_response':
-                this.emit({
-                  type: 'stream_delta',
-                  payload: { id: streamId, delta: event.content },
-                });
-                break;
-
-              case 'tool_call': {
-                // Show search status when tool is called
-                const name = event.name || '';
-                if (name === 'search_web' || name === 'search_images') {
-                  this.emit({
-                    type: 'search_status',
-                    payload: {
-                      id: streamId,
-                      status: 'searching',
-                      statusText: `正在搜索…`,
-                    },
-                  });
-                }
-                break;
-              }
-
-              case 'tool_result': {
-                if (event.name === 'search_web') {
-                  this.emit({
-                    type: 'search_status',
-                    payload: {
-                      id: streamId,
-                      status: 'analyzing',
-                      statusText: '找到结果，正在整理…',
-                    },
-                  });
-                }
-                break;
-              }
-
-              case 'ping':
-                // Ignore heartbeats
-                break;
-
-              case 'error_message':
-                this.emit({
-                  type: 'error',
-                  payload: { message: event.content },
-                });
-                break;
-            }
-          } catch {
-            // Skip non-JSON lines
-          }
-        }
-      }
-
-      // Stream ended without [DONE]
-      this.emit({ type: 'stream_end', payload: { id: streamId } });
-    } catch (err: any) {
-      if (err.name === 'AbortError') return;
-      this.emit({
-        type: 'error',
-        payload: { message: err.message || '请求失败' },
-      });
-    }
-  }
-
-  on(listener: (msg: any) => void) {
+  on(listener: (message: ClientEvent) => void) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
-  private emit(msg: any) {
-    for (const fn of this.listeners) fn(msg);
+  connect() {
+    // SSE opens one request per message; no persistent socket is required.
+  }
+
+  async stop(): Promise<void> {
+    this.controller?.abort();
+    this.controller = null;
+    try {
+      await fetch(withEdgeOneAuth('/stop'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...makersConversationHeaders(this.conversationId),
+        },
+        body: JSON.stringify({ conversation_id: this.conversationId }),
+        credentials: 'same-origin',
+      });
+    } catch {
+      // Best-effort cancellation; the aborted request signal is the first line of defence.
+    }
+  }
+
+  async send(rawMessage: unknown) {
+    const message = rawMessage as { type?: string; payload?: Record<string, unknown> };
+    if (message.type === 'ping') return;
+
+    if (this.controller) await this.stop();
+    this.controller = new AbortController();
+    const signal = this.controller.signal;
+    const streamId = `ai-stream-${Date.now()}`;
+    let streamFinished = false;
+
+    const finish = () => {
+      if (streamFinished) return;
+      streamFinished = true;
+      this.emit({ type: 'stream_end', payload: { id: streamId } });
+    };
+
+    this.emit({ type: 'stream_start', payload: { id: streamId, intent: 'chat' } });
+
+    try {
+      const response = await fetch(withEdgeOneAuth('/chat'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...makersConversationHeaders(this.conversationId),
+        },
+        body: JSON.stringify(message.payload || {}),
+        signal,
+        credentials: 'same-origin',
+      });
+
+      if (!response.ok) {
+        let detail = `HTTP ${response.status}`;
+        try {
+          const data = await response.json() as { error?: string; detail?: string };
+          detail = data.error || data.detail || detail;
+        } catch {
+          // Keep the HTTP status fallback.
+        }
+        throw new Error(detail);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('无法读取响应流');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parsed = splitSseFrames(buffer);
+        buffer = parsed.rest;
+
+        for (const frame of parsed.frames) {
+          if (frame === '[DONE]') {
+            finish();
+            return;
+          }
+          try {
+            const event = JSON.parse(frame) as Record<string, unknown>;
+            switch (String(event.type || '')) {
+              case 'ai_response':
+                this.emit({
+                  type: 'stream_delta',
+                  payload: {
+                    id: streamId,
+                    delta: typeof event.content === 'string' ? event.content : '',
+                  },
+                });
+                break;
+              case 'tool_call':
+                this.emit({
+                  type: 'search_status',
+                  payload: {
+                    id: streamId,
+                    status: 'searching',
+                    statusText: event.name === 'web_search'
+                      ? '正在联网搜索…'
+                      : `正在调用 ${String(event.name || '工具')}…`,
+                  },
+                });
+                break;
+              case 'tool_result':
+                this.emit({
+                  type: 'search_status',
+                  payload: { id: streamId, status: 'analyzing', statusText: '工具已返回，正在整理…' },
+                });
+                break;
+              case 'error_message':
+                this.emit({
+                  type: 'error',
+                  payload: { message: typeof event.content === 'string' ? event.content : '服务异常' },
+                });
+                break;
+              case 'ping':
+              case 'usage':
+                break;
+            }
+          } catch {
+            // Ignore malformed or non-JSON events without breaking later frames.
+          }
+        }
+      }
+      finish();
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        this.emit({
+          type: 'error',
+          payload: { message: (error as Error).message || '请求失败' },
+        });
+      }
+      finish();
+    } finally {
+      if (this.controller?.signal === signal) this.controller = null;
+    }
   }
 
   close() {
-    this.controller?.abort();
-    this.controller = null;
-  }
-
-  connect() {
-    // SSE doesn't need explicit connect — sends on each request
+    void this.stop();
   }
 }
 
-/** Hook that replaces useWebSocket() with SSE-based client. */
 export function useSSEChat() {
   const { conversationId } = useAppState();
   const dispatch = useAppDispatch();
   const clientRef = useRef<SSEChatClient | null>(null);
   const streamMessages = useRef<Map<string, ChatMessage>>(new Map());
-  const streamingIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    const client = new SSEChatClient();
+    const client = new SSEChatClient(conversationId);
     clientRef.current = client;
     let disposed = false;
 
@@ -206,12 +185,11 @@ export function useSSEChat() {
       });
     };
 
-    const off = client.on((msg: any) => {
-      switch (msg.type) {
+    const off = client.on((message) => {
+      switch (message.type) {
         case 'stream_start': {
           dispatch({ type: 'SET_THINKING', payload: false });
-          const id = msg.payload.id || 'ai-stream-' + Date.now();
-          streamingIds.current.add(id);
+          const id = String(message.payload.id || `ai-stream-${Date.now()}`);
           const streamMessage: ChatMessage = {
             id,
             role: 'ai',
@@ -219,54 +197,41 @@ export function useSSEChat() {
             ts: Date.now(),
             streaming: true,
             skill: {
-              intent: 'search',
+              intent: 'chat',
               mode: 'immediate',
               content: '',
-              icon: '🔍',
+              icon: '✨',
               action_label: '',
               params: {},
-              data: { status: 'searching', statusText: '思考中…' },
+              data: { status: 'thinking', statusText: '思考中…' },
             },
           };
           streamMessages.current.set(id, streamMessage);
           dispatch({ type: 'ADD_MESSAGE', payload: streamMessage });
           break;
         }
-
         case 'stream_delta': {
-          const id = msg.payload.id;
-          if (!id) break;
-          const delta = msg.payload.delta || '';
-          if (delta) {
-            const current = streamMessages.current.get(id);
-            if (current)
-              streamMessages.current.set(id, { ...current, content: current.content + delta });
+          const id = String(message.payload.id || '');
+          const delta = String(message.payload.delta || '');
+          const current = streamMessages.current.get(id);
+          if (current && delta) {
+            streamMessages.current.set(id, { ...current, content: current.content + delta });
             dispatch({ type: 'UPDATE_MESSAGE', payload: { id, patch: {}, delta } });
           }
           break;
         }
-
         case 'stream_end': {
-          const id = msg.payload.id;
-          if (!id) break;
-          streamingIds.current.delete(id);
+          const id = String(message.payload.id || '');
           const current = streamMessages.current.get(id);
           if (current) {
-            const completed: ChatMessage = { ...current, streaming: false };
+            persist({ ...current, streaming: false });
             streamMessages.current.delete(id);
-            persist(completed);
           }
-          dispatch({
-            type: 'UPDATE_MESSAGE',
-            payload: { id, patch: { streaming: false } },
-          });
+          dispatch({ type: 'UPDATE_MESSAGE', payload: { id, patch: { streaming: false } } });
           break;
         }
-
         case 'search_status': {
-          const id = msg.payload.id;
-          if (!id) break;
-          const statusText = msg.payload.statusText || '正在搜索…';
+          const id = String(message.payload.id || '');
           dispatch({
             type: 'UPDATE_MESSAGE',
             payload: {
@@ -279,19 +244,20 @@ export function useSSEChat() {
                   icon: '🔍',
                   action_label: '',
                   params: {},
-                  data: { status: 'searching', statusText },
+                  data: {
+                    status: String(message.payload.status || 'searching'),
+                    statusText: String(message.payload.statusText || '正在搜索…'),
+                  },
                 },
               },
             },
           });
           break;
         }
-
-        case 'error': {
+        case 'error':
           dispatch({ type: 'SET_THINKING', payload: false });
-          MessagePlugin.error(msg.payload.message || '服务异常');
+          MessagePlugin.error(String(message.payload.message || '服务异常'));
           break;
-        }
       }
     });
 
@@ -300,17 +266,14 @@ export function useSSEChat() {
         if (!disposed) dispatch({ type: 'HYDRATE_MESSAGES', payload: data.messages });
       })
       .catch((error) => console.warn('bootstrap failed', error))
-      .finally(() => {
-        dispatch({ type: 'SET_CONNECTED', payload: true });
-      });
+      .finally(() => dispatch({ type: 'SET_CONNECTED', payload: true }));
 
     return () => {
       disposed = true;
       off();
       client.close();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId]);
+  }, [conversationId, dispatch]);
 
   return clientRef;
 }

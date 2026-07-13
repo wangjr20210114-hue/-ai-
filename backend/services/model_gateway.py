@@ -208,6 +208,15 @@ class ModelGateway:
             return
 
     async def complete_text(self, request: ModelRequest, context: CallContext) -> ModelTextResult:
+        if settings.mock_mode:
+            del context
+            return ModelTextResult(
+                content="本地 Mock 模式：结构化模型调用已通过。",
+                provider="mock",
+                model="mock-local",
+                usage=ProviderUsage(output_tokens=8, total_tokens=8),
+                provider_request_id="mock-complete",
+            )
         config = self._resolve(request)
         model = request.model or config.model
         started = time.perf_counter()
@@ -252,6 +261,18 @@ class ModelGateway:
         response_model: type[T],
         context: CallContext,
     ) -> T:
+        if settings.mock_mode:
+            fields = response_model.model_fields
+            payload: dict[str, Any] = {}
+            if "intent" in fields:
+                payload["intent"] = "chat"
+            if "params" in fields:
+                payload["params"] = {}
+            if "confidence" in fields:
+                payload["confidence"] = 1.0
+            if "rationale" in fields:
+                payload["rationale"] = "local_mock_mode"
+            return response_model.model_validate(payload)
         result = await self.complete_text(request, context)
         try:
             return response_model.model_validate_json(_extract_json_text(result.content))
@@ -266,6 +287,22 @@ class ModelGateway:
     ) -> AsyncIterator[ModelChunk]:
         if cancellation is not None:
             cancellation.raise_if_cancelled()
+        if settings.mock_mode:
+            chunks = [
+                "本地 Mock 模式回复：",
+                "消息发送、流式传输和持久化链路均正常。",
+            ]
+            for chunk in chunks:
+                yield ModelChunk(delta=chunk, provider="mock", model="mock-local")
+            total = sum(len(chunk) for chunk in chunks)
+            yield ModelChunk(
+                done=True,
+                provider="mock",
+                model="mock-local",
+                usage=ProviderUsage(output_tokens=total, total_tokens=total),
+                provider_request_id="mock-stream",
+            )
+            return
         config = self._resolve(request)
         model = request.model or config.model
         full_text = ""

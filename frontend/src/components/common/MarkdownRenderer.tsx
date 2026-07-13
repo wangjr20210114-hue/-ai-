@@ -34,11 +34,6 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
   );
 }
 
-const SOURCE_TYPE_MAP: Record<string, string> = {
-  '公众号': 'wechat', '知乎': 'zhihu', '百科': 'baike', '网页': 'web',
-  '论文': 'paper', '地点': 'location', '视频': 'video',
-};
-
 export default function MarkdownRenderer({ content, searchMeta }: { content: string; searchMeta?: SearchMeta }) {
   const sources = searchMeta?.results || [];
   const cleanedContent = replaceCitationMarkers(content, sources);

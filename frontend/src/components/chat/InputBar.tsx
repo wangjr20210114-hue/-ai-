@@ -6,6 +6,7 @@ import { useAppDispatch, useAppState } from '../../store/appState';
 import type { WSMessage } from '../../types';
 import type { ChatClient } from '../../services/chatClient';
 import { saveConversationMessage, uploadDocument } from '../../services/api';
+import { isEdgeOne } from '../../services/auth';
 
 interface Props {
   client: React.RefObject<ChatClient | null>;
@@ -74,7 +75,9 @@ export default function InputBar({ client }: Props) {
       const aiMessage = {
         id: `file-${Date.now()}`,
         role: 'ai',
-        content: `PDF 已安全保存并提取文本：${stored.page_count} 页，共 ${stored.total_chars} 字。\n\n[打开 ${stored.original_name}](/api/files/${stored.id}/content)\n\n> ${stored.preview.slice(0, 240).replace(/\s+/g, ' ')}…`,
+        content: stored.storage_key
+          ? `PDF 已安全保存到 EdgeOne Makers Blob。\n\n[打开 ${stored.original_name}](${stored.content_url})`
+          : `PDF 已安全保存并提取文本：${stored.page_count} 页，共 ${stored.total_chars} 字。\n\n[打开 ${stored.original_name}](/api/files/${stored.id}/content)\n\n> ${stored.preview.slice(0, 240).replace(/\s+/g, ' ')}…`,
         ts: Date.now() + 1,
         paperFileId: stored.id,
         paperFileName: stored.original_name,
@@ -85,7 +88,7 @@ export default function InputBar({ client }: Props) {
         saveConversationMessage(conversationId, userMessage),
         saveConversationMessage(conversationId, aiMessage),
       ]);
-      MessagePlugin.success('PDF 已上传并建立持久索引');
+      MessagePlugin.success(stored.storage_key ? 'PDF 已上传到 Makers Blob' : 'PDF 已上传并建立持久索引');
     } catch (error) {
       MessagePlugin.error(error instanceof Error ? error.message : '上传失败');
     } finally {
@@ -153,7 +156,9 @@ export default function InputBar({ client }: Props) {
           marginTop: 8,
         }}
       >
-        消息会先持久化，再由 Agent 识别意图并安全执行
+        {isEdgeOne
+          ? '会话、运行轨迹与联网工具由 EdgeOne Makers 托管'
+          : '消息会先持久化，再由 Agent 识别意图并安全执行'}
       </div>
     </div>
   );

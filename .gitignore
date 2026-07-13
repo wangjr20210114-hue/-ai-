@@ -1,4 +1,5 @@
 # Backend
+.env
 backend/venv/
 backend/__pycache__/
 backend/**/__pycache__/
@@ -11,6 +12,7 @@ backend/uploads/
 backend/.playwright-cli/
 
 # Frontend
+node_modules/
 frontend/node_modules/
 frontend/dist/
 frontend/dist-ssr/
@@ -50,6 +52,6 @@ npm-debug.log*
 .agent/
 *.bak
 # Local secrets and generated EdgeOne artifacts
-.env
 .edgeone/
+.tef_dist/
 .agents/

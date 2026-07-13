@@ -240,10 +240,12 @@ class BaseSkill(ABC):
 
     async def generate_follow_ups(self, user_message: str, ai_content: str) -> list[str]:
         """Generate 3 follow-up questions. Shared implementation for all skills."""
+        from config import settings
+        if settings.mock_mode:
+            return []
         try:
             import json as _json
             import httpx
-            from config import settings
             msgs = [
                 {"role": "system", "content": "根据对话上下文，推测用户接下来可能想问的 3 个问题。简短（10字以内），自然口语。输出 JSON 数组 [\"问题1\",\"问题2\",\"问题3\"]"},
                 {"role": "user", "content": f"用户问：{user_message}\n\nAI回答：{ai_content[:500]}"},

@@ -1,24 +1,14 @@
 {
-  "buildCommand": "cd frontend && npm ci && npm run build",
+  "buildCommand": "cd frontend && npm ci && npm run build -- --mode edgeone",
   "outputDirectory": "frontend/dist",
   "framework": "vite",
-  "agents": {
-    "framework": "langgraph",
-    "timeout": 1800
-  },
   "cloudFunctions": {
-    "python": {
+    "nodejs": {
       "includeFiles": []
     }
   },
-  "rewrites": [
-    {
-      "source": "/api/messages",
-      "destination": "/cloud-functions/messages"
-    },
-    {
-      "source": "/api/search/:path*",
-      "destination": "http://94.16.110.28:8000/api/search/:path*"
-    }
-  ]
+  "agents": {
+    "framework": "langgraph",
+    "timeout": 1800
+  }
 }

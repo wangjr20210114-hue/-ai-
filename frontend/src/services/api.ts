@@ -1,16 +1,21 @@
 import type { ChatMessage, TravelPlan, CityInfo, ScheduleItem, MeetingResult, StoredFileInfo, TravelCollected } from '../types';
 
-import { authorizedFetch, isEdgeOne } from './auth';
+import { authorizedFetch, isEdgeOne, withEdgeOneAuth } from './auth';
+import { makersConversationHeaders } from './conversation';
 
 const BASE = '/api';
 
 export async function bootstrapApp(conversationId: string): Promise<{ messages: ChatMessage[] }> {
   if (isEdgeOne) {
-    // Load from EdgeOne store via cloud function
+    // Read the LangGraph checkpoint through an agent endpoint because cloud
+    // functions intentionally do not receive the LangGraph store adapters.
     try {
-      const res = await authorizedFetch('/api/messages', {
+      const res = await authorizedFetch('/messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...makersConversationHeaders(conversationId),
+        },
         body: JSON.stringify({ conversation_id: conversationId }),
       });
       if (res.ok) return res.json();
@@ -33,6 +38,45 @@ export async function saveConversationMessage(conversationId: string, message: C
 }
 
 export async function uploadDocument(conversationId: string, file: File): Promise<StoredFileInfo> {
+  if (isEdgeOne) {
+    const signed = await authorizedFetch('/files', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversation_id: conversationId,
+        name: file.name,
+        content_type: file.type || 'application/pdf',
+        size: file.size,
+      }),
+    });
+    const upload = await signed.json().catch(() => ({})) as {
+      url?: string;
+      key?: string;
+      content_url?: string;
+      error?: string;
+    };
+    if (!signed.ok || !upload.url || !upload.key) {
+      throw new Error(upload.error || '无法创建 Makers Blob 上传地址');
+    }
+    const stored = await fetch(upload.url, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.type || 'application/pdf' },
+      body: file,
+    });
+    if (!stored.ok) throw new Error('上传到 Makers Blob 失败');
+    return {
+      id: upload.key,
+      original_name: file.name,
+      mime_type: file.type || 'application/pdf',
+      size_bytes: file.size,
+      page_count: 0,
+      total_chars: 0,
+      preview: '文件已保存到 EdgeOne Makers Blob。',
+      created_at: Date.now(),
+      storage_key: upload.key,
+      content_url: upload.content_url ? withEdgeOneAuth(upload.content_url) : undefined,
+    };
+  }
   const body = new FormData();
   body.append('conversation_id', conversationId);
   body.append('file', file, file.name);

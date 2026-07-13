@@ -1,0 +1,9 @@
+{
+  "name": "yuanbao-edgeone-functions",
+  "private": true,
+  "version": "5.1.0",
+  "type": "module",
+  "dependencies": {
+    "@edgeone/pages-blob": "^0.0.14"
+  }
+}

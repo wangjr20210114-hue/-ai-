@@ -1,19 +1,38 @@
+const runtimeMode = import.meta.env.VITE_APP_RUNTIME;
+
+function hasEdgeOneAccessParams(): boolean {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return Boolean(params.get('eo_token') && params.get('eo_time'));
+}
+
+function hasEdgeOneHost(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return host.endsWith('.edgeone.cool') || host.endsWith('.edgeone.site');
+}
+
+/** Build mode is authoritative; host/query detection keeps preview URLs compatible. */
+export const isEdgeOne = runtimeMode === 'edgeone'
+  || hasEdgeOneHost()
+  || hasEdgeOneAccessParams();
+
+/** Preserve preview access parameters on Makers agent/function calls. */
+export function withEdgeOneAuth(url: string): string {
+  if (!isEdgeOne || typeof window === 'undefined') return url;
+  const source = new URLSearchParams(window.location.search);
+  const token = source.get('eo_token');
+  const time = source.get('eo_time');
+  if (!token || !time) return url;
+
+  const [withoutHash, hash = ''] = url.split('#', 2);
+  const separator = withoutHash.includes('?') ? '&' : '?';
+  const auth = new URLSearchParams({ eo_token: token, eo_time: time }).toString();
+  return `${withoutHash}${separator}${auth}${hash ? `#${hash}` : ''}`;
+}
+
 const TOKEN_STORAGE_KEY = 'yuanbao.localAccessToken';
 let tokenPromise: Promise<string> | null = null;
-
-/** Running on EdgeOne preview/production? */
-export const isEdgeOne = typeof window !== 'undefined' && window.location.host.includes('edgeone');
-
-/** Append eo_token/eo_time params for EdgeOne API auth. */
-function withEdgeOneAuth(url: string): string {
-  if (!isEdgeOne) return url;
-  const p = new URLSearchParams(window.location.search);
-  const token = p.get('eo_token');
-  const time = p.get('eo_time');
-  if (!token || !time) return url;
-  const sep = url.includes('?') ? '&' : '?';
-  return `${url}${sep}eo_token=${token}&eo_time=${time}`;
-}
 
 function readCachedToken(): string {
   try {
@@ -27,12 +46,11 @@ function cacheToken(token: string) {
   try {
     window.sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
   } catch {
-    // keep in promise for this page lifecycle
+    // The in-memory promise remains valid for this page lifecycle.
   }
 }
 
 export async function getLocalAccessToken(): Promise<string> {
-  // On EdgeOne, no local token needed — platform handles auth
   if (isEdgeOne) return 'edgeone-platform';
   const cached = readCachedToken();
   if (cached) return cached;
@@ -61,13 +79,9 @@ export async function authorizedFetch(
   input: RequestInfo | URL,
   init: RequestInit = {},
 ): Promise<Response> {
-  // On EdgeOne, skip local token, add eo_token to URL, use cookie auth
   if (isEdgeOne) {
     const url = typeof input === 'string' ? input : input.toString();
-    return fetch(withEdgeOneAuth(url), {
-      ...init,
-      credentials: 'same-origin',
-    });
+    return fetch(withEdgeOneAuth(url), { ...init, credentials: 'same-origin' });
   }
   const token = await getLocalAccessToken();
   const headers = new Headers(init.headers);

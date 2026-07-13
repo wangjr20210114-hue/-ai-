@@ -125,8 +125,6 @@ class ChatSkill(BaseSkill):
         search_data: dict[str, Any] = {}
         if web_search_enabled and self._should_search(message):
             search_data = await self._web_search(message)
-            # Augment with local place DB for location-based queries
-            asyncio.create_task(self._augment_with_places(message))
             result_count = len(search_data.get("results", []))
             media_count = len(search_data.get("media", []))
 
@@ -204,10 +202,13 @@ class ChatSkill(BaseSkill):
                 if relevant_media:
                     img_lines = []
                     for m in relevant_media:
-                        img_lines.append(f"![{m['caption']}]({m['url']})（{m['score']}/10）")
+                        img_lines.append(
+                            f"- {m['id']}: {m['caption']}（{m['score']}/10）"
+                        )
                     parts.append(
                         f"## 可用图片\n"
-                        f"评分已标注。与段落匹配时用 Markdown 插入。\n"
+                        f"评分已标注。只在图片与段落直接相关时单独输出 "
+                        f"[[image:media-id]]；不要输出或猜测图片 URL。\n"
                         f"{chr(10).join(img_lines)}"
                     )
 
@@ -282,7 +283,7 @@ class ChatSkill(BaseSkill):
                 candidates.append({"type": "image", "id": m.get("id", ""),
                     "caption": str(m.get("caption", ""))[:50], "url": str(m.get("url", ""))})
             if not candidates:
-                return {"context": "", "links": [], "media": media_list}
+                return {"context": "", "links": [], "media": []}
 
             ct = "\n".join(f"{c['id']} [{c['type']}] {c.get('title') or c.get('caption','')}: {c.get('snippet','')}"
                           for c in candidates)
@@ -304,7 +305,19 @@ class ChatSkill(BaseSkill):
                 raw = raw.strip()
                 scores = _json.loads(raw)
             if not isinstance(scores, list):
-                return {"context": "", "links": [], "media": media_list}
+                return {
+                    "context": "",
+                    "links": [],
+                    "media": [
+                        {
+                            "id": str(item.get("id", "")),
+                            "caption": str(item.get("caption") or item.get("alt") or "相关图片"),
+                            "score": 5,
+                        }
+                        for item in media_list
+                        if item.get("id")
+                    ],
+                }
 
             sm = {s["id"]: (int(s["score"]), str(s.get("reason", ""))) for s in scores if isinstance(s, dict)}
 
@@ -322,12 +335,24 @@ class ChatSkill(BaseSkill):
                 if c["type"] != "image": continue
                 sc = sm.get(c["id"], (5, ""))
                 if sc[0] >= 5:
-                    imgs.append({"caption": c["caption"], "url": c["url"], "score": sc[0], "reason": sc[1]})
+                    imgs.append({"id": c["id"], "caption": c["caption"], "score": sc[0], "reason": sc[1]})
             imgs.sort(key=lambda x: -x["score"])
 
             return {"context": "", "links": links, "media": imgs}
         except Exception:
-            return {"context": "", "links": [], "media": media_list}
+            return {
+                "context": "",
+                "links": [],
+                "media": [
+                    {
+                        "id": str(item.get("id", "")),
+                        "caption": str(item.get("caption") or item.get("alt") or "相关图片"),
+                        "score": 5,
+                    }
+                    for item in media_list
+                    if item.get("id")
+                ],
+            }
 
     async def _extract_and_upsert_memories(
         self,
@@ -473,6 +498,8 @@ class ChatSkill(BaseSkill):
 
     async def _generate_follow_ups(self, user_message: str, ai_content: str, history: list[str]) -> list[str]:
         """Generate 3 follow-up questions using DeepSeek."""
+        if settings.mock_mode:
+            return []
         try:
             messages = [
                 {"role": "system", "content": "根据对话上下文，推测用户接下来可能想问的 3 个问题。简短（10字以内），自然口语。输出 JSON 数组 [\"问题1\",\"问题2\",\"问题3\"]"},

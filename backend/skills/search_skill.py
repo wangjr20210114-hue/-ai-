@@ -183,6 +183,9 @@ class SearchSkill(BaseSkill):
 
     async def _generate_follow_ups(self, query: str, ai_content: str) -> list[str]:
         """Generate 3 follow-up questions."""
+        from config import settings
+        if settings.mock_mode:
+            return []
         try:
             import json as _json
             import httpx

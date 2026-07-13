@@ -121,6 +121,8 @@ export interface StoredFileInfo {
   total_chars: number;
   preview: string;
   created_at: number;
+  storage_key?: string;
+  content_url?: string;
 }
 
 export interface WSPayload {

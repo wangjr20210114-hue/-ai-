@@ -12,6 +12,7 @@ export function isSafeRemoteUrl(value: string): boolean {
 }
 
 export function replaceCitationMarkers(content: string, _sources: SearchResultItem[]): string {
+  void _sources;
   // Strip citation markers — we don't want numbered superscript links in the answer.
   // Sources are still available in the search_results panel below the message.
   let result = content.replace(/\[\[cite:(source-[a-zA-Z0-9_-]+)\]\]/g, '');
