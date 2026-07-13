@@ -42,3 +42,7 @@ htmlcov/
 # Logs
 *.log
 npm-debug.log*
+
+# Local secrets and generated EdgeOne artifacts
+.env
+.edgeone/
