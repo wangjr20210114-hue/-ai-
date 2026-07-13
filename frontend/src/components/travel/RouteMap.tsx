@@ -36,7 +36,11 @@ export default function RouteMap({ departure, destination }: Props) {
   useEffect(() => {
     if (!routeData || !mapRef.current) return;
 
-    const key = import.meta.env.VITE_TENCENT_MAP_KEY?.trim(); if (!key) return;
+    const key = import.meta.env.VITE_TENCENT_MAP_KEY?.trim();
+    if (!key) {
+      console.warn('VITE_TENCENT_MAP_KEY is not configured; skipping Tencent map rendering.');
+      return;
+    }
 
     // 动态加载腾讯地图 JS SDK
     const scriptId = 'qq-map-sdk';

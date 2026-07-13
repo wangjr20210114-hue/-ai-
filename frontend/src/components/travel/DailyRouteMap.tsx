@@ -134,7 +134,11 @@ export default function DailyRouteMap({ date, schedules, selectedAlts, onRouteLo
   useEffect(() => {
     if (!routeData || !mapRef.current) return;
 
-    const key = import.meta.env.VITE_TENCENT_MAP_KEY?.trim(); if (!key) return;
+    const key = import.meta.env.VITE_TENCENT_MAP_KEY?.trim();
+    if (!key) {
+      console.warn('VITE_TENCENT_MAP_KEY is not configured; skipping Tencent map rendering.');
+      return;
+    }
     const scriptId = 'qq-map-sdk-daily';
 
     const initMap = () => {
