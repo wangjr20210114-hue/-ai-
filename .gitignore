@@ -1,15 +1,7 @@
-# Backend
+# Python
 .env
-backend/venv/
-backend/__pycache__/
-backend/**/__pycache__/
 *.pyc
-backend/.env
-backend/*.db
-backend/*.db-wal
-backend/*.db-shm
-backend/uploads/
-backend/.playwright-cli/
+__pycache__/
 
 # Frontend
 node_modules/
@@ -55,3 +47,4 @@ npm-debug.log*
 .edgeone/
 .tef_dist/
 .agents/
+place-service/data/

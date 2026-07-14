@@ -38,6 +38,7 @@ async def handler(ctx):
     )
 
     result = []
+    latest_travel_plan = None
     for index, message in enumerate(stored_messages):
         message_type = str(_value(message, "type", _value(message, "role", "")))
         role = {
@@ -49,12 +50,41 @@ async def handler(ctx):
         content = _text(_value(message, "content", ""))
         if not role or not content:
             continue
-        result.append(
-            {
-                "id": str(_value(message, "id", "") or f"checkpoint-{index}"),
-                "role": role,
-                "content": content,
-                "ts": index,
-            }
-        )
-    return {"messages": result}
+        item = {
+            "id": str(_value(message, "id", "") or f"checkpoint-{index}"),
+            "role": role,
+            "content": content,
+            "ts": index,
+        }
+        if role == "ai":
+            additional = _value(message, "additional_kwargs", {}) or {}
+            if isinstance(additional, dict):
+                search_results = additional.get("search_results")
+                if isinstance(search_results, dict) and search_results.get("total"):
+                    item["searchResults"] = search_results
+                follow_ups = additional.get("follow_ups")
+                if isinstance(follow_ups, list) and follow_ups:
+                    item["followUps"] = [
+                        str(question)[:80] for question in follow_ups[:3] if question
+                    ]
+                map_places = additional.get("map_places")
+                if isinstance(map_places, list) and map_places:
+                    item["mapPlaces"] = [
+                        place for place in map_places[:12] if isinstance(place, dict)
+                    ]
+                travel_plan = additional.get("travel_plan")
+                if isinstance(travel_plan, dict):
+                    schedules = travel_plan.get("schedules")
+                    if isinstance(schedules, list):
+                        latest_travel_plan = {
+                            **travel_plan,
+                            "schedules": [
+                                schedule for schedule in schedules if isinstance(schedule, dict)
+                            ],
+                        }
+        result.append(item)
+    response = {"messages": result}
+    if latest_travel_plan is not None:
+        response["travel_plan"] = latest_travel_plan
+        response["schedules"] = latest_travel_plan["schedules"]
+    return response

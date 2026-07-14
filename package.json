@@ -3,6 +3,16 @@
   "private": true,
   "version": "5.1.0",
   "type": "module",
+  "scripts": {
+    "dev:makers": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/edgeone-dev.ps1",
+    "setup:travel-local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/travel-local-setup.ps1",
+    "dev:travel-local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/travel-local.ps1",
+    "stats:places": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/place-db-stats.ps1",
+    "verify:places": "python -m unittest discover -s place-service/tests -p test_*.py",
+    "verify:agents": "python -m compileall agents && python -m unittest discover -s tests -p test_*.py",
+    "verify:frontend": "npm --prefix frontend test && npm --prefix frontend run lint && npm --prefix frontend run build && npm --prefix frontend run build -- --mode edgeone",
+    "verify:makers": "npm run verify:places && npm run verify:agents && npm run verify:frontend"
+  },
   "dependencies": {
     "@edgeone/pages-blob": "^0.0.14"
   }

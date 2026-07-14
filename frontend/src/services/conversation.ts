@@ -1,16 +1,14 @@
-import { isEdgeOne } from './auth';
-
 const CONVERSATION_KEY = 'yuanbao.conversationId';
+const USER_KEY = 'yuanbao.userId';
 const LEGACY_EDGEONE_KEY = 'eo_conv_id';
-const LOCAL_CONVERSATION_ID = 'default-conversation';
 
 function createConversationId(): string {
   return globalThis.crypto?.randomUUID?.()
     ?? `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
-export function getOrCreateConversationId(edgeOneRuntime = isEdgeOne): string {
-  if (!edgeOneRuntime || typeof window === 'undefined') return LOCAL_CONVERSATION_ID;
+export function getOrCreateConversationId(): string {
+  if (typeof window === 'undefined') return createConversationId();
   try {
     const cached = localStorage.getItem(CONVERSATION_KEY)
       || localStorage.getItem(LEGACY_EDGEONE_KEY);
@@ -23,6 +21,19 @@ export function getOrCreateConversationId(edgeOneRuntime = isEdgeOne): string {
     return created;
   } catch {
     return createConversationId();
+  }
+}
+
+export function getOrCreateUserId(): string {
+  if (typeof window === 'undefined') return 'local-user';
+  try {
+    const cached = localStorage.getItem(USER_KEY);
+    if (cached) return cached;
+    const created = `user-${createConversationId()}`;
+    localStorage.setItem(USER_KEY, created);
+    return created;
+  } catch {
+    return `user-${createConversationId()}`;
   }
 }
 

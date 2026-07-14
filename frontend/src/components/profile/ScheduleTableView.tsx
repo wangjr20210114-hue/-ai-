@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Button, Tag } from 'tdesign-react';
+import { Button, Dialog, Input, MessagePlugin, Tag } from 'tdesign-react';
 import { ChevronLeftIcon, ChevronRightIcon, ArrowLeftIcon } from 'tdesign-icons-react';
-import { useAppState } from '../../store/appState';
+import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ScheduleCategory, ScheduleItem } from '../../types';
 import { SCHEDULE_CATEGORY_COLORS } from '../../types';
 import type { DailyRouteLocation } from '../../services/api';
+import { updateSchedule } from '../../services/api';
 
 /** 课程表风格色彩调色板 */
 const COURSE_COLORS = [
@@ -39,8 +40,11 @@ interface Props {
 
 /** 自适应时间线课程表：基于内容自动调整卡片高度。 */
 export default function ScheduleTableView({ selectedDate, onClose, onDateChange, routeLocations, selectedAlts, onAltChange }: Props) {
-  const { schedules } = useAppState();
+  const { schedules, sessionId } = useAppState();
+  const dispatch = useAppDispatch();
   const [expandedAlt, setExpandedAlt] = useState<string | null>(null);
+  const [editing, setEditing] = useState<ScheduleItem | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const [currentDate, setCurrentDate] = useState(selectedDate);
   useEffect(() => { setCurrentDate(selectedDate); }, [selectedDate]);
@@ -165,6 +169,7 @@ export default function ScheduleTableView({ selectedDate, onClose, onDateChange,
                   <div className="timeline-card-header">
                     <span className="timeline-card-title">{event.title}</span>
                     {cost > 0 && <span className="timeline-card-cost">¥{cost}</span>}
+                    <Button size="small" variant="text" onClick={() => setEditing({ ...event })}>编辑</Button>
                   </div>
                   {displayLocation && (
                     <div className="timeline-card-loc">{PLACE_TYPE_ICONS[placeType]} {displayLocation}</div>
@@ -225,6 +230,60 @@ export default function ScheduleTableView({ selectedDate, onClose, onDateChange,
           <div className="schedule-timeline-empty">这天没有定时日程</div>
         )}
       </div>
+      <Dialog
+        visible={!!editing}
+        header="编辑日程"
+        confirmBtn={{ content: '保存', loading: saving }}
+        cancelBtn="取消"
+        onCancel={() => setEditing(null)}
+        onClose={() => setEditing(null)}
+        onConfirm={async () => {
+          if (!editing) return;
+          setSaving(true);
+          try {
+            await updateSchedule(sessionId, editing.id, editing);
+            dispatch({ type: 'UPDATE_SCHEDULE', payload: editing });
+            setEditing(null);
+            MessagePlugin.success('日程已更新，路线将自动重算');
+          } catch (error) {
+            MessagePlugin.error(error instanceof Error ? error.message : '保存失败');
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        {editing && (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <label>
+              <div style={{ marginBottom: 5 }}>标题</div>
+              <Input value={editing.title} onChange={(value) => setEditing({ ...editing, title: String(value) })} />
+            </label>
+            <label>
+              <div style={{ marginBottom: 5 }}>地点</div>
+              <Input value={editing.location} onChange={(value) => setEditing({ ...editing, location: String(value) })} />
+            </label>
+            <label>
+              <div style={{ marginBottom: 5 }}>开始时间</div>
+              <input
+                type="datetime-local"
+                value={new Date(editing.start_time * 1000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
+                onChange={(event) => setEditing({ ...editing, start_time: new Date(event.target.value).getTime() / 1000 })}
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--app-border)', borderRadius: 6 }}
+              />
+            </label>
+            <label>
+              <div style={{ marginBottom: 5 }}>时长（分钟）</div>
+              <input
+                type="number"
+                min="0"
+                value={editing.duration_minutes}
+                onChange={(event) => setEditing({ ...editing, duration_minutes: Number(event.target.value) })}
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--app-border)', borderRadius: 6 }}
+              />
+            </label>
+          </div>
+        )}
+      </Dialog>
     </div>
   );
 }

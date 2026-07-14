@@ -2,7 +2,6 @@ import { Button, Tag, Tooltip } from 'tdesign-react';
 import { ModeDarkIcon, ModeLightIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
-import { isEdgeOne } from '../../services/auth';
 
 const THEME_KEY = 'travel-theme';
 
@@ -42,7 +41,7 @@ export default function Header() {
         </div>
         <span className="brand-logo">元宝 Agent</span>
         <Tag size="small" variant="light" theme="primary" style={{ marginLeft: 4 }}>
-          {isEdgeOne ? 'EdgeOne Makers · LangGraph' : '主动式 · 多能力'}
+          EdgeOne Makers · LangGraph
         </Tag>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

@@ -6,22 +6,32 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import InfoCard from './InfoCard';
 import type { RichMediaAsset, SearchMeta } from '../../types';
-import { isSafeRemoteUrl, replaceCitationMarkers } from './richContent';
+import { isAllowedSearchUrl, isSafeRemoteUrl, replaceCitationMarkers } from './richContent';
 
-function RichImage({ asset }: { asset: RichMediaAsset }) {
+function isGenericMediaText(value: string): boolean {
+  return /^(?:图片|配图|文章配图|页面配图|相关图片|image|photo|picture|pic)$/i.test(value.trim());
+}
+
+function RichImage({ asset, markdownAlt = '' }: { asset: RichMediaAsset; markdownAlt?: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) return null;
+  const resolvedAlt = markdownAlt && !isGenericMediaText(markdownAlt)
+    ? markdownAlt
+    : asset.alt || asset.caption || '相关图片';
+  const displayCaption = asset.caption && !isGenericMediaText(asset.caption)
+    ? asset.caption
+    : resolvedAlt;
   return (
     <figure className="rich-media-figure">
       <img
         src={asset.url}
-        alt={asset.alt || asset.caption || '回答配图'}
+        alt={resolvedAlt}
         loading="lazy"
         onError={() => setFailed(true)}
       />
-      {(asset.caption || asset.source_url) && (
+      {(displayCaption || asset.source_url) && (
         <figcaption>
-          <span>{asset.caption}</span>
+          <span>{displayCaption}</span>
           {asset.generated && <span className="rich-media-generated">AI 生成示意图</span>}
           {asset.source_url && isSafeRemoteUrl(asset.source_url) && (
             <a href={asset.source_url} target="_blank" rel="noreferrer">
@@ -64,6 +74,7 @@ export default function MarkdownRenderer({ content, searchMeta }: { content: str
           a: ({ href, children }) => {
             const url = typeof href === 'string' ? href : '';
             const text = typeof children === 'string' ? children : String(children || '');
+            if (!isAllowedSearchUrl(url, searchMeta)) return <span>{children}</span>;
             const isCard = /zhihu\.com|weixin|baike\./i.test(url) || /知乎|公众号|百科/i.test(text);
             if (isCard && url) {
               const cardType = url.includes('zhihu') ? 'zhihu' : url.includes('weixin') ? 'wechat' : 'baike';
@@ -73,9 +84,10 @@ export default function MarkdownRenderer({ content, searchMeta }: { content: str
           },
           img: ({ src, alt }) => {
             const url = typeof src === 'string' ? src : '';
-            if (!isSafeRemoteUrl(url)) return null;
+            if (!isAllowedSearchUrl(url, searchMeta, 'image')) return null;
+            const matched = searchMeta?.media.find(item => item.kind !== 'video' && item.url === url);
             return (
-              <RichImage asset={{
+              <RichImage markdownAlt={alt || ''} asset={matched || {
                 id: `md-${url.slice(-20)}`,
                 kind: 'image', url,
                 alt: alt || '', caption: alt || '',

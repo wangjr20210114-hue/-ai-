@@ -102,13 +102,6 @@ body {
   overflow: hidden;
 }
 
-.insight-panel {
-  width: 320px;
-  flex-shrink: 0;
-  overflow-y: auto;
-  padding: 4px 2px;
-}
-
 /* 通用面板 */
 .panel {
   background: var(--app-panel);
@@ -228,13 +221,19 @@ body {
 }
 
 /* === 生图动画 === */
-.image-generating-anim {
+.search-progress {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  color: var(--app-text-2);
-  font-size: 14px;
+  gap: 5px;
+  min-height: 20px;
+  color: var(--app-text-3);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.search-progress .image-generating-spinner {
+  width: 13px;
+  height: 13px;
+  border-width: 1.5px;
 }
 .image-generating-spinner {
   width: 18px;
@@ -384,24 +383,6 @@ body {
 }
 
 /* 搜索结果图片网格 */
-.search-images-grid {
-  display: flex;
-  gap: 6px;
-  margin-top: 8px;
-  flex-wrap: wrap;
-}
-.search-images-grid img {
-  width: 80px;
-  height: 80px;
-  border-radius: 8px;
-  object-fit: cover;
-  border: 1px solid var(--app-border);
-  cursor: pointer;
-  transition: transform 0.15s;
-}
-.search-images-grid img:hover {
-  transform: scale(1.05);
-}
 .msg-bubble.ai .markdown-body code {
   background: var(--app-panel-2);
   padding: 2px 5px;
@@ -410,45 +391,6 @@ body {
   font-family: 'SF Mono', 'Fira Code', monospace;
 }
 .msg-bubble.ai .markdown-body table,
-.travel-plan-markdown .markdown-body table {
-  border-collapse: collapse;
-  margin: 6px 0;
-  font-size: 12.5px;
-  width: 100%;
-  display: table;
-}
-.md-table-wrap {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  margin: 6px 0;
-}
-.msg-bubble.ai .markdown-body th,
-.travel-plan-markdown .markdown-body th {
-  border: 1px solid var(--app-border);
-  padding: 5px 8px;
-  font-weight: 600;
-  background: var(--app-panel-2);
-  text-align: left;
-}
-.msg-bubble.ai .markdown-body td,
-.travel-plan-markdown .markdown-body td {
-  border: 1px solid var(--app-border);
-  padding: 5px 8px;
-  text-align: left;
-}
-.msg-bubble.ai .markdown-body tr,
-.travel-plan-markdown .markdown-body tr {
-  display: table-row;
-}
-.msg-bubble.ai .markdown-body thead,
-.travel-plan-markdown .markdown-body thead {
-  display: table-header-group;
-}
-.msg-bubble.ai .markdown-body tbody,
-.travel-plan-markdown .markdown-body tbody {
-  display: table-row-group;
-}
-
 /* 限制 AI 气泡内图片大小 */
 .msg-bubble.ai .markdown-body img {
   max-width: 280px;
@@ -500,19 +442,6 @@ body {
   background: rgba(124, 92, 255, 0.09);
   font-size: 10px;
   font-weight: 600;
-}
-.rich-image-fallback {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 10px 0;
-  padding: 12px;
-  border: 1px dashed var(--app-border-strong);
-  border-radius: 10px;
-  color: var(--app-text-3);
-  background: var(--app-panel-2);
-  font-size: 12px;
 }
 
 /* 空态 */
@@ -573,14 +502,6 @@ body {
 }
 
 /* ============ 右侧洞察面板 ============ */
-.insight-card {
-  background: var(--app-panel);
-  border: 1px solid var(--app-border);
-  border-radius: 14px;
-  padding: 14px;
-  margin-bottom: 14px;
-  box-shadow: var(--app-shadow);
-}
 .section-title {
   font-size: 13px;
   font-weight: 600;
@@ -589,14 +510,6 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-.insight-empty {
-  padding: 18px 4px;
-  text-align: center;
-  color: var(--app-text-3);
-  font-size: 12.5px;
-  border: 1px dashed var(--app-border-strong);
-  border-radius: 12px;
 }
 
 /* ============ 右侧「我的」面板 ============ */
@@ -643,54 +556,8 @@ body {
   color: var(--app-text-3);
   margin-top: 2px;
 }
-.plan-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.plan-item {
-  background: var(--app-panel-2);
-  border: 1px solid var(--app-border);
-  border-radius: 10px;
-  padding: 10px 12px;
-  animation: cardSlideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.plan-item-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-}
-.plan-item-title {
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--app-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.plan-item-meta {
-  display: flex;
-  gap: 4px;
-  margin-top: 6px;
-  flex-wrap: wrap;
-}
-.plan-item-departure {
-  font-size: 12px;
-  color: var(--app-text-2);
-  margin-top: 4px;
-}
-.plan-item-date {
-  font-size: 11px;
-  color: var(--app-text-3);
-  margin-top: 4px;
-}
 
 /* ============ 通用日程列表 ============ */
-.schedule-panel {
-  display: flex;
-  flex-direction: column;
-}
 
 /* ============ 日历视图 ============ */
 .calendar-panel {
@@ -755,6 +622,21 @@ body {
   outline: 2px solid var(--td-brand-color);
   outline-offset: -1px;
 }
+.calendar-day.calendar-day-pulse {
+  z-index: 1;
+  animation: calendarGradientPulse 1.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.calendar-write-notice {
+  margin: -2px 0 8px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  color: #2458d3;
+  font-size: 11px;
+  font-weight: 600;
+  background: linear-gradient(90deg, rgba(78, 124, 255, 0.2), rgba(124, 92, 255, 0.09), rgba(34, 184, 214, 0.18));
+  background-size: 220% 100%;
+  animation: calendarNoticeSweep 1.6s ease-out both;
+}
 .calendar-day-num {
   font-size: 12px;
   color: var(--app-text);
@@ -816,12 +698,6 @@ body {
   border-color: #ff6b6b;
   background: rgba(255, 107, 107, 0.06);
 }
-.schedule-day-time {
-  font-size: 11px;
-  font-weight: 600;
-  min-width: 38px;
-  padding-top: 1px;
-}
 .schedule-day-cat-dot {
   width: 4px;
   height: 4px;
@@ -856,11 +732,6 @@ body {
   font-size: 10px;
   color: var(--app-text-3);
 }
-.schedule-day-warn {
-  font-size: 10px;
-  color: #ff6b6b;
-  font-weight: 600;
-}
 .schedule-day-actions {
   display: flex;
   flex-direction: column;
@@ -894,68 +765,6 @@ body {
 .schedule-day-detail .markdown-body table { font-size: 11px; }
 .schedule-day-detail .markdown-body td,
 .schedule-day-detail .markdown-body th { padding: 3px 5px; }
-
-/* ============ 地点选择卡片 ============ */
-.place-selector {
-  margin: 6px 0;
-  border: 1px solid var(--app-border);
-  border-radius: 10px;
-  overflow: hidden;
-}
-.place-selector-header {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  background: var(--app-panel-2);
-  border-bottom: 1px solid var(--app-border);
-  font-size: 12px;
-}
-.place-selector-icon { font-size: 14px; }
-.place-selector-type { font-weight: 600; color: var(--app-text); }
-.place-selector-keyword { color: var(--app-text-3); }
-.place-selector-list {
-  max-height: 200px;
-  overflow-y: auto;
-}
-.place-selector-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 6px 10px;
-  cursor: pointer;
-  border-bottom: 1px solid var(--app-border);
-  transition: background 0.12s;
-}
-.place-selector-item:last-child { border-bottom: none; }
-.place-selector-item:hover { background: var(--app-panel-2); }
-.place-selector-item.selected {
-  background: rgba(78, 124, 255, 0.08);
-  border-left: 3px solid var(--td-brand-color);
-}
-.place-item-content { flex: 1; min-width: 0; }
-.place-item-title {
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--app-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.place-item-address {
-  font-size: 11px;
-  color: var(--app-text-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.place-item-meta {
-  display: flex;
-  gap: 8px;
-  margin-top: 2px;
-}
-.place-item-tel { font-size: 10px; color: var(--app-text-3); }
-.place-item-dist { font-size: 10px; color: var(--td-brand-color); }
 
 /* ============ 路线地图 ============ */
 
@@ -1166,6 +975,9 @@ body {
   flex-direction: column;
   gap: 10px;
 }
+.daily-route-container.is-updating {
+  animation: mapUpdateFocus 1.05s ease-out;
+}
 .daily-route-header {
   display: flex;
   align-items: center;
@@ -1182,6 +994,84 @@ body {
   border-radius: 10px;
   overflow: hidden;
   border: 1px solid var(--app-border);
+}
+.daily-route-map-stage {
+  position: relative;
+  width: 100%;
+  min-height: 200px;
+}
+.daily-route-map-stage .daily-route-canvas.is-fallback {
+  visibility: hidden;
+}
+.daily-route-map-stage .daily-route-schematic {
+  position: absolute;
+  inset: 0;
+}
+.daily-route-map-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--app-text-3);
+  font-size: 12px;
+  backdrop-filter: blur(2px);
+}
+.daily-route-map-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(227, 139, 45, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 247, 232, 0.88);
+  color: #8a5a20;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.daily-route-schematic {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-panel-2);
+}
+.daily-route-schematic svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.daily-route-schematic > span {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #596273;
+  font-size: 9px;
+  backdrop-filter: blur(4px);
+}
+
+@keyframes calendarGradientPulse {
+  0% { transform: scale(0.78); background: rgba(78, 124, 255, 0); box-shadow: 0 0 0 0 rgba(78, 124, 255, 0.42); }
+  38% { transform: scale(1.08); background: linear-gradient(135deg, rgba(78, 124, 255, 0.54), rgba(124, 92, 255, 0.38)); box-shadow: 0 0 0 7px rgba(78, 124, 255, 0.1); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(78, 124, 255, 0); }
+}
+@keyframes calendarNoticeSweep {
+  0% { opacity: 0; transform: translateY(-5px); background-position: 100% 0; }
+  22% { opacity: 1; }
+  100% { opacity: 1; transform: translateY(0); background-position: 0 0; }
+}
+@keyframes mapUpdateFocus {
+  0% { opacity: 0.5; transform: scale(0.985); filter: saturate(0.7); }
+  45% { opacity: 1; transform: scale(1.008); filter: saturate(1.2); }
+  100% { transform: scale(1); filter: saturate(1); }
 }
 .daily-route-stops {
   display: flex;
@@ -1238,90 +1128,6 @@ body {
   font-size: 12px;
 }
 
-/* ============ 旧版路线地图 ============ */
-.route-map-container {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.route-map-canvas {
-  border: 1px solid var(--app-border);
-}
-.route-info {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.route-info-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.route-info-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--app-text);
-}
-.route-segments {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  background: var(--app-panel-2);
-  border-radius: 8px;
-}
-.route-segment {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-.route-segment-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-top: 4px;
-  flex-shrink: 0;
-}
-.route-segment-content {
-  flex: 1;
-}
-.route-segment-route {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--app-text);
-}
-.route-segment-meta {
-  font-size: 11px;
-  color: var(--app-text-3);
-}
-.route-cost {
-  padding: 8px;
-  background: var(--app-panel-2);
-  border-radius: 8px;
-}
-.route-cost-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--app-text-2);
-  margin-bottom: 6px;
-}
-.route-cost-items {
-  display: flex;
-  gap: 12px;
-}
-.route-cost-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 11px;
-  color: var(--app-text-3);
-}
-.route-cost-value {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--td-brand-color);
-}
-
 /* 天气信息 */
 .route-weather {
   display: flex;
@@ -1344,61 +1150,6 @@ body {
 }
 
 /* 日期选择器 */
-.schedule-date-bar {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 8px;
-  overflow-x: auto;
-}
-.schedule-date-item {
-  flex: 1;
-  min-width: 36px;
-  padding: 6px 4px;
-  border-radius: 10px;
-  border: 1px solid var(--app-border);
-  background: var(--app-panel-2);
-  cursor: pointer;
-  text-align: center;
-  transition: all 0.15s;
-  position: relative;
-}
-.schedule-date-item:hover {
-  border-color: var(--td-brand-color);
-}
-.schedule-date-item.active {
-  background: var(--td-brand-color);
-  border-color: var(--td-brand-color);
-}
-.schedule-date-item.active .schedule-date-label,
-.schedule-date-item.active .schedule-date-num {
-  color: #fff;
-}
-.schedule-date-label {
-  font-size: 10px;
-  color: var(--app-text-3);
-}
-.schedule-date-num {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--app-text);
-  line-height: 1.2;
-}
-.schedule-date-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #ff6b6b;
-  position: absolute;
-  top: 4px;
-  right: 4px;
-}
-
-.schedule-date-title {
-  font-size: 12px;
-  color: var(--app-text-2);
-  margin-bottom: 8px;
-  text-align: center;
-}
 
 /* 时间轴 */
 .schedule-timeline {
@@ -1407,142 +1158,6 @@ body {
   max-height: 400px;
   overflow-y: auto;
 }
-.schedule-time-axis {
-  width: 44px;
-  flex-shrink: 0;
-  position: relative;
-}
-.schedule-time-slot {
-  height: 30px;  /* 30分钟 = 30px */
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-}
-.schedule-time-label {
-  font-size: 10px;
-  color: var(--app-text-3);
-  position: absolute;
-  top: -5px;
-  left: 0;
-  background: var(--app-panel);
-  padding-right: 4px;
-}
-.schedule-time-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  border-top: 1px dashed var(--app-border);
-}
-
-.schedule-items-area {
-  flex: 1;
-  position: relative;
-  min-height: 420px;
-  padding-left: 4px;
-}
-
-.schedule-timeline-item {
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  border-radius: 8px;
-  border-left: 3px solid;
-  background: var(--app-panel-2);
-  border-top: 1px solid var(--app-border);
-  border-right: 1px solid var(--app-border);
-  border-bottom: 1px solid var(--app-border);
-  padding: 3px 6px;
-  overflow: hidden;
-  animation: cardSlideIn 0.2s ease;
-  z-index: 1;
-}
-.schedule-timeline-item.done {
-  opacity: 0.4;
-}
-.schedule-timeline-item.done .schedule-tl-title {
-  text-decoration: line-through;
-}
-.schedule-timeline-item.conflict {
-  border-color: #ff6b6b;
-  background: rgba(255, 107, 107, 0.08);
-  z-index: 2;
-}
-.schedule-tl-time {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--td-brand-color);
-}
-.schedule-tl-title {
-  font-size: 11.5px;
-  font-weight: 500;
-  color: var(--app-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.schedule-tl-loc {
-  font-size: 10px;
-  color: var(--app-text-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.schedule-tl-warn {
-  font-size: 9px;
-  color: #ff6b6b;
-  font-weight: 600;
-}
-.schedule-tl-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 2px;
-  margin-top: 2px;
-}
-
-/* 未定时日程 */
-.schedule-unscheduled {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--app-border);
-}
-.schedule-unscheduled-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--app-text-3);
-  margin-bottom: 6px;
-}
-.schedule-unscheduled-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  background: var(--app-panel-2);
-  border-radius: 8px;
-  margin-bottom: 4px;
-}
-.schedule-unscheduled-item.done {
-  opacity: 0.4;
-}
-.schedule-unscheduled-item.done .schedule-item-title {
-  text-decoration: line-through;
-}
-.schedule-item-cat-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.schedule-item-title {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--app-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* ============ 追问建议 ============ */
 .msg-content-wrap {
   min-width: 0;
@@ -1587,403 +1202,6 @@ body {
   background: rgba(78, 124, 255, 0.05);
 }
 
-/* ============ 旅游计划表单 ============ */
-.travel-form {
-  background: var(--app-panel);
-  border: 1px solid var(--app-border-strong);
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: var(--app-shadow);
-}
-.travel-form-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--app-text);
-  border-bottom: 1px solid var(--app-border);
-  background: var(--app-panel-2);
-}
-.travel-form-body {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.form-row {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.form-row-inline {
-  display: flex;
-  gap: 0;
-}
-.form-label {
-  font-size: 12px;
-  color: var(--app-text-2);
-  font-weight: 500;
-}
-.form-input-simple {
-  width: 100%;
-  padding: 6px 10px;
-  border: 1px solid var(--app-border-strong);
-  border-radius: 6px;
-  background: var(--app-panel);
-  color: var(--app-text);
-  font-size: 13px;
-  outline: none;
-  transition: border-color 0.2s;
-}
-.form-input-simple:focus {
-  border-color: var(--td-brand-color);
-}
-.travel-form-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--app-border);
-  background: var(--app-panel-2);
-}
-
-/* ============ 旅游推测建议 ============ */
-.travel-intent-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  background: var(--app-panel);
-  border: 1px solid var(--app-border-strong);
-  border-radius: 12px;
-  box-shadow: var(--app-shadow);
-  animation: cardSlideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.travel-intent-text {
-  font-size: 13px;
-  color: var(--app-text-2);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.travel-intent-icon {
-  font-size: 16px;
-}
-
-/* ============ 对话式旅游助手 ============ */
-.travel-chat-wrapper {
-  margin-top: 12px;
-  max-width: 100%;
-}
-.travel-chat-assistant {
-  background: var(--app-panel);
-  border: 1px solid var(--app-border-strong);
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: var(--app-shadow);
-  animation: cardSlideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.travel-chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--app-text);
-  border-bottom: 1px solid var(--app-border);
-  background: var(--app-panel-2);
-}
-.travel-chat-answers {
-  display: flex;
-  flex-wrap: wrap;
-  padding: 8px 14px 0;
-  gap: 4px;
-}
-.travel-chat-question {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 14px 8px;
-}
-.travel-chat-q-icon {
-  color: var(--td-brand-color);
-  display: flex;
-  align-items: center;
-}
-.travel-chat-q-text {
-  font-size: 14.5px;
-  font-weight: 600;
-  color: var(--app-text);
-}
-.travel-chat-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 4px 14px 8px;
-}
-.travel-chat-option {
-  padding: 8px 16px;
-  border-radius: 20px;
-  border: 1px solid var(--app-border-strong);
-  background: var(--app-panel);
-  color: var(--app-text-2);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.18s;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.travel-chat-option:hover {
-  color: var(--td-brand-color);
-  border-color: var(--td-brand-color);
-  background: rgba(78, 124, 255, 0.06);
-}
-.travel-chat-option.selected {
-  color: var(--td-brand-color);
-  border-color: var(--td-brand-color);
-  background: rgba(78, 124, 255, 0.1);
-  font-weight: 500;
-}
-.travel-chat-multi-confirm {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 14px 8px;
-  gap: 8px;
-}
-.travel-chat-other-btn {
-  padding: 6px 14px;
-  border-radius: 20px;
-  border: 1px dashed var(--app-border-strong);
-  background: transparent;
-  color: var(--app-text-3);
-  font-size: 12px;
-  cursor: pointer;
-  margin: 0 14px 8px;
-  transition: all 0.18s;
-}
-.travel-chat-other-btn:hover {
-  color: var(--td-brand-color);
-  border-color: var(--td-brand-color);
-}
-.travel-chat-custom {
-  display: flex;
-  gap: 8px;
-  padding: 4px 14px 8px;
-  align-items: center;
-}
-.travel-chat-search {
-  padding: 4px 14px 8px;
-}
-.travel-chat-city-list {
-  margin-top: 6px;
-  border: 1px solid var(--app-border);
-  border-radius: 10px;
-  overflow: hidden;
-  max-height: 200px;
-  overflow-y: auto;
-}
-.travel-chat-city-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 8px 12px;
-  border: none;
-  border-bottom: 1px solid var(--app-border);
-  background: var(--app-panel);
-  color: var(--app-text);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.travel-chat-city-item:last-child {
-  border-bottom: none;
-}
-.travel-chat-city-item:hover {
-  background: var(--app-panel-2);
-}
-.travel-chat-city-province {
-  font-size: 11px;
-  color: var(--app-text-3);
-}
-.travel-chat-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 4px;
-  padding: 6px 14px 10px;
-}
-.travel-chat-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 40px 20px;
-}
-
-/* ============ 旅游计划卡片 ============ */
-.travel-plan-card {
-  background: var(--app-panel);
-  border: 1px solid var(--app-border-strong);
-  border-radius: 14px;
-  padding: 16px;
-  box-shadow: var(--app-shadow);
-  animation: cardSlideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.travel-plan-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.travel-plan-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--app-text);
-}
-.travel-plan-meta {
-  display: flex;
-  gap: 10px;
-  font-size: 12px;
-  color: var(--app-text-2);
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-}
-.travel-plan-markdown {
-  background: var(--app-panel-2);
-  border: 1px solid var(--app-border);
-  border-radius: 10px;
-  padding: 14px;
-  overflow-x: auto;
-}
-.travel-plan-markdown .markdown-body h1 {
-  font-size: 18px;
-  font-weight: 700;
-  margin: 0 0 10px;
-  color: var(--app-text);
-}
-.travel-plan-markdown .markdown-body h2 {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 14px 0 6px;
-  color: var(--app-text);
-}
-.travel-plan-markdown .markdown-body h3 {
-  font-size: 13.5px;
-  font-weight: 600;
-  margin: 10px 0 4px;
-  color: var(--app-text-2);
-}
-.travel-plan-markdown .markdown-body p {
-  margin: 6px 0;
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--app-text);
-}
-.travel-plan-markdown .markdown-body ul {
-  margin: 6px 0;
-  padding-left: 20px;
-}
-.travel-plan-markdown .markdown-body li {
-  font-size: 13px;
-  line-height: 1.8;
-  color: var(--app-text);
-  list-style: disc;
-}
-.travel-plan-markdown .markdown-body strong {
-  font-weight: 600;
-}
-.travel-plan-markdown .markdown-body blockquote {
-  border-left: 3px solid var(--td-brand-color);
-  padding-left: 10px;
-  margin: 8px 0;
-  font-size: 13px;
-  color: var(--app-text-2);
-}
-.travel-plan-markdown .markdown-body hr {
-  border: none;
-  border-top: 1px solid var(--app-border);
-  margin: 12px 0;
-}
-.travel-plan-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-/* ============ 底部 Debug 栏 ============ */
-.debug-bar {
-  background: var(--app-panel);
-  border-top: 1px solid var(--app-border);
-  transition: all 0.2s;
-  flex-shrink: 0;
-}
-.debug-bar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 22px;
-  cursor: pointer;
-  user-select: none;
-  font-size: 12px;
-  color: var(--app-text-2);
-}
-.debug-bar-title {
-  font-weight: 600;
-  margin-right: 4px;
-}
-.debug-bar-toggle {
-  opacity: 0.6;
-}
-.debug-bar.expanded {
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.06);
-}
-.debug-bar-body {
-  display: flex;
-  gap: 20px;
-  padding: 0 22px 12px;
-  max-height: 280px;
-  overflow-y: auto;
-}
-.debug-section {
-  flex: 1;
-  min-width: 200px;
-}
-.debug-section-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--app-text-3);
-  margin-bottom: 6px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.debug-context {
-  font-size: 12px;
-  line-height: 1.8;
-  color: var(--app-text-2);
-}
-.debug-empty {
-  font-size: 12px;
-  color: var(--app-text-3);
-  padding: 8px 0;
-}
-.debug-task {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-}
-.debug-task-desc {
-  color: var(--app-text-2);
-  margin-left: 4px;
-}
-
 /* ============ 滚动条 ============ */
 ::-webkit-scrollbar {
   width: 7px;
@@ -2007,9 +1225,6 @@ body {
     opacity: 1;
     transform: translateY(0);
   }
-}
-.proactive-card {
-  animation: cardSlideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes blink {
@@ -2043,144 +1258,4 @@ body {
   height: 7px;
   border-radius: 50%;
   margin-right: 5px;
-}
-
-/* ============================================================
-   Paper Reader 全屏论文阅读器
-   ============================================================ */
-.paper-reader-overlay {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  z-index: 9999;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.paper-reader {
-  width: 96vw;
-  height: 94vh;
-  background: var(--app-bg);
-  border-radius: 12px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-}
-
-.paper-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--app-border);
-  background: var(--app-bg-2);
-  flex-shrink: 0;
-}
-
-.paper-body {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-}
-
-.paper-pdf-side {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  background: #525659;
-}
-
-.paper-ai-side {
-  width: 400px;
-  border-left: 1px solid var(--app-border);
-  display: flex;
-  flex-direction: column;
-  background: var(--app-bg-2);
-  flex-shrink: 0;
-}
-
-.paper-ai-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--app-border);
-  flex-shrink: 0;
-}
-
-.paper-ai-tab {
-  flex: 1;
-  padding: 10px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--app-text-3);
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
-}
-
-.paper-ai-tab.active {
-  color: #2b5aed;
-  border-bottom-color: #2b5aed;
-  font-weight: 600;
-}
-
-.paper-ai-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-}
-
-.paper-upload-zone {
-  background: var(--app-bg-2);
-}
-
-.paper-search-zone {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: var(--app-bg-2);
-  padding: 20px;
-}
-
-.paper-result-card:hover {
-  border-color: #2b5aed !important;
-  box-shadow: 0 2px 8px rgba(43, 90, 237, 0.1);
-}
-
-.ctx-menu-item:hover {
-  background: rgba(43, 90, 237, 0.08) !important;
-}
-
-/* ============================================================
-   PDF.js TextLayer - 原生文本选择
-   ============================================================ */
-.pdf-text-layer {
-  position: absolute;
-  left: 0;
-  top: 0;
-  overflow: hidden;
-  opacity: 0.25;
-  line-height: 1;
-  -webkit-user-select: text;
-  -moz-user-select: text;
-  user-select: text;
-  forced-color-adjust: none;
-  z-index: 2;
-  pointer-events: auto;
-}
-
-.pdf-text-layer span,
-.pdf-text-layer br {
-  color: transparent;
-  position: absolute;
-  white-space: pre;
-  cursor: text;
-  transform-origin: 0% 0%;
-}
-
-.pdf-text-layer ::selection {
-  background: rgba(43, 90, 237, 0.3);
 }

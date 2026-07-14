@@ -10,7 +10,7 @@ interface Props {
 export default function ChatInterface({ client }: Props) {
   return (
     <section className="main-area panel">
-      <MessageList client={client} />
+      <MessageList />
       <InputBar client={client} />
     </section>
   );

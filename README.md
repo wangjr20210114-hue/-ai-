@@ -1,102 +1,95 @@
-# 元宝 Agent · EdgeOne Makers 版
+# 元宝 Agent · EdgeOne Makers
 
-当前分支将原本需要本地常驻 FastAPI、WebSocket、SQLite 和自建模型/搜索连接的应用，改造成可由腾讯云 EdgeOne Makers 托管的 LangGraph Agent。前端仍保留本地模式，便于继续维护旧的日程、论文和旅行能力；Makers 构建则启用云端 Agent、平台会话存储、平台工具、模型网关、追踪和 Blob 文件存储。
+本仓库只维护 EdgeOne Makers 生产架构。旧 `backend/` 单体 FastAPI、SQLite、本地 WebSocket、论文库、主动式本地 Runtime 和双运行时兼容层已在 2026-07-14 删除，避免生产代码继续依赖不可达的 `/api/*`。独立部署的 `place-service/` 仅提供地点数据，不是主应用回退后端。
 
-## Makers 版能力
+## 当前能力
 
-| 能力 | EdgeOne Makers 实现 |
+| 能力 | 实现 |
 | --- | --- |
-| Agent 运行时 | `agents/chat/index.py`，Python LangGraph |
-| 模型 | Makers AI Gateway，不直连模型厂商 |
-| 联网搜索 | `ctx.tools` 注入的 `web_search` |
-| 短期记忆 | `ctx.store.langgraph_checkpointer` |
-| 长期状态 | `ctx.store.langgraph_store` |
-| 对话恢复 | `agents/messages/index.py` 读取 LangGraph 检查点 |
-| 流式输出 | Makers SSE，含 5 秒心跳、工具事件、Usage 和取消 |
-| 文件存储 | Makers Blob 预签名直传，文件字节不经过应用函数 |
-| 前端托管 | Vite 静态产物由 EdgeOne 托管 |
-| 可观测性 | Makers Agent Runtime 内置追踪 |
+| 主对话 | `agents/chat/index.py`，LangGraph + SSE |
+| 模型 | 腾讯混元 Token Plan，密钥来自 `ctx.env` |
+| 联网与图文回答 | Makers 平台工具 + 视觉相关性/广告审核 |
+| 对话恢复 | LangGraph Checkpointer，`agents/messages/index.py` 回读 |
+| 长期旅行偏好与日程 | LangGraph Store，`agents/travel/index.py` 提供 CRUD |
+| 地点与路线 | 私有地点服务优先，腾讯地图 WebService 兜底 |
+| 浏览器地图 | 运行时读取 JS Key，失败时显示明确降级提示 |
+| 文件 | `cloud-functions/files/index.js` 签名后直传 Makers Blob |
+| 前端 | React + Vite，仅使用 Makers SSE/Agent/Function 路由 |
 
 ## 目录
 
 ```text
 agents/
-├── chat/                 # LangGraph 主对话端点：POST /chat
-├── messages/             # 检查点恢复端点：POST /messages
-└── stop/                 # 中止运行：POST /stop
+├── chat/                 # POST /chat
+├── messages/             # POST /messages
+├── travel/               # POST /travel
+└── stop/                 # POST /stop
 cloud-functions/
-└── files/                # Makers Blob 签名、读取、删除：/files
-frontend/                 # React + Vite
-backend/                  # 旧本地模式，Makers 生产链路不启动它
-edgeone.json              # Makers 构建和 Agent 框架配置
-requirements.txt          # Python Agent 依赖
+└── files/                # /files，Blob 签名、读取与删除
+frontend/                 # React + Vite Makers 客户端
+place-service/            # 独立 PostgreSQL/PostGIS 地点服务
+tests/                    # Makers Agent 回归测试
+docs/                     # 当前架构说明
+edgeone.json              # Makers 构建与 Agent 配置
+requirements.txt          # Agent 运行依赖
 ```
 
 ## 环境变量
 
-复制 `.env.example` 的变量名到 Makers 项目环境。不要提交真实值。
+把 `.env.example` 中的变量配置到 Makers 项目，不要提交真实值。
 
-| 变量 | 来源 | 是否必需 |
+| 变量 | 用途 | 必需性 |
 | --- | --- | --- |
-| `AI_GATEWAY_API_KEY` | Makers CLI 自动注入 | 是 |
-| `AI_GATEWAY_BASE_URL` | Makers CLI 自动注入 | 是 |
-| `AI_GATEWAY_MODEL` | 可选，默认 `@makers/deepseek-v4-flash` | 否 |
-| `WSA_API_KEY` | 腾讯云 Web Search API | 使用联网搜索时是 |
+| `HUNYUAN_API_KEY` | 腾讯混元 Token Plan | 是 |
+| `HUNYUAN_BASE_URL` | 模型 API 地址，已有默认值 | 否 |
+| `HUNYUAN_MODEL` | 模型名，默认 `hy3` | 否 |
+| `WSA_API_KEY` | 联网搜索 | 使用联网搜索时是 |
+| `PLACE_API_BASE_URL` | 私有地点服务地址 | 可用默认生产地址 |
+| `PLACE_API_TOKEN` | 私有地点服务认证 | 使用地点专库时是 |
+| `TENCENT_MAP_SERVER_KEY` | 地点搜索与道路路线 | 使用腾讯路线时是 |
+| `VITE_TENCENT_MAP_KEY` | 浏览器腾讯地图 JS Key；由 `/travel` 运行时返回 | 显示底图时是 |
 
-## 本地 Makers 开发
+服务端 Key 与浏览器 JS Key 必须分开创建。JS Key 需要配置生产域名白名单；SDK、鉴权或瓦片加载失败时，前端保留路线示意图，并提示检查权限、白名单或额度。
 
-要求 EdgeOne CLI `>= 1.6.7`。所有本地联调都通过 Makers dev server，不能使用普通静态服务器替代。
+## 旅行数据链路
 
-```bash
-npm install -g edgeone@latest
-edgeone -v
-edgeone whoami
+1. 服务端按上海时区解析明确日期和“今天/明天/后天”等相对日期。
+2. 地点查询按数据时效选择私有库或腾讯地图，并只保留可验证坐标。
+3. 结构化行程先写入 Store，再回读确认。
+4. `travel_plan` 把已落库日程推送到前端，日历立即切换目标日期。
+5. 地图只消费所选日期的日程；有至少两个有效地点时绘制路线，否则按位置授权规则显示当前位置或授权按钮。
+6. 模型可自由组织回答，但必须完整包含已落库的日期、时间和地点；遗漏时仅追加数据摘要，不替换整篇回答。
+
+## 本地开发
+
+主应用本地开发同样使用 Makers dev server，不再提供旧单体 FastAPI/Vite 代理模式。
+
+```powershell
 edgeone makers link
 edgeone makers env pull
-edgeone makers dev
+npm run dev:makers
 ```
 
-默认访问 CLI 输出的 Makers 代理地址，通常为 `http://127.0.0.1:8088/`。该地址同时提供静态前端、Agent 路由和 Cloud Functions。
+如需本地运行地点服务：
 
-## 质量检查
-
-```bash
-python -m compileall agents
-
-cd backend
-python -m unittest discover -s tests -p "test_*.py"
-
-cd frontend
-npm ci
-npm test -- --run
-npm run lint
-npm run build
-npm run build -- --mode edgeone
+```powershell
+npm run setup:travel-local
+npm run dev:travel-local
 ```
 
-部署前还应执行：
+## 检查与部署
 
-```bash
+```powershell
+npm run verify:makers
 edgeone makers env ls
 edgeone makers deploy --json
 ```
 
-完整的迁移范围、平台映射、边界与验收项见 [docs/EDGEONE_MAKERS_MIGRATION.md](docs/EDGEONE_MAKERS_MIGRATION.md)。
+`verify:makers` 依次检查地点规则、Makers Agent、前端测试、Lint 和两种 Vite 构建。完整运行契约见 [EdgeOne Makers 改造说明](docs/EDGEONE_MAKERS_MIGRATION.md)，富媒体安全链路见 [结构化图文回答](docs/RICH_ANSWER_ARCHITECTURE.md)。
 
-## 本地兼容模式
+## 维护边界
 
-直接在 `frontend/` 执行 `npm run dev` 时仍使用原 FastAPI `/api` 能力，适合维护日程、旅行、论文、本地备份等旧功能。Makers 构建通过 `frontend/.env.edgeone` 自动切换到云端界面，不会探测域名来猜运行环境，因此自定义域名同样可用。
-
-本地前端使用 `/ws/{conversation_id}` WebSocket，不能请求 Makers 的 `/chat`。无真实模型密钥时可显式开启 Mock 模式完成令牌、WebSocket、流式回复和持久化测试：
-
-```powershell
-cd backend
-$env:MOCK_MODE='true'
-python -m uvicorn main:app --host 127.0.0.1 --port 8000
-
-# 另开终端
-cd frontend
-npm run dev -- --host 127.0.0.1 --port 5173
-```
-
-打开 `http://127.0.0.1:5173/`。Mock 模式只影响旧本地后端；EdgeOne 模式仍使用 Makers AI Gateway。
+- 不为主应用重新引入 FastAPI、SQLite、本地 WebSocket 或按域名切换的第二运行时；`place-service/` 只保持独立地点数据边界。
+- Agent 状态只使用 Makers Checkpointer/Store；文件只使用 Makers Blob。
+- 新增结构化业务能力时优先扩展 Agent/Cloud Function，确需关系数据再单独选择托管数据库。
+- 删除能力时同步删除不可达组件、API、类型、样式、依赖和过期文档，避免保留“以后可能用”的影子实现。

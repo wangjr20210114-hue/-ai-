@@ -1,0 +1,58 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - place-db:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+      - ./db/migrations:/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      OVERTURE_API_BASE_URL: http://overture:8765
+    depends_on:
+      db:
+        condition: service_healthy
+      overture:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8091:8091"
+
+  overture:
+    build: ./overture
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PLACE_DB_PATH: /data/places-search.duckdb
+    volumes:
+      - /srv/yuanbao-places/data:/data:ro
+    expose:
+      - "8765"
+    mem_limit: 512m
+
+  importer:
+    profiles: ["tools"]
+    build: ./importer
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    volumes:
+      - ./data:/data:ro
+      - place-import-work:/work
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  place-db:
+  place-import-work:

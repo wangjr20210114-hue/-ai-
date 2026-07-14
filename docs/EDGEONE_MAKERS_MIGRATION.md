@@ -1,87 +1,71 @@
 # EdgeOne Makers 改造说明
 
-## 目标与原则
+## 状态
 
-本次改造的目标不是把本地 FastAPI 进程原样塞入 Serverless，而是优先采用 Makers 已提供的运行时和平台能力，减少自建服务、密钥转发、会话数据库、搜索代理、流式连接和文件中转。
+迁移已完成。主应用现在只有一条可执行产品链路：React/Vite → EdgeOne Makers Agent/Cloud Function → LangGraph Store/Blob。旧 `backend/` 单体 FastAPI、SQLite 和 WebSocket 实现已删除，不再承担兼容或回退职责。独立 `place-service/` 仍以 FastAPI 暴露 PostGIS 地点查询，但不承载主应用 API、会话或前端回退。
 
-原则：
+## 平台映射
 
-1. AI 推理放在 `agents/`，数据函数放在 `cloud-functions/`。
-2. 模型只通过 Makers AI Gateway 访问。
-3. 框架状态使用 Makers 官方 LangGraph adapters，不再双写 SQLite 和平台存储。
-4. 搜索使用 `ctx.tools`，不保留固定 IP 或自建搜索代理。
-5. 文件使用 Makers Blob 预签名直传，不经过 Agent 进程。
-6. `.edgeone/`、`.env` 和构建产物不进入版本库。
-
-## 改造映射
-
-| 原实现 | Makers 实现 | 代码位置 |
-| --- | --- | --- |
-| FastAPI WebSocket Chat | Python Agent + SSE | `agents/chat/index.py` |
-| 直连 DeepSeek/混元 | AI Gateway | `agents/chat/_llm.py` |
-| 自建搜索服务和固定公网 IP | 平台 `web_search` | `agents/chat/index.py` |
-| SQLite 对话消息 + LangGraph 双写 | LangGraph Checkpointer 单一事实源 | `agents/chat/_graph.py` |
-| 本地消息恢复 API | 从最新检查点恢复 | `agents/messages/index.py` |
-| WebSocket ping/pong | SSE 5 秒 `ping` | `agents/chat/index.py` |
-| 客户端断开即丢失取消语义 | AbortSignal + `/stop` | `useSSEChat.ts`, `agents/stop/index.py` |
-| 后端接收整个 PDF | Blob 预签名直传 | `cloud-functions/files/index.js` |
-| 域名字符串判断运行环境 | Vite EdgeOne build mode | `frontend/.env.edgeone`, `auth.ts` |
-| 手工生成的 `.edgeone` 运行时 | CLI 构建时生成 | `.gitignore` |
+| 需求 | 当前实现 |
+| --- | --- |
+| 流式对话 | `agents/chat/index.py` + SSE |
+| 模型 | `agents/chat/_llm.py` 直连混元 Token Plan |
+| 联网搜索 | `ctx.tools` 注入平台搜索与页面读取工具 |
+| 图像筛选 | `_rich_search.py` 并发调用视觉模型审核实际画面 |
+| 短期状态 | LangGraph Checkpointer |
+| 长期偏好/日程 | LangGraph Store |
+| 对话恢复 | `agents/messages/index.py` |
+| 取消 | AbortSignal + `agents/stop/index.py` |
+| 文件 | Cloud Function 签名，浏览器直传 Makers Blob |
+| 地点 | 独立 `place-service/` PostGIS 服务 + 腾讯地图 WebService |
+| 地图 | 日历为单一数据源，腾讯 JS SDK 运行时配置 |
 
 ## 运行链路
 
 ```text
 React/Vite
-   │ POST /chat + makers-conversation-id
-   ▼
-Makers Python Agent Runtime
-   ├─ AI Gateway
-   ├─ ctx.tools → web_search
-   ├─ LangGraph checkpointer/store
-   ├─ SSE + heartbeat + usage
-   └─ built-in tracing
+  ├─ POST /chat ─────────────► LangGraph Agent ─► 混元 / Makers Tools
+  ├─ POST /messages ─────────► Checkpointer 恢复
+  ├─ POST /travel ───────────► Store 日程 / 地点 / 路线
+  ├─ POST /stop ─────────────► 取消当前运行
+  └─ POST /files + signed PUT ► Makers Blob
 
-PDF ── request signed URL ──► Cloud Function ──► Makers Blob
- │
- └──────────── direct PUT to Blob ───────────────►
+地点：Agent ─► 私有 PostGIS ─► 腾讯地图兜底
+地图：所选日期日程 ─► /travel daily_route ─► 腾讯 JS SDK 可视化
 ```
 
-## 关键契约
+## 必须保持的契约
 
-- `/chat`、`/messages` 和 `/stop` 必须携带 `makers-conversation-id` header；这是当前 Makers Agent Runtime 在进入处理器前校验的统一契约。
-- `/stop` 的目标会话同时放在 JSON body 的 `conversation_id`，供取消 API 明确选择正在运行的会话。
-- Agent 和 Cloud Function 内不得读取 `os.environ` / `process.env`；Agent 使用 `ctx.env`。
-- SSE 使用 `ai_response`、`tool_call`、`tool_result`、`usage`、`ping`、`error_message`，并以 `[DONE]` 结束。
-- Agent 工具循环通过 LangGraph `recursion_limit` 限制，避免无界执行。
-- `agents/messages` 位于 Agent 目录，是因为 Cloud Function 的 store 不包含 LangGraph adapters。
+- `/chat`、`/messages`、`/travel` 和 `/stop` 携带 `makers-conversation-id`。
+- Agent 只从 `ctx.env` 读取环境变量，不读取进程环境。
+- SSE 事件包括 `ai_response`、`search_progress`、`tool_call`、`tool_result`、`map_places`、`travel_plan`、`follow_ups`、`usage`、`ping`、`error_message`，以 `[DONE]` 结束。
+- `travel_plan` 只发送已写入并回读确认的日程；回答、日历与地图必须引用同一组地点。
+- 浏览器地图 Key 由 `/travel` 的 `public_map_config` 在运行时返回，不能把服务端 WebService Key 当作构建变量注入。
+- 地图只读取当前日历日期：有可连线路线时显示路线；无路线但已授权位置时显示当前位置；两者都没有时显示位置授权按钮。
+- 富媒体 URL 必须存在于当前消息的可信搜索元数据中；图片只有通过视觉相关性与广告审核才能展示。
+- 回答正文不承载追问区；追问作为独立 `follow_ups` 事件显示。
 
-## 保留边界
+## 已删除的旧边界
 
-原项目的日程、旅行路线、论文库、会议、生图、主动 Collector、备份恢复属于结构化业务数据或本地设备能力。Makers 的 conversation store 不是关系数据库，不应把这些表强行塞入会话存储。本次处理方式是：
+2026-07-14 清理了以下不可达实现：
 
-- 本地模式继续由 `backend/` 提供这些能力；
-- Makers 模式不启动旧 FastAPI，也不代理到固定服务器；
-- Makers 前端隐藏依赖旧本地 API 的日历与调试面板；
-- 后续若要把这些能力全部云化，应选择外部关系数据库，并把纯 CRUD 放入 Cloud Functions。文件本身已经迁移到 Makers Blob。
+- `backend/` 单体 FastAPI、SQLite、WebSocket、Collector、旧技能与其测试；
+- 前端本地 token、WebSocket transport 和 `/api/*` 回退分支；
+- 旧旅行表单、计划卡、平行路线图；
+- 论文库/PDF.js 阅读器；Blob PDF 上传保留；
+- Action/记忆/预算/备份调试面板；
+- 对应类型、CSS、`pdfjs-dist` 依赖和历史实施文档。
 
-## 部署前检查
+仍有效的 Makers Agent 测试迁移到根目录 `tests/`。
 
-- [ ] EdgeOne CLI 版本不低于 `1.6.7`
-- [ ] `edgeone.json` 的 `agents.framework` 为 `langgraph`
-- [ ] `.env.example` 声明 AI Gateway 变量
-- [ ] Makers 项目已配置 `WSA_API_KEY`
-- [ ] 仓库中不存在 `.edgeone/`、根 `.env` 或真实密钥
-- [ ] `python -m compileall agents` 通过
-- [ ] 前端测试、ESLint 和 EdgeOne mode 构建通过
-- [ ] `edgeone makers dev` 下验证 `/chat`、刷新恢复、联网搜索、停止和 PDF 上传
-- [x] 本地兼容模式验证 access token、`/ws/default-conversation`、ping/pong、流式事件和刷新恢复
-- [x] 前端本地构建与 `--mode edgeone` 构建均通过
-- [x] 后端全量测试及本地 WebSocket 端到端测试通过
-- [ ] 部署使用 `edgeone makers deploy --json`，保留完整预览 URL 查询参数
+`place-service/` 是独立部署的地点数据服务，也是仓库中唯一保留的 FastAPI 边界；前端和 Agent 不把它当作旧 `/api/*` 兼容后端。
 
-## 参考规范
+## 开发与部署
 
-- [EdgeOne Makers Agent 开发规范](https://github.com/TencentEdgeOne/edgeone-makers-tools/blob/main/skills/makers-agents/SKILL.md)
-- [EdgeOne Makers 迁移规范](https://github.com/TencentEdgeOne/edgeone-makers-tools/blob/main/skills/makers-migration/SKILL.md)
-- [EdgeOne Makers Storage](https://github.com/TencentEdgeOne/edgeone-makers-tools/blob/main/skills/makers-storage/SKILL.md)
-- [EdgeOne Makers Cloud Functions](https://github.com/TencentEdgeOne/edgeone-makers-tools/blob/main/skills/makers-cloud-functions/SKILL.md)
+```powershell
+npm run dev:makers
+npm run verify:makers
+edgeone makers deploy --json
+```
+
+不要用普通 Vite dev server 模拟生产路由；Makers dev server 才会注入 Agent、Store、平台工具、Function 和环境变量。

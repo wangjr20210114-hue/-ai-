@@ -5,13 +5,21 @@ import {
   initialState,
   reducer,
 } from './appState';
-import { getOrCreateConversationId } from '../services/conversation';
+import { getOrCreateConversationId, getOrCreateUserId } from '../services/conversation';
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(
     reducer,
     initialState,
-    (base) => ({ ...base, conversationId: getOrCreateConversationId() }),
+    (base) => {
+      const userId = getOrCreateUserId();
+      return {
+        ...base,
+        userId,
+        sessionId: userId,
+        conversationId: getOrCreateConversationId(),
+      };
+    },
   );
   return (
     <AppStateContext.Provider value={state}>

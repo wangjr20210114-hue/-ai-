@@ -3,92 +3,76 @@ import { Button, Checkbox, MessagePlugin, Textarea, Upload } from 'tdesign-react
 import { SendIcon, AttachIcon } from 'tdesign-icons-react';
 import type { UploadFile } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
-import type { WSMessage } from '../../types';
 import type { ChatClient } from '../../services/chatClient';
-import { saveConversationMessage, uploadDocument } from '../../services/api';
-import { isEdgeOne } from '../../services/auth';
+import { uploadDocument } from '../../services/api';
 
 interface Props {
   client: React.RefObject<ChatClient | null>;
 }
 
-/** 底部输入栏：文本输入 + 文档上传 + 发送（场景由后端自动推断）。 */
+/** Bottom input for the EdgeOne Makers chat and Blob upload endpoints. */
 export default function InputBar({ client }: Props) {
-  const { draft, conversationId } = useAppState();
+  const { draft, conversationId, userId } = useAppState();
   const dispatch = useAppDispatch();
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [sending, setSending] = useState(false);
   const [webSearch, setWebSearch] = useState(true);
 
-  // 点击空态引导词 → 回填输入框
   useEffect(() => {
     if (draft) {
       setText(draft);
       dispatch({ type: 'SET_DRAFT', payload: '' });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft]);
+  }, [draft, dispatch]);
 
-  const sendActivity = (content: string, activity: string, messageId: string) => {
-    const msg: WSMessage = {
-      type: 'user_activity',
-      payload: { activity, text: content, message_id: messageId, web_search: webSearch },
-    };
-    client.current?.send(msg);
-  };
-
-  const handleSend = async () => {
+  const handleSend = () => {
     const content = text.trim();
-    if (!content || sending) return;
+    if (!content) return;
     const message = {
       id: Date.now().toString(),
       role: 'user' as const,
       content,
       ts: Date.now(),
     };
-    setSending(true);
-    try {
-      await saveConversationMessage(conversationId, message);
-      dispatch({ type: 'ADD_MESSAGE', payload: message });
-      sendActivity(content, 'asked', message.id);
-      setText('');
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '消息保存失败');
-    } finally {
-      setSending(false);
-    }
+    dispatch({ type: 'ADD_MESSAGE', payload: message });
+    void client.current?.send({
+      type: 'user_activity',
+      payload: {
+        activity: 'asked',
+        text: content,
+        message_id: message.id,
+        web_search: webSearch,
+        user_id: userId,
+      },
+    });
+    setText('');
   };
 
   const handleUpload = async (files: UploadFile[]) => {
-    const f = files[0];
-    if (!f?.raw) return;
+    const file = files[0]?.raw;
+    if (!file) return;
     setUploading(true);
     try {
-      const stored = await uploadDocument(conversationId, f.raw);
-      const userMessage = {
-        id: `upload-${Date.now()}`,
-        role: 'user',
-        content: `已上传文档：${stored.original_name}`,
-        ts: Date.now(),
-      } as const;
-      const aiMessage = {
-        id: `file-${Date.now()}`,
-        role: 'ai',
-        content: stored.storage_key
-          ? `PDF 已安全保存到 EdgeOne Makers Blob。\n\n[打开 ${stored.original_name}](${stored.content_url})`
-          : `PDF 已安全保存并提取文本：${stored.page_count} 页，共 ${stored.total_chars} 字。\n\n[打开 ${stored.original_name}](/api/files/${stored.id}/content)\n\n> ${stored.preview.slice(0, 240).replace(/\s+/g, ' ')}…`,
-        ts: Date.now() + 1,
-        paperFileId: stored.id,
-        paperFileName: stored.original_name,
-      } as const;
-      dispatch({ type: 'ADD_MESSAGE', payload: userMessage });
-      dispatch({ type: 'ADD_MESSAGE', payload: aiMessage });
-      await Promise.all([
-        saveConversationMessage(conversationId, userMessage),
-        saveConversationMessage(conversationId, aiMessage),
-      ]);
-      MessagePlugin.success(stored.storage_key ? 'PDF 已上传到 Makers Blob' : 'PDF 已上传并建立持久索引');
+      const stored = await uploadDocument(conversationId, file);
+      dispatch({
+        type: 'ADD_MESSAGE',
+        payload: {
+          id: `upload-${Date.now()}`,
+          role: 'user',
+          content: `已上传文档：${stored.original_name}`,
+          ts: Date.now(),
+        },
+      });
+      dispatch({
+        type: 'ADD_MESSAGE',
+        payload: {
+          id: `file-${Date.now()}`,
+          role: 'ai',
+          content: `PDF 已安全保存到 EdgeOne Makers Blob。\n\n[打开 ${stored.original_name}](${stored.content_url})`,
+          ts: Date.now() + 1,
+        },
+      });
+      MessagePlugin.success('PDF 已上传到 Makers Blob');
     } catch (error) {
       MessagePlugin.error(error instanceof Error ? error.message : '上传失败');
     } finally {
@@ -101,26 +85,19 @@ export default function InputBar({ client }: Props) {
       <div className="input-box">
         <Textarea
           value={text}
-          onChange={(v) => setText(v as string)}
+          onChange={(value) => setText(value as string)}
           placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
           autosize={{ minRows: 1, maxRows: 5 }}
           style={{ width: '100%' }}
-          onKeydown={(_, ctx) => {
-            const e = ctx.e as React.KeyboardEvent;
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void handleSend();
+          onKeydown={(_, context) => {
+            const event = context.e as React.KeyboardEvent;
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              handleSend();
             }
           }}
         />
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginTop: 8,
-          }}
-        >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Upload
               theme="custom"
@@ -133,32 +110,17 @@ export default function InputBar({ client }: Props) {
                 上传文档
               </Button>
             </Upload>
-            <Checkbox checked={webSearch} onChange={(v) => setWebSearch(v as boolean)}>
+            <Checkbox checked={webSearch} onChange={(value) => setWebSearch(value as boolean)}>
               联网搜索
             </Checkbox>
           </div>
-          <Button
-            theme="primary"
-            icon={<SendIcon />}
-            onClick={() => { void handleSend(); }}
-            loading={sending}
-            disabled={!text.trim() || sending}
-          >
+          <Button theme="primary" icon={<SendIcon />} onClick={handleSend} disabled={!text.trim()}>
             发送
           </Button>
         </div>
       </div>
-      <div
-        style={{
-          textAlign: 'center',
-          fontSize: 11.5,
-          color: 'var(--app-text-3)',
-          marginTop: 8,
-        }}
-      >
-        {isEdgeOne
-          ? '会话、运行轨迹与联网工具由 EdgeOne Makers 托管'
-          : '消息会先持久化，再由 Agent 识别意图并安全执行'}
+      <div style={{ textAlign: 'center', fontSize: 11.5, color: 'var(--app-text-3)', marginTop: 8 }}>
+        会话、运行轨迹与联网工具由 EdgeOne Makers 托管
       </div>
     </div>
   );

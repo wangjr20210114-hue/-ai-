@@ -2,9 +2,8 @@ import { createContext, useContext, type Dispatch } from 'react';
 import type {
   ChatMessage,
   ThemeMode,
-  TravelPlan,
   ScheduleItem,
-  TravelCollected,
+  MakersMapPlace,
 } from '../types';
 
 const THEME_KEY = 'travel-theme';
@@ -23,14 +22,12 @@ export interface AppState {
   thinking: boolean;
   draft: string;
   messages: ChatMessage[];
-  plans: TravelPlan[];
   schedules: ScheduleItem[];
-  travelContext: {
-    collected: TravelCollected;
-    missing: string[];
-    reasoning: string;
-    context: Record<string, unknown>;
-  } | null;
+  calendarFocusDate: string | null;
+  calendarPulse: { date: string; count: number; token: number } | null;
+  recommendedPlaces: MakersMapPlace[];
+  mapTitle: string;
+  mapRevision: number;
   scheduleViewDate: Date | null;
 }
 
@@ -42,15 +39,13 @@ export type Action =
   | { type: 'ADD_MESSAGE'; payload: ChatMessage }
   | { type: 'HYDRATE_MESSAGES'; payload: ChatMessage[] }
   | { type: 'UPDATE_MESSAGE'; payload: { id: string; patch: Partial<ChatMessage>; delta?: string } }
-  | { type: 'SET_PLANS'; payload: TravelPlan[] }
-  | { type: 'ADD_PLAN'; payload: TravelPlan }
-  | { type: 'UPDATE_PLAN'; payload: TravelPlan }
-  | { type: 'DELETE_PLAN'; payload: string }
   | { type: 'SET_SCHEDULES'; payload: ScheduleItem[] }
-  | { type: 'ADD_SCHEDULE'; payload: ScheduleItem }
+  | { type: 'MERGE_SCHEDULES'; payload: ScheduleItem[] }
+  | { type: 'FOCUS_CALENDAR'; payload: string }
+  | { type: 'PULSE_CALENDAR'; payload: { date: string; count: number } }
+  | { type: 'SET_MAP_PLACES'; payload: { places: MakersMapPlace[]; title?: string } }
   | { type: 'UPDATE_SCHEDULE'; payload: ScheduleItem }
   | { type: 'DELETE_SCHEDULE'; payload: string }
-  | { type: 'SET_TRAVEL_CONTEXT'; payload: AppState['travelContext'] }
   | { type: 'SHOW_SCHEDULE_VIEW'; payload: Date | null }
   | { type: 'CLEAR_ALL_STREAMING'; payload: Record<string, never> };
 
@@ -63,9 +58,12 @@ export const initialState: AppState = {
   thinking: false,
   draft: '',
   messages: [],
-  plans: [],
   schedules: [],
-  travelContext: null,
+  calendarFocusDate: null,
+  calendarPulse: null,
+  recommendedPlaces: [],
+  mapTitle: '推荐地点',
+  mapRevision: 0,
   scheduleViewDate: null,
 };
 
@@ -88,17 +86,33 @@ export function reducer(state: AppState, action: Action): AppState {
           return { ...message, ...action.payload.patch };
         }),
       };
-    case 'SET_PLANS': return { ...state, plans: action.payload };
-    case 'ADD_PLAN': return { ...state, plans: [action.payload, ...state.plans] };
-    case 'UPDATE_PLAN':
-      return { ...state, plans: state.plans.map((plan) => plan.id === action.payload.id ? action.payload : plan) };
-    case 'DELETE_PLAN': return { ...state, plans: state.plans.filter((plan) => plan.id !== action.payload) };
     case 'SET_SCHEDULES': return { ...state, schedules: action.payload };
-    case 'ADD_SCHEDULE': return { ...state, schedules: [action.payload, ...state.schedules] };
+    case 'MERGE_SCHEDULES': {
+      const merged = new Map(state.schedules.map((item) => [item.id, item]));
+      action.payload.forEach((item) => merged.set(item.id, item));
+      return {
+        ...state,
+        schedules: Array.from(merged.values()).sort((a, b) => a.start_time - b.start_time),
+      };
+    }
+    case 'FOCUS_CALENDAR':
+      return { ...state, calendarFocusDate: action.payload };
+    case 'PULSE_CALENDAR':
+      return {
+        ...state,
+        calendarFocusDate: action.payload.date,
+        calendarPulse: { ...action.payload, token: Date.now() },
+      };
+    case 'SET_MAP_PLACES':
+      return {
+        ...state,
+        recommendedPlaces: action.payload.places,
+        mapTitle: action.payload.title || '推荐地点',
+        mapRevision: state.mapRevision + 1,
+      };
     case 'UPDATE_SCHEDULE':
       return { ...state, schedules: state.schedules.map((item) => item.id === action.payload.id ? action.payload : item) };
     case 'DELETE_SCHEDULE': return { ...state, schedules: state.schedules.filter((item) => item.id !== action.payload) };
-    case 'SET_TRAVEL_CONTEXT': return { ...state, travelContext: action.payload };
     case 'SHOW_SCHEDULE_VIEW': return { ...state, scheduleViewDate: action.payload };
     case 'CLEAR_ALL_STREAMING':
       return { ...state, messages: state.messages.map((message) => message.streaming ? { ...message, streaming: false } : message) };

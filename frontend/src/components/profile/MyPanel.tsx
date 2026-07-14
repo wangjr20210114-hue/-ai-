@@ -6,14 +6,10 @@ import {
   RefreshIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  FileIcon,
-  FullscreenIcon,
 } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import { listSchedules, deleteSchedule, toggleScheduleDone } from '../../services/api';
-import { listSavedPapers, deleteSavedPaper, type SavedPaper } from '../../services/paperApi';
 import MarkdownRenderer from '../common/MarkdownRenderer';
-import PaperFullReader from '../paper/PaperFullReader';
 import ScheduleTableView from './ScheduleTableView';
 import DailyRouteMap from '../travel/DailyRouteMap';
 import type { DailyRouteData } from '../../services/api';
@@ -26,9 +22,23 @@ import {
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 
+function dateKey(date: Date): string {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+
 /** 右侧「我的」面板：日历视图 + 当日日程列表。 */
 export default function MyPanel() {
-  const { sessionId, schedules, scheduleViewDate } = useAppState();
+  const {
+    sessionId,
+    schedules,
+    scheduleViewDate,
+    calendarFocusDate,
+    calendarPulse,
+  } = useAppState();
   const dispatch = useAppDispatch();
   const [loading, setLoading] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -44,9 +54,29 @@ export default function MyPanel() {
   });
   const [selectedAlts, setSelectedAlts] = useState<Record<string, number>>({});
   const [routeData, setRouteData] = useState<DailyRouteData | null>(null);
-  const [savedPapers, setSavedPapers] = useState<SavedPaper[]>([]);
-  const [fullReaderPaper, setFullReaderPaper] = useState<{ fileId: string; title: string; arxivId?: string } | null>(null);
-  const [deletePaperId, setDeletePaperId] = useState<string | null>(null);
+  const [pulsingDate, setPulsingDate] = useState<string | null>(null);
+  const [writeNoticeCount, setWriteNoticeCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!calendarFocusDate) return;
+    const target = new Date(`${calendarFocusDate}T00:00:00`);
+    if (Number.isNaN(target.getTime())) return;
+    setCurrentMonth(new Date(target.getFullYear(), target.getMonth(), 1));
+    setSelectedDate(target);
+    dispatch({ type: 'SHOW_SCHEDULE_VIEW', payload: null });
+  }, [calendarFocusDate, calendarPulse?.token, dispatch]);
+
+  useEffect(() => {
+    if (!calendarPulse) return;
+    setPulsingDate(calendarPulse.date);
+    setWriteNoticeCount(calendarPulse.count);
+    const pulseTimer = window.setTimeout(() => setPulsingDate(null), 1300);
+    const noticeTimer = window.setTimeout(() => setWriteNoticeCount(null), 2200);
+    return () => {
+      window.clearTimeout(pulseTimer);
+      window.clearTimeout(noticeTimer);
+    };
+  }, [calendarPulse]);
 
   // 当前生效日期：课程表模式用 scheduleViewDate，否则用日历选中日期
   const effectiveDate = scheduleViewDate || selectedDate;
@@ -58,11 +88,11 @@ export default function MyPanel() {
     setRouteData(null);
   }, [viewTs]);
 
-  const refresh = async () => {
+  const refresh = async (merge = false) => {
     setLoading(true);
     try {
       const items = await listSchedules(sessionId);
-      dispatch({ type: 'SET_SCHEDULES', payload: items });
+      dispatch({ type: merge ? 'MERGE_SCHEDULES' : 'SET_SCHEDULES', payload: items });
     } catch {
       // 静默
     } finally {
@@ -70,18 +100,8 @@ export default function MyPanel() {
     }
   };
 
-  const refreshPapers = async () => {
-    try {
-      const result = await listSavedPapers(sessionId);
-      setSavedPapers(result.papers || []);
-    } catch {
-      // 静默
-    }
-  };
-
   useEffect(() => {
-    refresh();
-    refreshPapers();
+    void refresh(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
@@ -211,63 +231,11 @@ export default function MyPanel() {
             variant="text"
             size="small"
             icon={<RefreshIcon />}
-            onClick={refresh}
+            onClick={() => { void refresh(false); }}
             loading={loading}
             style={{ marginLeft: 'auto' }}
           />
         </div>
-      </div>
-
-      {/* 我的阅读 */}
-      <div className="my-panel-card">
-        <div className="section-title" style={{ marginBottom: 8 }}>
-          <FileIcon size="16px" style={{ marginRight: 6 }} />
-          我的阅读
-          <Tag size="small" variant="light" style={{ marginLeft: 'auto' }}>{savedPapers.length} 篇</Tag>
-        </div>
-        {savedPapers.length === 0 ? (
-          <div style={{ fontSize: 12, color: 'var(--app-text-3)', textAlign: 'center', padding: '12px 0' }}>
-            还没有阅读过的论文
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {savedPapers.map((p) => (
-              <div
-                key={p.id}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '8px 10px',
-                  borderRadius: 8,
-                  background: 'var(--app-bg)',
-                  border: '1px solid var(--app-border)',
-                }}
-              >
-                <span style={{ fontSize: 16, flexShrink: 0 }}>📄</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {p.title || p.filename}
-                  </div>
-                  {p.arxiv_id && (
-                    <div style={{ fontSize: 10, color: 'var(--app-text-3)' }}>arXiv:{p.arxiv_id}</div>
-                  )}
-                </div>
-                <Button
-                  size="small"
-                  variant="text"
-                  icon={<FullscreenIcon />}
-                  onClick={() => setFullReaderPaper({ fileId: p.file_id, title: p.title, arxivId: p.arxiv_id })}
-                />
-                <Button
-                  size="small"
-                  variant="text"
-                  icon={<DeleteIcon />}
-                  onClick={() => setDeletePaperId(p.id)}
-                  style={{ opacity: 0.5 }}
-                />
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* 日历 / 课程表视图 */}
@@ -286,6 +254,11 @@ export default function MyPanel() {
         </div>
       ) : (
       <div className="my-panel-card calendar-panel">
+        {writeNoticeCount !== null && (
+          <div className="calendar-write-notice">
+            ✓ 已写入 {writeNoticeCount} 项安排
+          </div>
+        )}
         {/* 月份导航 */}
         <div className="calendar-header">
           <Button
@@ -321,14 +294,13 @@ export default function MyPanel() {
             return (
               <button
                 key={i}
-                className={`calendar-day ${isT ? 'today' : ''} ${isSel ? 'selected' : ''}`}
+                className={`calendar-day ${isT ? 'today' : ''} ${isSel ? 'selected' : ''} ${pulsingDate === dateKey(cellDate) ? 'calendar-day-pulse' : ''}`}
                 style={{ background: busy.color }}
-                onClick={() => setSelectedDate(cellDate)}
-                onDoubleClick={() => {
+                onClick={() => {
                   setSelectedDate(cellDate);
                   dispatch({ type: 'SHOW_SCHEDULE_VIEW', payload: cellDate });
                 }}
-                title={busy.level > 0 ? `${busyLabel(busy.level)} (${getDayScheduleCount(cellDate)}项) · 双击查看详情` : '双击查看课程表'}
+                title={busy.level > 0 ? `${busyLabel(busy.level)} (${getDayScheduleCount(cellDate)}项) · 点击查看详情` : '点击查看当天日程'}
               >
                 <span className="calendar-day-num">{cell.day}</span>
                 {busy.level > 0 && <span className="calendar-day-dot" />}
@@ -425,31 +397,6 @@ export default function MyPanel() {
         确定要删除这个日程吗？此操作不可撤销。
       </Dialog>
 
-      <Dialog
-        visible={!!deletePaperId}
-        header="删除论文"
-        confirmBtn={{ content: '删除', theme: 'danger' }}
-        cancelBtn="取消"
-        onConfirm={async () => {
-          if (!deletePaperId) return;
-          await deleteSavedPaper(deletePaperId);
-          setSavedPapers(prev => prev.filter(p => p.id !== deletePaperId));
-          MessagePlugin.success('已删除');
-          setDeletePaperId(null);
-        }}
-        onCancel={() => setDeletePaperId(null)}
-      >
-        确定要删除这篇论文吗？
-      </Dialog>
-
-      {fullReaderPaper && (
-        <PaperFullReader
-          fileId={fullReaderPaper.fileId}
-          title={fullReaderPaper.title}
-          arxivId={fullReaderPaper.arxivId}
-          onClose={() => setFullReaderPaper(null)}
-        />
-      )}
     </aside>
   );
 }
