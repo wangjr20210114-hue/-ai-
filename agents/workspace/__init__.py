@@ -1,0 +1,1 @@
+"""Workspace action endpoint."""

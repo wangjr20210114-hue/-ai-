@@ -40,55 +40,77 @@ describe('app state reducer', () => {
     expect(updated.messages[0].content).toBe('after restart');
   });
 
-  it('records the calendar target for the write confirmation animation', () => {
-    const updated = reducer(initialState, {
-      type: 'PULSE_CALENDAR',
-      payload: { date: '2026-07-15', count: 4 },
-    });
-
-    expect(updated.calendarPulse).toMatchObject({ date: '2026-07-15', count: 4 });
-    expect(updated.calendarFocusDate).toBe('2026-07-15');
-    expect(updated.calendarPulse?.token).toBeTypeOf('number');
-  });
-
-  it('restores the calendar date without replaying the write animation', () => {
-    const updated = reducer(initialState, {
-      type: 'FOCUS_CALENDAR',
-      payload: '2026-07-15',
-    });
-
-    expect(updated.calendarFocusDate).toBe('2026-07-15');
-    expect(updated.calendarPulse).toBeNull();
-  });
-
-  it('merges travel-plan schedules immediately by id', () => {
-    const schedule = {
-      id: 'travel-tiananmen', session_id: 'user-a', title: '天安门广场',
-      category: 'travel' as const, start_time: 1784077200, duration_minutes: 120,
-      duration_days: 0, location: '北京市东城区', description: '', markdown_content: '',
-      extra: {}, done: false, created_at: 1, updated_at: 1,
+  it('switches to fresh chat memory while retaining user-owned workspace assets', () => {
+    const previous = {
+      ...initialState,
+      connected: true,
+      thinking: true,
+      draft: 'unfinished',
+      messages: [userMessage],
+      mapPlaces: [{ place_id: 'old', name: '旧地点', address: '', latitude: 1, longitude: 1 }],
     };
-    const first = reducer(initialState, { type: 'MERGE_SCHEDULES', payload: [schedule] });
-    const updated = reducer(first, {
-      type: 'MERGE_SCHEDULES',
-      payload: [{ ...schedule, title: '天安门广场（已更新）' }],
-    });
 
-    expect(updated.schedules).toHaveLength(1);
-    expect(updated.schedules[0].title).toBe('天安门广场（已更新）');
+    const next = reducer(previous, { type: 'SET_CONVERSATION_ID', payload: 'conv-fresh' });
+
+    expect(next.conversationId).toBe('conv-fresh');
+    expect(next.connected).toBe(false);
+    expect(next.thinking).toBe(false);
+    expect(next.draft).toBe('');
+    expect(next.messages).toEqual([]);
+    expect(next.mapPlaces).toEqual(previous.mapPlaces);
   });
 
-  it('stores verified recommendation coordinates for the map animation', () => {
+  it('orders newly updated conversations before older history', () => {
+    const oldConversation = {
+      id: 'old', title: '旧对话', createdAt: 1, updatedAt: 1, messageCount: 2,
+    };
+    const recentConversation = {
+      id: 'recent', title: '新对话', createdAt: 2, updatedAt: 3, messageCount: 0,
+    };
+    const withOld = reducer(initialState, { type: 'SET_CONVERSATIONS', payload: [oldConversation] });
+    const updated = reducer(withOld, { type: 'UPSERT_CONVERSATION', payload: recentConversation });
+
+    expect(updated.conversations.map((item) => item.id)).toEqual(['recent', 'old']);
+  });
+
+  it('merges persisted Makers calendar events without duplicating ids', () => {
+    const event = {
+      id: 'makers-event-1',
+      session_id: 'makers',
+      title: '参观故宫',
+      category: 'travel' as const,
+      start_time: 1784073600,
+      duration_minutes: 120,
+      duration_days: 0,
+      location: '故宫博物院',
+      description: '',
+      markdown_content: '',
+      extra: {},
+      done: false,
+      created_at: 1,
+      updated_at: 1,
+    };
+    const first = reducer(initialState, { type: 'MERGE_SCHEDULES', payload: [event] });
+    const second = reducer(first, {
+      type: 'MERGE_SCHEDULES',
+      payload: [{ ...event, title: '参观故宫（更新）' }],
+    });
+
+    expect(second.schedules).toHaveLength(1);
+    expect(second.schedules[0].title).toBe('参观故宫（更新）');
+  });
+
+  it('updates map places and increments the animation revision', () => {
     const updated = reducer(initialState, {
       type: 'SET_MAP_PLACES',
       payload: {
-        title: '北京推荐地点',
-        places: [{ name: '故宫博物院', address: '北京市东城区', lat: 39.9163, lng: 116.3972 }],
+        title: '故宫路线',
+        places: [{ place_id: 'poi-wumen', name: '午门', address: '北京市东城区', latitude: 39.912, longitude: 116.397 }],
       },
     });
 
-    expect(updated.mapTitle).toBe('北京推荐地点');
-    expect(updated.recommendedPlaces[0].name).toBe('故宫博物院');
+    expect(updated.mapTitle).toBe('故宫路线');
+    expect(updated.mapPlaces[0].name).toBe('午门');
     expect(updated.mapRevision).toBe(initialState.mapRevision + 1);
   });
 });

@@ -1,12 +1,14 @@
 interface TencentMapInstance {
   destroy?: () => void;
   fitBounds?: (bounds: unknown, options?: Record<string, unknown>) => void;
-  on?: (event: string, handler: () => void) => void;
-  off?: (event: string, handler: () => void) => void;
 }
 
 interface TencentLatLngBounds {
   extend: (latLng: unknown) => void;
+}
+
+interface TencentGeocoderResponse {
+  result?: { location?: { lat: number; lng: number } };
 }
 
 interface TencentMapNamespace {
@@ -19,6 +21,11 @@ interface TencentMapNamespace {
   PolylineStyle: new (options: Record<string, unknown>) => unknown;
   MultiLabel: new (options: Record<string, unknown>) => unknown;
   LabelStyle: new (options: Record<string, unknown>) => unknown;
+  service?: {
+    Geocoder: new () => {
+      getLocation: (options: { address: string }) => Promise<TencentGeocoderResponse>;
+    };
+  };
 }
 
 interface Window {

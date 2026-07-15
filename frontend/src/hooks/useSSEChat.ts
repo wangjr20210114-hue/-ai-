@@ -1,27 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { MessagePlugin } from 'tdesign-react';
-import { bootstrapApp } from '../services/api';
+import { bootstrapApp, saveConversationMessage } from '../services/api';
 import { withEdgeOneAuth } from '../services/auth';
 import { makersConversationHeaders } from '../services/conversation';
-import { stripInlineFollowUpSection } from '../services/chatContent';
 import { splitSseFrames } from '../services/sse';
-import { normalizeSearchMeta } from '../services/search';
 import { useAppDispatch, useAppState } from '../store/appState';
-import type { ChatMessage, MakersMapPlace, ScheduleItem } from '../types';
+import type { ChatMessage, SearchMeta, WorkspaceAction } from '../types';
 
 type ClientEvent = { type: string; payload: Record<string, unknown> };
-
-const SEARCH_PROGRESS_LABELS: Record<string, string> = {
-  searching: '正在互联网里捞点靠谱线索…',
-  place_intent: '正在把目的地从这句话里请出来…',
-  place_database: '正在给地点们挨个验明正身…',
-  place_results: '地点已到齐，正在排队组成行程…',
-  sources_found: '抓到一些线索，正在看看谁更靠谱…',
-  fetching_page: '正在翻资料，先把水分拧一拧…',
-  selecting_media: '文字看完了，图片也得过安检…',
-  reviewing_media: '正在盯图检查，广告休想混进来…',
-  composing: '材料齐活，正在摆成好读的样子…',
-};
 
 class SSEChatClient {
   private controller: AbortController | null = null;
@@ -131,71 +117,52 @@ class SSEChatClient {
                 });
                 break;
               case 'tool_call':
+                {
+                  const toolName = String(event.name || '');
+                  const labels: Record<string, string> = {
+                    web_search: '正在查找相关信息…',
+                    search_places: '正在核实真实地点…',
+                    prepare_map_recommendation: '正在准备可查看的地图地点…',
+                    propose_calendar_changes: '正在整理待确认的日程变更…',
+                    propose_meeting: '正在准备会议创建信息…',
+                    propose_image: '正在准备生图任务…',
+                    collect_page_images: '正在提取网页图片…',
+                    search_rich_images: '正在查找相关图片…',
+                    analyze_images_parallel: '正在并行识别图片…',
+                  };
                 this.emit({
                   type: 'search_status',
                   payload: {
                     id: streamId,
                     status: 'searching',
-                    statusText: event.name === 'web_search'
-                      ? '正在查找相关信息…'
-                      : '正在处理相关信息…',
-                  },
-                });
-                break;
-              case 'search_progress':
-                {
-                  const stage = String(event.stage || 'searching');
-                this.emit({
-                  type: 'search_status',
-                  payload: {
-                    id: streamId,
-                    status: stage,
-                    statusText: SEARCH_PROGRESS_LABELS[stage] || '正在处理相关信息…',
+                    statusText: labels[toolName] || '正在处理…',
                   },
                 });
                 }
                 break;
               case 'tool_result':
-                {
-                  const searchResults = normalizeSearchMeta(event.search_results);
                 this.emit({
                   type: 'search_status',
+                  payload: { id: streamId, status: 'analyzing', statusText: '工具已返回，正在整理…' },
+                });
+                break;
+              case 'map_action':
+              case 'calendar_action':
+              case 'side_effect_action':
+                this.emit({
+                  type: String(event.type),
                   payload: {
+                    ...((event.payload && typeof event.payload === 'object') ? event.payload as Record<string, unknown> : {}),
                     id: streamId,
-                    status: 'analyzing',
-                    statusText: '资料已核对，正在整理结果…',
-                    ...(searchResults ? { search_results: searchResults } : {}),
                   },
                 });
                 break;
-                }
-              case 'map_places':
+              case 'search_results':
                 this.emit({
-                  type: 'map_places',
+                  type: 'search_results',
                   payload: {
-                    title: String(event.title || '推荐地点'),
-                    places: Array.isArray(event.places) ? event.places : [],
-                  },
-                });
-                break;
-              case 'follow_ups':
-                this.emit({
-                  type: 'follow_ups',
-                  payload: {
+                    ...((event.payload && typeof event.payload === 'object') ? event.payload as Record<string, unknown> : {}),
                     id: streamId,
-                    items: Array.isArray(event.items)
-                      ? event.items.filter(item => typeof item === 'string').slice(0, 3)
-                      : [],
-                  },
-                });
-                break;
-              case 'travel_plan':
-                this.emit({
-                  type: 'travel_plan',
-                  payload: {
-                    id: streamId,
-                    plan: event.plan && typeof event.plan === 'object' ? event.plan : {},
-                    schedules: Array.isArray(event.schedules) ? event.schedules : [],
                   },
                 });
                 break;
@@ -234,16 +201,23 @@ class SSEChatClient {
 }
 
 export function useSSEChat() {
-  const { conversationId, userId } = useAppState();
+  const { conversationId } = useAppState();
   const dispatch = useAppDispatch();
   const clientRef = useRef<SSEChatClient | null>(null);
   const streamMessages = useRef<Map<string, ChatMessage>>(new Map());
-  const suppressedInlineFollowUps = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const client = new SSEChatClient(conversationId);
     clientRef.current = client;
+    const activeStreams = streamMessages.current;
+    activeStreams.clear();
     let disposed = false;
+
+    const persist = (message: ChatMessage) => {
+      void saveConversationMessage(conversationId, message).catch((error) => {
+        console.warn('message persistence failed', error);
+      });
+    };
 
     const off = client.on((message) => {
       switch (message.type) {
@@ -267,7 +241,6 @@ export function useSSEChat() {
             },
           };
           streamMessages.current.set(id, streamMessage);
-          suppressedInlineFollowUps.current.delete(id);
           dispatch({ type: 'ADD_MESSAGE', payload: streamMessage });
           break;
         }
@@ -275,12 +248,9 @@ export function useSSEChat() {
           const id = String(message.payload.id || '');
           const delta = String(message.payload.delta || '');
           const current = streamMessages.current.get(id);
-          if (current && delta && !suppressedInlineFollowUps.current.has(id)) {
-            const rawContent = current.content + delta;
-            const content = stripInlineFollowUpSection(rawContent);
-            if (content !== rawContent) suppressedInlineFollowUps.current.add(id);
-            streamMessages.current.set(id, { ...current, content });
-            dispatch({ type: 'UPDATE_MESSAGE', payload: { id, patch: { content } } });
+          if (current && delta) {
+            streamMessages.current.set(id, { ...current, content: current.content + delta });
+            dispatch({ type: 'UPDATE_MESSAGE', payload: { id, patch: {}, delta } });
           }
           break;
         }
@@ -288,113 +258,58 @@ export function useSSEChat() {
           const id = String(message.payload.id || '');
           const current = streamMessages.current.get(id);
           if (current) {
-            const content = stripInlineFollowUpSection(current.content);
+            persist({ ...current, streaming: false });
             streamMessages.current.delete(id);
-            suppressedInlineFollowUps.current.delete(id);
-            dispatch({ type: 'UPDATE_MESSAGE', payload: { id, patch: { content } } });
           }
           dispatch({ type: 'UPDATE_MESSAGE', payload: { id, patch: { streaming: false } } });
           break;
         }
         case 'search_status': {
           const id = String(message.payload.id || '');
-          const current = streamMessages.current.get(id);
-          const searchResults = normalizeSearchMeta(message.payload.search_results);
-          const skill = {
-            intent: 'search',
-            mode: 'immediate',
-            content: '',
-            icon: '🔍',
-            action_label: '',
-            params: {},
-            data: {
-              status: String(message.payload.status || 'searching'),
-              statusText: String(message.payload.statusText || '正在搜索…'),
-            },
-          };
-          if (current) {
-            streamMessages.current.set(id, {
-              ...current,
-              skill,
-              searchResults: searchResults || current.searchResults,
-            });
-          }
           dispatch({
             type: 'UPDATE_MESSAGE',
             payload: {
               id,
               patch: {
-                skill,
-                ...(searchResults ? { searchResults } : {}),
+                skill: {
+                  intent: 'search',
+                  mode: 'immediate',
+                  content: '',
+                  icon: '🔍',
+                  action_label: '',
+                  params: {},
+                  data: {
+                    status: String(message.payload.status || 'searching'),
+                    statusText: String(message.payload.statusText || '正在搜索…'),
+                  },
+                },
               },
             },
           });
           break;
         }
-        case 'follow_ups': {
+        case 'search_results': {
           const id = String(message.payload.id || '');
-          const items = Array.isArray(message.payload.items)
-            ? message.payload.items.filter((item): item is string => typeof item === 'string').slice(0, 3)
-            : [];
           const current = streamMessages.current.get(id);
-          if (current && items.length) {
-            streamMessages.current.set(id, { ...current, followUps: items });
-          }
-          if (items.length) {
-            dispatch({ type: 'UPDATE_MESSAGE', payload: { id, patch: { followUps: items } } });
+          const searchResults = message.payload as unknown as SearchMeta;
+          if (current && Array.isArray(searchResults.results)) {
+            const updated = { ...current, searchResults };
+            streamMessages.current.set(id, updated);
+            dispatch({ type: 'UPDATE_MESSAGE', payload: { id, patch: { searchResults } } });
           }
           break;
         }
-        case 'travel_plan': {
+        case 'map_action':
+        case 'calendar_action':
+        case 'side_effect_action': {
           const id = String(message.payload.id || '');
+          const action = message.payload.action as WorkspaceAction | undefined;
           const current = streamMessages.current.get(id);
-          const plan = message.payload.plan && typeof message.payload.plan === 'object'
-            ? message.payload.plan as Record<string, unknown>
-            : {};
-          const statusText = plan.tentative_date
-            ? `已按 ${String(plan.start_date || '明天')} 暂定写入日程，可在右侧日历修改`
-            : '个性化行程已写入右侧日历';
-          const skill = {
-            intent: 'travel',
-            mode: 'immediate',
-            content: '',
-            icon: '🗺️',
-            action_label: '',
-            params: {},
-            data: { status: 'planned', statusText },
-          };
-          if (current) streamMessages.current.set(id, { ...current, skill });
-          dispatch({ type: 'UPDATE_MESSAGE', payload: { id, patch: { skill } } });
-          const schedules = Array.isArray(message.payload.schedules)
-            ? message.payload.schedules as ScheduleItem[]
-            : [];
-          if (schedules.length) {
-            // The event is the authoritative write result. Render it
-            // immediately instead of depending on a second snapshot request.
-            dispatch({ type: 'MERGE_SCHEDULES', payload: schedules });
-          }
-          const firstStart = Number(schedules[0]?.start_time || 0);
-          if (firstStart > 0) {
-            const target = new Date(firstStart * 1000);
-            const date = [
-              target.getFullYear(),
-              String(target.getMonth() + 1).padStart(2, '0'),
-              String(target.getDate()).padStart(2, '0'),
-            ].join('-');
-            dispatch({ type: 'PULSE_CALENDAR', payload: { date, count: schedules.length } });
-            MessagePlugin.success(`已写入日历：${schedules.length} 项安排`);
-          }
-          break;
-        }
-        case 'map_places': {
-          const places = Array.isArray(message.payload.places)
-            ? message.payload.places as unknown as MakersMapPlace[]
-            : [];
-          if (places.length) {
-            dispatch({
-              type: 'SET_MAP_PLACES',
-              payload: { places, title: String(message.payload.title || '推荐地点') },
-            });
+          if (current && action?.id) {
+            const workspaceActions = [...(current.workspaceActions || []).filter((item) => item.id !== action.id), action];
+            const updated = { ...current, workspaceActions };
+            streamMessages.current.set(id, updated);
+            dispatch({ type: 'UPDATE_MESSAGE', payload: { id, patch: { workspaceActions } } });
           }
           break;
         }
@@ -409,44 +324,28 @@ export function useSSEChat() {
       .then((data) => {
         if (!disposed) {
           dispatch({ type: 'HYDRATE_MESSAGES', payload: data.messages });
-          if (data.schedules?.length) {
-            dispatch({ type: 'MERGE_SCHEDULES', payload: data.schedules });
-            const planDate = data.travel_plan?.start_date;
-            const firstStart = Number(data.schedules[0]?.start_time || 0);
-            const restoredDate = planDate || (firstStart > 0
-              ? (() => {
-                  const target = new Date(firstStart * 1000);
-                  return [
-                    target.getFullYear(),
-                    String(target.getMonth() + 1).padStart(2, '0'),
-                    String(target.getDate()).padStart(2, '0'),
-                  ].join('-');
-                })()
-              : '');
-            if (restoredDate) {
-              // Refresh restores selection but must never replay the one-shot
-              // write animation.
-              dispatch({ type: 'FOCUS_CALENDAR', payload: restoredDate });
-            }
-          }
-          const restoredMap = data.messages.slice().reverse().find((item) => item.mapPlaces?.length);
-          if (restoredMap?.mapPlaces?.length) {
-            dispatch({
-              type: 'SET_MAP_PLACES',
-              payload: { places: restoredMap.mapPlaces, title: '最近推荐地点' },
-            });
-          }
+          dispatch({
+            type: 'HYDRATE_WORKSPACE',
+            payload: {
+              schedules: data.schedules,
+              mapPlaces: data.map_places,
+              mapTitle: data.map_title,
+            },
+          });
         }
       })
       .catch((error) => console.warn('bootstrap failed', error))
-      .finally(() => dispatch({ type: 'SET_CONNECTED', payload: true }));
+      .finally(() => {
+        if (!disposed) dispatch({ type: 'SET_CONNECTED', payload: true });
+      });
 
     return () => {
       disposed = true;
+      activeStreams.clear();
       off();
       client.close();
     };
-  }, [conversationId, userId, dispatch]);
+  }, [conversationId, dispatch]);
 
   return clientRef;
 }

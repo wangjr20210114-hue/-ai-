@@ -1,30 +1,84 @@
-"""LangGraph model configured for the Tencent Hunyuan Token Plan API."""
+"""LangGraph model configured exclusively through the Makers AI Gateway."""
+
+from typing import Any
 
 from langchain_openai import ChatOpenAI
 
-DEFAULT_BASE_URL = "https://api.lkeap.cloud.tencent.com/plan/v3"
-DEFAULT_MODEL = "hy3"
-_model_cache: dict[tuple[str, str, str], ChatOpenAI] = {}
+DEFAULT_MODEL = "@makers/deepseek-v4-flash"
+_model_cache: dict[tuple[str, str, bool], Any] = {}
 
 
-def get_model(env: dict) -> ChatOpenAI:
-    api_key = str(env.get("HUNYUAN_API_KEY") or "").strip()
-    if not api_key:
-        raise RuntimeError("Missing environment variable: HUNYUAN_API_KEY")
+def _is_quota_error(error: Exception) -> bool:
+    text = str(error).lower()
+    return any(marker in text for marker in (
+        "quota exhausted", "free quota", "aig_free_quota_exhausted",
+        "rate limit", "rate_limit", "status code: 429", "error code: 429",
+    ))
 
-    model_name = str(env.get("HUNYUAN_MODEL") or DEFAULT_MODEL).strip()
-    base_url = str(env.get("HUNYUAN_BASE_URL") or DEFAULT_BASE_URL).strip().rstrip("/")
-    cache_key = (model_name, base_url, api_key)
+
+def _is_transient_gateway_error(error: Exception) -> bool:
+    text = str(error).lower()
+    return any(marker in text for marker in (
+        "connection error", "connecterror", "timed out", "timeout",
+        "service unavailable", "bad gateway", "gateway timeout",
+    ))
+
+
+class QuotaFailoverModel:
+    """Keep Makers first; fail over on quota or transient gateway outages."""
+
+    def __init__(self, primary: Any, fallback: Any):
+        self.primary = primary
+        self.fallback = fallback
+
+    def bind_tools(self, tools, **kwargs):
+        return QuotaFailoverModel(
+            self.primary.bind_tools(tools, **kwargs),
+            self.fallback.bind_tools(tools, **kwargs),
+        )
+
+    async def ainvoke(self, messages, **kwargs):
+        try:
+            return await self.primary.ainvoke(messages, **kwargs)
+        except Exception as exc:
+            if not (_is_quota_error(exc) or _is_transient_gateway_error(exc)):
+                raise
+            return await self.fallback.ainvoke(messages, **kwargs)
+
+
+def get_model(env: dict):
+    missing = [
+        key
+        for key in ("AI_GATEWAY_API_KEY", "AI_GATEWAY_BASE_URL")
+        if not str(env.get(key, "")).strip()
+    ]
+    if missing:
+        raise RuntimeError(f"Missing environment variables: {', '.join(missing)}")
+
+    model_name = str(env.get("AI_GATEWAY_MODEL") or DEFAULT_MODEL)
+    base_url = str(env["AI_GATEWAY_BASE_URL"]).rstrip("/")
+    direct_key = str(env.get("DEEPSEEK_API_KEY") or "").strip()
+    cache_key = (model_name, base_url, bool(direct_key))
     if cache_key in _model_cache:
         return _model_cache[cache_key]
 
-    model = ChatOpenAI(
+    model: Any = ChatOpenAI(
         model=model_name,
-        api_key=api_key,
+        api_key=env["AI_GATEWAY_API_KEY"],
         base_url=base_url,
         temperature=0.0,
         timeout=300,
         streaming=True,
     )
+    if direct_key:
+        fallback = ChatOpenAI(
+            model=str(env.get("DEEPSEEK_MODEL") or "deepseek-chat"),
+            api_key=direct_key,
+            base_url=str(env.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com/v1").rstrip("/"),
+            temperature=0.0,
+            timeout=300,
+            streaming=True,
+        )
+        model = QuotaFailoverModel(model, fallback)
     _model_cache[cache_key] = model
     return model

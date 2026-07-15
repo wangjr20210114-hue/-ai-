@@ -1,31 +1,159 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { useSSEChat } from './hooks/useSSEChat';
+import { useWebSocket } from './hooks/useWebSocket';
+import { useAppState } from './store/appState';
 import Header from './components/common/Header';
 import ChatInterface from './components/chat/ChatInterface';
 import MyPanel from './components/profile/MyPanel';
-import LocationConsent from './components/profile/LocationConsent';
-import { useSSEChat } from './hooks/useSSEChat';
+import DebugPanel from './components/common/DebugPanel';
+import EdgeOnePlatformPanel from './components/profile/EdgeOnePlatformPanel';
+import { isEdgeOne } from './services/auth';
 import type { ChatClient } from './services/chatClient';
-import { useAppState } from './store/appState';
+import type { RefObject } from 'react';
+import ConversationSidebar from './components/conversation/ConversationSidebar';
+
+const LEFT_PANE_MIN = 190;
+const LEFT_PANE_MAX = 420;
+const RIGHT_PANE_MIN = 280;
+const RIGHT_PANE_MAX = 520;
+const CENTER_PANE_MIN = 440;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+function storedNumber(key: string, fallback: number) {
+  try {
+    const value = Number(localStorage.getItem(key));
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
   const { theme } = useAppState();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [leftPaneWidth, setLeftPaneWidth] = useState(() => storedNumber('yuanbao-left-pane-width', 252));
+  const [rightPaneWidth, setRightPaneWidth] = useState(() => storedNumber('yuanbao-right-pane-width', 340));
+  const [rightPanelOpen, setRightPanelOpen] = useState(() => {
+    try {
+      return localStorage.getItem('yuanbao-right-panel-open') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     document.documentElement.setAttribute('theme-mode', theme);
   }, [theme]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('yuanbao-left-pane-width', String(leftPaneWidth));
+      localStorage.setItem('yuanbao-right-pane-width', String(rightPaneWidth));
+      localStorage.setItem('yuanbao-right-panel-open', String(rightPanelOpen));
+    } catch {
+      // Local preferences are optional.
+    }
+  }, [leftPaneWidth, rightPaneWidth, rightPanelOpen]);
+
+  const startResize = (side: 'left' | 'right') => (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (window.innerWidth <= 1180) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const initialWidth = side === 'left' ? leftPaneWidth : rightPaneWidth;
+
+    const resize = (pointerEvent: PointerEvent) => {
+      const bodyWidth = bodyRef.current?.getBoundingClientRect().width || window.innerWidth;
+      if (side === 'left') {
+        const max = Math.min(LEFT_PANE_MAX, bodyWidth - (rightPanelOpen ? rightPaneWidth : 0) - CENTER_PANE_MIN);
+        setLeftPaneWidth(clamp(initialWidth + pointerEvent.clientX - startX, LEFT_PANE_MIN, max));
+      } else {
+        const max = Math.min(RIGHT_PANE_MAX, bodyWidth - leftPaneWidth - CENTER_PANE_MIN);
+        setRightPaneWidth(clamp(initialWidth + startX - pointerEvent.clientX, RIGHT_PANE_MIN, max));
+      }
+    };
+
+    const stop = () => {
+      document.documentElement.classList.remove('is-resizing-workspace');
+      window.removeEventListener('pointermove', resize);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+    };
+
+    document.documentElement.classList.add('is-resizing-workspace');
+    window.addEventListener('pointermove', resize);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+  };
+
+  const resizeWithKeyboard = (side: 'left' | 'right') => (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const delta = event.key === 'ArrowRight' ? 16 : -16;
+    if (side === 'left') {
+      setLeftPaneWidth((width) => clamp(width + delta, LEFT_PANE_MIN, LEFT_PANE_MAX));
+    } else {
+      setRightPaneWidth((width) => clamp(width - delta, RIGHT_PANE_MIN, RIGHT_PANE_MAX));
+    }
+  };
+
+  const workspaceStyle = {
+    '--left-pane-width': `${leftPaneWidth}px`,
+    '--right-pane-width': `${rightPaneWidth}px`,
+  } as CSSProperties;
+
   return (
     <div className="app-shell">
-      <Header />
-      <div className="app-body">
+      <Header
+        onToggleSidebar={() => setSidebarOpen((value) => !value)}
+        rightPanelOpen={rightPanelOpen}
+        onToggleRightPanel={() => setRightPanelOpen((value) => !value)}
+      />
+      <div className="app-body" ref={bodyRef} style={workspaceStyle}>
+        <ConversationSidebar client={client} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <div
+          className="workspace-resizer workspace-resizer-left"
+          role="separator"
+          aria-label="调整对话列表宽度"
+          aria-orientation="vertical"
+          tabIndex={0}
+          onPointerDown={startResize('left')}
+          onKeyDown={resizeWithKeyboard('left')}
+        />
         <ChatInterface client={client} />
-        <MyPanel />
+        {rightPanelOpen && (
+          <>
+            <div
+              className="workspace-resizer workspace-resizer-right"
+              role="separator"
+              aria-label="调整右侧工作区宽度"
+              aria-orientation="vertical"
+              tabIndex={0}
+              onPointerDown={startResize('right')}
+              onKeyDown={resizeWithKeyboard('right')}
+            />
+            {isEdgeOne ? <EdgeOnePlatformPanel /> : <MyPanel />}
+          </>
+        )}
       </div>
-      <LocationConsent />
+      {!isEdgeOne && <DebugPanel />}
     </div>
   );
 }
 
-export default function App() {
+function MakersApp() {
   return <AppLayout client={useSSEChat()} />;
 }
+
+function LocalApp() {
+  return <AppLayout client={useWebSocket()} />;
+}
+
+function App() {
+  return isEdgeOne ? <MakersApp /> : <LocalApp />;
+}
+
+export default App;

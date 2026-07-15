@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getOrCreateConversationId, makersConversationHeaders } from './conversation';
+import { createConversationId, getOrCreateConversationId, makersConversationHeaders, setActiveConversationId } from './conversation';
 
 describe('getOrCreateConversationId', () => {
   beforeEach(() => {
@@ -16,16 +16,30 @@ describe('getOrCreateConversationId', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it('persists one conversation id for every Makers endpoint', () => {
-    const first = getOrCreateConversationId();
-    const second = getOrCreateConversationId();
+    const first = getOrCreateConversationId(true);
+    const second = getOrCreateConversationId(true);
     expect(first).toBe(second);
     expect(first.length).toBeGreaterThan(10);
   });
 
   it('migrates the first EdgeOne branch legacy key', () => {
     localStorage.setItem('eo_conv_id', 'legacy-conversation');
-    expect(getOrCreateConversationId()).toBe('legacy-conversation');
+    expect(getOrCreateConversationId(true)).toBe('legacy-conversation');
     expect(localStorage.getItem('yuanbao.conversationId')).toBe('legacy-conversation');
+  });
+
+  it('uses the backend default conversation in local mode', () => {
+    localStorage.setItem('yuanbao.conversationId', 'makers-conversation');
+    expect(getOrCreateConversationId(false)).toBe('default-conversation');
+  });
+
+  it('remembers an explicitly selected local conversation', () => {
+    setActiveConversationId('conv-local-history');
+    expect(getOrCreateConversationId(false)).toBe('conv-local-history');
+  });
+
+  it('creates collision-resistant ids for fresh conversations', () => {
+    expect(createConversationId()).not.toBe(createConversationId());
   });
 
   it('uses the Makers conversation header for every agent endpoint', () => {
