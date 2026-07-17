@@ -1,86 +1,79 @@
-# 项目基线说明
+# EdgeOne Makers 能力基线
 
-> **状态更新（2026-07-11）**：本文件记录的是改造前 M0–M2 基线，已归档。当前实现已完成主动 Runtime、Supervisor、Collector、ModelGateway、Memory/Feedback/Usage、本地安全和备份恢复等核心改造。请以 [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) 和根目录 [`README.md`](../README.md) 为当前事实来源。
+> 基线提交：`d8d3c745a93e1009062cf2b16e152593746bc5b2`
+> 评估日期：2026-07-17
+> 生产目标：EdgeOne Makers 是唯一线上运行时；FastAPI/SQLite 只作为迁移期间的历史能力参考。
 
-## 基线目标
+## 1. 基线原则
 
-本基线保留当前已有的前后端功能、Agent 抽象、旅游/搜索/论文等新增模块，作为后续主动式 Agent 改造的唯一源码起点。
+1. “功能不缩水”指用户能完成的任务、持久数据、安全确认和故障恢复语义不缩水，不要求保留旧 URL、WebSocket 或 SQLite 表。
+2. 代码存在不等于可交付；只有进入 Makers 生产入口、通过自动化并完成预览环境验证的能力才标记为可部署。
+3. 平台已有的运行时、会话、检查点、对象存储、定时任务、模型网关和可观测能力直接复用。
+4. 外部副作用必须保留确认、冻结快照、幂等账本和未知结果阻断。
+5. 旧数据在迁移校验通过前不得删除。
 
-本次基线整理只处理仓库卫生、状态说明和实施计划，不修改现有业务行为，也不把本地运行数据纳入版本控制。
+## 2. 当前用户能力
 
-## 纳入基线
+| 能力 | 代码状态 | 部署状态 | 主要事实源 |
+| --- | --- | --- | --- |
+| 多会话聊天、SSE、停止、刷新恢复 | 已实现并测试 | 待本分支预览复验 | `agents/chat`、`agents/messages`、`cloud-functions/conversations` |
+| 联网图文回答 | 已实现并测试 | 依赖 WSA、视觉模型配置 | `agents/_shared/rich_search.py` |
+| 地点、地图、道路路线、费用估算 | 已实现并测试 | 依赖腾讯地图服务端/前端 Key | `agents/places`、`agents/routes`、`agents/_shared/tencent_location.py` |
+| 日程 CRUD 与确认式变更 | 已实现并测试 | 待预览复验 | `agents/workspace`、LangGraph Store |
+| 腾讯会议创建 | 官方 API 适配已实现 | 最后阶段可选；未配置时不暴露工具 | `agents/_shared/side_effects.py` |
+| 文生图、图生图、版本、Blob、ZIP | 已实现并测试 | 依赖混元 Key | `agents/image`、`ImageStudioCard.tsx` |
+| PDF 上传、阅读库、论文助读 | 已实现核心链路 | PDF only；无 DOCX/OCR | `cloud-functions/files`、`library`、`papers`、`agents/reader` |
+| 主动日程/天气/路线提醒 | 已实现并测试 | EdgeOne Cron 需无浏览器线上终验 | `agents/proactive`、`proactive-tick` |
+| Notification、免打扰、每日上限、稍后提醒 | 已实现并测试 | 待预览复验 | `agents/_shared/proactive.py` |
+| Memory、Feedback、Rule、Token 预算 | 已实现并测试 | 待预览复验 | `agents/intelligence` |
+| 持久工作流、失败阻断、重试与补偿 | 已实现并测试 | 待预览复验 | `agents/_shared/proactive.py` |
+| 单用户/多用户身份 | 已实现并测试 | 个人单用户无需 Neon；多用户 A/B 隔离待线上终验 | `cloud-functions/auth`、`auth/current-user.js`、`agents/_shared/auth.py` |
+| SQLite 历史数据迁移 | 导出/导入链已实现并测试 | 真实数据数量、哈希、抽样回读待执行 | `tools/export_sqlite.py`、`agents/migration` |
+| 业务健康视图 | 已实现 | Makers/CLS 告警待控制台配置 | `agents/system` |
 
-- FastAPI 后端、React 前端和 SQLite 数据访问代码。
-- `agent/` 中的事件、计划、策略、运行时、响应器和技能注册机制。
-- `agents/travel/` 中的旅游领域实现。
-- `skills/` 中的 Chat、Search、Image、Meeting、Travel、Paper、Translation 技能实现。
-- 当前前端交互和样式实现。
-- 环境变量示例、依赖清单和项目说明。
+## 3. 已知未完成项
 
-## 不纳入基线
+### P0：已在本分支完成，待 CI 平台复核
 
-- `.env` 和任何真实 API 密钥。
-- SQLite 数据库、WAL/SHM 文件和用户上传内容。
-- `backend/venv`、`frontend/node_modules` 和构建产物。
-- `.codebuddy`、`.playwright-cli` 等本地工具缓存。
-- Python、测试、类型检查和覆盖率缓存。
+- CI 已以 Makers Agent、Cloud Functions 和 EdgeOne 构建作为发布门槛。
+- Neon 已统一为 `db/001_users.sql` 一份 Schema。
+- 根 Python 直接依赖已锁定版本。
+- 当前架构、能力基线、部署和迁移计划已有唯一事实源。
 
-## 2026-07-10 M1 验证状态
+### P1：代码阻塞已解除，线上验收未完成
 
-| 检查项 | 结果 | 说明 |
-| --- | --- | --- |
-| 后端源码编译 | 通过 | 排除随项目复制的虚拟环境后，Python 源码可编译 |
-| 后端应用导入 | 通过 | `backend/main.py` 可成功导入并创建 FastAPI 应用 |
-| 前端正式构建 | 通过 | TypeScript 与 Vite 8 生产构建通过 |
-| 前端 lint | 通过 | ESLint 零错误、零警告 |
-| 自动化测试 | 通过 | 后端 13 个 unittest、前端 3 个 Vitest 用例通过 |
-| 生产依赖审计 | 通过 | `npm audit --omit=dev` 为 0 漏洞 |
-| 浏览器视觉冒烟 | 通过 | 实测消息发送、刷新恢复、WebSocket 重连和后端进程重启恢复 |
+- 腾讯会议已改用官方服务端 API，外部 Meeting Bridge 和设备登录态已移除。
+- 本分支未完成真实 EdgeOne 预览部署、环境校验、Cron 和双用户隔离终验。
+- SQLite 迁移工具已完成，真实旧库迁移与 Preview 回读尚未执行。
 
-## M0 已完成内容
+### P2：产品增强但不阻塞核心迁移
 
-- 修复全部前端类型和 lint 问题，没有关闭质量规则。
-- 引入 Vitest 和后端标准库测试入口，覆盖 reducer、策略、运行时和迁移器。
-- 增加 GitHub Actions CI，在提交和拉取请求上执行后端编译/测试及前端 lint/测试/构建。
-- 引入带版本表、事务和幂等行为的 SQLite 迁移器，现有数据库可被版本化接管。
-- 增加 `backend/requirements.lock`，前端继续使用 `package-lock.json`。
-- 升级 Vite、Vitest 和 PDF.js，消除已发现的生产及开发依赖漏洞。
-- 修复路线 CSS 缺失选择器和路线坐标类型错误。
+- DOC/DOCX 转换、扫描 PDF OCR、页码级引用。
+- 论文长任务的可恢复分块索引与全文处理。
+- 阅读库 JSON 索引的并发写冲突防护。
+- 前端 PDF、KaTeX、地图进一步动态拆包。
+- 邮件、系统日历和企业 IM 的真实授权连接器。
 
-## M1 已完成内容
+## 4. 零缩水验收门槛
 
-- 创建并持久化固定 `local-user` 与 `default-conversation`，前端不再生成随机 session。
-- 新增 conversations/messages API，完整 UI 消息及技能元数据可在刷新、重连和重启后恢复。
-- WebSocket 连接恢复时从数据库重建模型对话历史。
-- 新增真实 PDF 上传：文件签名、50MB 限制、500 页限制、加密检测和文本提取。
-- 使用 SHA-256 去重、随机存储名、路径隔离和持久 files 索引。
-- files 索引仍在但磁盘文件丢失时，同哈希 PDF 可沿用原文件 ID 恢复，不破坏已有引用。
-- 论文下载、阅读、分析和问答接口可从 files 表回源，不再依赖内存缓存。
-- 启动时兼容迁移旧随机 session 数据及已收藏的旧论文文件。
-- 兼容 M0 前的旧 `messages(session_id, scenario, ...)` 表：保留原表并幂等导入默认会话。
-- 旅游计划、日程、论文收藏等旧 API 保留 session 参数兼容性，但服务端统一按 `local-user` 读写和校验归属。
+- 所有基线能力有至少一个自动化用例和一个预览环境用例。
+- 生产入口不存在活动 FastAPI、Uvicorn、SQLite、`/api` 或 WebSocket fallback。
+- 会议、日程等高风险副作用重复确认不会重复执行。
+- Provider 超时或结果未知时进入人工核对，不能直接重试。
+- Conversation、Workspace、Blob、Intelligence、Proactive 和连接器 Secret 按用户隔离。
+- 浏览器关闭时 EdgeOne Cron 仍能推进 `last_tick`。
+- 从全新 clone 只依赖文档声明的环境变量即可构建和部署。
 
-## M2 实施中内容
+## 5. 当前自动化基线
 
-- migration 3 新增 `agent_events`、`agent_runs`、`agent_observations` 和 `pending_actions`。
-- 新增持久 Runtime Repository，覆盖事件去重、Run 状态迁移、观察记录和有限重试。
-- PendingAction 使用规范化参数快照、SHA-256 快照哈希、版本确认和唯一幂等键。
-- 新增 Run 查询、待确认 Action 列表、确认、取消和重试 API。
-- 已覆盖确认版本冲突、重复确认、过期联动、取消和有限重试测试；会议/生图执行链尚未迁移。
+2026-07-17 本地结果：
 
-## 已知核心限制
+- Makers Agent：53 项通过。
+- SQLite 导出工具：2 项通过。
+- Cloud Functions：9 项通过。
+- 前端 Vitest：22 项通过。
+- ESLint：通过。
+- EdgeOne 模式生产构建：通过。
+- 已知非阻塞项：主 JS chunk 约 1.36 MB。
 
-1. 当前只有用户消息会真实触发 Agent；定时、天气、文件等事件尚无采集器和后台调度器。
-2. 持久 Runtime 数据层和 API 已建立，但现有 Orchestrator 仍使用内存 Runtime，尚未完成接线。
-3. 会议和生图的旧确认按钮仍直接调用 REST，尚未迁移到 PendingAction 执行链。
-4. 通用 PDF 已真实上传并提取文本，但“文件到达即主动摘要”需在 M3 接入事件调度。
-5. 默认监听地址、CORS 和无认证接口不适合暴露到局域网。
-6. README 中部分主动服务、偏好学习和成本追踪描述仍超前于实现。
-
-## 基线使用规则
-
-- 后续改造以 `docs/PROACTIVE_AGENT_REFACTOR_PLAN.md` 为准。
-- 每个里程碑必须独立通过构建、测试和验收后再进入下一阶段。
-- 新增副作用操作必须使用持久化 Action、确认快照和幂等键。
-- 不继续扩充新 Skill，直到持久化运行时、主动触发和确认闭环完成。
-- 个人版保持单进程 FastAPI + SQLite，不引入不必要的分布式组件。
+这些结果不替代真实 Provider、平台 Cron、多用户和预览部署验收。

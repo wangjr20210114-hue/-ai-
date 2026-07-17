@@ -1,6 +1,6 @@
 """Stop endpoint — abort a running conversation."""
 
-from ..shared.auth import require_user, scoped_conversation_id
+from .._shared.auth import require_user, scoped_conversation_id
 
 async def handler(ctx):
     identity = require_user(ctx)

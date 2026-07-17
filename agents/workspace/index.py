@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import time
+import uuid
 
-from ..shared.side_effects import create_tencent_meeting, generate_image, resolve_image_reference
-from ..shared.proactive import ingest_external_signal, load_proactive_state, save_proactive_state
-from ..shared.auth import require_user, scoped_conversation_id
-from ..shared.workspace import (
+from .._shared.side_effects import create_tencent_meeting, generate_image, resolve_image_reference
+from .._shared.proactive import ingest_external_signal, load_proactive_state, save_proactive_state
+from .._shared.auth import require_user, scoped_conversation_id
+from .._shared.workspace import (
     active_map_payload,
     apply_calendar_changes,
     begin_action_execution,
@@ -75,7 +76,53 @@ async def handler(ctx):
                 public_action(item) for item in state.get("actions", {}).values()
                 if str(item.get("status") or "") in active_statuses
             ]
-            return _response(state, actions=active_actions[-30:])
+            return _response(
+                state,
+                actions=active_actions[-30:],
+                travel_plans=sorted(
+                    state.get("travel_plans", {}).values(),
+                    key=lambda item: int(item.get("updated_at") or item.get("created_at") or 0),
+                    reverse=True,
+                ),
+            )
+
+        if operation == "save_travel_plan":
+            raw = body.get("plan") or {}
+            if not isinstance(raw, dict):
+                raise ValueError("旅行计划格式无效")
+            title = str(raw.get("title") or "").strip()[:160]
+            destination = str(raw.get("destination") or "").strip()[:120]
+            if not title or not destination:
+                raise ValueError("旅行计划必须包含标题和目的地")
+            plans = state.setdefault("travel_plans", {})
+            plan_id = str(raw.get("id") or f"travel_{uuid.uuid4().hex}")[:120]
+            previous = plans.get(plan_id) if isinstance(plans.get(plan_id), dict) else {}
+            now = int(time.time())
+            plan = {
+                "id": plan_id,
+                "title": title,
+                "departure": str(raw.get("departure") or "").strip()[:120],
+                "destination": destination,
+                "days": max(1, min(60, int(raw.get("days") or 1))),
+                "travel_style": str(raw.get("travel_style") or "").strip()[:120],
+                "scenery_preference": str(raw.get("scenery_preference") or "").strip()[:240],
+                "budget": str(raw.get("budget") or "").strip()[:120],
+                "extra_notes": str(raw.get("extra_notes") or "").strip()[:1000],
+                "markdown_content": str(raw.get("markdown_content") or "")[:100_000],
+                "baike_info": raw.get("baike_info") if isinstance(raw.get("baike_info"), dict) else {},
+                "created_at": int(previous.get("created_at") or now),
+                "updated_at": now,
+            }
+            plans[plan_id] = plan
+            state = await save_workspace(store, workspace_id, state)
+            return _response(state, travel_plan=plan, travel_plans=list(state["travel_plans"].values()))
+
+        if operation == "delete_travel_plan":
+            plan_id = str(body.get("plan_id") or "")
+            if state.setdefault("travel_plans", {}).pop(plan_id, None) is None:
+                raise ValueError("旅行计划不存在")
+            state = await save_workspace(store, workspace_id, state)
+            return _response(state, deleted_plan_id=plan_id, travel_plans=list(state["travel_plans"].values()))
 
         if operation == "activate_map":
             action = get_action(state, str(body.get("action_id") or ""))

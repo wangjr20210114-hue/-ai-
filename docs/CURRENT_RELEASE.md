@@ -1,139 +1,74 @@
-# 当前线上版本
+# 当前发布记录
 
-> 本文只记录已部署版本，不代表后续目标设计。完整能力分级和改造计划见 [`CURRENT_ARCHITECTURE_AND_REFACTOR_PLAN.md`](CURRENT_ARCHITECTURE_AND_REFACTOR_PLAN.md)。
+> 本文件只记录有证据的部署事实。当前代码能力以 [`BASELINE.md`](BASELINE.md) 为准，后续工作以 [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md) 为准。
 
-> 主动式 Agent 现状与差距评估见 [`CURRENT_ARCHITECTURE_CAPABILITIES_AND_PROACTIVE_GAP.md`](CURRENT_ARCHITECTURE_CAPABILITIES_AND_PROACTIVE_GAP.md)。该文档严格区分线上可用、代码存在但生产不可达和仅规划能力。
-
-本文记录当前 EdgeOne Makers 生产版本的用户可见能力、构建方式和发布检查项。
-
-## 生产环境
+## Makers 项目与当前部署
 
 - 项目：`ai-active-agent`
 - Project ID：`makers-0oeuhire655w`
-- 生产地址：[https://ai-active-agent-tndu0xxa.edgeone.cool](https://ai-active-agent-tndu0xxa.edgeone.cool)
-- 最近部署：2026-07-16，Deployment ID `dpjior00pw2i`
-- 最近验证：2026-07-16，生产域名、数据函数与 Agent 路由均通过线上冒烟
+- 地址：[https://ai-active-agent-tndu0xxa.edgeone.cool](https://ai-active-agent-tndu0xxa.edgeone.cool)
+- 当前生产域名：`ai-active-agent-tndu0xxa.edgeone.cool`；2026-07-18 已发布本改造分支，首页返回 200；动态接口仍回退为静态首页，不能作为功能验收证据。
+- 当前改造分支：`codex/edgeone-makers-refactor`。
+- 当前生产已覆盖为本改造部署 `dptvxaubmrso`，但仍有平台动态路由回退阻塞。
 
-## 本版主要变化
+历史记录来自原分支文档；尚未证明其与当前改造提交完全一致。
 
-### 2026-07-16 多会话、图生图与富搜索性能修复
+## 2026-07-17 改造部署证据
 
-- “我的阅读”通过 React Portal 打开全屏论文助读，脱离右栏定位和宽度上下文。
-- 每个会话保留独立 SSE Client、进行中消息和本地消息缓存；切换会话不再调用 `/stop`，不同会话可同时运行。
-- 本地持久化最近 100 个会话索引与每个会话最近 60 条消息；远端列表采用合并策略，避免 Makers 最终一致性窗口把旧会话误标为新对话。
-- 移除消息恢复响应里的全局历史 Action；工作区 `get` 只返回待处理/运行中 Action，解决图片版本积累后 `/messages` 和 `/workspace` 的 413。
-- 图生图改用 `/image` SSE Agent，生成期间每 5 秒心跳；优先复用 Provider HTTPS 原图，过期时从 Blob 读取原图重试。
-- 生图等待与最终图片工坊使用一致的 560px/固定最小高度布局，状态文案变化不再反复改变消息形状。
-- 事实 SearchPro 与视觉 SearchPro 并行执行，页面媒体和 HY-Vision 视觉复核继续保持有界并行，并在搜索元数据中记录阶段耗时。
-- 受控 WSA 基准：串行等价 2187ms，并行 1112ms，关键路径减少 1075ms（约 49%）。生产富搜索实测总计 11643ms：搜索 4135ms、页面媒体 822ms、视觉复核 6686ms。
-- 线上验收：两个会话同时请求均完成并分别恢复 2 条消息；图生图 21.9 秒内收到 2 次心跳并成功生成第三个版本；消息和工作区端点均由 413 恢复为 200。
+| 环境 | Deployment ID | 结论 |
+| --- | --- | --- |
+| Preview | `dpimno6wz2yc` | 构建成功；项目级 Edge Middleware 在线返回 545，已移除。 |
+| Preview | `dp0r3vm5d3rn` | 构建成功；根页面 200，但动态路径被静态页面回退。 |
+| Preview | `dpy9xifv8nhw` | 构建成功；共享/测试模块已排除，CLI 只构建 12 条真实 Agent 路由；根页面 200，`/auth/user`、`/workspace`、`/system`、`/library` 仍返回静态 HTML。 |
+| Production | `dptvxaubmrso` | 2026-07-18 构建、上传与发布成功；首页 200，但认证、资料库、工作区和系统接口仍返回静态 HTML。控制台确认该部署只登记了 63 个静态资源，`函数` 与 `Agents` 页签均为空，CLI 构建出的 Cloud Functions 和 12 个 Agent 路由没有被平台注册。 |
 
-### 2026-07-16 生图、论文协议与 PDF 修复
+本地 `edgeone makers dev` 对同一构建产物验证通过：`/auth/user`、`/library`，以及携带 `makers-conversation-id` 的 `/workspace`、`/system` 均为真实 JSON 200。平台 Preview 路由回退仍待控制台日志或生产发布验证。根据官方文档，Preview 应可用于部署验证，且下划线前缀目录不会生成 Agent 路由；当前现象已作为平台阻塞记录，不能把 Preview 的“部署成功”误报为线上功能验收。
 
-- 中间工具调用自述和 DSML Provider 协议不再进入 SSE 或历史消息；DSML 响应会在适配层转换为标准 LangChain tool call 继续执行。
-- 工具达到轮次预算后执行无工具收尾，结果不足时自然说明，不再返回 recursion limit、空回答或继续搜索的占位话术。
-- 当前北京时间同时注入能力路由器和主模型；论文作者、年份和数量作为主动模块约束传递到底层工具。
-- 论文卡严格叠加用户原始 `author/year/limit`，富搜索页面中的偶然 PDF 不再自动成为卡片。
-- 周志华 2026 年 5 篇论文线上验收：恰好 5 篇，年份均为 2026，作者均包含 Zhi-Hua Zhou，无 DSML/错误。
-- 富搜索经 HY-Vision 选出的视觉图片由运行时直接交给混元生图，不依赖模型复制 URL；周星驰卡通头像验收实际使用了 1 张参考图。
-- 生图 Provider 同轮重试复用同一 `group_id`，前端始终合并为一个“图片工坊”；最终回答不披露参考图、面部分析或搜索策略。
-- 图片工坊使用明显的 `<` / `>` 轮播键，初次生成和版本修改统一使用分阶段显影动画。
-- PDF.js 从 `.mjs` URL 改为 Vite Worker 实例；线上 worker 返回 `200 application/javascript`，解决 EdgeOne `.mjs` 404 导致的无限转圈。
-- 论文卡提供“全屏阅读 / 下载论文 / arXiv”三个独立操作；PDF Blob 响应为 `application/pdf`、`inline` 且文件头通过 `%PDF-` 校验。
+## 已记录的线上能力
 
-### 2026-07-16 交互与论文链修复
+- 多会话并行聊天、SSE 心跳、停止和消息恢复。
+- WSA 富搜索、网页媒体抽取和 HY-Vision 复核。
+- 腾讯地点、地图、道路路线和日程工作区。
+- 文生图、图生图、版本轮播、Blob 归档和 ZIP 下载。
+- PDF 上传、阅读库、论文检索和全屏助读。
+- 日历、主动提醒入口、记忆、预算和持久工作流的代码链路。
 
-- 主动提醒移入左侧会话栏；“我的阅读”移动到右侧日历下方，左下角增加自动/手动整理设置。
-- 新建对话不再同步等待远程 `/stop`；当前已有空白新对话时直接复用，切换立即完成。
-- 右栏使用宽度、位移和透明度过渡收放；右栏与主题图标放大。
-- 图片工作室始终提供左右轮播键，编辑提示根据当前版本动态生成；初次生图与版本修改均增加显影/绘制动画。
-- 现实人物、地点和物体生图先经富搜索与 HY-Vision 视觉筛选，再把最多 3 张真实图片交给 `hy-image-v3.0` 作为参考。
-- 论文检索先走普通富搜索，不再强制从 arXiv 开始；可下载 arXiv/公开 PDF 自动生成“全屏阅读 / 下载论文”双按钮。
-- arXiv 补充检索按富搜索得到的准确标题逐篇匹配，标题相似度不足时不生成卡片；图状态机具有轮次工具预算，避免向用户暴露 recursion limit。
-- PDF 阅读器先挂载页面并渐进渲染，再异步提取段落；移除收藏和批量术语按钮，增加浏览器全屏显示。
-- 阅读库支持自动类型文件夹、新建、重命名、手动移动及文件夹 ZIP 下载；现有条目首次读取时自动迁移。
+## 当前改造待发布
 
-### 连续可调工作区
+- 文档唯一事实源和零缩水基线。
+- Makers 生产链 CI 与依赖锁定。
+- Neon 唯一 Schema。
+- 单用户无数据库部署路径与多用户 Neon 可选路径。
+- SQLite 到 Makers Store/Blob 的一次性迁移链。
+- 腾讯会议官方 API 适配（可选，不阻塞个人部署）。
+- Provider 未知结果的人工核对状态。
 
-- 左侧会话、中间对话和右侧工作区采用无缝连续布局，不再以三张带外边距的圆角卡片分隔。
-- 左右分隔线支持鼠标、触控笔拖拽，也支持方向键微调。
-- 左右栏宽度保存到浏览器本地偏好；刷新后继续使用上次宽度。
-- 右栏可从顶栏收起和恢复；窄屏继续使用抽屉式会话列表，并隐藏非必要右栏。
+## 已完成的发布前检查
 
-### 稳定的搜索流式反馈
+- EdgeOne CLI：`1.6.13`，账号登录有效。
+- 本地分支已关联 Makers 项目 `ai-active-agent`。
+- 项目已有 Makers AI Gateway 等核心 Provider 变量。
+- 个人部署改用 `AUTH_MODE=single_user`；`AI_GATEWAY_MODEL` 有代码默认值。
+- Neon/JWT 仅在开放多用户时需要，腾讯会议为最后阶段可选连接器。
+- Agent 单元测试：53 通过；迁移工具：2 通过；Node 平台测试：9 通过；前端测试：22 通过；ESLint、类型构建、`git diff --check` 通过。
+- CLI 1.6.13 成功构建 Node Functions、Python LangGraph Agents 与静态前端；最后一次构建仅含 12 个真实 Agent 路由。
+- 本地 Makers 联调完成，不启动 FastAPI。
 
-- 搜索进度文本固定占位并在过长时省略，切换搜索词不会反复改变消息气泡宽度。
-- 流式令牌和状态更新使用同步滚动锚定，不会在每次更新时重启平滑滚动动画。
-- 用户主动向上浏览历史消息后，不再被每个流式更新强制拉回底部。
+生产发布会替换现有线上版本；必须在发布后立即复测本节所列四个端点和完整功能清单。变量真实值不得写入仓库。
 
-### Makers 行程工作区
+## 已知边界
 
-- 支持地点搜索、右侧地图展示和路线查询。
-- Agent 生成日程和腾讯会议操作时继续要求确认；用户明确要求生图时直接执行。
-- 会话列表与消息恢复使用 Makers 平台存储；生产环境无需启动旧 FastAPI 服务。
+- DOC/DOCX、扫描 PDF OCR 和页码级引用未实现。
+- PDF、KaTeX 和地图仍使主 JS chunk 约 1.36 MB。
+- 真实 EdgeOne Cron、多用户 A/B 隔离、WAF/频控和 CLS 告警仍需线上终验。
+- Preview 与 Production 的动态路由当前均被静态页面回退。控制台已确认不是业务处理异常，而是部署未注册任何 Cloud Function/Agent；下一步应改用新建 Makers 项目验证，或将改造分支推送到 GitHub 后采用平台 Git 构建链，绕过当前项目的直接上传注册问题。
+- SQLite 迁移工具已完成代码测试，但仓库中没有真实旧数据库，尚未执行数量/哈希/抽样回读。
 
-### 图片工作室
+## 下一次发布必须记录
 
-- 默认使用 `hy-image-v3.0`，支持基于任一历史版本继续修改；纯文生图在 v3 未开通时自动回退 `hy-image-lite`。
-- 生成图片复制到 Makers Blob，图片 Action 保留组 ID、父版本和模型结果。
-- 前端支持版本轮播、缩略图切换、单图下载和无额外依赖的 ZIP 批量下载。
-
-### 我的阅读与论文助读
-
-- 上传 PDF 后在浏览器端读取正文结构，自动区分论文和普通 PDF，并写入跨会话“我的阅读”。
-- 普通 PDF 使用浏览器阅读；论文自动打开助读模块。
-- 支持原生 TextLayer 精确选词、翻译、总结、术语/公式解释、结构化全文分析、分块全文翻译和基于正文问答。
-- 支持普通富搜索、公开 PDF 和严格标题匹配的 arXiv 补充搜索；下载的论文直接归档到 Makers Blob 和“我的阅读”。
-
-### 日历和主动服务
-
-- 点击日期后，当日安排从右侧滑入并覆盖月历；返回按钮恢复月历，不再额外占用一张卡片。
-- 空日历格恢复普通透明底色，仅有安排、今天和选中状态使用轻量强调。
-- 右栏根据日程冲突、跨地点紧凑衔接和 24 小时内安排生成主动提醒入口。
-- 顶栏移除无效菜单和平台实现文案，右栏收起改为图标按钮。
-
-## 当前已知边界
-
-- 生产搜索使用自建 `rich_search` 工具（WSA SearchPro + 网页媒体抽取 + HY-Vision 视觉筛选），不是平台原生 `web_search`。
-- DOC/DOCX 转 PDF 尚未上线：运行时没有 LibreOffice，也未配置受控 `DocumentConverter` Bridge；当前上传控件继续只接受 PDF，避免伪造转换成功。
-- OCR、后台定时 Collector/Notification、长期记忆治理和预算管理仍属于后续阶段。
-- PDF/KaTeX/地图仍在主包中，生产 JS 约 1.34MB；需要继续通过路由和组件级动态加载拆包。
-- “我的阅读”当前是单用户项目级索引；接入多用户身份后必须把 Blob key 和索引 namespace 改为真实 user id。
-
-## 构建与验证
-
-前端生产构建：
-
-```bash
-cd frontend
-npm test -- --run
-npm run lint
-npm run build -- --mode edgeone
-```
-
-项目部署：
-
-```bash
-edgeone makers env ls
-edgeone makers deploy --json
-```
-
-发布后应验证：
-
-1. 生产域名返回 HTTP `200`，首页静态资源加载正常。
-2. 新建对话、恢复历史对话和流式搜索可用。
-3. 拖拽两侧分隔线后刷新页面，宽度偏好仍然保留。
-4. 右栏能够收起与展开，窄屏会话抽屉可正常关闭。
-5. 地图、路线、日程和会议原能力不回退；日程/会议确认语义不变。
-6. 生图直接执行，图片修改生成新版本，批量下载得到可打开的 ZIP。
-7. PDF 自动进入我的阅读；论文打开助读，普通 PDF 不触发论文工具。
-
-## 仓库边界
-
-以下内容不得进入 Git：
-
-- `.env` 中的真实密钥和环境变量值。
-- `.edgeone/` 中由 CLI 生成的部署包、依赖副本和认证信息。
-- `frontend/dist/` 等可重复生成的构建产物。
-
-可提交的环境变量文档应只使用 `.env.example` 和 `frontend/.env.example`，并保持示例值为空或不可用的占位符。
+1. Git commit SHA。
+2. Deployment ID 与完整 Preview URL。
+3. 环境变量名称检查结果，不记录值。
+4. 自动化结果。
+5. 两用户隔离、无浏览器 Cron 和真实 Provider 冒烟结果。
+6. 回滚 Deployment ID。

@@ -1,22 +1,24 @@
 # 文档索引
 
-文档按“当前事实源”和“历史参考”分组。判断生产能力时不要仅依据 `backend/` 是否存在代码；EdgeOne Makers 构建只部署 `agents/`、`cloud-functions/` 和前端静态产物。
+本目录只保留 EdgeOne Makers 当前事实、执行计划和验收材料。历史 FastAPI 文档不再作为开发依据。
 
 ## 当前事实源
 
-- [`CURRENT_ARCHITECTURE_AND_REFACTOR_PLAN.md`](CURRENT_ARCHITECTURE_AND_REFACTOR_PLAN.md)：当前底层架构、线上/本地能力分级、架构评价和下一阶段统一改造计划。
-- [`CURRENT_ARCHITECTURE_CAPABILITIES_AND_PROACTIVE_GAP.md`](CURRENT_ARCHITECTURE_CAPABILITIES_AND_PROACTIVE_GAP.md)：当前能力边界和主动式 Agent 差距。
-- [`EDGEONE_PLATFORM_REUSE_AUDIT.md`](EDGEONE_PLATFORM_REUSE_AUDIT.md)：底层能力复用矩阵与禁止重复建设清单。
-- [`FASTAPI_RETIREMENT_MIGRATION.md`](FASTAPI_RETIREMENT_MIGRATION.md)：旧 FastAPI 最终迁移、淘汰项和新的发布门槛。
-- [`CURRENT_RELEASE.md`](CURRENT_RELEASE.md)：最近一次线上发布记录和已知边界。
-- [`EDGEONE_MAKERS_MIGRATION.md`](EDGEONE_MAKERS_MIGRATION.md)：Makers 平台映射、运行契约和部署检查。
-- [`RICH_ANSWER_ARCHITECTURE.md`](RICH_ANSWER_ARCHITECTURE.md)：旧本地图文协议的设计经验；生产富搜索的当前实现以统一计划和 `agents/shared/rich_search.py` 为准。
+- [`ARCHITECTURE.md`](ARCHITECTURE.md)：唯一目标架构与状态所有权。
+- [`BASELINE.md`](BASELINE.md)：当前功能、条件能力、缺口和零缩水门槛。
+- [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md)：按 P0–P3 执行的改造计划。
+- [`DEPLOYMENT.md`](DEPLOYMENT.md)：环境变量、构建、Preview、终验与回滚。
+- [`DATA_MIGRATION.md`](DATA_MIGRATION.md)：SQLite 只读导出和 Makers Store/Blob 导入。
+- [`LEGACY_FASTAPI_CAPABILITIES.md`](LEGACY_FASTAPI_CAPABILITIES.md)：旧用户结果的迁移对照，不是目标技术方案。
+- [`EDGEONE_PLATFORM_REUSE_AUDIT.md`](EDGEONE_PLATFORM_REUSE_AUDIT.md)：平台能力复用与禁止重复建设清单。
+- [`CURRENT_RELEASE.md`](CURRENT_RELEASE.md)：最近已知发布和待复验项。
+- [`MAKERS_PROACTIVE_IMPLEMENTATION_STATUS.md`](MAKERS_PROACTIVE_IMPLEMENTATION_STATUS.md)：主动运行时实现状态。
+- [`MULTI_USER_CUTOVER.md`](MULTI_USER_CUTOVER.md)：多用户切换步骤。
 
-## 历史/本地兼容参考
+## 文档维护规则
 
-- `IMPLEMENTATION_STATUS.md`、`PROACTIVE_AGENT_REFACTOR_PLAN.md`、`BASELINE.md`：FastAPI + SQLite 主动 Runtime 的实现和历史计划。
-- `implementation_handoff/`：旧本地链的阶段性交接材料。
-- `最新分支能力差距审查与测试CASE.md`、`v4测试用例表.md`、`开发日志.md`：v4 本地版审计、测试和开发记录。
-- `TRAVEL_MAP_SEARCH_AGENT_REFACTOR_PLAN.md`：地图/日程迁移前的计划；其中多数 Phase 0–3 已实现，剩余事项已并入当前统一计划。
-
-历史文档仍可用于复用领域模型、测试场景和失败经验，但不得把其中“已完成”直接解释为 Makers 线上已可用。
+1. 架构变化更新 `ARCHITECTURE.md`。
+2. 功能状态变化更新 `BASELINE.md`。
+3. 阶段进度更新 `MIGRATION_PLAN.md`。
+4. 每次 Preview/生产发布更新 `CURRENT_RELEASE.md`。
+5. 不再新增以 FastAPI 路由或 SQLite 表为目标的计划文档。

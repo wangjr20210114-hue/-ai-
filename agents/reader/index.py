@@ -1,7 +1,7 @@
 """Focused AI operations for the Makers PDF/paper reader."""
 
 from ..chat._llm import get_model
-from ..shared.auth import require_user
+from .._shared.auth import require_user
 
 
 PROMPTS = {

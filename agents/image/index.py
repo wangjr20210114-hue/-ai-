@@ -4,9 +4,9 @@ from __future__ import annotations
 import asyncio
 import time
 
-from ..shared.side_effects import generate_image, resolve_image_reference
-from ..shared.auth import require_user, scoped_conversation_id
-from ..shared.workspace import (
+from .._shared.side_effects import generate_image, resolve_image_reference
+from .._shared.auth import require_user, scoped_conversation_id
+from .._shared.workspace import (
     USER_WORKSPACE_ID,
     begin_action_execution,
     finish_provider_call,

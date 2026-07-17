@@ -23,6 +23,9 @@ export interface WorkspaceResponse {
   action?: WorkspaceAction;
   actions?: WorkspaceAction[];
   changed?: Array<ScheduleItem & { deleted?: boolean }>;
+  travel_plan?: TravelPlan;
+  travel_plans?: TravelPlan[];
+  deleted_plan_id?: string;
 }
 
 export async function workspaceOperation(

@@ -1,15 +1,7 @@
 import { useState } from 'react';
 import { Button, Tag, MessagePlugin, Collapse } from 'tdesign-react';
 import { CheckIcon, DeleteIcon } from 'tdesign-icons-react';
-import {
-  deleteSchedule,
-  deleteTravelPlan,
-  listSchedules,
-  saveSchedule,
-  saveTravelPlan,
-  updateSchedule,
-  updateTravelPlan,
-} from '../../services/api';
+import { workspaceOperation } from '../../services/api';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { TravelPlan, ScheduleItem } from '../../types';
 import MarkdownRenderer from '../common/MarkdownRenderer';
@@ -28,7 +20,7 @@ interface Props {
 
 /** 旅游计划卡片：展示 Markdown 行程 + 百科信息 + 写入日程按钮。 */
 export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isSaved = false, onSaved, onDeleted }: Props) {
-  const { sessionId } = useAppState();
+  const { conversationId } = useAppState();
   const dispatch = useAppDispatch();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(isSaved);
@@ -38,54 +30,55 @@ export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isS
     setSaving(true);
     try {
       if (saved) {
-        await updateTravelPlan(sessionId, plan.id, plan);
-        dispatch({ type: 'UPDATE_PLAN', payload: plan });
+        const savedPlan = await workspaceOperation(conversationId, 'save_travel_plan', { plan });
+        const updated = savedPlan.travel_plan || plan;
+        dispatch({ type: 'UPDATE_PLAN', payload: updated });
         if (scheduleId) {
-          const schedule: Partial<ScheduleItem> = {
-            title: plan.title,
-            category: 'travel',
-            duration_days: plan.days,
-            location: plan.destination,
-            description: `${plan.departure} → ${plan.destination}，${plan.travel_style}`,
-            markdown_content: plan.markdown_content,
-          };
-          await updateSchedule(sessionId, scheduleId, schedule);
+          const response = await workspaceOperation(conversationId, 'direct_calendar_changes', {
+            changes: [{
+              operation: 'update', schedule_id: scheduleId,
+              event: {
+                title: plan.title, category: 'travel',
+                description: `${plan.departure} → ${plan.destination}，${plan.travel_style}`,
+              },
+            }],
+          });
+          dispatch({ type: 'SET_SCHEDULES', payload: response.schedules });
         }
         MessagePlugin.success('日程已更新');
       } else {
-        const result = await saveTravelPlan(sessionId, plan);
-        plan.id = result.plan_id;
-        dispatch({ type: 'ADD_PLAN', payload: plan });
+        const savedPlan = await workspaceOperation(conversationId, 'save_travel_plan', { plan });
+        const persisted = savedPlan.travel_plan || plan;
+        plan.id = persisted.id;
+        dispatch({ type: 'ADD_PLAN', payload: persisted });
 
-        // 同时写入通用日程（总览）
-        const schedResult = await saveSchedule(sessionId, {
-          title: plan.title,
-          category: 'travel',
-          start_time: startTs,
-          duration_days: plan.days,
-          location: plan.destination,
-          description: `${plan.departure} → ${plan.destination}，${plan.travel_style}`,
-          markdown_content: plan.markdown_content,
-        });
-        setScheduleId(schedResult.schedule_id);
-
-        // 写入解析后的每日详细日程项
-        if (parsedSchedules && parsedSchedules.length > 0) {
-          for (const sched of parsedSchedules) {
-            await saveSchedule(sessionId, sched);
+        const changes: Array<Record<string, unknown>> = [];
+        if (startTs > 0) {
+          changes.push({
+            operation: 'create',
+            event: {
+              title: plan.title, category: 'travel', start_time: startTs,
+              duration_minutes: Math.max(60, plan.days * 24 * 60), location: plan.destination,
+              description: `${plan.departure} → ${plan.destination}，${plan.travel_style}`,
+            },
+          });
+        }
+        for (const schedule of parsedSchedules || []) {
+          if (Number(schedule.start_time || 0) > 0 && schedule.title) {
+            changes.push({ operation: 'create', event: schedule });
           }
         }
-
-        // 刷新右侧面板日程列表
-        const schedules = await listSchedules(sessionId);
-        dispatch({ type: 'SET_SCHEDULES', payload: schedules });
+        const scheduleResponse = changes.length
+          ? await workspaceOperation(conversationId, 'direct_calendar_changes', { changes })
+          : null;
+        if (scheduleResponse) {
+          dispatch({ type: 'SET_SCHEDULES', payload: scheduleResponse.schedules });
+          const created = scheduleResponse.changed?.find((item) => !item.deleted);
+          if (created) setScheduleId(created.id);
+        }
 
         setSaved(true);
-        if (schedResult.conflicts && schedResult.conflicts.length > 0) {
-          MessagePlugin.warning(`已写入日程，但检测到 ${schedResult.conflicts.length} 个时间冲突，请在日程表中查看`);
-        } else {
-          MessagePlugin.success('已写入我的日程');
-        }
+        MessagePlugin.success(changes.length ? '旅行计划和日程已保存到 Makers Workspace' : '旅行计划已保存；可继续让 Agent 安排具体日期');
       }
       onSaved?.(plan);
     } catch {
@@ -98,9 +91,12 @@ export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isS
   const handleDelete = async () => {
     if (!saved) return;
     try {
-      await deleteTravelPlan(sessionId, plan.id);
+      await workspaceOperation(conversationId, 'delete_travel_plan', { plan_id: plan.id });
       if (scheduleId) {
-        await deleteSchedule(sessionId, scheduleId);
+        const response = await workspaceOperation(conversationId, 'direct_calendar_changes', {
+          changes: [{ operation: 'delete', schedule_id: scheduleId }],
+        });
+        dispatch({ type: 'SET_SCHEDULES', payload: response.schedules });
       }
       dispatch({ type: 'DELETE_PLAN', payload: plan.id });
       if (scheduleId) {

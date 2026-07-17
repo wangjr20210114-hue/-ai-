@@ -1,11 +1,11 @@
 # EdgeOne Makers 平台能力复用审计
 
-> 审计日期：2026-07-16  
+> 审计日期：2026-07-17
 > 原则：平台正式托管能力或腾讯官方参考实现优先；只自研主动式 Agent 的业务语义。
 
 ## 1. 结论
 
-当前生产架构不再自建会话数据库、检查点数据库、对象存储、Cron、模型网关或通用 Trace。多用户认证也不再采用 Blob 用户表与自创 PBKDF2/JWT 协议，而采用腾讯官方 `makers-agents-auth` 的分层：Edge Middleware、Cloud Functions、Neon、bcrypt、HttpOnly JWT。
+当前生产架构不再自建会话数据库、检查点数据库、对象存储、Cron、模型网关或通用 Trace。多用户认证也不再采用 Blob 用户表与自创 PBKDF2/JWT 协议，而采用腾讯官方 `makers-agents-auth` 的核心分层：Cloud Functions、Neon、bcrypt、HttpOnly JWT；所有数据入口在自身运行时校验身份并做租户隔离。
 
 仍需由应用实现的是 Makers 没有提供的主动业务层：Event、Observation、Policy、Run、Notification Inbox、用户可确认 Action、幂等账本和持久 Workflow。这些不是通用基础设施的重复实现，而是产品领域模型。
 
@@ -44,19 +44,19 @@
 ## 4. 平台配置而非代码任务
 
 1. 开启 EdgeOne WAF、Bot 防护和登录/API 频控。
-2. 配置 `AUTH_MODE=multi_user`、Neon `DATABASE_URL`、32 字符以上的 `JWT_SECRET` 和 `PROACTIVE_SCHEDULE_SECRET`。
-3. 执行 `db/001_users.sql`。
+2. 个人项目配置 `AUTH_MODE=single_user`；仅在开放多用户时配置 Neon `DATABASE_URL`、32 字符以上的 `JWT_SECRET` 和 `PROACTIVE_SCHEDULE_SECRET`。
+3. 仅多用户模式执行 `db/001_users.sql`。
 4. 将 Agent Trace、Token、错误率和函数日志接入 Makers/CLS 可观测与告警。
 5. Provider 密钥只使用 Makers 环境变量，不写入 Blob、前端或 Git。
 
 ## 5. 官方依据
 
-- [Makers Agent 用户认证最佳实践](https://cloud.tencent.com/document/product/1552/125470)
-- [EdgeOne Pages Blob](https://cloud.tencent.com/document/product/1552/117428)
-- [EdgeOne Pages Functions 定时任务](https://cloud.tencent.com/document/product/1552/125606)
-- [Makers AI Gateway](https://cloud.tencent.com/document/product/1552/125045)
-- [Makers Agent Traces 全链路可观测](https://cloud.tencent.com/document/product/1552/125869)
-- [腾讯云 CLS Agent 可观测](https://cloud.tencent.com/document/product/614/126791)
+- [Makers Agent 鉴权](https://cloud.tencent.com/document/product/1552/132747)
+- [Makers Blob](https://cloud.tencent.com/document/product/1552/131425)
+- [`edgeone.json` 与定时任务](https://cloud.tencent.com/document/product/1552/127389)
+- [Makers Models](https://cloud.tencent.com/document/product/1552/132760)
+- [Makers 可观测性](https://cloud.tencent.com/document/product/1552/127410)
+- [CLS Agent 可观测详情](https://cloud.tencent.com/document/product/614/133517)
 
 ## 6. 审计边界
 

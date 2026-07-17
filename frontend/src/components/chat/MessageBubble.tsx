@@ -3,9 +3,8 @@ import { Button, MessagePlugin } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ChatMessage, TravelPlan, SkillInfo, MeetingResult, ScheduleItem, WorkspaceAction } from '../../types';
 import type { ChatClient } from '../../services/chatClient';
-import { cancelPendingAction, confirmPendingAction, waitForPendingAction, workspaceOperation } from '../../services/api';
+import { workspaceOperation } from '../../services/api';
 import TravelPlanCard from '../travel/TravelPlanCard';
-import TravelChatAssistant from '../travel/TravelChatAssistant';
 import PaperListCard from '../paper/PaperListCard';
 import ImageStudioCard from '../image/ImageStudioCard';
 import MarkdownRenderer from '../common/MarkdownRenderer';
@@ -65,10 +64,6 @@ export default function MessageBubble({ message }: Props) {
   const [travelPlan, setTravelPlan] = useState<TravelPlan | null>(message.travelPlanData || null);
   const [travelStartTs] = useState<number | undefined>(message.travelStartTs);
   const [parsedSchedules] = useState<Partial<ScheduleItem>[]>(message.parsedSchedules || []);
-  const [showTravelAssistant, setShowTravelAssistant] = useState(
-    message.autoShowTravelAssistant || message.skill?.intent === 'travel'
-  );
-  const [assistantCompleted, setAssistantCompleted] = useState(false);
 
   // 会议状态
   const [meetingCreating, setMeetingCreating] = useState(false);
@@ -99,23 +94,6 @@ export default function MessageBubble({ message }: Props) {
     dispatch(followUpDraftAction(question));
   };
 
-  const handleTravelPlanComplete = (plan: TravelPlan, startTs?: number, parsed?: Partial<ScheduleItem>[]) => {
-    setShowTravelAssistant(false);
-    setAssistantCompleted(true);
-    dispatch({
-      type: 'ADD_MESSAGE',
-      payload: {
-        id: 'ai-travel-' + Date.now(),
-        role: 'ai',
-        content: '为你生成了以下旅游行程，确认无误可以写入我的日程：',
-        ts: Date.now(),
-        travelPlanData: plan,
-        travelStartTs: startTs,
-        parsedSchedules: parsed || [],
-      },
-    });
-  };
-
   type ImageActionResult = { ok: boolean; image_url?: string; prompt?: string; error?: string };
   const [imageGenerating, setImageGenerating] = useState(false);
   const [imageResult, setImageResult] = useState<ImageActionResult | null>(null);
@@ -129,8 +107,12 @@ export default function MessageBubble({ message }: Props) {
     if (!actionId || actionVersion < 1) {
       throw new Error('该建议卡缺少后端 Action 快照，请重新发送需求');
     }
-    await confirmPendingAction(actionId, actionVersion);
-    return waitForPendingAction(actionId);
+    const response = await workspaceOperation(conversationId, 'confirm_action', {
+      action_id: actionId,
+      version: actionVersion,
+    });
+    if (!response.action) throw new Error('Makers Workspace 未返回操作结果');
+    return response.action;
   };
 
   const handleCreateMeeting = async () => {
@@ -138,7 +120,7 @@ export default function MessageBubble({ message }: Props) {
     setMeetingStatusText('已确认，等待后台 Executor...');
     try {
       const action = await executeConfirmedAction();
-      const data = action.result_json?.data || {};
+      const data = action.result || {};
       if (action.status === 'succeeded') {
         const result: MeetingResult = {
           ok: true,
@@ -152,7 +134,7 @@ export default function MessageBubble({ message }: Props) {
         MessagePlugin.success('腾讯会议创建成功！');
       } else {
         const error = action.error || '创建失败';
-        setMeetingResult({ ok: false, error, need_auth: error.includes('授权') });
+        setMeetingResult({ ok: false, error });
         MessagePlugin.warning(error);
       }
     } catch (error) {
@@ -169,7 +151,7 @@ export default function MessageBubble({ message }: Props) {
     setImageGenerating(true);
     try {
       const action = await executeConfirmedAction();
-      const data = action.result_json?.data || {};
+      const data = action.result || {};
       if (action.status === 'succeeded') {
         const result: ImageActionResult = {
           ok: true,
@@ -195,7 +177,10 @@ export default function MessageBubble({ message }: Props) {
   const handleCancelAction = async () => {
     if (!actionId) return;
     try {
-      await cancelPendingAction(actionId);
+      await workspaceOperation(conversationId, 'cancel_action', {
+        action_id: actionId,
+        version: actionVersion,
+      });
       setSkillActioned(true);
       MessagePlugin.success('已取消该操作');
     } catch (error) {
@@ -260,7 +245,8 @@ export default function MessageBubble({ message }: Props) {
 
     switch (intent) {
       case 'travel':
-        setShowTravelAssistant(true);
+        handleFollowUp(compatSkill?.content || '请继续帮我规划这次旅行，并在需要时询问缺少的信息');
+        MessagePlugin.info('旅行需求已填入输入框；发送后由 Makers Agent 继续规划');
         break;
       case 'meeting':
         handleCreateMeeting();
@@ -297,10 +283,6 @@ export default function MessageBubble({ message }: Props) {
   const searchStatus = typeof message.skill?.data?.statusText === 'string'
     ? message.skill.data.statusText
     : '正在搜索';
-  const dataDestination = typeof compatSkill?.data?.destination === 'string'
-    ? compatSkill.data.destination
-    : undefined;
-
   return (
     <div className={`msg-row ${isUser ? 'user' : 'ai'}`}>
       <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>{isUser ? '我' : 'AI'}</div>
@@ -378,22 +360,6 @@ export default function MessageBubble({ message }: Props) {
           )}
         </div>
 
-        {/* === 旅游：对话式助手 === */}
-        {!isUser && intent === 'travel' && showTravelAssistant && (
-          <div className="travel-chat-wrapper">
-            <TravelChatAssistant
-              initialDestination={
-                compatSkill?.params?.destination ||
-                compatSkill?.params?.user_message ||
-                dataDestination
-              }
-              userMessage={compatSkill?.params?.user_message || compatSkill?.params?.message}
-              onComplete={handleTravelPlanComplete}
-              onCancel={() => setShowTravelAssistant(false)}
-            />
-          </div>
-        )}
-
         {/* === 旅游：计划卡片 === */}
         {travelPlan && (
           <div style={{ marginTop: 12, maxWidth: '100%' }}>
@@ -446,137 +412,23 @@ export default function MessageBubble({ message }: Props) {
                 flexDirection: 'column',
                 alignItems: 'flex-start',
                 gap: 12,
-                borderColor: meetingResult.need_auth ? '#2b5aed' : 'var(--td-warning-color)',
-                background: meetingResult.need_auth
-                  ? 'linear-gradient(135deg, rgba(43,90,237,0.04), rgba(124,92,255,0.04))'
-                  : undefined,
+                borderColor: 'var(--td-warning-color)',
               }}
             >
-              {/* 标题行 */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 20 }}>
-                  {meetingResult.need_auth ? '🔐' : '⚠️'}
-                </span>
-                <span style={{ fontWeight: 600, fontSize: 14 }}>
-                  {meetingResult.need_auth ? '需要授权腾讯会议' : '创建失败'}
-                </span>
+                <span style={{ fontSize: 20 }}>⚠️</span>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>创建失败</span>
               </div>
-
-              {/* 需要授权 */}
-              {meetingResult.need_auth ? (
-                <>
-                  <div style={{ fontSize: 13, color: 'var(--app-text-2)', lineHeight: 1.7 }}>
-                    创建腾讯会议需要先完成一次授权（仅一次，之后永久生效）：
-                  </div>
-
-                  {/* 步骤引导 */}
-                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{
-                      display: 'flex', alignItems: 'center', gap: 10,
-                      padding: '10px 12px',
-                      background: 'var(--app-bg)',
-                      borderRadius: 8,
-                      border: '1px solid var(--app-border)',
-                    }}>
-                      <span style={{
-                        width: 22, height: 22, borderRadius: '50%',
-                        background: '#2b5aed', color: '#fff',
-                        fontSize: 12, fontWeight: 700,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        flexShrink: 0,
-                      }}>1</span>
-                      <code style={{
-                        fontSize: 12.5,
-                        fontFamily: 'ui-monospace, monospace',
-                        background: 'rgba(43,90,237,0.08)',
-                        padding: '4px 10px',
-                        borderRadius: 6,
-                        color: '#2b5aed',
-                        flex: 1,
-                      }}>
-                        tmeet auth login
-                      </code>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard?.writeText('tmeet auth login');
-                          MessagePlugin.success('已复制');
-                        }}
-                        style={{
-                          border: 'none', background: 'none', cursor: 'pointer',
-                          fontSize: 12, color: 'var(--app-text-3)', padding: '4px 8px',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        📋 复制
-                      </button>
-                    </div>
-
-                    <div style={{
-                      display: 'flex', alignItems: 'flex-start', gap: 10,
-                      padding: '10px 12px',
-                      background: 'var(--app-bg)',
-                      borderRadius: 8,
-                      border: '1px solid var(--app-border)',
-                    }}>
-                      <span style={{
-                        width: 22, height: 22, borderRadius: '50%',
-                        background: '#2b5aed', color: '#fff',
-                        fontSize: 12, fontWeight: 700,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        flexShrink: 0,
-                      }}>2</span>
-                      <span style={{ fontSize: 12.5, color: 'var(--app-text-2)', lineHeight: 1.6, paddingTop: 2 }}>
-                        浏览器会自动弹出扫码页面，用<span style={{ color: '#2b5aed', fontWeight: 600 }}>&nbsp;腾讯会议 APP&nbsp;</span>扫码授权
-                      </span>
-                    </div>
-
-                    <div style={{
-                      display: 'flex', alignItems: 'flex-start', gap: 10,
-                      padding: '10px 12px',
-                      background: 'var(--app-bg)',
-                      borderRadius: 8,
-                      border: '1px solid var(--app-border)',
-                    }}>
-                      <span style={{
-                        width: 22, height: 22, borderRadius: '50%',
-                        background: '#00a870', color: '#fff',
-                        fontSize: 12, fontWeight: 700,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        flexShrink: 0,
-                      }}>✓</span>
-                      <span style={{ fontSize: 12.5, color: 'var(--app-text-2)', lineHeight: 1.6, paddingTop: 2 }}>
-                        授权完成后，回来点击下方按钮即可创建会议
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* 重试按钮 */}
-                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                    <Button
-                      theme="primary"
-                      size="small"
-                      onClick={() => {
-                        setMeetingResult(null);
-                        handleCreateMeeting();
-                      }}
-                    >
-                      🔑 已授权，重新创建
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                /* 其他错误 */
-                <div className="travel-intent-text">
-                  <span className="travel-intent-icon">⚠️</span>
-                  <span style={{ fontSize: 13 }}>{meetingResult.error}</span>
-                </div>
-              )}
+              <div className="travel-intent-text">
+                <span className="travel-intent-icon">⚠️</span>
+                <span style={{ fontSize: 13 }}>{meetingResult.error}</span>
+              </div>
             </div>
           </div>
         )}
 
         {/* === 通用技能建议卡片（suggest 模式 + 未执行） === */}
-        {!isUser && compatSkill && compatSkill.mode !== 'immediate' && !showTravelAssistant && !travelPlan && !assistantCompleted && !meetingResult && !imageResult && !skillActioned && (
+        {!isUser && compatSkill && compatSkill.mode !== 'immediate' && !travelPlan && !meetingResult && !imageResult && !skillActioned && (
           <div className="followup-section">
             <div className="travel-intent-card">
               <div className="travel-intent-text">

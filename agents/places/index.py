@@ -1,7 +1,7 @@
 """POST /places: verified Tencent place autocomplete for direct UI edits."""
 
-from ..shared.tencent_location import search_verified_places
-from ..shared.auth import require_user
+from .._shared.tencent_location import search_verified_places
+from .._shared.auth import require_user
 
 
 async def handler(ctx):

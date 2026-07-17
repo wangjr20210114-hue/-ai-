@@ -1,6 +1,6 @@
 # EdgeOne Makers 主动式 Agent 实现状态
 
-> 更新日期：2026-07-16  
+> 更新日期：2026-07-17
 > 范围：当前 Makers 生产主链；不把 `backend/` 旧 FastAPI 能力计入完成度  
 > 状态：代码与本地回归完成，生产定时触发需在部署后终验
 
@@ -8,7 +8,7 @@
 
 本轮已经把系统从“页面内主动提示”改造成**可切换单用户/多用户的主动 Agent**：页面关闭后，EdgeOne cron 仍会触发后台扫描；Event、Run、Observation、Notification、工作流、记忆与反馈均持久化；高风险副作用仍需确认，并具备快照、幂等账本、未知结果阻断和人工补偿。
 
-多用户采用腾讯官方 `makers-agents-auth` 架构：Neon 用户唯一索引、bcrypt、HttpOnly `jwt_token`、Edge Middleware 早拒、Agent 二次验签和租户 namespace。生产切换仍需配置身份环境变量后在线终验。
+多用户采用腾讯官方 `makers-agents-auth` 架构：Neon 用户唯一索引、bcrypt、HttpOnly `jwt_token`、Cloud Function/Agent 入口验签和租户 namespace。生产切换仍需配置身份环境变量后在线终验。
 
 ## 2. P0：最小主动闭环
 
@@ -67,10 +67,11 @@
 
 ## 7. 自动化基线
 
-- Makers Agent：46 项通过。
+- Makers Agent：53 项通过。
+- SQLite 只读导出：2 项通过。
 - 前端：22 项通过（FastAPI/WebSocket 退役测试已删除）。
-- Cloud Functions 平台复用/安全契约：4 项通过。
-- 旧 FastAPI 已进入退役流程，不再作为 Makers 发布回归门槛；剩余迁移项见 `FASTAPI_RETIREMENT_MIGRATION.md`。
+- Cloud Functions 平台复用/安全契约：9 项通过。
+- 旧 FastAPI 不再作为 Makers 发布回归门槛；用户结果迁移见 [`LEGACY_FASTAPI_CAPABILITIES.md`](LEGACY_FASTAPI_CAPABILITIES.md)。
 - TypeScript/Vite 生产构建：通过。
 - ESLint：通过。
 - 已知非阻塞项：前端主 chunk 仍大于 500KB。

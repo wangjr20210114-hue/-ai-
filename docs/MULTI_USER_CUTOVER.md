@@ -1,7 +1,7 @@
 # 多用户生产切换手册
 
-> 模式：干净切换，不迁移旧 `local-user` 数据。  
-> 原则：先证明新身份链可用，再删除旧数据；任何阶段都不恢复 FastAPI。
+> 模式：先验证多用户身份链，再执行可校验的数据迁移。
+> 原则：未获得明确删除授权且迁移校验未通过前，不删除任何旧数据；任何阶段都不恢复 FastAPI。
 
 ## 1. 前置配置
 
@@ -31,19 +31,19 @@
 5. 工作流失败只生成一条补偿提醒；补偿前依赖步骤不推进；重试生成新的 attempt 去重键。
 6. 登出后受保护 Agent/Function 返回 401；篡改 Cookie、过期 JWT 和普通用户伪造系统 header 均失败。
 
-## 4. 旧数据清理
+## 4. 旧数据迁移与清理
 
-仅在第 3 节全部通过后执行：
+第 3 节全部通过后，先使用 P2 离线迁移工具导出并导入：
 
-1. 删除旧单用户 Conversation Store 中的全部会话。
-2. 删除 Blob 中旧全局 `library/`、`uploads/`、`papers/`、`generated/` 对象；保留 `tenants/`。
-3. 删除 LangGraph Store 的旧 namespace：
+1. 导出旧单用户 Conversation、Blob 与 LangGraph Store 清单。
+2. 导入到目标租户并比较对象数量、稳定 ID、内容哈希和抽样回读。
+3. 生成待清理清单，包含旧 Conversation、Blob 和以下 namespace：
    - `yuanbao_user_workspace_v1/local-user`
    - `yuanbao_proactive_v1/local-user`
    - `yuanbao_intelligence_v1/local-user`
-4. 删除临时 A/B 用户及其测试租户对象，再创建正式管理员。
+4. 只有迁移报告通过并得到明确删除授权后，才执行清理。
 
-清理是不可逆的，用户已明确允许放弃旧数据。实现不包含任何旧 namespace fallback，因此即使物理清理延迟，旧数据也不会进入新用户视图。
+实现不包含旧 namespace fallback，因此物理清理延迟不会让旧数据进入新用户视图。清理是不可逆操作，必须单独确认。
 
 ## 5. 无浏览器主动终验
 
@@ -57,4 +57,4 @@
 
 - 身份链失败：将 `AUTH_MODE` 临时切回 `single_user` 仅用于恢复服务，不恢复 FastAPI。
 - 新租户数据异常：停止 Cron 和写入，保留 Store/Blob 现场调查。
-- 旧数据已删除后不做数据回滚；功能回滚只能回到 Makers 单用户运行模式。
+- 数据迁移失败时停止新写入并保留两侧数据；不得以删除旧数据作为回滚手段。

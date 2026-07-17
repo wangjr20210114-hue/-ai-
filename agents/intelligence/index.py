@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..shared.intelligence import (
+from .._shared.intelligence import (
     confirm_memory,
     decide_rule,
     delete_memory,
@@ -12,8 +12,8 @@ from ..shared.intelligence import (
     rollback_memory,
     save_intelligence_state,
 )
-from ..shared.proactive import load_proactive_state, save_proactive_state, update_preferences
-from ..shared.auth import require_user
+from .._shared.proactive import load_proactive_state, save_proactive_state, update_preferences
+from .._shared.auth import require_user
 
 
 async def handler(ctx):

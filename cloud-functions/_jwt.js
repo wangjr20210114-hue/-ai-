@@ -1,5 +1,5 @@
 // Adapted from TencentEdgeOne/makers-agents-auth. Web Crypto keeps signing and
-// verification compatible with Edge Middleware and EdgeOne Functions.
+// verification compatible with EdgeOne Functions and Python Agent entry guards.
 export const COOKIE_NAME = 'jwt_token';
 export const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60;
 
@@ -12,8 +12,13 @@ const encodeBase64Url = (value) => {
 };
 const decodeBase64Url = (value) => {
   const text = String(value);
+  if (!text || !/^[A-Za-z0-9_-]+$/.test(text)) throw new Error('invalid base64url');
   const binary = atob(text.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - text.length % 4) % 4));
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  // Reject alternate encodings with ignored trailing bits. Otherwise changing
+  // the last JWT character can decode to the same signature bytes.
+  if (encodeBase64Url(bytes) !== text) throw new Error('non-canonical base64url');
+  return bytes;
 };
 
 async function importKey(secret, usage) {

@@ -5,10 +5,10 @@ from __future__ import annotations
 import time
 from collections import Counter
 
-from ..shared.intelligence import load_intelligence_state, usage_summary
-from ..shared.proactive import load_proactive_state
-from ..shared.workspace import load_user_workspace
-from ..shared.auth import require_user
+from .._shared.intelligence import load_intelligence_state, usage_summary
+from .._shared.proactive import load_proactive_state
+from .._shared.workspace import load_user_workspace
+from .._shared.auth import require_user
 
 
 async def handler(ctx):
@@ -84,7 +84,10 @@ async def handler(ctx):
             "search": bool(ctx.env.get("WSA_API_KEY")),
             "vision": bool(ctx.env.get("HUNYUAN_VISION_API_KEY") or ctx.env.get("HUNYUAN_IMAGE_API_KEY")),
             "map": bool(ctx.env.get("TENCENT_MAP_SERVER_KEY") or ctx.env.get("TENCENT_MAP_KEY")),
-            "meeting_bridge": bool(ctx.env.get("MEETING_BRIDGE_URL") and ctx.env.get("MEETING_BRIDGE_TOKEN")),
+            "meeting": all(bool(ctx.env.get(key)) for key in (
+                "TENCENT_MEETING_SECRET_ID", "TENCENT_MEETING_SECRET_KEY",
+                "TENCENT_MEETING_APP_ID", "TENCENT_MEETING_SDK_ID", "TENCENT_MEETING_USER_ID",
+            )),
         },
         "identity": {
             "mode": "multi_user" if str(ctx.env.get("AUTH_MODE") or "single_user") == "multi_user" else "single_user",

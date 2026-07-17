@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Tag, Loading, MessagePlugin } from 'tdesign-react';
-import { planRoute, type RoutePlanData } from '../../services/api';
+import { planMakersRoute, searchMakersPlaces } from '../../services/api';
+import { useAppState } from '../../store/appState';
+import type { MakersRoutePlan } from '../../types';
 
 interface Props {
   departure: string;
@@ -9,20 +11,21 @@ interface Props {
 
 /** 路线地图组件：调用腾讯位置服务显示旅游路线 + 费用估算。 */
 export default function RouteMap({ departure, destination }: Props) {
+  const { conversationId } = useAppState();
   const [loading, setLoading] = useState(true);
-  const [routeData, setRouteData] = useState<RoutePlanData | null>(null);
+  const [routeData, setRouteData] = useState<MakersRoutePlan | null>(null);
   const mapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetchRoute = async () => {
       setLoading(true);
       try {
-        const result = await planRoute(departure, destination);
-        if (result.error) {
-          MessagePlugin.warning(result.error);
-        } else {
-          setRouteData(result);
-        }
+        const [origins, destinations] = await Promise.all([
+          searchMakersPlaces(conversationId, departure),
+          searchMakersPlaces(conversationId, destination),
+        ]);
+        if (!origins[0] || !destinations[0]) throw new Error('未找到可验证的出发地或目的地');
+        setRouteData(await planMakersRoute(conversationId, [origins[0], destinations[0]]));
       } catch {
         MessagePlugin.error('路线规划失败');
       } finally {
@@ -30,7 +33,7 @@ export default function RouteMap({ departure, destination }: Props) {
       }
     };
     fetchRoute();
-  }, [departure, destination]);
+  }, [conversationId, departure, destination]);
 
   // 渲染腾讯地图（通过 JS API GL）
   useEffect(() => {
@@ -49,13 +52,13 @@ export default function RouteMap({ departure, destination }: Props) {
       const container = mapRef.current;
       if (!TMap || !container) return;
 
-      const originLoc = routeData.origin_location;
-      const destLoc = routeData.destination_location;
+      const originLoc = routeData.places[0];
+      const destLoc = routeData.places[routeData.places.length - 1];
       if (!originLoc || !destLoc) return;
 
       // 计算中心点和缩放
-      const centerLat = (originLoc.lat + destLoc.lat) / 2;
-      const centerLng = (originLoc.lng + destLoc.lng) / 2;
+      const centerLat = (originLoc.latitude + destLoc.latitude) / 2;
+      const centerLng = (originLoc.longitude + destLoc.longitude) / 2;
 
       const map = new TMap.Map(container, {
         center: new TMap.LatLng(centerLat, centerLng),
@@ -67,7 +70,7 @@ export default function RouteMap({ departure, destination }: Props) {
         map,
         geometries: [{
           id: 'origin',
-          position: new TMap.LatLng(originLoc.lat, originLoc.lng),
+          position: new TMap.LatLng(originLoc.latitude, originLoc.longitude),
         }],
       });
 
@@ -82,29 +85,26 @@ export default function RouteMap({ departure, destination }: Props) {
         geometries: [{
           id: 'destination',
           styleId: 'endpoint',
-          position: new TMap.LatLng(destLoc.lat, destLoc.lng),
+          position: new TMap.LatLng(destLoc.latitude, destLoc.longitude),
         }],
       });
 
       // 途经点 Marker
-      if (routeData.waypoint_locations) {
-        routeData.waypoint_locations.forEach((wp, i) => {
+      if (routeData.places.length > 2) {
+        routeData.places.slice(1, -1).forEach((wp, i) => {
           new TMap.MultiMarker({
             map,
             geometries: [{
               id: `wp-${i}`,
-              position: new TMap.LatLng(wp.lat, wp.lng),
+              position: new TMap.LatLng(wp.latitude, wp.longitude),
             }],
           });
         });
       }
 
       // 绘制路线 polyline
-      if (routeData.polyline && routeData.polyline.length > 0) {
-        const pts: unknown[] = [];
-        for (let i = 0; i < routeData.polyline.length; i += 2) {
-          pts.push(new TMap.LatLng(routeData.polyline[i], routeData.polyline[i + 1]));
-        }
+      if (routeData.path.length > 0) {
+        const pts = routeData.path.map((point) => new TMap.LatLng(point.latitude, point.longitude));
         new TMap.MultiPolyline({
           map,
           styles: {
@@ -147,7 +147,10 @@ export default function RouteMap({ departure, destination }: Props) {
   }
 
   if (!routeData) return null;
-  const segments = routeData.segments ?? [];
+  const segments = routeData.places.slice(1).map((place, index) => ({
+    from: routeData.places[index].name,
+    to: place.name,
+  }));
 
   return (
     <div className="route-map-container">
@@ -159,21 +162,9 @@ export default function RouteMap({ departure, destination }: Props) {
         <div className="route-info-header">
           <span className="route-info-title">🚗 路线信息</span>
           <Tag size="small" theme="primary" variant="light">
-            {routeData.total_distance_km ?? 0}km · {Math.round((routeData.total_duration_hours ?? 0) * 60)}分钟
+            {(routeData.distance_meters / 1000).toFixed(1)}km · {Math.round(routeData.duration_seconds / 60)}分钟
           </Tag>
         </div>
-
-        {/* 天气信息 */}
-        {routeData.weather && !routeData.weather.error && (
-          <div className="route-weather">
-            <span className="route-weather-icon">🌤</span>
-            <span className="route-weather-temp">{routeData.weather.temperature}°C</span>
-            <span className="route-weather-desc">{routeData.weather.weather}</span>
-            {routeData.weather.tips && (
-              <span className="route-weather-tips">{routeData.weather.tips}</span>
-            )}
-          </div>
-        )}
 
         {/* 路段详情 */}
         {segments.length > 0 && (
@@ -184,7 +175,7 @@ export default function RouteMap({ departure, destination }: Props) {
                 <div className="route-segment-content">
                   <div className="route-segment-route">{seg.from} → {seg.to}</div>
                   <div className="route-segment-meta">
-                    {(seg.distance / 1000).toFixed(1)}km · {(seg.duration / 3600).toFixed(1)}h
+                    已通过 Makers 路线服务验证
                   </div>
                 </div>
               </div>
@@ -193,22 +184,22 @@ export default function RouteMap({ departure, destination }: Props) {
         )}
 
         {/* 费用估算 */}
-        {routeData.cost_estimate && (
+        {routeData.fare && (
           <div className="route-cost">
             <div className="route-cost-title">💰 费用估算</div>
             <div className="route-cost-items">
               <div className="route-cost-item">
                 <span>自驾</span>
-                <span className="route-cost-value">约 ¥{routeData.cost_estimate.self_driving}</span>
+                <span className="route-cost-value">约 ¥{routeData.fare.self_driving.estimate}</span>
               </div>
               <div className="route-cost-item">
                 <span>打车</span>
-                <span className="route-cost-value">约 ¥{routeData.cost_estimate.taxi}</span>
+                <span className="route-cost-value">约 ¥{routeData.fare.taxi.low}–{routeData.fare.taxi.high}</span>
               </div>
-              {routeData.cost_estimate.toll > 0 && (
+              {routeData.fare.self_driving.toll > 0 && (
                 <div className="route-cost-item">
                   <span>过路费</span>
-                  <span className="route-cost-value">¥{routeData.cost_estimate.toll}</span>
+                  <span className="route-cost-value">¥{routeData.fare.self_driving.toll}</span>
                 </div>
               )}
             </div>

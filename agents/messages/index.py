@@ -2,8 +2,8 @@
 
 import json
 
-from ..shared.workspace import active_map_payload, load_user_workspace, public_action
-from ..shared.auth import require_user, scoped_conversation_id
+from .._shared.workspace import active_map_payload, load_user_workspace, public_action
+from .._shared.auth import require_user, scoped_conversation_id
 from ..chat._protocol import public_content
 
 
@@ -50,6 +50,14 @@ async def handler(ctx):
     stored_messages = (
         channel_values.get("messages", []) if isinstance(channel_values, dict) else []
     )
+    if not stored_messages and hasattr(ctx.store, "get_messages"):
+        # A legacy import is written through the native Conversation Store.
+        # Until the next chat turn seeds a LangGraph checkpoint, render that
+        # platform-owned history directly instead of creating a second store.
+        imported = await ctx.store.get_messages(
+            conversation_id=conversation_id, limit=100, order="asc"
+        )
+        stored_messages = imported if isinstance(imported, list) else _value(imported, "items", [])
 
     result = []
     schedules_by_id = {}

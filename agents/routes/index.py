@@ -1,7 +1,7 @@
 """POST /routes: server-side real-road route planning and fare estimate."""
 
-from ..shared.tencent_location import plan_verified_route
-from ..shared.auth import require_user
+from .._shared.tencent_location import plan_verified_route
+from .._shared.auth import require_user
 
 
 async def handler(ctx):

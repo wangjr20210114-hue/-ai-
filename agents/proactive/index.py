@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from ..shared.proactive import (
+from .._shared.proactive import (
     cancel_workflow,
     collect_workflow_signals,
     load_proactive_state,
@@ -19,8 +19,8 @@ from ..shared.proactive import (
     propose_workflow,
     process_schedule_signals,
 )
-from ..shared.intelligence import load_intelligence_state, record_feedback, save_intelligence_state
-from ..shared.auth import require_user
+from .._shared.intelligence import load_intelligence_state, record_feedback, save_intelligence_state
+from .._shared.auth import require_user
 
 
 async def handler(ctx):

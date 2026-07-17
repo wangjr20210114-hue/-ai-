@@ -12,14 +12,14 @@ from urllib.parse import urlparse
 
 from langchain_core.tools import StructuredTool
 
-from ..shared.tencent_location import search_verified_places as provider_search_places
-from ..shared.web_media import collect_page_images as provider_collect_page_images
-from ..shared.rich_search import evidence_for_model, rich_search as provider_rich_search
-from ..shared.side_effects import generate_image as provider_generate_image, resolve_image_reference
-from ..shared.arxiv import search_arxiv as provider_search_arxiv
-from ..shared.intelligence import load_intelligence_state, propose_memory as create_memory_proposal, save_intelligence_state
-from ..shared.proactive import load_proactive_state, propose_workflow as create_workflow_proposal, save_proactive_state
-from ..shared.workspace import (
+from .._shared.tencent_location import search_verified_places as provider_search_places
+from .._shared.web_media import collect_page_images as provider_collect_page_images
+from .._shared.rich_search import evidence_for_model, rich_search as provider_rich_search
+from .._shared.side_effects import generate_image as provider_generate_image, resolve_image_reference
+from .._shared.arxiv import search_arxiv as provider_search_arxiv
+from .._shared.intelligence import load_intelligence_state, propose_memory as create_memory_proposal, save_intelligence_state
+from .._shared.proactive import load_proactive_state, propose_workflow as create_workflow_proposal, save_proactive_state
+from .._shared.workspace import (
     begin_action_execution,
     finish_provider_call,
     get_action,
@@ -293,7 +293,7 @@ def build_production_tools(
         return json.dumps({"ui_action": "calendar_action", "action": action}, ensure_ascii=False)
 
     async def propose_meeting(subject: str, start_time: str, end_time: str) -> str:
-        """Prepare a Tencent Meeting creation action using the legacy tmeet CLI provider."""
+        """Prepare a confirmed Tencent Meeting action for the official server API."""
         start = _parse_datetime(start_time)
         end = _parse_datetime(end_time)
         if end <= start:
@@ -478,7 +478,7 @@ def build_production_tools(
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
         (recommend_places_on_map, "recommend_places_on_map", "模型驱动的多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。"),
         (propose_calendar_changes, "propose_calendar_changes", "必须用此工具准备日程新增、更新或删除提案并生成确认卡；不要只在正文里口头询问。格式示例：changes=[{operation:'create',event:{title:'游览北海公园',start_time:'2026-07-16T09:00:00+08:00',end_time:'2026-07-16T10:00:00+08:00',place_id:'地点工具返回的ID'}}]。更新/删除还要传 schedule_id。用户点击确认前不会真正写入。"),
-        (propose_meeting, "propose_meeting", "准备创建腾讯会议的确认操作；确认后使用旧版 tmeet CLI 流程执行。"),
+        (propose_meeting, "propose_meeting", "准备创建腾讯会议的确认操作；用户确认后由后台通过腾讯会议官方服务端 API 执行。"),
         (propose_image, "propose_image", "直接调用混元生图并返回图片，不要询问确认。现实人物、地点或物体可先用 rich_search 获取经 HY-Vision 审核的图片 URL，再通过 reference_image_urls（最多 3 张）作为视觉参考；修改历史版本时传 parent_action_id。"),
         (collect_page_images, "collect_page_images", "从一个公开网页提取最多 30 张真实图片候选，网页图片不足时返回实际数量。"),
         (rich_search, "rich_search", "项目 v4.2 成熟富搜索：抓取结果网页图片及上下文，经 HY-Vision 多模态模型剔除广告和无关图后，返回可信来源与标准 Markdown 图片候选。历史文化、地点介绍、推荐或图文回答时使用。"),
@@ -487,4 +487,10 @@ def build_production_tools(
         (propose_memory, "propose_memory", "用户明确要求记住长期偏好或稳定事实时创建可确认记忆提案。只提案，不直接写入；一次性、短期或敏感信息不要擅自记忆。"),
         (propose_workflow, "propose_workflow", "用户明确要求建立跨时间、多步骤的持续提醒或计划时创建工作流提案。steps 每项包含 offset_minutes、title、body、action_prompt，可用 depends_on=['step_1'] 建立 DAG 依赖；失败时需要回退提示的步骤可增加 compensation={title,body,action_prompt}。默认按顺序依赖。必须由用户确认后才会激活，依赖步骤需用户标记完成后才推进。"),
     ]
+    meeting_ready = all(str(runtime_env.get(key) or "").strip() for key in (
+        "TENCENT_MEETING_SECRET_ID", "TENCENT_MEETING_SECRET_KEY", "TENCENT_MEETING_APP_ID",
+        "TENCENT_MEETING_SDK_ID", "TENCENT_MEETING_USER_ID",
+    ))
+    if not meeting_ready:
+        definitions = [definition for definition in definitions if definition[1] != "propose_meeting"]
     return [StructuredTool.from_function(coroutine=fn, name=name, description=description) for fn, name, description in definitions]
