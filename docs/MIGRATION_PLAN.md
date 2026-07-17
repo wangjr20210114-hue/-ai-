@@ -31,7 +31,7 @@
 
 完成条件：新 Neon 项目只需执行一份 SQL。
 
-## P1：清除单仓库部署阻塞（核心代码完成，Preview 待验收）
+## P1：清除单仓库部署阻塞（完成）
 
 ### P1.1 可选腾讯会议连接器
 
@@ -46,7 +46,7 @@
 
 ### P1.2 EdgeOne 预览部署
 
-状态：项目已关联，Preview 和 Production 的本地 CLI 构建均生成 12 个业务路由；本地 Makers 运行时的认证、工作区、系统配置和资料库接口均返回 JSON。控制台确认线上部署只登记静态资源，Cloud Functions 与 Agents 均为空，因此动态路径回退为静态首页。下一步需通过新的 Makers 项目或平台 Git 构建链验证完整产物注册；详情见 `CURRENT_RELEASE.md`。
+状态：项目已关联 GitHub，并通过平台 Git 构建链完成 Preview 与 Production。控制台已登记 11 条 Cloud Functions 和 12 条 Agents；受保护访问链接显示“已连接”，历史会话、日程、路线、阅读库和系统运行记录读取通过。小时级 Cron 已按 Makers 最短 1 天限制改为每日 08:00；详情见 `CURRENT_RELEASE.md`。
 
 - 从目标分支创建独立 Makers Preview。
 - 校验当前身份模式必需环境变量、Blob 和 Conversation Store；仅多用户模式校验 Neon Schema。

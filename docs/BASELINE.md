@@ -16,15 +16,15 @@
 
 | 能力 | 代码状态 | 部署状态 | 主要事实源 |
 | --- | --- | --- | --- |
-| 多会话聊天、SSE、停止、刷新恢复 | 已实现并测试 | 待本分支预览复验 | `agents/chat`、`agents/messages`、`cloud-functions/conversations` |
+| 多会话聊天、SSE、停止、刷新恢复 | 已实现并测试 | Preview/Production 已连接并加载历史会话 | `agents/chat`、`agents/messages`、`cloud-functions/conversations` |
 | 联网图文回答 | 已实现并测试 | 依赖 WSA、视觉模型配置 | `agents/_shared/rich_search.py` |
 | 地点、地图、道路路线、费用估算 | 已实现并测试 | 依赖腾讯地图服务端/前端 Key | `agents/places`、`agents/routes`、`agents/_shared/tencent_location.py` |
-| 日程 CRUD 与确认式变更 | 已实现并测试 | 待预览复验 | `agents/workspace`、LangGraph Store |
+| 日程 CRUD 与确认式变更 | 已实现并测试 | Preview/Production 已加载持久日程 | `agents/workspace`、LangGraph Store |
 | 腾讯会议创建 | 官方 API 适配已实现 | 最后阶段可选；未配置时不暴露工具 | `agents/_shared/side_effects.py` |
 | 文生图、图生图、版本、Blob、ZIP | 已实现并测试 | 依赖混元 Key | `agents/image`、`ImageStudioCard.tsx` |
 | PDF 上传、阅读库、论文助读 | 已实现核心链路 | PDF only；无 DOCX/OCR | `cloud-functions/files`、`library`、`papers`、`agents/reader` |
 | 主动日程/天气/路线提醒 | 已实现并测试 | EdgeOne Cron 需无浏览器线上终验 | `agents/proactive`、`proactive-tick` |
-| Notification、免打扰、每日上限、稍后提醒 | 已实现并测试 | 待预览复验 | `agents/_shared/proactive.py` |
+| Notification、免打扰、每日上限、稍后提醒 | 已实现并测试 | 在线读取通过；真实 Cron 触发待跨日终验 | `agents/_shared/proactive.py` |
 | Memory、Feedback、Rule、Token 预算 | 已实现并测试 | 待预览复验 | `agents/intelligence` |
 | 持久工作流、失败阻断、重试与补偿 | 已实现并测试 | 待预览复验 | `agents/_shared/proactive.py` |
 | 单用户/多用户身份 | 已实现并测试 | 个人单用户无需 Neon；多用户 A/B 隔离待线上终验 | `cloud-functions/auth`、`auth/current-user.js`、`agents/_shared/auth.py` |
@@ -40,10 +40,10 @@
 - 根 Python 直接依赖已锁定版本。
 - 当前架构、能力基线、部署和迁移计划已有唯一事实源。
 
-### P1：代码阻塞已解除，线上验收未完成
+### P1：代码阻塞与核心线上验收已完成
 
 - 腾讯会议已改用官方服务端 API，外部 Meeting Bridge 和设备登录态已移除。
-- 本分支未完成真实 EdgeOne 预览部署、环境校验、Cron 和双用户隔离终验。
+- 本分支已完成真实 EdgeOne Preview/Production、动态路由登记和单用户核心读取验收；真实 Cron 和双用户隔离仍待专项终验。
 - SQLite 迁移工具已完成，真实旧库迁移与 Preview 回读尚未执行。
 
 ### P2：产品增强但不阻塞核心迁移
@@ -71,7 +71,7 @@
 - Makers Agent：53 项通过。
 - SQLite 导出工具：2 项通过。
 - Cloud Functions：9 项通过。
-- 前端 Vitest：22 项通过。
+- 前端 Vitest：24 项通过。
 - ESLint：通过。
 - EdgeOne 模式生产构建：通过。
 - 已知非阻塞项：主 JS chunk 约 1.36 MB。

@@ -70,13 +70,15 @@ edgeone makers env ls
 edgeone makers deploy --env preview --json
 ```
 
-保存完整 JSON 输出中的 Deployment ID 和 Preview URL。当前项目的 Preview 端点存在“静态页面回退覆盖动态路由”的已知平台问题：必须确认 `/auth/user` 返回 JSON、`/workspace` 返回 JSON 后，才可把 Preview 判定为通过；仅根页面 200 不算验收。
+推荐先把目标 Git 分支关联到 Makers 项目，再从控制台创建 Preview；平台 Git 构建链会执行 `edgeone makers ci` 并登记 Functions、Agents 和 Schedule。必须确认控制台“函数”和“Agents”页签有实际路由，并确认应用从“连接中”切换为“已连接”；仅根页面 200 不算验收。
 
-若 Preview 同样回退为 `index.html`，请在 Makers 控制台查看该 Deployment 的 Cloud Function/Agent 路由和调用日志；确认后才可以执行会替换当前线上版本的生产发布：
+若动态路径回退为 `index.html`，先检查构建日志中 `generate-routes` 是否完成。Makers 当前要求 Schedule 最短间隔为 1 天；违反限制会在生成 `routes.json` 前退出，只留下静态资源。Preview 验收通过后才可以执行会替换当前线上版本的生产发布：
 
 ```bash
 edgeone makers deploy --env production --json
 ```
+
+未绑定自定义域名时，默认 `edgeone.cool` 地址启用访问保护。请从 Deployment 的“预览”按钮获取 3 小时链接进行验收；需要长期公开访问时再绑定自定义域名。
 
 ## 6. 必测清单
 

@@ -2,7 +2,7 @@
 
 元宝是一个运行在腾讯云 EdgeOne Makers 上的多能力主动式 Agent。生产主链使用 Python LangGraph Agent、Makers AI Gateway、LangGraph checkpointer/store、Conversation Store、Cloud Functions、Blob 与平台 Cron；旧 FastAPI 已退役，不再作为生产 Transport 或发布回归门槛。
 
-Makers 项目生产域名：[https://ai-active-agent-tndu0xxa.edgeone.cool](https://ai-active-agent-tndu0xxa.edgeone.cool)。当前改造版本尚未覆盖生产；Preview 动态路由问题和每次部署证据见 [CURRENT_RELEASE.md](docs/CURRENT_RELEASE.md)。
+Makers 项目：`ai-active-agent`（`makers-0oeuhire655w`）。改造版本已由 Git 构建链发布到生产；未绑定自定义域名时，默认 `edgeone.cool` 地址需要从控制台“预览”获取 3 小时访问链接。部署证据见 [CURRENT_RELEASE.md](docs/CURRENT_RELEASE.md)。
 
 ## 当前生产能力
 
