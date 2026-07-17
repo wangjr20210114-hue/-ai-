@@ -3,11 +3,11 @@
  * 使用统一的 InfoCard 组件展示论文信息。
  */
 import { useState } from 'react';
-import { MessagePlugin } from 'tdesign-react';
+import { Button, MessagePlugin } from 'tdesign-react';
+import { DownloadIcon, FullscreenIcon } from 'tdesign-icons-react';
 import type { PaperInfo, ChatMessage } from '../../types';
-import { downloadPaper } from '../../services/paperApi';
+import { downloadPaper, paperFileUrl } from '../../services/paperApi';
 import InfoCard from '../common/InfoCard';
-import PaperInlineReader from './PaperInlineReader';
 import PaperFullReader from './PaperFullReader';
 
 interface Props {
@@ -27,30 +27,45 @@ export default function PaperListCard({ message }: Props) {
   const [downloaded, setDownloaded] = useState<Record<string, DownloadedPaper>>({});
   const [fullReader, setFullReader] = useState<DownloadedPaper | null>(null);
 
-  const handleDownload = async (paper: PaperInfo) => {
+  const ensureDownloaded = async (paper: PaperInfo): Promise<DownloadedPaper | null> => {
+    if (downloaded[paper.arxiv_id]) return downloaded[paper.arxiv_id];
     setDownloadingId(paper.arxiv_id);
-    MessagePlugin.info(`正在下载 ${paper.title.slice(0, 30)}...`);
     try {
-      const result = await downloadPaper(paper.arxiv_id, paper.title);
+      const result = await downloadPaper(paper.arxiv_id, paper.title, paper.pdf_url);
       if (result.error) {
         MessagePlugin.warning(result.error);
-        return;
+        return null;
       }
-      setDownloaded(prev => ({
-        ...prev,
-        [paper.arxiv_id]: {
+      const stored = {
           fileId: result.file_id,
           title: result.title,
           fileName: result.filename,
           arxivId: paper.arxiv_id,
-        },
-      }));
-      MessagePlugin.success('论文已下载，可在全屏阅读中收藏');
+        };
+      setDownloaded(prev => ({ ...prev, [paper.arxiv_id]: stored }));
+      return stored;
     } catch {
       MessagePlugin.error('下载失败');
+      return null;
     } finally {
       setDownloadingId(null);
     }
+  };
+
+  const openReader = async (paper: PaperInfo) => {
+    const stored = await ensureDownloaded(paper);
+    if (stored) setFullReader(stored);
+  };
+
+  const savePdf = async (paper: PaperInfo) => {
+    const stored = await ensureDownloaded(paper); if (!stored) return;
+    try {
+      const response = await fetch(paperFileUrl(stored.fileId));
+      if (!response.ok) throw new Error('文件下载失败');
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a'); link.href = url; link.download = stored.fileName || `${paper.title}.pdf`; link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) { MessagePlugin.error(error instanceof Error ? error.message : '文件下载失败'); }
   };
 
   if (papers.length === 0) return null;
@@ -61,7 +76,6 @@ export default function PaperListCard({ message }: Props) {
         📄 找到 {papers.length} 篇论文
       </div>
       {papers.map((paper, i) => {
-        const dl = downloaded[paper.arxiv_id];
         return (
           <div key={paper.arxiv_id + i}>
             <InfoCard
@@ -69,31 +83,17 @@ export default function PaperListCard({ message }: Props) {
               title={paper.title}
               snippet={paper.abstract_zh}
               sourceLabel="arXiv"
-              url={paper.arxiv_url}
               tags={[
                 { label: String(paper.year) },
                 { label: paper.citations },
-                { label: `arXiv:${paper.arxiv_id}` },
+                { label: paper.arxiv_id.startsWith('webpdf-') ? '公开 PDF' : `arXiv:${paper.arxiv_id}` },
               ]}
-              actionLabel={dl ? '全屏阅读' : '下载阅读'}
-              actionLoading={downloadingId === paper.arxiv_id}
-              onAction={() => {
-                if (dl) {
-                  setFullReader(dl);
-                } else {
-                  handleDownload(paper);
-                }
-              }}
+              extra={<div className="paper-card-actions">
+                <Button size="small" theme="primary" loading={downloadingId === paper.arxiv_id} icon={<FullscreenIcon />} onClick={() => void openReader(paper)}>全屏阅读</Button>
+                <Button size="small" variant="outline" loading={downloadingId === paper.arxiv_id} icon={<DownloadIcon />} onClick={() => void savePdf(paper)}>下载论文</Button>
+                {!paper.arxiv_id.startsWith('webpdf-') && <a href={paper.arxiv_url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}><Button size="small" variant="text">arXiv</Button></a>}
+              </div>}
             />
-            {dl && (
-              <PaperInlineReader
-                fileId={dl.fileId}
-                fileName={dl.fileName}
-                title={dl.title}
-                messageId={message.id}
-                onExpand={() => setFullReader(dl)}
-              />
-            )}
           </div>
         );
       })}

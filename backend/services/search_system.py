@@ -4,14 +4,13 @@
 1. 意图分类 → 决定搜哪些源
 2. 多源并行搜索 → 网页/微信/知乎/百科
 3. 评分排序 → 相关性 + 权威性 + 多样性
-4. 随机选择 → 高分结果中随机抽取，避免每次相同
-5. 图片提取 → 从网页中提取相关图片
+4. 确定性选择 → 稳定排序并约束来源多样性
+5. 媒体提取 → 图片与原始网页来源绑定
 
 设计参考：Perplexity 的多阶段流水线
 """
 from __future__ import annotations
 
-import random
 import re
 from typing import Any
 
@@ -23,8 +22,8 @@ from services.sogou_search_service import (
     wsa_search,
 )
 import asyncio
-import re
-import httpx
+
+from services.safe_http import request_public_url, safe_head_or_get, validate_public_url
 
 # ============================================================
 # 1. 意图分类
@@ -161,66 +160,118 @@ def score_result(result: dict[str, Any], query: str, source_count: dict[str, int
 # 3. 图片提取
 # ============================================================
 
-async def extract_images_from_results(results: list[dict[str, Any]]) -> list[str]:
-    """从搜索结果中提取图片URL。
+async def extract_media_candidates(results: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Extract images while preserving the source document relationship.
 
     来源：
-    1. 百科结果中的图片
-    2. 网页结果中尝试抓取页面内的图片（取前4条）
+    1. 百科/搜索结果中的 image 字段
+    2. 网页结果中抓取页面内的所有图片（前 6 条网页）
 
     注意：微信公众号头像属于微信公众平台版权资源，不提取使用。
     """
-    images: list[str] = []
+    candidates: list[dict[str, str]] = []
 
     for r in results:
-        # 百科图片
         if r.get("image"):
-            images.append(r["image"])
-        # 微信头像不提取（版权限制）
+            candidates.append(
+                {
+                    "url": str(r["image"]),
+                    "source_url": str(r.get("url") or r.get("article_url") or ""),
+                    "source_title": str(r.get("title") or ""),
+                    "source_type": str(r.get("source") or "baike"),
+                    "origin": "result_image",
+                }
+            )
 
-    # 尝试从前 4 条网页结果中提取图片（多提一条弥补移除头像的缺口）
-    web_results = [r for r in results if r.get("source") == "web" and r.get("url", "").startswith("http")][:4]
+    web_results = [r for r in results if r.get("url", "").startswith("http")][:10]
     if web_results:
-        tasks = [_extract_page_image(r["url"]) for r in web_results]
-        page_images = await asyncio.gather(*tasks, return_exceptions=True)
-        for img in page_images:
-            if isinstance(img, str) and img:
-                images.append(img)
+        tasks = [_extract_page_images(r["url"]) for r in web_results]
+        page_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result, imgs in zip(web_results, page_results):
+            if isinstance(imgs, list):
+                for img in imgs:
+                    candidates.append(
+                        {
+                            "url": img["url"],
+                            "alt": img.get("alt", ""),
+                            "context": img.get("context", ""),
+                            "source_url": str(result.get("url") or ""),
+                            "source_title": str(result.get("title") or ""),
+                            "source_type": str(result.get("source") or "web"),
+                            "origin": "page_image",
+                        }
+                    )
 
-    return images[:8]  # 最多8张（翻倍）
+    deduplicated: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in candidates:
+        if item["url"] in seen:
+            continue
+        seen.add(item["url"])
+        deduplicated.append(item)
+    return deduplicated
 
 
-async def _extract_page_image(url: str) -> str:
-    """尝试从网页中提取第一张图片。"""
+async def extract_images_from_results(results: list[dict[str, Any]]) -> list[str]:
+    """Compatibility wrapper for older callers."""
+    return [item["url"] for item in await extract_media_candidates(results)]
+
+
+async def _extract_page_images(url: str) -> list[dict[str, str]]:
+    """从网页中提取图片 URL、alt 和周围文字上下文。"""
     if not url or not url.startswith("http"):
-        return ""
+        return []
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        }
-        async with httpx.AsyncClient(timeout=8, headers=headers, follow_redirects=True) as client:
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                return ""
-            text = resp.text
+        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+        response = await request_public_url(
+            "GET", url, headers=headers, timeout_seconds=8, max_redirects=3,
+            max_bytes=3 * 1024 * 1024,
+            allowed_content_types=("text/html", "application/xhtml+xml"),
+        )
+        if response.status_code != 200:
+            return []
+        text = response.text
+        seen: set[str] = set()
+        images: list[dict[str, str]] = []
 
-        # 提取 og:image
-        m = re.search(r'<meta[^>]*property="og:image"[^>]*content="([^"]+)"', text, re.IGNORECASE)
-        if m:
-            img_url = m.group(1)
+        def _add(img_url: str, alt: str = "", context: str = "") -> None:
             img_url = _fix_url_scheme(img_url)
-            if _is_meaningful_image(img_url):
-                return img_url
+            if img_url and _is_meaningful_image(img_url) and img_url not in seen:
+                seen.add(img_url)
+                images.append({"url": img_url, "alt": alt.strip()[:120], "context": context[:200]})
 
-        # 提取第一张 jpg/png/webp（也匹配协议相对路径 //xxx）
-        m = re.search(r'src="((?:https?:)?//[^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"', text, re.IGNORECASE)
-        if m:
-            img_url = _fix_url_scheme(m.group(1))
-            if _is_meaningful_image(img_url):
-                return img_url
-        return ""
+        # 1. og:image
+        for m in re.finditer(r'<meta[^>]*property="og:image"[^>]*content="([^"]+)"', text, re.IGNORECASE):
+            _add(m.group(1))
+
+        # 2. <img> with src + alt + surrounding text context
+        img_re = re.compile(
+            r'<img[^>]*\bsrc="((?:https?:)?//[^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"[^>]*>', re.IGNORECASE
+        )
+        for m in img_re.finditer(text):
+            tag = m.group(0)
+            am = re.search(r'\balt="([^"]*)"', tag, re.IGNORECASE)
+            alt_text = (am.group(1) if am else "").strip()[:120]
+            # Capture ±200 chars around the img tag as context
+            start = max(0, m.start() - 200)
+            end = min(len(text), m.end() + 200)
+            ctx = re.sub(r'<[^>]+>', ' ', text[start:end])
+            ctx = re.sub(r'\s+', ' ', ctx).strip()[:200]
+            if alt_text:
+                ctx = f"{alt_text}。{ctx}"
+            _add(m.group(1), alt_text, ctx)
+
+        # 3. data-src lazy loading
+        for m in re.finditer(
+            r'<img[^>]*\bdata-src="((?:https?:)?//[^"]*\.(?:jpg|jpeg|png|webp)[^"]*)"[^>]*>', text, re.IGNORECASE
+        ):
+            tag = m.group(0)
+            am = re.search(r'\balt="([^"]*)"', tag, re.IGNORECASE)
+            _add(m.group(1), (am.group(1) if am else "").strip()[:120])
+
+        return images[:20]
     except Exception:
-        return ""
+        return []
 
 
 # 明显的默认图/占位符 URL 模式
@@ -248,19 +299,48 @@ def _fix_url_scheme(url: str) -> str:
 
 
 async def _check_url_valid(url: str) -> bool:
-    """检测 URL 是否可访问（200 且内容不为空）。"""
+    """检测 URL 是否可访问（200 且内容不是 404/error 页面）。"""
     if not url or not url.startswith("http"):
         return False
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
-        async with httpx.AsyncClient(timeout=6, headers=headers, follow_redirects=True) as client:
-            resp = await client.head(url)
-            # 有些网站不支持 HEAD，用 GET
-            if resp.status_code == 405:
-                resp = await client.get(url)
-            return resp.status_code == 200
+        response = await safe_head_or_get(
+            url,
+            headers=headers,
+            timeout_seconds=8,
+        )
+        if response.status_code != 200:
+            return False
+        body = response.content or b""
+        if body:
+            try:
+                body_str = body[:4096].decode("utf-8", errors="replace").lower()
+            except Exception:
+                body_str = ""
+            # Reject error pages — including Chinese ones that return 200
+            error_markers = [
+                "404 not found", "403 forbidden", "page not found",
+                "access denied", "page doesn't exist",
+                # Chinese error markers
+                "\u4f60\u4f3c\u4e4e\u6765\u5230\u4e86\u6ca1\u6709\u77e5\u8bc6\u5b58\u5728\u7684\u8352\u539f",  # 你似乎来到了没有知识存在的荒原
+                "\u9875\u9762\u4e0d\u5b58\u5728",  # 页面不存在
+                "\u9875\u9762\u5df2\u5220\u9664",  # 页面已删除
+                "\u9875\u9762\u672a\u627e\u5230",  # 页面未找到
+                "\u5185\u5bb9\u4e0d\u5b58\u5728",  # 内容不存在
+                "\u8be5\u9875\u9762\u65e0\u6cd5\u8bbf\u95ee",  # 该页面无法访问
+                "\u62b1\u6b49\uff0c\u60a8\u8bbf\u95ee\u7684\u9875\u9762\u4e0d\u5b58\u5728",  # 抱歉，您访问的页面不存在
+                "\u8d44\u6e90\u4e0d\u5b58\u5728",  # 资源不存在
+                "\u5df2\u5220\u9664",  # 已删除
+                "\u5ba1\u6838\u4e2d",  # 审核中
+                "\u8be5\u5185\u5bb9\u4e0d\u5b58\u5728",  # 该内容不存在
+                "\u672a\u627e\u5230\u76f8\u5173\u7ed3\u679c",  # 未找到相关结果
+            ]
+            if any(marker in body_str for marker in error_markers):
+                return False
+        return True
     except Exception:
         return False
 
@@ -337,6 +417,7 @@ async def _ai_rank_results(
         for i, r in enumerate(results):
             if i not in scored_idxs:
                 ranked.append((0.0, r))
+        ranked.sort(key=lambda item: item[0], reverse=True)
         return ranked
     except Exception as e:
         print(f"[ai_rank] failed: {e}, fallback to rule-based")
@@ -352,6 +433,37 @@ async def _ai_rank_results(
         return ranked# ============================================================
 # 4. 聚合搜索（核心入口）
 # ============================================================
+
+
+def _select_ranked_results(
+    ranked: list[tuple[float, dict[str, Any]]], depth: str | None
+) -> list[dict[str, Any]]:
+    """Deterministically select relevant results with source diversity."""
+    limit = {"basic": 8, "standard": 12, "deep": 18}.get(depth or "standard", 12)
+    quality = [(score, result) for score, result in ranked if score >= 6]
+    if not quality:
+        quality = ranked[: min(8, len(ranked))]
+
+    selected: list[dict[str, Any]] = []
+    selected_ids: set[int] = set()
+    source_counts: dict[str, int] = {}
+    for index, (_score, result) in enumerate(quality):
+        source = str(result.get("source") or "web")
+        if source_counts.get(source, 0) >= 3:
+            continue
+        selected.append(result)
+        selected_ids.add(index)
+        source_counts[source] = source_counts.get(source, 0) + 1
+        if len(selected) >= limit:
+            return selected
+
+    for index, (_score, result) in enumerate(quality):
+        if index in selected_ids:
+            continue
+        selected.append(result)
+        if len(selected) >= limit:
+            break
+    return selected
 
 async def search(query: str, intent: str = None, time_sensitive: bool = None, depth: str = None) -> dict[str, Any]:
     """搜索系统主入口。
@@ -452,67 +564,62 @@ async def search(query: str, intent: str = None, time_sensitive: bool = None, de
     # 4. AI 筛选：用 DeepSeek 评估每条结果的相关性和质量
     ai_ranked = await _ai_rank_results(query, results, is_time_sensitive)
 
-    # 5. 随机选择：从 AI 推荐的高分结果中随机选
-    quality_results = [(s, r) for s, r in ai_ranked if s >= 6]  # AI 评分 >= 6 的保留
-    if not quality_results:
-        quality_results = ai_ranked[:8]  # 兜底：取前8条
+    # 5. 确定性选择：稳定排序 + 每类来源上限，便于引用、缓存和测试
+    final_results = _select_ranked_results(ai_ranked, depth)
 
-    # depth 决定最终展示数量范围（翻倍）
-    if depth == "basic":
-        top_n = random.randint(6, max(6, min(8, len(quality_results))))
-    elif depth == "deep":
-        top_n = random.randint(16, max(16, min(24, len(quality_results))))
-    else:  # standard
-        top_n = random.randint(10, max(10, min(16, len(quality_results))))
-    pool_size = min(len(quality_results), top_n * 2)
-    pool = quality_results[:pool_size]
-    # 权重随机：分数越高被选概率越大
-    weights = [max(s + 10, 1) for s, _ in pool]
-    chosen = set()
-    while len(chosen) < min(top_n, len(pool)):
-        remaining = [i for i in range(len(pool)) if i not in chosen]
-        rem_weights = [weights[i] for i in remaining]
-        if sum(rem_weights) == 0:
-            chosen.update(remaining[:top_n - len(chosen)])
-            break
-        idx = random.choices(remaining, weights=rem_weights, k=1)[0]
-        chosen.add(idx)
+    # 6. 提取来源绑定的媒体候选
+    media_candidates = await extract_media_candidates(final_results)
+    if media_candidates:
+        media_validations = await asyncio.gather(
+            *(validate_public_url(item["url"]) for item in media_candidates),
+            return_exceptions=True,
+        )
+        media_candidates = [
+            item
+            for item, validation in zip(media_candidates, media_validations)
+            if not isinstance(validation, Exception)
+        ]
+    images = [item["url"] for item in media_candidates]
 
-    final_results = [pool[i][1] for i in sorted(chosen)]
-
-    # 6. 提取图片
-    images = await extract_images_from_results(final_results)
-
-    # 7. 用混元视觉模型描述图片内容（图文交错的关键）
+    # 7. 用混元视觉模型描述图片内容并过滤无关图片
     image_descriptions: list[dict[str, str]] = []
     if images:
         try:
             from services.hunyuan_service import hunyuan_service
-            image_descriptions = await hunyuan_service.describe_images(images[:5], context=query)
-            # 二次过滤：丢弃视觉描述为占位符/logo/默认图/纯装饰的图片
-            _USELESS_DESC = re.compile(
-                r"(占位符|默认图|空白|logo|图标|装饰|无内容|纯色|背景|视频|播放器|无法识别)",
-                re.IGNORECASE,
-            )
-            before = len(image_descriptions)
-            image_descriptions = [
-                item for item in image_descriptions
-                if not _USELESS_DESC.search(item["description"])
-            ]
-            if before != len(image_descriptions):
-                print(f"[search] vision filtered {before - len(image_descriptions)} useless images")
+            ctx_map = {c["url"]: (c.get("context") or "").strip() for c in media_candidates if c.get("context", "").strip()}
+            image_descriptions, vision_attempted = await hunyuan_service.describe_images(images[:8], context=query, img_contexts=ctx_map)
             if image_descriptions:
                 print(f"[search] vision kept {len(image_descriptions)} meaningful images")
+                approved_urls = {d["url"] for d in image_descriptions}
+                media_candidates = [c for c in media_candidates if c["url"] in approved_urls]
+                images = [c["url"] for c in media_candidates]
             else:
-                print("[search] vision describe returned empty (model may be unavailable)")
+                reason = "all irrelevant" if vision_attempted else "vision unavailable"
+                print(f"[search] vision returned no relevant images ({reason}), showing none")
+                media_candidates = []
+                images = []
         except Exception as e:
-            print(f"[search] vision describe failed: {e}")
+            print(f"[search] vision failed, showing none: {e}")
+            media_candidates = []
+            images = []
+
+    from services.rich_media_service import build_media_assets, build_source_references
+
+    source_references = build_source_references(final_results)
+    media_assets = await build_media_assets(
+        media_candidates,
+        image_descriptions,
+        source_references,
+    )
 
     return {
         "query": query,
         "intent": intent,
         "results": final_results,
         "images": images,
+        "media_candidates": media_candidates,
+        "media": [item.model_dump() for item in media_assets],
+        "source_references": [item.model_dump() for item in source_references],
         "image_descriptions": image_descriptions,
         "sources_used": sources_used,
         "total": len(final_results),

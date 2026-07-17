@@ -1,23 +1,63 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
-import type { ChatMessage, TravelPlan, WSMessage, SkillInfo, MeetingResult, ScheduleItem } from '../../types';
-import type { WSClient } from '../../services/websocket';
-import { createMeeting, generateImage } from '../../services/api';
+import type { ChatMessage, TravelPlan, SkillInfo, MeetingResult, ScheduleItem, WorkspaceAction } from '../../types';
+import type { ChatClient } from '../../services/chatClient';
+import { cancelPendingAction, confirmPendingAction, waitForPendingAction, workspaceOperation } from '../../services/api';
 import TravelPlanCard from '../travel/TravelPlanCard';
 import TravelChatAssistant from '../travel/TravelChatAssistant';
 import PaperListCard from '../paper/PaperListCard';
+import ImageStudioCard from '../image/ImageStudioCard';
 import MarkdownRenderer from '../common/MarkdownRenderer';
+import { followUpDraftAction } from './followUps';
 
 interface Props {
   message: ChatMessage;
-  client: React.RefObject<WSClient | null>;
+  client: React.RefObject<ChatClient | null>;
+}
+
+function imageGroup(action: WorkspaceAction): string {
+  return action.kind === 'image_generate' ? String(action.payload.group_id || action.id) : '';
+}
+
+function consolidateActions(actions: WorkspaceAction[]): WorkspaceAction[] {
+  const output: WorkspaceAction[] = [];
+  const imageIndex = new Map<string, number>();
+  for (const action of actions) {
+    const group = imageGroup(action);
+    if (!group) { output.push(action); continue; }
+    const previous = imageIndex.get(group);
+    if (previous === undefined) {
+      imageIndex.set(group, output.length); output.push(action);
+    } else {
+      output[previous] = action;
+    }
+  }
+  return output;
+}
+
+function ImageCreationProgress({ message }: { message: ChatMessage }) {
+  const reference = message.searchResults?.media?.[0];
+  const [step, setStep] = useState(0);
+  const steps = reference?.alt
+    ? [`正在参考“${reference.alt.slice(0, 28)}${reference.alt.length > 28 ? '…' : ''}”的真实特征`, '正在重新组织卡通构图与神态', '正在细化线条、色彩和光影', '画面正在逐层显影']
+    : ['正在理解画面中的主体与氛围', '正在搭建构图与视觉层次', '正在细化线条、色彩和光影', '画面正在逐层显影'];
+  useEffect(() => {
+    const timer = window.setInterval(() => setStep((value) => (value + 1) % steps.length), 1800);
+    return () => window.clearInterval(timer);
+  }, [steps.length]);
+  return <div className="image-generation-canvas">
+    <div className="image-generation-wash" style={reference?.url ? { backgroundImage: `url(${reference.url})` } : undefined}>
+      <div className="image-painting-overlay"><span /></div>
+    </div>
+    <strong>{steps[step]}</strong><small>图片工坊正在绘制，请稍候</small>
+  </div>;
 }
 /** 单条消息气泡。AI 消息下方根据 skill.intent 渲染不同卡片。 */
-export default function MessageBubble({ message, client }: Props) {
+export default function MessageBubble({ message }: Props) {
   const isUser = message.role === 'user';
   const dispatch = useAppDispatch();
-  const { sessionId, messages } = useAppState();
+  const { conversationId, messages } = useAppState();
   // 追问只在最后一条 AI 消息显示
   const isLastAIMessage = !isUser && messages[messages.length - 1]?.id === message.id;
 
@@ -37,6 +77,15 @@ export default function MessageBubble({ message, client }: Props) {
 
   // 通用技能执行状态
   const [skillActioned, setSkillActioned] = useState(false);
+  const [workspaceActions, setWorkspaceActions] = useState<WorkspaceAction[]>(consolidateActions(message.workspaceActions || []));
+  const [workspaceBusy, setWorkspaceBusy] = useState('');
+
+  // Tool actions arrive after the streaming message bubble has mounted. Keep
+  // the local interactive copy in sync instead of freezing the initial empty
+  // array for the lifetime of the bubble.
+  useEffect(() => {
+    setWorkspaceActions(consolidateActions(message.workspaceActions || []));
+  }, [message.workspaceActions]);
 
   // 兼容：从 skill 或旧字段获取意图
   const skill: SkillInfo | undefined = message.skill;
@@ -45,15 +94,9 @@ export default function MessageBubble({ message, client }: Props) {
     || (message.meetingIntent ? 'meeting' : undefined);
 
   const handleFollowUp = (question: string) => {
-    dispatch({
-      type: 'ADD_MESSAGE',
-      payload: { id: Date.now().toString(), role: 'user', content: question, ts: Date.now() },
-    });
-    const msg: WSMessage = {
-      type: 'user_activity',
-      payload: { activity: 'asked', text: question },
-    };
-    client.current?.send(msg);
+    // Suggestions are editable prompts, not commands. The user must still
+    // explicitly press Send before any message is persisted or reaches Agent.
+    dispatch(followUpDraftAction(question));
   };
 
   const handleTravelPlanComplete = (plan: TravelPlan, startTs?: number, parsed?: Partial<ScheduleItem>[]) => {
@@ -73,49 +116,142 @@ export default function MessageBubble({ message, client }: Props) {
     });
   };
 
+  type ImageActionResult = { ok: boolean; image_url?: string; prompt?: string; error?: string };
+  const [imageGenerating, setImageGenerating] = useState(false);
+  const [imageResult, setImageResult] = useState<ImageActionResult | null>(null);
+
+  const actionId = typeof skill?.data?.action_id === 'string' ? skill.data.action_id : '';
+  const actionVersion = typeof skill?.data?.action_version === 'number'
+    ? skill.data.action_version
+    : Number(skill?.data?.action_version || 0);
+
+  const executeConfirmedAction = async () => {
+    if (!actionId || actionVersion < 1) {
+      throw new Error('该建议卡缺少后端 Action 快照，请重新发送需求');
+    }
+    await confirmPendingAction(actionId, actionVersion);
+    return waitForPendingAction(actionId);
+  };
+
   const handleCreateMeeting = async () => {
     setMeetingCreating(true);
-    setMeetingStatusText('正在检查环境...');
-    const meetingMessage = skill?.params?.message || message.meetingIntent?.message || '';
+    setMeetingStatusText('已确认，等待后台 Executor...');
     try {
-      const result = await createMeeting(sessionId, meetingMessage);
-      setMeetingResult(result);
-      if (result.ok) {
+      const action = await executeConfirmedAction();
+      const data = action.result_json?.data || {};
+      if (action.status === 'succeeded') {
+        const result: MeetingResult = {
+          ok: true,
+          meeting_id: typeof data.meeting_id === 'string' ? data.meeting_id : undefined,
+          meeting_code: typeof data.meeting_code === 'string' ? data.meeting_code : undefined,
+          join_url: typeof data.join_url === 'string' ? data.join_url : undefined,
+          subject: typeof data.subject === 'string' ? data.subject : undefined,
+          start_time: typeof data.start_time === 'string' ? data.start_time : undefined,
+        };
+        setMeetingResult(result);
         MessagePlugin.success('腾讯会议创建成功！');
-      } else if (result.need_auth) {
-        MessagePlugin.warning('需要先授权腾讯会议');
       } else {
-        MessagePlugin.warning(result.error || '创建失败');
+        const error = action.error || '创建失败';
+        setMeetingResult({ ok: false, error, need_auth: error.includes('授权') });
+        MessagePlugin.warning(error);
       }
-    } catch {
-      MessagePlugin.error('创建会议失败');
+    } catch (error) {
+      const text = error instanceof Error ? error.message : '创建会议失败';
+      setMeetingResult({ ok: false, error: text });
+      MessagePlugin.error(text);
     } finally {
       setMeetingCreating(false);
       setMeetingStatusText('');
     }
   };
 
-  /** 生图 */
-  const [imageGenerating, setImageGenerating] = useState(false);
-  const [imageResult, setImageResult] = useState<Awaited<ReturnType<typeof generateImage>> | null>(null);
-
   const handleGenerateImage = async () => {
     setImageGenerating(true);
-    const prompt = skill?.params?.prompt || compatSkill?.params?.prompt || message.content;
     try {
-      const result = await generateImage(prompt);
-      setImageResult(result);
-      if (result.ok) {
+      const action = await executeConfirmedAction();
+      const data = action.result_json?.data || {};
+      if (action.status === 'succeeded') {
+        const result: ImageActionResult = {
+          ok: true,
+          image_url: typeof data.image_url === 'string' ? data.image_url : undefined,
+          prompt: typeof data.prompt === 'string' ? data.prompt : undefined,
+        };
+        setImageResult(result);
         MessagePlugin.success('图片生成成功！');
       } else {
-        MessagePlugin.warning(result.error || '生成失败');
+        const error = action.error || '生成失败';
+        setImageResult({ ok: false, error });
+        MessagePlugin.warning(error);
       }
-    } catch {
-      MessagePlugin.error('生图失败');
+    } catch (error) {
+      const text = error instanceof Error ? error.message : '生图失败';
+      setImageResult({ ok: false, error: text });
+      MessagePlugin.error(text);
     } finally {
       setImageGenerating(false);
     }
   };
+
+  const handleCancelAction = async () => {
+    if (!actionId) return;
+    try {
+      await cancelPendingAction(actionId);
+      setSkillActioned(true);
+      MessagePlugin.success('已取消该操作');
+    } catch (error) {
+      MessagePlugin.error(error instanceof Error ? error.message : '取消失败');
+    }
+  };
+
+  const replaceWorkspaceAction = (next: WorkspaceAction) => {
+    setWorkspaceActions((items) => {
+      const group = imageGroup(next);
+      if (group) return [...items.filter((item) => imageGroup(item) !== group), next];
+      return items.some((item) => item.id === next.id)
+        ? items.map((item) => item.id === next.id ? next : item)
+        : [...items, next];
+    });
+  };
+
+  const handleWorkspaceAction = async (action: WorkspaceAction, operation: 'activate_map' | 'confirm_action' | 'cancel_action') => {
+    setWorkspaceBusy(action.id);
+    try {
+      const response = await workspaceOperation(conversationId, operation, {
+        action_id: action.id,
+        version: action.version,
+      });
+      if (response.action) replaceWorkspaceAction(response.action);
+      if (operation === 'activate_map' && response.map?.places?.length) {
+        dispatch({ type: 'SET_MAP_PLACES', payload: { places: response.map.places, title: response.map.title } });
+        MessagePlugin.success('已在右侧地图显示这些地点');
+      }
+      if (operation === 'confirm_action' && action.kind === 'calendar_changes') {
+        dispatch({ type: 'SET_SCHEDULES', payload: response.schedules || [] });
+        const changed = response.changed?.filter((item) => !item.deleted) || [];
+        if (changed.length) {
+          const first = new Date(changed[0].start_time * 1000);
+          const date = [first.getFullYear(), String(first.getMonth() + 1).padStart(2, '0'), String(first.getDate()).padStart(2, '0')].join('-');
+          dispatch({ type: 'PULSE_CALENDAR', payload: { date, count: changed.length } });
+        }
+        MessagePlugin.success('日程变更已确认并写入');
+      }
+      if (operation === 'confirm_action' && action.kind === 'meeting_create') {
+        const result = response.action?.result || {};
+        if (response.action?.status === 'succeeded') MessagePlugin.success('腾讯会议创建成功');
+        else MessagePlugin.warning(String(response.action?.error || result.error || '会议创建失败'));
+      }
+      if (operation === 'confirm_action' && action.kind === 'image_generate') {
+        if (response.action?.status === 'succeeded') MessagePlugin.success('图片生成成功');
+        else MessagePlugin.warning(String(response.action?.error || '图片生成失败'));
+      }
+      if (operation === 'cancel_action') MessagePlugin.success('已取消该操作');
+    } catch (error) {
+      MessagePlugin.error(error instanceof Error ? error.message : '操作失败');
+    } finally {
+      setWorkspaceBusy('');
+    }
+  };
+
 
   /** 通用技能动作处理 */
   const handleSkillAction = () => {
@@ -174,62 +310,67 @@ export default function MessageBubble({ message, client }: Props) {
             message.content
           ) : (
             <>
-              {/* 生图动画：内容为空且正在流式 */}
-              {!isUser && intent === 'image' && message.streaming && !message.content && (
-                <div className="image-generating-anim">
+              {/* 搜索动画 */}
+              {!isUser && message.streaming && !message.content && (
+                message.skill?.intent === 'image' || searchStatus.includes('生成图片') || searchStatus.includes('绘制') ? <ImageCreationProgress message={message} /> : <div className="search-progress">
                   <div className="image-generating-spinner" />
-                  <span>正在生成图片</span>
-                  <span className="image-generating-dots">
-                    <span>.</span><span>.</span><span>.</span>
-                  </span>
+                  <span className="search-progress-status" title={searchStatus}>{searchStatus}</span>
+                  <span className="image-generating-dots"><span>.</span><span>.</span><span>.</span></span>
                 </div>
               )}
-              {/* 搜索动画：内容为空且正在搜索 */}
-              {!isUser && intent === 'search' && message.streaming && !message.content && (
-                <div className="image-generating-anim">
-                  <div className="image-generating-spinner" />
-                  <span>{searchStatus}</span>
-                  <span className="image-generating-dots">
-                    <span>.</span><span>.</span><span>.</span>
-                  </span>
-                </div>
-              )}
-              {/* 搜索来源列表（回答顶部，可展开） */}
-              {!isUser && message.searchResults && message.searchResults.total > 0 && (
-                <div className="search-sources-bar">
-                  <details>
-                    <summary className="search-sources-label">
-                      已搜索 {message.searchResults.total} 个来源
-                      <span className="search-sources-types">
-                        {Array.from(new Set(message.searchResults.results.map(r => r.source))).map(s => {
-                          const labels: Record<string, string> = { wechat: '公众号', zhihu: '知乎', baike: '百科', web: '网页', wsa: '联网' };
-                          return <span key={s} className="search-source-type">{labels[s] || s}</span>;
-                        })}
-                      </span>
-                    </summary>
-                    <div className="search-sources-list">
-                      {message.searchResults.results.map((r, i) => {
-                        const labels: Record<string, string> = { wechat: '公众号', zhihu: '知乎', baike: '百科', web: '网页', wsa: '联网' };
-                        const typeLabel = labels[r.source] || '网页';
-                        const displayTitle = r.title || r.url || '';
-                        return (
-                          <a
-                            key={i}
-                            href={r.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="search-source-chip"
-                          >
-                            <span className="search-source-type">{typeLabel}</span>
-                            <span className="search-source-title">{displayTitle.length > 30 ? displayTitle.slice(0, 30) + '…' : displayTitle}</span>
-                          </a>
-                        );
-                      })}
-                    </div>
-                  </details>
-                </div>
-              )}
-              {message.content && <MarkdownRenderer content={message.content} />}
+              {message.content && <MarkdownRenderer content={message.content} searchMeta={message.searchResults} />}
+              {!message.streaming && workspaceActions.map((action) => {
+                const busy = workspaceBusy === action.id;
+                if (action.kind === 'map_recommendation') {
+                  return (
+                    <button
+                      key={action.id}
+                      type="button"
+                      className="workspace-map-action"
+                      disabled={busy || action.status === 'cancelled'}
+                      onClick={() => void handleWorkspaceAction(action, 'activate_map')}
+                    >
+                      {busy ? '正在打开地图…' : action.payload.action_text || '在右侧地图查看这些地点'}
+                    </button>
+                  );
+                }
+                if (action.kind === 'image_generate' && action.status !== 'awaiting_confirmation') {
+                  return (
+                    <ImageStudioCard
+                      key={action.id}
+                      action={action}
+                      conversationId={conversationId}
+                      onUpdated={replaceWorkspaceAction}
+                    />
+                  );
+                }
+                const title = action.kind === 'calendar_changes'
+                  ? action.payload.summary || '是否应用这组日程变更？'
+                  : action.kind === 'meeting_create'
+                    ? `创建腾讯会议：${action.payload.subject || '未命名会议'}`
+                    : `生成图片：${action.payload.prompt || ''}`;
+                const result = action.result || {};
+                return (
+                  <div key={action.id} className="workspace-confirm-card">
+                    <div className="workspace-confirm-title">{title}</div>
+                    {action.kind === 'meeting_create' && action.payload.start_time && (
+                      <div className="workspace-confirm-meta">{new Date(action.payload.start_time).toLocaleString('zh-CN')}</div>
+                    )}
+                    {action.status === 'awaiting_confirmation' ? (
+                      <div className="workspace-confirm-actions">
+                        <Button size="small" theme="primary" loading={busy} onClick={() => void handleWorkspaceAction(action, 'confirm_action')}>确认</Button>
+                        <Button size="small" variant="outline" disabled={busy} onClick={() => void handleWorkspaceAction(action, 'cancel_action')}>取消</Button>
+                      </div>
+                    ) : (
+                      <div className={`workspace-action-status status-${action.status}`}>
+                        {action.status === 'succeeded' ? '✓ 已完成' : action.status === 'cancelled' ? '已取消' : action.status === 'reconciliation_required' ? `需要人工核对：${action.error || '外部结果未知'}` : action.status === 'failed' ? `失败：${action.error || '执行失败'}` : '处理中…'}
+                      </div>
+                    )}
+                    {typeof result.join_url === 'string' && result.join_url && <a href={result.join_url} target="_blank" rel="noreferrer">加入腾讯会议</a>}
+                    {typeof result.image_url === 'string' && result.image_url && <img className="workspace-generated-image" src={result.image_url} alt={String(action.payload.prompt || '生成图片')} />}
+                  </div>
+                );
+              })}
               {message.streaming && message.content && (
                 <span className="typing-cursor">▊</span>
               )}
@@ -454,12 +595,17 @@ export default function MessageBubble({ message, client }: Props) {
                   ? '生成中...'
                   : compatSkill.action_label}
               </Button>
+              {actionId && (intent === 'meeting' || intent === 'image') && (
+                <Button variant="outline" size="small" onClick={() => { void handleCancelAction(); }}>
+                  取消
+                </Button>
+              )}
             </div>
           </div>
         )}
 
         {/* === 生图结果 === */}
-        {!isUser && intent === 'image' && imageResult && imageResult.ok && imageResult.image_url && (
+        {!isUser && intent === 'image' && !workspaceActions.some((action) => action.kind === 'image_generate') && imageResult && imageResult.ok && imageResult.image_url && (
           <div className="followup-section">
             <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--app-border)', maxWidth: 280 }}>
               <img

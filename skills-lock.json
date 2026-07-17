@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "skills": {
+    "edgeone-makers-agents": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-agents/SKILL.md",
+      "computedHash": "08c79be1ccb7e4265718114704d22a6bf9bca269e10aac4b7e63b1755f630a0d"
+    },
+    "edgeone-makers-deploy": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-deploy/SKILL.md",
+      "computedHash": "6787b302f06adcf07b66c2e3d41d2b29abf5e573d2ae88bfe791e5d92eb8ee47"
+    },
+    "edgeone-makers-edge-functions": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-edge-functions/SKILL.md",
+      "computedHash": "2f502343952fcd627551016770ec4a406fb0ed528f8311486342ff4a1bc7efd9"
+    },
+    "edgeone-makers-env-adaption": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-env-adaption/SKILL.md",
+      "computedHash": "58a49139400b0f23a9148a18040d249e057e874662c5cf6aa81783484ea705eb"
+    },
+    "edgeone-makers-middleware": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-middleware/SKILL.md",
+      "computedHash": "2c0afc569426485b7119e5828eb1b93dabb744b5965f1c064929afe036e9b689"
+    },
+    "edgeone-makers-recipes": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-recipes/SKILL.md",
+      "computedHash": "b0dbc04dd648d151818ef10426a69b2a1045ce23a622b2390343831e9edaba02"
+    },
+    "edgeone-makers-storage": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-storage/SKILL.md",
+      "computedHash": "593208be7f62d3a903deadd3dcee0cbda62561912a3c07a7bda78c060240f026"
+    },
+    "makers-cli": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-cli/SKILL.md",
+      "computedHash": "e81fe437341f802ed310b2d9bfba030d0231cc4bf09f0b661ca410082c4810e3"
+    },
+    "makers-cloud-functions": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-cloud-functions/SKILL.md",
+      "computedHash": "c6e9c5283c2cce46c1d5bc105dabbc896517496d28a032165752a825f86a2db4"
+    },
+    "makers-migration": {
+      "source": "TencentEdgeOne/edgeone-makers-tools",
+      "sourceType": "github",
+      "skillPath": "skills/makers-migration/SKILL.md",
+      "computedHash": "3945d96f032fa0fe6465a17cdb59cc87af1e377fec214b92bf41006956fbdc59"
+    }
+  }
+}

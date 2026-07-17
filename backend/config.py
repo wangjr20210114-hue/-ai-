@@ -39,10 +39,22 @@ class Settings(BaseSettings):
     tencent_map_key: str = ""
 
     # 应用
-    app_host: str = "0.0.0.0"
+    app_host: str = "127.0.0.1"
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     app_port: int = 8000
     db_path: str = "./yuanbao.db"
+    file_storage_dir: str = "./uploads/files"
     mock_mode: bool = False
+    daily_cost_budget_cny: float = 20.0
+    image_generation_estimated_cost_cny: float = 0.10
+    local_auth_enabled: bool = True
+    local_access_token: str = ""
+    agent_state_dir: str = "./.agent"
+    local_token_path: str = "./.agent/access-token"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
 
     @property
     def hunyuan_ready(self) -> bool:

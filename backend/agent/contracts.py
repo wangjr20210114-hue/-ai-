@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
 from typing import Any
 
@@ -34,11 +34,13 @@ class ExecutionStatus(str, Enum):
     CLASSIFIED = "classified"
     PLANNED = "planned"
     POLICY_CHECKED = "policy_checked"
+    QUEUED = "queued"
     EXECUTING = "executing"
     WAITING_CONFIRMATION = "waiting_confirmation"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     SKIPPED = "skipped"
+    CANCELLED = "cancelled"
 
 
 class ResponseType(str, Enum):
@@ -109,6 +111,8 @@ class AgentPlan:
     failure_policy: FailurePolicy = field(default_factory=FailurePolicy)
     steps: list[str] = field(default_factory=list)
     rationale: str = ""
+    trigger_origin: str = "user_request"
+    side_effect: bool = False
     created_at: float = field(default_factory=time.time)
 
 
@@ -133,6 +137,42 @@ class AgentObservation:
     payload: dict[str, Any] = field(default_factory=dict)
     error: str = ""
     ts: float = field(default_factory=time.time)
+
+
+def to_primitive(value: Any) -> Any:
+    """Convert nested dataclasses/enums into stable JSON-compatible values."""
+    if isinstance(value, Enum):
+        return value.value
+    if is_dataclass(value):
+        return {item.name: to_primitive(getattr(value, item.name)) for item in fields(value)}
+    if isinstance(value, dict):
+        return {str(key): to_primitive(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_primitive(item) for item in value]
+    return value
+
+
+def plan_to_dict(plan: AgentPlan) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "run_id": plan.run_id,
+        "session_id": plan.session_id,
+        "event_type": plan.event_type,
+        "user_message": plan.user_message,
+        "intent": plan.intent,
+        "params": to_primitive(plan.params),
+        "skill_name": plan.skill_name,
+        "schema": to_primitive(plan.schema) if plan.schema else None,
+        "permission_level": plan.permission_level.value,
+        "risk_level": plan.risk_level.value,
+        "confirmation": to_primitive(plan.confirmation),
+        "failure_policy": to_primitive(plan.failure_policy),
+        "steps": list(plan.steps),
+        "rationale": plan.rationale,
+        "trigger_origin": plan.trigger_origin,
+        "side_effect": plan.side_effect,
+        "created_at": plan.created_at,
+    }
 
 
 @dataclass(slots=True)

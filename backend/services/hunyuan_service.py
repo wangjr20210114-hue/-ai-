@@ -185,23 +185,32 @@ class HunyuanService:
         """是否支持视觉理解（多模态）。"""
         return bool(settings.hunyuan_api_key) and not settings.hunyuan_api_key.startswith("sk-your")
 
-    async def describe_image(self, image_url: str, context: str = "") -> str:
-        """用混元视觉模型描述图片内容。
-
-        Args:
-            image_url: 图片 URL
-            context: 上下文提示（如搜索关键词），帮助模型更精准描述
-
-        Returns:
-            图片内容的简短描述（如"一张展示明朝皇宫建筑的俯瞰图"），失败返回空字符串
-        """
+    async def describe_image(self, image_url: str, context: str = "", web_context: str = "") -> str:
+        """视觉模型描述图片。web_context 为网页中图片周围的文字，仅供参考不可全信。"""
         if not self.vision_capable:
             return ""
 
         try:
-            prompt = "用一句话（15字以内）简洁描述这张图片的内容和主题。"
+            vision_model = settings.hunyuan_vision_model
+            if vision_model == "hunyuan-vision":
+                vision_model = settings.llm_model
+
+            prompt = (
+                '分析图片与用户查询的关系，只返回 JSON：\n'
+                '{"description": "用一句话描述图片实际内容", '
+                '"relevant": true 或 false}\n\n'
+                '以图片本身为准。网页上下文仅供参考（广告旁的文字往往不准确）。\n'
+                'relevant=false 的情况（任一即判 false）：\n'
+                '- 广告图：含促销信息、价格、热线电话、扫码优惠、旅行社广告等\n'
+                '- 品牌/logo/二维码/图标/装饰图/UI按钮/菜单\n'
+                '- 纯文字截图、证件照/合影、与查询无关的风景\n'
+                '- 占位图/默认图/loading\n'
+                'relevant=true 仅当图片主体内容能直接帮助理解用户查询。不确定时判 false。\n'
+            )
             if context:
-                prompt += f" 上下文：{context[:50]}"
+                prompt += f'用户查询：{context[:80]}\n'
+            if web_context:
+                prompt += f'网页参考（不可全信）：{web_context[:120]}\n'
 
             resp = await self._client.post(
                 f"{settings.hunyuan_base_url}/chat/completions",
@@ -210,7 +219,7 @@ class HunyuanService:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": settings.hunyuan_vision_model,
+                    "model": vision_model,
                     "messages": [
                         {
                             "role": "user",
@@ -220,8 +229,8 @@ class HunyuanService:
                             ],
                         }
                     ],
-                    "max_tokens": 80,
-                    "temperature": 0.3,
+                    "max_tokens": 100,
+                    "temperature": 0.2,
                 },
                 timeout=15,
             )
@@ -229,28 +238,49 @@ class HunyuanService:
                 print(f"[vision] describe_image failed: HTTP {resp.status_code}")
                 return ""
             data = resp.json()
-            return data["choices"][0]["message"]["content"].strip()
+            content = data["choices"][0]["message"]["content"].strip()
+            if "没有看到" in content or "无法" in content or "看不到" in content:
+                return ""
+            return content
         except Exception as e:
             print(f"[vision] describe_image error: {e}")
             return ""
 
-    async def describe_images(self, image_urls: list[str], context: str = "") -> list[dict[str, str]]:
-        """批量并行描述多张图片。
-
-        Returns:
-            [{"url": "...", "description": "..."}, ...]（描述为空的不包含在内）
-        """
+    async def describe_images(self, image_urls: list[str], context: str = "", img_contexts: dict[str, str] | None = None) -> tuple[list[dict[str, str]], bool]:
+        """串行描述多张图片并过滤。img_contexts 为每张图片的网页周围文字（仅供参考）。"""
         if not image_urls:
-            return []
+            return [], False
 
-        tasks = [self.describe_image(url, context) for url in image_urls]
-        descriptions = await asyncio.gather(*tasks, return_exceptions=True)
+        results: list[str | BaseException] = []
+        for url in image_urls:
+            wctx = (img_contexts or {}).get(url, "")
+            try:
+                result = await self.describe_image(url, context, web_context=wctx)
+                results.append(result)
+            except Exception as e:
+                results.append(e)
+            if url != image_urls[-1]:
+                await asyncio.sleep(0.3)
 
-        result = []
-        for url, desc in zip(image_urls, descriptions):
-            if isinstance(desc, str) and desc:
-                result.append({"url": url, "description": desc})
-        return result
+        import json as _json
+        output = []
+        any_response = False
+        for url, raw in zip(image_urls, results):
+            if not isinstance(raw, str) or not raw:
+                continue
+            any_response = True  # Vision model responded (even if irrelevant)
+            try:
+                cleaned = raw.strip().strip("`").strip()
+                if cleaned.startswith("json"):
+                    cleaned = cleaned[4:].strip()
+                parsed = _json.loads(cleaned)
+                desc = str(parsed.get("description", "")).strip()
+                relevant = parsed.get("relevant", False)
+                if desc and relevant:
+                    output.append({"url": url, "description": desc})
+            except (_json.JSONDecodeError, ValueError, TypeError):
+                pass
+        return output, any_response
 
     async def text_to_image(self, prompt: str) -> str:
         """调用混元文生图（TokenHub 极速版），返回图片 URL。"""

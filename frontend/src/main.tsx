@@ -4,11 +4,12 @@ import 'tdesign-react/es/style/index.css'
 import './index.css'
 import App from './App.tsx'
 import { AppProvider } from './store/AppContext.tsx'
+import AuthGate from './components/auth/AuthGate.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AppProvider>
-      <App />
-    </AppProvider>
+    <AuthGate>
+      {(session) => <AppProvider userId={session.user.id}><App /></AppProvider>}
+    </AuthGate>
   </StrictMode>,
 )

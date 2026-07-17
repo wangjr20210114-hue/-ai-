@@ -1,13 +1,13 @@
+import { authorizedFetch } from '../../services/auth';
 /**
  * PaperFullReader：全屏论文阅读器。
  * 使用 PDF.js TextLayer 实现原生文本选择 + 段落交互。
  */
 import { useEffect, useRef, useState } from 'react';
 import { Button, Loading, MessagePlugin, Textarea, Tag } from 'tdesign-react';
-import { CloseIcon, DownloadIcon, StarIcon } from 'tdesign-icons-react';
+import { CloseIcon, DownloadIcon, FullscreenIcon } from 'tdesign-icons-react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { savePaper } from '../../services/paperApi';
-import { useAppState } from '../../store/appState';
+import { paperFileUrl } from '../../services/paperApi';
 import {
   loadPdf, extractParagraphs, isNonInteractiveParagraph,
   type PDFDocumentProxy, type Paragraph,
@@ -23,6 +23,7 @@ interface Props {
   fileId: string;
   title: string;
   arxivId?: string;
+  assistantEnabled?: boolean;
   onClose: () => void;
 }
 
@@ -43,21 +44,21 @@ interface PageData {
   rendered: boolean;
 }
 
-export default function PaperFullReader({ fileId, title, arxivId, onClose }: Props) {
-  const { sessionId } = useAppState();
+export default function PaperFullReader({ fileId, title, assistantEnabled = true, onClose }: Props) {
+  const readerRef = useRef<HTMLDivElement>(null);
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const textLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [pages, setPages] = useState<PageData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [nativeMode, setNativeMode] = useState(false);
   const [hover, setHover] = useState<{ page: number; index: number } | null>(null);
   const [active, setActive] = useState<{ page: number; index: number } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; text: string } | null>(null);
   const [floatBar, setFloatBar] = useState<{ x: number; y: number; text: string } | null>(null);
   const [scale, setScale] = useState(1.5);
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   const [aiResult, setAiResult] = useState<AIResult | null>(null);
   const [aiTab, setAiTab] = useState<'result' | 'qa'>('result');
@@ -67,31 +68,31 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
 
   useEffect(() => {
     let cancelled = false;
+    const fetchController = new AbortController();
+    let fetchTimer = 0;
     renderedScaleRef.current = 0;  // 重置，让渲染 effect 重新执行
     (async () => {
       try {
-        const resp = await fetch(`/api/paper/file/${fileId}`);
-        if (!resp.ok) return;
+        setLoading(true); setLoadError('');
+        fetchTimer = window.setTimeout(() => fetchController.abort(), 30_000);
+        const resp = await authorizedFetch(paperFileUrl(fileId), { signal: fetchController.signal });
+        window.clearTimeout(fetchTimer);
+        if (!resp.ok) throw new Error(`PDF 下载失败（${resp.status}）`);
         const blob = await resp.blob();
         const buffer = await blob.arrayBuffer();
         const d = await loadPdf(buffer);
         if (cancelled) return;
         setDoc(d);
-        const newPages: PageData[] = [];
-        for (let i = 1; i <= d.numPages; i++) {
-          const p = await d.getPage(i);
-          const vp = p.getViewport({ scale: 1 });
-          const paras = await extractParagraphs(p);
-          newPages.push({ pageNum: i, width: vp.width, height: vp.height, paragraphs: paras, rendered: false });
-        }
-        if (cancelled) return;
-        setPages(newPages);
+        // Mount all page canvases immediately. Paragraph extraction now runs
+        // alongside progressive rendering instead of blocking the first frame.
+        setPages(Array.from({ length: d.numPages }, (_, index) => ({ pageNum: index + 1, width: 0, height: 0, paragraphs: [], rendered: false })));
         setLoading(false);
-      } catch {
+      } catch (error) {
+        if (!cancelled) setLoadError(error instanceof DOMException && error.name === 'AbortError' ? 'PDF 下载超时，请重试' : error instanceof Error ? error.message : 'PDF 无法打开');
         setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; window.clearTimeout(fetchTimer); fetchController.abort(); };
   }, [fileId]);
 
   // 渲染 canvas + text layer（scale 变化时重新渲染）
@@ -106,8 +107,9 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
     let cancelled = false;
 
     const renderPages = async () => {
+      const enriched: PageData[] = [];
       for (const pg of pages) {
-        if (cancelled) continue;
+        if (cancelled) return;
         const canvas = canvasRefs.current.get(pg.pageNum);
         const textLayerDiv = textLayerRefs.current.get(pg.pageNum);
         if (!canvas) continue;
@@ -141,16 +143,29 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
             console.warn('TextLayer render failed for page', pg.pageNum, e);
           }
         }
+        let paragraphs: Paragraph[] = [];
+        try { paragraphs = await extractParagraphs(page); } catch { /* canvas remains usable */ }
+        enriched.push({ ...pg, width: viewport.width / scale, height: viewport.height / scale, paragraphs, rendered: true });
       }
+      if (!cancelled && enriched.length === pages.length) setPages(enriched);
     };
-    renderPages();
+    void renderPages().catch((error) => {
+      if (!cancelled) setLoadError(error instanceof Error ? `PDF 渲染失败：${error.message}` : 'PDF 页面渲染失败');
+    });
     return () => { cancelled = true; };
   }, [doc, pages, scale]);
 
   // 段落命中检测（基于 text layer 的选择文本）
   const getSelectedText = (): string => {
     const sel = window.getSelection();
-    return sel ? sel.toString().trim() : '';
+    return sel
+      ? sel.toString()
+        .replace(/\u00ad/g, '')
+        .replace(/([\p{L}\p{N}])-\s+([\p{L}\p{N}])/gu, '$1$2')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 12000)
+      : '';
   };
 
   const findParagraphByPoint = (e: React.MouseEvent, pageNum: number): Paragraph | null => {
@@ -234,14 +249,15 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
     setAiTab('result');
     const onDelta = (delta: string) => setAiResult(prev => prev ? { ...prev, content: prev.content + delta } : prev);
     const onDone = (full: string, error?: string) => setAiResult(prev => prev ? { ...prev, content: error ? `❌ ${error}` : full, streaming: false } : prev);
+    const documentText = pages.map((page) => `【第 ${page.pageNum} 页】\n${page.paragraphs.map((paragraph) => paragraph.text).join('\n')}`).join('\n\n');
     switch (action) {
       case 'translate': streamRef.current = translateParagraph(text, onDelta, onDone); break;
       case 'summarize': streamRef.current = summarizeParagraph(text, onDelta, onDone); break;
       case 'explain': streamRef.current = explainTerm(text, onDelta, onDone); break;
       case 'formula': streamRef.current = explainFormula(text, onDelta, onDone); break;
-      case 'analyze': streamRef.current = analyzePaper(fileId, onDelta, onDone); break;
-      case 'full-translate': streamRef.current = fullTranslate(fileId, onDelta, onDone); break;
-      case 'terms': streamRef.current = extractTerms(fileId, onDelta, onDone); break;
+      case 'analyze': streamRef.current = analyzePaper(fileId, onDelta, onDone, documentText); break;
+      case 'full-translate': streamRef.current = fullTranslate(fileId, onDelta, onDone, documentText); break;
+      case 'terms': streamRef.current = extractTerms(fileId, onDelta, onDone, documentText); break;
     }
   };
 
@@ -257,7 +273,8 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
       setQaHistory(prev => [...prev, { q, a: error ? `❌ ${error}` : full }]);
       setAiResult(null);
     };
-    streamRef.current = paperQA(fileId, q, onDelta, onDone);
+    const documentText = pages.map((page) => `【第 ${page.pageNum} 页】\n${page.paragraphs.map((paragraph) => paragraph.text).join('\n')}`).join('\n\n');
+    streamRef.current = paperQA(fileId, q, onDelta, onDone, documentText);
   };
 
   const closeMenu = () => { setCtxMenu(null); };
@@ -278,7 +295,7 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
 
   return (
     <div className="paper-reader-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="paper-reader">
+      <div className="paper-reader" ref={readerRef}>
         <div className="paper-toolbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 16 }}>📄</span>
@@ -288,39 +305,22 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             {/* 下载按钮 */}
             <a
-              href={`/api/paper/file/${fileId}`}
+              href={paperFileUrl(fileId)}
               download={`${title || 'paper'}.pdf`}
               style={{ textDecoration: 'none' }}
             >
               <Button size="small" variant="outline" icon={<DownloadIcon />}>下载</Button>
             </a>
-            {/* 收藏按钮 */}
             <Button
               size="small"
-              theme={saved ? 'primary' : 'default'}
               variant="outline"
-              loading={saving}
-              icon={<StarIcon />}
-              onClick={async () => {
-                if (saved) return;
-                setSaving(true);
-                try {
-                  await savePaper(fileId, title, arxivId || '', sessionId);
-                  setSaved(true);
-                  MessagePlugin.success('已收藏到我的阅读');
-                } catch {
-                  MessagePlugin.error('收藏失败');
-                } finally {
-                  setSaving(false);
-                }
-              }}
-            >
-              {saved ? '已收藏' : '收藏'}
-            </Button>
+              icon={<FullscreenIcon />}
+              onClick={() => void readerRef.current?.requestFullscreen?.().catch(() => MessagePlugin.warning('浏览器不支持全屏显示'))}
+            >全屏显示</Button>
+            <Button size="small" variant="text" onClick={() => setNativeMode((value) => !value)}>{nativeMode ? '助读视图' : '兼容预览'}</Button>
             <span style={{ width: 1, height: 20, background: 'var(--app-border)', margin: '0 2px' }} />
-            <Button size="small" variant="outline" onClick={() => runAI('analyze', '', '全文分析')}>📚 全文分析</Button>
-            <Button size="small" variant="outline" onClick={() => runAI('full-translate', '', '全文翻译')}>🌍 全文翻译</Button>
-            <Button size="small" variant="outline" onClick={() => runAI('terms', '', '术语提取')}>🔑 术语</Button>
+            {assistantEnabled && <Button size="small" variant="outline" onClick={() => runAI('analyze', '', '全文分析')}>📚 全文分析</Button>}
+            {assistantEnabled && <Button size="small" variant="outline" onClick={() => runAI('full-translate', '', '全文翻译')}>🌍 全文翻译</Button>}
             <Button size="small" variant="text" onClick={() => setScale(s => Math.max(0.6, s - 0.3))}>−</Button>
             <span style={{ fontSize: 11, minWidth: 30, textAlign: 'center' }}>{Math.round(scale * 100)}%</span>
             <Button size="small" variant="text" onClick={() => setScale(s => Math.min(3.0, s + 0.3))}>+</Button>
@@ -331,7 +331,9 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
         <div className="paper-body" style={{ display: 'flex', overflow: 'hidden' }}>
           {/* PDF 侧 */}
           <div style={{ flex: 1, overflow: 'auto', padding: 16, background: '#525659' }}>
-            {loading && <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 40 }}><Loading /></div>}
+            {nativeMode ? <iframe className="paper-native-frame" src={paperFileUrl(fileId)} title={title} /> : <>
+            {loading && <div className="paper-loading-state"><Loading /><span>正在载入 PDF 和渲染引擎…</span></div>}
+            {loadError && <div className="paper-load-error"><strong>PDF 打开失败</strong><span>{loadError}</span><Button size="small" onClick={() => setNativeMode(true)}>使用兼容预览</Button></div>}
             {doc && pages.map(pg => (
               <div
                 key={pg.pageNum}
@@ -377,11 +379,11 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
                 })}
                 <div style={{ textAlign: 'center', fontSize: 10, color: 'rgba(255,255,255,0.4)', padding: '2px 0' }}>— {pg.pageNum} —</div>
               </div>
-            ))}
+            ))}</>}
           </div>
 
           {/* AI 侧 - 自适应宽度 */}
-          <div style={{
+          {assistantEnabled && <div style={{
             width: '35%', minWidth: 300, maxWidth: 500, flexShrink: 0,
             borderLeft: '1px solid var(--app-border)',
             display: 'flex', flexDirection: 'column',
@@ -440,7 +442,7 @@ export default function PaperFullReader({ fileId, title, arxivId, onClose }: Pro
                 </div>
               </div>
             )}
-          </div>
+          </div>}
         </div>
 
         {/* 浮动工具条：选中文本后出现 */}

@@ -1,6 +1,217 @@
-import type { TravelPlan, CityInfo, ScheduleItem, MeetingResult, TravelCollected } from '../types';
+import type { ChatMessage, ConversationSummary, TravelPlan, CityInfo, ScheduleItem, MeetingResult, StoredFileInfo, TravelCollected, MakersMapPlace, MakersRoutePlan, WorkspaceAction, ProactiveState, MakersIntelligenceState } from '../types';
+
+import { authorizedFetch, withEdgeOneAuth } from './auth';
+import { createConversationId, makersConversationHeaders } from './conversation';
+import { splitSseFrames } from './sse';
+import { normalizeTimestamp } from './time';
 
 const BASE = '/api';
+
+export interface BootstrapData {
+  messages: ChatMessage[];
+  schedules?: ScheduleItem[];
+  map_places?: MakersMapPlace[];
+  map_title?: string;
+  workspace_revision?: number;
+  workspace_actions?: WorkspaceAction[];
+}
+
+export interface WorkspaceResponse {
+  revision: number;
+  schedules: ScheduleItem[];
+  map?: { action_id: string; title: string; places: MakersMapPlace[] } | null;
+  action?: WorkspaceAction;
+  actions?: WorkspaceAction[];
+  changed?: Array<ScheduleItem & { deleted?: boolean }>;
+}
+
+export async function workspaceOperation(
+  conversationId: string,
+  operation: string,
+  input: Record<string, unknown> = {},
+): Promise<WorkspaceResponse> {
+  const res = await authorizedFetch('/workspace', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
+    body: JSON.stringify({ operation, ...input }),
+  });
+  const data = await res.json().catch(() => ({})) as WorkspaceResponse & { error?: string };
+  if (!res.ok) throw new Error(data.error || '工作区操作失败');
+  return data;
+}
+
+export async function proactiveOperation(
+  conversationId: string,
+  operation = 'get',
+  input: Record<string, unknown> = {},
+): Promise<ProactiveState> {
+  const res = await authorizedFetch('/proactive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
+    body: JSON.stringify({ operation, ...input }),
+  });
+  const data = await res.json().catch(() => ({})) as ProactiveState & { error?: string };
+  if (!res.ok) throw new Error(data.error || '主动服务操作失败');
+  return data;
+}
+
+export async function intelligenceOperation(
+  conversationId: string,
+  operation = 'get',
+  input: Record<string, unknown> = {},
+): Promise<MakersIntelligenceState> {
+  const res = await authorizedFetch('/intelligence', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
+    body: JSON.stringify({ operation, ...input }),
+  });
+  const data = await res.json().catch(() => ({})) as MakersIntelligenceState & { error?: string };
+  if (!res.ok) throw new Error(data.error || '记忆与反馈操作失败');
+  return data;
+}
+
+export async function streamImageEdit(
+  conversationId: string,
+  prompt: string,
+  parentActionId: string,
+): Promise<WorkspaceAction> {
+  const res = await authorizedFetch('/image', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
+    body: JSON.stringify({ prompt, parent_action_id: parentActionId }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(data.error || `图片修改失败（${res.status}）`);
+  }
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error('无法读取图片修改进度');
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let action: WorkspaceAction | undefined;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parsed = splitSseFrames(buffer); buffer = parsed.rest;
+    for (const frame of parsed.frames) {
+      if (frame === '[DONE]') break;
+      try {
+        const event = JSON.parse(frame) as { type?: string; action?: WorkspaceAction; error?: string };
+        if (event.type === 'image_action' && event.action) action = event.action;
+      } catch { /* Heartbeats and malformed frames do not end the edit. */ }
+    }
+  }
+  if (!action) throw new Error('图片修改服务未返回版本结果');
+  return action;
+}
+
+export async function searchMakersPlaces(
+  conversationId: string,
+  query: string,
+  city = '全国',
+): Promise<MakersMapPlace[]> {
+  const res = await authorizedFetch('/places', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
+    body: JSON.stringify({ query, city, limit: 10 }),
+  });
+  const data = await res.json().catch(() => ({})) as { places?: MakersMapPlace[]; error?: string };
+  if (!res.ok) throw new Error(data.error || '地点搜索失败');
+  return data.places || [];
+}
+
+export async function planMakersRoute(
+  conversationId: string,
+  places: MakersMapPlace[],
+  optimize = false,
+): Promise<MakersRoutePlan> {
+  const res = await authorizedFetch('/routes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
+    body: JSON.stringify({ places, mode: 'driving', optimize }),
+  });
+  const data = await res.json().catch(() => ({})) as { route?: MakersRoutePlan; error?: string };
+  if (!res.ok || !data.route) throw new Error(data.error || '真实道路路线规划失败');
+  return data.route;
+}
+
+export async function bootstrapApp(conversationId: string): Promise<BootstrapData> {
+  try {
+    const res = await authorizedFetch('/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
+      body: JSON.stringify({ conversation_id: conversationId }),
+    });
+    if (res.ok) return res.json();
+  } catch { /* a new conversation has no checkpoint yet */ }
+  return { messages: [] };
+}
+
+function normalizeConversation(item: Record<string, unknown>): ConversationSummary {
+  const metadata = item.metadata && typeof item.metadata === 'object'
+    ? item.metadata as Record<string, unknown>
+    : {};
+  const id = String(item.conversationId || item.id || '');
+  const createdAt = normalizeTimestamp(item.createdAt ?? item.created_at);
+  const updatedAt = normalizeTimestamp(item.lastMessageAt ?? item.updatedAt ?? item.updated_at, createdAt);
+  return {
+    id,
+    title: String(metadata.title || item.title || '新对话'),
+    createdAt,
+    updatedAt,
+    messageCount: Number(item.messageCount || item.message_count || 0),
+  };
+}
+
+export async function listConversations(): Promise<ConversationSummary[]> {
+  const res = await authorizedFetch('/conversations');
+  if (!res.ok) throw new Error('读取历史对话失败');
+  const data = await res.json() as { conversations?: Record<string, unknown>[] };
+  return (data.conversations || [])
+    .map(normalizeConversation)
+    .filter((item) => item.id)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export async function createNewConversation(): Promise<ConversationSummary> {
+  const now = Date.now();
+  return { id: createConversationId(), title: '新对话', createdAt: now, updatedAt: now, messageCount: 0, pending: true };
+}
+
+export async function saveConversationMessage(conversationId: string, message: ChatMessage): Promise<void> {
+  const res = await authorizedFetch('/conversations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      operation: 'append_message', conversation_id: conversationId,
+      role: message.role, content: message.content, metadata: message,
+    }),
+  });
+  if (!res.ok) throw new Error('保存消息失败');
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('yuanbao:conversation-saved', {
+      detail: { conversationId },
+    }));
+  }
+}
+
+export async function uploadDocument(conversationId: string, file: File): Promise<StoredFileInfo> {
+  const signed = await authorizedFetch('/files', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation_id: conversationId, name: file.name, content_type: file.type || 'application/pdf', size: file.size }),
+  });
+  const upload = await signed.json().catch(() => ({})) as { url?: string; key?: string; content_url?: string; error?: string };
+  if (!signed.ok || !upload.url || !upload.key) throw new Error(upload.error || '无法创建 Makers Blob 上传地址');
+  const stored = await fetch(upload.url, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/pdf' }, body: file });
+  if (!stored.ok) throw new Error('上传到 Makers Blob 失败');
+  return {
+    id: upload.key, original_name: file.name, mime_type: file.type || 'application/pdf', size_bytes: file.size,
+    page_count: 0, total_chars: 0, preview: '文件已保存到 EdgeOne Makers Blob。', created_at: Date.now(),
+    storage_key: upload.key, content_url: upload.content_url ? withEdgeOneAuth(upload.content_url) : undefined,
+  };
+}
 
 // ============ 旅游计划 ============
 
@@ -25,7 +236,7 @@ export async function analyzeTravelIntent(params: {
   context?: Record<string, unknown>;
   error?: string;
 }> {
-  const res = await fetch(`${BASE}/travel/analyze`, {
+  const res = await authorizedFetch(`${BASE}/travel/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -35,7 +246,7 @@ export async function analyzeTravelIntent(params: {
 }
 
 export async function searchCities(keyword: string): Promise<CityInfo[]> {
-  const res = await fetch(`${BASE}/cities?keyword=${encodeURIComponent(keyword)}`);
+  const res = await authorizedFetch(`${BASE}/cities?keyword=${encodeURIComponent(keyword)}`);
   if (!res.ok) return [];
   const data = await res.json();
   return data.cities || [];
@@ -53,7 +264,7 @@ export async function generateTravelPlan(params: {
   budget: string;
   extra_notes: string;
 }): Promise<{ plan?: TravelPlan; cost?: CostRecord; error?: string; start_date?: string; end_date?: string; start_ts?: number; parsed_schedules?: Partial<ScheduleItem>[] }> {
-  const res = await fetch(`${BASE}/travel/generate`, {
+  const res = await authorizedFetch(`${BASE}/travel/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -63,7 +274,7 @@ export async function generateTravelPlan(params: {
 }
 
 export async function saveTravelPlan(sessionId: string, plan: TravelPlan): Promise<{ ok: boolean; plan_id: string }> {
-  const res = await fetch(`${BASE}/travel/plans`, {
+  const res = await authorizedFetch(`${BASE}/travel/plans`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId, plan }),
@@ -73,7 +284,7 @@ export async function saveTravelPlan(sessionId: string, plan: TravelPlan): Promi
 }
 
 export async function updateTravelPlan(sessionId: string, planId: string, plan: TravelPlan): Promise<{ ok: boolean }> {
-  const res = await fetch(`${BASE}/travel/plans/${sessionId}/${planId}`, {
+  const res = await authorizedFetch(`${BASE}/travel/plans/${sessionId}/${planId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId, plan }),
@@ -83,7 +294,7 @@ export async function updateTravelPlan(sessionId: string, planId: string, plan: 
 }
 
 export async function deleteTravelPlan(sessionId: string, planId: string): Promise<{ ok: boolean }> {
-  const res = await fetch(`${BASE}/travel/plans/${sessionId}/${planId}`, {
+  const res = await authorizedFetch(`${BASE}/travel/plans/${sessionId}/${planId}`, {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error('删除计划失败');
@@ -91,7 +302,7 @@ export async function deleteTravelPlan(sessionId: string, planId: string): Promi
 }
 
 export async function listTravelPlans(sessionId: string): Promise<TravelPlan[]> {
-  const res = await fetch(`${BASE}/travel/plans/${sessionId}`);
+  const res = await authorizedFetch(`${BASE}/travel/plans/${sessionId}`);
   if (!res.ok) return [];
   const data = await res.json();
   return data.plans || [];
@@ -100,14 +311,14 @@ export async function listTravelPlans(sessionId: string): Promise<TravelPlan[]> 
 // ============ 通用日程 ============
 
 export async function listSchedules(sessionId: string): Promise<ScheduleItem[]> {
-  const res = await fetch(`${BASE}/schedules/${sessionId}`);
+  const res = await authorizedFetch(`${BASE}/schedules/${sessionId}`);
   if (!res.ok) return [];
   const data = await res.json();
   return data.schedules || [];
 }
 
 export async function saveSchedule(sessionId: string, schedule: Partial<ScheduleItem>): Promise<{ ok: boolean; schedule_id: string; conflicts?: ScheduleItem[] }> {
-  const res = await fetch(`${BASE}/schedules`, {
+  const res = await authorizedFetch(`${BASE}/schedules`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId, schedule }),
@@ -117,7 +328,7 @@ export async function saveSchedule(sessionId: string, schedule: Partial<Schedule
 }
 
 export async function updateSchedule(sessionId: string, scheduleId: string, schedule: Partial<ScheduleItem>): Promise<{ ok: boolean }> {
-  const res = await fetch(`${BASE}/schedules/${sessionId}/${scheduleId}`, {
+  const res = await authorizedFetch(`${BASE}/schedules/${sessionId}/${scheduleId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId, schedule }),
@@ -127,7 +338,7 @@ export async function updateSchedule(sessionId: string, scheduleId: string, sche
 }
 
 export async function deleteSchedule(sessionId: string, scheduleId: string): Promise<{ ok: boolean }> {
-  const res = await fetch(`${BASE}/schedules/${sessionId}/${scheduleId}`, {
+  const res = await authorizedFetch(`${BASE}/schedules/${sessionId}/${scheduleId}`, {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error('删除日程失败');
@@ -135,7 +346,7 @@ export async function deleteSchedule(sessionId: string, scheduleId: string): Pro
 }
 
 export async function toggleScheduleDone(sessionId: string, scheduleId: string, done: boolean): Promise<{ ok: boolean }> {
-  const res = await fetch(`${BASE}/schedules/${sessionId}/${scheduleId}/done?done=${done}`, {
+  const res = await authorizedFetch(`${BASE}/schedules/${sessionId}/${scheduleId}/done?done=${done}`, {
     method: 'PATCH',
   });
   if (!res.ok) throw new Error('操作失败');
@@ -156,7 +367,7 @@ export interface PlacePlan {
 }
 
 export async function searchPlaces(city: string, keyword: string): Promise<{ plans: PlacePlan[]; city: string; keyword: string }> {
-  const res = await fetch(`${BASE}/map/search?city=${encodeURIComponent(city)}&keyword=${encodeURIComponent(keyword)}`);
+  const res = await authorizedFetch(`${BASE}/map/search?city=${encodeURIComponent(city)}&keyword=${encodeURIComponent(keyword)}`);
   if (!res.ok) return { plans: [], city, keyword };
   return res.json();
 }
@@ -204,7 +415,7 @@ export async function planDailyRoute(params: {
   city: string;
   locations: { keyword: string; lat?: number; lng?: number; name?: string; address?: string; alternatives?: DailyRouteLocation['alternatives'] }[];
 }): Promise<DailyRouteData> {
-  const res = await fetch(`${BASE}/map/daily-route`, {
+  const res = await authorizedFetch(`${BASE}/map/daily-route`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -232,7 +443,7 @@ export interface RoutePlanData {
 }
 
 export async function planRoute(origin: string, destination: string, waypoints?: string[]): Promise<RoutePlanData> {
-  const res = await fetch(`${BASE}/map/route`, {
+  const res = await authorizedFetch(`${BASE}/map/route`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ origin, destination, waypoints }),
@@ -258,7 +469,7 @@ export interface WeatherData {
 // ============ 会议 ============
 
 export async function createMeeting(sessionId: string, message: string): Promise<MeetingResult> {
-  const res = await fetch(`${BASE}/meeting/create`, {
+  const res = await authorizedFetch(`${BASE}/meeting/create`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId, message }),
@@ -268,7 +479,7 @@ export async function createMeeting(sessionId: string, message: string): Promise
 }
 
 export async function checkMeetingStatus(): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(`${BASE}/meeting/status`);
+  const res = await authorizedFetch(`${BASE}/meeting/status`);
   if (!res.ok) return { ok: false, error: '检查失败' };
   return res.json();
 }
@@ -276,10 +487,246 @@ export async function checkMeetingStatus(): Promise<{ ok: boolean; error?: strin
 // ============ AI 生图 ============
 
 export async function generateImage(prompt: string): Promise<{ ok: boolean; image_url?: string; prompt?: string; error?: string }> {
-  const res = await fetch(`${BASE}/image/generate`, {
+  const res = await authorizedFetch(`${BASE}/image/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt }),
   });
   return res.json();
+}
+
+// ============ 主动式 Agent Runtime ============
+
+export async function listAgentRuns(status?: string): Promise<import('../types').AgentRun[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  const res = await authorizedFetch(`${BASE}/runs${query}`);
+  if (!res.ok) throw new Error('读取 Agent 运行记录失败');
+  return (await res.json()).runs || [];
+}
+
+export async function getAgentRun(runId: string): Promise<import('../types').AgentRun> {
+  const res = await authorizedFetch(`${BASE}/runs/${encodeURIComponent(runId)}`);
+  if (!res.ok) throw new Error('读取 Agent 运行记录失败');
+  return (await res.json()).run;
+}
+
+export async function cancelAgentRun(runId: string): Promise<import('../types').AgentRun> {
+  const res = await authorizedFetch(`${BASE}/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(typeof data.detail === 'string' ? data.detail : '取消 Agent 任务失败');
+  }
+  return (await res.json()).run;
+}
+
+export async function listPendingActions(status = 'all'): Promise<import('../types').PendingAction[]> {
+  const res = await authorizedFetch(`${BASE}/actions?status=${encodeURIComponent(status)}`);
+  if (!res.ok) throw new Error('读取待确认操作失败');
+  return (await res.json()).actions || [];
+}
+
+export async function getPendingAction(actionId: string): Promise<import('../types').PendingAction> {
+  const res = await authorizedFetch(`${BASE}/actions/${encodeURIComponent(actionId)}`);
+  if (!res.ok) throw new Error('读取操作状态失败');
+  return (await res.json()).action;
+}
+
+export async function confirmPendingAction(actionId: string, version: number): Promise<import('../types').PendingAction> {
+  const res = await authorizedFetch(`${BASE}/actions/${encodeURIComponent(actionId)}/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ version }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(typeof data.detail === 'string' ? data.detail : '确认操作失败');
+  }
+  return (await res.json()).action;
+}
+
+export async function cancelPendingAction(actionId: string): Promise<import('../types').PendingAction> {
+  const res = await authorizedFetch(`${BASE}/actions/${encodeURIComponent(actionId)}/cancel`, { method: 'POST' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(typeof data.detail === 'string' ? data.detail : '取消操作失败');
+  }
+  return (await res.json()).action;
+}
+
+export async function waitForPendingAction(
+  actionId: string,
+  timeoutMs = 120_000,
+  pollMs = 800,
+): Promise<import('../types').PendingAction> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const action = await getPendingAction(actionId);
+    if (['succeeded', 'failed', 'cancelled', 'expired'].includes(action.status)) return action;
+    await new Promise((resolve) => window.setTimeout(resolve, pollMs));
+  }
+  throw new Error('操作仍在后台执行，可在 Action Center 中继续查看');
+}
+
+export async function listAgentNotifications(since?: number): Promise<import('../types').AgentNotification[]> {
+  const query = since ? `?since=${encodeURIComponent(since)}` : '';
+  const res = await authorizedFetch(`${BASE}/notifications${query}`);
+  if (!res.ok) throw new Error('读取通知失败');
+  return (await res.json()).notifications || [];
+}
+
+export async function markAgentNotificationRead(notificationId: string): Promise<void> {
+  const res = await authorizedFetch(`${BASE}/notifications/${encodeURIComponent(notificationId)}/read`, { method: 'POST' });
+  if (!res.ok) throw new Error('标记通知失败');
+}
+
+export async function dismissAgentNotification(notificationId: string): Promise<void> {
+  const res = await authorizedFetch(`${BASE}/notifications/${encodeURIComponent(notificationId)}/dismiss`, { method: 'POST' });
+  if (!res.ok) throw new Error('忽略通知失败');
+}
+
+export async function getNotificationPreferences(): Promise<import('../types').NotificationPreferences> {
+  const res = await authorizedFetch(`${BASE}/notification-preferences`);
+  if (!res.ok) throw new Error('读取通知设置失败');
+  return (await res.json()).preferences;
+}
+
+export async function updateNotificationPreferences(
+  changes: Partial<import('../types').NotificationPreferences>,
+): Promise<import('../types').NotificationPreferences> {
+  const res = await authorizedFetch(`${BASE}/notification-preferences`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(changes),
+  });
+  if (!res.ok) throw new Error('更新通知设置失败');
+  return (await res.json()).preferences;
+}
+
+export async function listScheduledJobs(): Promise<import('../types').ScheduledJob[]> {
+  const res = await authorizedFetch(`${BASE}/scheduled-jobs`);
+  if (!res.ok) throw new Error('读取定时任务失败');
+  return (await res.json()).jobs || [];
+}
+
+// ============ 记忆、反馈与使用预算 ============
+export async function listMemoryProposals(status = 'awaiting_confirmation'): Promise<import('../types').MemoryProposal[]> {
+  const res = await authorizedFetch(`${BASE}/memory-proposals?status=${encodeURIComponent(status)}`);
+  if (!res.ok) throw new Error('读取记忆提案失败');
+  return (await res.json()).proposals || [];
+}
+
+export async function confirmMemoryProposal(
+  proposalId: string,
+  version: number,
+): Promise<{ proposal: import('../types').MemoryProposal; memory: import('../types').AgentMemory }> {
+  const res = await authorizedFetch(`${BASE}/memory-proposals/${encodeURIComponent(proposalId)}/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ version }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(typeof data.detail === 'string' ? data.detail : '确认记忆失败');
+  }
+  return await res.json();
+}
+
+export async function rejectMemoryProposal(proposalId: string): Promise<void> {
+  const res = await authorizedFetch(`${BASE}/memory-proposals/${encodeURIComponent(proposalId)}/reject`, { method: 'POST' });
+  if (!res.ok) throw new Error('拒绝记忆提案失败');
+}
+
+export async function listAgentMemories(): Promise<import('../types').AgentMemory[]> {
+  const res = await authorizedFetch(`${BASE}/memories`);
+  if (!res.ok) throw new Error('读取长期记忆失败');
+  return (await res.json()).memories || [];
+}
+
+export async function deleteAgentMemory(memoryId: string): Promise<void> {
+  const res = await authorizedFetch(`${BASE}/memories/${encodeURIComponent(memoryId)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('删除记忆失败');
+}
+
+export async function exportAgentMemories(): Promise<{ schema_version: number; memories: import('../types').AgentMemory[] }> {
+  const res = await authorizedFetch(`${BASE}/memories-export`);
+  if (!res.ok) throw new Error('导出记忆失败');
+  return await res.json();
+}
+
+export async function recordAgentFeedback(input: {
+  run_id?: string | null;
+  action_id?: string | null;
+  action: 'helpful' | 'unhelpful' | 'dismissed' | 'corrected';
+  reason?: string;
+  metadata?: Record<string, unknown>;
+  client_feedback_id?: string;
+}): Promise<import('../types').FeedbackResponse> {
+  const res = await authorizedFetch(`${BASE}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error('记录反馈失败');
+  return await res.json();
+}
+
+export async function getUsageSummary(): Promise<import('../types').UsageSummary> {
+  const res = await authorizedFetch(`${BASE}/usage-summary`);
+  if (!res.ok) throw new Error('读取使用量失败');
+  return await res.json();
+}
+
+export async function updateUsagePreferences(
+  changes: Partial<import('../types').UsagePreferences>,
+): Promise<import('../types').UsagePreferences> {
+  const res = await authorizedFetch(`${BASE}/usage-preferences`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(changes),
+  });
+  if (!res.ok) throw new Error('更新预算设置失败');
+  return (await res.json()).preferences;
+}
+
+// ============ 系统健康与备份恢复 ============
+export async function getSystemHealth(): Promise<import('../types').SystemHealth> {
+  const res = await authorizedFetch(`${BASE}/system/health`);
+  if (!res.ok) throw new Error('读取系统健康状态失败');
+  return await res.json();
+}
+
+export async function downloadSystemBackup(): Promise<string> {
+  const res = await authorizedFetch(`${BASE}/system/backup/export`, { method: 'POST' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(typeof data.detail === 'string' ? data.detail : '生成备份失败');
+  }
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const matched = disposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+  const filename = matched ? decodeURIComponent(matched[1].replace(/"/g, '')) : 'yuanbao-agent-backup.zip';
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  return filename;
+}
+
+export async function stageSystemRestore(file: File): Promise<import('../types').RestoreStageResult> {
+  const body = new FormData();
+  body.append('file', file, file.name);
+  const res = await authorizedFetch(`${BASE}/system/backup/restore?confirm=true`, {
+    method: 'POST',
+    body,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(typeof data.detail === 'string' ? data.detail : '备份校验失败');
+  }
+  return await res.json();
 }

@@ -1,14 +1,24 @@
-import { Button, Tag, Tooltip } from 'tdesign-react';
-import { ModeDarkIcon, ModeLightIcon } from 'tdesign-icons-react';
+import { Button, Tooltip } from 'tdesign-react';
+import { ChatBubbleHistoryIcon, ChevronLeftIcon, ChevronRightIcon, LogoutIcon, ModeDarkIcon, ModeLightIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
+import { useSession } from '../auth/session';
 
 const THEME_KEY = 'travel-theme';
 
 /** 顶部导航栏。 */
-export default function Header() {
+export default function Header({
+  onToggleSidebar,
+  rightPanelOpen = true,
+  onToggleRightPanel,
+}: {
+  onToggleSidebar?: () => void;
+  rightPanelOpen?: boolean;
+  onToggleRightPanel?: () => void;
+}) {
   const { theme } = useAppState();
   const dispatch = useAppDispatch();
+  const session = useSession();
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -23,38 +33,50 @@ export default function Header() {
   return (
     <header className="app-header">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div
-          style={{
-            width: 30,
-            height: 30,
-            borderRadius: 9,
-            background: 'linear-gradient(135deg, #2b5aed, #7c5cff)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#fff',
-            fontWeight: 700,
-            fontSize: 15,
-          }}
+        <Button
+          className="conversation-menu-button"
+          shape="circle"
+          variant="text"
+          size="small"
+          onClick={onToggleSidebar}
+          aria-label="打开历史对话"
+          icon={<ChatBubbleHistoryIcon />}
         >
-          AI
-        </div>
+        </Button>
         <span className="brand-logo">元宝 Agent</span>
-        <Tag size="small" variant="light" theme="primary" style={{ marginLeft: 4 }}>
-          主动式 · 多能力
-        </Tag>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {session?.mode === 'multi_user' && <span className="session-username">{session.user.username}</span>}
         <StatusIndicator />
+        {onToggleRightPanel && (
+          <Tooltip content={rightPanelOpen ? '收起右栏' : '展开右栏'}>
+            <Button
+              className="right-panel-toggle"
+              shape="circle"
+              variant="text"
+              size="medium"
+              onClick={onToggleRightPanel}
+              aria-label={rightPanelOpen ? '收起右栏' : '展开右栏'}
+              aria-pressed={rightPanelOpen}
+              icon={rightPanelOpen ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+            />
+          </Tooltip>
+        )}
         <Tooltip content={theme === 'dark' ? '切换到浅色' : '切换到深色'}>
           <Button
+            className="theme-toggle"
             shape="circle"
             variant="text"
-            size="small"
+            size="medium"
             onClick={toggleTheme}
             icon={theme === 'dark' ? <ModeLightIcon /> : <ModeDarkIcon />}
           />
         </Tooltip>
+        {session?.mode === 'multi_user' && (
+          <Tooltip content="退出登录">
+            <Button shape="circle" variant="text" size="medium" onClick={session.logout} aria-label="退出登录" icon={<LogoutIcon />} />
+          </Tooltip>
+        )}
       </div>
     </header>
   );

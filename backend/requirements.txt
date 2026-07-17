@@ -10,3 +10,4 @@ aiosqlite
 arxiv
 pymupdf
 python-multipart
+tzdata

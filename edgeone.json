@@ -1,0 +1,24 @@
+{
+  "buildCommand": "cd frontend && npm ci && npm run build -- --mode edgeone",
+  "outputDirectory": "frontend/dist",
+  "framework": "vite",
+  "cloudFunctions": {
+    "nodejs": {
+      "includeFiles": []
+    }
+  },
+  "agents": {
+    "framework": "langgraph",
+    "timeout": 1800
+  },
+  "schedules": [
+    {
+      "name": "proactive-hourly-scan",
+      "cron": "0 * * * *",
+      "path": "/proactive-tick",
+      "method": "POST",
+      "payload": { "operation": "tick" },
+      "timezone": "Asia/Shanghai"
+    }
+  ]
+}

@@ -20,13 +20,15 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, UploadFile, File, Form
+from fastapi import APIRouter, UploadFile, File, Form, Request
 from fastapi.responses import StreamingResponse, FileResponse
 
 from config import settings
+from database.repositories.conversation_repo import DEFAULT_CONVERSATION_ID, LOCAL_USER_ID
+from database.repositories.file_repo import get_file
+from services.file_service import store_pdf
 from services.hunyuan_service import _check_quota_error, QuotaExhaustedError
 from prompts.paper_prompts import (
     PAPER_TRANSLATE_PROMPT,
@@ -40,24 +42,26 @@ from prompts.paper_prompts import (
 
 router = APIRouter(prefix="/api/paper", tags=["paper"])
 
-UPLOAD_DIR = Path("./uploads/papers")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
 _paper_cache: dict[str, dict] = {}
 
 
-def _extract_text_from_pdf(pdf_path: str) -> str:
-    """用 pymupdf 提取 PDF 全文文本。"""
-    try:
-        import fitz
-    except ImportError:
-        return ""
-    doc = fitz.open(pdf_path)
-    texts = []
-    for page in doc:
-        texts.append(page.get_text())
-    doc.close()
-    return "\n\n".join(texts)
+async def _get_paper(file_id: str) -> dict | None:
+    cached = _paper_cache.get(file_id)
+    if cached:
+        return cached
+    stored = await get_file(file_id)
+    if not stored:
+        return None
+    metadata = stored.get("metadata") or {}
+    paper = {
+        "path": stored["storage_path"],
+        "filename": stored["original_name"],
+        "arxiv_id": metadata.get("arxiv_id", ""),
+        "title": metadata.get("title", stored["original_name"]),
+        "full_text": stored.get("extracted_text", ""),
+    }
+    _paper_cache[file_id] = paper
+    return paper
 
 
 def _sse(data: dict) -> str:
@@ -66,152 +70,20 @@ def _sse(data: dict) -> str:
 
 # ============ 论文搜索 ============
 
-PAPER_SEARCH_PROMPT = """你是学术论文搜索助手。根据用户的自然语言需求，构建 arXiv 搜索查询。
-
-## 你的任务：
-分析用户需求，提取搜索参数，输出 JSON 供系统调用 arXiv API。
-
-## 参数说明：
-- query: arXiv 查询字符串
-- max_results: 数量（用户说"2篇"就2，没说默认5）
-- year_from: 起始年份（"近5年"→2021，"近3年"→2023，没说填 null）
-
-## arXiv 查询语法（极其重要）：
-- 关键词: "diffusion model"
-- 作者搜索（用引号包裹全名）: au:"Yungang Zhu"
-- 单姓搜索: au:LeCun
-- 组合: au:"Yungang Zhu" AND cat:cs
-- 标题: ti:attention
-- 中文人名转拼音: "朱允刚" → Yungang Zhu，搜索时用 au:"Yungang Zhu"
-
-## 重要规则：
-1. 作者全名必须用双引号包裹：au:"Yungang Zhu"（不是 au:Yungang Zhu）
-2. 中文人名转拼音：朱允刚 → Yungang Zhu
-3. 中文关键词转英文：扩散模型 → diffusion model
-4. 不要添加机构/学校作为搜索条件（arXiv 不索引学校信息）
-5. 简单优先：如果用户只指定作者，query 就只有 au:"名字"
-
-## 输出格式（严格 JSON）：
-{"query": "au:\"Yungang Zhu\"", "max_results": 5, "year_from": null}
-
-示例：
-用户"找朱允刚老师的论文" → {"query": "au:\"Yungang Zhu\"", "max_results": 5, "year_from": null}
-用户"2篇近3年扩散模型论文" → {"query": "diffusion model", "max_results": 2, "year_from": 2023}
-用户"LeCun关于自监督学习" → {"query": "au:LeCun AND self-supervised", "max_results": 5, "year_from": null}"""
-
-
-async def _parse_search_params(user_message: str) -> dict:
-    """用 DeepSeek 解析用户需求为 arXiv 搜索参数。"""
-    if not settings.deepseek_ready:
-        return {"query": user_message, "max_results": 5, "year_from": None}
-
-    messages = [
-        {"role": "system", "content": PAPER_SEARCH_PROMPT},
-        {"role": "user", "content": user_message},
-    ]
-
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{settings.deepseek_base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
-                json={
-                    "model": settings.deepseek_model,
-                    "messages": messages,
-                    "max_tokens": 200,
-                    "temperature": 0.3,
-                },
-            )
-            _check_quota_error(resp.status_code, resp.text, "DeepSeek")
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"].strip()
-            content = re.sub(r"^```(?:json)?|```$", "", content, flags=re.MULTILINE).strip()
-            return json.loads(content)
-    except Exception as e:
-        print(f"[paper_search] DeepSeek parse failed: {e}")
-        return {"query": user_message, "max_results": 5, "year_from": None}
-
-
 @router.post("/search")
 async def search_papers(
+    request: Request,
     topic: str = Form(...),
     user_message: str = Form(""),
 ) -> dict:
-    """搜索论文：LLM 解析需求 → arXiv API 真实搜索 → LLM 翻译摘要。"""
-    query_text = user_message.strip() if user_message.strip() else f"帮我找关于{topic}的论文"
+    """Search arXiv through the shared paper service and ModelGateway."""
+    from services.paper_search_service import PaperSearchService
 
-    # 1. LLM 解析搜索参数
-    params = await _parse_search_params(query_text)
-    arxiv_query = params.get("query", topic)
-    max_results = min(params.get("max_results", 5) or 5, 10)
-    year_from = params.get("year_from")
-
-    # 2. 调用 arXiv API 真实搜索
+    service = PaperSearchService(request.app.state.model_gateway)
     try:
-        import arxiv as arxiv_lib
-
-        sort_by = arxiv_lib.SortCriterion.Relevance
-        search = arxiv_lib.Search(
-            query=arxiv_query,
-            max_results=max_results * 2,  # 多搜一些，后面按年份过滤
-            sort_by=sort_by,
-        )
-        raw_results = list(arxiv_lib.Client().results(search))
-    except Exception as e:
-        return {"error": f"arXiv 搜索失败：{type(e).__name__}: {e}"}
-
-    # 3. 过滤 + 格式化
-    papers = []
-    for r in raw_results:
-        # 年份过滤
-        if year_from and r.published.year < year_from:
-            continue
-        arxiv_id = r.entry_id.split("/")[-1].split("v")[0]
-        papers.append({
-            "title": r.title.replace("\n", " ").strip(),
-            "arxiv_id": arxiv_id,
-            "authors": ", ".join(a.name for a in r.authors[:6]),
-            "year": r.published.year,
-            "abstract_zh": r.summary[:200].replace("\n", " "),  # 先用英文摘要，后面 LLM 翻译
-            "key_contribution": "",
-            "citations": "",
-            "arxiv_url": f"https://arxiv.org/abs/{arxiv_id}",
-            "pdf_url": f"https://arxiv.org/pdf/{arxiv_id}.pdf",
-        })
-        if len(papers) >= max_results:
-            break
-
-    # 4. DeepSeek 翻译摘要为中文（批量）
-    if papers and settings.deepseek_ready:
-        try:
-            paper_list = "\n".join(
-                f"[{i}] {p['title']}\n{p['abstract_zh']}"
-                for i, p in enumerate(papers)
-            )
-            messages = [
-                {"role": "system", "content": "你是学术翻译。将每篇论文的摘要翻译成中文（100字以内），并概括其核心贡献。输出 JSON 数组，每项格式 {\"index\": 0, \"abstract_zh\": \"中文摘要\", \"key_contribution\": \"一句话贡献\"}"},
-                {"role": "user", "content": paper_list},
-            ]
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    f"{settings.deepseek_base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {settings.deepseek_api_key}"},
-                    json={"model": settings.deepseek_model, "messages": messages, "max_tokens": 1500, "temperature": 0.5},
-                )
-                _check_quota_error(resp.status_code, resp.text, "DeepSeek")
-                resp.raise_for_status()
-                content = resp.json()["choices"][0]["message"]["content"].strip()
-                content = re.sub(r"^```(?:json)?|```$", "", content, flags=re.MULTILINE).strip()
-                translations = json.loads(content)
-                for t in translations:
-                    idx = t.get("index", -1)
-                    if 0 <= idx < len(papers):
-                        papers[idx]["abstract_zh"] = t.get("abstract_zh", papers[idx]["abstract_zh"])
-                        papers[idx]["key_contribution"] = t.get("key_contribution", "")
-        except Exception as e:
-            print(f"[paper_search] DeepSeek translate failed: {e}")
-
-    return {"papers": papers, "topic": topic}
+        return await service.search(topic=topic, user_message=user_message)
+    except Exception as error:
+        return {"error": f"arXiv 搜索失败：{type(error).__name__}: {error}"}
 
 
 # ============ 论文下载 ============
@@ -243,21 +115,17 @@ async def download_paper(
 
             # 安全标题
             safe_title = re.sub(r'[^\w\s\-]', '', title)[:60] or arxiv_id
-            file_id = uuid.uuid4().hex[:16]
-            file_path = UPLOAD_DIR / f"{file_id}_{safe_title}.pdf"
-            file_path.write_bytes(pdf_bytes)
-
-            # 提取全文文本
-            full_text = _extract_text_from_pdf(str(file_path))
-            if not full_text:
-                return {"error": "PDF 下载成功但无法提取文本，可能是扫描件"}
-
+            stored = await store_pdf(
+                pdf_bytes,
+                f"{safe_title}.pdf",
+                DEFAULT_CONVERSATION_ID,
+                {"source": "arxiv", "arxiv_id": arxiv_id, "title": title},
+            )
+            file_id = stored["id"]
+            full_text = stored["extracted_text"]
             _paper_cache[file_id] = {
-                "path": str(file_path),
-                "filename": f"{safe_title}.pdf",
-                "arxiv_id": arxiv_id,
-                "title": title,
-                "full_text": full_text,
+                "path": stored["storage_path"], "filename": stored["original_name"],
+                "arxiv_id": arxiv_id, "title": title, "full_text": full_text,
             }
 
             return {
@@ -285,7 +153,7 @@ async def save_paper(
     session_id: str = Form("default"),
 ) -> dict:
     """将已下载的论文保存到「我的阅读」。"""
-    paper = _paper_cache.get(file_id)
+    paper = await _get_paper(file_id)
     if not paper:
         return {"error": "文件不存在"}
 
@@ -296,7 +164,7 @@ async def save_paper(
     paper_id = uuid.uuid4().hex[:12]
     await db.execute(
         "INSERT INTO papers (id, session_id, file_id, title, arxiv_id, filename, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (paper_id, session_id, file_id, title, arxiv_id, paper.get("filename", ""), time.time()),
+        (paper_id, LOCAL_USER_ID, file_id, title, arxiv_id, paper.get("filename", ""), time.time()),
     )
     await db.commit()
     return {"ok": True, "paper_id": paper_id}
@@ -310,7 +178,7 @@ async def list_saved_papers(session_id: str) -> dict:
     db = await get_db()
     cursor = await db.execute(
         "SELECT id, file_id, title, arxiv_id, filename, created_at FROM papers WHERE session_id = ? ORDER BY created_at DESC",
-        (session_id,),
+        (LOCAL_USER_ID,),
     )
     rows = await cursor.fetchall()
     papers = []
@@ -332,7 +200,10 @@ async def delete_saved_paper(paper_id: str) -> dict:
     from database.connection import get_db
 
     db = await get_db()
-    await db.execute("DELETE FROM papers WHERE id = ?", (paper_id,))
+    await db.execute(
+        "DELETE FROM papers WHERE id = ? AND session_id = ?",
+        (paper_id, LOCAL_USER_ID),
+    )
     await db.commit()
     return {"ok": True}
 
@@ -346,22 +217,12 @@ async def upload_paper(file: UploadFile = File(...)) -> dict:
         return {"error": "请上传 PDF 文件"}
 
     content = await file.read()
-    if len(content) > 50 * 1024 * 1024:
-        return {"error": "文件过大，请上传 50MB 以下的 PDF"}
-
-    file_id = uuid.uuid4().hex[:16]
-    file_path = UPLOAD_DIR / f"{file_id}_{file.filename}"
-    file_path.write_bytes(content)
-
-    full_text = _extract_text_from_pdf(str(file_path))
-    if not full_text:
-        return {"error": "无法提取 PDF 文本，可能是扫描件或加密文件"}
-
-    _paper_cache[file_id] = {
-        "path": str(file_path),
-        "filename": file.filename,
-        "full_text": full_text,
-    }
+    try:
+        stored = await store_pdf(content, file.filename, DEFAULT_CONVERSATION_ID)
+    except ValueError as error:
+        return {"error": str(error)}
+    file_id = stored["id"]
+    full_text = stored["extracted_text"]
 
     return {
         "file_id": file_id,
@@ -374,7 +235,7 @@ async def upload_paper(file: UploadFile = File(...)) -> dict:
 @router.get("/file/{file_id}")
 async def get_paper_file(file_id: str):
     """返回 PDF 文件内容（供前端 pdf.js 渲染）。"""
-    paper = _paper_cache.get(file_id)
+    paper = await _get_paper(file_id)
     if not paper:
         return {"error": "文件不存在"}
     return FileResponse(paper["path"], media_type="application/pdf")
@@ -469,7 +330,7 @@ async def explain_formula(text: str = Form(...), session_id: str = Form("paper")
 
 @router.post("/analyze")
 async def analyze_paper(file_id: str = Form(...), session_id: str = Form("paper")):
-    paper = _paper_cache.get(file_id)
+    paper = await _get_paper(file_id)
     if not paper:
         return {"error": "文件不存在，请重新下载"}
     return StreamingResponse(
@@ -479,7 +340,7 @@ async def analyze_paper(file_id: str = Form(...), session_id: str = Form("paper"
 
 @router.post("/full-translate")
 async def full_translate(file_id: str = Form(...), session_id: str = Form("paper")):
-    paper = _paper_cache.get(file_id)
+    paper = await _get_paper(file_id)
     if not paper:
         return {"error": "文件不存在，请重新下载"}
     return StreamingResponse(
@@ -489,7 +350,7 @@ async def full_translate(file_id: str = Form(...), session_id: str = Form("paper
 
 @router.post("/terms")
 async def extract_terms(file_id: str = Form(...), session_id: str = Form("paper")):
-    paper = _paper_cache.get(file_id)
+    paper = await _get_paper(file_id)
     if not paper:
         return {"error": "文件不存在，请重新下载"}
     return StreamingResponse(
@@ -499,7 +360,7 @@ async def extract_terms(file_id: str = Form(...), session_id: str = Form("paper"
 
 @router.post("/qa")
 async def paper_qa(file_id: str = Form(...), question: str = Form(...), session_id: str = Form("paper")):
-    paper = _paper_cache.get(file_id)
+    paper = await _get_paper(file_id)
     if not paper:
         return {"error": "文件不存在，请重新下载"}
 

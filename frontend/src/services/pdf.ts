@@ -3,9 +3,12 @@
  * 核心：extractParagraphs + detectColumns + detectFormula
  */
 import * as pdfjsLib from 'pdfjs-dist';
-import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+// EdgeOne static hosting does not serve Vite's emitted `.mjs` worker URL.
+// Let Vite create a regular worker chunk and pass the Worker instance to
+// PDF.js, avoiding both the 404 and preview-token propagation problems.
+pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
 
 export type PDFDocumentProxy = pdfjsLib.PDFDocumentProxy;
 export type PDFPageProxy = pdfjsLib.PDFPageProxy;
@@ -31,7 +34,20 @@ export interface Paragraph {
 
 export async function loadPdf(data: ArrayBuffer): Promise<PDFDocumentProxy> {
   const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(data) });
-  return await loadingTask.promise;
+  let timer = 0;
+  try {
+    return await Promise.race([
+      loadingTask.promise,
+      new Promise<never>((_, reject) => {
+        timer = window.setTimeout(() => {
+          void loadingTask.destroy();
+          reject(new Error('PDF 解析超时，请检查 PDF worker 或文件完整性'));
+        }, 30_000);
+      }),
+    ]);
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 export async function extractParagraphs(page: PDFPageProxy): Promise<Paragraph[]> {

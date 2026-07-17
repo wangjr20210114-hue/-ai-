@@ -1,144 +1,125 @@
-# 元宝主动服务 Demo
+# 元宝 Agent · EdgeOne Makers 版
 
-> 当前仓库是功能原型基线，不是可长期无人值守运行的正式版主动式 Agent。基线状态见 [`docs/BASELINE.md`](docs/BASELINE.md)，完整改造路线见 [`docs/PROACTIVE_AGENT_REFACTOR_PLAN.md`](docs/PROACTIVE_AGENT_REFACTOR_PLAN.md)。
+元宝是一个运行在腾讯云 EdgeOne Makers 上的多能力主动式 Agent。生产主链使用 Python LangGraph Agent、Makers AI Gateway、LangGraph checkpointer/store、Conversation Store、Cloud Functions、Blob 与平台 Cron；旧 FastAPI 已退役，不再作为生产 Transport 或发布回归门槛。
 
-面向元宝 C 端用户的**主动式 AI 服务**创新方案。通过"感知-预判-服务"三层管线架构，让 AI 从被动响应升级为主动协作者，在**搜索问答、写作、翻译、文档总结、生图、腾讯会议**六大日常场景中，无需用户触发即可实时识别机会点并主动提供服务。
+生产环境：[https://ai-active-agent-tndu0xxa.edgeone.cool](https://ai-active-agent-tndu0xxa.edgeone.cool)
 
-## 核心特性
+## 当前生产能力
 
-- **主动服务气泡系统**：以非侵入式悬浮卡片展示 AI 主动建议，支持采纳/忽略，带来源场景标签与置信度指示器
-- **六大主动服务场景**：搜索追问预判、写作素材先行、无感翻译、上传即总结、场景感知生图、自动创建腾讯会议
-- **上下文感知面板**：实时展示 AI 对用户活动、关注点、情绪的理解，以及 Agent 任务执行时间线
-- **误报过滤机制**：规则引擎第一层 + LLM 奖励模型第二层，降低打扰
-- **用户偏好学习**：记录采纳/忽略反馈，动态调整触发阈值
-- **Token 消耗追踪**：实时展示主动服务的 Token 与成本
-
-## 能力状态
-
-| 能力 | 当前状态 | 说明 |
-| --- | --- | --- |
-| 普通对话与流式回复 | 已实现 | 依赖已配置的模型 API |
-| 搜索与来源整理 | 部分实现 | 多源搜索已接入，仍需统一超时、引用校验和降级 |
-| 旅游规划与日程 | 已实现（被动） | 可生成计划和写入内部日程，主动天气守护尚未实现 |
-| 腾讯会议 | 部分实现 | 需要本机安装并授权 `tmeet`，确认闭环将在 M2 改造 |
-| 生图 | 部分实现 | 需要独立额度，确认和任务持久化将在 M2 改造 |
-| 翻译 | 已实现（被动） | 当前默认翻译为中文 |
-| 论文搜索与阅读 | 部分实现 | 搜索、下载、阅读可用，文件持久恢复将在 M1 改造 |
-| 通用文件上传即总结 | 未实现 | 当前聊天上传入口尚未传输真实文件 |
-| 后台主动感知与通知 | 未实现 | 调度、Collector、去重和免打扰将在 M3 改造 |
-| 偏好学习与完整成本面板 | 未实现 | 数据模型和交互将在 M5–M6 改造 |
-
-## 技术栈
-
-| 层 | 技术 |
+| 能力 | 实现与边界 |
 | --- | --- |
-| 前端 | Vite 5 + React 18 + TypeScript 5 |
-| UI | TDesign React（唯一 UI 框架）+ tdesign-icons-react |
-| 状态管理 | React Context + useReducer |
-| 后端 | Python 3.11+ + FastAPI + WebSockets |
-| 数据库 | SQLite（aiosqlite 异步） |
-| LLM | 混元 + DeepSeek（OpenAI 兼容接口；混元负责对话/视觉/生图，DeepSeek 负责意图识别和结构化任务） |
-| 外部 API | 腾讯地图、腾讯会议 tmeet CLI、arXiv、搜狗/WSA 搜索 |
+| 对话与会话恢复 | Makers LangGraph checkpointer；每个对话独立上下文 |
+| 联网图文回答 | WSA SearchPro + 网页媒体抽取 + HY-Vision 视觉相关性筛选 |
+| 地点与地图 | 腾讯位置服务优先，OSM 降级；真实地点 ID 才能进入地图 |
+| 道路路线 | 腾讯路线优先，OSRM 降级；支持多点顺序与费用估算 |
+| 日程 | 跨对话用户工作区；Agent 提案确认后写入，右栏支持直接 CRUD |
+| 腾讯会议 | 通过受控 Meeting Bridge 或已有 `tmeet` 登录态执行 |
+| AI 生图 | 混元 `hy-image-v3.0` 直接生成；现实主体可复用富搜索 + HY-Vision 审核图，支持版本轮播、绘制动画、Blob 归档与 ZIP 下载 |
+| 论文与 PDF | 普通富搜索后桥接公开 PDF/arXiv 下载；PDF 自动分类、文件夹化“我的阅读”，论文支持选词、翻译、总结、全文助读和问答 |
+| 主动运行时 | EdgeOne cron 每小时触发；持久 Event/Run/Observation、日程/天气/路线 Collector、去重 Notification Inbox、免打扰和每日上限 |
+| 长期记忆与反馈 | 记忆先提案后确认；提醒接受/忽略/稍后反馈；连续忽略生成可确认规则提案；Token 日/月预算 |
+| 持久工作流 | 主模型可创建多步骤工作流提案；用户确认后后台按依赖和到期时间推进，步骤需显式完成/跳过 |
+| 安全副作用 | Action 冻结快照、SHA-256、幂等键、Provider 调用账本、执行租约和未知结果人工核对 |
 
-## 架构
+代码支持单用户和多用户两种模式。多用户采用腾讯官方 Makers 认证参考架构（Neon、bcrypt、HttpOnly JWT、Edge Middleware）并隔离 Conversation、Store、Blob 和连接器 Secret；生产启用前需配置身份环境变量并完成在线隔离终验。完整架构与边界见 [当前架构、能力盘点与改造计划](docs/CURRENT_ARCHITECTURE_AND_REFACTOR_PLAN.md)。
 
-```
-用户活动 → [感知层]上下文采集 → [预判层]意图预测+机会检测
-        → [过滤层]奖励模型过滤 → [服务层]工具调度+服务生成
-        → WebSocket 推送 → TDesign 气泡展示
-```
+## 目录
 
-后端采用**事件驱动 + 技能编排型 Agent** 架构：
-
-- `agent/orchestrator.py`：统一处理事件、意图识别、执行策略、技能分发与运行日志
-- `agent/context.py` / `events.py` / `policy.py` / `runtime.py`：会话上下文、事件模型、权限策略、执行记录
-- `skills/`：每个场景一个 Skill，继承 `BaseSkill`，声明能力、触发词、权限等级与执行入口
-- `services/`：混元/DeepSeek、搜索、地图、会议、论文等外部服务封装
-- `api/`：REST 路由与 WebSocket 端点，负责协议接入，不再承担核心 Agent 决策
-- `scenarios/scenario_type.py`：`ScenarioType` 枚举
-
-### 扩展新场景（三步）
-
-1. 在 `scenarios/scenario_type.py` 的 `ScenarioType` 新增枚举值
-2. 在 `skills/` 继承 `BaseSkill` 实现新 Skill 类，并声明 `permission_level`
-3. 在 `agent/__init__.py` 注册技能，并在 `api/websocket.py` 的 handler map 绑定执行函数
-
-## 快速开始
-
-### 后端
-
-```bash
-cd backend
-python3 -m venv venv
-./venv/bin/pip install -r requirements.lock
-cp .env.example .env      # 按需填入混元、DeepSeek、地图、搜索等密钥
-./venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000
+```text
+agents/
+├── chat/                 # LangGraph 主对话、能力规划和生产工具
+├── proactive/            # 定时 Collector、Event/Run、通知和持久工作流
+├── intelligence/         # 记忆提案、反馈、规则和预算
+├── system/               # 主动运行时健康与可观测性
+├── messages/             # 从检查点恢复消息与工作区
+├── reader/               # 论文翻译、总结、全文助读与问答
+├── places/               # 真实地点查询
+├── routes/               # 道路路线查询
+├── workspace/            # 地图、日程、会议和生图操作
+└── stop/                 # 停止当前 Agent 运行
+cloud-functions/
+├── files/                # Makers Blob 签名、读取和删除
+├── library/              # 跨会话“我的阅读”资产索引
+├── papers/               # arXiv 搜索、下载和论文归档
+└── conversations/        # Makers 会话列表、标题和消息追加
+frontend/                 # React + Vite 双模式前端
+backend/                  # 已退役 FastAPI/SQLite 历史参考；不测试、不部署、不新增功能
+docs/                     # 当前事实源、历史设计和迁移记录
+edgeone.json              # Makers 构建与 Agent 配置
 ```
 
-> 当前代码默认不返回模拟数据；未配置真实密钥时会返回明确错误。`MOCK_MODE` 预留给后续离线演示模式。
+## 状态所有权
 
-### 前端
-
-```bash
-cd frontend
-npm install
-npm run dev               # 默认 http://localhost:5173，已配置 /api 与 /ws 代理
-```
-
-### 质量检查
-
-```bash
-# 后端
-cd backend
-python -m unittest discover -s tests -v
-
-# 前端
-cd frontend
-npm run lint
-npm test
-npm run build
-```
-
-## 演示方式
-
-1. 左侧选择场景，输入框上方提供一键示例
-2. 输入内容并发送，右侧面板将实时展示：
-   - **AI 上下文理解**（意图/关注点/情绪/关键词）
-   - **Agent 任务时间线**（检测中→分析中→生成建议中→已推送）
-   - **主动服务建议卡片**（滑入动画，可采纳/忽略）
-3. 采纳的建议会回填到对话流；忽略后 5 分钟内不再推送同类建议
-
-## 目录结构
-
-```
-backend/
-├── main.py                 # FastAPI 入口
-├── config.py               # 配置（读取 .env）
-├── api/                    # REST 路由 + WebSocket 端点
-├── agent/                  # 事件、上下文、策略、运行时、编排器
-├── skills/                 # 技能层（BaseSkill + 场景 Skill）
-├── services/               # LLM / 搜索 / 地图 / 会议 / 论文等服务
-├── database/               # SQLite 连接、建表、仓储
-├── models/schemas.py       # Pydantic 模型
-├── prompts/templates.py    # LLM 提示词（含禁令式设计）
-└── scenarios/scenario_type.py  # 枚举
-frontend/
-└── src/
-    ├── components/         # chat / travel / paper / profile / common
-    ├── hooks/              # useWebSocket
-    ├── services/           # api / websocket
-    ├── store/              # AppContext（Context + useReducer）
-    └── types/              # 全局类型
-```
+- 对话历史与短期记忆：按 `conversation_id` 存在 LangGraph checkpointer。
+- 会话列表与标题：Makers conversation store。
+- 日程、地图、Action、Event/Run/Notification、工作流、记忆、反馈和预算：单用户 LangGraph store，跨对话共享。
+- PDF、论文和生成图片字节：Makers Blob；阅读索引同样持久化在 Blob。
+- 旧本地备份与部分高级运行资产：SQLite，仅本地兼容模式。
 
 ## 环境变量
 
-| 变量 | 说明 |
+将 `.env.example` 中需要的变量配置到 Makers 项目环境，不要提交真实值。
+
+| 变量 | 用途 |
 | --- | --- |
-| `HUNYUAN_API_KEY` / `HUNYUAN_BASE_URL` / `HUNYUAN_MODEL` | 混元对话/视觉模型 |
-| `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` | DeepSeek 意图识别、结构化任务、搜索总结 |
-| `HUNYUAN_IMAGE_API_KEY` / `HUNYUAN_IMAGE_BASE_URL` / `HUNYUAN_IMAGE_MODEL` | 混元文生图 |
-| `TENCENT_MAP_KEY` | 腾讯位置服务 |
-| `WSA_API_KEY` / `WSA_BASE_URL` | WSA 搜索兜底（可选） |
-| `tmeet auth login` | 腾讯会议通过 tmeet CLI 授权 |
-| `MOCK_MODE` | 预留离线演示开关（当前核心链路未实现模拟数据） |
+| `AI_GATEWAY_API_KEY` / `AI_GATEWAY_BASE_URL` | Makers AI Gateway，CLI 通常自动注入 |
+| `AI_GATEWAY_MODEL` | 主对话模型，默认 `@makers/deepseek-v4-flash` |
+| `WSA_API_KEY` / `WSA_BASE_URL` | 联网富搜索 |
+| `HUNYUAN_IMAGE_API_KEY` | TokenHub 多模态图片筛选与混元生图（Hy3 是纯文本模型，不用于看图） |
+| `HUNYUAN_VISION_API_KEY` / `HUNYUAN_VISION_MODEL` | 可选的独立视觉密钥与模型覆盖，默认复用上项并调用 `hy-vision-2.0-instruct` |
+| `TENCENT_MAP_SERVER_KEY` | 腾讯地点与路线服务 |
+| `MEETING_BRIDGE_URL` / `MEETING_BRIDGE_TOKEN` | 腾讯会议 Bridge |
+
+## Makers 本地开发
+
+要求 EdgeOne CLI `>= 1.6.7`：
+
+```bash
+npm install -g edgeone@latest
+edgeone -v
+edgeone whoami
+edgeone makers link
+edgeone makers env pull
+edgeone makers dev
+```
+
+使用 CLI 输出的 Makers 代理地址（通常为 `http://127.0.0.1:8088/`）；它同时提供静态前端、Agent 路由和 Cloud Functions。
+
+## 质量检查
+
+```bash
+python -m compileall agents
+
+cd backend
+python -m unittest discover -s tests -p "test_*.py"
+
+cd frontend
+npm ci
+npm test -- --run
+npm run lint
+npm run build -- --mode edgeone
+```
+
+部署：
+
+```bash
+edgeone makers env ls
+edgeone makers deploy --json
+```
+
+不要提交 `.env`、`.edgeone/`、`frontend/dist/`、本地数据库和上传文件。
+
+## 本地兼容模式
+
+`backend/` 仅保留历史参考，不再由当前前端连接。FastAPI `/api`、`/ws`、SQLite Scheduler 和本地 Supervisor 不迁入 Makers，也不再维护接口对齐。
+
+```powershell
+cd backend
+$env:MOCK_MODE='true'
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
+
+cd frontend
+npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+当前线上记录见 [CURRENT_RELEASE.md](docs/CURRENT_RELEASE.md)，平台映射见 [EDGEONE_MAKERS_MIGRATION.md](docs/EDGEONE_MAKERS_MIGRATION.md)。

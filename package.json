@@ -1,0 +1,11 @@
+{
+  "name": "yuanbao-edgeone-functions",
+  "private": true,
+  "version": "5.1.0",
+  "type": "module",
+  "dependencies": {
+    "@edgeone/pages-blob": "^0.0.14",
+    "@neondatabase/serverless": "^0.10.4",
+    "bcryptjs": "^2.4.3"
+  }
+}

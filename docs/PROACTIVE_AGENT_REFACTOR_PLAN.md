@@ -1,10 +1,14 @@
 # 个人主动式 Agent 完整改造计划
 
+> **归档说明（2026-07-15）**：本文是旧 FastAPI + SQLite 本地版的历史目标设计，不再作为 Makers 生产改造计划。当前计划见 [`CURRENT_ARCHITECTURE_AND_REFACTOR_PLAN.md`](CURRENT_ARCHITECTURE_AND_REFACTOR_PLAN.md)。
+
+
 ## 实施状态
 
 - **M0 基线稳定化：已完成（2026-07-10）**
-- **下一阶段：M1 持久身份、会话和文件**
-- M2–M6：待实施
+- **M1 持久身份、会话和文件：已完成（2026-07-10）**
+- **M2 持久 Agent Runtime 与确认闭环：实施中（2026-07-10）**
+- M3–M6：待实施
 
 ## 1. 目标与边界
 
@@ -438,7 +442,7 @@ PUT    /api/settings/automation
 - 前端 build、lint、单元测试全部通过。
 - 全新目录可按 README 一次安装并启动。
 
-### M1：持久身份、会话和文件（4–6 人日）
+### M1：持久身份、会话和文件（已完成，2026-07-10）
 
 任务：
 
