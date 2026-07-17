@@ -18,6 +18,9 @@ test('conversation, state, object and schedule infrastructure reuse EdgeOne Make
   assert.match(messages, /langgraph_checkpointer\.aget_tuple/);
   assert.match(files, /@edgeone\/pages-blob/);
   assert.match(config, /"schedules"/);
+  const makersConfig = JSON.parse(config);
+  assert.equal(makersConfig.schedules[0].cron, '0 8 * * *');
+  assert.equal(makersConfig.schedules[0].timezone, 'Asia/Shanghai');
   assert.doesNotMatch(chat + messages, /sqlite|FastAPI|websocket/i);
 });
 

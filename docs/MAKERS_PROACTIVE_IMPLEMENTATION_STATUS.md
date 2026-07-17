@@ -14,7 +14,7 @@
 
 | 任务点 | 状态 | 实现 |
 | --- | --- | --- |
-| 平台后台触发 | 已实现，待线上触发终验 | `edgeone.json` 配置 `Asia/Shanghai` 每小时 `/proactive-tick` Makers Function；函数补稳定系统会话后桥接 `/proactive` Agent |
+| 平台后台触发 | 已实现，待线上触发终验 | `edgeone.json` 配置 `Asia/Shanghai` 每日 08:00 触发 `/proactive-tick` Makers Function（当前 Makers 平台最短间隔为 1 天）；函数补稳定系统会话后桥接 `/proactive` Agent |
 | 持久 Event/Run/Observation/Notification | 已实现 | LangGraph Store 单用户 namespace；确定性 ID 和去重键 |
 | 后端日程 Collector | 已实现 | 临近、冲突、紧接行程；页面不再计算机会 |
 | Policy | 已实现 | 总开关、提醒类型、免打扰、每日上限、去重 |

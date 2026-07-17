@@ -44,6 +44,19 @@ export interface AppSession {
   user: { id: string; username: string; roles: string[] };
 }
 
+export function isAppSession(value: unknown): value is AppSession {
+  if (!value || typeof value !== 'object') return false;
+  const session = value as Partial<AppSession>;
+  const user = session.user;
+  return (session.mode === 'single_user' || session.mode === 'multi_user')
+    && Boolean(user)
+    && typeof user?.id === 'string'
+    && user.id.length > 0
+    && typeof user.username === 'string'
+    && Array.isArray(user.roles)
+    && user.roles.every((role) => typeof role === 'string');
+}
+
 async function authRequest(operation: string, body?: { username: string; password: string }): Promise<AppSession> {
   const response = await fetch(withEdgeOneAuth(`/auth/${encodeURIComponent(operation)}`), {
     method: body ? 'POST' : 'GET',
@@ -51,8 +64,12 @@ async function authRequest(operation: string, body?: { username: string; passwor
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await response.json().catch(() => ({})) as AppSession & { error?: string };
-  if (!response.ok) throw new Error(data.error || (response.status === 401 ? '请登录后继续' : '身份服务不可用'));
+  const data = await response.json().catch(() => ({})) as unknown;
+  const error = data && typeof data === 'object' && 'error' in data
+    ? String((data as { error?: unknown }).error || '')
+    : '';
+  if (!response.ok) throw new Error(error || (response.status === 401 ? '请登录后继续' : '身份服务不可用'));
+  if (!isAppSession(data)) throw new Error('身份服务返回无效响应');
   return data;
 }
 

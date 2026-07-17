@@ -13,8 +13,8 @@
   },
   "schedules": [
     {
-      "name": "proactive-hourly-scan",
-      "cron": "0 * * * *",
+      "name": "proactive-daily-scan",
+      "cron": "0 8 * * *",
       "path": "/proactive-tick",
       "method": "POST",
       "payload": { "operation": "tick" },

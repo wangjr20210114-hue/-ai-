@@ -16,7 +16,7 @@ Makers 项目生产域名：[https://ai-active-agent-tndu0xxa.edgeone.cool](http
 | 腾讯会议 | 最后阶段可选连接器；凭据齐全才暴露工具，不影响个人部署 |
 | AI 生图 | 混元 `hy-image-v3.0` 直接生成；现实主体可复用富搜索 + HY-Vision 审核图，支持版本轮播、绘制动画、Blob 归档与 ZIP 下载 |
 | 论文与 PDF | 普通富搜索后桥接公开 PDF/arXiv 下载；PDF 自动分类、文件夹化“我的阅读”，论文支持选词、翻译、总结、全文助读和问答 |
-| 主动运行时 | EdgeOne cron 每小时触发；持久 Event/Run/Observation、日程/天气/路线 Collector、去重 Notification Inbox、免打扰和每日上限 |
+| 主动运行时 | EdgeOne cron 每日触发（当前 Makers 平台最短间隔为 1 天）；持久 Event/Run/Observation、日程/天气/路线 Collector、去重 Notification Inbox、免打扰和每日上限 |
 | 长期记忆与反馈 | 记忆先提案后确认；提醒接受/忽略/稍后反馈；连续忽略生成可确认规则提案；Token 日/月预算 |
 | 持久工作流 | 主模型可创建多步骤工作流提案；用户确认后后台按依赖和到期时间推进，步骤需显式完成/跳过 |
 | 安全副作用 | Action 冻结快照、SHA-256、幂等键、Provider 调用账本、执行租约和未知结果人工核对 |
