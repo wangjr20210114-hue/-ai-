@@ -1,8 +1,8 @@
 # EdgeOne Makers 主动式 Agent 实现状态
 
-> 更新日期：2026-07-17
+> 更新日期：2026-07-18
 > 范围：当前 Makers 生产主链；不把 `backend/` 旧 FastAPI 能力计入完成度  
-> 状态：代码与本地回归完成，生产定时触发需在部署后终验
+> 状态：代码、本地回归和生产应用回归完成；Schedule 已被构建链识别，但首次平台触发仍待确认
 
 ## 1. 结论
 
@@ -14,7 +14,7 @@
 
 | 任务点 | 状态 | 实现 |
 | --- | --- | --- |
-| 平台后台触发 | 已实现，待线上触发终验 | `edgeone.json` 配置 `Asia/Shanghai` 每日 08:00 触发 `/proactive-tick` Makers Function（当前 Makers 平台最短间隔为 1 天）；函数补稳定系统会话后桥接 `/proactive` Agent |
+| 平台后台触发 | 配置已部署，平台触发待确认 | `edgeone.json` 配置 `Asia/Shanghai` 每日 08:00 触发 `/proactive-tick` Makers Function（当前 Makers 平台最短间隔为 1 天）；生产构建日志确认发现 1 个 Schedule，但 2026-07-18 07:55–08:15 的运行日志为空，应用仍显示等待首次检查 |
 | 持久 Event/Run/Observation/Notification | 已实现 | LangGraph Store 单用户 namespace；确定性 ID 和去重键 |
 | 后端日程 Collector | 已实现 | 临近、冲突、紧接行程；页面不再计算机会 |
 | Policy | 已实现 | 总开关、提醒类型、免打扰、每日上限、去重 |
@@ -88,3 +88,5 @@
 6. “猜你想问”点击后只更新输入栏，不产生用户消息。
 7. 多用户模式下 A/B 用户的 Conversation、Workspace、Blob、Intelligence、Proactive 与连接器 Secret 互不可见。
 8. 工作流失败后只生成一次补偿提醒；重试使用新的 attempt 去重键，依赖步骤在补偿完成前不推进。
+
+2026-07-18 线上证据：Deployment `dpbfcezdprnz` 已登记 11 条 Cloud Functions 和 12 条 Agents，构建日志显示 `Found 1 schedule task(s) (default timezone: Asia/Shanghai)`；最新生产预览正常加载且无前端错误。当天 07:55–08:15 的 Makers 生产运行日志无任何调用，主动服务状态仍为“等待后台首次检查日程”，因此不能把首次 Cron 记为通过，应在下一次 08:00 后复验或向 EdgeOne 提交平台侧排查。

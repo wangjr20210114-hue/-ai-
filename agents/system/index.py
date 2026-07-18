@@ -53,7 +53,7 @@ async def handler(ctx):
         "status": status,
         "time": now,
         "scheduler": {
-            "schedule": "0 * * * *",
+            "schedule": "0 8 * * *",
             "timezone": "Asia/Shanghai",
             "last_tick": last_tick or None,
             "last_tick_age_seconds": tick_age,

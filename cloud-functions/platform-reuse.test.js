@@ -93,6 +93,8 @@ test('runtime does not reimplement generic tracing, queue or cron services', asy
   ]);
   assert.match(tick, /onlyIfNew/);
   assert.match(system, /notification_statuses/);
+  assert.match(system, /"schedule": "0 8 \* \* \*"/);
+  assert.doesNotMatch(system, /"schedule": "0 \* \* \* \*"/);
   assert.match(proactive, /Policy|policy|notification/i);
   assert.doesNotMatch(system + tick, /OPS_ALERT_WEBHOOK|PROACTIVE_OPS_WEBHOOK|Sentry|OpenTelemetry/);
 });
