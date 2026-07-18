@@ -2,6 +2,12 @@ import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const SUPPORTED_TYPES = new Map([
+  ['application/pdf', ['.pdf']],
+  ['image/png', ['.png']],
+  ['image/jpeg', ['.jpg', '.jpeg']],
+  ['image/webp', ['.webp']],
+]);
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -31,11 +37,12 @@ export async function onRequest(context) {
     const name = String(body.name || 'document.pdf');
     const contentType = String(body.content_type || 'application/pdf');
     const size = Number(body.size || 0);
-    if (contentType !== 'application/pdf' || !name.toLowerCase().endsWith('.pdf')) {
-      return json({ error: '仅支持 PDF 文件' }, 400);
+    const extensions = SUPPORTED_TYPES.get(contentType);
+    if (!extensions || !extensions.some((extension) => name.toLowerCase().endsWith(extension))) {
+      return json({ error: '仅支持 PDF、PNG、JPG/JPEG 和 WebP 文件' }, 400);
     }
     if (!Number.isFinite(size) || size <= 0 || size > MAX_FILE_BYTES) {
-      return json({ error: 'PDF 大小必须在 1B 到 20MB 之间' }, 400);
+      return json({ error: '文件大小必须在 1B 到 20MB 之间' }, 400);
     }
 
     const conversation = safeSegment(body.conversation_id, 'anonymous');

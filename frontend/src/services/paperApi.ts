@@ -1,4 +1,5 @@
 import { authorizedFetch, withEdgeOneAuth } from './auth';
+import { getOrCreateConversationId, makersConversationHeaders } from './conversation';
 /**
  * 论文助读 API：搜索 → 下载 → 流式 LLM 调用。
  */
@@ -149,7 +150,7 @@ export function streamPaper(
     try {
       const resp = await authorizedFetch('/reader', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(getOrCreateConversationId()) },
         body: JSON.stringify({ action: endpoint, ...params }),
         signal: ctrl.signal,
       });
@@ -210,7 +211,7 @@ function streamPaperChunks(
         if (cancelled) return;
         const response = await authorizedFetch('/reader', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(getOrCreateConversationId()) },
           body: JSON.stringify({ action: endpoint, text: chunks[index] }),
           signal: controller.signal,
         });

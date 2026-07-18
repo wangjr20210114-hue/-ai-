@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import hljs from 'highlight.js/lib/common';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
@@ -32,6 +33,38 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
       )}
     </figure>
   );
+}
+
+function CodeBlock({ children }: { children: React.ReactNode }) {
+  const [copied, setCopied] = useState(false);
+  const child = React.Children.toArray(children)[0];
+  if (!React.isValidElement<{ className?: string; children?: React.ReactNode }>(child)) {
+    return <pre className="md-code-block">{children}</pre>;
+  }
+  const code = String(child.props.children || '').replace(/\n$/, '');
+  const language = String(child.props.className || '').replace(/^language-/, '').trim();
+  let highlighted = '';
+  try {
+    highlighted = language && hljs.getLanguage(language)
+      ? hljs.highlight(code, { language, ignoreIllegals: true }).value
+      : hljs.highlightAuto(code).value;
+  } catch {
+    highlighted = code.replace(/[&<>]/g, (value) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[value] || value));
+  }
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch { setCopied(false); }
+  };
+  return <div className="md-code-shell">
+    <div className="md-code-toolbar">
+      <span>{language || '代码'}</span>
+      <button type="button" onClick={() => { void copy(); }} aria-label="复制代码">{copied ? '已复制' : '复制'}</button>
+    </div>
+    <pre className="md-code-block"><code className={`hljs${language ? ` language-${language}` : ''}`} dangerouslySetInnerHTML={{ __html: highlighted }} /></pre>
+  </div>;
 }
 
 function sameUrl(left: string, right: string): boolean {
@@ -79,7 +112,7 @@ export default function MarkdownRenderer({ content, searchMeta }: { content: str
           tr: ({ children }) => <tr>{children}</tr>,
           th: ({ children }) => <th>{children}</th>,
           td: ({ children }) => <td>{children}</td>,
-          pre: ({ children }) => <pre className="md-code-block">{children}</pre>,
+          pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
           code: ({ className, children }) => (
             <code className={className || undefined}>{children}</code>
           ),

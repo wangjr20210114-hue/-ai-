@@ -6,7 +6,7 @@ import { presentableChatError } from '../services/chatError';
 import { makersConversationHeaders, mergeMessages } from '../services/conversation';
 import { splitSseFrames } from '../services/sse';
 import { useAppDispatch, useAppState } from '../store/appState';
-import type { ChatMessage, PaperInfo, SearchMeta, WorkspaceAction } from '../types';
+import type { ChatMessage, PaperInfo, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
 
 type ClientEvent = { type: string; payload: Record<string, unknown> };
 
@@ -500,6 +500,17 @@ export function useSSEChat() {
     clientsRef.current.forEach(({ client, off }) => { off(); client.close(); });
     clientsRef.current.clear();
   }, []);
+
+  useEffect(() => {
+    const refreshWorkspace = (event: Event) => {
+      const detail = (event as CustomEvent<{ schedules?: unknown }>).detail;
+      if (Array.isArray(detail?.schedules)) {
+        dispatch({ type: 'SET_SCHEDULES', payload: detail.schedules as ScheduleItem[] });
+      }
+    };
+    window.addEventListener('yuanbao:workspace-changed', refreshWorkspace);
+    return () => window.removeEventListener('yuanbao:workspace-changed', refreshWorkspace);
+  }, [dispatch]);
 
   return clientRef;
 }

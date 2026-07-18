@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, patch
 from agents.chat._capability_plan import parse_capability_plan, plan_capabilities
 from agents.chat._followups import parse_followups
 from agents.chat._history import bounded_history
+from agents.chat._calendar_context import calendar_context
 from agents.chat._ui_tools import build_production_tools
 from agents.chat._protocol import PublicStreamFilter, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
@@ -27,7 +28,7 @@ from agents._shared.rich_search import (
     rich_search as run_rich_search,
 )
 from agents._shared.arxiv import _best_title_match
-from agents._shared.tencent_location import decode_polyline
+from agents._shared.tencent_location import decode_polyline, search_verified_places
 from agents._shared.workspace import (
     USER_WORKSPACE_ID,
     apply_calendar_changes,
@@ -281,6 +282,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         rendered = prompt.format(
             now="2026-07-15 12:00:00 UTC+08:00",
             capability_plan='{"needs_places": true}',
+            calendar_context='[{"id":"cal-live"}]',
         )
         self.assertIn("2026-07-15", rendered)
 
@@ -573,6 +575,20 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(event["id"], from_old_conversation["schedules"])
         self.assertIn(event["id"], from_new_conversation["schedules"])
 
+    async def test_calendar_change_immediately_refreshes_proactive_notifications(self):
+        store = FakeStore()
+        start = int(time.time()) + 3600
+        response = await handler(FakeContext(store, {
+            "operation": "direct_calendar_changes",
+            "changes": [{
+                "operation": "create",
+                "event": {"title": "即将参观故宫", "start_time": start, "duration_minutes": 60, "place": PLACE},
+            }],
+        }))
+        self.assertEqual(len(response["schedules"]), 1)
+        proactive = public_proactive_state(await load_proactive_state(store))
+        self.assertTrue(any(item["type"] == "schedule_upcoming" for item in proactive["notifications"]))
+
     async def test_legacy_conversation_workspace_is_not_inherited(self):
         store = FakeStore()
         legacy = empty_workspace()
@@ -603,6 +619,16 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         removed = apply_calendar_changes(state, [{"operation": "delete", "schedule_id": created["id"]}])[0]
         self.assertTrue(removed["deleted"])
         self.assertFalse(state["schedules"])
+
+    def test_calendar_context_exposes_current_user_schedule_ids_and_beijing_time(self):
+        state = empty_workspace()
+        state["schedules"]["cal-live"] = {
+            "id": "cal-live", "title": "游览寒山寺", "start_time": 1784156400,
+            "duration_minutes": 60, "location": "苏州市姑苏区",
+        }
+        context = json.loads(calendar_context(state))
+        self.assertEqual(context[0]["id"], "cal-live")
+        self.assertIn("+08:00", context[0]["start_time"])
 
     def test_action_snapshot_tampering_is_rejected(self):
         action = new_action("meeting_create", {"subject": "评审会"}, requires_confirmation=True)
@@ -683,6 +709,14 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         path = decode_polyline([39.9, 116.3, 100000, 200000])
         self.assertAlmostEqual(path[1]["latitude"], 40.0)
         self.assertAlmostEqual(path[1]["longitude"], 116.5)
+
+    async def test_place_search_falls_back_when_primary_results_do_not_match_query(self):
+        target = {**PLACE, "place_id": "osm:lake", "name": "查干湖", "provider": "openstreetmap"}
+        with patch("agents._shared.tencent_location.search_places", new=AsyncMock(return_value=[PLACE])), \
+             patch("agents._shared.tencent_location.search_osm_places", new=AsyncMock(return_value=[target])) as fallback:
+            places = await search_verified_places("map-key", "查干湖")
+        self.assertEqual(places[0]["name"], "查干湖")
+        fallback.assert_awaited_once()
 
     def test_image_versions_are_grouped_and_ordered(self):
         state = empty_workspace()
@@ -814,6 +848,19 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             first = json.loads(await tool.ainvoke({"prompt": "first"}))["action"]
             second = json.loads(await tool.ainvoke({"prompt": "retry"}))["action"]
         self.assertEqual(first["payload"]["group_id"], second["payload"]["group_id"])
+
+    async def test_uploaded_reference_image_is_handed_to_image_provider_without_model_copying_data(self):
+        reference = "data:image/jpeg;base64,ZmFrZQ=="
+        tools = build_production_tools(
+            None, store=FakeStore(), conversation_id="image-reference", env={},
+            initial_visual_references=[reference],
+        )
+        tool = next(item for item in tools if item.name == "propose_image")
+        result = {"ok": True, "image_url": "https://example.com/generated.png"}
+        with patch("agents.chat._ui_tools.provider_generate_image", new=AsyncMock(return_value=result)) as provider:
+            action = json.loads(await tool.ainvoke({"prompt": "按参考图生成卡通版"}))["action"]
+        self.assertEqual(action["payload"]["reference_image_urls"], [reference])
+        provider.assert_awaited_once_with({}, "按参考图生成卡通版", [reference], user_id="local-user")
 
     async def test_rich_search_starts_fact_and_visual_queries_in_parallel(self):
         barrier = threading.Barrier(2, timeout=2)

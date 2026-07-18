@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import re
 import urllib.parse
 import urllib.request
 from typing import Any
@@ -120,14 +121,27 @@ async def search_osm_places(query: str, *, city: str = "", limit: int = 10) -> l
 
 
 async def search_verified_places(key: str, query: str, *, city: str = "全国", limit: int = 10) -> list[dict[str, Any]]:
+    normalized_query = "".join(re.findall(r"[\w\u4e00-\u9fff]+", str(query or "").lower()))
+    primary: list[dict[str, Any]] = []
     if key:
         try:
-            result = await search_places(key, query, city=city, limit=limit)
-            if result:
-                return result
+            primary = await search_places(key, query, city=city, limit=limit)
+            if any(normalized_query and normalized_query in "".join(re.findall(r"[\w\u4e00-\u9fff]+", f"{item.get('name', '')}{item.get('address', '')}".lower())) for item in primary):
+                return primary
         except Exception:
             pass
-    return await search_osm_places(query, city=city, limit=limit)
+    fallback = await search_osm_places(query, city=city, limit=limit)
+    if not fallback and str(city or "全国").strip() == "全国":
+        fallback = await search_osm_places(f"{query} 中国", limit=limit)
+    output, seen = [], set()
+    for item in [*fallback, *primary]:
+        place_id = str(item.get("place_id") or "")
+        if place_id and place_id not in seen:
+            seen.add(place_id)
+            output.append(item)
+        if len(output) >= max(1, min(20, int(limit))):
+            break
+    return output
 
 
 async def optimize_place_order(key: str, places: list[dict[str, Any]]) -> list[dict[str, Any]]:

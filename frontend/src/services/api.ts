@@ -40,6 +40,9 @@ export async function workspaceOperation(
   });
   const data = await res.json().catch(() => ({})) as WorkspaceResponse & { error?: string };
   if (!res.ok) throw new Error(data.error || '工作区操作失败');
+  if (typeof window !== 'undefined' && Array.isArray(data.schedules)) {
+    window.dispatchEvent(new CustomEvent('yuanbao:workspace-changed', { detail: data }));
+  }
   return data;
 }
 

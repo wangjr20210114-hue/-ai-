@@ -12,6 +12,29 @@ interface Props {
   client: React.RefObject<ChatClient | null>;
 }
 
+async function imageReferenceDataUrl(file: File): Promise<string> {
+  const source = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error('无法读取参考图片'));
+      element.src = source;
+    });
+    const scale = Math.min(1, 1280 / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('浏览器无法处理参考图片');
+    context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+    if (dataUrl.length > 1_800_000) throw new Error('参考图片处理后仍过大，请换一张较小的图片');
+    return dataUrl;
+  } finally { URL.revokeObjectURL(source); }
+}
+
 /** 底部输入栏：文本输入 + 文档上传 + 发送（场景由后端自动推断）。 */
 export default function InputBar({ client }: Props) {
   const { draft, conversationId, conversations, messages } = useAppState();
@@ -20,6 +43,7 @@ export default function InputBar({ client }: Props) {
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
   const [webSearch, setWebSearch] = useState(true);
+  const [referenceImage, setReferenceImage] = useState<{ name: string; dataUrl: string } | null>(null);
   const activeStreaming = messages.some((message) => message.streaming);
 
   // 点击空态引导词 → 回填输入框
@@ -31,7 +55,7 @@ export default function InputBar({ client }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
 
-  const sendActivity = (message: ChatMessage, activity: string) => {
+  const sendActivity = (message: ChatMessage, activity: string, referenceImages: string[] = []) => {
     const msg: WSMessage = {
       type: 'user_activity',
       payload: {
@@ -40,6 +64,7 @@ export default function InputBar({ client }: Props) {
         message_id: message.id,
         web_search: webSearch,
         client_message: message,
+        reference_images: referenceImages,
       },
     };
     client.current?.send(msg);
@@ -51,7 +76,7 @@ export default function InputBar({ client }: Props) {
     const message = {
       id: Date.now().toString(),
       role: 'user' as const,
-      content,
+      content: referenceImage ? `${content}\n\n📎 已附参考图片：${referenceImage.name}` : content,
       ts: Date.now(),
     };
     setSending(true);
@@ -71,7 +96,8 @@ export default function InputBar({ client }: Props) {
       },
     });
     setText('');
-    sendActivity(message, 'asked');
+    sendActivity(message, 'asked', referenceImage ? [referenceImage.dataUrl] : []);
+    setReferenceImage(null);
     setSending(false);
     void saveConversationMessage(conversationId, message).catch((error) => {
       MessagePlugin.error(error instanceof Error ? error.message : '消息同步失败');
@@ -94,6 +120,12 @@ export default function InputBar({ client }: Props) {
     setUploading(true);
     try {
       const stored = await uploadDocument(conversationId, f.raw);
+      if (f.raw.type.startsWith('image/')) {
+        const dataUrl = await imageReferenceDataUrl(f.raw);
+        setReferenceImage({ name: stored.original_name, dataUrl });
+        MessagePlugin.success('参考图片已附加；输入修改或生成要求后发送');
+        return;
+      }
       let detectedPaper = false;
       if (stored.storage_key && (f.raw.type === 'application/pdf' || f.raw.name.toLowerCase().endsWith('.pdf'))) {
         try {
@@ -128,10 +160,12 @@ export default function InputBar({ client }: Props) {
       const aiMessage = {
         id: `file-${Date.now()}`,
         role: 'ai',
-        content: `${detectedPaper ? '已识别为论文并加入“我的阅读”，可使用选词翻译、全文分析与问答。' : 'PDF 已加入“我的阅读”。'}\n\n[打开 ${stored.original_name}](${stored.content_url})`,
+        content: detectedPaper ? '已识别为论文并加入“我的阅读”，已在下方打开论文助读。' : 'PDF 已加入“我的阅读”，已在下方打开阅读器。',
         ts: Date.now() + 1,
         paperFileId: stored.id,
         paperFileName: stored.original_name,
+        paperTitle: stored.original_name,
+        showPaperReader: true,
       } as const;
       dispatch({ type: 'ADD_MESSAGE', payload: userMessage });
       dispatch({ type: 'ADD_MESSAGE', payload: aiMessage });
@@ -161,7 +195,17 @@ export default function InputBar({ client }: Props) {
 
   return (
     <div className="input-wrap">
-      <div className="input-box">
+      <div className="input-box" onPaste={(event) => {
+        const image = Array.from(event.clipboardData.files).find((file) => file.type.startsWith('image/'));
+        if (!image) return;
+        event.preventDefault();
+        void handleUpload([{ raw: image, name: image.name || `粘贴图片-${Date.now()}.png` } as UploadFile]);
+      }}>
+        {referenceImage && <div className="chat-reference-image">
+          <img src={referenceImage.dataUrl} alt="待发送参考图" />
+          <span>{referenceImage.name}<small>发送时作为生图参考，不会显示数据内容</small></span>
+          <button type="button" onClick={() => setReferenceImage(null)} aria-label="移除参考图片">×</button>
+        </div>}
         <Textarea
           value={text}
           onChange={(v) => setText(v as string)}
@@ -187,13 +231,13 @@ export default function InputBar({ client }: Props) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Upload
               theme="custom"
-              accept=".pdf,application/pdf"
+              accept=".pdf,application/pdf,.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
               autoUpload={false}
               requestMethod={() => Promise.resolve({ status: 'success', response: {} })}
               onChange={(files) => { void handleUpload(files as UploadFile[]); }}
             >
               <Button variant="text" size="small" icon={<AttachIcon />} loading={uploading}>
-                上传文档
+                上传文件
               </Button>
             </Upload>
             <Checkbox checked={webSearch} onChange={(v) => setWebSearch(v as boolean)}>

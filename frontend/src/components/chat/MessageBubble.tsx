@@ -6,6 +6,7 @@ import type { ChatClient } from '../../services/chatClient';
 import { workspaceOperation } from '../../services/api';
 import TravelPlanCard from '../travel/TravelPlanCard';
 import PaperListCard from '../paper/PaperListCard';
+import PaperInlineReader from '../paper/PaperInlineReader';
 import ImageStudioCard from '../image/ImageStudioCard';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { followUpDraftAction } from './followUps';
@@ -315,7 +316,7 @@ export default function MessageBubble({ message }: Props) {
                     MessagePlugin.info('原问题已放回输入框，确认后可重新发送');
                   }}
                 >
-                  将原问题放回输入框
+                  重新编辑原问题
                 </button>
               )}
               {!message.streaming && workspaceActions.map((action) => {
@@ -502,6 +503,15 @@ export default function MessageBubble({ message }: Props) {
           <div style={{ marginTop: 12, width: '100%' }}>
             <PaperListCard message={message} />
           </div>
+        )}
+
+        {message.paperFileId && !message.streaming && (
+          <PaperInlineReader
+            fileId={message.paperFileId}
+            fileName={message.paperFileName || 'PDF 文档'}
+            title={message.paperTitle || message.paperFileName || 'PDF 阅读'}
+            messageId={message.id}
+          />
         )}
 
         {/* 搜索结果不再单独展示卡片，已由 AI 自然穿插在 Markdown 回答中 */}

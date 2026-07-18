@@ -8,7 +8,9 @@ describe('MarkdownRenderer', () => {
       <MarkdownRenderer content={'```python\nprint("' + 'x'.repeat(400) + '")\n```'} />,
     );
     expect(html).toContain('class="md-code-block"');
-    expect(html).toContain('class="language-python"');
+    expect(html).toContain('language-python');
+    expect(html).toContain('aria-label="复制代码"');
+    expect(html).toContain('hljs-built_in');
     expect(html).toContain('<pre');
   });
 

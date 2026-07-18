@@ -62,6 +62,7 @@ export type Action =
   | { type: 'MERGE_SCHEDULES'; payload: ScheduleItem[] }
   | { type: 'SET_MAP_PLACES'; payload: { places: MakersMapPlace[]; title?: string } }
   | { type: 'PULSE_CALENDAR'; payload: { date: string; count: number } }
+  | { type: 'CLEAR_CALENDAR_PULSE'; payload: Record<string, never> }
   | { type: 'HYDRATE_WORKSPACE'; payload: { schedules?: ScheduleItem[]; mapPlaces?: MakersMapPlace[]; mapTitle?: string } }
   | { type: 'ADD_SCHEDULE'; payload: ScheduleItem }
   | { type: 'UPDATE_SCHEDULE'; payload: ScheduleItem }
@@ -151,6 +152,8 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     case 'PULSE_CALENDAR':
       return { ...state, calendarPulse: { ...action.payload, token: Date.now() } };
+    case 'CLEAR_CALENDAR_PULSE':
+      return { ...state, calendarPulse: null };
     case 'HYDRATE_WORKSPACE':
       return {
         ...state,

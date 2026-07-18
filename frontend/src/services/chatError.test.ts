@@ -17,4 +17,9 @@ describe('presentableChatError', () => {
     expect(presentableChatError('今日 Token 预算已用完')).toBe('今日 Token 预算已用完');
     expect(presentableChatError('x'.repeat(220))).toHaveLength(181);
   });
+
+  it('translates browser fetch failures into an actionable Chinese message', () => {
+    expect(presentableChatError('Failed to fetch')).toBe('网络请求未能送达，请检查连接后重试。原问题不会自动重复发送。');
+    expect(presentableChatError('Load failed')).not.toMatch(/failed/i);
+  });
 });

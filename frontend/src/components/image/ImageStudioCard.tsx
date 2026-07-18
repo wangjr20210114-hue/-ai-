@@ -51,11 +51,13 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
   const [index, setIndex] = useState(0);
   const [instruction, setInstruction] = useState('');
   const [generating, setGenerating] = useState(false);
+  const [imageReady, setImageReady] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const versions = useMemo(() => versionsFrom(currentAction), [currentAction]);
   const selected = versions[Math.min(index, Math.max(0, versions.length - 1))];
-  const editHint = selected?.prompt
-    ? `继续修改“${selected.prompt.slice(0, 36)}${selected.prompt.length > 36 ? '…' : ''}”，例如保留主体并调整背景、动作或画风`
+  const originalPrompt = versions[0]?.prompt || selected?.prompt || '';
+  const editHint = originalPrompt
+    ? `继续修改“${originalPrompt.slice(0, 36)}${originalPrompt.length > 36 ? '…' : ''}”，例如保留主体并调整背景、动作或画风`
     : '描述希望保留和改变的部分';
 
   useEffect(() => {
@@ -64,10 +66,13 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
     setIndex(Math.max(0, next.length - 1));
   }, [action]);
 
+  useEffect(() => { setImageReady(false); }, [selected?.image_url]);
+
   const generateEdit = async () => {
     const prompt = instruction.trim();
     if (!prompt || !selected) return;
     setGenerating(true);
+    let waitingForImage = false;
     try {
       const action = await streamImageEdit(conversationId, prompt, selected.id);
       setCurrentAction(action);
@@ -76,11 +81,11 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
       setIndex(Math.max(0, next.length - 1));
       setInstruction('');
       if (action.status === 'failed') throw new Error(action.error || '修改图片失败');
-      MessagePlugin.success('已生成新的图片版本');
+      waitingForImage = true;
     } catch (error) {
       MessagePlugin.error(error instanceof Error ? error.message : '修改图片失败');
     } finally {
-      setGenerating(false);
+      if (!waitingForImage) setGenerating(false);
     }
   };
 
@@ -128,13 +133,13 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
           <Button size="small" variant="outline" loading={downloading} onClick={() => void downloadAll()}>批量下载</Button>
         </div>
       </div>
-      <div className={`image-studio-stage ${generating ? 'is-painting' : ''}`}>
+      <div className={`image-studio-stage ${generating || !imageReady ? 'is-painting' : ''}`}>
         <Button className="image-studio-nav previous" shape="circle" disabled={versions.length < 2} aria-label="上一张" onClick={() => setIndex((index - 1 + versions.length) % versions.length)}>{'<'}</Button>
-        <img src={withEdgeOneAuth(selected.image_url)} alt={selected.prompt || '生成图片'} />
-        {generating && <div className="image-painting-overlay"><span /><em>正在绘制新版本</em></div>}
+        <img src={withEdgeOneAuth(selected.image_url)} alt={originalPrompt || '生成图片'} onLoad={() => { setImageReady(true); if (generating) MessagePlugin.success('图片已生成并载入'); setGenerating(false); }} onError={() => { setImageReady(false); setGenerating(false); MessagePlugin.error('图片已生成，但载入浏览器失败'); }} />
+        {(generating || !imageReady) && <div className="image-painting-overlay"><span /><em>{generating ? '正在生成并载入新版本' : '正在载入图片'}</em></div>}
         <Button className="image-studio-nav next" shape="circle" disabled={versions.length < 2} aria-label="下一张" onClick={() => setIndex((index + 1) % versions.length)}>{'>'}</Button>
       </div>
-      <div className="image-studio-prompt" title={selected.prompt}>{selected.prompt}</div>
+      <div className="image-studio-prompt" title={originalPrompt}>{originalPrompt}</div>
       <div className="image-studio-editor">
         <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder={editHint} maxLength={2000} />
         <Button theme="primary" loading={generating} disabled={!instruction.trim()} onClick={() => void generateEdit()}>基于此图修改</Button>

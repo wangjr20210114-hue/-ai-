@@ -103,6 +103,23 @@ test('static acceptance site covers every release capability with executable det
   );
 });
 
+test('reported acceptance regressions keep explicit implementation guards', async () => {
+  const [files, library, readerClient, chatError, chatTools, workspace] = await Promise.all([
+    read('cloud-functions/files/index.js'),
+    read('cloud-functions/library/index.js'),
+    read('frontend/src/services/paperApi.ts'),
+    read('frontend/src/services/chatError.ts'),
+    read('agents/chat/_ui_tools.py'),
+    read('agents/workspace/index.py'),
+  ]);
+  assert.match(files, /image\/png/);
+  assert.match(library, /manual_folder/);
+  assert.match(readerClient, /makersConversationHeaders\(getOrCreateConversationId\(\)\)/);
+  assert.match(chatError, /failed to fetch/i);
+  assert.match(chatTools, /initial_visual_references/);
+  assert.match(workspace, /collect_schedule_signals/);
+});
+
 test('Tencent Meeting is optional and never restores a FastAPI bridge', async () => {
   const [provider, tools, envExample] = await Promise.all([
     read('agents/_shared/side_effects.py'),

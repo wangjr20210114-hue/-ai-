@@ -53,7 +53,9 @@ export default function EdgeOnePlatformPanel() {
     setCurrentMonth(new Date(target.getFullYear(), target.getMonth(), 1));
     setSelectedDate(target);
     setDayViewOpen(true);
-  }, [calendarPulse]);
+    const timer = window.setTimeout(() => dispatch({ type: 'CLEAR_CALENDAR_PULSE', payload: {} }), 2600);
+    return () => window.clearTimeout(timer);
+  }, [calendarPulse, dispatch]);
 
   const calendarDays = useMemo(() => {
     const year = currentMonth.getFullYear();
@@ -184,6 +186,9 @@ export default function EdgeOnePlatformPanel() {
         }],
       });
       dispatch({ type: 'SET_SCHEDULES', payload: response.schedules });
+      const savedDate = new Date(startTime * 1000);
+      setSelectedDate(savedDate);
+      setCurrentMonth(new Date(savedDate.getFullYear(), savedDate.getMonth(), 1));
       setFormOpen(false);
       setPlaceOptionsOpen(false);
       setShowRecommendation(false);
@@ -202,6 +207,7 @@ export default function EdgeOnePlatformPanel() {
         changes: [{ operation: 'delete', schedule_id: item.id }],
       });
       dispatch({ type: 'SET_SCHEDULES', payload: response.schedules });
+      dispatch({ type: 'CLEAR_CALENDAR_PULSE', payload: {} });
       setShowRecommendation(false);
       MessagePlugin.success('日程已删除');
     } catch (error) {
@@ -268,7 +274,10 @@ export default function EdgeOnePlatformPanel() {
               {formOpen && (
                 <div className="makers-schedule-form">
                   <input value={formTitle} onChange={(event) => setFormTitle(event.target.value)} placeholder="日程标题" maxLength={120} />
-                  <input type="datetime-local" value={formStart} onChange={(event) => setFormStart(event.target.value)} />
+                  <div className="makers-schedule-datetime">
+                    <label>日期<input aria-label="日程日期" type="date" value={formStart.slice(0, 10)} onChange={(event) => setFormStart(`${event.target.value}T${formStart.slice(11, 16) || '09:00'}`)} /></label>
+                    <label>开始时间<input aria-label="日程开始时间" type="time" value={formStart.slice(11, 16)} onChange={(event) => setFormStart(`${formStart.slice(0, 10) || dateKey(selectedDate)}T${event.target.value}`)} /></label>
+                  </div>
                   <textarea value={formDescription} onChange={(event) => { setFormDescription(event.target.value); autoDescriptionRef.current = ''; }} placeholder="日程描述（可编辑；选择地点后会自动生成建议）" maxLength={1000} rows={3} />
                   <div className="makers-place-picker" ref={placePickerRef}>
                     <div className="makers-place-search-row makers-place-autocomplete">

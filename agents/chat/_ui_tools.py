@@ -57,13 +57,17 @@ def build_production_tools(
     media_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     background_tasks: list[asyncio.Task] | None = None,
     user_id: str = "local-user",
+    initial_visual_references: list[str] | None = None,
 ) -> list[StructuredTool]:
     runtime_env = env or {}
     paper_scope = paper_constraints or {}
     time_scope = temporal_context or {}
     # Per-request handoff: rich-search media can be consumed by image
     # generation without asking the model to copy fragile URLs between tools.
-    turn_visual_references: list[str] = []
+    turn_visual_references: list[str] = [
+        str(item) for item in (initial_visual_references or [])
+        if str(item).startswith(("https://", "data:image/"))
+    ][:3]
     turn_image_group_id = ""
 
     async def _load_state() -> dict[str, Any]:
@@ -246,7 +250,7 @@ def build_production_tools(
             if operation in {"update", "delete"}:
                 schedule_id = str(raw.get("schedule_id") or "")
                 if schedule_id not in state.get("schedules", {}):
-                    raise ValueError(f"找不到目标日程：{schedule_id}")
+                    raise ValueError("当前日程已变化，旧日程 ID 已失效；请根据本轮系统提供的当前日程标题和时间重新匹配后再提案")
                 change["schedule_id"] = schedule_id
             if operation != "delete":
                 nested_event = raw.get("event")
@@ -333,7 +337,7 @@ def build_production_tools(
             group_id = turn_image_group_id
         for raw_url in reference_image_urls or []:
             url = str(raw_url or "").strip()
-            if url.startswith("https://") and url not in references:
+            if url.startswith(("https://", "data:image/")) and url not in references:
                 references.append(url)
             if len(references) >= 3:
                 break
@@ -384,11 +388,12 @@ def build_production_tools(
             media_callback=media_callback if progressive_media else None,
             background_tasks=background_tasks if progressive_media else None,
         )
-        turn_visual_references = [
+        reviewed_references = [
             str(item.get("url") or "")
             for item in metadata.get("media", [])
             if str(item.get("url") or "").startswith("https://")
         ][:3]
+        turn_visual_references = list(dict.fromkeys([*turn_visual_references, *reviewed_references]))[:3]
         return json.dumps({
             "ui_action": "rich_search_results",
             "search_results": metadata,

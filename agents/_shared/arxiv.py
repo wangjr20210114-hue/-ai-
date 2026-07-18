@@ -92,5 +92,13 @@ async def search_arxiv(
                 output.append(paper)
             if len(output) >= max(1, min(8, limit)):
                 break
+        if topic and len(output) < max(1, min(8, limit)):
+            supplemental = await asyncio.to_thread(_search, topic, limit, False, author, year)
+            for paper in supplemental:
+                canonical_id = re.sub(r"v\d+$", "", str(paper.get("arxiv_id") or ""), flags=re.I)
+                if paper and canonical_id and canonical_id not in {re.sub(r"v\d+$", "", item["arxiv_id"], flags=re.I) for item in output}:
+                    output.append(paper)
+                if len(output) >= max(1, min(8, limit)):
+                    break
         return output
     return await asyncio.to_thread(_search, topic, limit, False, author, year)

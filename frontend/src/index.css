@@ -523,18 +523,60 @@ html.is-resizing-workspace * {
   font-family: 'SF Mono', 'Fira Code', monospace;
   overflow-wrap: anywhere;
 }
+.md-code-shell {
+  max-width: 100%;
+  margin: 8px 0;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 9px;
+  background: #101521;
+}
+.md-code-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 0 10px 0 13px;
+  color: #9aa8bd;
+  background: #171e2d;
+  font-size: 11px;
+}
+.md-code-toolbar button {
+  padding: 3px 8px;
+  border: 1px solid #344158;
+  border-radius: 5px;
+  color: #dce6f5;
+  background: #222c3f;
+  cursor: pointer;
+}
+.md-code-toolbar button:hover { background: #2d3a51; }
 .msg-bubble.ai .markdown-body .md-code-block {
   max-width: 100%;
   box-sizing: border-box;
-  margin: 8px 0;
+  margin: 0;
   padding: 12px 14px;
   overflow-x: auto;
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
-  background: var(--app-panel-2);
-  color: var(--app-text);
+  border: 0;
+  border-radius: 0;
+  background: #101521;
+  color: #d7e1f0;
   -webkit-overflow-scrolling: touch;
 }
+.md-code-block .hljs-keyword,
+.md-code-block .hljs-selector-tag,
+.md-code-block .hljs-literal { color: #c792ea; }
+.md-code-block .hljs-string,
+.md-code-block .hljs-regexp,
+.md-code-block .hljs-attr { color: #c3e88d; }
+.md-code-block .hljs-number,
+.md-code-block .hljs-symbol { color: #f78c6c; }
+.md-code-block .hljs-title,
+.md-code-block .hljs-built_in,
+.md-code-block .hljs-type { color: #82aaff; }
+.md-code-block .hljs-comment,
+.md-code-block .hljs-quote { color: #697a95; font-style: italic; }
+.md-code-block .hljs-variable,
+.md-code-block .hljs-template-variable { color: #f07178; }
 .msg-bubble.ai .markdown-body .md-code-block code {
   display: block;
   min-width: max-content;
@@ -706,6 +748,22 @@ html.is-resizing-workspace * {
 .input-box:focus-within {
   border-color: var(--td-brand-color);
 }
+.chat-reference-image {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 8px;
+  padding: 7px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-panel-2);
+  font-size: 12px;
+}
+.chat-reference-image img { width: 46px; height: 46px; border-radius: 7px; object-fit: cover; }
+.chat-reference-image span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-reference-image small { display: block; color: var(--app-text-3); font-size: 10px; }
+.chat-reference-image button { border: 0; color: var(--app-text-3); background: transparent; font-size: 18px; cursor: pointer; }
 
 /* ============ 右侧洞察面板 ============ */
 .insight-card {
@@ -1189,8 +1247,8 @@ html.is-resizing-workspace * {
 .image-painting-overlay span { position: absolute; inset: -30%; background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.72) 48%, rgba(110,91,255,.26) 54%, transparent 68%); animation: imagePaintSweep 1.8s ease-in-out infinite; }
 .image-painting-overlay em { z-index: 1; padding: 7px 12px; border-radius: 20px; color: #fff; background: rgba(20,25,48,.62); backdrop-filter: blur(8px); font-size: 12px; font-style: normal; }
 @keyframes imagePaintSweep { from { transform: translateX(-45%) rotate(-5deg); } to { transform: translateX(45%) rotate(5deg); } }
-.image-generation-canvas { width: min(100%, 560px); min-height: 410px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 12px; color: var(--app-text-2); }
-.image-generation-wash { position: relative; width: 100%; max-height: 340px; aspect-ratio: 1 / 1; overflow: hidden; border-radius: 13px; background: radial-gradient(circle at 28% 34%, #f9c7a8, transparent 26%), radial-gradient(circle at 67% 60%, #879cff, transparent 34%), linear-gradient(135deg, #ececff, #d5e9f5); background-position: center; background-size: cover; filter: saturate(.8); }
+.image-generation-canvas { width: min(100%, 560px); min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 10px; color: var(--app-text-2); }
+.image-generation-wash { position: relative; width: 100%; max-height: 260px; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 13px; background: radial-gradient(circle at 28% 34%, #f9c7a8, transparent 26%), radial-gradient(circle at 67% 60%, #879cff, transparent 34%), linear-gradient(135deg, #ececff, #d5e9f5); background-position: center; background-size: cover; filter: saturate(.8); }
 .image-generation-wash::after { content: ''; position: absolute; inset: 0; backdrop-filter: blur(16px); background: rgba(255,255,255,.12); }
 .image-generation-wash span { position: absolute; z-index: 1; inset: -35%; background: linear-gradient(110deg, transparent 38%, rgba(255,255,255,.8) 50%, transparent 62%); animation: imagePaintSweep 1.7s ease-in-out infinite; }
 .image-generation-canvas strong { margin-top: 4px; font-size: 13px; }
@@ -1323,6 +1381,8 @@ html.is-resizing-workspace * {
 .makers-schedule-form input,
 .makers-schedule-form textarea { width: 100%; box-sizing: border-box; border: 1px solid #ccd4e2; border-radius: 7px; padding: 8px 9px; color: inherit; background: transparent; font: inherit; }
 .makers-schedule-form textarea { resize: vertical; min-height: 68px; line-height: 1.5; }
+.makers-schedule-datetime { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.makers-schedule-datetime label { display: grid; gap: 3px; color: var(--app-text-3); font-size: 10px; }
 .makers-place-picker { position: relative; }
 .makers-place-search-row { display: flex; gap: 6px; }
 .makers-place-autocomplete { position: relative; align-items: center; }
@@ -1337,7 +1397,7 @@ html.is-resizing-workspace * {
 .makers-selected-place { color: #158452; font-size: 12px; }
 .makers-form-actions { display: flex; gap: 8px; }
 .makers-day-content { min-width: 0; flex: 1; }
-.makers-day-description { margin-top: 4px; color: var(--app-text-3); font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
+.makers-day-description { margin-top: 4px; color: var(--app-text-3); font-size: 10px; line-height: 1.45; white-space: pre-wrap; }
 .makers-day-actions { display: flex; gap: 10px; margin-top: 5px; }
 .makers-day-actions button { border: 0; padding: 0; background: transparent; color: #4e6fc7; font-size: 11px; cursor: pointer; }
 .makers-day-actions button:last-child { color: #c05258; }

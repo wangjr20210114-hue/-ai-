@@ -40,7 +40,7 @@ async function loadState(store, keys) {
   let changed = false;
   if (settings.auto_organize) {
     for (const item of items) {
-      if (!item.folder_id) {
+      if (!item.folder_id && !item.manual_folder) {
         item.folder_id = ensureFolder(folders, inferredFolderName(item)).id;
         changed = true;
       }
@@ -102,6 +102,7 @@ export async function onRequest(context) {
       if (!item) return json({ error: '阅读项目不存在' }, 404);
       if (body.folder_id && !folders.some((folder) => folder.id === body.folder_id)) return json({ error: '文件夹不存在' }, 404);
       item.folder_id = String(body.folder_id || '');
+      item.manual_folder = true;
       await saveJson(store, keys.index, items);
       return json({ item });
     }
@@ -126,6 +127,7 @@ export async function onRequest(context) {
       page_count: Math.max(0, Number(body.page_count || 0)), preview: String(body.preview || '').slice(0, 1200),
       content_url: `/files?key=${encodeURIComponent(storageKey)}`,
       folder_id: String(body.folder_id || existing?.folder_id || ''),
+      manual_folder: Boolean(body.manual_folder || existing?.manual_folder),
       created_at: existing?.created_at || now, last_opened_at: now,
     };
     if (!item.folder_id && settings.auto_organize) item.folder_id = ensureFolder(folders, inferredFolderName(item)).id;

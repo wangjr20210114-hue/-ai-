@@ -48,7 +48,15 @@ export default function ReadingLibraryPanel() {
   }, [folders, items]);
 
   const remove = async (item: SavedPaper) => {
-    await deleteSavedPaper(item.id); setItems((current) => current.filter((candidate) => candidate.id !== item.id));
+    if (!window.confirm(`确定从“我的阅读”移除“${item.title || item.filename}”吗？`)) return;
+    try {
+      const result = await deleteSavedPaper(item.id);
+      if (!result.ok) throw new Error('服务端未确认删除');
+      setItems((current) => current.filter((candidate) => candidate.id !== item.id));
+      MessagePlugin.success('已从“我的阅读”移除');
+    } catch (error) {
+      MessagePlugin.error(error instanceof Error ? error.message : '移除失败');
+    }
   };
   const createFolder = async () => {
     const name = window.prompt('新文件夹名称'); if (!name?.trim()) return;
@@ -96,9 +104,9 @@ export default function ReadingLibraryPanel() {
                 <span>{item.is_paper || item.kind === 'paper' ? '📄' : '📑'}</span>
                 <span><strong>{item.title || item.filename}</strong><small>{item.is_paper || item.kind === 'paper' ? '论文助读' : 'PDF 阅读'}{item.page_count ? ` · ${item.page_count} 页` : ''}</small></span>
               </button>
-              {!settings.auto_organize && <select aria-label="移动到文件夹" value={item.folder_id || ''} onChange={(event) => void moveReadingItem(item.id, event.target.value).then(load)}>
+              <select aria-label="移动到文件夹" title={settings.auto_organize ? '手动移动后将保留你的选择' : '移动到文件夹'} value={item.folder_id || ''} onChange={(event) => void moveReadingItem(item.id, event.target.value).then(load).then(() => MessagePlugin.success('文件已移动')).catch((error) => MessagePlugin.error(error instanceof Error ? error.message : '移动失败'))}>
                 <option value="">未分类</option>{folders.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}
-              </select>}
+              </select>
               <Button shape="circle" variant="text" size="small" icon={<DeleteIcon />} aria-label="移除" onClick={() => void remove(item)} />
             </div>
           ))}</div>}

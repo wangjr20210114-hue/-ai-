@@ -5,8 +5,9 @@
 import { useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { DownloadIcon, FullscreenIcon } from 'tdesign-icons-react';
-import type { PaperInfo, ChatMessage } from '../../types';
+import type { ChatMessage, PaperInfo } from '../../types';
 import { downloadPaper, paperFileUrl } from '../../services/paperApi';
+import { dedupePapers } from '../../services/paperUtils';
 import InfoCard from '../common/InfoCard';
 import PaperFullReader from './PaperFullReader';
 
@@ -22,7 +23,7 @@ interface DownloadedPaper {
 }
 
 export default function PaperListCard({ message }: Props) {
-  const papers: PaperInfo[] = message.papers || [];
+  const papers = dedupePapers(message.papers || []);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloaded, setDownloaded] = useState<Record<string, DownloadedPaper>>({});
   const [fullReader, setFullReader] = useState<DownloadedPaper | null>(null);
@@ -82,10 +83,10 @@ export default function PaperListCard({ message }: Props) {
               type="paper"
               title={paper.title}
               snippet={paper.abstract_zh}
-              sourceLabel="arXiv"
+              sourceLabel="论文"
               tags={[
                 { label: String(paper.year) },
-                { label: paper.citations },
+                ...(paper.citations && paper.citations.toLowerCase() !== 'arxiv' ? [{ label: paper.citations }] : []),
                 { label: paper.arxiv_id.startsWith('webpdf-') ? '公开 PDF' : `arXiv:${paper.arxiv_id}` },
               ]}
               extra={<div className="paper-card-actions">

@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 import uuid
 
 from .._shared.side_effects import create_tencent_meeting, generate_image, resolve_image_reference
-from .._shared.proactive import ingest_external_signal, load_proactive_state, save_proactive_state
+from .._shared.proactive import (
+    collect_provider_signals,
+    collect_schedule_signals,
+    ingest_external_signal,
+    load_proactive_state,
+    process_schedule_signals,
+    save_proactive_state,
+)
 from .._shared.auth import require_user, scoped_conversation_id
 from .._shared.workspace import (
     active_map_payload,
@@ -42,7 +50,7 @@ def _response(state, action=None, **extra):
     return payload
 
 
-async def _record_calendar_signal(store, changed: list[dict], source: str, user_id: str) -> None:
+async def _record_calendar_signal(store, changed: list[dict], source: str, user_id: str, env: dict | None = None) -> None:
     if not changed:
         return
     value = "|".join(sorted(f"{item.get('id')}:{item.get('updated_at')}:{bool(item.get('deleted'))}" for item in changed))
@@ -54,6 +62,25 @@ async def _record_calendar_signal(store, changed: list[dict], source: str, user_
         payload={"source": source, "changes": changed},
         now=int(time.time()),
     )
+    try:
+        workspace = await load_user_workspace(store, user_id=user_id)
+        schedules = list((workspace.get("schedules") or {}).values())
+        preferences = state.get("preferences") or {}
+        lookahead = int(preferences.get("lookahead_hours") or 24)
+        now = int(time.time())
+        signals = collect_schedule_signals(schedules, now, lookahead)
+        provider_signals, provider_diagnostics = await collect_provider_signals(env or {}, schedules, now, lookahead)
+        signals.extend(provider_signals)
+        stats = process_schedule_signals(state, signals, now)
+        state.setdefault("checkpoints", {})["calendar_change"] = {
+            "last_scan_at": now,
+            "schedule_count": len(schedules),
+            "signal_count": len(signals),
+            "provider": provider_diagnostics,
+            "stats": stats,
+        }
+    except Exception as exc:
+        logging.warning("immediate proactive calendar scan failed: %s", exc)
     await save_proactive_state(store, state, user_id)
 
 
@@ -147,7 +174,7 @@ async def handler(ctx):
             changed = apply_calendar_changes(state, changes)
             state["active_map_action_id"] = ""
             state = await save_workspace(store, workspace_id, state)
-            await _record_calendar_signal(store, changed, "direct_calendar_changes", user_id)
+            await _record_calendar_signal(store, changed, "direct_calendar_changes", user_id, ctx.env)
             return _response(state, changed=changed)
 
         if operation == "generate_image":
@@ -217,7 +244,7 @@ async def handler(ctx):
             action["updated_at"] = int(time.time())
             state["active_map_action_id"] = ""
             state = await save_workspace(store, workspace_id, state)
-            await _record_calendar_signal(store, changed, action["id"], user_id)
+            await _record_calendar_signal(store, changed, action["id"], user_id, ctx.env)
             return _response(state, action, changed=changed)
 
         now = int(time.time())
