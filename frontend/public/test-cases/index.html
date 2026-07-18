@@ -12,7 +12,7 @@
     <div class="hero-copy">
       <p class="eyebrow">EDGEONE MAKERS · RELEASE GATE</p>
       <h1>元宝全功能验收测试台</h1>
-      <p>逐项执行、记录证据。所有“生产阻断”用例通过后，才允许发布生产。</p>
+      <p>不用猜怎么测：每个 Case 都写明去哪里、点什么、输入什么、应该看到什么。</p>
     </div>
     <div class="gate-card" aria-live="polite">
       <span>生产发布门禁</span>
@@ -34,9 +34,9 @@
       <h2>怎么使用</h2>
       <ol>
         <li>先选择测试环境并填写部署 ID；不要在生产环境试验破坏性或付费场景。</li>
-        <li>按表格中的“前置条件 → 测试数据 → 操作步骤 → 预期结果”逐条执行。</li>
+        <li>打开一个 Case 后，从“步骤 1”向下执行；每一步都在同一行写明操作位置、按钮文字、输入内容和本步预期。</li>
         <li>为当前电脑填写“主机名称”。结果、备注、图片/视频证据会同步到 Makers Blob，多台电脑打开同一站点即可共享。</li>
-        <li>每条用例严格按“执行环境与生产安全 → 前置条件 → 控制台/网页操作 → 预期结果 → 清理”执行。</li>
+        <li>“测试数据”右侧可直接点复制。不要自己改写测试文案，否则不同测试人的结果无法比较。</li>
         <li>备注只填写文字现象；截图和录屏从“证据”入口上传。每次编辑都会记录主机、测试人和时间。</li>
         <li>生产阻断用例全部通过前禁止发布生产；JSON 导出仅作为离线备份。</li>
       </ol>
@@ -91,7 +91,7 @@
             <th>ID / 模块</th>
             <th>功能点与范围</th>
             <th>实现状态</th>
-            <th>详细操作与预期</th>
+            <th>逐步操作手册（每一步都有预期）</th>
             <th>测试结果</th>
             <th>备注</th>
             <th>证据 / 编辑记录</th>
@@ -105,6 +105,7 @@
 
   <footer>静态前端 + Makers Cloud Function + Makers Blob · 共享数据强一致读取 · 媒体证据预签名直传</footer>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="./procedures.js" defer></script>
   <script src="./app.js" defer></script>
 </body>
 </html>

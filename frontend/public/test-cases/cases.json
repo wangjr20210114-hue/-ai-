@@ -2917,8 +2917,8 @@
       "【验收站】在“证据”上传页面截图、Network/Console 截图或短录屏；等待提示已保存到 Makers Blob，再刷新测试站确认附件仍可打开。"
     ],
     "expected": [
-      "11 条 Node Cloud Functions",
-      "12 条 Python Agents",
+      "12 条 Node Cloud Functions",
+      "13 条 Python Agents",
       "1 条每日 Schedule",
       "动态路由返回真实 JSON/SSE 而非 index.html",
       "无 Uvicorn/FastAPI/WebSocket 生产依赖",

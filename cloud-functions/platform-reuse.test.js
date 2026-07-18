@@ -57,10 +57,11 @@ test('release gates execute the Makers production chain', async () => {
 });
 
 test('static acceptance site covers every release capability with executable details', async () => {
-  const [rawCases, html, app, config] = await Promise.all([
+  const [rawCases, html, app, procedures, config] = await Promise.all([
     read('frontend/public/test-cases/cases.json'),
     read('frontend/public/test-cases/index.html'),
     read('frontend/public/test-cases/app.js'),
+    read('frontend/public/test-cases/procedures.js'),
     read('edgeone.json'),
   ]);
   const cases = JSON.parse(rawCases);
@@ -79,8 +80,14 @@ test('static acceptance site covers every release capability with executable det
   assert.match(JSON.stringify(roleRegression), /最近AI有什么新进展/);
   assert.match(JSON.stringify(roleRegression), /error='role'/);
   assert.match(html, /生产发布门禁/);
+  assert.match(html, /procedures\.js/);
   assert.match(app, /localStorage/);
   assert.match(app, /导出验收记录|exportResults/);
+  assert.match(app, /procedure-table/);
+  const authoredIds = [...procedures.matchAll(/^\s*'([A-Z]+-\d{2})': \[/gm)].map((match) => match[1]);
+  assert.deepEqual(new Set(authoredIds), new Set(cases.map((item) => item.id)));
+  assert.match(procedures, /具体怎么操作|点击|输入/);
+  assert.match(procedures, /expected/);
   assert.deepEqual(
     JSON.parse(config).rewrites.filter((item) => item.source.startsWith('/test-cases')),
     [

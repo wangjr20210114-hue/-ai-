@@ -48,6 +48,55 @@ function list(items, ordered=false) {
   const tag = ordered ? 'ol' : 'ul';
   return `<${tag}>${values.map(item=>`<li>${esc(item)}</li>`).join('')}</${tag}>`;
 }
+function testDataMarkup(test) {
+  const values = Array.isArray(test.data) ? test.data : [];
+  return `<div class="test-data-list">${values.map((item,index)=>`<div><code>${esc(item)}</code><button type="button" class="copy-data" data-copy-case="${esc(test.id)}" data-copy-index="${index}">复制</button></div>`).join('')}</div>`;
+}
+function commonProcedure(test) {
+  const isLocalOnly = test.id === 'SEC-02';
+  const start = [{
+    where:'验收站顶部',
+    action:`“测试环境”选择 ${isLocalOnly?'本地 Makers':'Preview'}；填写本轮 Deployment ID、测试人和当前主机名称；点击“同步最新”。`,
+    expected:'同步状态显示“已同步”；本行保留之前其他主机的结果、备注和证据。',
+    record:'若同步失败，先停止测试并截图同步错误；不要在只保存在本机时误以为已共享。',
+  }];
+  if (!isLocalOnly) start.push({
+    where:'Makers 控制台',
+    action:'打开 EdgeOne → Makers → ai-active-agent → 构建部署；点击本轮 Deployment ID，确认“环境=预览、状态=成功”；点击“预览”，使用弹窗中的完整 3 小时链接。',
+    expected:'打开的是本轮 Preview 提交；不是 Production，也不是已经失效的旧 Deployment。',
+    record:'把 Deployment ID 写入验收站；不要把 eo_token、Cookie 或环境变量写进备注/截图。',
+  });
+  return start;
+}
+function finishProcedure(test) {
+  return {
+    where:'验收站 · 当前 Case 行',
+    action:`根据上面每一步实际结果选择“通过/失败/阻塞/不适用”；在“备注”写明失败步骤编号、实际现象和请求 ID；在“证据”上传截图或短录屏。`,
+    expected:`${test.id} 显示“已保存/已同步”；刷新验收站后结果、备注、证据和编辑主机/时间仍存在。`,
+    record:'通过也至少上传一张最终状态截图；失败必须包含复现到哪一步，不能只写“有问题”。',
+  };
+}
+function authoredProcedure(test) {
+  const authored = window.CASE_PROCEDURES?.[test.id];
+  if (Array.isArray(authored) && authored.length) return authored;
+  const actions = (test.steps || []).filter(step => !/【Makers 控制台】进入项目 ai-active-agent|【验收站】顶部|从该 Deployment 点击|按 F12|回到 .*按实际结果|在“证据”上传/.test(step));
+  return actions.map((action,index)=>({
+    where:(action.match(/^【([^】]+)】/)||[])[1]||'目标网页',
+    action:action.replace(/^【[^】]+】/,'').trim(),
+    expected:test.expected?.[Math.min(index,(test.expected?.length||1)-1)]||'页面给出明确结果且没有未捕获异常。',
+    record:'记录实际页面文字、状态码和复现步骤。',
+  }));
+}
+function procedureMarkup(test) {
+  const steps = [...commonProcedure(test), ...authoredProcedure(test), finishProcedure(test)];
+  return `<div class="procedure-intro"><strong>照着做即可</strong><span>每完成一行，先核对右侧“本步应该看到”，再继续下一步。</span></div>
+    <div class="procedure-table" role="table" aria-label="${esc(test.id)} 逐步操作手册">
+      <div class="procedure-head" role="row"><span>步骤</span><span>在哪里</span><span>具体怎么操作</span><span>本步应该看到</span><span>不符合时记录</span></div>
+      ${steps.map((step,index)=>`<div class="procedure-row" role="row">
+        <span class="step-no">${index+1}</span><span class="step-where">${esc(step.where)}</span><span>${esc(step.action)}</span><span class="step-expected">${esc(step.expected)}</span><span class="step-record">${esc(step.record||'截图并记录实际现象。')}</span>
+      </div>`).join('')}
+    </div>`;
+}
 function formatTime(value) {
   if (!value) return '暂无';
   const date = new Date(value);
@@ -156,11 +205,11 @@ function row(test) {
     <td><span class="pill ${esc(test.implementation)}">${esc(IMPLEMENTATION_LABELS[test.implementation])}</span>${test.releaseBlocker?'<span class="blocker">生产阻断</span>':''}</td>
     <td><div class="detail-grid">
       <div class="detail safety full"><b>执行环境与生产安全</b><ul><li><strong>环境：</strong>${esc(safety.environment)}</li><li><strong>隔离：</strong>${esc(safety.impact)}</li><li><strong>恢复：</strong>${esc(safety.rollback)}</li></ul></div>
-      <div class="detail"><b>前置条件</b>${list(test.preconditions)}</div>
-      <div class="detail"><b>测试数据</b>${list(test.data)}</div>
-      <div class="detail full"><b>控制台 / 网页详细操作</b>${list(test.steps,true)}</div>
-      <div class="detail full"><b>逐项核对的预期结果</b>${list(test.expected)}</div>
-      <div class="detail full"><b>应保留的证据</b>${list(test.evidence)}</div>
+      <details class="detail"><summary>开始前要准备什么</summary>${list(test.preconditions)}</details>
+      <div class="detail"><b>直接复制使用的测试数据</b>${testDataMarkup(test)}</div>
+      <div class="detail full procedure">${procedureMarkup(test)}</div>
+      <details class="detail full"><summary>本 Case 最终判定标准</summary>${list(test.expected)}</details>
+      <details class="detail full"><summary>证据清单</summary>${list(test.evidence)}</details>
       ${test.cleanup?.length ? `<div class="detail cleanup full"><b>测试后清理</b>${list(test.cleanup,true)}</div>` : ''}
     </div></td>
     <td><select class="result-select ${esc(current.result)}" data-result="${esc(test.id)}">${Object.entries(RESULT_LABELS).map(([value,label])=>`<option value="${value}" ${current.result===value?'selected':''}>${label}</option>`).join('')}</select></td>
@@ -196,6 +245,11 @@ function bindRows() {
   });
   document.querySelectorAll('[data-evidence]').forEach(el=>el.addEventListener('change',event=>void uploadEvidence(event.target.dataset.evidence,[...event.target.files]).finally(()=>{event.target.value='';})));
   document.querySelectorAll('[data-remove-evidence]').forEach(el=>el.addEventListener('click',event=>void removeEvidence(event.target.dataset.removeEvidence,event.target.dataset.evidenceId)));
+  document.querySelectorAll('[data-copy-case]').forEach(el=>el.addEventListener('click',async event=>{
+    const test=cases.find(item=>item.id===event.target.dataset.copyCase);const value=test?.data?.[Number(event.target.dataset.copyIndex)]||'';
+    try{await navigator.clipboard.writeText(value.replace(/^[^：:]+[：:]\s*/,''));toast('测试数据已复制，可直接粘贴');}
+    catch{toast('浏览器不允许自动复制，请手工选择代码文字。',true);}
+  }));
 }
 function render() {
   const visible=filtered();
