@@ -46,7 +46,7 @@
       "rollback": "关闭日志筛选和测试标签，不需要修改业务配置。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -96,7 +96,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -145,7 +145,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -200,7 +200,7 @@
       "rollback": "关闭日志筛选和测试标签，不需要修改业务配置。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -250,7 +250,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -300,7 +300,7 @@
       "rollback": "关闭日志筛选和测试标签，不需要修改业务配置。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -348,7 +348,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -362,7 +362,7 @@
     "preconditions": [
       "已在 Makers 控制台确认目标 Deployment 为 Preview，并记录 Deployment ID。",
       "测试站显示“已同步”，当前主机名称和测试人已填写。",
-      "可使用测试配置制造一次无效 Provider 或在本地 mock 失败"
+      "使用新版 Edge/Chrome；仅在当前浏览器屏蔽真实 POST /chat，不修改 Provider 或环境变量"
     ],
     "data": [
       "任意消息"
@@ -373,10 +373,11 @@
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
       "【安全确认】只使用 Preview，并新建标题含 TEST-ERROR 的测试会话；不要修改 Production 的模型、Provider、Key 或环境变量。",
-      "【Edge/Chrome】按 F12 打开开发者工具 → 右上角“⋮” → More tools/更多工具 → Network request blocking/网络请求屏蔽。",
-      "【Network request blocking】点击“＋”，添加“*/messages*”，勾选 Enable network request blocking；此规则只作用于当前浏览器，不会改变服务器配置。",
-      "【目标网页】发送“测试错误恢复，请只回答成功”；确认请求被本机拦截后，页面在合理时间内停止“正在思考”，显示中文可理解的失败提示和重试能力。",
-      "【浏览器】取消勾选 Enable network request blocking，并在 Network 面板确认后续请求不再显示 blocked。",
+      "【目标网页】先发送“TEST-准备屏蔽，只回答：准备完成”并等回答成功；在 Network 筛选“/chat”，找到 Method 为 POST、Status 为 200 的真实请求。",
+      "【Network】右键这条 POST /chat → Block request/屏蔽请求；不要点 Add condition，也不要手填旧版路径通配符。",
+      "【Request conditions/请求条件】确认底部抽屉自动打开、按真实请求生成 URL Pattern，且 Enable blocking and throttling/启用屏蔽和限速已自动勾选。",
+      "【目标网页】发送“测试错误恢复，请只回答成功”；在 Network 确认 POST /chat 变红且 Status 为“(blocked:devtools)”，同时页面停止“正在思考”并显示中文失败提示。",
+      "【Request conditions/请求条件】点击刚生成规则右侧的删除按钮，再取消 Enable blocking and throttling；必须删除规则，因为关闭 DevTools 后规则仍会保存。",
       "【目标网页】在同一会话重新发送“测试错误恢复，请只回答成功”；等待成功回答，然后刷新页面。",
       "【目标网页】核对失败记录不会变成空白 AI 气泡或伪装为成功；成功问题与回答只出现一次，界面不暴露 Provider 原始堆栈、role、KeyError。",
       "【验收站】回到 CORE-08，按实际结果选择“通过/失败/阻塞/不适用”；备注写明实际现象、关键请求状态和复现条件，不要填写密钥。",
@@ -400,7 +401,7 @@
       "rollback": "先恢复临时配置并重新部署 Preview，再通过 /system 和一轮普通对话确认服务恢复；无法隔离时标“阻塞”。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -451,7 +452,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -499,7 +500,7 @@
       "rollback": "关闭日志筛选和测试标签，不需要修改业务配置。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -524,6 +525,7 @@
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
       "【正常分支】在普通 Preview 新建 TEST-SEARCH 会话，发送“比较 DeepSeek 和混元最新公开能力”；逐个打开来源，记录失效链接但不要在生产修改 Provider。",
+      "【安全说明】rich_search 是 POST /chat 内部的服务端工具调用，Network 中没有可单独屏蔽的 /rich_search；不要使用 Request conditions 屏蔽 /chat 来冒充“仅搜索失败”。",
       "【安全降级分支】在 Makers 控制台新建“专用故障注入 Preview”，确认页面明确显示 Preview；不要编辑现有 Production Deployment。",
       "【Makers 控制台】仅在该专用 Preview 的环境变量中，把 WSA_API_KEY 临时设为字面值 invalid-for-acceptance，保存后重新部署 Preview；不要查看、复制或记录真实密钥值。",
       "【专用故障 Preview 网页】新建会话并发送同一问题；观察搜索失败时是否返回边界说明或无来源回答，而不是白屏、无限思考或伪造来源。",
@@ -549,7 +551,7 @@
       "rollback": "先恢复临时配置并重新部署 Preview，再通过 /system 和一轮普通对话确认服务恢复；无法隔离时标“阻塞”。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -598,7 +600,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -646,7 +648,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -693,7 +695,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -742,7 +744,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -792,7 +794,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -841,7 +843,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -891,7 +893,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -939,7 +941,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -990,7 +992,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1040,7 +1042,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1088,7 +1090,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1136,7 +1138,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1186,7 +1188,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1236,7 +1238,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1285,7 +1287,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1334,7 +1336,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1384,7 +1386,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "保留生成 Action 作为证据；如有删除入口，仅删除本轮 TEST- 图片版本。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1434,7 +1436,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "保留生成 Action 作为证据；如有删除入口，仅删除本轮 TEST- 图片版本。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1482,7 +1484,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "保留生成 Action 作为证据；如有删除入口，仅删除本轮 TEST- 图片版本。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1531,7 +1533,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "保留生成 Action 作为证据；如有删除入口，仅删除本轮 TEST- 图片版本。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1581,7 +1583,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "从阅读库移除本用例上传的非敏感测试 PDF；不要删除其他文件。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1631,7 +1633,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "从阅读库移除本用例上传的非敏感测试 PDF；不要删除其他文件。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1681,7 +1683,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "从阅读库移除本用例上传的非敏感测试 PDF；不要删除其他文件。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1729,7 +1731,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "从阅读库移除本用例上传的非敏感测试 PDF；不要删除其他文件。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1777,7 +1779,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "从阅读库移除本用例上传的非敏感测试 PDF；不要删除其他文件。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1827,7 +1829,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "从阅读库移除本用例上传的非敏感测试 PDF；不要删除其他文件。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1876,7 +1878,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "从阅读库移除本用例上传的非敏感测试 PDF；不要删除其他文件。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1925,7 +1927,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -1975,7 +1977,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -2024,7 +2026,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -2074,7 +2076,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -2125,7 +2127,7 @@
       "rollback": "先恢复临时配置并重新部署 Preview，再通过 /system 和一轮普通对话确认服务恢复；无法隔离时标“阻塞”。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -2174,7 +2176,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -2228,7 +2230,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -2280,7 +2282,7 @@
       "rollback": "先恢复临时配置并重新部署 Preview，再通过 /system 和一轮普通对话确认服务恢复；无法隔离时标“阻塞”。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -2329,7 +2331,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除本用例创建的 TEST- 记忆/规则，并把预算、免打扰和策略恢复为测试前值。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -2379,7 +2381,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除本用例创建的 TEST- 记忆/规则，并把预算、免打扰和策略恢复为测试前值。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -2430,7 +2432,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除本用例创建的 TEST- 记忆/规则，并把预算、免打扰和策略恢复为测试前值。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -2481,7 +2483,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "删除本用例创建的 TEST- 记忆/规则，并把预算、免打扰和策略恢复为测试前值。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -2531,7 +2533,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "退出测试账号并关闭无痕窗口；只删除带 TEST- 前缀的测试用户数据。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -2583,7 +2585,7 @@
       "rollback": "先恢复临时配置并重新部署 Preview，再通过 /system 和一轮普通对话确认服务恢复；无法隔离时标“阻塞”。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "退出测试账号并关闭无痕窗口；只删除带 TEST- 前缀的测试用户数据。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -2633,7 +2635,7 @@
       "rollback": "先恢复临时配置并重新部署 Preview，再通过 /system 和一轮普通对话确认服务恢复；无法隔离时标“阻塞”。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "退出测试账号并关闭无痕窗口；只删除带 TEST- 前缀的测试用户数据。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
@@ -2683,7 +2685,7 @@
       "rollback": "先恢复临时配置并重新部署 Preview，再通过 /system 和一轮普通对话确认服务恢复；无法隔离时标“阻塞”。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -2730,7 +2732,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -2781,7 +2783,7 @@
       "rollback": "先恢复临时配置并重新部署 Preview，再通过 /system 和一轮普通对话确认服务恢复；无法隔离时标“阻塞”。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -2835,7 +2837,7 @@
       "rollback": "先恢复临时配置并重新部署 Preview，再通过 /system 和一轮普通对话确认服务恢复；无法隔离时标“阻塞”。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -2884,7 +2886,7 @@
       "rollback": "关闭日志筛选和测试标签，不需要修改业务配置。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -2935,7 +2937,7 @@
       "rollback": "关闭日志筛选和测试标签，不需要修改业务配置。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -2983,7 +2985,7 @@
       "rollback": "关闭日志筛选和测试标签，不需要修改业务配置。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -3033,7 +3035,7 @@
       "rollback": "按“测试后清理”删除 TEST- 数据，恢复临时开关，并完成一次普通对话冒烟检查。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -3083,7 +3085,7 @@
       "rollback": "先恢复临时配置并重新部署 Preview，再通过 /system 和一轮普通对话确认服务恢复；无法隔离时标“阻塞”。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -3130,7 +3132,7 @@
       "rollback": "关闭日志筛选和测试标签，不需要修改业务配置。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -3177,7 +3179,7 @@
       "rollback": "关闭日志筛选和测试标签，不需要修改业务配置。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -3224,7 +3226,7 @@
       "rollback": "关闭日志筛选和测试标签，不需要修改业务配置。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   },
@@ -3271,7 +3273,7 @@
       "rollback": "关闭日志筛选和测试标签，不需要修改业务配置。"
     },
     "cleanup": [
-      "关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。",
+      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
   }

@@ -88,6 +88,12 @@ test('static acceptance site covers every release capability with executable det
   assert.deepEqual(new Set(authoredIds), new Set(cases.map((item) => item.id)));
   assert.match(procedures, /具体怎么操作|点击|输入/);
   assert.match(procedures, /expected/);
+  const acceptanceCopy = rawCases + procedures;
+  assert.match(acceptanceCopy, /Request conditions\/请求条件/);
+  assert.match(acceptanceCopy, /Block request\/屏蔽请求/);
+  assert.match(acceptanceCopy, /\(blocked:devtools\)/);
+  assert.match(acceptanceCopy, /Enable blocking and throttling/);
+  assert.doesNotMatch(acceptanceCopy, /Network request blocking|Enable network request blocking|\*\/messages\*|\*\/rich_search\*/i);
   assert.deepEqual(
     JSON.parse(config).rewrites.filter((item) => item.source.startsWith('/test-cases')),
     [

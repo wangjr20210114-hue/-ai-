@@ -20,15 +20,17 @@ const specialSteps = {
   ],
   'CORE-08': [
     '【安全确认】只使用 Preview，并新建标题含 TEST-ERROR 的测试会话；不要修改 Production 的模型、Provider、Key 或环境变量。',
-    '【Edge/Chrome】按 F12 打开开发者工具 → 右上角“⋮” → More tools/更多工具 → Network request blocking/网络请求屏蔽。',
-    '【Network request blocking】点击“＋”，添加“*/messages*”，勾选 Enable network request blocking；此规则只作用于当前浏览器，不会改变服务器配置。',
-    '【目标网页】发送“测试错误恢复，请只回答成功”；确认请求被本机拦截后，页面在合理时间内停止“正在思考”，显示中文可理解的失败提示和重试能力。',
-    '【浏览器】取消勾选 Enable network request blocking，并在 Network 面板确认后续请求不再显示 blocked。',
+    '【目标网页】先发送“TEST-准备屏蔽，只回答：准备完成”并等回答成功；在 Network 筛选“/chat”，找到 Method 为 POST、Status 为 200 的真实请求。',
+    '【Network】右键这条 POST /chat → Block request/屏蔽请求；不要点 Add condition，也不要手填旧版路径通配符。',
+    '【Request conditions/请求条件】确认底部抽屉自动打开、按真实请求生成 URL Pattern，且 Enable blocking and throttling/启用屏蔽和限速已自动勾选。',
+    '【目标网页】发送“测试错误恢复，请只回答成功”；在 Network 确认 POST /chat 变红且 Status 为“(blocked:devtools)”，同时页面停止“正在思考”并显示中文失败提示。',
+    '【Request conditions/请求条件】点击刚生成规则右侧的删除按钮，再取消 Enable blocking and throttling；必须删除规则，因为关闭 DevTools 后规则仍会保存。',
     '【目标网页】在同一会话重新发送“测试错误恢复，请只回答成功”；等待成功回答，然后刷新页面。',
     '【目标网页】核对失败记录不会变成空白 AI 气泡或伪装为成功；成功问题与回答只出现一次，界面不暴露 Provider 原始堆栈、role、KeyError。',
   ],
   'SEARCH-03': [
     '【正常分支】在普通 Preview 新建 TEST-SEARCH 会话，发送“比较 DeepSeek 和混元最新公开能力”；逐个打开来源，记录失效链接但不要在生产修改 Provider。',
+    '【安全说明】rich_search 是 POST /chat 内部的服务端工具调用，Network 中没有可单独屏蔽的 /rich_search；不要使用 Request conditions 屏蔽 /chat 来冒充“仅搜索失败”。',
     '【安全降级分支】在 Makers 控制台新建“专用故障注入 Preview”，确认页面明确显示 Preview；不要编辑现有 Production Deployment。',
     '【Makers 控制台】仅在该专用 Preview 的环境变量中，把 WSA_API_KEY 临时设为字面值 invalid-for-acceptance，保存后重新部署 Preview；不要查看、复制或记录真实密钥值。',
     '【专用故障 Preview 网页】新建会话并发送同一问题；观察搜索失败时是否返回边界说明或无来源回答，而不是白屏、无限思考或伪造来源。',
@@ -83,7 +85,7 @@ function genericFinish(test) {
 }
 
 function cleanupFor(test) {
-  const cleanup = ['关闭开发者工具中的 Offline、Request blocking 或临时筛选，确认浏览器网络恢复 Online。'];
+  const cleanup = ['如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。'];
   if (test.module === '日程' || test.module === '地点与旅行' || test.module === '主动服务') cleanup.push('删除标题含 TEST- 的日程、通知或临时工作流；保留运行记录用于审计。');
   if (test.module === '阅读与论文') cleanup.push('从阅读库移除本用例上传的非敏感测试 PDF；不要删除其他文件。');
   if (test.module === '记忆与学习') cleanup.push('删除本用例创建的 TEST- 记忆/规则，并把预算、免打扰和策略恢复为测试前值。');

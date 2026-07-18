@@ -45,9 +45,10 @@ window.CASE_PROCEDURES = {
   ],
   'CORE-08': [
     S('目标网页', '只在 Preview 新建会话，标题问题使用“TEST-错误恢复”。不要修改任何 Makers 环境变量。', '新会话可正常输入，生产数据和 Provider 配置未被改动。'),
-    S('Edge/Chrome 开发者工具', 'F12 → 右上角“⋮” → More tools/更多工具 → Network request blocking；点击“＋”，填入“*/messages*”，勾选 Enable network request blocking。', '规则出现在列表且已勾选；它只拦截当前浏览器的 /messages。'),
+    S('目标网页与 Network', '先发送“TEST-准备屏蔽，只回答：准备完成”并等回答成功；按 F12 打开 Network，筛选“/chat”，找到刚才那条 Method 为 POST、Status 为 200 的真实请求。', 'Network 中能看到当前 Preview 域名下的 POST /chat；这条请求可作为新版 URL Pattern 的准确样本。'),
+    S('Network 请求列表', '右键刚找到的 POST /chat → Block request/屏蔽请求。不要点击 Add condition，也不要手填旧版路径通配符。', '底部自动打开 Request conditions/请求条件，并根据真实请求自动生成一条 URL Pattern；“Enable blocking and throttling/启用屏蔽和限速”自动勾选。'),
     S('目标网页', '发送“测试错误恢复，请只回答成功”，等待最多 20 秒。', '页面停止生成并显示可理解的中文失败提示/重试入口；不显示 Provider、role、KeyError、Traceback 原文。'),
-    S('Network request blocking', '取消 Enable network request blocking；回到 Network，确认新请求不再标记 blocked。', '浏览器网络恢复，未修改服务端配置。'),
+    S('Network 与 Request conditions', '先确认本次 POST /chat 为红色且 Status 显示“(blocked:devtools)”；再到 Request conditions 点击该规则右侧删除按钮，并取消“Enable blocking and throttling”。', '规则已删除、总开关关闭；旧规则不会留到以后再次打开 DevTools 时误伤测试。'),
     S('目标网页', '在同一会话重新发送相同文本；等成功后刷新。', '成功回答只出现一次；失败 AI 气泡刷新后不残留；侧栏不会永远显示正在生成。'),
   ],
   'SEARCH-01': [
@@ -63,9 +64,9 @@ window.CASE_PROCEDURES = {
   ],
   'SEARCH-03': [
     S('目标网页', '正常联网时发送“比较 DeepSeek 和混元最新公开能力”，打开至少两个来源。', '回答给出可点击来源，并区分公开事实与推断。'),
-    S('开发者工具', '只在 Preview 打开 Network request blocking，添加“*/rich_search*”或页面实际搜索请求路径；不要修改 Makers Provider/Key。', '当前浏览器的搜索请求被阻断，其他人和 Production 不受影响。'),
-    S('目标网页', '新建会话再次发送相同问题，等待失败或降级完成。', '页面给出中文降级说明；不伪造来源、不暴露堆栈；普通对话仍可继续。'),
-    S('开发者工具', '关闭 request blocking 后，发送“只回答：网络已恢复”。', '请求正常完成；Network 不再显示 blocked。'),
+    S('Makers 控制台', '新建一个专用故障 Preview；只在这个新 Preview 的环境变量中把 WSA_API_KEY 设为字面值“invalid-for-acceptance”，保存并重新部署。不要读取、复制或覆盖 Production 的真实密钥。', '控制台出现新的 Preview Deployment ID；Production 和原正常 Preview 均未变更。'),
+    S('专用故障 Preview', '打开新 Deployment，新建 TEST-SEARCH 会话，发送同一问题并等待完成或失败。', '页面给出中文降级说明或明确搜索不可用；不伪造来源、不暴露堆栈，且不会白屏或永久思考。'),
+    S('Makers 控制台', '测试结束后删除这个专用故障 Preview；回到原正常 Preview 打开 /system，并发送“只回答：网络已恢复”。', '原 Preview 的 search Provider 状态正常，普通对话成功；没有测试无效值留在任何在用 Deployment。'),
   ],
   'SEARCH-04': [
     S('目标网页', '勾选“联网搜索”，发送“介绍故宫太和殿并配一张有帮助的真实图片”。', '回答包含正文、来源和图片区域；图片不是只有空白占位。'),
