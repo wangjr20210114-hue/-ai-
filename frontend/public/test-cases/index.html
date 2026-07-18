@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="元宝 EdgeOne Makers 全功能人工验收用例" />
+  <title>元宝 · 发布验收测试台</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">EDGEONE MAKERS · RELEASE GATE</p>
+      <h1>元宝全功能验收测试台</h1>
+      <p>逐项执行、记录证据。所有“生产阻断”用例通过后，才允许发布生产。</p>
+    </div>
+    <div class="gate-card" aria-live="polite">
+      <span>生产发布门禁</span>
+      <strong id="gate-status">正在计算…</strong>
+      <small id="gate-detail"></small>
+    </div>
+  </header>
+
+  <main>
+    <section class="summary" aria-label="验收概览">
+      <article><span>全部用例</span><strong id="total-count">0</strong></article>
+      <article><span>生产阻断</span><strong id="blocker-count">0</strong></article>
+      <article class="ok"><span>已通过</span><strong id="passed-count">0</strong></article>
+      <article class="bad"><span>失败</span><strong id="failed-count">0</strong></article>
+      <article class="muted"><span>阻塞/未测</span><strong id="pending-count">0</strong></article>
+    </section>
+
+    <section class="instructions">
+      <h2>怎么使用</h2>
+      <ol>
+        <li>先选择测试环境并填写部署 ID；不要在生产环境试验破坏性或付费场景。</li>
+        <li>按表格中的“前置条件 → 测试数据 → 操作步骤 → 预期结果”逐条执行。</li>
+        <li>每条用例选择结果并填写证据/问题。记录只保存在当前浏览器。</li>
+        <li>点击“导出验收记录”保存 JSON；生产阻断用例全部通过后再申请生产发布。</li>
+      </ol>
+      <div class="run-meta">
+        <label>测试环境
+          <select id="environment">
+            <option value="preview">Preview（推荐）</option>
+            <option value="local">本地 Makers</option>
+            <option value="production">Production（仅回归）</option>
+          </select>
+        </label>
+        <label>Deployment ID<input id="deployment-id" placeholder="例如 dpxxxxxxxxxx" /></label>
+        <label>测试人<input id="tester" placeholder="姓名或代号" /></label>
+      </div>
+    </section>
+
+    <section class="toolbar" aria-label="筛选工具">
+      <input id="search" type="search" placeholder="搜索 ID、模块、功能、步骤或预期结果" />
+      <select id="module-filter"><option value="">全部模块</option></select>
+      <select id="implementation-filter">
+        <option value="">全部实现状态</option>
+        <option value="implemented">已实现</option>
+        <option value="requires-config">需配置</option>
+        <option value="platform-pending">平台待验证</option>
+        <option value="partial">部分实现</option>
+        <option value="not-implemented">未实现</option>
+        <option value="optional-last">最后阶段可选</option>
+      </select>
+      <select id="result-filter">
+        <option value="">全部测试结果</option>
+        <option value="not-run">未测试</option>
+        <option value="pass">通过</option>
+        <option value="fail">失败</option>
+        <option value="blocked">阻塞</option>
+        <option value="na">不适用</option>
+      </select>
+      <label class="check"><input id="blocker-only" type="checkbox" /> 仅生产阻断</label>
+      <button id="export" type="button">导出验收记录</button>
+      <button id="reset" class="secondary" type="button">清空本机记录</button>
+    </section>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID / 模块</th>
+            <th>功能点与范围</th>
+            <th>实现状态</th>
+            <th>详细操作与预期</th>
+            <th>测试结果</th>
+            <th>证据 / 备注</th>
+          </tr>
+        </thead>
+        <tbody id="case-body"></tbody>
+      </table>
+      <p id="empty-state" hidden>没有符合当前筛选条件的用例。</p>
+    </div>
+  </main>
+
+  <footer>静态验收站 · 数据保存在浏览器 localStorage · 不上传任何测试记录</footer>
+  <script src="./app.js" defer></script>
+</body>
+</html>

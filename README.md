@@ -46,6 +46,7 @@ frontend/                 # React + Vite 双模式前端
 backend/                  # 已退役 FastAPI/SQLite 历史参考；不部署、不新增功能
 tools/                    # SQLite 只读导出和 Makers 一次性导入工具；不进入运行时
 docs/                     # Makers 当前事实、迁移计划和部署验收
+frontend/public/test-cases/ # 静态全功能验收站（访问 /test-cases/index.html）
 edgeone.json              # Makers 构建与 Agent 配置
 ```
 

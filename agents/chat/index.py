@@ -95,7 +95,18 @@ async def _imported_conversation_seed(ctx, conversation_id: str, current_message
     )
     if checkpoint is not None or not hasattr(ctx.store, "get_messages"):
         return []
-    result = await ctx.store.get_messages(conversation_id=conversation_id, limit=100, order="asc")
+    try:
+        result = await ctx.store.get_messages(conversation_id=conversation_id, limit=100, order="asc")
+    except KeyError as exc:
+        # Older Node-side generic-store writes used an envelope that is not a
+        # native Conversation Store message. It cannot seed a checkpoint, but
+        # must never block the current user turn.
+        logging.warning(
+            "ignored incompatible conversation message conversation=%s field=%s",
+            conversation_id,
+            exc,
+        )
+        return []
     items = result if isinstance(result, list) else _field(result, "items", [])
     if not isinstance(items, list) or not any(
         isinstance(_field(item, "metadata", {}), dict)
@@ -331,6 +342,7 @@ async def handler(ctx):
                         await queue.put(ctx.utils.sse({"type": "ai_response", "content": final_content}))
             except Exception as exc:
                 if not ctx.request.signal.is_set():
+                    logging.exception("chat stream failed conversation=%s", conversation_id)
                     await queue.put(
                         ctx.utils.sse({"type": "error_message", "content": str(exc)})
                     )

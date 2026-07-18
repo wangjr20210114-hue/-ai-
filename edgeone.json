@@ -2,6 +2,16 @@
   "buildCommand": "cd frontend && npm ci && npm run build -- --mode edgeone",
   "outputDirectory": "frontend/dist",
   "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/test-cases",
+      "destination": "/test-cases/index.html"
+    },
+    {
+      "source": "/test-cases/",
+      "destination": "/test-cases/index.html"
+    }
+  ],
   "cloudFunctions": {
     "nodejs": {
       "includeFiles": []

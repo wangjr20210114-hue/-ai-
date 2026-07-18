@@ -104,6 +104,18 @@ class FakeCheckpointer:
         return {"checkpoint": {"channel_values": {"messages": self.messages}}}
 
 
+class MakersCheckpointMessage:
+    """Mimic Makers' field proxy, which raises KeyError for missing fields."""
+
+    def __init__(self, **values):
+        self.values = values
+
+    def __getattr__(self, key):
+        if key in self.values:
+            return self.values[key]
+        raise KeyError(key)
+
+
 class FlakyPlannerModel:
     def __init__(self):
         self.calls = 0
@@ -225,6 +237,21 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("palace.jpg", ai_message["content"])
         self.assertEqual(ai_message["followUps"], ["太和殿是做什么的？"])
         self.assertNotIn("workspace_actions", response)
+
+    async def test_message_restore_accepts_makers_proxy_without_optional_role(self):
+        messages = [
+            MakersCheckpointMessage(type="human", content="最近AI有什么新进展", id="u-role"),
+            MakersCheckpointMessage(type="ai", content="这是恢复后的回答", id="a-role"),
+        ]
+        store = SimpleNamespace(
+            langgraph_checkpointer=FakeCheckpointer(messages),
+            langgraph_store=FakeStore(),
+        )
+        response = await messages_handler(SimpleNamespace(conversation_id="restore-role", store=store))
+        self.assertEqual(
+            [(item["role"], item["content"]) for item in response["messages"]],
+            [("user", "最近AI有什么新进展"), ("ai", "这是恢复后的回答")],
+        )
 
     def test_system_prompt_formats_without_accidental_placeholders(self):
         module = ast.parse((Path(__file__).parents[1] / "chat" / "index.py").read_text(encoding="utf-8"))

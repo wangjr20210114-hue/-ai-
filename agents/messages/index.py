@@ -1,6 +1,7 @@
 """Read chat and production UI state from the latest LangGraph checkpoint."""
 
 import json
+import logging
 
 from .._shared.workspace import active_map_payload, load_user_workspace, public_action
 from .._shared.auth import require_user, scoped_conversation_id
@@ -10,7 +11,13 @@ from ..chat._protocol import public_content
 def _value(item, key, default=None):
     if isinstance(item, dict):
         return item.get(key, default)
-    return getattr(item, key, default)
+    try:
+        return getattr(item, key, default)
+    except (AttributeError, KeyError, TypeError):
+        # Makers checkpoint message proxies may expose fields through
+        # ``__getattr__`` and raise KeyError for an absent optional field.
+        # Treat that exactly like a normal missing attribute.
+        return default
 
 
 def _text(content) -> str:
@@ -54,10 +61,20 @@ async def handler(ctx):
         # A legacy import is written through the native Conversation Store.
         # Until the next chat turn seeds a LangGraph checkpoint, render that
         # platform-owned history directly instead of creating a second store.
-        imported = await ctx.store.get_messages(
-            conversation_id=conversation_id, limit=100, order="asc"
-        )
-        stored_messages = imported if isinstance(imported, list) else _value(imported, "items", [])
+        try:
+            imported = await ctx.store.get_messages(
+                conversation_id=conversation_id, limit=100, order="asc"
+            )
+            stored_messages = imported if isinstance(imported, list) else _value(imported, "items", [])
+        except KeyError as exc:
+            # Ignore the known incompatible Node generic-store envelope. The
+            # next successful turn creates a proper LangGraph checkpoint.
+            logging.warning(
+                "ignored incompatible conversation message conversation=%s field=%s",
+                conversation_id,
+                exc,
+            )
+            stored_messages = []
 
     result = []
     schedules_by_id = {}

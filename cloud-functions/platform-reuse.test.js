@@ -56,6 +56,40 @@ test('release gates execute the Makers production chain', async () => {
   assert.doesNotMatch(requirements, />=|~=/);
 });
 
+test('static acceptance site covers every release capability with executable details', async () => {
+  const [rawCases, html, app, config] = await Promise.all([
+    read('frontend/public/test-cases/cases.json'),
+    read('frontend/public/test-cases/index.html'),
+    read('frontend/public/test-cases/app.js'),
+    read('edgeone.json'),
+  ]);
+  const cases = JSON.parse(rawCases);
+  assert.ok(cases.length >= 60, `expected a full acceptance matrix, got ${cases.length}`);
+  assert.equal(new Set(cases.map((item) => item.id)).size, cases.length);
+  for (const item of cases) {
+    assert.match(item.id, /^[A-Z]+-\d{2}$/);
+    assert.ok(item.module && item.title && item.scope && item.implementation);
+    for (const field of ['preconditions', 'data', 'steps', 'expected', 'evidence']) {
+      assert.ok(Array.isArray(item[field]) && item[field].length, `${item.id}.${field} is required`);
+    }
+    if (item.implementation === 'not-implemented') assert.equal(item.releaseBlocker, false);
+  }
+  const roleRegression = cases.find((item) => item.id === 'CORE-04');
+  assert.ok(roleRegression.releaseBlocker);
+  assert.match(JSON.stringify(roleRegression), /最近AI有什么新进展/);
+  assert.match(JSON.stringify(roleRegression), /error='role'/);
+  assert.match(html, /生产发布门禁/);
+  assert.match(app, /localStorage/);
+  assert.match(app, /导出验收记录|exportResults/);
+  assert.deepEqual(
+    JSON.parse(config).rewrites.filter((item) => item.source.startsWith('/test-cases')),
+    [
+      { source: '/test-cases', destination: '/test-cases/index.html' },
+      { source: '/test-cases/', destination: '/test-cases/index.html' },
+    ],
+  );
+});
+
 test('Tencent Meeting is optional and never restores a FastAPI bridge', async () => {
   const [provider, tools, envExample] = await Promise.all([
     read('agents/_shared/side_effects.py'),

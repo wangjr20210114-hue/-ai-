@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { MessagePlugin } from 'tdesign-react';
 import { bootstrapApp, proactiveOperation, saveConversationMessage } from '../services/api';
 import { withEdgeOneAuth } from '../services/auth';
+import { presentableChatError } from '../services/chatError';
 import { makersConversationHeaders, mergeMessages } from '../services/conversation';
 import { splitSseFrames } from '../services/sse';
 import { useAppDispatch, useAppState } from '../store/appState';
@@ -381,9 +382,24 @@ export function useSSEChat() {
           }
           break;
         }
-        case 'error':
-          if (activeConversationRef.current === id) MessagePlugin.error(String(event.payload.message || '服务异常'));
+        case 'error': {
+          const message = presentableChatError(event.payload.message);
+          const current = streams.get(streamId);
+          if (current) {
+            const next = {
+              ...current,
+              content: message,
+              skill: current.skill ? {
+                ...current.skill,
+                data: { ...current.skill.data, status: 'error', statusText: '处理失败' },
+              } : current.skill,
+            };
+            streams.set(streamId, next);
+            patch(id, streamId, { content: message, skill: next.skill });
+          }
+          if (activeConversationRef.current === id) MessagePlugin.error(message);
           break;
+        }
       }
     });
     clientsRef.current.set(id, { client, off });

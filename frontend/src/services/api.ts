@@ -183,11 +183,10 @@ export async function createNewConversation(): Promise<ConversationSummary> {
 }
 
 export async function saveConversationMessage(conversationId: string, message: ChatMessage): Promise<void> {
-  const res = await authorizedFetch('/conversations', {
+  const res = await authorizedFetch('/conversation', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
     body: JSON.stringify({
-      operation: 'append_message', conversation_id: conversationId,
       role: message.role, content: message.content, metadata: message,
     }),
   });
