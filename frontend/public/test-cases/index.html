@@ -35,8 +35,10 @@
       <ol>
         <li>先选择测试环境并填写部署 ID；不要在生产环境试验破坏性或付费场景。</li>
         <li>按表格中的“前置条件 → 测试数据 → 操作步骤 → 预期结果”逐条执行。</li>
-        <li>每条用例选择结果并填写证据/问题。记录只保存在当前浏览器。</li>
-        <li>点击“导出验收记录”保存 JSON；生产阻断用例全部通过后再申请生产发布。</li>
+        <li>为当前电脑填写“主机名称”。结果、备注、图片/视频证据会同步到 Makers Blob，多台电脑打开同一站点即可共享。</li>
+        <li>每条用例严格按“执行环境与生产安全 → 前置条件 → 控制台/网页操作 → 预期结果 → 清理”执行。</li>
+        <li>备注只填写文字现象；截图和录屏从“证据”入口上传。每次编辑都会记录主机、测试人和时间。</li>
+        <li>生产阻断用例全部通过前禁止发布生产；JSON 导出仅作为离线备份。</li>
       </ol>
       <div class="run-meta">
         <label>测试环境
@@ -48,6 +50,9 @@
         </label>
         <label>Deployment ID<input id="deployment-id" placeholder="例如 dpxxxxxxxxxx" /></label>
         <label>测试人<input id="tester" placeholder="姓名或代号" /></label>
+        <label>当前主机名称<input id="host-name" placeholder="例如 王的 MacBook" /><small>主机 ID：<code id="host-id"></code></small></label>
+        <label>同步密钥（若项目已配置）<input id="sync-key" type="password" autocomplete="off" placeholder="未配置则留空" /></label>
+        <div class="sync-panel"><span id="sync-status" class="sync-status syncing">正在连接共享数据…</span><small id="security-note">正在检查写保护…</small></div>
       </div>
     </section>
 
@@ -72,8 +77,11 @@
         <option value="na">不适用</option>
       </select>
       <label class="check"><input id="blocker-only" type="checkbox" /> 仅生产阻断</label>
-      <button id="export" type="button">导出验收记录</button>
-      <button id="reset" class="secondary" type="button">清空本机记录</button>
+      <button id="refresh" type="button">同步最新</button>
+      <button id="import" class="secondary" type="button">导入 JSON</button>
+      <button id="export" class="secondary" type="button">导出 JSON</button>
+      <button id="reset" class="secondary" type="button">重载共享记录</button>
+      <input id="import-file" type="file" accept="application/json,.json" hidden />
     </section>
 
     <div class="table-wrap">
@@ -85,7 +93,8 @@
             <th>实现状态</th>
             <th>详细操作与预期</th>
             <th>测试结果</th>
-            <th>证据 / 备注</th>
+            <th>备注</th>
+            <th>证据 / 编辑记录</th>
           </tr>
         </thead>
         <tbody id="case-body"></tbody>
@@ -94,7 +103,8 @@
     </div>
   </main>
 
-  <footer>静态验收站 · 数据保存在浏览器 localStorage · 不上传任何测试记录</footer>
+  <footer>静态前端 + Makers Cloud Function + Makers Blob · 共享数据强一致读取 · 媒体证据预签名直传</footer>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="./app.js" defer></script>
 </body>
 </html>
