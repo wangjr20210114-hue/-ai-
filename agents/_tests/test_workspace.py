@@ -16,7 +16,7 @@ from agents.chat._capability_plan import parse_capability_plan, plan_capabilitie
 from agents.chat._followups import parse_followups
 from agents.chat._history import bounded_history
 from agents.chat._ui_tools import build_production_tools
-from agents.chat._protocol import PublicStreamFilter, dsml_tool_calls, public_content
+from agents.chat._protocol import PublicStreamFilter, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
 from agents._shared.side_effects import _meeting_payload, _meeting_result, _meeting_signature
 from agents._shared.auth import require_user, scoped_conversation_id, verify_jwt
@@ -253,6 +253,23 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             [("user", "最近AI有什么新进展"), ("ai", "这是恢复后的回答")],
         )
 
+    async def test_message_restore_hides_legacy_unanswered_failure_prompts(self):
+        messages = [
+            MakersCheckpointMessage(type="human", content="失败测试一", id="u-failed-1"),
+            MakersCheckpointMessage(type="human", content="失败测试二", id="u-failed-2"),
+            MakersCheckpointMessage(type="human", content="恢复测试", id="u-success"),
+            MakersCheckpointMessage(type="ai", content="恢复成功", id="a-success"),
+        ]
+        store = SimpleNamespace(
+            langgraph_checkpointer=FakeCheckpointer(messages),
+            langgraph_store=FakeStore(),
+        )
+        response = await messages_handler(SimpleNamespace(conversation_id="restore-failed", store=store))
+        self.assertEqual(
+            [(item["role"], item["content"]) for item in response["messages"]],
+            [("user", "恢复测试"), ("ai", "恢复成功")],
+        )
+
     def test_system_prompt_formats_without_accidental_placeholders(self):
         module = ast.parse((Path(__file__).parents[1] / "chat" / "index.py").read_text(encoding="utf-8"))
         prompt_node = next(
@@ -266,6 +283,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             capability_plan='{"needs_places": true}',
         )
         self.assertIn("2026-07-15", rendered)
+
+    def test_provider_errors_are_safe_and_actionable(self):
+        raw = "Error code: 400 - Model ID must include provider prefix; type=invalid_request"
+        message = public_error(raw)
+        self.assertIn("模型配置", message)
+        self.assertNotIn("provider prefix", message)
+        self.assertNotIn("invalid_request", message)
 
     def test_capability_plan_parser_is_bounded_to_known_booleans(self):
         plan = parse_capability_plan('```json\n{"needs_places": true, "needs_map_action": 1, "search_query": "北京旅行", "image_query": "故宫建筑", "unknown": true}\n```')

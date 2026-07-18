@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { MessagePlugin } from 'tdesign-react';
-import { bootstrapApp, proactiveOperation, saveConversationMessage } from '../services/api';
+import { bootstrapApp, proactiveOperation, saveConversationMessage, workspaceOperation } from '../services/api';
 import { withEdgeOneAuth } from '../services/auth';
 import { presentableChatError } from '../services/chatError';
 import { makersConversationHeaders, mergeMessages } from '../services/conversation';
@@ -214,7 +214,7 @@ class SSEChatClient {
               case 'error_message':
                 this.emit({
                   type: 'error',
-                  payload: { message: typeof event.content === 'string' ? event.content : '服务异常' },
+                  payload: { id: streamId, message: typeof event.content === 'string' ? event.content : '服务异常' },
                 });
                 break;
               case 'ping':
@@ -231,7 +231,7 @@ class SSEChatClient {
       if ((error as Error).name !== 'AbortError') {
         this.emit({
           type: 'error',
-          payload: { message: (error as Error).message || '请求失败' },
+          payload: { id: streamId, message: (error as Error).message || '请求失败' },
         });
       }
       finish();
@@ -250,24 +250,45 @@ const MESSAGE_CACHE_PREFIX = 'yuanbao.messages.';
 function readMessageCache(conversationId: string): ChatMessage[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(`${MESSAGE_CACHE_PREFIX}${conversationId}`) || '[]') as ChatMessage[];
-    return Array.isArray(parsed) ? parsed.map((item) => ({ ...item, streaming: false })) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((item) => !item.failed && (item.role === 'user' || item.content.trim())).map((item) => ({ ...item, streaming: false }))
+      : [];
   } catch { return []; }
 }
 
 function writeMessageCache(conversationId: string, messages: ChatMessage[]) {
-  try { localStorage.setItem(`${MESSAGE_CACHE_PREFIX}${conversationId}`, JSON.stringify(messages.slice(-60))); }
+  const durable = messages.filter((item) => !item.failed && (item.role === 'user' || item.content.trim()));
+  try { localStorage.setItem(`${MESSAGE_CACHE_PREFIX}${conversationId}`, JSON.stringify(durable.slice(-60))); }
   catch { /* Remote checkpoints remain the durable fallback. */ }
 }
 
 export function useSSEChat() {
-  const { conversationId, messages } = useAppState();
+  const { conversationId, messages, conversations } = useAppState();
   const dispatch = useAppDispatch();
   const clientRef = useRef<SSEChatClient | null>(null);
   const clientsRef = useRef(new Map<string, { client: SSEChatClient; off: () => void }>());
   const cacheRef = useRef(new Map<string, ChatMessage[]>());
   const streamsRef = useRef(new Map<string, Map<string, ChatMessage>>());
   const activeConversationRef = useRef(conversationId);
+  const conversationsRef = useRef(conversations);
   activeConversationRef.current = conversationId;
+  conversationsRef.current = conversations;
+
+  const setConversationActivity = (id: string, activityStatus: 'idle' | 'running' | 'failed') => {
+    const now = Date.now();
+    const previous = conversationsRef.current.find((item) => item.id === id);
+    const next = {
+      id,
+      title: previous?.title || '新对话',
+      createdAt: previous?.createdAt || now,
+      updatedAt: now,
+      messageCount: Number(previous?.messageCount || 0),
+      pending: previous?.pending,
+      activityStatus,
+    };
+    conversationsRef.current = [next, ...conversationsRef.current.filter((item) => item.id !== id)];
+    dispatch({ type: 'UPSERT_CONVERSATION', payload: next });
+  };
 
   const publish = (id: string, next: ChatMessage[]) => {
     cacheRef.current.set(id, next);
@@ -306,8 +327,9 @@ export function useSSEChat() {
             skill: { intent: 'chat', mode: 'immediate', content: '', icon: '✨', action_label: '', params: {}, data: { status: 'thinking', statusText: '思考中…' } },
           };
           streams.set(streamMessage.id, streamMessage);
-          const current = cached(id).filter((item) => item.id !== streamMessage.id);
+          const current = cached(id).filter((item) => item.id !== streamMessage.id && !item.failed);
           publish(id, [...current, streamMessage]);
+          setConversationActivity(id, 'running');
           break;
         }
         case 'stream_delta': {
@@ -326,8 +348,16 @@ export function useSSEChat() {
         case 'stream_end': {
           const current = streams.get(streamId);
           if (current) {
+            streams.delete(streamId);
+            if (current.failed) break;
+            if (!current.content.trim()) {
+              publish(id, cached(id).filter((item) => item.id !== streamId));
+              setConversationActivity(id, 'idle');
+              break;
+            }
             const complete = { ...current, streaming: false };
-            streams.delete(streamId); patch(id, streamId, complete);
+            patch(id, streamId, complete);
+            setConversationActivity(id, 'idle');
             void saveConversationMessage(id, complete).catch((error) => console.warn('message persistence failed', error));
           }
           break;
@@ -379,6 +409,22 @@ export function useSSEChat() {
           if (current && action?.id) {
             const workspaceActions = [...(current.workspaceActions || []).filter((item) => item.id !== action.id), action];
             streams.set(streamId, { ...current, workspaceActions }); patch(id, streamId, { workspaceActions });
+            if (event.type === 'map_action' && action.kind === 'map_recommendation' && action.status === 'ready') {
+              void workspaceOperation(id, 'activate_map', { action_id: action.id, version: action.version })
+                .then((response) => {
+                  if (response.map?.places?.length) {
+                    dispatch({ type: 'SET_MAP_PLACES', payload: { places: response.map.places, title: response.map.title } });
+                  }
+                  const activated = response.action;
+                  const latest = streams.get(streamId);
+                  if (latest && activated) {
+                    const nextActions = [...(latest.workspaceActions || []).filter((item) => item.id !== activated.id), activated];
+                    streams.set(streamId, { ...latest, workspaceActions: nextActions });
+                    patch(id, streamId, { workspaceActions: nextActions });
+                  }
+                })
+                .catch((error) => console.warn('automatic map activation failed', error));
+            }
           }
           break;
         }
@@ -389,14 +435,17 @@ export function useSSEChat() {
             const next = {
               ...current,
               content: message,
+              streaming: false,
+              failed: true,
               skill: current.skill ? {
                 ...current.skill,
                 data: { ...current.skill.data, status: 'error', statusText: '处理失败' },
               } : current.skill,
             };
             streams.set(streamId, next);
-            patch(id, streamId, { content: message, skill: next.skill });
+            patch(id, streamId, { content: message, streaming: false, failed: true, skill: next.skill });
           }
+          setConversationActivity(id, 'failed');
           if (activeConversationRef.current === id) MessagePlugin.error(message);
           break;
         }
@@ -424,6 +473,14 @@ export function useSSEChat() {
       if (disposed) return;
       const merged = mergeMessages(data.messages, cached(conversationId));
       publish(conversationId, merged);
+      const summary = conversationsRef.current.find((item) => item.id === conversationId);
+      if (summary && summary.messageCount !== merged.length) {
+        const reconciled = { ...summary, messageCount: merged.length };
+        conversationsRef.current = conversationsRef.current.map((item) => (
+          item.id === conversationId ? reconciled : item
+        ));
+        dispatch({ type: 'UPSERT_CONVERSATION', payload: reconciled });
+      }
       if (activeConversationRef.current === conversationId) {
         dispatch({ type: 'HYDRATE_WORKSPACE', payload: { schedules: data.schedules, mapPlaces: data.map_places, mapTitle: data.map_title } });
         void proactiveOperation(conversationId).then((proactive) => {

@@ -14,7 +14,9 @@ function scopedKey(key: string): string {
 export function loadLocalConversations(): ConversationSummary[] {
   try {
     const value = JSON.parse(localStorage.getItem(scopedKey(CONVERSATION_LIST_KEY)) || '[]') as ConversationSummary[];
-    return Array.isArray(value) ? value.filter((item) => item?.id).slice(0, 100) : [];
+    return Array.isArray(value) ? value.filter((item) => item?.id).slice(0, 100).map((item) => (
+      item.activityStatus === 'running' ? { ...item, activityStatus: 'failed' as const } : item
+    )) : [];
   } catch { return []; }
 }
 
@@ -59,6 +61,8 @@ function messageFingerprint(message: ChatMessage): string {
 
 /** Reconcile sequence occurrences; checkpoint indexes and browser timestamps are incomparable. */
 export function mergeMessages(remote: ChatMessage[], local: ChatMessage[]): ChatMessage[] {
+  remote = remote.filter((message) => !message.failed && (message.role === 'user' || message.content.trim()));
+  local = local.filter((message) => !message.failed && (message.role === 'user' || message.content.trim()));
   const localByFingerprint = new Map<string, number[]>();
   local.forEach((message, index) => {
     const key = messageFingerprint(message);
@@ -82,8 +86,22 @@ export function mergeMessages(remote: ChatMessage[], local: ChatMessage[]): Chat
       streaming: false,
     };
   });
+  const lastRemoteMatch = consumed.size ? Math.max(...consumed) : -1;
+  const unmatchedSuffix = local.slice(lastRemoteMatch + 1);
+  const lastCompletedLocalOffset = unmatchedSuffix.reduce(
+    (last, message, index) => message.role === 'ai' && message.content.trim() ? index : last,
+    -1,
+  );
   local.forEach((message, index) => {
-    if (!consumed.has(index)) output.push({ ...message, streaming: false });
+    // Makers is authoritative for the restored prefix. Local rows before its
+    // latest match are stale optimistic/error-era artifacts. A trailing
+    // user-only suffix is also an interrupted/failed optimistic send; append
+    // only locally completed turns that Makers has not synchronized yet.
+    if (!consumed.has(index)
+      && index > lastRemoteMatch
+      && index <= lastRemoteMatch + 1 + lastCompletedLocalOffset) {
+      output.push({ ...message, streaming: false });
+    }
   });
   return output;
 }

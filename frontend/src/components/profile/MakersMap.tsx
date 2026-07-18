@@ -212,6 +212,7 @@ export default function MakersMap({ conversationId, title, places, revision, opt
           <span>自驾约 ¥{route.fare.self_driving.estimate.toFixed(0)}</span>
           <span>打车约 ¥{route.fare.taxi.low.toFixed(0)}–{route.fare.taxi.high.toFixed(0)}</span>
           <small>{route.fare.basis}</small>
+          <small>{route.cache?.hit ? '已复用 6 小时内的 Makers 路线缓存' : '路线已保存到 Makers 缓存，6 小时内相同地点不重复计算'}</small>
         </div>
       )}
       <div className="makers-place-chips">

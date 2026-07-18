@@ -14,12 +14,13 @@ interface Props {
 
 /** 底部输入栏：文本输入 + 文档上传 + 发送（场景由后端自动推断）。 */
 export default function InputBar({ client }: Props) {
-  const { draft, conversationId, conversations } = useAppState();
+  const { draft, conversationId, conversations, messages } = useAppState();
   const dispatch = useAppDispatch();
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
   const [webSearch, setWebSearch] = useState(true);
+  const activeStreaming = messages.some((message) => message.streaming);
 
   // 点击空态引导词 → 回填输入框
   useEffect(() => {
@@ -46,7 +47,7 @@ export default function InputBar({ client }: Props) {
 
   const handleSend = async () => {
     const content = text.trim();
-    if (!content || sending) return;
+    if (!content || sending || activeStreaming) return;
     const message = {
       id: Date.now().toString(),
       role: 'user' as const,
@@ -75,6 +76,16 @@ export default function InputBar({ client }: Props) {
     void saveConversationMessage(conversationId, message).catch((error) => {
       MessagePlugin.error(error instanceof Error ? error.message : '消息同步失败');
     });
+  };
+
+  const handleStop = async () => {
+    if (!activeStreaming || !client.current?.stop) return;
+    try {
+      await client.current.stop();
+      MessagePlugin.info('已停止生成');
+    } catch {
+      MessagePlugin.warning('停止请求未确认，请稍后重试');
+    }
   };
 
   const handleUpload = async (files: UploadFile[]) => {
@@ -189,15 +200,21 @@ export default function InputBar({ client }: Props) {
               联网搜索
             </Checkbox>
           </div>
-          <Button
-            theme="primary"
-            icon={<SendIcon />}
-            onClick={() => { void handleSend(); }}
-            loading={sending}
-            disabled={!text.trim() || sending}
-          >
-            发送
-          </Button>
+          {activeStreaming ? (
+            <Button theme="danger" variant="outline" onClick={() => { void handleStop(); }} aria-label="停止生成">
+              ■ 停止生成
+            </Button>
+          ) : (
+            <Button
+              theme="primary"
+              icon={<SendIcon />}
+              onClick={() => { void handleSend(); }}
+              loading={sending}
+              disabled={!text.trim() || sending}
+            >
+              发送
+            </Button>
+          )}
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
@@ -31,12 +31,16 @@ export default function EdgeOnePlatformPanel() {
   const [formOpen, setFormOpen] = useState(false);
   const [formTitle, setFormTitle] = useState('');
   const [formStart, setFormStart] = useState('');
+  const [formDescription, setFormDescription] = useState('');
   const [placeQuery, setPlaceQuery] = useState('');
   const [placeOptions, setPlaceOptions] = useState<MakersMapPlace[]>([]);
+  const [placeOptionsOpen, setPlaceOptionsOpen] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState<MakersMapPlace | null>(null);
   const [formBusy, setFormBusy] = useState(false);
   const [placeSearchBusy, setPlaceSearchBusy] = useState(false);
   const [dayViewOpen, setDayViewOpen] = useState(false);
+  const placePickerRef = useRef<HTMLDivElement>(null);
+  const autoDescriptionRef = useRef('');
 
   useEffect(() => {
     if (mapPlaces.length) setShowRecommendation(true);
@@ -94,21 +98,36 @@ export default function EdgeOnePlatformPanel() {
     setEditingId(item?.id || '');
     setFormTitle(item?.title || '');
     setFormStart(local);
+    setFormDescription(item?.description || '');
+    autoDescriptionRef.current = '';
     setSelectedPlace(item?.extra?.place || null);
     setPlaceQuery(item?.extra?.place?.name || item?.location || '');
     setPlaceOptions([]);
+    setPlaceOptionsOpen(false);
     setFormOpen(true);
   };
 
   useEffect(() => {
     if (!formOpen) return;
+    const closeOnOutside = (event: PointerEvent) => {
+      if (!placePickerRef.current?.contains(event.target as Node)) setPlaceOptionsOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutside);
+    return () => document.removeEventListener('pointerdown', closeOnOutside);
+  }, [formOpen]);
+
+  useEffect(() => {
+    if (!formOpen) return;
     const query = placeQuery.trim();
     if (selectedPlace && query === selectedPlace.name) {
+      setPlaceOptions([]);
+      setPlaceOptionsOpen(false);
       setPlaceSearchBusy(false);
       return;
     }
     if (query.length < 2) {
       setPlaceOptions([]);
+      setPlaceOptionsOpen(false);
       setPlaceSearchBusy(false);
       return;
     }
@@ -116,7 +135,12 @@ export default function EdgeOnePlatformPanel() {
     const timer = window.setTimeout(() => {
       setPlaceSearchBusy(true);
       void searchMakersPlaces(conversationId, query)
-        .then((places) => { if (!disposed) setPlaceOptions(places); })
+        .then((places) => {
+          if (!disposed) {
+            setPlaceOptions(places);
+            setPlaceOptionsOpen(places.length > 0);
+          }
+        })
         .catch((error) => {
           if (!disposed) MessagePlugin.error(error instanceof Error ? error.message : '地点搜索失败');
         })
@@ -124,6 +148,21 @@ export default function EdgeOnePlatformPanel() {
     }, 350);
     return () => { disposed = true; window.clearTimeout(timer); };
   }, [conversationId, formOpen, placeQuery, selectedPlace]);
+
+  const selectPlace = (place: MakersMapPlace) => {
+    setSelectedPlace(place);
+    setPlaceQuery(place.name);
+    setPlaceOptions([]);
+    setPlaceOptionsOpen(false);
+    setFormDescription((current) => {
+      const nextAuto = `前往${place.name}${place.address ? `（${place.address}）` : ''}`;
+      if (!current.trim() || current === autoDescriptionRef.current) {
+        autoDescriptionRef.current = nextAuto;
+        return nextAuto;
+      }
+      return current;
+    });
+  };
 
   const saveSchedule = async () => {
     if (!formTitle.trim() || !formStart || !selectedPlace) {
@@ -139,12 +178,14 @@ export default function EdgeOnePlatformPanel() {
           ...(editingId ? { schedule_id: editingId } : {}),
           event: {
             title: formTitle.trim(), start_time: startTime, duration_minutes: 60,
+            description: formDescription.trim(),
             category: 'travel', place: selectedPlace, location: selectedPlace.address || selectedPlace.name,
           },
         }],
       });
       dispatch({ type: 'SET_SCHEDULES', payload: response.schedules });
       setFormOpen(false);
+      setPlaceOptionsOpen(false);
       setShowRecommendation(false);
       MessagePlugin.success(editingId ? '日程已更新' : '日程已添加');
     } catch (error) {
@@ -228,23 +269,33 @@ export default function EdgeOnePlatformPanel() {
                 <div className="makers-schedule-form">
                   <input value={formTitle} onChange={(event) => setFormTitle(event.target.value)} placeholder="日程标题" maxLength={120} />
                   <input type="datetime-local" value={formStart} onChange={(event) => setFormStart(event.target.value)} />
-                  <div className="makers-place-search-row makers-place-autocomplete">
-                    <input value={placeQuery} onChange={(event) => { setPlaceQuery(event.target.value); setSelectedPlace(null); }} placeholder="输入地点名称，系统会自动查找真实地点" />
-                    {placeSearchBusy && <span className="makers-place-searching">正在查找…</span>}
-                  </div>
-                  {placeOptions.length > 0 && (
-                    <div className="makers-place-options">
-                      {placeOptions.map((place) => (
-                        <button key={place.place_id} type="button" className={selectedPlace?.place_id === place.place_id ? 'selected' : ''} onClick={() => { setSelectedPlace(place); setPlaceQuery(place.name); }}>
-                          <b>{place.name}</b><span>{place.address}</span>
-                        </button>
-                      ))}
+                  <textarea value={formDescription} onChange={(event) => { setFormDescription(event.target.value); autoDescriptionRef.current = ''; }} placeholder="日程描述（可编辑；选择地点后会自动生成建议）" maxLength={1000} rows={3} />
+                  <div className="makers-place-picker" ref={placePickerRef}>
+                    <div className="makers-place-search-row makers-place-autocomplete">
+                      <input
+                        value={placeQuery}
+                        onFocus={() => { if (placeOptions.length) setPlaceOptionsOpen(true); }}
+                        onKeyDown={(event) => { if (event.key === 'Escape') setPlaceOptionsOpen(false); }}
+                        onChange={(event) => { setPlaceQuery(event.target.value); setSelectedPlace(null); setPlaceOptionsOpen(true); }}
+                        placeholder="输入地点名称，系统会自动查找真实地点"
+                      />
+                      {placeSearchBusy && <span className="makers-place-searching">正在查找…</span>}
+                      {placeOptionsOpen && <button type="button" className="makers-place-close" aria-label="关闭地点候选" onClick={() => setPlaceOptionsOpen(false)}>×</button>}
                     </div>
-                  )}
+                    {placeOptionsOpen && placeOptions.length > 0 && (
+                      <div className="makers-place-options">
+                        {placeOptions.map((place) => (
+                          <button key={place.place_id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => selectPlace(place)}>
+                            <b>{place.name}</b><span>{place.address}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   {selectedPlace && <div className="makers-selected-place">✓ 已选择：{selectedPlace.name}</div>}
                   <div className="makers-form-actions">
                     <Button size="small" theme="primary" loading={formBusy} onClick={() => void saveSchedule()}>{editingId ? '确认更新' : '确认添加'}</Button>
-                    <Button size="small" variant="outline" onClick={() => setFormOpen(false)}>取消</Button>
+                    <Button size="small" variant="outline" onClick={() => { setFormOpen(false); setPlaceOptionsOpen(false); }}>取消</Button>
                   </div>
                 </div>
               )}
@@ -264,6 +315,7 @@ export default function EdgeOnePlatformPanel() {
                         <div className="makers-day-content">
                           <div className="makers-day-title">{item.title}</div>
                           {item.location && <div className="makers-day-location">📍 {item.location}</div>}
+                          {item.description && <div className="makers-day-description">{item.description}</div>}
                           <div className="makers-day-actions">
                             <button type="button" onClick={() => openScheduleForm(item)}>编辑</button>
                             <button type="button" onClick={() => void deleteSchedule(item)}>删除</button>

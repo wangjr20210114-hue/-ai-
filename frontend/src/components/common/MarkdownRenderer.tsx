@@ -73,12 +73,16 @@ export default function MarkdownRenderer({ content, searchMeta }: { content: str
           em: ({ children }) => <em>{children}</em>,
           blockquote: ({ children }) => <blockquote>{children}</blockquote>,
           hr: () => <hr />,
-          table: ({ children }) => <table>{children}</table>,
+          table: ({ children }) => <div className="md-table-wrap"><table>{children}</table></div>,
           thead: ({ children }) => <thead>{children}</thead>,
           tbody: ({ children }) => <tbody>{children}</tbody>,
           tr: ({ children }) => <tr>{children}</tr>,
           th: ({ children }) => <th>{children}</th>,
           td: ({ children }) => <td>{children}</td>,
+          pre: ({ children }) => <pre className="md-code-block">{children}</pre>,
+          code: ({ className, children }) => (
+            <code className={className || undefined}>{children}</code>
+          ),
           a: ({ href, children }) => {
             const url = typeof href === 'string' ? href : '';
             const text = typeof children === 'string' ? children : String(children || '');

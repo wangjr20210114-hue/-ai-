@@ -9,6 +9,7 @@ export interface ConversationSummary {
   updatedAt: number;
   messageCount: number;
   pending?: boolean;
+  activityStatus?: 'idle' | 'running' | 'failed';
 }
 
 export interface ProactivePreferences {
@@ -228,6 +229,7 @@ export interface ChatMessage {
   content: string;
   ts: number;
   streaming?: boolean;      // 是否正在流式输出
+  failed?: boolean;         // 瞬时失败提示；不写入本地缓存或 Makers 历史
   followUps?: string[];
 
   // 通用技能数据
@@ -451,6 +453,7 @@ export interface MakersRoutePlan {
     self_driving: { estimate: number; toll: number };
     taxi: { low: number; high: number };
   };
+  cache?: { hit: boolean; expires_at: number };
 }
 
 // ============ 会议 ============

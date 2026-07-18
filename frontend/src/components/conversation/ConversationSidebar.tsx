@@ -40,11 +40,15 @@ export default function ConversationSidebar({ open, onClose }: Props) {
       // Makers conversation indexing is eventually consistent. Preserve all
       // locally known conversations until the remote list catches up instead
       // of relabeling a real conversation as a new empty one.
-      const localMissing = conversations.filter((item) => !stored.some((remote) => remote.id === item.id));
-      const activeFallback = stored.some((item) => item.id === conversationId) || localMissing.some((item) => item.id === conversationId)
+      const remoteWithActivity = stored.map((remote) => {
+        const local = conversations.find((item) => item.id === remote.id);
+        return local?.activityStatus ? { ...remote, activityStatus: local.activityStatus } : remote;
+      });
+      const localMissing = conversations.filter((item) => !remoteWithActivity.some((remote) => remote.id === item.id));
+      const activeFallback = remoteWithActivity.some((item) => item.id === conversationId) || localMissing.some((item) => item.id === conversationId)
         ? []
         : [{ ...pendingConversation(conversationId), messageCount: 0 }];
-      const withCurrent = [...stored, ...localMissing, ...activeFallback]
+      const withCurrent = [...remoteWithActivity, ...localMissing, ...activeFallback]
         .sort((a, b) => b.updatedAt - a.updatedAt);
       dispatch({ type: 'SET_CONVERSATIONS', payload: withCurrent });
     } catch (error) {
@@ -147,11 +151,17 @@ export default function ConversationSidebar({ open, onClose }: Props) {
               onClick={() => { void activate(conversation.id); }}
               title={conversation.title}
             >
-              <span className="conversation-item-icon">◇</span>
+              <span className={`conversation-item-icon status-${conversation.activityStatus || 'idle'}`} aria-label={conversation.activityStatus === 'running' ? '生成中' : conversation.activityStatus === 'failed' ? '生成失败' : '空闲'}>
+                {conversation.activityStatus === 'running' ? '◌' : conversation.activityStatus === 'failed' ? '!' : '◇'}
+              </span>
               <span className="conversation-item-content">
                 <span className="conversation-item-title">{conversation.title}</span>
                 <span className="conversation-item-meta">
-                  {conversation.pending
+                  {conversation.activityStatus === 'running'
+                    ? '正在生成回答…'
+                    : conversation.activityStatus === 'failed'
+                      ? '上次生成失败，可进入重试'
+                      : conversation.pending
                     ? '尚未发送消息'
                     : `${conversation.messageCount ? `${conversation.messageCount} 条消息 · ` : ''}${formatConversationTime(conversation.updatedAt)}`}
                 </span>

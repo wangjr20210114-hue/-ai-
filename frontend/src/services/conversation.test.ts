@@ -43,9 +43,28 @@ describe('getOrCreateConversationId', () => {
     saveLocalConversations(items);
     expect(loadLocalConversations()).toEqual(items);
   });
+
+  it('marks a stream interrupted by reload as failed instead of running forever', () => {
+    saveLocalConversations([{ id: 'conv-running', title: '进行中', createdAt: 1, updatedAt: 2, messageCount: 1, activityStatus: 'running' }]);
+    expect(loadLocalConversations()[0].activityStatus).toBe('failed');
+  });
 });
 
 describe('mergeMessages', () => {
+  it('drops stale local failure prompts before the latest Makers match', () => {
+    const local: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: '失败一', ts: 1 },
+      { id: 'empty-ai', role: 'ai', content: '', ts: 2 },
+      { id: 'u2', role: 'user', content: '失败二', ts: 3 },
+      { id: 'u3', role: 'user', content: '成功问题', ts: 4 },
+      { id: 'a3', role: 'ai', content: '成功回答', ts: 5 },
+    ];
+    expect(mergeMessages(
+      local.slice(-2),
+      local,
+    ).map((item) => item.id)).toEqual(['u3', 'a3']);
+  });
+
   it('reconciles checkpoint sequence ids with browser timestamps without duplicates or reordering', () => {
     const remote: ChatMessage[] = [
       { id: 'checkpoint-user', role: 'user', content: '今天有什么新闻', ts: 0 },
@@ -72,5 +91,19 @@ describe('mergeMessages', () => {
       { id: 'l3', role: 'ai', content: '尚未同步', ts: 12 },
     ];
     expect(mergeMessages(remote, local).map((item) => item.id)).toEqual(['r1', 'r2', 'l3']);
+  });
+
+  it('drops a trailing user-only optimistic suffix after Makers restored history', () => {
+    const remote: ChatMessage[] = [
+      { id: 'r1', role: 'user', content: '已成功的问题', ts: 0 },
+      { id: 'r2', role: 'ai', content: '已成功的回答', ts: 1 },
+    ];
+    const local: ChatMessage[] = [
+      { id: 'l1', role: 'user', content: '已成功的问题', ts: 10 },
+      { id: 'l2', role: 'ai', content: '已成功的回答', ts: 11 },
+      { id: 'failed-u1', role: 'user', content: '失败后残留一', ts: 12 },
+      { id: 'failed-u2', role: 'user', content: '失败后残留二', ts: 13 },
+    ];
+    expect(mergeMessages(remote, local).map((item) => item.id)).toEqual(['r1', 'r2']);
   });
 });

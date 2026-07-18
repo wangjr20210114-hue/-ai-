@@ -149,6 +149,18 @@ async def handler(ctx):
             pending_papers = None
         result.append(restored)
 
+    # Older builds persisted the user prompt before the Agent call, so several
+    # failed attempts could appear as consecutive user-only rows after a later
+    # recovery succeeded. Keep the final prompt in each unanswered run without
+    # deleting the underlying Makers checkpoint.
+    compacted = []
+    for restored in result:
+        if restored.get("role") == "user" and compacted and compacted[-1].get("role") == "user":
+            compacted[-1] = restored
+        else:
+            compacted.append(restored)
+    result = compacted
+
     if result and isinstance(latest_extras, dict):
         for restored in reversed(result):
             if restored.get("role") != "ai":

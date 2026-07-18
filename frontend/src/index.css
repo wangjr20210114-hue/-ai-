@@ -239,6 +239,8 @@ html.is-resizing-workspace * {
 .msg-bubble {
   width: fit-content;
   max-width: 75%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 12px 16px;
   border-radius: 14px;
   line-height: 1.7;
@@ -261,11 +263,30 @@ html.is-resizing-workspace * {
   border-top-left-radius: 4px;
   box-shadow: var(--app-shadow);
 }
+.msg-bubble.ai.is-error {
+  border-color: rgba(213, 73, 65, 0.34);
+  background: color-mix(in srgb, #d54941 6%, var(--app-ai-bubble));
+  color: var(--app-text);
+}
+.chat-retry-button {
+  display: block;
+  margin-top: 8px;
+  padding: 5px 9px;
+  border: 1px solid rgba(213, 73, 65, 0.28);
+  border-radius: 6px;
+  background: transparent;
+  color: #b4232c;
+  font-size: 11px;
+  cursor: pointer;
+}
+.chat-retry-button:hover { background: rgba(213, 73, 65, 0.07); }
 
 /* AI 消息内 Markdown 样式 */
 .msg-bubble.ai .markdown-body {
   white-space: normal;
-  overflow: visible;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 .msg-bubble.ai .markdown-body > *:last-child {
   display: inline;
@@ -305,6 +326,12 @@ html.is-resizing-workspace * {
   width: 248px;
   max-width: 100%;
   overflow: hidden;
+}
+.search-progress.has-content {
+  width: auto;
+  margin-bottom: 7px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--app-border);
 }
 .search-progress-status {
   flex: 1;
@@ -494,6 +521,28 @@ html.is-resizing-workspace * {
   border-radius: 4px;
   font-size: 12.5px;
   font-family: 'SF Mono', 'Fira Code', monospace;
+  overflow-wrap: anywhere;
+}
+.msg-bubble.ai .markdown-body .md-code-block {
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-panel-2);
+  color: var(--app-text);
+  -webkit-overflow-scrolling: touch;
+}
+.msg-bubble.ai .markdown-body .md-code-block code {
+  display: block;
+  min-width: max-content;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  white-space: pre;
+  overflow-wrap: normal;
 }
 .msg-bubble.ai .markdown-body table,
 .travel-plan-markdown .markdown-body table {
@@ -1271,18 +1320,24 @@ html.is-resizing-workspace * {
 .makers-route-summary small { flex-basis: 100%; color: #798399; line-height: 1.45; }
 
 .makers-schedule-form { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; padding: 10px; border: 1px solid var(--app-border, #dce2ef); border-radius: 10px; background: var(--app-card, #fff); }
-.makers-schedule-form input { width: 100%; box-sizing: border-box; border: 1px solid #ccd4e2; border-radius: 7px; padding: 8px 9px; color: inherit; background: transparent; }
+.makers-schedule-form input,
+.makers-schedule-form textarea { width: 100%; box-sizing: border-box; border: 1px solid #ccd4e2; border-radius: 7px; padding: 8px 9px; color: inherit; background: transparent; font: inherit; }
+.makers-schedule-form textarea { resize: vertical; min-height: 68px; line-height: 1.5; }
+.makers-place-picker { position: relative; }
 .makers-place-search-row { display: flex; gap: 6px; }
 .makers-place-autocomplete { position: relative; align-items: center; }
-.makers-place-searching { position: absolute; right: 9px; color: #737d91; font-size: 11px; pointer-events: none; }
-.makers-place-autocomplete input { padding-right: 76px; }
-.makers-place-options { max-height: 180px; overflow: auto; border: 1px solid #e0e5ef; border-radius: 8px; }
+.makers-place-searching { position: absolute; right: 32px; color: #737d91; font-size: 11px; pointer-events: none; }
+.makers-place-autocomplete input { padding-right: 96px; }
+.makers-place-close { position: absolute; right: 5px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--app-text-3); font-size: 18px; cursor: pointer; }
+.makers-place-close:hover { background: var(--app-hover); color: var(--app-text); }
+.makers-place-options { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: 180px; overflow: auto; border: 1px solid #e0e5ef; border-radius: 8px; background: var(--app-panel); box-shadow: var(--app-shadow); }
 .makers-place-options button { display: flex; flex-direction: column; width: 100%; padding: 8px 9px; border: 0; border-bottom: 1px solid #eef1f6; background: transparent; text-align: left; cursor: pointer; }
 .makers-place-options button.selected { background: rgba(78, 124, 255, 0.1); }
 .makers-place-options span { margin-top: 2px; color: #737d91; font-size: 11px; }
 .makers-selected-place { color: #158452; font-size: 12px; }
 .makers-form-actions { display: flex; gap: 8px; }
 .makers-day-content { min-width: 0; flex: 1; }
+.makers-day-description { margin-top: 4px; color: var(--app-text-3); font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
 .makers-day-actions { display: flex; gap: 10px; margin-top: 5px; }
 .makers-day-actions button { border: 0; padding: 0; background: transparent; color: #4e6fc7; font-size: 11px; cursor: pointer; }
 .makers-day-actions button:last-child { color: #c05258; }
@@ -2872,6 +2927,22 @@ html.is-resizing-workspace * {
   font-size: 17px;
   line-height: 1;
 }
+.conversation-item-icon.status-running {
+  color: var(--td-brand-color);
+  animation: conversation-spin 0.8s linear infinite;
+}
+.conversation-item-icon.status-failed {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #d54941;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 17px;
+}
+@keyframes conversation-spin { to { transform: rotate(360deg); } }
 
 .conversation-item-content {
   min-width: 0;

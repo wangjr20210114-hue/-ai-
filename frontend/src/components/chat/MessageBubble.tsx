@@ -59,6 +59,10 @@ export default function MessageBubble({ message }: Props) {
   const { conversationId, messages } = useAppState();
   // 追问只在最后一条 AI 消息显示
   const isLastAIMessage = !isUser && messages[messages.length - 1]?.id === message.id;
+  const messageIndex = messages.findIndex((item) => item.id === message.id);
+  const previousUserMessage = messageIndex > 0
+    ? [...messages.slice(0, messageIndex)].reverse().find((item) => item.role === 'user')
+    : undefined;
 
   // 旅游状态
   const [travelPlan, setTravelPlan] = useState<TravelPlan | null>(message.travelPlanData || null);
@@ -283,24 +287,37 @@ export default function MessageBubble({ message }: Props) {
   const searchStatus = typeof message.skill?.data?.statusText === 'string'
     ? message.skill.data.statusText
     : '正在搜索';
+  const progressStatus = message.content && searchStatus === '思考中…' ? '正在继续生成回答…' : searchStatus;
   return (
     <div className={`msg-row ${isUser ? 'user' : 'ai'}`}>
       <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>{isUser ? '我' : 'AI'}</div>
       <div className="msg-content-wrap">
-        <div className={`msg-bubble ${isUser ? 'user' : 'ai'}`}>
+        <div className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''}`}>
           {isUser ? (
             message.content
           ) : (
             <>
               {/* 搜索动画 */}
-              {!isUser && message.streaming && !message.content && (
-                message.skill?.intent === 'image' || searchStatus.includes('生成图片') || searchStatus.includes('绘制') ? <ImageCreationProgress message={message} /> : <div className="search-progress">
+              {!isUser && message.streaming && (
+                message.skill?.intent === 'image' || progressStatus.includes('生成图片') || progressStatus.includes('绘制') ? <ImageCreationProgress message={message} /> : <div className={`search-progress ${message.content ? 'has-content' : ''}`}>
                   <div className="image-generating-spinner" />
-                  <span className="search-progress-status" title={searchStatus}>{searchStatus}</span>
+                  <span className="search-progress-status" title={progressStatus}>{progressStatus}</span>
                   <span className="image-generating-dots"><span>.</span><span>.</span><span>.</span></span>
                 </div>
               )}
               {message.content && <MarkdownRenderer content={message.content} searchMeta={message.searchResults} />}
+              {message.failed && previousUserMessage && (
+                <button
+                  type="button"
+                  className="chat-retry-button"
+                  onClick={() => {
+                    dispatch({ type: 'SET_DRAFT', payload: previousUserMessage.content });
+                    MessagePlugin.info('原问题已放回输入框，确认后可重新发送');
+                  }}
+                >
+                  将原问题放回输入框
+                </button>
+              )}
               {!message.streaming && workspaceActions.map((action) => {
                 const busy = workspaceBusy === action.id;
                 if (action.kind === 'map_recommendation') {
