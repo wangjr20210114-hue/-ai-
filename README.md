@@ -2,7 +2,7 @@
 
 元宝是一个运行在腾讯云 EdgeOne Makers 上的多能力主动式 Agent。生产主链使用 Python LangGraph Agent、Makers AI Gateway、LangGraph checkpointer/store、Conversation Store、Cloud Functions、Blob 与平台 Cron；旧 FastAPI 已退役，不再作为生产 Transport 或发布回归门槛。
 
-Makers 项目：`ai-active-agent`（`makers-0oeuhire655w`）。改造版本已由 Git 构建链发布到生产；未绑定自定义域名时，默认 `edgeone.cool` 地址需要从控制台“预览”获取 3 小时访问链接。部署证据见 [CURRENT_RELEASE.md](docs/CURRENT_RELEASE.md)。
+Makers 项目：`ai-active-agent`（`makers-0oeuhire655w`）。项目使用 GitHub Provider，由 EdgeOne 控制台从目标分支创建 Preview/Production；不能对该项目执行本地目录直传。未绑定自定义域名时，默认 `edgeone.cool` 地址需要从控制台“预览”获取 3 小时访问链接。部署证据见 [CURRENT_RELEASE.md](docs/CURRENT_RELEASE.md)。
 
 ## 当前生产能力
 
@@ -46,7 +46,7 @@ frontend/                 # React + Vite 双模式前端
 backend/                  # 已退役 FastAPI/SQLite 历史参考；不部署、不新增功能
 tools/                    # SQLite 只读导出和 Makers 一次性导入工具；不进入运行时
 docs/                     # Makers 当前事实、迁移计划和部署验收
-frontend/public/test-cases/ # 静态全功能验收站（访问 /test-cases/index.html）
+frontend/public/test-cases/ # 静态全功能验收站（访问 /test-cases/）
 edgeone.json              # Makers 构建与 Agent 配置
 ```
 
@@ -103,12 +103,31 @@ npm run lint
 npm run build -- --mode edgeone
 ```
 
-部署：
+完整测试命令、测试站的两种本地启动方式和多主机共享说明见 [TESTING.md](docs/TESTING.md)。
+
+## 测试 Case 启动
+
+需要测试结果、备注、编辑记录和图片/视频证据跨主机持久化时，必须启动完整 Makers 本地代理：
 
 ```bash
-edgeone makers env ls
-edgeone makers deploy --json
+npm ci
+npm --prefix frontend ci
+edgeone makers link
+edgeone makers env pull
+edgeone makers dev
 ```
+
+访问 CLI 输出地址下的 `/test-cases/`，通常是 `http://127.0.0.1:8088/test-cases/`。只检查静态页面时可执行 `npm --prefix frontend run dev` 并访问 `http://127.0.0.1:5173/test-cases/index.html`；Vite 不应用 EdgeOne rewrite，不能省略 `index.html`。此模式没有 `/acceptance` Cloud Function，只使用当前浏览器 `localStorage`，不能验证跨主机持久化或证据上传。
+
+线上验收时，从 EdgeOne 控制台为目标 Git 分支创建 Preview，再打开其 3 小时签名链接的 `/test-cases/`。具体步骤见 [ACCEPTANCE_SITE.md](docs/ACCEPTANCE_SITE.md)。
+
+## GitHub Provider 发布
+
+```bash
+git push -u origin <当前分支>
+```
+
+随后进入 EdgeOne 控制台 → Makers → `ai-active-agent` → 构建部署 → 新建部署，选择刚推送的分支并创建 Preview。该项目不是 Upload Provider，`edgeone makers deploy` 会被平台拒绝；生产发布必须在 Preview 自动化与人工验收通过后单独授权。
 
 不要提交 `.env`、`.edgeone/`、`frontend/dist/`、本地数据库和上传文件。
 
@@ -116,4 +135,4 @@ edgeone makers deploy --json
 
 `backend/` 仅保留为旧能力和离线迁移参考。FastAPI `/api`、`/ws`、SQLite Scheduler、Supervisor 与本地 `tmeet` 不进入生产构建，也不能作为 Makers 故障回退。
 
-部署步骤见 [DEPLOYMENT.md](docs/DEPLOYMENT.md)，最近发布记录见 [CURRENT_RELEASE.md](docs/CURRENT_RELEASE.md)。
+部署步骤见 [DEPLOYMENT.md](docs/DEPLOYMENT.md)，测试与测试站启动见 [TESTING.md](docs/TESTING.md)，最近发布记录见 [CURRENT_RELEASE.md](docs/CURRENT_RELEASE.md)。

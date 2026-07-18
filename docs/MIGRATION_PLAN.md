@@ -1,6 +1,6 @@
 # EdgeOne Makers 零缩水改造计划
 
-> 状态：执行中
+> 状态：核心 Makers 改造完成；当前进入 Preview 复验、真实数据迁移与增强阶段
 > 原则：先证明等价，再退役旧实现；平台轮子优先；每一阶段都可独立回滚。
 
 ## P0：建立可信发布基线（代码完成）
@@ -46,7 +46,7 @@
 
 ### P1.2 EdgeOne 预览部署
 
-状态：项目已关联 GitHub，并通过平台 Git 构建链完成 Preview 与 Production。控制台已登记 11 条 Cloud Functions 和 12 条 Agents；受保护访问链接显示“已连接”，历史会话、日程、路线、阅读库和系统运行记录读取通过。小时级 Cron 已按 Makers 最短 1 天限制改为每日 08:00；详情见 `CURRENT_RELEASE.md`。
+状态：项目已关联 GitHub，并通过平台 Git 构建链完成 Preview 与 Production。当前 Preview `dph2wvagts0x` 构建提交 `9ed04b1` 成功，生成 13 条 Python Agent 路由和每日 Schedule；受保护访问链接显示“已连接”，历史会话、日程、路线缓存、阅读库和代码展示读取通过。小时级 Cron 已按 Makers 最短 1 天限制改为每日 08:00；详情见 `CURRENT_RELEASE.md`。
 
 - 从目标分支创建独立 Makers Preview。
 - 校验当前身份模式必需环境变量、Blob 和 Conversation Store；仅多用户模式校验 Neon Schema。

@@ -1,7 +1,7 @@
 # EdgeOne Makers 能力基线
 
-> 基线提交：`d8d3c745a93e1009062cf2b16e152593746bc5b2`
-> 评估日期：2026-07-17
+> 当前业务提交：`9ed04b19150843b9a3a4efed091bbf39c2d22138`
+> 更新日期：2026-07-18
 > 生产目标：EdgeOne Makers 是唯一线上运行时；FastAPI/SQLite 只作为迁移期间的历史能力参考。
 
 ## 1. 基线原则
@@ -18,11 +18,11 @@
 | --- | --- | --- | --- |
 | 多会话聊天、SSE、停止、刷新恢复 | 已实现并测试 | Preview/Production 已连接并加载历史会话 | `agents/chat`、`agents/messages`、`cloud-functions/conversations` |
 | 联网图文回答 | 已实现并测试 | 依赖 WSA、视觉模型配置 | `agents/_shared/rich_search.py` |
-| 地点、地图、道路路线、费用估算 | 已实现并测试 | 依赖腾讯地图服务端/前端 Key | `agents/places`、`agents/routes`、`agents/_shared/tencent_location.py` |
-| 日程 CRUD 与确认式变更 | 已实现并测试 | Preview/Production 已加载持久日程 | `agents/workspace`、LangGraph Store |
+| 地点、地图、道路路线、费用估算 | 已实现并测试 | 腾讯结果与查询不匹配时回退 OSM；路线按用户缓存 6 小时 | `agents/places`、`agents/routes`、`agents/_shared/tencent_location.py` |
+| 日程 CRUD 与确认式变更 | 已实现并测试 | 用户级日程上下文每轮注入；跨对话变更会刷新右栏并立即触发主动扫描 | `agents/workspace`、`agents/chat/_calendar_context.py`、LangGraph Store |
 | 腾讯会议创建 | 官方 API 适配已实现 | 最后阶段可选；未配置时不暴露工具 | `agents/_shared/side_effects.py` |
-| 文生图、图生图、版本、Blob、ZIP | 已实现并测试 | 依赖混元 Key | `agents/image`、`ImageStudioCard.tsx` |
-| PDF 上传、阅读库、论文助读 | 已实现核心链路 | PDF only；无 DOCX/OCR | `cloud-functions/files`、`library`、`papers`、`agents/reader` |
+| 文生图、图生图、版本、Blob、ZIP | 已实现并测试 | 支持选择或 Cmd/Ctrl+V 粘贴参考图；生成状态覆盖浏览器图片载入 | `agents/image`、`ImageStudioCard.tsx`、`InputBar.tsx` |
+| PDF、图片上传、阅读库、论文助读 | 已实现核心链路 | PDF 上传后直接打开内置助读；阅读库支持手动分类与删除反馈；无 DOCX/OCR | `cloud-functions/files`、`library`、`papers`、`agents/reader` |
 | 主动日程/天气/路线提醒 | 已实现并测试 | EdgeOne Cron 需无浏览器线上终验 | `agents/proactive`、`proactive-tick` |
 | Notification、免打扰、每日上限、稍后提醒 | 已实现并测试 | 在线读取通过；真实 Cron 触发待跨日终验 | `agents/_shared/proactive.py` |
 | Memory、Feedback、Rule、Token 预算 | 已实现并测试 | 待预览复验 | `agents/intelligence` |
@@ -66,14 +66,15 @@
 
 ## 5. 当前自动化基线
 
-2026-07-17 本地结果：
+2026-07-18 当前 `9ed04b1` 结果：
 
-- Makers Agent：53 项通过。
+- Makers Agent：63 项通过。
 - SQLite 导出工具：2 项通过。
-- Cloud Functions：9 项通过。
-- 前端 Vitest：24 项通过。
+- Cloud Functions、验收持久化和平台约束：16 项通过。
+- 前端 Vitest：34 项通过。
 - ESLint：通过。
 - EdgeOne 模式生产构建：通过。
-- 已知非阻塞项：主 JS chunk 约 1.36 MB。
+- EdgeOne Preview `dph2wvagts0x`：构建成功，应用已连接，核心只读数据加载通过。
+- 已知非阻塞项：主 JS chunk 约 1.52 MB，后续需要代码拆包优化。
 
 这些结果不替代真实 Provider、平台 Cron、多用户和预览部署验收。

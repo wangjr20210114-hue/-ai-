@@ -2,7 +2,7 @@
 
 > 更新日期：2026-07-18
 > 范围：当前 Makers 生产主链；不把 `backend/` 旧 FastAPI 能力计入完成度  
-> 状态：代码、本地回归和生产应用回归完成；Schedule 已被构建链识别，但首次平台触发仍待确认
+> 状态：代码、本地回归和最新 Preview 只读回归完成；日程变更可立即扫描，Schedule 跨日平台触发仍待确认
 
 ## 1. 结论
 
@@ -41,7 +41,7 @@
 | Rule Proposal | 已实现 | 连续忽略同类提醒后提出关闭规则；必须确认，不静默改策略 |
 | Usage/预算 | 已实现 | 持久 token 统计；日/月预算；off/soft/hard |
 | 文件信号 | 已实现 | PDF 上传后写入去重 Event/Run |
-| 日历变更信号 | 已实现 | 直接 CRUD 和确认 Action 都写入去重 Event/Run |
+| 日历变更信号 | 已实现 | 直接 CRUD 和确认 Action 写入去重 Event/Run，并立即收集日程/Provider 信号和生成去重通知；即时扫描失败不影响日程保存 |
 | 外部连接器 | 已实现租户入口 | 每用户可轮换 Bearer Secret；数据库只保存哈希；日历、邮件、企业消息统一进入 Event/Run |
 
 ## 5. P3：持久工作流与生产化
@@ -67,10 +67,10 @@
 
 ## 7. 自动化基线
 
-- Makers Agent：53 项通过。
+- Makers Agent：63 项通过。
 - SQLite 只读导出：2 项通过。
-- 前端：22 项通过（FastAPI/WebSocket 退役测试已删除）。
-- Cloud Functions 平台复用/安全契约：9 项通过。
+- 前端 Vitest：34 项通过。
+- Cloud Functions、验收持久化与平台复用/安全契约：16 项通过。
 - 旧 FastAPI 不再作为 Makers 发布回归门槛；用户结果迁移见 [`LEGACY_FASTAPI_CAPABILITIES.md`](LEGACY_FASTAPI_CAPABILITIES.md)。
 - TypeScript/Vite 生产构建：通过。
 - ESLint：通过。
@@ -89,4 +89,4 @@
 7. 多用户模式下 A/B 用户的 Conversation、Workspace、Blob、Intelligence、Proactive 与连接器 Secret 互不可见。
 8. 工作流失败后只生成一次补偿提醒；重试使用新的 attempt 去重键，依赖步骤在补偿完成前不推进。
 
-2026-07-18 线上证据：Deployment `dpbfcezdprnz` 已登记 11 条 Cloud Functions 和 12 条 Agents，构建日志显示 `Found 1 schedule task(s) (default timezone: Asia/Shanghai)`；最新生产预览正常加载且无前端错误。当天 07:55–08:15 的 Makers 生产运行日志无任何调用，主动服务状态仍为“等待后台首次检查日程”，因此不能把首次 Cron 记为通过，应在下一次 08:00 后复验或向 EdgeOne 提交平台侧排查。
+2026-07-18 线上证据：当前 Preview Deployment `dph2wvagts0x` 从提交 `9ed04b1` 构建成功，构建日志确认生成 13 条 Python Agent 路由和 1 条 `Asia/Shanghai` Schedule；受保护链接显示“已连接”，可读取最近主动检查状态。自动化已证明日程变更后的即时扫描与去重通知，但无浏览器的下一次 08:00 平台触发仍需跨日复验；在取得真实运行日志前不能把 Cron 终验记为通过。

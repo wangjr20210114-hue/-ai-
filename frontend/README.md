@@ -1,50 +1,40 @@
-# React + TypeScript + Vite
+# 元宝前端
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 18 + TypeScript + Vite 前端，由 EdgeOne Makers 统一提供静态资源、Cloud Functions 和 Python Agent 路由。前端不包含 FastAPI、WebSocket 或旧 `/api` 回退。
 
-Currently, two official plugins are available:
+## 开发命令
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+从仓库根目录执行：
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
-
-- Configure the top-level `parserOptions` property like this:
-
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+```bash
+npm --prefix frontend ci
+npm --prefix frontend run dev
 ```
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+Vite 默认地址为 `http://127.0.0.1:5173/`。该模式适合组件和静态测试站布局开发，但没有 Makers Agent/Cloud Functions；完整联调请回到仓库根目录运行：
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
-
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
+```bash
+edgeone makers dev
 ```
+
+并使用 CLI 输出的统一代理地址。
+
+## 测试与构建
+
+```bash
+npm --prefix frontend test -- --run
+npm --prefix frontend run lint
+npm --prefix frontend run build -- --mode edgeone
+```
+
+构建输出位于 `frontend/dist/`，不得提交仓库。
+
+## 测试 Case 页面
+
+源文件位于 `public/test-cases/`，构建后入口是 `/test-cases/`。
+
+- Vite 静态检查：`http://127.0.0.1:5173/test-cases/index.html`。Vite 不应用 EdgeOne rewrite，必须保留 `index.html`；此模式只使用浏览器本地兜底。
+- Makers 完整检查：运行根目录 `edgeone makers dev`，访问统一代理的 `/test-cases/`。支持 `/acceptance`、Makers Blob、多主机同步和证据上传。
+- EdgeOne Preview：从 Deployment 的“预览”按钮取得签名链接，再访问同域 `/test-cases/`，保留 `eo_token`、`eo_time`。
+
+完整说明见 [`../docs/TESTING.md`](../docs/TESTING.md) 和 [`../docs/ACCEPTANCE_SITE.md`](../docs/ACCEPTANCE_SITE.md)。

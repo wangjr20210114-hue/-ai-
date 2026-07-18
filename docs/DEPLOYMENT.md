@@ -44,13 +44,15 @@
 python -m compileall -q agents
 python -m unittest discover -s agents/_tests -v
 python -m unittest discover -s tools/tests -v
-node --test cloud-functions/_jwt.test.js cloud-functions/platform-reuse.test.js
-cd frontend
-npm ci
 npm test
-npm run lint
-npm run build -- --mode edgeone
+npm --prefix frontend ci
+npm --prefix frontend test -- --run
+npm --prefix frontend run lint
+npm --prefix frontend run build -- --mode edgeone
+git diff --check
 ```
+
+测试站启动和完整回归说明见 [`TESTING.md`](TESTING.md)。
 
 ## 4. 本地 Makers 联调
 
@@ -65,32 +67,38 @@ edgeone makers dev
 
 ## 5. Preview 部署
 
-```bash
-edgeone makers env ls
-edgeone makers deploy --env preview --json
-```
+当前 `ai-active-agent` 是 GitHub Provider 项目。`edgeone makers deploy` 只支持 Upload Provider，对本项目执行会返回“project has Provider 'Github'”并拒绝本地目录或 ZIP 直传。
 
-推荐先把目标 Git 分支关联到 Makers 项目，再从控制台创建 Preview；平台 Git 构建链会执行 `edgeone makers ci` 并登记 Functions、Agents 和 Schedule。必须确认控制台“函数”和“Agents”页签有实际路由，并确认应用从“连接中”切换为“已连接”；仅根页面 200 不算验收。
-
-若动态路径回退为 `index.html`，先检查构建日志中 `generate-routes` 是否完成。Makers 当前要求 Schedule 最短间隔为 1 天；违反限制会在生成 `routes.json` 前退出，只留下静态资源。Preview 验收通过后才可以执行会替换当前线上版本的生产发布：
+正确流程：
 
 ```bash
-edgeone makers deploy --env production --json
+git push -u origin <当前分支>
 ```
+
+1. 打开 EdgeOne 控制台 → Makers → `ai-active-agent` → 构建部署。
+2. 点击“新建部署”，选择刚推送的目标分支。
+3. 核对环境为“预览”、提交 SHA 与本地提交一致，再点击确定。
+4. 平台 Git 构建链会执行前端构建并登记 Cloud Functions、Agents 和 Schedule。
+5. 等待状态为“成功”，确认“函数”和“Agents”页签有实际路由。
+6. 点击“预览”取得 3 小时签名链接；确认应用从“连接中”切换为“已连接”。仅根页面 200 不算验收。
+
+若动态路径回退为 `index.html`，先检查构建日志中 `generate-routes` 是否完成。Makers 当前要求 Schedule 最短间隔为 1 天；违反限制会在生成 `routes.json` 前退出，只留下静态资源。
+
+Preview 验收通过后，只有获得明确生产发布授权，才能在控制台创建或提升 Production Deployment。生产发布不能作为调试步骤，也不能由文档更新自动触发。
 
 未绑定自定义域名时，默认 `edgeone.cool` 地址启用访问保护。请从 Deployment 的“预览”按钮获取 3 小时链接进行验收；需要长期公开访问时再绑定自定义域名。
 
 ### 发布纪律
 
 1. 功能修改只进入独立验收分支，先生成 Preview；生产分支不得作为调试环境。
-2. 打开 Preview 的 `/test-cases/index.html`，填写 Deployment ID，逐项执行测试站中的生产阻断用例。
+2. 打开 Preview 的 `/test-cases/`，填写 Deployment ID，逐项执行测试站中的生产阻断用例。
 3. 测试结果、请求 ID、截图名和问题记录在测试站中，并导出 JSON 留档。
 4. 任一生产阻断用例失败或阻塞时禁止合并生产分支；修复后必须重新构建 Preview 并从相关模块开始回归。
 5. 只有自动化、Preview 人工验收和测试记录同时通过，才允许发布生产；生产发布后只做非破坏性冒烟回归。
 
 ## 6. 必测清单
 
-下列清单的可执行步骤、测试数据、预期结果和证据要求以静态测试站 `/test-cases/index.html` 为准；测试站同时记录需配置、平台待验证、部分实现和未实现能力，不能用“不适用”掩盖应当阻断生产的失败项。
+下列清单的可执行步骤、测试数据、预期结果和证据要求以静态测试站 `/test-cases/` 为准；测试站同时记录需配置、平台待验证、部分实现和未实现能力，不能用“不适用”掩盖应当阻断生产的失败项。
 
 1. 单用户模式无需登录即可使用全部核心功能；多用户模式再测注册、登录、退出和未登录 401。
 2. 多用户模式测试 A/B 用户会话、Workspace、Blob、Memory、Proactive 和连接器互不可见。

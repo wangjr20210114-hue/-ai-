@@ -1,6 +1,6 @@
 # 当前发布记录
 
-> 本文件只记录有证据的部署事实。变量真实值不得写入仓库。
+> 本文件只记录有证据的部署事实。变量真实值、Preview 签名、Cookie 和同步密钥不得写入仓库。
 
 ## 当前生产
 
@@ -8,44 +8,60 @@
 - Project ID：`makers-0oeuhire655w`
 - GitHub：`wangjr20210114-hue/-ai-`
 - 生产分支：`codex/edgeone-makers-refactor`
-- 生产提交：`fd89195dd590a313945a88c8cb5ebf7cce3ccef4`
-- 生产 Deployment：`dpbfcezdprnz`
-- 发布时间：2026-07-18
-- 结论：平台 Git 构建、静态资源、Cloud Functions、Agents 和生产发布均成功。
+- 生产提交：`4125c37858a361e3e20d760600621ab1af81313e`
+- 生产 Deployment：`dp8p5j6dewo0`
+- 发布时间：2026-07-18 13:54（Asia/Shanghai）
+- 结论：EdgeOne 控制台状态为“成功”。当前生产仍是发布前稳定版本，不包含 `codex/acceptance-test-site` 上尚待人工复验的最新修复。
 
-未绑定自定义域名时，默认 `edgeone.cool` 地址启用访问保护，直接访问会返回 401。测试者需在该 Deployment 点击“预览”获取 3 小时访问链接；这不是应用鉴权失败。
+生产只允许非破坏性冒烟。未绑定自定义域名时，默认 `edgeone.cool` 地址启用访问保护，测试者需在 Deployment 点击“预览”获取 3 小时签名链接；直接访问未携带签名的域名返回 401 不表示应用鉴权失败。
 
-## 发布证据
+## 当前 Preview
+
+- Preview 分支：`codex/acceptance-test-site`
+- Preview 提交：`9ed04b19150843b9a3a4efed091bbf39c2d22138`
+- Preview Deployment：`dph2wvagts0x`
+- 创建时间：2026-07-18 20:02（Asia/Shanghai）
+- 构建结果：成功，192 秒。
+- 构建内容：前端静态资源、Node Cloud Functions、13 条 Python Agent 路由和 1 条 `Asia/Shanghai` 每日 Schedule。
+- 只读冒烟：受保护链接可打开，应用由“连接中”切换为“已连接”；历史会话、用户级日程、腾讯路线缓存、阅读库和代码块高亮/复制均正常读取。
+
+本 Preview 包含验收记录中所有带描述问题的修复：网络错误中文化、代码高亮复制、日程跨对话匹配与即时主动扫描、地点回退、图片粘贴/参考图、图片版本加载状态、PDF 内置助读、阅读库移动/删除反馈、Reader 会话头和论文去重补足。
+
+## 部署证据
 
 | 环境 | Deployment ID | 提交 | 结论 |
 | --- | --- | --- | --- |
-| Preview | `dpkr22b0au30` | `ee3a355` | Git 构建成功，但小时级 Cron 违反 Makers 最短 1 天间隔，`routes.json` 未生成；仅静态资源可用。 |
-| Preview | `dpdbu4eyrid8` | `8a25bc0` | 69 秒成功；控制台登记 11 条 Node Cloud Functions 和 12 条 Python Agents；受保护链接显示“已连接”，历史对话、日程、路线、阅读库和 `/system` 读取通过。 |
-| Production | `dp2aglwjqj7l` | `8a25bc0` | 193 秒成功；Functions 发布完成，控制台登记 11 条 Cloud Functions 和 12 条 Agents；受保护生产链接显示“已连接”，历史数据加载成功且无新增前端错误。 |
-| Production | `dpbfcezdprnz` | `fd89195` | 67 秒成功；文档提交未改变业务运行代码。2026-07-18 再次确认 11 条 Cloud Functions、12 条 Agents 和最新受保护生产预览均正常，前端错误为 0。构建日志识别到 1 个 `Asia/Shanghai` Schedule。 |
+| Preview | `dpdbu4eyrid8` | `8a25bc0` | 首次完整 Makers 动态路由 Preview；历史会话、日程、路线、阅读库和 `/system` 读取通过。 |
+| Production | `dpk92buifgid` | `c7edf79` | 成功；修正 Makers 日程状态。 |
+| Production | `dp8p5j6dewo0` | `4125c37` | 当前生产；成功；修复腾讯地图清理竞态。 |
+| Preview | `dpzcwuz2sjg4` | `3d42b8f` | 成功；修复聊天与 Workspace 验收回归。 |
+| Preview | `dph2wvagts0x` | `9ed04b1` | 当前 Preview；成功；包含全部带描述验收问题修复。 |
 
-根因修复：原 `0 * * * *` Cron 被 EdgeOne CLI 1.6.13 的最短 1 天间隔校验拒绝，生成动态路由前退出。现改为 `Asia/Shanghai` 每日 08:00，`edgeone makers generate-routes` 已生成完整 Functions、Agents 和 Schedule 路由。
-
-Schedule 线上状态：2026-07-18 07:55–08:15 的生产日志无任何调用，应用仍显示“等待后台首次检查日程”。配置和构建识别均正确，但首次平台执行尚无证据，需在下一次 08:00 后复验；若仍无日志，应提交 EdgeOne 平台侧排查。
+GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当前发布方式是先推送目标分支，再从 EdgeOne 控制台“构建部署 → 新建部署”选择该分支。详细步骤见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
 ## 自动化证据
 
-- Makers Agent：53 项通过。
-- SQLite 只读导出：2 项通过。
-- Cloud Functions/平台约束：9 项通过。
-- 前端 Vitest：24 项通过。
+当前 `9ed04b1` 已验证：
+
+- Cloud Functions、验收持久化与平台约束：16 项通过。
+- 前端 Vitest：34 项通过。
+- Python Agent：63 项通过。
 - ESLint、TypeScript/Vite EdgeOne 构建和 `git diff --check`：通过。
-- 本地路由生成：11 条 Node Functions、12 条 Python Agents、1 条每日 Schedule。
+- EdgeOne 云端构建：成功；依赖审计为 0 个漏洞。
+
+这些自动化和只读冒烟不替代真实模型、外部 Provider、图片生成、跨日 Cron 和多用户隔离的人工验收。
 
 ## 当前边界
 
+- `dph2wvagts0x` 尚未发布生产；必须先在 `/test-cases/` 完成相关用例复验。
 - 真实旧 SQLite 备份尚未执行数量、哈希和抽样回读；迁移代码与测试已完成。
-- 多用户 A/B 隔离、真实平台定时触发和各 Provider 付费调用仍需专项验收；当前 Schedule 已部署但首次触发未出现运行日志。
+- 多用户 A/B 隔离、真实平台跨日定时触发和各 Provider 付费调用仍需专项验收。
 - 腾讯会议是最后阶段可选连接器；个人部署不要求先申请企业 API。
 - DOC/DOCX、扫描 PDF OCR、页码级引用尚未实现。
-- 未绑定自定义域名，测试链接默认有效 3 小时。
+- 未绑定自定义域名，Preview 测试链接默认有效 3 小时，签名不得提交仓库。
 
 ## 回滚
 
-- 回滚目标：发布前生产 Deployment `dptvxaubmrso`。
-- 回滚只切换 Deployment，不删除 Blob、Store、Neon 或旧 SQLite 数据。
+- 当前生产回滚目标：上一成功 Production Deployment `dpk92buifgid`。
+- Preview 失败只废弃对应 Preview，不影响当前生产。
+- 回滚只切换 Deployment，不删除 Blob、LangGraph Store、Conversation Store、Neon 或旧 SQLite 数据。

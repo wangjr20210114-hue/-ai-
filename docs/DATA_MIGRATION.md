@@ -35,8 +35,10 @@ python tools/export_sqlite.py /path/to/yuanbao.db /path/to/makers-bundle --inclu
 
 ```bash
 edgeone makers env set LEGACY_IMPORT_SECRET '<one-time-secret>'
-edgeone makers deploy --env preview --json
+git push -u origin <迁移验收分支>
 ```
+
+随后从 EdgeOne 控制台 → Makers → `ai-active-agent` → 构建部署 → 新建部署，选择迁移验收分支并创建 Preview。当前项目是 GitHub Provider，不能使用 `edgeone makers deploy` 直传本地目录。
 
 `/migration` 同时要求迁移密钥；多用户模式还要求目标用户的有效 HttpOnly 登录 Cookie。消息每批最多 50 条，状态采用非破坏合并；相同 ID 内容不同会返回冲突，不覆盖线上数据。
 
@@ -70,5 +72,5 @@ node tools/import-makers.mjs \
 2. 抽样打开历史会话并继续对话；首轮会把 Conversation Store 历史种入 LangGraph Checkpointer。
 3. 抽样检查日程、通知、记忆、用量和 PDF 文件 SHA-256。
 4. 人工处理所有 `conflict`、`unknown` 和 `migration_review_required`。
-5. 验收后立即执行 `edgeone makers env rm LEGACY_IMPORT_SECRET` 并重新部署。
+5. 验收后立即执行 `edgeone makers env rm LEGACY_IMPORT_SECRET`，再从控制台为同一已审核提交重新创建 Preview；确认新 Deployment 不再接受迁移密钥。
 6. Preview 最终验收前不删除旧 SQLite、上传目录或备份。
