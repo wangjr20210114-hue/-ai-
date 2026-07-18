@@ -118,12 +118,14 @@ export default function MakersMap({ conversationId, title, places, revision, opt
   useEffect(() => {
     const key = import.meta.env.VITE_TENCENT_MAP_KEY?.trim();
     const container = containerRef.current;
+    if (places.length >= 2 && !route && !routeError) return;
     if (!key || !container || !displayPlaces.length) {
       setMapUnavailable(Boolean(displayPlaces.length && !key));
       return;
     }
     let cancelled = false;
     let map: TencentMapInstance | null = null;
+    let fitBoundsTimer: number | null = null;
     void loadTencentMap(key).then((TMap) => {
       if (cancelled || !containerRef.current) return;
       setMapUnavailable(false);
@@ -172,11 +174,15 @@ export default function MakersMap({ conversationId, title, places, revision, opt
         const bounds = new TMap.LatLngBounds();
         const fitPoints = route?.path?.length ? route.path : renderedPlaces;
         fitPoints.forEach((point) => bounds.extend(new TMap.LatLng(point.latitude, point.longitude)));
-        window.setTimeout(() => map?.fitBounds?.(bounds, { padding: 56 }), 150);
+        fitBoundsTimer = window.setTimeout(() => map?.fitBounds?.(bounds, { padding: 56 }), 150);
       }
     }).catch(() => setMapUnavailable(true));
-    return () => { cancelled = true; map?.destroy?.(); };
-  }, [displayPlaces, route, revision]);
+    return () => {
+      cancelled = true;
+      if (fitBoundsTimer !== null) window.clearTimeout(fitBoundsTimer);
+      map?.destroy?.();
+    };
+  }, [displayPlaces, places.length, route, routeError, revision]);
 
   if (!displayPlaces.length) {
     return (
