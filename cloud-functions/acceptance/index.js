@@ -1,6 +1,6 @@
 import { getStore } from '@edgeone/pages-blob';
 
-const STORE_NAME = 'yuanbao-acceptance';
+const STORE_NAME = 'yuanbao-acceptance-shared';
 const STATE_KEY = 'v2/state.json';
 const RESULTS = new Set(['not-run', 'pass', 'fail', 'blocked', 'na']);
 const MAX_NOTES = 20_000;

@@ -8,7 +8,7 @@
 
 | 能力 | Makers 轮子 | 本项目只负责的业务逻辑 |
 | --- | --- | --- |
-| 共享测试状态 | Cloud Function `/acceptance` + Makers Blob `yuanbao-acceptance` | 校验用例 ID、合并结果/备注、冲突提示 |
+| 共享测试状态 | Cloud Function `/acceptance` + Makers Blob `yuanbao-acceptance-shared` | 校验用例 ID、合并结果/备注、冲突提示 |
 | 媒体证据 | Blob `createUploadUrl` 预签名 PUT | 类型/大小限制和证据元数据 |
 | 多主机识别 | 浏览器生成 UUID + 可编辑主机名称 | 把主机、测试人、时间写入审计事件 |
 | 强一致读取 | Blob `consistency: strong` | 页面“同步最新”、版本号和最后更新时间 |
