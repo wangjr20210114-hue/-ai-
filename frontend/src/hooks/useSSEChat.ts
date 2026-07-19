@@ -142,6 +142,7 @@ class SSEChatClient {
                   const labels: Record<string, string> = {
                     web_search: '正在查找相关信息…',
                     search_places: '正在核实真实地点…',
+                    search_schedule_places: '正在快速核实日程地点…',
                     prepare_map_recommendation: '正在准备可查看的地图地点…',
                     propose_calendar_changes: '正在整理待确认的日程变更…',
                     propose_meeting: '正在准备会议创建信息…',

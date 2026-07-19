@@ -851,6 +851,47 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             await tool.ainvoke({"titles": ["Unrelated title"], "limit": 20})
         provider.assert_awaited_once_with("", 5, ["Unrelated title"], "Zhi-Hua Zhou", 2026)
 
+    async def test_deleted_schedule_place_can_be_reused_when_restoring(self):
+        store = FakeStore()
+        state = empty_workspace()
+        created = apply_calendar_changes(state, [{
+            "operation": "create",
+            "event": {"title": "景山公园", "start_time": 1_800_000_000, "place": PLACE},
+        }])[0]
+        removed = apply_calendar_changes(state, [{"operation": "delete", "schedule_id": created["id"]}])[0]
+        self.assertTrue(removed["deleted"])
+        self.assertIn(created["id"], state["deleted_schedules"])
+        await save_workspace(store, USER_WORKSPACE_ID, state)
+        tools = build_production_tools(None, store=store, conversation_id="calendar-restore", env={})
+        tool = next(item for item in tools if item.name == "propose_calendar_changes")
+        result = json.loads(await tool.ainvoke({
+            "summary": "恢复景山公园",
+            "changes": [{
+                "operation": "create",
+                "event": {
+                    "title": "景山公园",
+                    "start_time": "2026-07-16T19:00:00+08:00",
+                    "location": PLACE["address"],
+                },
+            }],
+        }))
+        restored_event = result["action"]["payload"]["changes"][0]["event"]
+        self.assertEqual(restored_event["place"]["place_id"], PLACE["place_id"])
+
+    async def test_duplicate_calendar_proposals_reuse_one_pending_action(self):
+        store = FakeStore()
+        tools = build_production_tools(None, store=store, conversation_id="calendar-dedupe", env={})
+        tool = next(item for item in tools if item.name == "propose_calendar_changes")
+        changes = [{
+            "operation": "create",
+            "event": {"title": "晚餐", "start_time": "2026-07-16T19:00:00+08:00"},
+        }]
+        first = json.loads(await tool.ainvoke({"summary": "第一次提案", "changes": changes}))
+        second = json.loads(await tool.ainvoke({"summary": "重复提案", "changes": changes}))
+        state = await load_user_workspace(store, user_id=USER_WORKSPACE_ID)
+        self.assertEqual(first["action"]["id"], second["action"]["id"])
+        self.assertEqual(len([item for item in state["actions"].values() if item["kind"] == "calendar_changes"]), 1)
+
     async def test_calendar_update_reuses_existing_verified_place(self):
         store = FakeStore()
         state = empty_workspace()

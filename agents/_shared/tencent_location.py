@@ -17,14 +17,14 @@ from typing import Any
 API_ROOT = "https://apis.map.qq.com/ws"
 
 
-def _fetch_json(url: str, params: dict[str, Any], timeout: int = 15) -> dict[str, Any]:
+def _fetch_json(url: str, params: dict[str, Any], timeout: int = 15, retries: int = 3) -> dict[str, Any]:
     query = urllib.parse.urlencode(params, doseq=True)
     request = urllib.request.Request(
         f"{url}?{query}",
         headers={"Accept": "application/json", "User-Agent": "yuanbao-edgeone/1.0"},
     )
     last_error: Exception | None = None
-    for attempt in range(3):
+    for attempt in range(max(1, int(retries))):
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 body = response.read(3 * 1024 * 1024)
@@ -40,20 +40,20 @@ def _fetch_json(url: str, params: dict[str, Any], timeout: int = 15) -> dict[str
                 break
         except (urllib.error.URLError, OSError, TimeoutError, json.JSONDecodeError, RuntimeError) as error:
             last_error = error
-        if attempt < 2:
+        if attempt < max(1, int(retries)) - 1:
             time.sleep(0.3 * (attempt + 1))
     logging.warning("Tencent location request failed error=%s", type(last_error).__name__)
     raise RuntimeError("地点服务暂时不可达，请稍后重试") from last_error
 
 
-def _fetch_public_json(url: str, params: dict[str, Any], timeout: int = 20) -> Any:
+def _fetch_public_json(url: str, params: dict[str, Any], timeout: int = 20, retries: int = 2) -> Any:
     query = urllib.parse.urlencode(params, doseq=True)
     request = urllib.request.Request(
         f"{url}?{query}" if query else url,
         headers={"Accept": "application/json", "User-Agent": "yuanbao-edgeone/1.0 (travel assistant)"},
     )
     last_error: Exception | None = None
-    for attempt in range(2):
+    for attempt in range(max(1, int(retries))):
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 return json.loads(response.read(5 * 1024 * 1024).decode("utf-8"))
@@ -61,18 +61,18 @@ def _fetch_public_json(url: str, params: dict[str, Any], timeout: int = 20) -> A
             last_error = error
             if isinstance(error, urllib.error.HTTPError) and error.code < 500 and error.code not in {408, 425, 429}:
                 break
-            if attempt == 0:
+            if attempt < max(1, int(retries)) - 1:
                 time.sleep(0.3)
     logging.warning("public location fallback failed error=%s", type(last_error).__name__)
     raise RuntimeError("备用地点服务暂时不可达，请稍后重试") from last_error
 
 
-async def _get(url: str, params: dict[str, Any]) -> dict[str, Any]:
-    return await asyncio.to_thread(_fetch_json, url, params)
+async def _get(url: str, params: dict[str, Any], *, timeout: int = 15, retries: int = 3) -> dict[str, Any]:
+    return await asyncio.to_thread(_fetch_json, url, params, timeout, retries)
 
 
-async def _get_public(url: str, params: dict[str, Any]) -> Any:
-    return await asyncio.to_thread(_fetch_public_json, url, params)
+async def _get_public(url: str, params: dict[str, Any], *, timeout: int = 20, retries: int = 2) -> Any:
+    return await asyncio.to_thread(_fetch_public_json, url, params, timeout, retries)
 
 
 def _place(item: dict[str, Any]) -> dict[str, Any] | None:
@@ -118,6 +118,7 @@ def _cluster_regions(data: dict[str, Any]) -> list[str]:
 
 async def _search_tencent_response(
     key: str, query: str, *, city: str = "全国", limit: int = 10,
+    timeout: int = 15, retries: int = 3,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     if not key:
         raise RuntimeError("未配置 TENCENT_MAP_KEY")
@@ -128,6 +129,8 @@ async def _search_tencent_response(
     data = await _get(
         f"{API_ROOT}/place/v1/search",
         {"key": key, "keyword": query[:120], "boundary": boundary, "page_size": max(1, min(20, int(limit))), "page_index": 1},
+        timeout=timeout,
+        retries=retries,
     )
     return _parse_tencent_places(data), _cluster_regions(data)
 
@@ -137,11 +140,15 @@ async def search_places(key: str, query: str, *, city: str = "全国", limit: in
     return places
 
 
-async def search_osm_places(query: str, *, city: str = "", limit: int = 10) -> list[dict[str, Any]]:
+async def search_osm_places(
+    query: str, *, city: str = "", limit: int = 10, timeout: int = 20, retries: int = 2,
+) -> list[dict[str, Any]]:
     terms = " ".join(part for part in (str(query or "").strip(), str(city or "").strip()) if part and part != "全国")
     data = await _get_public(
         "https://nominatim.openstreetmap.org/search",
         {"q": terms or query, "format": "jsonv2", "addressdetails": 1, "limit": max(1, min(20, int(limit))), "accept-language": "zh-CN,zh,en"},
+        timeout=timeout,
+        retries=retries,
     )
     places = []
     for item in data if isinstance(data, list) else []:
@@ -168,6 +175,52 @@ async def search_osm_places(query: str, *, city: str = "", limit: int = 10) -> l
             "category": str(item.get("type") or item.get("category") or "")[:120],
         })
     return places
+
+
+def _normalized_search_text(value: Any) -> str:
+    return "".join(re.findall(r"[\w\u4e00-\u9fff]+", str(value or "").lower()))
+
+
+def _place_matches_query(place: dict[str, Any], query: str) -> bool:
+    needle = _normalized_search_text(query)
+    if not needle:
+        return False
+    haystack = _normalized_search_text(f"{place.get('name', '')}{place.get('address', '')}")
+    return bool(haystack and (needle in haystack or haystack in needle))
+
+
+async def search_schedule_places(
+    key: str, query: str, *, city: str = "全国", limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Use a lightweight OSM-first lookup for calendar locations.
+
+    Calendar verification only needs a real place ID and coordinates. It does
+    not need rich web evidence, media review, or the broader Tencent cluster
+    expansion used by recommendations.
+    """
+    raw_query = str(query or "").strip()
+    if not raw_query:
+        raise ValueError("地点搜索词不能为空")
+    bounded_limit = max(1, min(20, int(limit)))
+    osm_places: list[dict[str, Any]] = []
+    try:
+        osm_places = await search_osm_places(
+            raw_query, city=city, limit=bounded_limit, timeout=8, retries=1,
+        )
+    except Exception:
+        logging.info("schedule OSM lookup failed; trying Tencent fallback", exc_info=True)
+    matching_osm = [place for place in osm_places if _place_matches_query(place, raw_query)]
+    if matching_osm:
+        return matching_osm[:bounded_limit]
+    if not key:
+        return []
+    try:
+        tencent_places, _regions = await _search_tencent_response(
+            key, raw_query, city=city, limit=bounded_limit, timeout=8, retries=1,
+        )
+        return tencent_places[:bounded_limit]
+    except Exception:
+        return []
 
 
 async def search_verified_places(key: str, query: str, *, city: str = "全国", limit: int = 10) -> list[dict[str, Any]]:

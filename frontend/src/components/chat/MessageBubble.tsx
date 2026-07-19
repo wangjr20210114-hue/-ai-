@@ -20,18 +20,45 @@ function imageGroup(action: WorkspaceAction): string {
   return action.kind === 'image_generate' ? String(action.payload.group_id || action.id) : '';
 }
 
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === 'object') {
+    return Object.keys(value as Record<string, unknown>).sort().reduce<Record<string, unknown>>((result, key) => {
+      result[key] = stableValue((value as Record<string, unknown>)[key]);
+      return result;
+    }, {});
+  }
+  return value;
+}
+
+function actionGroup(action: WorkspaceAction): string {
+  const image = imageGroup(action);
+  if (image) return `image:${image}`;
+  if (action.kind === 'calendar_changes') {
+    return `calendar:${JSON.stringify(stableValue({ changes: action.payload.changes || [] }))}`;
+  }
+  return `id:${action.id}`;
+}
+
 function consolidateActions(actions: WorkspaceAction[]): WorkspaceAction[] {
   const output: WorkspaceAction[] = [];
-  const imageIndex = new Map<string, number>();
+  const indexes = new Map<string, number>();
+  const statusRank: Record<string, number> = {
+    succeeded: 4,
+    executing: 3,
+    awaiting_confirmation: 2,
+    cancelled: 1,
+  };
   for (const action of actions) {
-    const group = imageGroup(action);
-    if (!group) { output.push(action); continue; }
-    const previous = imageIndex.get(group);
+    const group = actionGroup(action);
+    const previous = indexes.get(group);
     if (previous === undefined) {
-      imageIndex.set(group, output.length); output.push(action);
-    } else {
-      output[previous] = action;
+      indexes.set(group, output.length);
+      output.push(action);
+      continue;
     }
+    const current = output[previous];
+    if ((statusRank[action.status] || 0) >= (statusRank[current.status] || 0)) output[previous] = action;
   }
   return output;
 }
@@ -195,10 +222,9 @@ export default function MessageBubble({ message }: Props) {
 
   const replaceWorkspaceAction = (next: WorkspaceAction) => {
     setWorkspaceActions((items) => {
-      const group = imageGroup(next);
-      if (group) return [...items.filter((item) => imageGroup(item) !== group), next];
-      return items.some((item) => item.id === next.id)
-        ? items.map((item) => item.id === next.id ? next : item)
+      const group = actionGroup(next);
+      return items.some((item) => actionGroup(item) === group)
+        ? items.map((item) => actionGroup(item) === group ? next : item)
         : [...items, next];
     });
   };

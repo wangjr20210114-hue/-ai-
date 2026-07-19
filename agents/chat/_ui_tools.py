@@ -12,7 +12,10 @@ from urllib.parse import urlparse
 
 from langchain_core.tools import StructuredTool
 
-from .._shared.tencent_location import search_verified_places as provider_search_places
+from .._shared.tencent_location import (
+    search_schedule_places as provider_search_schedule_places,
+    search_verified_places as provider_search_places,
+)
 from .._shared.web_media import collect_page_images as provider_collect_page_images
 from .._shared.rich_search import evidence_for_model, rich_search as provider_rich_search
 from .._shared.side_effects import generate_image as provider_generate_image, resolve_image_reference
@@ -21,6 +24,7 @@ from .._shared.intelligence import load_intelligence_state, propose_memory as cr
 from .._shared.proactive import load_proactive_state, propose_workflow as create_workflow_proposal, save_proactive_state
 from .._shared.workspace import (
     begin_action_execution,
+    find_pending_action,
     finish_provider_call,
     get_action,
     image_versions,
@@ -93,6 +97,23 @@ def build_production_tools(
             state["place_candidates"] = dict(list(candidates.items())[-200:])
         await _save_state(state)
         return json.dumps({"places": places, "count": len(places)}, ensure_ascii=False)
+
+    async def search_schedule_places(query: str, city: str = "全国", limit: int = 10) -> str:
+        """Use OSM first and Tencent only as a lightweight calendar fallback."""
+        places = await provider_search_schedule_places(
+            str(runtime_env.get("TENCENT_MAP_SERVER_KEY") or runtime_env.get("TENCENT_MAP_KEY") or runtime_env.get("VITE_TENCENT_MAP_KEY") or ""),
+            query,
+            city=city,
+            limit=max(1, min(20, int(limit))),
+        )
+        state = await _load_state()
+        candidates = state.setdefault("place_candidates", {})
+        for place in places:
+            candidates[str(place["place_id"])] = place
+        if len(candidates) > 200:
+            state["place_candidates"] = dict(list(candidates.items())[-200:])
+        await _save_state(state)
+        return json.dumps({"places": places, "count": len(places), "provider_order": ["openstreetmap", "tencent"]}, ensure_ascii=False)
 
     async def search_places_batch(queries: list[str], city: str = "全国", limit_per_query: int = 3) -> str:
         """Verify every named destination independently and retain every candidate ID."""
@@ -233,12 +254,47 @@ def build_production_tools(
         await _save_state(state)
         return json.dumps({"ui_action": "map_action", "action": action}, ensure_ascii=False)
 
+    def _known_verified_places(state: dict[str, Any]) -> list[dict[str, Any]]:
+        places: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        sources = [
+            *(state.get("place_candidates") or {}).values(),
+            *(((state.get("schedules") or {}).values())),
+            *(((state.get("deleted_schedules") or {}).values())),
+        ]
+        for source in sources:
+            place = source if isinstance(source, dict) and source.get("place_id") else (source.get("extra") or {}).get("place") if isinstance(source, dict) else None
+            if not isinstance(place, dict) or not str(place.get("place_id") or "").strip():
+                continue
+            place_id = str(place["place_id"])
+            if place_id not in seen:
+                seen.add(place_id)
+                places.append(place)
+        return places
+
+    def _location_key(value: Any) -> str:
+        return re.sub(r"[\s，。；、：:（）()【】\[\]—－_\-]+", "", str(value or "").strip().lower())
+
+    def _match_verified_place(state: dict[str, Any], location_text: str, place_id: str = "") -> dict[str, Any] | None:
+        places = _known_verified_places(state)
+        if place_id:
+            return next((place for place in places if str(place.get("place_id") or "") == place_id), None)
+        location_key = _location_key(location_text)
+        if not location_key:
+            return None
+        for place in places:
+            values = [place.get("name"), place.get("address")]
+            for value in values:
+                candidate_key = _location_key(value)
+                if candidate_key and (location_key == candidate_key or location_key in candidate_key or candidate_key in location_key):
+                    return place
+        return None
+
     async def propose_calendar_changes(summary: str, changes: list[dict]) -> str:
         """Prepare create/update/delete changes; the calendar is mutated only after UI confirmation."""
         if not isinstance(changes, list) or not 1 <= len(changes) <= 24:
             raise ValueError("日程变更数量必须在 1 到 24 项之间")
         state = await _load_state()
-        candidates = state.get("place_candidates", {})
         normalized = []
         for raw in changes:
             if not isinstance(raw, dict):
@@ -279,31 +335,21 @@ def build_production_tools(
                         normalized_event[key] = event[key]
                 place_id = str(event.get("place_id") or event.get("location_place_id") or "").strip()
                 location_text = str(event.get("location") or "").strip()
-                if location_text and not place_id and isinstance(existing_schedule, dict):
-                    previous_place = (existing_schedule.get("extra") or {}).get("place") or {}
-                    previous_text = " ".join(str(existing_schedule.get(key) or "") for key in ("location",))
-                    previous_text += " " + " ".join(str(previous_place.get(key) or "") for key in ("name", "address"))
-                    if location_text in previous_text or previous_text in location_text:
-                        place_id = str(previous_place.get("place_id") or "")
-                if location_text and not place_id:
+                place = _match_verified_place(state, location_text, place_id)
+                if place_id and place is None:
+                    raise ValueError(f"地点 ID 未通过本轮地点搜索验证：{place_id}")
+                if location_text and place is None:
                     raise ValueError(f"“{location_text}”必须先通过 search_places 选择真实地点")
-                if place_id:
-                    place = candidates.get(place_id)
-                    if not isinstance(place, dict) and isinstance(existing_schedule, dict):
-                        previous_place = (existing_schedule.get("extra") or {}).get("place") or {}
-                        if str(previous_place.get("place_id") or "") == place_id:
-                            place = previous_place
-                    if not isinstance(place, dict):
-                        raise ValueError(f"地点 ID 未通过本轮地点搜索验证：{place_id}")
+                if place is not None:
                     normalized_event["place"] = place
                     normalized_event["location"] = place.get("address") or place.get("name")
                 change["event"] = normalized_event
             normalized.append(change)
-        action = new_action(
-            "calendar_changes",
-            {"summary": str(summary or "日程变更")[:300], "changes": normalized},
-            requires_confirmation=True,
-        )
+        payload = {"summary": str(summary or "日程变更")[:300], "changes": normalized}
+        existing_action = find_pending_action(state, "calendar_changes", payload)
+        if existing_action is not None:
+            return json.dumps({"ui_action": "calendar_action", "action": existing_action}, ensure_ascii=False)
+        action = new_action("calendar_changes", payload, requires_confirmation=True)
         put_action(state, action)
         await _save_state(state)
         return json.dumps({"ui_action": "calendar_action", "action": action}, ensure_ascii=False)
@@ -491,7 +537,8 @@ def build_production_tools(
         }, ensure_ascii=False)
 
     definitions = [
-        (search_places, "search_places", "使用腾讯地点服务搜索真实地点，返回可安全用于地图和日程的 place_id。推荐地点、景点、餐馆或含地点日程前必须调用。"),
+        (search_places, "search_places", "使用腾讯地点服务搜索真实地点，返回可安全用于地图和推荐的 place_id。推荐地点、景点或餐馆时使用。"),
+        (search_schedule_places, "search_schedule_places", "日程地点专用轻量搜索：先查 OpenStreetMap，只有无相关结果时才查腾讯地图；新增、编辑或恢复带地点日程时使用，不要调用 rich_search。"),
         (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
         (recommend_places_on_map, "recommend_places_on_map", "模型驱动的多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。"),

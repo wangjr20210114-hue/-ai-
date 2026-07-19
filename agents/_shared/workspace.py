@@ -23,6 +23,7 @@ def empty_workspace() -> dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "revision": 0,
         "schedules": {},
+        "deleted_schedules": {},
         "travel_plans": {},
         "actions": {},
         "place_candidates": {},
@@ -51,7 +52,7 @@ async def load_workspace(store: Any, conversation_id: str) -> dict[str, Any]:
         return empty_workspace()
     state = empty_workspace()
     state.update(copy.deepcopy(value))
-    for key in ("schedules", "travel_plans", "actions", "place_candidates", "provider_calls"):
+    for key in ("schedules", "deleted_schedules", "travel_plans", "actions", "place_candidates", "provider_calls"):
         if not isinstance(state.get(key), dict):
             state[key] = {}
     return state
@@ -115,6 +116,34 @@ def action_snapshot_hash(kind: str, payload: dict[str, Any]) -> str:
         {"kind": str(kind), "payload": payload}, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def action_semantic_hash(action_or_kind: dict[str, Any] | str, payload: dict[str, Any] | None = None) -> str:
+    if isinstance(action_or_kind, dict):
+        kind = str(action_or_kind.get("kind") or "")
+        raw_payload = action_or_kind.get("payload") or {}
+    else:
+        kind = str(action_or_kind or "")
+        raw_payload = payload or {}
+    if not isinstance(raw_payload, dict):
+        raw_payload = {}
+    semantic_payload = raw_payload
+    if kind == "calendar_changes":
+        semantic_payload = {"changes": raw_payload.get("changes") or []}
+    return action_snapshot_hash(kind, semantic_payload)
+
+
+def find_pending_action(state: dict[str, Any], kind: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+    target = action_semantic_hash(kind, payload)
+    for action in reversed(list((state.get("actions") or {}).values())):
+        if (
+            isinstance(action, dict)
+            and action.get("kind") == kind
+            and action.get("status") == "awaiting_confirmation"
+            and action_semantic_hash(action) == target
+        ):
+            return action
+    return None
 
 
 def seal_action_snapshot(action: dict[str, Any]) -> None:
@@ -331,6 +360,20 @@ def apply_calendar_changes(state: dict[str, Any], changes: list[dict[str, Any]])
             if target_id not in schedules:
                 raise ValueError(f"找不到要删除的日程：{target_id}")
             removed = schedules.pop(target_id)
+            archived = copy.deepcopy(removed)
+            archived["deleted_at"] = int(time.time())
+            deleted_schedules = state.setdefault("deleted_schedules", {})
+            deleted_schedules[target_id] = archived
+            if len(deleted_schedules) > 100:
+                keep_ids = sorted(
+                    deleted_schedules,
+                    key=lambda item: int(deleted_schedules[item].get("deleted_at") or 0),
+                    reverse=True,
+                )[:100]
+                state["deleted_schedules"] = {item: deleted_schedules[item] for item in keep_ids}
+            place = (archived.get("extra") or {}).get("place")
+            if isinstance(place, dict) and place.get("place_id"):
+                state.setdefault("place_candidates", {})[str(place["place_id"])] = copy.deepcopy(place)
             changed.append({**removed, "deleted": True})
         else:
             raise ValueError(f"不支持的日程操作：{operation}")

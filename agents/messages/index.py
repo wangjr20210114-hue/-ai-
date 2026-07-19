@@ -3,7 +3,7 @@
 import json
 import logging
 
-from .._shared.workspace import active_map_payload, load_user_workspace, public_action
+from .._shared.workspace import action_semantic_hash, active_map_payload, load_user_workspace, public_action
 from .._shared.auth import require_user, scoped_conversation_id
 from ..chat._protocol import public_content
 
@@ -32,6 +32,18 @@ def _text(content) -> str:
                 parts.append(block["text"])
         return "".join(parts)
     return ""
+
+
+def _append_action(actions: list[dict], action: dict) -> None:
+    key = action_semantic_hash(action)
+    for index, existing in enumerate(actions):
+        if action_semantic_hash(existing) != key:
+            continue
+        status_rank = {"succeeded": 4, "executing": 3, "awaiting_confirmation": 2, "cancelled": 1}
+        if status_rank.get(str(action.get("status") or ""), 0) >= status_rank.get(str(existing.get("status") or ""), 0):
+            actions[index] = action
+        return
+    actions.append(action)
 
 
 async def handler(ctx):
@@ -105,7 +117,7 @@ async def handler(ctx):
             }:
                 prepared = action.get("action")
                 if isinstance(prepared, dict):
-                    pending_actions.append(prepared)
+                    _append_action(pending_actions, prepared)
             elif isinstance(action, dict) and action.get("ui_action") == "rich_search_results":
                 metadata = action.get("search_results")
                 if isinstance(metadata, dict):
