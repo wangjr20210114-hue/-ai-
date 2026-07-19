@@ -131,7 +131,7 @@ async def plan_capabilities(model, user_message: str) -> dict[str, Any]:
 - place_map、schedule_place 不需要 rich_search；只有需要发现、比较、推荐、网页事实、论文或真实视觉资料时才启用富搜索。
 - 规划结果会决定本轮可用工具；不要为了保险把 route 设为 general。
 - 判断外部网页、图片等素材是否可能增进回答。稳定知识也可以搜索核实或补充视觉资料，但不能因为搜索结果存在，就要求主模型围绕网页逐条复述。
-- media_mode=required 用于明确要求图片、照片、配图或视觉参考；media_mode=optional 用于图片可能有助于理解的重大进展、发布、产品或技术主题，允许返回图片但不强制；media_mode=disabled 用于与视觉无关的普通事实、状态确认和来源核验。media_mode 为 optional 或 required 时必须提供具体的 image_query，即使 optional 时 needs_images 可以为 false；disabled 时 image_query 必须为空。
+- media_mode=required 用于明确要求图片、照片、配图或视觉参考；media_mode=optional 用于图片可能有助于理解的重大进展、发布、产品或技术主题，若富搜索返回审核通过的图片，主模型必须使用至少一张，不要因为文字回答已经完整就省略；media_mode=disabled 用于与视觉无关的普通事实、状态确认和来源核验。media_mode 为 optional 或 required 时必须提供具体的 image_query，即使 optional 时 needs_images 可以为 false；disabled 时 image_query 必须为空。
 - 旅行目的地介绍、第一次去某城市、请介绍当地有什么好玩/好吃/值得去，回答天然会包含多个可到访点，所以 needs_places 和 needs_map_action 都必须为 true；不能因为用户没说“地图”就关掉地图能力。
 - 单一地点的历史、文化或原理解说不需要 map_action，除非用户同时要求周边或路线；如果用户问某地点在哪里并明确要求在地图显示，needs_places 和 needs_map_action 必须为 true，needs_rich_answer 可以为 false。
 - 用户要求新增/修改/删除行程日程才需要 calendar_action；仅说计划去某地不等于写日程。

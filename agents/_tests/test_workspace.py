@@ -20,6 +20,7 @@ from agents.chat._calendar_context import calendar_context
 from agents.chat._ui_tools import build_production_tools
 from agents.chat._protocol import PublicStreamFilter, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
+from agents.chat.index import _filter_unapproved_markdown_images
 from agents._shared.side_effects import _meeting_payload, _meeting_result, _meeting_signature
 from agents._shared.auth import require_user, scoped_conversation_id, verify_jwt
 from agents._shared.rich_search import (
@@ -381,7 +382,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         evidence = evidence_for_model(metadata)
         self.assertIn("![故宫太和殿建筑](https://cdn.example.com/palace.jpg)", evidence)
         self.assertIn("不要插入无关素材", evidence)
-        self.assertIn("![故宫太和殿建筑](https://cdn.example.com/palace.jpg)", evidence_for_model(metadata, media_mode="optional"))
+        optional_evidence = evidence_for_model(metadata, media_mode="optional")
+        self.assertIn("![故宫太和殿建筑](https://cdn.example.com/palace.jpg)", optional_evidence)
+        self.assertIn("必须在最相关段落使用至少一张", optional_evidence)
         self.assertNotIn("[[image:", evidence)
         self.assertNotIn("[[card:", evidence)
 
@@ -822,6 +825,17 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         leaked = '搜到了，我再补充。<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="search_arxiv">'
         self.assertEqual(public_content(leaked), "")
         self.assertEqual(public_content("这是最终回答。"), "这是最终回答。")
+
+    def test_unapproved_markdown_images_are_removed(self):
+        content = (
+            "![审核图](https://approved.example/image.jpg) "
+            "![模型猜测图](https://unsplash.example/image.jpg)"
+        )
+        filtered = _filter_unapproved_markdown_images(
+            content, {"https://approved.example/image.jpg"},
+        )
+        self.assertIn("![审核图](https://approved.example/image.jpg)", filtered)
+        self.assertNotIn("unsplash.example", filtered)
 
     def test_public_stream_filter_streams_prose_and_retracts_late_protocol(self):
         guard = PublicStreamFilter(hold_chars=16)
