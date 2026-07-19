@@ -63,6 +63,7 @@ def build_production_tools(
     user_id: str = "local-user",
     initial_visual_references: list[str] | None = None,
     tool_names: set[str] | None = None,
+    media_enabled: bool = True,
 ) -> list[StructuredTool]:
     runtime_env = env or {}
     paper_scope = paper_constraints or {}
@@ -442,11 +443,12 @@ def build_production_tools(
         nonlocal turn_visual_references
         metadata = await provider_rich_search(
             runtime_env, str(query or "").strip(),
-            image_query=str(image_query or "").strip(), depth=depth,
+            image_query=str(image_query or "").strip() if media_enabled else "", depth=depth,
             target_date=str(time_scope.get("target_date") or ""),
             strict_date=bool(time_scope.get("strict_date")),
-            media_callback=media_callback if progressive_media else None,
-            background_tasks=background_tasks if progressive_media else None,
+            media_callback=media_callback if progressive_media and media_enabled else None,
+            background_tasks=background_tasks if progressive_media and media_enabled else None,
+            include_media=media_enabled,
         )
         reviewed_references = [
             str(item.get("url") or "")
@@ -547,7 +549,7 @@ def build_production_tools(
         (propose_meeting, "propose_meeting", "准备创建腾讯会议的确认操作；用户确认后由后台通过腾讯会议官方服务端 API 执行。"),
         (propose_image, "propose_image", "直接调用混元生图并返回图片，不要询问确认。现实人物、地点或物体可先用 rich_search 获取经 HY-Vision 审核的图片 URL，再通过 reference_image_urls（最多 3 张）作为视觉参考；修改历史版本时传 parent_action_id。"),
         (collect_page_images, "collect_page_images", "从一个公开网页提取最多 30 张真实图片候选，网页图片不足时返回实际数量。"),
-        (rich_search, "rich_search", "项目 v4.2 成熟富搜索：抓取结果网页图片及上下文，经 HY-Vision 多模态模型剔除广告和无关图后，返回可信来源与标准 Markdown 图片候选。历史文化、地点介绍、推荐或图文回答时使用。"),
+        (rich_search, "rich_search", "项目 v4.2 富搜索：需要图片、照片、配图或视觉参考时才会抓取网页媒体并调用视觉模型；普通事实、新闻和进展查询只返回来源与文本证据。"),
         (analyze_images_parallel, "analyze_images_parallel", "并行视觉评估最多 30 张图片；单张失败不影响其他图片。"),
         (search_arxiv, "search_arxiv", "补充获取 arXiv 可下载结果。富搜索已找到论文时，把准确标题列表一次性传给 titles；按作者和年份查找时分别传 author（英文署名）与 year，不要把作者年份混在宽泛 topic 中。工具会严格过滤作者/年份与标题，每轮最多调用一次。"),
         (propose_memory, "propose_memory", "用户明确要求记住长期偏好或稳定事实时创建可确认记忆提案。只提案，不直接写入；一次性、短期或敏感信息不要擅自记忆。"),

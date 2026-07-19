@@ -301,6 +301,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
     def test_capability_plan_parser_is_bounded_to_known_booleans(self):
         plan = parse_capability_plan('```json\n{"route":"place_map", "confidence": 0.94, "needs_places": true, "needs_map_action": 1, "search_query": "北京旅行", "image_query": "故宫建筑", "unknown": true}\n```')
         self.assertEqual(plan["route"], "place_map")
+        self.assertEqual(plan["media_mode"], "disabled")
         self.assertEqual(plan["confidence"], 0.94)
         self.assertTrue(plan["needs_places"])
         self.assertTrue(plan["needs_map_action"])
@@ -312,7 +313,18 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("rich_search", tool_names_for_plan({"route": "place_map"}))
         self.assertNotIn("rich_search", tool_names_for_plan({"route": "schedule_place"}))
         self.assertIn("rich_search", tool_names_for_plan({"route": "place_recommendation"}))
-        self.assertIsNone(tool_names_for_plan({"route": "general"}))
+        self.assertEqual(tool_names_for_plan({"route": "general"}), set())
+        self.assertNotIn("collect_page_images", tool_names_for_plan({"route": "web_research", "needs_images": False}))
+        self.assertIn("collect_page_images", tool_names_for_plan({"route": "web_research", "needs_images": True}))
+        self.assertIn("collect_page_images", tool_names_for_plan({"route": "web_research", "media_mode": "optional"}))
+        disabled = tool_names_for_plan({"route": "place_recommendation", "media_mode": "optional"}, web_search_enabled=False)
+        self.assertNotIn("rich_search", disabled)
+        self.assertNotIn("collect_page_images", disabled)
+        self.assertIn("search_places", disabled)
+
+    def test_general_route_fails_closed_without_tools(self):
+        tools = build_production_tools(None, store=FakeStore(), conversation_id="route-general", env={}, tool_names=tool_names_for_plan({"route": "general"}))
+        self.assertEqual(tools, [])
 
     def test_place_map_tool_surface_excludes_rich_search(self):
         tools = build_production_tools(None, store=FakeStore(), conversation_id="route-map", env={}, tool_names=tool_names_for_plan({"route": "place_map"}))

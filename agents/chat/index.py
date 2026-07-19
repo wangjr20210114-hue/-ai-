@@ -140,6 +140,8 @@ async def handler(ctx):
     conversation_id = scoped_conversation_id(ctx, user_id)
     body = ctx.request.body or {}
     message = body.get("message") or body.get("text") or ""
+    raw_web_search = body.get("web_search", True)
+    web_search_enabled = raw_web_search if isinstance(raw_web_search, bool) else str(raw_web_search).strip().lower() not in {"0", "false", "off", "no"}
     if not message:
         return {"error": "'message' is required"}, 400
     reference_images = [
@@ -183,7 +185,7 @@ async def handler(ctx):
         "capability route=%s confidence=%.2f tools=%s",
         capability_plan.get("route"),
         float(capability_plan.get("confidence") or 0),
-        sorted(tool_names_for_plan(capability_plan) or {"general"}),
+        sorted(tool_names_for_plan(capability_plan, web_search_enabled=web_search_enabled) or {"general"}),
     )
 
     queue: asyncio.Queue = asyncio.Queue()
@@ -222,7 +224,14 @@ async def handler(ctx):
         background_tasks=background_tasks,
         user_id=user_id,
         initial_visual_references=reference_images,
-        tool_names=tool_names_for_plan(capability_plan),
+        tool_names=tool_names_for_plan(capability_plan, web_search_enabled=web_search_enabled),
+        media_enabled=(
+            web_search_enabled and (
+                str(capability_plan.get("media_mode") or "disabled") in {"optional", "required"}
+                or bool(capability_plan.get("needs_images"))
+                or bool(str(capability_plan.get("image_query") or "").strip())
+            )
+        ),
     )
     # The semantic route has already constrained the tool surface. Rich search
     # is exposed only for routes that need external discovery or evidence.
