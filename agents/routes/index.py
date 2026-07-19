@@ -8,6 +8,7 @@ import time
 
 from .._shared.tencent_location import plan_verified_route
 from .._shared.auth import require_user
+from .._shared.http import error
 
 CACHE_TTL_SECONDS = 6 * 60 * 60
 
@@ -32,13 +33,14 @@ async def handler(ctx):
     body = ctx.request.body or {}
     places = body.get("places") or []
     if not isinstance(places, list):
-        return {"error": "places must be a list"}, 400
+        return error("places must be a list")
     optimize = bool(body.get("optimize", False))
     try:
         cache_key = _cache_key(places, optimize)
     except (TypeError, ValueError):
-        return {"error": "地点坐标格式无效"}, 400
-    namespace = ("yuanbao_route_cache_v1", str(identity["user_id"]))
+        return error("地点坐标格式无效")
+    # v1 may contain Tencent minutes mislabeled as seconds.
+    namespace = ("yuanbao_route_cache_v2", str(identity["user_id"]))
     store = getattr(ctx.store, "langgraph_store", None)
     now = int(time.time())
     if store is not None:
@@ -65,4 +67,4 @@ async def handler(ctx):
         route = {**route, "cache": {"hit": False, "expires_at": expires_at}}
         return {"route": route}
     except Exception as exc:
-        return {"error": str(exc)}, 400
+        return error(str(exc))

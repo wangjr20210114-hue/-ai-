@@ -14,6 +14,16 @@ export interface BootstrapData {
   map_title?: string;
   workspace_revision?: number;
   workspace_actions?: WorkspaceAction[];
+  run?: MakersChatRun | null;
+}
+
+export interface MakersChatRun {
+  run_id?: string;
+  status?: 'running' | 'cancel_requested' | 'completed' | 'failed' | 'cancelled';
+  error?: string;
+  started_at?: number;
+  updated_at?: number;
+  completed_at?: number | null;
 }
 
 export interface WorkspaceResponse {
@@ -161,12 +171,19 @@ function normalizeConversation(item: Record<string, unknown>): ConversationSumma
   const id = String(item.conversationId || item.id || '');
   const createdAt = normalizeTimestamp(item.createdAt ?? item.created_at);
   const updatedAt = normalizeTimestamp(item.lastMessageAt ?? item.updatedAt ?? item.updated_at, createdAt);
+  const run = metadata.yuanbao_chat_run_v1 && typeof metadata.yuanbao_chat_run_v1 === 'object'
+    ? metadata.yuanbao_chat_run_v1 as MakersChatRun
+    : null;
+  const activityStatus = run?.status === 'running' || run?.status === 'cancel_requested'
+    ? 'running'
+    : run?.status === 'failed' ? 'failed' : 'idle';
   return {
     id,
     title: String(metadata.title || item.title || '新对话'),
     createdAt,
     updatedAt,
     messageCount: Number(item.messageCount || item.message_count || 0),
+    activityStatus,
   };
 }
 

@@ -15,13 +15,16 @@ test('conversation, state, object and schedule infrastructure reuse EdgeOne Make
   ]);
   assert.match(chat, /ctx\.store\.langgraph_checkpointer/);
   assert.match(chat, /ctx\.store\.langgraph_store/);
+  assert.match(chat, /write_chat_run\(\s*ctx\.store/);
   assert.match(messages, /langgraph_checkpointer\.aget_tuple/);
+  assert.match(messages, /read_chat_run\(ctx\.store/);
   assert.match(files, /@edgeone\/pages-blob/);
   assert.match(config, /"schedules"/);
   const makersConfig = JSON.parse(config);
   assert.equal(makersConfig.schedules[0].cron, '0 8 * * *');
   assert.equal(makersConfig.schedules[0].timezone, 'Asia/Shanghai');
   assert.doesNotMatch(chat + messages, /sqlite|FastAPI|websocket/i);
+  assert.doesNotMatch(chat + messages, /yuanbao_chat_runs_v1|chat_runs/);
 });
 
 test('identity follows the official Makers auth architecture', async () => {
@@ -97,19 +100,20 @@ test('static acceptance site covers every release capability with executable det
   assert.deepEqual(
     JSON.parse(config).rewrites.filter((item) => item.source.startsWith('/test-cases')),
     [
-      { source: '/test-cases', destination: '/test-cases/index.html' },
-      { source: '/test-cases/', destination: '/test-cases/index.html' },
+      { source: '/test-cases', destination: '/test-cases-entry.html' },
+      { source: '/test-cases/', destination: '/test-cases-entry.html' },
     ],
   );
 });
 
 test('reported acceptance regressions keep explicit implementation guards', async () => {
-  const [files, library, readerClient, chatError, chatTools, workspace] = await Promise.all([
+  const [files, library, readerClient, chatError, chatTools, chatGraph, workspace] = await Promise.all([
     read('cloud-functions/files/index.js'),
     read('cloud-functions/library/index.js'),
     read('frontend/src/services/paperApi.ts'),
     read('frontend/src/services/chatError.ts'),
     read('agents/chat/_ui_tools.py'),
+    read('agents/chat/_graph.py'),
     read('agents/workspace/index.py'),
   ]);
   assert.match(files, /image\/png/);
@@ -117,6 +121,8 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.match(readerClient, /makersConversationHeaders\(getOrCreateConversationId\(\)\)/);
   assert.match(chatError, /failed to fetch/i);
   assert.match(chatTools, /initial_visual_references/);
+  assert.match(chatGraph, /handle_tool_errors=TOOL_FAILURE_MESSAGE/);
+  assert.match(chatGraph, /工具暂时没有完成/);
   assert.match(workspace, /collect_schedule_signals/);
 });
 
@@ -151,14 +157,15 @@ test('legacy data migration terminates in Makers-managed stores', async () => {
 
 test('runtime does not reimplement generic tracing, queue or cron services', async () => {
   const [system, tick, proactive] = await Promise.all([
-    read('agents/system/index.py'),
+    read('agents/system_internal/index.py'),
     read('cloud-functions/proactive-tick/index.js'),
     read('agents/_shared/proactive.py'),
   ]);
   assert.match(tick, /onlyIfNew/);
+  assert.match(system, /ctx\.store\.langgraph_store/);
   assert.match(system, /notification_statuses/);
-  assert.match(system, /"schedule": "0 8 \* \* \*"/);
-  assert.doesNotMatch(system, /"schedule": "0 \* \* \* \*"/);
+  assert.match(system, /["']schedule["']:\s*["']0 8 \* \* \*["']/);
+  assert.doesNotMatch(system, /["']schedule["']:\s*["']0 \* \* \* \*["']/);
   assert.match(proactive, /Policy|policy|notification/i);
   assert.doesNotMatch(system + tick, /OPS_ALERT_WEBHOOK|PROACTIVE_OPS_WEBHOOK|Sentry|OpenTelemetry/);
 });
@@ -182,4 +189,8 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
   );
   assert.match(active, /useSSEChat/);
   assert.match(active, /AuthGate/);
+  const chatClient = await read('frontend/src/hooks/useSSEChat.ts');
+  const stopRequest = chatClient.match(/fetch\(withEdgeOneAuth\('\/stop'\)[\s\S]*?body: JSON\.stringify/);
+  assert.ok(stopRequest);
+  assert.doesNotMatch(stopRequest[0], /makersConversationHeaders/);
 });

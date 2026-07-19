@@ -3,9 +3,19 @@ from __future__ import annotations
 import asyncio
 import difflib
 import re
+import ssl
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+
+
+def _ssl_context() -> ssl.SSLContext:
+    """Use certifi in managed Python images while retaining the system fallback."""
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
 
 def _search(topic: str, limit: int, title_only: bool = False, author: str = "", year: int = 0) -> list[dict]:
     if title_only:
@@ -18,7 +28,7 @@ def _search(topic: str, limit: int, title_only: bool = False, author: str = "", 
         search_query += f" AND submittedDate:[{year}01010000 TO {year}12312359]"
     query = urllib.parse.urlencode({"search_query": search_query, "start": 0, "max_results": max(1, min(8, limit)), "sortBy": "relevance", "sortOrder": "descending"})
     request = urllib.request.Request(f"https://export.arxiv.org/api/query?{query}", headers={"User-Agent": "Yuanbao-Agent/1.0 (paper reader)"})
-    with urllib.request.urlopen(request, timeout=25) as response:
+    with urllib.request.urlopen(request, timeout=25, context=_ssl_context()) as response:
         body = response.read(2 * 1024 * 1024)
     root = ET.fromstring(body)
     ns = {"atom": "http://www.w3.org/2005/Atom"}

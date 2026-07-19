@@ -5,11 +5,11 @@
   "rewrites": [
     {
       "source": "/test-cases",
-      "destination": "/test-cases/index.html"
+      "destination": "/test-cases-entry.html"
     },
     {
       "source": "/test-cases/",
-      "destination": "/test-cases/index.html"
+      "destination": "/test-cases-entry.html"
     }
   ],
   "cloudFunctions": {

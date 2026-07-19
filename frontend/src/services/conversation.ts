@@ -14,9 +14,7 @@ function scopedKey(key: string): string {
 export function loadLocalConversations(): ConversationSummary[] {
   try {
     const value = JSON.parse(localStorage.getItem(scopedKey(CONVERSATION_LIST_KEY)) || '[]') as ConversationSummary[];
-    return Array.isArray(value) ? value.filter((item) => item?.id).slice(0, 100).map((item) => (
-      item.activityStatus === 'running' ? { ...item, activityStatus: 'failed' as const } : item
-    )) : [];
+    return Array.isArray(value) ? value.filter((item) => item?.id).slice(0, 100) : [];
   } catch { return []; }
 }
 

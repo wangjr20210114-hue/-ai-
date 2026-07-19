@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 
 from .._shared.auth import require_user, scoped_conversation_id
+from .._shared.http import error
 from .._shared.legacy_migration import import_message_batch, import_state_bundle, validate_export_id
 
 
@@ -53,4 +54,4 @@ async def handler(ctx):
             return result, 409 if result.get("status") == "reconciliation_required" else 200
         raise ValueError("不支持的迁移操作")
     except ValueError as exc:
-        return {"error": str(exc)}, 400
+        return error(str(exc))

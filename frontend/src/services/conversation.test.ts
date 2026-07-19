@@ -44,9 +44,9 @@ describe('getOrCreateConversationId', () => {
     expect(loadLocalConversations()).toEqual(items);
   });
 
-  it('marks a stream interrupted by reload as failed instead of running forever', () => {
+  it('keeps a running marker across reload so the page can reconnect', () => {
     saveLocalConversations([{ id: 'conv-running', title: '进行中', createdAt: 1, updatedAt: 2, messageCount: 1, activityStatus: 'running' }]);
-    expect(loadLocalConversations()[0].activityStatus).toBe('failed');
+    expect(loadLocalConversations()[0].activityStatus).toBe('running');
   });
 });
 

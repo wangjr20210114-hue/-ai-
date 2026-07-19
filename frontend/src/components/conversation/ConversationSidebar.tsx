@@ -42,7 +42,7 @@ export default function ConversationSidebar({ open, onClose }: Props) {
       // of relabeling a real conversation as a new empty one.
       const remoteWithActivity = stored.map((remote) => {
         const local = conversations.find((item) => item.id === remote.id);
-        return local?.activityStatus ? { ...remote, activityStatus: local.activityStatus } : remote;
+        return remote.activityStatus ? remote : (local?.activityStatus ? { ...remote, activityStatus: local.activityStatus } : remote);
       });
       const localMissing = conversations.filter((item) => !remoteWithActivity.some((remote) => remote.id === item.id));
       const activeFallback = remoteWithActivity.some((item) => item.id === conversationId) || localMissing.some((item) => item.id === conversationId)

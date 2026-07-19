@@ -254,10 +254,12 @@ async def plan_driving_route(key: str, places: list[dict[str, Any]], *, optimize
         key=lambda item: (float(item.get("distance") or math.inf), float(item.get("duration") or math.inf)),
     )
     distance = float(route.get("distance") or 0)
-    duration = float(route.get("duration") or 0)
+    # Tencent Direction WebService reports route duration in minutes.  The
+    # public Yuanbao contract and the OSRM fallback both use seconds.
+    duration = float(route.get("duration") or 0) * 60
     toll = float(route.get("taxi_fare", {}).get("fare") or route.get("toll") or 0) if isinstance(route.get("taxi_fare"), dict) else float(route.get("toll") or 0)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "provider": "tencent",
         "mode": "driving",
         "places": places,

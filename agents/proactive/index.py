@@ -21,6 +21,7 @@ from .._shared.proactive import (
 )
 from .._shared.intelligence import load_intelligence_state, record_feedback, save_intelligence_state
 from .._shared.auth import require_user
+from .._shared.http import error
 
 
 async def handler(ctx):
@@ -129,4 +130,4 @@ async def handler(ctx):
             return {**public_proactive_state(saved), "notification": notification}
         raise ValueError("不支持的主动服务操作")
     except Exception as exc:
-        return {"error": str(exc)}, 400
+        return error(str(exc))

@@ -2,6 +2,7 @@
 
 from ..chat._llm import get_model
 from .._shared.auth import require_user
+from .._shared.http import error
 
 
 PROMPTS = {
@@ -31,15 +32,15 @@ async def handler(ctx):
     text = str(body.get("text") or "").strip()
     question = str(body.get("question") or "").strip()
     if action not in PROMPTS:
-        return {"error": "不支持的助读操作"}, 400
+        return error("不支持的助读操作")
     if not text:
-        return {"error": "缺少可分析的论文文本"}, 400
+        return error("缺少可分析的论文文本")
     limit = 120000 if action in {"analyze", "full-translate", "terms", "qa"} else 12000
     text = text[:limit]
     user = f"论文文本：\n{text}"
     if action == "qa":
         if not question:
-            return {"error": "问题不能为空"}, 400
+            return error("问题不能为空")
         user += f"\n\n问题：{question[:2000]}"
     try:
         response = await get_model(ctx.env).ainvoke([
@@ -48,4 +49,4 @@ async def handler(ctx):
         ])
         return {"content": _text(getattr(response, "content", ""))}
     except Exception as exc:
-        return {"error": f"助读失败：{exc}"}, 500
+        return error(f"助读失败：{exc}", 500)

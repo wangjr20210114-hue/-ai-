@@ -17,6 +17,7 @@ from .._shared.proactive import (
     save_proactive_state,
 )
 from .._shared.auth import require_user, scoped_conversation_id
+from .._shared.http import error
 from .._shared.workspace import (
     active_map_payload,
     apply_calendar_changes,
@@ -91,7 +92,7 @@ async def handler(ctx):
     operation = str(body.get("operation") or "get")
     raw_conversation_id = ctx.conversation_id
     if not raw_conversation_id:
-        return {"error": "makers-conversation-id header is required"}, 400
+        return error("makers-conversation-id header is required")
     conversation_id = scoped_conversation_id(ctx, user_id, raw_conversation_id)
     store = ctx.store.langgraph_store
     state = await load_user_workspace(store, conversation_id, user_id)
@@ -271,4 +272,4 @@ async def handler(ctx):
         latest = await save_workspace(store, workspace_id, latest)
         return _response(latest, action)
     except Exception as exc:
-        return {"error": str(exc)}, 400
+        return error(str(exc))

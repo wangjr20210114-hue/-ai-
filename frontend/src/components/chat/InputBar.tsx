@@ -62,6 +62,7 @@ export default function InputBar({ client }: Props) {
         activity,
         text: message.content,
         message_id: message.id,
+        client_message_id: message.id,
         web_search: webSearch,
         client_message: message,
         reference_images: referenceImages,
@@ -99,9 +100,6 @@ export default function InputBar({ client }: Props) {
     sendActivity(message, 'asked', referenceImage ? [referenceImage.dataUrl] : []);
     setReferenceImage(null);
     setSending(false);
-    void saveConversationMessage(conversationId, message).catch((error) => {
-      MessagePlugin.error(error instanceof Error ? error.message : '消息同步失败');
-    });
   };
 
   const handleStop = async () => {

@@ -234,7 +234,13 @@ async def collect_provider_signals(
     )[:4]
     key = str(env.get("TENCENT_MAP_SERVER_KEY") or env.get("TENCENT_MAP_KEY") or env.get("VITE_TENCENT_MAP_KEY") or "")
     signals: list[dict[str, Any]] = []
-    diagnostics: dict[str, Any] = {"weather_checked": 0, "routes_checked": 0, "errors": []}
+    diagnostics: dict[str, Any] = {
+        "weather_checked": 0,
+        "routes_checked": 0,
+        "weather_facts": [],
+        "route_facts": [],
+        "errors": [],
+    }
     weather_keywords = ("雨", "雪", "雷", "暴", "台风", "大风", "沙尘", "雾", "冰雹", "冻")
     for schedule in future[:3]:
         place = _verified_place(schedule)
@@ -244,6 +250,15 @@ async def collect_provider_signals(
             weather = await get_current_weather(key, place)
             diagnostics["weather_checked"] += 1
             condition = str(weather.get("weather") or "")
+            diagnostics["weather_facts"].append({
+                "schedule_id": str(schedule.get("id") or ""),
+                "schedule_title": str(schedule.get("title") or ""),
+                "place_id": str(place.get("place_id") or ""),
+                "condition": condition,
+                "temperature": weather.get("temperature"),
+                "humidity": weather.get("humidity"),
+                "observed_at": now,
+            })
             if condition and any(keyword in condition for keyword in weather_keywords):
                 schedule_id = str(schedule.get("id") or "")
                 start = int(schedule.get("start_time") or 0)
@@ -271,6 +286,15 @@ async def collect_provider_signals(
             route = await plan_verified_route(key, [previous_place, current_place])
             diagnostics["routes_checked"] += 1
             required = int(route.get("duration_seconds") or 0) + 15 * 60
+            diagnostics["route_facts"].append({
+                "previous_schedule_id": str(previous.get("id") or ""),
+                "current_schedule_id": str(current.get("id") or ""),
+                "available_seconds": available,
+                "route_duration_seconds": int(route.get("duration_seconds") or 0),
+                "distance_meters": float(route.get("distance_meters") or 0),
+                "provider": str(route.get("provider") or ""),
+                "observed_at": now,
+            })
             if required > available:
                 pair = f"{previous.get('id')}:{previous.get('start_time')}:{current.get('id')}:{current.get('start_time')}"
                 signals.append({
@@ -679,6 +703,27 @@ async def run_proactive_tick(
     )
     signals.extend(provider_signals)
     stats = process_schedule_signals(state, signals, timestamp)
+    for fact in provider_diagnostics.get("weather_facts", []):
+        _observation(
+            state,
+            _stable_id("run", f"weather:{fact.get('schedule_id')}:{timestamp}"),
+            "observed",
+            "weather_checked",
+            timestamp,
+            **copy.deepcopy(fact),
+        )
+    for fact in provider_diagnostics.get("route_facts", []):
+        _observation(
+            state,
+            _stable_id(
+                "run",
+                f"route:{fact.get('previous_schedule_id')}:{fact.get('current_schedule_id')}:{timestamp}",
+            ),
+            "observed",
+            "route_checked",
+            timestamp,
+            **copy.deepcopy(fact),
+        )
     stats["actions_reconciliation_required"] = len(recovered_actions)
     state["checkpoints"]["schedule_collector"] = {
         "last_scan_at": timestamp,

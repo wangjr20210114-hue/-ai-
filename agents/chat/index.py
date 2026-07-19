@@ -23,6 +23,14 @@ from .._shared.intelligence import (
     usage_summary,
 )
 from .._shared.auth import require_user, scoped_conversation_id
+from .._shared.makers_conversation import (
+    RUNNING_STATES,
+    ensure_conversation_title,
+    is_stale,
+    read_chat_run,
+    write_chat_run,
+)
+from .._shared.http import error
 from .._shared.workspace import load_user_workspace
 
 SYSTEM_PROMPT = """你是元宝，一个可靠、主动、自然的中文智能助手。使用 GitHub Flavored Markdown 回复；多行代码必须使用带语言标识的围栏代码块，不能用普通缩进或行内代码冒充代码块。
@@ -135,7 +143,51 @@ async def handler(ctx):
     body = ctx.request.body or {}
     message = body.get("message") or body.get("text") or ""
     if not message:
-        return {"error": "'message' is required"}, 400
+        return error("'message' is required")
+    previous_run = await read_chat_run(ctx.store, conversation_id)
+    if is_stale(previous_run):
+        await write_chat_run(
+            ctx.store,
+            conversation_id,
+            run_id=str((previous_run or {}).get("run_id") or ""),
+            status="failed",
+            error="上一次运行已超时，请重新发送",
+        )
+    elif isinstance(previous_run, dict) and previous_run.get("status") in RUNNING_STATES:
+        return error("该对话仍在处理中；刷新后会自动恢复，请稍候或先停止当前运行", 409)
+    try:
+        await ctx.store.append_message(
+            conversation_id=conversation_id,
+            role="user",
+            content=message,
+            user_id=user_id,
+            metadata={
+                "client_message_id": str(body.get("client_message_id") or ""),
+                "source": "yuanbao-chat",
+                "owner_user_id": user_id,
+            },
+        )
+        await ensure_conversation_title(ctx.store, conversation_id, message, user_id)
+    except Exception:
+        # LangGraph checkpoints remain authoritative if generic conversation
+        # indexing is temporarily unavailable.
+        logging.exception("native conversation append failed conversation=%s", conversation_id)
+    run_id = str(getattr(ctx, "run_id", "") or f"chat-{int(time.time() * 1000)}")
+    await write_chat_run(
+        ctx.store,
+        conversation_id,
+        run_id=run_id,
+        status="running",
+    )
+
+    async def fail_run(message_text: str) -> None:
+        await write_chat_run(
+            ctx.store,
+            conversation_id,
+            run_id=run_id,
+            status="failed",
+            error=str(message_text or "请求失败"),
+        )
     reference_images = [
         str(item) for item in (body.get("reference_images") or [])
         if isinstance(item, str)
@@ -157,14 +209,18 @@ async def handler(ctx):
         model = get_model(ctx.env)
     except Exception as exc:
         logging.exception("chat model configuration failed")
-        return {"error": public_error(exc)}, 503
+        message_text = public_error(exc)
+        await fail_run(message_text)
+        return error(message_text, 503)
     intelligence = await load_intelligence_state(ctx.store.langgraph_store, user_id)
     budget = usage_summary(intelligence)
     if (
         str((budget.get("preferences") or {}).get("enforcement") or "soft") == "hard"
         and ((budget.get("alerts") or {}).get("daily") or (budget.get("alerts") or {}).get("monthly"))
     ):
-        return {"error": "已达到今日 Token 预算；请在“记忆与学习”中调整预算或切换策略"}, 429
+        message_text = "已达到今日 Token 预算；请在“记忆与学习”中调整预算或切换策略"
+        await fail_run(message_text)
+        return error(message_text, 429)
     memory_context = confirmed_memory_context(intelligence)
     workspace = await load_user_workspace(ctx.store.langgraph_store, conversation_id, user_id)
     current_calendar_context = calendar_context(workspace)
@@ -172,7 +228,9 @@ async def handler(ctx):
         capability_plan = await plan_capabilities(model, message)
     except Exception as exc:
         logging.exception("chat capability planning failed")
-        return {"error": public_error(exc)}, 503
+        message_text = public_error(exc)
+        await fail_run(message_text)
+        return error(message_text, 503)
     logging.info("capability plan enabled=%s", [key for key, value in capability_plan.items() if value])
 
     queue: asyncio.Queue = asyncio.Queue()
@@ -235,6 +293,15 @@ async def handler(ctx):
     async def gen():
         done = object()
         usage = [0, 0, 0]
+        last_cancel_check = [0.0]
+
+        async def cancellation_requested() -> bool:
+            now_mono = time.monotonic()
+            if now_mono - last_cancel_check[0] < 2:
+                return False
+            last_cancel_check[0] = now_mono
+            latest = await read_chat_run(ctx.store, conversation_id)
+            return bool(isinstance(latest, dict) and latest.get("status") == "cancel_requested")
 
         async def produce():
             pending_actions: list[dict] = []
@@ -244,6 +311,8 @@ async def handler(ctx):
             final_answer_parts: list[str] = []
             public_stream = PublicStreamFilter()
             buffer_public_answer = bool(capability_plan.get("needs_image_generation"))
+            run_error = ""
+            cancelled = False
 
             async def reset_public_stream() -> None:
                 pending_ai_content.clear()
@@ -270,86 +339,93 @@ async def handler(ctx):
                     "configurable": {"thread_id": conversation_id},
                     "recursion_limit": MAX_GRAPH_RECURSION,
                 }
+                # Retry the marker after LangGraph has had a chance to create
+                # the native conversation; the frontend appends the user row
+                # concurrently and may have raced the first metadata update.
+                await write_chat_run(
+                    ctx.store,
+                    conversation_id,
+                    run_id=run_id,
+                    status="running",
+                )
                 imported_seed = await _imported_conversation_seed(ctx, conversation_id, message)
                 async for event in graph.astream(
                     {"messages": [*imported_seed, {"role": "user", "content": message}]},
                     config=config,
                     stream_mode="messages",
                 ):
-                    if ctx.request.signal.is_set():
-                        break
+                        if await cancellation_requested():
+                            cancelled = True
+                            break
 
-                    streamed_message, _metadata = event
-                    input_tokens, output_tokens, total_tokens = _usage_values(streamed_message)
-                    usage[0] = max(usage[0], input_tokens)
-                    usage[1] = max(usage[1], output_tokens)
-                    usage[2] = max(usage[2], total_tokens)
+                        streamed_message, _metadata = event
+                        input_tokens, output_tokens, total_tokens = _usage_values(streamed_message)
+                        usage[0] = max(usage[0], input_tokens)
+                        usage[1] = max(usage[1], output_tokens)
+                        usage[2] = max(usage[2], total_tokens)
 
-                    if getattr(streamed_message, "type", "") == "tool":
-                        await reset_public_stream()
-                        tool_content = _text_content(
-                            getattr(streamed_message, "content", "")
-                        )
-                        action = _ui_action(tool_content)
-                        if action and action.get("ui_action") == "rich_search_results":
-                            metadata = action.get("search_results")
-                            if isinstance(metadata, dict):
-                                pending_search_results = metadata
-                                await queue.put(ctx.utils.sse({"type": "search_results", "payload": metadata}))
-                                pending_search_results = None
-                            papers = action.get("papers")
-                            if isinstance(papers, list) and papers:
-                                pending_papers = {"papers": papers, "topic": metadata.get("query", "") if isinstance(metadata, dict) else ""}
+                        if getattr(streamed_message, "type", "") == "tool":
+                            await reset_public_stream()
+                            tool_content = _text_content(
+                                getattr(streamed_message, "content", "")
+                            )
+                            action = _ui_action(tool_content)
+                            if action and action.get("ui_action") == "rich_search_results":
+                                metadata = action.get("search_results")
+                                if isinstance(metadata, dict):
+                                    pending_search_results = metadata
+                                    await queue.put(ctx.utils.sse({"type": "search_results", "payload": metadata}))
+                                    pending_search_results = None
+                                papers = action.get("papers")
+                                if isinstance(papers, list) and papers:
+                                    pending_papers = {"papers": papers, "topic": metadata.get("query", "") if isinstance(metadata, dict) else ""}
+                                await queue.put(
+                                    ctx.utils.sse({
+                                        "type": "tool_result",
+                                        "name": getattr(streamed_message, "name", ""),
+                                        "content": "富搜索来源和媒体已准备",
+                                    })
+                                )
+                                continue
+                            if action and action.get("ui_action") == "paper_results":
+                                pending_papers = action
+                                await queue.put(ctx.utils.sse({"type": "tool_result", "name": "search_arxiv", "content": "论文结果已准备"}))
+                                continue
+                            if action and action["ui_action"] in {
+                                "map_action", "calendar_action", "side_effect_action",
+                            }:
+                                pending_actions.append(action)
+                                continue
                             await queue.put(
-                                ctx.utils.sse({
-                                    "type": "tool_result",
-                                    "name": getattr(streamed_message, "name", ""),
-                                    "content": "富搜索来源和媒体已准备",
-                                })
+                                ctx.utils.sse(
+                                    {
+                                        "type": "tool_result",
+                                        "name": getattr(streamed_message, "name", ""),
+                                        "content": tool_content[:500],
+                                    }
+                                )
                             )
                             continue
-                        if action and action.get("ui_action") == "paper_results":
-                            pending_papers = action
-                            await queue.put(ctx.utils.sse({"type": "tool_result", "name": "search_arxiv", "content": "论文结果已准备"}))
-                            continue
-                        if action and action["ui_action"] in {
-                            "map_action", "calendar_action", "side_effect_action",
-                        }:
-                            # Action UI is protocolically terminal metadata. Buffer
-                            # it until all assistant text has streamed so links and
-                            # confirmation cards never appear mid-sentence.
-                            pending_actions.append(action)
-                            continue
-                        await queue.put(
-                            ctx.utils.sse(
-                                {
-                                    "type": "tool_result",
-                                    "name": getattr(streamed_message, "name", ""),
-                                    "content": tool_content[:500],
-                                }
-                            )
-                        )
-                        continue
 
-                    tool_calls = getattr(streamed_message, "tool_calls", None) or []
-                    if tool_calls:
-                        await reset_public_stream()
-                        for tool_call in tool_calls:
-                            name = (
-                                tool_call.get("name", "")
-                                if isinstance(tool_call, dict)
-                                else ""
-                            )
-                            await queue.put(ctx.utils.sse({"type": "tool_call", "name": name}))
-                        continue
+                        tool_calls = getattr(streamed_message, "tool_calls", None) or []
+                        if tool_calls:
+                            await reset_public_stream()
+                            for tool_call in tool_calls:
+                                name = (
+                                    tool_call.get("name", "")
+                                    if isinstance(tool_call, dict)
+                                    else ""
+                                )
+                                await queue.put(ctx.utils.sse({"type": "tool_call", "name": name}))
+                            continue
 
-                    content = _text_content(getattr(streamed_message, "content", ""))
-                    if content:
-                        delta, reset_required = public_stream.push(content)
-                        if reset_required:
-                            pending_ai_content.clear()
-                            await queue.put(ctx.utils.sse({"type": "ai_response_reset"}))
-                        await emit_public(delta)
+                        content = _text_content(getattr(streamed_message, "content", ""))
+                        if content:
+                            delta, reset_required = public_stream.push(content)
+                            if reset_required:
+                                pending_ai_content.clear()
+                                await queue.put(ctx.utils.sse({"type": "ai_response_reset"}))
+                            await emit_public(delta)
                 tail, reset_required = public_stream.finish()
                 if reset_required:
                     pending_ai_content.clear()
@@ -362,11 +438,21 @@ async def handler(ctx):
                     if final_content:
                         await queue.put(ctx.utils.sse({"type": "ai_response", "content": final_content}))
             except Exception as exc:
-                if not ctx.request.signal.is_set():
-                    logging.exception("chat stream failed conversation=%s", conversation_id)
-                    await queue.put(
-                        ctx.utils.sse({"type": "error_message", "content": public_error(exc)})
-                    )
+                logging.exception("chat stream failed conversation=%s", conversation_id)
+                run_error = public_error(exc)
+                await queue.put(
+                    ctx.utils.sse({"type": "error_message", "content": run_error})
+                )
+            except asyncio.CancelledError:
+                # abortActiveRun is the platform-owned cancellation path.  A
+                # browser disconnect does not cancel this detached producer.
+                latest_run = await read_chat_run(ctx.store, conversation_id)
+                cancelled = bool(
+                    isinstance(latest_run, dict)
+                    and latest_run.get("status") == "cancel_requested"
+                )
+                if not cancelled:
+                    run_error = "运行已中断，请重试"
             finally:
                 final_answer = "".join(final_answer_parts).strip()
                 if background_tasks:
@@ -414,11 +500,36 @@ async def handler(ctx):
                         "type": action["ui_action"],
                         "payload": action,
                     }))
+                latest_run = await read_chat_run(ctx.store, conversation_id)
+                cancelled = cancelled or bool(
+                    isinstance(latest_run, dict)
+                    and latest_run.get("status") == "cancel_requested"
+                )
+                await write_chat_run(
+                    ctx.store,
+                    conversation_id,
+                    run_id=run_id,
+                    status="cancelled" if cancelled else ("failed" if run_error else "completed"),
+                    error=run_error,
+                )
+                if any(usage):
+                    try:
+                        latest_intelligence = await load_intelligence_state(ctx.store.langgraph_store, user_id)
+                        record_usage(latest_intelligence, usage[0], usage[1], usage[2] or usage[0] + usage[1], "chat")
+                        await save_intelligence_state(ctx.store.langgraph_store, latest_intelligence, user_id)
+                    except Exception as exc:
+                        logging.warning("usage persistence failed: %s", exc)
+                    await queue.put(ctx.utils.sse({
+                        "type": "usage",
+                        "input_tokens": usage[0],
+                        "output_tokens": usage[1],
+                        "total_tokens": usage[2] or usage[0] + usage[1],
+                    }))
                 await queue.put(done)
 
         producer = asyncio.create_task(produce())
         try:
-            while not ctx.request.signal.is_set():
+            while True:
                 try:
                     frame = await asyncio.wait_for(
                         queue.get(), timeout=HEARTBEAT_SECONDS
@@ -431,27 +542,20 @@ async def handler(ctx):
                 if frame is done:
                     break
                 yield frame
-        finally:
-            if not producer.done():
-                producer.cancel()
+        except GeneratorExit:
+            # Closing the SSE subscriber must not close the Makers run. Keep
+            # this invocation alive until LangGraph writes its final checkpoint.
             with contextlib.suppress(asyncio.CancelledError):
-                await producer
-
-        if any(usage):
-            try:
-                latest_intelligence = await load_intelligence_state(ctx.store.langgraph_store, user_id)
-                record_usage(latest_intelligence, usage[0], usage[1], usage[2] or usage[0] + usage[1], "chat")
-                await save_intelligence_state(ctx.store.langgraph_store, latest_intelligence, user_id)
-            except Exception as exc:
-                logging.warning("usage persistence failed: %s", exc)
-            yield ctx.utils.sse(
-                {
-                    "type": "usage",
-                    "input_tokens": usage[0],
-                    "output_tokens": usage[1],
-                    "total_tokens": usage[2] or usage[0] + usage[1],
-                }
-            )
+                await asyncio.shield(producer)
+            return
+        except asyncio.CancelledError:
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.shield(producer)
+            raise
+        finally:
+            if producer.done():
+                with contextlib.suppress(asyncio.CancelledError):
+                    await producer
         yield b"data: [DONE]\n\n"
 
     return ctx.utils.stream_sse(gen())

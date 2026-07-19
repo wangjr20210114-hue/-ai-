@@ -6,6 +6,7 @@ import time
 
 from .._shared.side_effects import generate_image, resolve_image_reference
 from .._shared.auth import require_user, scoped_conversation_id
+from .._shared.http import error
 from .._shared.workspace import (
     USER_WORKSPACE_ID,
     begin_action_execution,
@@ -30,18 +31,18 @@ async def handler(ctx):
     prompt = str(body.get("prompt") or "").strip()[:2000]
     parent_id = str(body.get("parent_action_id") or "").strip()
     if not prompt or not parent_id:
-        return {"error": "修改提示词和原图版本不能为空"}, 400
+        return error("修改提示词和原图版本不能为空")
 
     store = ctx.store.langgraph_store
     state = await load_user_workspace(store, conversation_id, user_id)
     parent = get_action(state, parent_id)
     if parent.get("kind") != "image_generate" or parent.get("status") != "succeeded":
-        return {"error": "原图版本不可用于修改"}, 400
+        return error("原图版本不可用于修改")
     parent_payload = parent.get("payload") or {}
     parent_result = parent.get("result") or {}
     reference = await resolve_image_reference(parent_result)
     if not reference.startswith(("https://", "data:image/")):
-        return {"error": "无法读取原图，请重新生成后再修改"}, 400
+        return error("无法读取原图，请重新生成后再修改")
 
     group_id = str(parent_payload.get("group_id") or parent.get("id") or "")
     action = new_action(

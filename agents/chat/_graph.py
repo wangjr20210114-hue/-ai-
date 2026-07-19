@@ -11,6 +11,12 @@ from ._history import bounded_history
 from ._protocol import dsml_tool_calls, public_content
 
 
+TOOL_FAILURE_MESSAGE = (
+    "工具暂时没有完成。请基于已经获得的信息向用户说明限制，"
+    "不要假装操作成功，也不要重复调用同一工具。"
+)
+
+
 def build_graph(
     model: ChatOpenAI,
     tools: list,
@@ -80,7 +86,13 @@ def build_graph(
     graph.add_node("agent", agent_node)
     graph.add_edge(START, "agent")
     if tools:
-        graph.add_node("tools", ToolNode(tools))
+        graph.add_node(
+            "tools",
+            ToolNode(
+                tools,
+                handle_tool_errors=TOOL_FAILURE_MESSAGE,
+            ),
+        )
         graph.add_conditional_edges("agent", should_continue)
         graph.add_edge("tools", "agent")
     else:

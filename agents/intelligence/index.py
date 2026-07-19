@@ -14,6 +14,7 @@ from .._shared.intelligence import (
 )
 from .._shared.proactive import load_proactive_state, save_proactive_state, update_preferences
 from .._shared.auth import require_user
+from .._shared.http import error
 
 
 async def handler(ctx):
@@ -60,4 +61,4 @@ async def handler(ctx):
         saved = await save_intelligence_state(store, state, user_id)
         return public_intelligence_state(saved)
     except Exception as exc:
-        return {"error": str(exc)}, 400
+        return error(str(exc))

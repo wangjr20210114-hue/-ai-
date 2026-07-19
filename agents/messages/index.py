@@ -5,6 +5,8 @@ import logging
 
 from .._shared.workspace import active_map_payload, load_user_workspace, public_action
 from .._shared.auth import require_user, scoped_conversation_id
+from .._shared.http import error
+from .._shared.makers_conversation import public_chat_run, read_chat_run
 from ..chat._protocol import public_content
 
 
@@ -39,12 +41,13 @@ async def handler(ctx):
     user_id = str(identity["user_id"])
     raw_conversation_id = ctx.conversation_id
     if not raw_conversation_id:
-        return {"error": "makers-conversation-id header is required"}, 400
+        return error("makers-conversation-id header is required")
     conversation_id = scoped_conversation_id(ctx, user_id, raw_conversation_id)
 
     config = {"configurable": {"thread_id": conversation_id}}
     checkpoint_tuple = await ctx.store.langgraph_checkpointer.aget_tuple(config)
     workspace = await load_user_workspace(ctx.store.langgraph_store, conversation_id, user_id)
+    run = await read_chat_run(ctx.store, conversation_id)
     latest_extras = None
     if ctx.store.langgraph_store is not None:
         item = await ctx.store.langgraph_store.aget(
@@ -190,4 +193,5 @@ async def handler(ctx):
         "map_places": latest_map,
         "map_title": latest_map_title,
         "workspace_revision": int(workspace.get("revision") or 0),
+        "run": public_chat_run(run),
     }

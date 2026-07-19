@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { MessagePlugin } from 'tdesign-react';
-import { bootstrapApp, proactiveOperation, saveConversationMessage, workspaceOperation } from '../services/api';
+import { bootstrapApp, proactiveOperation, workspaceOperation } from '../services/api';
+import type { BootstrapData, MakersChatRun } from '../services/api';
 import { withEdgeOneAuth } from '../services/auth';
 import { presentableChatError } from '../services/chatError';
 import { makersConversationHeaders, mergeMessages } from '../services/conversation';
@@ -9,9 +10,20 @@ import { useAppDispatch, useAppState } from '../store/appState';
 import type { ChatMessage, PaperInfo, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
 
 type ClientEvent = { type: string; payload: Record<string, unknown> };
+function responseError(data: unknown, fallback: string): string {
+  if (Array.isArray(data) && data[0] && typeof data[0] === 'object') {
+    return responseError(data[0], fallback);
+  }
+  if (data && typeof data === 'object') {
+    const value = data as { error?: unknown; detail?: unknown; message?: unknown };
+    return String(value.error || value.detail || value.message || fallback);
+  }
+  return fallback;
+}
 
 class SSEChatClient {
   private controller: AbortController | null = null;
+  private resumeController: AbortController | null = null;
   private listeners = new Set<(message: ClientEvent) => void>();
 
   constructor(private readonly conversationId: string) {}
@@ -32,13 +44,14 @@ class SSEChatClient {
   async stop(): Promise<void> {
     this.controller?.abort();
     this.controller = null;
+    this.resumeController?.abort();
+    this.resumeController = null;
     try {
       await fetch(withEdgeOneAuth('/stop'), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...makersConversationHeaders(this.conversationId),
-        },
+        // Makers documents that stop must not carry the target conversation
+        // header, otherwise this request can replace the active run signal.
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ conversation_id: this.conversationId }),
         credentials: 'same-origin',
       });
@@ -85,8 +98,7 @@ class SSEChatClient {
       if (!response.ok) {
         let detail = `HTTP ${response.status}`;
         try {
-          const data = await response.json() as { error?: string; detail?: string };
-          detail = data.error || data.detail || detail;
+          detail = responseError(await response.json(), detail);
         } catch {
           // Keep the HTTP status fallback.
         }
@@ -240,8 +252,60 @@ class SSEChatClient {
     }
   }
 
+  async resume(): Promise<void> {
+    this.resumeController?.abort();
+    const controller = new AbortController();
+    this.resumeController = controller;
+    const streamId = `ai-resume-${Date.now()}`;
+    this.emit({ type: 'stream_start', payload: { id: streamId, intent: 'chat', resumed: true } });
+    try {
+      for (let attempt = 0; attempt < 240 && !controller.signal.aborted; attempt += 1) {
+        const data = await bootstrapApp(this.conversationId);
+        if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        const run = data.run;
+        this.emit({ type: 'checkpoint_snapshot', payload: { id: streamId, data } });
+        const lastMessage = data.messages[data.messages.length - 1];
+        const hasFinalAnswer = lastMessage?.role === 'ai' && Boolean(lastMessage.content.trim());
+        if (run?.status === 'cancelled') {
+          this.emit({ type: 'stream_end', payload: { id: streamId } });
+          return;
+        }
+        if (run?.status === 'completed' && hasFinalAnswer) {
+          this.emit({ type: 'stream_end', payload: { id: streamId } });
+          return;
+        }
+        if (!run?.status && hasFinalAnswer) {
+          this.emit({ type: 'stream_end', payload: { id: streamId } });
+          return;
+        }
+        if (run?.status === 'failed') {
+          this.emit({ type: 'error', payload: { id: streamId, message: run.error || '处理失败，请重试' } });
+          return;
+        }
+        await new Promise<void>((resolve, reject) => {
+          const timer = window.setTimeout(resolve, 1500);
+          controller.signal.addEventListener('abort', () => {
+            window.clearTimeout(timer);
+            reject(new DOMException('Aborted', 'AbortError'));
+          }, { once: true });
+        });
+      }
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        this.emit({ type: 'error', payload: { id: streamId, message: (error as Error).message || '恢复运行失败' } });
+      }
+    } finally {
+      if (this.resumeController === controller) this.resumeController = null;
+    }
+  }
+
   close() {
-    void this.stop();
+    // Unmount/refresh only detaches this page. Explicit user cancellation is
+    // handled by stop(); never turn a browser refresh into a server-side stop.
+    this.controller?.abort();
+    this.controller = null;
+    this.resumeController?.abort();
+    this.resumeController = null;
   }
 }
 
@@ -337,6 +401,21 @@ export function useSSEChat() {
           if (current && delta) { const next = { ...current, content: current.content + delta }; streams.set(streamId, next); patch(id, streamId, {}, delta); }
           break;
         }
+        case 'checkpoint_snapshot': {
+          const current = streams.get(streamId);
+          const data = event.payload.data as BootstrapData | undefined;
+          if (!current || !data || !Array.isArray(data.messages)) break;
+          const run = data.run as MakersChatRun | null | undefined;
+          const merged = mergeMessages(data.messages, cached(id));
+          const lastMessage = data.messages[data.messages.length - 1];
+          const hasFinalAnswer = lastMessage?.role === 'ai' && Boolean(lastMessage.content.trim());
+          const keepPlaceholder = !hasFinalAnswer && run?.status !== 'cancelled';
+          publish(id, keepPlaceholder ? [...merged, current] : merged);
+          if (activeConversationRef.current === id) {
+            dispatch({ type: 'HYDRATE_WORKSPACE', payload: { schedules: data.schedules, mapPlaces: data.map_places, mapTitle: data.map_title } });
+          }
+          break;
+        }
         case 'stream_reset': {
           const current = streams.get(streamId);
           if (current) {
@@ -358,7 +437,6 @@ export function useSSEChat() {
             const complete = { ...current, streaming: false };
             patch(id, streamId, complete);
             setConversationActivity(id, 'idle');
-            void saveConversationMessage(id, complete).catch((error) => console.warn('message persistence failed', error));
           }
           break;
         }
@@ -489,6 +567,11 @@ export function useSSEChat() {
           }
         }).catch((error) => console.warn('proactive bootstrap failed', error));
         dispatch({ type: 'SET_CONNECTED', payload: true });
+      }
+      const latestSummary = conversationsRef.current.find((item) => item.id === conversationId);
+      const hasUnansweredUser = merged.length > 0 && merged[merged.length - 1]?.role === 'user';
+      if (latestSummary?.activityStatus === 'running' || hasUnansweredUser) {
+        void client.resume();
       }
     }).catch((error) => console.warn('bootstrap failed', error));
     return () => { disposed = true; };
