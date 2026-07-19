@@ -62,6 +62,7 @@ def build_production_tools(
     background_tasks: list[asyncio.Task] | None = None,
     user_id: str = "local-user",
     initial_visual_references: list[str] | None = None,
+    tool_names: set[str] | None = None,
 ) -> list[StructuredTool]:
     runtime_env = env or {}
     paper_scope = paper_constraints or {}
@@ -558,4 +559,6 @@ def build_production_tools(
     ))
     if not meeting_ready:
         definitions = [definition for definition in definitions if definition[1] != "propose_meeting"]
+    if tool_names is not None:
+        definitions = [definition for definition in definitions if definition[1] in tool_names]
     return [StructuredTool.from_function(coroutine=fn, name=name, description=description) for fn, name, description in definitions]

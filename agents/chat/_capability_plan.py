@@ -13,7 +13,19 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 
+ROUTES = {
+    "general",
+    "place_map",
+    "place_recommendation",
+    "schedule_place",
+    "web_research",
+    "paper_research",
+    "image_generation",
+}
+
 DEFAULT_PLAN = {
+    "route": "general",
+    "confidence": 0.0,
     "needs_web_search": False,
     "needs_rich_answer": False,
     "needs_images": False,
@@ -54,7 +66,15 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
         return None
     if not isinstance(raw, dict):
         return None
-    plan = {key: bool(raw.get(key, False)) for key in BOOLEAN_KEYS}
+    route = str(raw.get("route") or "general").strip().lower()
+    if route not in ROUTES:
+        route = "general"
+    try:
+        confidence = max(0.0, min(1.0, float(raw.get("confidence") or 0.0)))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    plan = {"route": route, "confidence": confidence}
+    plan.update({key: bool(raw.get(key, False)) for key in BOOLEAN_KEYS})
     plan["search_query"] = str(raw.get("search_query") or "").strip()[:160]
     plan["image_query"] = str(raw.get("image_query") or "").strip()[:160]
     plan["paper_author"] = str(raw.get("paper_author") or "").strip()[:120]
@@ -71,12 +91,33 @@ def parse_capability_plan(content: Any) -> dict[str, Any]:
     return _decode_capability_plan(content) or dict(DEFAULT_PLAN)
 
 
+def tool_names_for_plan(plan: dict[str, Any]) -> set[str] | None:
+    """Return a semantic route's tool boundary; None keeps the general set."""
+    route = str(plan.get("route") or "general")
+    route_tools = {
+        "place_map": {"search_places", "prepare_map_recommendation"},
+        "place_recommendation": {
+            "rich_search", "search_places", "search_places_batch", "prepare_map_recommendation",
+        },
+        "schedule_place": {"search_schedule_places", "propose_calendar_changes"},
+        "web_research": {"rich_search", "collect_page_images", "analyze_images_parallel"},
+        "paper_research": {"rich_search", "search_arxiv"},
+        "image_generation": {
+            "rich_search", "collect_page_images", "analyze_images_parallel", "propose_image",
+        },
+    }
+    return route_tools.get(route)
+
+
 async def plan_capabilities(model, user_message: str) -> dict[str, Any]:
     today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
     prompt = f"""你是能力路由器，只判断完成本轮用户请求需要哪些能力，不回答问题。当前北京时间日期是运行时得到的 {today}；“今天、今日、今年、最近 N 年”等相对时间必须据此解析并写入搜索查询，绝不能沿用训练数据、示例或旧会话里的日期。
-返回严格 JSON：needs_web_search、needs_rich_answer、needs_images、needs_places、needs_map_action、needs_calendar_action、needs_meeting_action、needs_image_generation、needs_papers 为布尔值；search_query、image_query、paper_author 为字符串；paper_year、paper_limit 为整数。
+返回严格 JSON：route 为 general、place_map、place_recommendation、schedule_place、web_research、paper_research、image_generation 之一；confidence 为 0 到 1 的数字；needs_web_search、needs_rich_answer、needs_images、needs_places、needs_map_action、needs_calendar_action、needs_meeting_action、needs_image_generation、needs_papers 为布尔值；search_query、image_query、paper_author 为字符串；paper_year、paper_limit 为整数。
+路由含义：place_map 是单个或明确地点定位并显示地图；place_recommendation 是需要发现、比较或推荐多个地点；schedule_place 是为日程新增、编辑或恢复地点；web_research 是需要网页事实或时效信息；paper_research 是论文检索；image_generation 是生图；其他情况为 general。
 判断原则：
-- 这些字段只是给主模型的能力建议，绝不是工具开关；主模型始终可以自主决定是否搜索、使用多少素材以及怎样组织回答。
+- route 是语义工具边界，不是关键词匹配；confidence 表示你对路由判断的把握。
+- place_map、schedule_place 不需要 rich_search；只有需要发现、比较、推荐、网页事实、论文或真实视觉资料时才启用富搜索。
+- 规划结果会决定本轮可用工具；不要为了保险把 route 设为 general。
 - 判断外部网页、图片等素材是否可能增进回答。稳定知识也可以搜索核实或补充视觉资料，但不能因为搜索结果存在，就要求主模型围绕网页逐条复述。
 - rich_answer/images 表示富媒体素材可能有帮助，不规定最终版式；模型可以采用、穿插、重排或完全舍弃素材。
 - 旅行目的地介绍、第一次去某城市、请介绍当地有什么好玩/好吃/值得去，回答天然会包含多个可到访点，所以 needs_places 和 needs_map_action 都必须为 true；不能因为用户没说“地图”就关掉地图能力。

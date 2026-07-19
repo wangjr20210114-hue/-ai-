@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from agents.chat._capability_plan import parse_capability_plan, plan_capabilities
+from agents.chat._capability_plan import parse_capability_plan, plan_capabilities, tool_names_for_plan
 from agents.chat._followups import parse_followups
 from agents.chat._history import bounded_history
 from agents.chat._calendar_context import calendar_context
@@ -299,12 +299,30 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("urlopen", message)
 
     def test_capability_plan_parser_is_bounded_to_known_booleans(self):
-        plan = parse_capability_plan('```json\n{"needs_places": true, "needs_map_action": 1, "search_query": "北京旅行", "image_query": "故宫建筑", "unknown": true}\n```')
+        plan = parse_capability_plan('```json\n{"route":"place_map", "confidence": 0.94, "needs_places": true, "needs_map_action": 1, "search_query": "北京旅行", "image_query": "故宫建筑", "unknown": true}\n```')
+        self.assertEqual(plan["route"], "place_map")
+        self.assertEqual(plan["confidence"], 0.94)
         self.assertTrue(plan["needs_places"])
         self.assertTrue(plan["needs_map_action"])
         self.assertEqual(plan["search_query"], "北京旅行")
         self.assertEqual(plan["image_query"], "故宫建筑")
         self.assertNotIn("unknown", plan)
+
+    def test_semantic_routes_gate_rich_search_tools(self):
+        self.assertNotIn("rich_search", tool_names_for_plan({"route": "place_map"}))
+        self.assertNotIn("rich_search", tool_names_for_plan({"route": "schedule_place"}))
+        self.assertIn("rich_search", tool_names_for_plan({"route": "place_recommendation"}))
+        self.assertIsNone(tool_names_for_plan({"route": "general"}))
+
+    def test_place_map_tool_surface_excludes_rich_search(self):
+        tools = build_production_tools(None, store=FakeStore(), conversation_id="route-map", env={}, tool_names=tool_names_for_plan({"route": "place_map"}))
+        names = {tool.name for tool in tools}
+        self.assertEqual(names, {"search_places", "prepare_map_recommendation"})
+
+    def test_schedule_tool_surface_excludes_rich_search(self):
+        tools = build_production_tools(None, store=FakeStore(), conversation_id="route-schedule", env={}, tool_names=tool_names_for_plan({"route": "schedule_place"}))
+        names = {tool.name for tool in tools}
+        self.assertEqual(names, {"search_schedule_places", "propose_calendar_changes"})
 
     def test_follow_up_parser_accepts_only_three_unique_questions(self):
         self.assertEqual(
