@@ -410,7 +410,7 @@ async def rich_search(
     return await enrich_media()
 
 
-def evidence_for_model(metadata: dict[str, Any]) -> str:
+def evidence_for_model(metadata: dict[str, Any], media_mode: str = "disabled") -> str:
     sources = "\n".join(
         f"- {item.get('id') or 'source'} | 类型={item.get('source') or 'web'} | [{item['title']}]({item['url']})"
         f" | 发布日期={item.get('date') or '未标注'} | 摘要={item['snippet']}"
@@ -420,10 +420,15 @@ def evidence_for_model(metadata: dict[str, Any]) -> str:
         f"- {item.get('id') or 'media'} | ![{item['caption']}]({item['url']}) | 来源={item.get('source_title') or item.get('source_url') or '未知'}"
         for item in metadata.get("media", [])
     ) or "无通过视觉筛选的图片，不要插图。"
+    media_instruction = {
+        "required": "用户明确要求图片；如果有审核通过的图片，必须在相关段落使用至少一张上面的 Markdown 图片。",
+        "optional": "图片对本主题可能有帮助；如果有审核通过且相关的图片，优先在相关段落使用一张，但不要为了配图使用无关素材。",
+    }.get(str(media_mode or "disabled"), "图片不是本轮目标，不要主动插图。")
     return (
         f"可选网页/视频素材：\n{sources or '无'}\n\n"
         f"经视觉模型审核的可选图片素材：\n{media}\n\n"
-        "这些只是素材，不是回答提纲。由你决定采用哪些、放在何处以及以什么顺序呈现，也可以全部不用。"
+        f"{media_instruction}"
+        "这些只是素材，不是回答提纲。由你决定网页内容的组织方式。"
         "若采用网页或视频，直接在相关段落使用上面给出的 Markdown 链接；若采用图片，直接在相关段落使用上面给出的 Markdown 图片。"
         "前端会就地渲染为网页卡片、视频卡片或带来源图片。不要把资源统一罗列或堆在回答末尾。"
         "不要使用未提供的图片 URL，不要插入无关素材。"
