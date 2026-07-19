@@ -28,8 +28,31 @@ def _json_request(url: str, payload: dict, headers: dict, timeout: int) -> dict:
         url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers=headers, method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read(8 * 1024 * 1024).decode("utf-8"))
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read(8 * 1024 * 1024).decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            last_error = error
+            if error.code not in {408, 425, 429} and error.code < 500:
+                break
+        except (urllib.error.URLError, OSError, TimeoutError, json.JSONDecodeError) as error:
+            last_error = error
+        if attempt < 2:
+            time.sleep(0.35 * (attempt + 1))
+    logging.warning("rich search provider request failed url=%s error=%s", url, type(last_error).__name__)
+    raise RuntimeError("联网搜索服务暂时不可达，请稍后重试") from last_error
+
+
+async def _safe_search_request(
+    url: str, payload: dict, headers: dict, timeout: int,
+) -> tuple[dict[str, Any], str]:
+    try:
+        return await asyncio.to_thread(_json_request, url, payload, headers, timeout), ""
+    except Exception as error:
+        logging.warning("rich search query failed query=%s error=%s", payload.get("Query", "")[:120], error)
+        return {}, "network_unavailable"
 
 
 def _parse_pages(data: dict[str, Any], limit: int) -> list[dict[str, Any]]:
@@ -284,26 +307,24 @@ async def rich_search(
             + (f"只返回发布日期可核验为 {target_date} 的当日内容，每条结果必须带发布日期。" if strict_date
                else "检索和排序必须以该日期为时间基准，不要混用旧年份信息。")
         )
-    fact_request = asyncio.to_thread(
-        _json_request, f"{base_url}/SearchPro", {"Query": provider_query[:500]}, headers, 25,
-    )
     distinct_visual_query = bool(image_query and image_query.strip() != query.strip())
     visual_provider_query = image_query
     if target_date and visual_provider_query:
         visual_provider_query += f" {target_date} 当日发布 现场照片 新闻图片"
+    fact_request = _safe_search_request(
+        f"{base_url}/SearchPro", {"Query": provider_query[:500]}, headers, 25,
+    )
+    visual_request = _safe_search_request(
+        f"{base_url}/SearchPro", {"Query": visual_provider_query[:500]}, headers, 25,
+    ) if distinct_visual_query else None
     if distinct_visual_query and parallel_queries:
-        data, visual_data = await asyncio.gather(
-            fact_request,
-            asyncio.to_thread(_json_request, f"{base_url}/SearchPro", {"Query": visual_provider_query[:500]}, headers, 25),
-        )
+        (data, fact_error), (visual_data, visual_error) = await asyncio.gather(fact_request, visual_request)
     elif distinct_visual_query:
-        data = await fact_request
-        visual_data = await asyncio.to_thread(
-            _json_request, f"{base_url}/SearchPro", {"Query": visual_provider_query[:500]}, headers, 25,
-        )
+        data, fact_error = await fact_request
+        visual_data, visual_error = await visual_request
     else:
-        data = await fact_request
-        visual_data = data
+        data, fact_error = await fact_request
+        visual_data, visual_error = data, ""
     searched_at = time.perf_counter()
     results = _parse_pages(data, limit)
     visual_results = results
@@ -321,6 +342,7 @@ async def rich_search(
     base_metadata = {
         "schema_version": 2, "query": query, "results": sources, "media": [],
         "images": [], "sources_used": ["wsa"] if sources else [], "total": len(sources),
+        "search_errors": [error for error in (fact_error, visual_error) if error],
         "target_date": target_date, "strict_date": strict_date, "date_filter": date_filter,
         "media_pending": media_callback is not None and background_tasks is not None,
         "timings_ms": {

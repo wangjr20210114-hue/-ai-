@@ -293,6 +293,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("provider prefix", message)
         self.assertNotIn("invalid_request", message)
 
+    def test_network_errors_are_safe_and_retryable(self):
+        message = public_error("<urlopen error [Errno 101] Network is unreachable>")
+        self.assertIn("联网服务暂时不可达", message)
+        self.assertNotIn("urlopen", message)
+
     def test_capability_plan_parser_is_bounded_to_known_booleans(self):
         plan = parse_capability_plan('```json\n{"needs_places": true, "needs_map_action": 1, "search_query": "北京旅行", "image_query": "故宫建筑", "unknown": true}\n```')
         self.assertTrue(plan["needs_places"])
@@ -712,11 +717,18 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_place_search_falls_back_when_primary_results_do_not_match_query(self):
         target = {**PLACE, "place_id": "osm:lake", "name": "查干湖", "provider": "openstreetmap"}
-        with patch("agents._shared.tencent_location.search_places", new=AsyncMock(return_value=[PLACE])), \
+        with patch("agents._shared.tencent_location._search_tencent_response", new=AsyncMock(return_value=([PLACE], []))), \
              patch("agents._shared.tencent_location.search_osm_places", new=AsyncMock(return_value=[target])) as fallback:
             places = await search_verified_places("map-key", "查干湖")
         self.assertEqual(places[0]["name"], "查干湖")
         fallback.assert_awaited_once()
+
+    async def test_place_search_expands_tencent_cluster_regions_without_name_hardcoding(self):
+        target = {**PLACE, "place_id": "tencent:lake", "name": "查干湖旅游区"}
+        with patch("agents._shared.tencent_location._search_tencent_response", new=AsyncMock(side_effect=[([], ["松原市"]), ([target], [])])) as search:
+            places = await search_verified_places("map-key", "查干湖")
+        self.assertEqual(places[0]["name"], "查干湖旅游区")
+        self.assertEqual(search.await_args_list[1].kwargs["city"], "松原市")
 
     def test_image_versions_are_grouped_and_ordered(self):
         state = empty_workspace()
@@ -838,6 +850,56 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         with patch("agents.chat._ui_tools.provider_search_arxiv", new=AsyncMock(return_value=[])) as provider:
             await tool.ainvoke({"titles": ["Unrelated title"], "limit": 20})
         provider.assert_awaited_once_with("", 5, ["Unrelated title"], "Zhi-Hua Zhou", 2026)
+
+    async def test_calendar_update_reuses_existing_verified_place(self):
+        store = FakeStore()
+        state = empty_workspace()
+        existing = normalize_schedule({
+            "id": "schedule-existing",
+            "title": "景山公园",
+            "start_time": 1_800_000_000,
+            "duration_minutes": 60,
+            "location": PLACE["address"],
+            "place": PLACE,
+        })
+        state["schedules"][existing["id"]] = existing
+        await save_workspace(store, USER_WORKSPACE_ID, state)
+        tools = build_production_tools(None, store=store, conversation_id="calendar-update", env={})
+        tool = next(item for item in tools if item.name == "propose_calendar_changes")
+        result = json.loads(await tool.ainvoke({
+            "summary": "调整景山公园时间",
+            "changes": [{
+                "operation": "update",
+                "schedule_id": existing["id"],
+                "event": {
+                    "title": "景山公园晚餐",
+                    "start_time": "2026-07-16T19:00:00+08:00",
+                    "location": PLACE["address"],
+                },
+            }],
+        }))
+        self.assertEqual(result["ui_action"], "calendar_action")
+        self.assertEqual(result["action"]["payload"]["changes"][0]["event"]["place"]["place_id"], PLACE["place_id"])
+
+    async def test_uploaded_reference_overrides_parent_image_reference(self):
+        store = FakeStore()
+        state = empty_workspace()
+        parent = new_action("image_generate", {"prompt": "上一张", "group_id": "group-1"}, requires_confirmation=False)
+        parent["status"] = "succeeded"
+        parent["result"] = {"ok": True, "image_url": "https://example.com/parent.png"}
+        put_action(state, parent)
+        await save_workspace(store, USER_WORKSPACE_ID, state)
+        tools = build_production_tools(None, store=store, conversation_id="image-override", env={})
+        tool = next(item for item in tools if item.name == "propose_image")
+        uploaded = "data:image/jpeg;base64,ZmFrZQ=="
+        with patch("agents.chat._ui_tools.provider_generate_image", new=AsyncMock(return_value={"ok": True, "image_url": "https://example.com/new.png"})) as provider:
+            action = json.loads(await tool.ainvoke({
+                "prompt": "按新上传图片修改",
+                "parent_action_id": parent["id"],
+                "reference_image_urls": [uploaded],
+            }))["action"]
+        self.assertEqual(action["payload"]["reference_image_urls"], [uploaded])
+        provider.assert_awaited_once_with({}, "按新上传图片修改", [uploaded], user_id="local-user")
 
     async def test_image_retries_share_one_turn_group(self):
         store = FakeStore()

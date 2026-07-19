@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import re
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
@@ -20,14 +23,27 @@ def _fetch_json(url: str, params: dict[str, Any], timeout: int = 15) -> dict[str
         f"{url}?{query}",
         headers={"Accept": "application/json", "User-Agent": "yuanbao-edgeone/1.0"},
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        body = response.read(3 * 1024 * 1024)
-    data = json.loads(body.decode("utf-8"))
-    if not isinstance(data, dict):
-        raise RuntimeError("位置服务返回格式无效")
-    if int(data.get("status") or 0) != 0:
-        raise RuntimeError(str(data.get("message") or "位置服务请求失败"))
-    return data
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                body = response.read(3 * 1024 * 1024)
+            data = json.loads(body.decode("utf-8"))
+            if not isinstance(data, dict):
+                raise RuntimeError("位置服务返回格式无效")
+            if int(data.get("status") or 0) != 0:
+                raise RuntimeError(str(data.get("message") or "位置服务请求失败"))
+            return data
+        except urllib.error.HTTPError as error:
+            last_error = error
+            if error.code < 500 and error.code not in {408, 425, 429}:
+                break
+        except (urllib.error.URLError, OSError, TimeoutError, json.JSONDecodeError, RuntimeError) as error:
+            last_error = error
+        if attempt < 2:
+            time.sleep(0.3 * (attempt + 1))
+    logging.warning("Tencent location request failed error=%s", type(last_error).__name__)
+    raise RuntimeError("地点服务暂时不可达，请稍后重试") from last_error
 
 
 def _fetch_public_json(url: str, params: dict[str, Any], timeout: int = 20) -> Any:
@@ -36,8 +52,19 @@ def _fetch_public_json(url: str, params: dict[str, Any], timeout: int = 20) -> A
         f"{url}?{query}" if query else url,
         headers={"Accept": "application/json", "User-Agent": "yuanbao-edgeone/1.0 (travel assistant)"},
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read(5 * 1024 * 1024).decode("utf-8"))
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read(5 * 1024 * 1024).decode("utf-8"))
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError, TimeoutError, json.JSONDecodeError) as error:
+            last_error = error
+            if isinstance(error, urllib.error.HTTPError) and error.code < 500 and error.code not in {408, 425, 429}:
+                break
+            if attempt == 0:
+                time.sleep(0.3)
+    logging.warning("public location fallback failed error=%s", type(last_error).__name__)
+    raise RuntimeError("备用地点服务暂时不可达，请稍后重试") from last_error
 
 
 async def _get(url: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -72,7 +99,26 @@ def _place(item: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-async def search_places(key: str, query: str, *, city: str = "全国", limit: int = 10) -> list[dict[str, Any]]:
+def _parse_tencent_places(data: dict[str, Any]) -> list[dict[str, Any]]:
+    places = [_place(item) for item in data.get("data", []) if isinstance(item, dict)]
+    return [item for item in places if item is not None]
+
+
+def _cluster_regions(data: dict[str, Any]) -> list[str]:
+    clusters = data.get("cluster") or []
+    regions = []
+    for item in clusters if isinstance(clusters, list) else []:
+        if not isinstance(item, dict):
+            continue
+        region = str(item.get("title") or item.get("name") or item.get("region") or "").strip()
+        if region and region not in regions:
+            regions.append(region)
+    return regions[:8]
+
+
+async def _search_tencent_response(
+    key: str, query: str, *, city: str = "全国", limit: int = 10,
+) -> tuple[list[dict[str, Any]], list[str]]:
     if not key:
         raise RuntimeError("未配置 TENCENT_MAP_KEY")
     query = str(query or "").strip()
@@ -83,8 +129,12 @@ async def search_places(key: str, query: str, *, city: str = "全国", limit: in
         f"{API_ROOT}/place/v1/search",
         {"key": key, "keyword": query[:120], "boundary": boundary, "page_size": max(1, min(20, int(limit))), "page_index": 1},
     )
-    places = [_place(item) for item in data.get("data", []) if isinstance(item, dict)]
-    return [item for item in places if item is not None]
+    return _parse_tencent_places(data), _cluster_regions(data)
+
+
+async def search_places(key: str, query: str, *, city: str = "全国", limit: int = 10) -> list[dict[str, Any]]:
+    places, _regions = await _search_tencent_response(key, query, city=city, limit=limit)
+    return places
 
 
 async def search_osm_places(query: str, *, city: str = "", limit: int = 10) -> list[dict[str, Any]]:
@@ -121,18 +171,46 @@ async def search_osm_places(query: str, *, city: str = "", limit: int = 10) -> l
 
 
 async def search_verified_places(key: str, query: str, *, city: str = "全国", limit: int = 10) -> list[dict[str, Any]]:
-    normalized_query = "".join(re.findall(r"[\w\u4e00-\u9fff]+", str(query or "").lower()))
+    raw_query = str(query or "").strip()
+    normalized_query = "".join(re.findall(r"[\w\u4e00-\u9fff]+", raw_query.lower()))
     primary: list[dict[str, Any]] = []
+    cluster_regions: list[str] = []
     if key:
         try:
-            primary = await search_places(key, query, city=city, limit=limit)
-            if any(normalized_query and normalized_query in "".join(re.findall(r"[\w\u4e00-\u9fff]+", f"{item.get('name', '')}{item.get('address', '')}".lower())) for item in primary):
+            primary, cluster_regions = await _search_tencent_response(key, raw_query, city=city, limit=limit)
+            if any(
+                normalized_query and normalized_query in "".join(
+                    re.findall(r"[\w\u4e00-\u9fff]+", f"{item.get('name', '')}{item.get('address', '')}".lower())
+                )
+                for item in primary
+            ):
                 return primary
+            if not primary and str(city or "全国").strip() == "全国":
+                regional_results: list[dict[str, Any]] = []
+                for region in cluster_regions:
+                    try:
+                        regional, _ = await _search_tencent_response(
+                            key, raw_query, city=region, limit=limit,
+                        )
+                        regional_results.extend(regional)
+                    except Exception:
+                        continue
+                primary = regional_results
+                if primary:
+                    return primary[:max(1, min(20, int(limit)))]
         except Exception:
-            pass
-    fallback = await search_osm_places(query, city=city, limit=limit)
+            primary = []
+
+    fallback: list[dict[str, Any]] = []
+    try:
+        fallback = await search_osm_places(raw_query, city=city, limit=limit)
+    except Exception:
+        fallback = []
     if not fallback and str(city or "全国").strip() == "全国":
-        fallback = await search_osm_places(f"{query} 中国", limit=limit)
+        try:
+            fallback = await search_osm_places(raw_query, limit=limit)
+        except Exception:
+            fallback = []
     output, seen = [], set()
     for item in [*fallback, *primary]:
         place_id = str(item.get("place_id") or "")

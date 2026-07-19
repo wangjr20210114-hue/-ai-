@@ -121,9 +121,9 @@ def build_production_tools(
                     limit=max(1, min(5, int(limit_per_query))),
                 )
                 groups.append({"query": query, "places": places})
-            except Exception as exc:
+            except Exception:
                 places = []
-                groups.append({"query": query, "places": [], "error": str(exc)[:200]})
+                groups.append({"query": query, "places": [], "error": "地点服务暂时不可达，请稍后重试"})
             for place in places:
                 place_id = str(place["place_id"])
                 if place_id not in seen_ids:
@@ -247,9 +247,11 @@ def build_production_tools(
             if operation not in {"create", "update", "delete"}:
                 raise ValueError("日程操作只能是 create、update 或 delete")
             change: dict[str, Any] = {"operation": operation}
+            existing_schedule = None
             if operation in {"update", "delete"}:
                 schedule_id = str(raw.get("schedule_id") or "")
-                if schedule_id not in state.get("schedules", {}):
+                existing_schedule = state.get("schedules", {}).get(schedule_id)
+                if not isinstance(existing_schedule, dict):
                     raise ValueError("当前日程已变化，旧日程 ID 已失效；请根据本轮系统提供的当前日程标题和时间重新匹配后再提案")
                 change["schedule_id"] = schedule_id
             if operation != "delete":
@@ -277,10 +279,20 @@ def build_production_tools(
                         normalized_event[key] = event[key]
                 place_id = str(event.get("place_id") or event.get("location_place_id") or "").strip()
                 location_text = str(event.get("location") or "").strip()
+                if location_text and not place_id and isinstance(existing_schedule, dict):
+                    previous_place = (existing_schedule.get("extra") or {}).get("place") or {}
+                    previous_text = " ".join(str(existing_schedule.get(key) or "") for key in ("location",))
+                    previous_text += " " + " ".join(str(previous_place.get(key) or "") for key in ("name", "address"))
+                    if location_text in previous_text or previous_text in location_text:
+                        place_id = str(previous_place.get("place_id") or "")
                 if location_text and not place_id:
                     raise ValueError(f"“{location_text}”必须先通过 search_places 选择真实地点")
                 if place_id:
                     place = candidates.get(place_id)
+                    if not isinstance(place, dict) and isinstance(existing_schedule, dict):
+                        previous_place = (existing_schedule.get("extra") or {}).get("place") or {}
+                        if str(previous_place.get("place_id") or "") == place_id:
+                            place = previous_place
                     if not isinstance(place, dict):
                         raise ValueError(f"地点 ID 未通过本轮地点搜索验证：{place_id}")
                     normalized_event["place"] = place
@@ -325,22 +337,23 @@ def build_production_tools(
         state = await _load_state()
         parent = state.get("actions", {}).get(str(parent_action_id or ""))
         references: list[str] = []
-        group_id = ""
-        if isinstance(parent, dict) and parent.get("kind") == "image_generate":
-            parent_payload = parent.get("payload") or {}
-            parent_result = parent.get("result") or {}
-            reference_url = await resolve_image_reference(parent_result)
-            if reference_url.startswith(("https://", "data:image/")):
-                references.append(reference_url)
-            group_id = str(parent_payload.get("group_id") or parent.get("id") or "")
-        elif turn_image_group_id:
-            group_id = turn_image_group_id
         for raw_url in reference_image_urls or []:
             url = str(raw_url or "").strip()
             if url.startswith(("https://", "data:image/")) and url not in references:
                 references.append(url)
             if len(references) >= 3:
                 break
+        group_id = ""
+        if isinstance(parent, dict) and parent.get("kind") == "image_generate":
+            parent_payload = parent.get("payload") or {}
+            parent_result = parent.get("result") or {}
+            if not references:
+                reference_url = await resolve_image_reference(parent_result)
+                if reference_url.startswith(("https://", "data:image/")):
+                    references.append(reference_url)
+            group_id = str(parent_payload.get("group_id") or parent.get("id") or "")
+        elif turn_image_group_id:
+            group_id = turn_image_group_id
         if not group_id and not references:
             references.extend(turn_visual_references[:3])
         action = new_action(

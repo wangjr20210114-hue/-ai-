@@ -7,7 +7,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from ._history import bounded_history
+from ._history import bounded_history, recoverable_history
 from ._protocol import dsml_tool_calls, public_content
 
 
@@ -44,7 +44,7 @@ def build_graph(
             active_model = model
         else:
             active_model = required_model if first_step and required_model is not None else model_with_tools
-        history = bounded_history(state["messages"])
+        history = recoverable_history(bounded_history(state["messages"]))
         messages = [SystemMessage(content=system_prompt), *history]
         if force_finalize:
             messages.append(SystemMessage(content=(

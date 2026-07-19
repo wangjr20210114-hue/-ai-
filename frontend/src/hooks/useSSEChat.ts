@@ -56,6 +56,16 @@ class SSEChatClient {
     const signal = this.controller.signal;
     const streamId = `ai-stream-${Date.now()}`;
     let streamFinished = false;
+    const pendingMessage = typeof message.payload?.client_message === 'object'
+      ? message.payload.client_message as { content?: unknown }
+      : null;
+    if (typeof pendingMessage?.content === 'string' && pendingMessage.content.trim()) {
+      writePendingTurn(this.conversationId, {
+        streamId,
+        userMessage: pendingMessage.content,
+        startedAt: Date.now(),
+      });
+    }
 
     const clientMessage = message.payload?.client_message;
     if (clientMessage && typeof clientMessage === 'object') {
@@ -65,6 +75,7 @@ class SSEChatClient {
     const finish = () => {
       if (streamFinished) return;
       streamFinished = true;
+      clearPendingTurn(this.conversationId);
       this.emit({ type: 'stream_end', payload: { id: streamId } });
     };
 
@@ -241,11 +252,36 @@ class SSEChatClient {
   }
 
   close() {
-    void this.stop();
+    // Unmount/refresh is not an explicit user stop. Abort only this browser's
+    // reader; the server-side LangGraph turn must be allowed to checkpoint.
+    this.controller?.abort();
+    this.controller = null;
   }
 }
 
 const MESSAGE_CACHE_PREFIX = 'yuanbao.messages.';
+const PENDING_TURN_PREFIX = 'yuanbao.pending-turn.';
+
+type PendingTurn = { streamId: string; userMessage: string; startedAt: number };
+
+function pendingTurnKey(conversationId: string): string {
+  return `${PENDING_TURN_PREFIX}${conversationId}`;
+}
+
+function readPendingTurn(conversationId: string): PendingTurn | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(pendingTurnKey(conversationId)) || 'null') as PendingTurn | null;
+    return value && typeof value.streamId === 'string' && typeof value.userMessage === 'string' ? value : null;
+  } catch { return null; }
+}
+
+function writePendingTurn(conversationId: string, value: PendingTurn): void {
+  try { localStorage.setItem(pendingTurnKey(conversationId), JSON.stringify(value)); } catch { /* Remote checkpoint remains authoritative. */ }
+}
+
+function clearPendingTurn(conversationId: string): void {
+  try { localStorage.removeItem(pendingTurnKey(conversationId)); } catch { /* Ignore storage failures. */ }
+}
 
 function readMessageCache(conversationId: string): ChatMessage[] {
   try {
@@ -350,12 +386,16 @@ export function useSSEChat() {
           if (current) {
             streams.delete(streamId);
             if (current.failed) break;
-            if (!current.content.trim()) {
+            if (!current.content.trim() && !current.workspaceActions?.length && !current.searchResults && !current.papers?.length) {
               publish(id, cached(id).filter((item) => item.id !== streamId));
               setConversationActivity(id, 'idle');
               break;
             }
-            const complete = { ...current, streaming: false };
+            const complete = {
+              ...current,
+              content: current.content.trim() || (current.workspaceActions?.length ? '已准备好需要你确认的操作。' : current.content),
+              streaming: false,
+            };
             patch(id, streamId, complete);
             setConversationActivity(id, 'idle');
             void saveConversationMessage(id, complete).catch((error) => console.warn('message persistence failed', error));
@@ -480,6 +520,39 @@ export function useSSEChat() {
           item.id === conversationId ? reconciled : item
         ));
         dispatch({ type: 'UPSERT_CONVERSATION', payload: reconciled });
+      }
+      const pending = readPendingTurn(conversationId);
+      if (pending || summary?.activityStatus === 'running') {
+        const recoveryId = pending?.streamId || `ai-recovery-${Date.now()}`;
+        if (!merged.some((item) => item.id === recoveryId)) {
+          publish(conversationId, [...merged, {
+            id: recoveryId,
+            role: 'ai',
+            content: '',
+            ts: pending?.startedAt || Date.now(),
+            streaming: true,
+            skill: { intent: 'chat', mode: 'immediate', content: '', icon: '✨', action_label: '', params: {}, data: { status: 'thinking', statusText: '后台继续思考中…' } },
+          }]);
+        }
+        void (async () => {
+          for (let attempt = 0; attempt < 30 && !disposed; attempt += 1) {
+            await new Promise((resolve) => window.setTimeout(resolve, 2000));
+            if (disposed) return;
+            try {
+              const latest = await bootstrapApp(conversationId);
+              const latestMessages = mergeMessages(latest.messages, cached(conversationId))
+                .filter((item) => item.id !== recoveryId || !latest.messages.some((remote) => remote.role === 'ai' && remote.content.trim()));
+              publish(conversationId, latestMessages);
+              if (latest.messages.some((item) => item.role === 'ai' && item.content.trim())) {
+                clearPendingTurn(conversationId);
+                setConversationActivity(conversationId, 'idle');
+                return;
+              }
+            } catch (error) {
+              console.warn('pending conversation recovery poll failed', error);
+            }
+          }
+        })();
       }
       if (activeConversationRef.current === conversationId) {
         dispatch({ type: 'HYDRATE_WORKSPACE', payload: { schedules: data.schedules, mapPlaces: data.map_places, mapTitle: data.map_title } });
