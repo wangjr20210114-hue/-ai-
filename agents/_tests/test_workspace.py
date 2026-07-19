@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import asyncio
 import json
 import ast
 import threading
@@ -1027,6 +1028,31 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             action = json.loads(await tool.ainvoke({"prompt": "按参考图生成卡通版"}))["action"]
         self.assertEqual(action["payload"]["reference_image_urls"], [reference])
         provider.assert_awaited_once_with({}, "按参考图生成卡通版", [reference], user_id="local-user")
+
+    async def test_rich_search_runs_once_and_hands_reviewed_media_to_model(self):
+        metadata = {
+            "query": "最近 AI 有什么进展",
+            "results": [{"title": "AI 进展", "snippet": "发布会信息", "url": "https://example.com/news"}],
+            "media": [{
+                "url": "https://cdn.example.com/ai-event.jpg",
+                "caption": "AI 发布会现场的演讲舞台和大屏幕",
+                "source_title": "AI 进展",
+            }],
+        }
+        tools = build_production_tools(
+            None, store=FakeStore(), conversation_id="rich-search-once", env={},
+            tool_names={"rich_search"}, media_enabled=True, media_mode="optional",
+        )
+        tool = tools[0]
+        with patch("agents.chat._ui_tools.provider_rich_search", new=AsyncMock(return_value=metadata)) as provider:
+            results = await asyncio.gather(
+                tool.ainvoke({"query": "最近 AI 有什么进展", "image_query": "AI 发布会现场"}),
+                tool.ainvoke({"query": "其他查询", "image_query": "其他图片"}),
+            )
+        self.assertEqual(provider.await_count, 1)
+        self.assertEqual(results[0], results[1])
+        payload = json.loads(results[0])
+        self.assertIn("![AI 发布会现场的演讲舞台和大屏幕](https://cdn.example.com/ai-event.jpg)", payload["evidence"])
 
     async def test_rich_search_starts_fact_and_visual_queries_in_parallel(self):
         barrier = threading.Barrier(2, timeout=2)

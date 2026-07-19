@@ -56,7 +56,41 @@ def build_graph(
             normalized = dsml_tool_calls(getattr(response, "content", ""), allowed_tool_names)
             if normalized:
                 response = AIMessage(content="", tool_calls=normalized)
-        elif force_finalize and not public_content(getattr(response, "content", "")).strip():
+        response_tool_calls = list(getattr(response, "tool_calls", None) or [])
+        if not force_finalize and response_tool_calls:
+            rich_search_used = False
+            for message in reversed(state["messages"]):
+                if getattr(message, "type", "") in {"human", "user"}:
+                    break
+                if (
+                    getattr(message, "type", "") == "tool"
+                    and getattr(message, "name", "") == "rich_search"
+                ):
+                    rich_search_used = True
+                    break
+            filtered_tool_calls = []
+            suppressed_rich_search = False
+            for tool_call in response_tool_calls:
+                name = tool_call.get("name", "") if isinstance(tool_call, dict) else ""
+                if name == "rich_search":
+                    if rich_search_used:
+                        suppressed_rich_search = True
+                        continue
+                    rich_search_used = True
+                filtered_tool_calls.append(tool_call)
+            if suppressed_rich_search:
+                if filtered_tool_calls:
+                    response = response.model_copy(update={"tool_calls": filtered_tool_calls})
+                else:
+                    response = await model.ainvoke([
+                        SystemMessage(content=system_prompt),
+                        *history,
+                        SystemMessage(content=(
+                            "本轮已经完成唯一一次富搜索。请直接基于已有搜索结果回答，"
+                            "不要再次调用 rich_search，也不要输出工具调用。"
+                        )),
+                    ])
+        if force_finalize and not public_content(getattr(response, "content", "")).strip():
             # Some provider models keep imitating their previous DSML transport
             # after tools are unbound. One clean retry yields prose without
             # exposing a placeholder or inventing results.

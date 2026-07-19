@@ -76,6 +76,7 @@ def build_production_tools(
         if str(item).startswith(("https://", "data:image/"))
     ][:3]
     turn_image_group_id = ""
+    rich_search_task: asyncio.Task | None = None
 
     async def _load_state() -> dict[str, Any]:
         return await load_user_workspace(store, conversation_id, user_id)
@@ -440,31 +441,40 @@ def build_production_tools(
         return json.dumps({"page_url": page_url, "images": images, "count": len(images)}, ensure_ascii=False)
 
     async def rich_search(query: str, image_query: str = "", depth: str = "standard") -> str:
-        """Run the established rich search and return trusted source/media IDs."""
-        nonlocal turn_visual_references
-        metadata = await provider_rich_search(
-            runtime_env, str(query or "").strip(),
-            image_query=str(image_query or "").strip() if media_enabled else "", depth=depth,
-            target_date=str(time_scope.get("target_date") or ""),
-            strict_date=bool(time_scope.get("strict_date")),
-            media_callback=media_callback if progressive_media and media_enabled else None,
-            background_tasks=background_tasks if progressive_media and media_enabled else None,
-            include_media=media_enabled,
-        )
-        reviewed_references = [
-            str(item.get("url") or "")
-            for item in metadata.get("media", [])
-            if str(item.get("url") or "").startswith("https://")
-        ][:3]
-        turn_visual_references = list(dict.fromkeys([*turn_visual_references, *reviewed_references]))[:3]
-        return json.dumps({
-            "ui_action": "rich_search_results",
-            "search_results": metadata,
-            # Search result pages are evidence, not automatically trustworthy
-            # reader assets. Exact titles are resolved by search_arxiv next.
-            "papers": [],
-            "evidence": evidence_for_model(metadata, media_mode=media_mode if media_enabled else "disabled"),
-        }, ensure_ascii=False)
+        """Run at most one rich search per user turn and return trusted source/media IDs."""
+        nonlocal rich_search_task
+        if rich_search_task is None:
+            clean_query = str(query or "").strip()
+            clean_image_query = str(image_query or "").strip() if media_enabled else ""
+
+            async def run_once() -> str:
+                nonlocal turn_visual_references
+                metadata = await provider_rich_search(
+                    runtime_env, clean_query,
+                    image_query=clean_image_query, depth=depth,
+                    target_date=str(time_scope.get("target_date") or ""),
+                    strict_date=bool(time_scope.get("strict_date")),
+                    media_callback=media_callback if progressive_media and media_enabled else None,
+                    background_tasks=background_tasks if progressive_media and media_enabled else None,
+                    include_media=media_enabled,
+                )
+                reviewed_references = [
+                    str(item.get("url") or "")
+                    for item in metadata.get("media", [])
+                    if str(item.get("url") or "").startswith("https://")
+                ][:3]
+                turn_visual_references = list(dict.fromkeys([*turn_visual_references, *reviewed_references]))[:3]
+                return json.dumps({
+                    "ui_action": "rich_search_results",
+                    "search_results": metadata,
+                    # Search result pages are evidence, not automatically trustworthy
+                    # reader assets. Exact titles are resolved by search_arxiv next.
+                    "papers": [],
+                    "evidence": evidence_for_model(metadata, media_mode=media_mode if media_enabled else "disabled"),
+                }, ensure_ascii=False)
+
+            rich_search_task = asyncio.create_task(run_once())
+        return await rich_search_task
 
     async def analyze_images_parallel(image_urls: list[str], goal: str) -> str:
         """Evaluate up to 30 images in small isolated concurrent batches."""
