@@ -12,6 +12,7 @@ type ClientEvent = { type: string; payload: Record<string, unknown> };
 
 class SSEChatClient {
   private controller: AbortController | null = null;
+  private stopRequested = false;
   private listeners = new Set<(message: ClientEvent) => void>();
 
   constructor(private readonly conversationId: string) {}
@@ -30,6 +31,7 @@ class SSEChatClient {
   }
 
   async stop(): Promise<void> {
+    this.stopRequested = true;
     this.controller?.abort();
     this.controller = null;
     try {
@@ -52,6 +54,7 @@ class SSEChatClient {
     if (message.type === 'ping') return;
 
     if (this.controller) await this.stop();
+    this.stopRequested = false;
     this.controller = new AbortController();
     const signal = this.controller.signal;
     const streamId = `ai-stream-${Date.now()}`;
@@ -72,10 +75,10 @@ class SSEChatClient {
       this.emit({ type: 'optimistic_user', payload: { message: clientMessage } });
     }
 
-    const finish = () => {
+    const finish = (completed = true) => {
       if (streamFinished) return;
       streamFinished = true;
-      clearPendingTurn(this.conversationId);
+      if (completed || this.stopRequested) clearPendingTurn(this.conversationId);
       this.emit({ type: 'stream_end', payload: { id: streamId } });
     };
 
@@ -238,7 +241,7 @@ class SSEChatClient {
           }
         }
       }
-      finish();
+      finish(true);
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         this.emit({
@@ -246,7 +249,7 @@ class SSEChatClient {
           payload: { id: streamId, message: (error as Error).message || '请求失败' },
         });
       }
-      finish();
+      finish(false);
     } finally {
       if (this.controller?.signal === signal) this.controller = null;
     }
@@ -388,8 +391,13 @@ export function useSSEChat() {
             streams.delete(streamId);
             if (current.failed) break;
             if (!current.content.trim() && !current.workspaceActions?.length && !current.searchResults && !current.papers?.length) {
-              publish(id, cached(id).filter((item) => item.id !== streamId));
-              setConversationActivity(id, 'idle');
+              const interrupted = {
+                ...current,
+                content: '回答连接暂时中断，刷新页面后可恢复后台结果。',
+                streaming: false,
+              };
+              publish(id, cached(id).map((item) => item.id === streamId ? interrupted : item));
+              setConversationActivity(id, 'failed');
               break;
             }
             const complete = {

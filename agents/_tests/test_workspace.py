@@ -379,6 +379,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         }
         evidence = evidence_for_model(metadata)
         self.assertIn("![故宫太和殿建筑](https://cdn.example.com/palace.jpg)", evidence)
+        self.assertIn("不要插入无关素材", evidence)
+        self.assertIn("![故宫太和殿建筑](https://cdn.example.com/palace.jpg)", evidence_for_model(metadata, media_mode="optional"))
         self.assertNotIn("[[image:", evidence)
         self.assertNotIn("[[card:", evidence)
 

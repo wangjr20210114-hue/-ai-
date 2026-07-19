@@ -88,7 +88,6 @@ function isVideoUrl(value: string): boolean {
 export default function MarkdownRenderer({ content, searchMeta }: { content: string; searchMeta?: SearchMeta }) {
   const sources = searchMeta?.results || [];
   const cleanedContent = replaceCitationMarkers(content, sources);
-
   return (
     <div className="markdown-body">
       <ReactMarkdown

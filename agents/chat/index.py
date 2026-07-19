@@ -232,6 +232,7 @@ async def handler(ctx):
                 or bool(str(capability_plan.get("image_query") or "").strip())
             )
         ),
+        media_mode=str(capability_plan.get("media_mode") or "disabled"),
     )
     # The semantic route has already constrained the tool surface. Rich search
     # is exposed only for routes that need external discovery or evidence.

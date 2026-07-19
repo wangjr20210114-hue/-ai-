@@ -64,6 +64,7 @@ def build_production_tools(
     initial_visual_references: list[str] | None = None,
     tool_names: set[str] | None = None,
     media_enabled: bool = True,
+    media_mode: str = "disabled",
 ) -> list[StructuredTool]:
     runtime_env = env or {}
     paper_scope = paper_constraints or {}
@@ -462,7 +463,7 @@ def build_production_tools(
             # Search result pages are evidence, not automatically trustworthy
             # reader assets. Exact titles are resolved by search_arxiv next.
             "papers": [],
-            "evidence": evidence_for_model(metadata),
+            "evidence": evidence_for_model(metadata, media_mode=media_mode if media_enabled else "disabled"),
         }, ensure_ascii=False)
 
     async def analyze_images_parallel(image_urls: list[str], goal: str) -> str:
