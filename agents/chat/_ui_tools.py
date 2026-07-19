@@ -171,7 +171,7 @@ def build_production_tools(
         title: str,
         place_ids: list[str],
         action_text: str,
-        expected_place_count: int = 2,
+        expected_place_count: int | None = None,
     ) -> str:
         """Prepare a clickable map recommendation from verified place IDs.
 
@@ -192,7 +192,7 @@ def build_production_tools(
                 places.append(place)
         if not places:
             raise ValueError("推荐地点均未通过地点服务验证，不能显示到地图")
-        expected = max(1, min(12, int(expected_place_count or 2)))
+        expected = len(places) if expected_place_count is None else max(1, min(12, int(expected_place_count)))
         if len(places) < expected:
             raise ValueError(
                 f"推荐仅包含 {len(places)} 个有效地点，但回答需要 {expected} 个；"
@@ -219,8 +219,8 @@ def build_production_tools(
     ) -> str:
         """Verify model-selected destinations and prepare one terminal map Action."""
         normalized = list(dict.fromkeys(str(item or "").strip() for item in queries if str(item or "").strip()))
-        if not 2 <= len(normalized) <= 12:
-            raise ValueError("地图推荐需要模型提供 2 到 12 个独立地点名称")
+        if not 1 <= len(normalized) <= 12:
+            raise ValueError("地图显示需要模型提供 1 到 12 个独立地点名称")
         map_key = str(runtime_env.get("TENCENT_MAP_SERVER_KEY") or runtime_env.get("TENCENT_MAP_KEY") or runtime_env.get("VITE_TENCENT_MAP_KEY") or "")
         selected = []
         missing = []
@@ -540,8 +540,8 @@ def build_production_tools(
         (search_places, "search_places", "使用腾讯地点服务搜索真实地点，返回可安全用于地图和推荐的 place_id。推荐地点、景点或餐馆时使用。"),
         (search_schedule_places, "search_schedule_places", "日程地点专用轻量搜索：先查 OpenStreetMap，只有无相关结果时才查腾讯地图；新增、编辑或恢复带地点日程时使用，不要调用 rich_search。"),
         (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
-        (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
-        (recommend_places_on_map, "recommend_places_on_map", "模型驱动的多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。"),
+        (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图显示；单地点定位可传一个 ID，多地点推荐传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
+        (recommend_places_on_map, "recommend_places_on_map", "模型驱动的地点地图显示组合工具：根据用户目标给出 1-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。"),
         (propose_calendar_changes, "propose_calendar_changes", "必须用此工具准备日程新增、更新或删除提案并生成确认卡；不要只在正文里口头询问。格式示例：changes=[{operation:'create',event:{title:'游览北海公园',start_time:'2026-07-16T09:00:00+08:00',end_time:'2026-07-16T10:00:00+08:00',place_id:'地点工具返回的ID'}}]。更新/删除还要传 schedule_id。用户点击确认前不会真正写入。"),
         (propose_meeting, "propose_meeting", "准备创建腾讯会议的确认操作；用户确认后由后台通过腾讯会议官方服务端 API 执行。"),
         (propose_image, "propose_image", "直接调用混元生图并返回图片，不要询问确认。现实人物、地点或物体可先用 rich_search 获取经 HY-Vision 审核的图片 URL，再通过 reference_image_urls（最多 3 张）作为视觉参考；修改历史版本时传 parent_action_id。"),

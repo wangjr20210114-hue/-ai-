@@ -80,7 +80,7 @@ async def plan_capabilities(model, user_message: str) -> dict[str, Any]:
 - 判断外部网页、图片等素材是否可能增进回答。稳定知识也可以搜索核实或补充视觉资料，但不能因为搜索结果存在，就要求主模型围绕网页逐条复述。
 - rich_answer/images 表示富媒体素材可能有帮助，不规定最终版式；模型可以采用、穿插、重排或完全舍弃素材。
 - 旅行目的地介绍、第一次去某城市、请介绍当地有什么好玩/好吃/值得去，回答天然会包含多个可到访点，所以 needs_places 和 needs_map_action 都必须为 true；不能因为用户没说“地图”就关掉地图能力。
-- 单一地点的历史、文化或原理解说不需要 map_action，除非用户同时要求周边或路线。
+- 单一地点的历史、文化或原理解说不需要 map_action，除非用户同时要求周边或路线；如果用户问某地点在哪里并明确要求在地图显示，needs_places 和 needs_map_action 必须为 true，needs_rich_answer 可以为 false。
 - 用户要求新增/修改/删除行程日程才需要 calendar_action；仅说计划去某地不等于写日程。
 - 创建会议需要 meeting_action；生成新图片需要 image_generation。若图片主体是现实中的具体人物、地点、产品、动物品种或其他需要外观准确的对象，同时设置 web_search 和 images，并用 image_query 描述该真实主体；纯幻想、抽象画面或用户已给参考图则不搜索。
 - 搜索论文、文献、arXiv 或某研究方向的学术成果需要 papers；search_query 写论文主题。用户指定作者时 paper_author 使用其常见英文学术署名（如能确定），指定年份和数量时分别填写 paper_year、paper_limit；没有则为 0 或空字符串。

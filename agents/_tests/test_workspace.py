@@ -688,6 +688,37 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         after = await handler(FakeContext(store, {"operation": "activate_map", "action_id": action["id"], "version": 1}))
         self.assertEqual(after["map"]["places"][0]["place_id"], "poi-1")
 
+    async def test_single_place_map_action_is_supported(self):
+        store = FakeStore()
+        state = empty_workspace()
+        state["place_candidates"][PLACE["place_id"]] = PLACE
+        await save_workspace(store, USER_WORKSPACE_ID, state)
+        tools = build_production_tools(None, store=store, conversation_id="single-map", env={})
+        map_tool = next(tool for tool in tools if tool.name == "prepare_map_recommendation")
+        result = json.loads(await map_tool.ainvoke({
+            "title": "北京故宫",
+            "place_ids": [PLACE["place_id"]],
+            "action_text": "在地图中查看故宫",
+            "expected_place_count": 1,
+        }))
+        self.assertEqual(result["ui_action"], "map_action")
+        self.assertEqual(result["action"]["payload"]["places"], [PLACE])
+
+    async def test_single_place_map_composite_tool_is_supported(self):
+        store = FakeStore()
+        with patch("agents.chat._ui_tools.provider_search_places", new=AsyncMock(return_value=[PLACE])) as provider:
+            tools = build_production_tools(None, store=store, conversation_id="single-map-composite", env={})
+            map_tool = next(tool for tool in tools if tool.name == "recommend_places_on_map")
+            result = json.loads(await map_tool.ainvoke({
+                "queries": ["北京故宫"],
+                "city": "北京",
+                "title": "北京故宫",
+                "action_text": "在地图中查看故宫",
+            }))
+        self.assertEqual(result["ui_action"], "map_action")
+        self.assertEqual(result["action"]["payload"]["places"], [PLACE])
+        provider.assert_awaited_once()
+
     async def test_calendar_tool_accepts_flat_model_wire_shape(self):
         store = FakeStore()
         state = empty_workspace()
