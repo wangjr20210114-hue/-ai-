@@ -292,6 +292,7 @@ async def rich_search(
     strict_date: bool = False,
     media_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     background_tasks: list[asyncio.Task] | None = None,
+    include_media: bool = True,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     api_key = str(env.get("WSA_API_KEY") or "").strip()
@@ -400,6 +401,8 @@ async def rich_search(
             await media_callback(enriched)
         return enriched
 
+    if not include_media:
+        return base_metadata
     if media_callback is not None and background_tasks is not None:
         task = asyncio.create_task(enrich_media())
         background_tasks.append(task)

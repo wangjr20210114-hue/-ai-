@@ -46,6 +46,20 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['search_errors'], ['network_unavailable'])
         self.assertNotIn('urlopen', json.dumps(result))
 
+    async def test_rich_search_skips_media_pipeline_when_images_are_not_requested(self):
+        response = {"Pages": [{"title": "AI 进展", "url": "https://example.com/ai", "snippet": "最新进展", "date": "2026-07-19"}]}
+        with patch(
+            'agents._shared.rich_search._safe_search_request',
+            new=AsyncMock(return_value=(response, "")),
+        ), patch(
+            'agents._shared.rich_search._extract_candidates',
+            new=AsyncMock(side_effect=AssertionError('media extraction should be skipped')),
+        ):
+            result = await rich_search({'WSA_API_KEY': 'test'}, '最近 AI 有什么进展', include_media=False)
+        self.assertEqual(result['total'], 1)
+        self.assertEqual(result['media'], [])
+        self.assertFalse(result['media_pending'])
+
     async def test_place_search_returns_empty_result_when_all_providers_are_unreachable(self):
         with patch(
             'agents._shared.tencent_location.search_places',
