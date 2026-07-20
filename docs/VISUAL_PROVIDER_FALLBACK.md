@@ -45,10 +45,13 @@ CLOUDFLARE_WORKERS_AI_TOKEN=<API Token>
 ## 运行行为
 
 - 新闻图片审核：在一个共享 7 秒视觉预算内按顺序尝试已配置 Provider，并记录 `vision_diagnostics.provider_*`，不会把密钥或原始错误返回前端。
+- 新闻图片保底：如果所有视觉 Provider 均未配置、超时或暂时不可用，但 SearchPro 已返回文章主图，则保留去重后的 HTTPS 文章主图；只有视觉模型明确判断“不相关”时才丢弃。这样“最近 AI 有什么进展”不会仅因视觉密钥缺失退化为纯文字。
 - 用户附图理解：发送前端压缩后的图片后，服务端先做一次多模态描述，再把事实描述交给 LLM 规划和回答；原始 Base64 不进入文本提示。
 - 文生图：混元失败后，Cloudflare 使用 `FLUX.1 Schnell`。
 - 图生图：混元失败后，Cloudflare 使用 img2img；当前降级适配器使用第一张参考图，混元仍支持最多三张参考图。
 - 所有成功生成图片都复制到 Makers Blob；Provider 临时 URL 不是历史记录的唯一来源。
+
+当前 Makers Preview 尚未配置 Cloudflare 两项变量，因此代码降级链已经可用，但 Cloudflare 实际调用仍需配置后再验收。没有这些变量时不会影响混元主链，也不会把请求发往 Cloudflare。
 
 ## 无破坏 Preview 验收
 
@@ -59,4 +62,3 @@ CLOUDFLARE_WORKERS_AI_TOKEN=<API Token>
 3. 执行文生图、基于上一版本修改和上传图片问答。
 4. 验证三项仍成功、生成图进入 Makers Blob、应用无密钥泄露；日志应显示 Cloudflare Provider 被采用。
 5. 删除专用故障 Preview。不得把无效值带到 Production。
-
