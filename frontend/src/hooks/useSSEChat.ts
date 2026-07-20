@@ -61,13 +61,16 @@ class SSEChatClient {
         credentials: 'same-origin',
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const stopResult = await response.json() as { run_id?: string | null };
+      const stoppedRunId = String(stopResult.run_id || '');
       // The platform acknowledges cancel_requested before the detached
       // producer necessarily reaches its next cancellation checkpoint. Keep
       // the composer gated until Makers publishes a terminal run state, so a
       // quick follow-up is never rejected as "still processing".
       for (let attempt = 0; attempt < 30; attempt += 1) {
         const run = (await bootstrapApp(this.conversationId)).run;
-        if (!run || ['cancelled', 'completed', 'failed'].includes(String(run.status || ''))) return;
+        const sameRun = !stoppedRunId || String(run?.run_id || '') === stoppedRunId;
+        if (run && sameRun && ['cancelled', 'completed', 'failed'].includes(String(run.status || ''))) return;
         await new Promise((resolve) => window.setTimeout(resolve, 500));
       }
       throw new Error('取消已提交，但运行尚未结束');
