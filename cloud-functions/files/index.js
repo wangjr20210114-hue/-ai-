@@ -29,6 +29,12 @@ function safeSegment(value, fallback) {
   return normalized || fallback;
 }
 
+function contentDisposition(key, fallback) {
+  const filename = safeSegment(key.split('/').pop(), fallback);
+  const ascii = filename.replace(/[^\x20-\x7E]+/g, '_').replace(/["\\]/g, '_') || fallback;
+  return `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
 export async function onRequest(context) {
   const { request, env } = context;
   let user;
@@ -69,10 +75,13 @@ export async function onRequest(context) {
     const contentLength = Number(metadata.size || metadata.contentLength || metadata.headers?.['content-length'] || 0);
     const commonHeaders = {
       'Content-Type': contentType,
-      'Content-Disposition': `inline; filename="${safeSegment(key.split('/').pop(), key.startsWith(`${prefix}generated/`) ? 'image.png' : 'document.pdf')}"`,
+      // Response headers only accept byte-safe values. Preserve international
+      // filenames through RFC 5987 instead of inserting raw CJK characters.
+      'Content-Disposition': contentDisposition(key, key.startsWith(`${prefix}generated/`) ? 'image.png' : 'document.pdf'),
       'Cache-Control': 'private, max-age=60',
       'Accept-Ranges': 'makers-parts',
       'X-Yuanbao-Part-Size': String(DOWNLOAD_PART_BYTES),
+      ...(contentLength > 0 ? { 'X-Yuanbao-File-Size': String(contentLength) } : {}),
       ...(contentLength > 0 ? { 'Content-Length': String(contentLength) } : {}),
     };
     if (request.method === 'HEAD') return new Response(null, { headers: commonHeaders });
@@ -110,4 +119,4 @@ export async function onRequest(context) {
   return json({ error: 'Method not allowed' }, 405);
 }
 
-export const __test = { DOWNLOAD_PART_BYTES };
+export const __test = { DOWNLOAD_PART_BYTES, contentDisposition };

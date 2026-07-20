@@ -23,7 +23,15 @@ test('HEAD exposes the Makers-safe part size without reading the object body', a
   const response = await call(mockStore(new Uint8Array(10)), 'HEAD');
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('content-length'), '10');
+  assert.equal(response.headers.get('x-yuanbao-file-size'), '10');
   assert.equal(Number(response.headers.get('x-yuanbao-part-size')), __test.DOWNLOAD_PART_BYTES);
+});
+
+test('international Blob filenames remain valid response headers', async () => {
+  const value = __test.contentDisposition('uploads/demo/王俊然-毕业论文.pdf', 'document.pdf');
+  assert.match(value, /filename="_-_\.pdf"/);
+  assert.match(value, /filename\*=UTF-8''%E7%8E%8B/);
+  assert.doesNotMatch(value, /王俊然/);
 });
 
 test('GET part keeps large Blob transfers below the Cloud Function response limit', async () => {

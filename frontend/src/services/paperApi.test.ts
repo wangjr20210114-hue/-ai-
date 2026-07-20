@@ -17,7 +17,7 @@ describe('fetchPaperFile', () => {
 
   it('joins authenticated parts for a file larger than a function response', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(null, { headers: { 'content-length': '7', 'x-yuanbao-part-size': '4', 'content-type': 'application/pdf' } }))
+      .mockResolvedValueOnce(new Response(null, { headers: { 'content-length': '0', 'x-yuanbao-file-size': '7', 'x-yuanbao-part-size': '4', 'content-type': 'application/pdf' } }))
       .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 }))
       .mockResolvedValueOnce(new Response(new Uint8Array([5, 6, 7]), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);

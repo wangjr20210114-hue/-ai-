@@ -145,7 +145,7 @@ export async function fetchPaperFile(fileId: string, signal?: AbortSignal): Prom
   const url = paperFileUrl(fileId);
   const head = await authorizedFetch(url, { method: 'HEAD', signal });
   if (!head.ok) return head;
-  const size = Number(head.headers.get('content-length') || 0);
+  const size = Number(head.headers.get('x-yuanbao-file-size') || head.headers.get('content-length') || 0);
   const partSize = Number(head.headers.get('x-yuanbao-part-size') || 0);
   if (!Number.isFinite(size) || size <= 0 || !Number.isFinite(partSize) || partSize <= 0 || size <= partSize) {
     return authorizedFetch(url, { signal });
