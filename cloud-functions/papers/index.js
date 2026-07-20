@@ -52,7 +52,13 @@ export async function onRequest(context) {
       if (parsed.protocol !== 'https:' || privateHost) return json({ error: '论文 PDF 地址不安全' }, 400);
       downloadUrl = parsed.toString();
     }
-    const response = await fetch(downloadUrl, { headers: { 'User-Agent': 'Yuanbao-Agent/1.0 (paper reader)' } });
+    // arXiv can take longer than Makers' 30 s default. edgeone.json delegates
+    // the platform deadline to 120 s; keep an earlier business timeout so the
+    // function can still return a friendly JSON error.
+    const response = await fetch(downloadUrl, {
+      headers: { 'User-Agent': 'Yuanbao-Agent/1.0 (paper reader)' },
+      signal: AbortSignal.timeout(105_000),
+    });
     if (!response.ok) return json({ error: `论文下载失败：${response.status}` }, 502);
     if (!isArxiv) {
       const finalUrl = new URL(response.url);
@@ -71,5 +77,8 @@ export async function onRequest(context) {
     const items = await loadIndex(store, indexKey);
     await store.set(indexKey, JSON.stringify([item, ...items.filter((candidate) => isArxiv ? candidate.arxiv_id !== arxivId : candidate.source_url !== directPdf)].slice(0, 500)));
     return json({ file_id: key, filename: item.filename, title, arxiv_id: arxivId, total_chars: 0, preview: '', content_url: item.content_url });
-  } catch (error) { return json({ error: `论文下载失败：${error.message}` }, 502); }
+  } catch (error) {
+    const timeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+    return json({ error: timeout ? '论文下载超时，请稍后重试' : `论文下载失败：${error.message}` }, 502);
+  }
 }

@@ -23,6 +23,7 @@ test('conversation, state, object and schedule infrastructure reuse EdgeOne Make
   const makersConfig = JSON.parse(config);
   assert.equal(makersConfig.schedules[0].cron, '0 8 * * *');
   assert.equal(makersConfig.schedules[0].timezone, 'Asia/Shanghai');
+  assert.equal(makersConfig.cloudFunctions.nodejs.maxDuration, 120);
   assert.doesNotMatch(chat + messages, /sqlite|FastAPI|websocket/i);
   assert.doesNotMatch(chat + messages, /yuanbao_chat_runs_v1|chat_runs/);
 });
