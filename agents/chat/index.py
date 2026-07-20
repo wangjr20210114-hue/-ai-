@@ -200,17 +200,6 @@ async def handler(ctx):
 
     current_beijing = datetime.now(timezone(timedelta(hours=8)))
     current_date = current_beijing.date().isoformat()
-    # Publication-date strictness is a semantic planner decision.  Keyword
-    # matching incorrectly treated “截至今天的最新能力” as “published today”
-    # and discarded the latest verifiable release from earlier dates.
-    explicit_today = bool(capability_plan.get("strict_today_only"))
-    time_sensitive = bool(capability_plan.get("needs_web_search"))
-    temporal_context = {
-        # This value is derived for every request; it is deliberately never a
-        # release-date constant.
-        "target_date": current_date if time_sensitive else "",
-        "strict_date": explicit_today,
-    }
     try:
         model = get_model(ctx.env)
     except Exception as exc:
@@ -238,6 +227,18 @@ async def handler(ctx):
         await fail_run(message_text)
         return error(message_text, 503)
     logging.info("capability plan enabled=%s", [key for key, value in capability_plan.items() if value])
+
+    # Publication-date strictness is a semantic planner decision.  Keyword
+    # matching incorrectly treated “截至今天的最新能力” as “published today”
+    # and discarded the latest verifiable release from earlier dates.
+    explicit_today = bool(capability_plan.get("strict_today_only"))
+    time_sensitive = bool(capability_plan.get("needs_web_search"))
+    temporal_context = {
+        # This value is derived for every request; it is deliberately never a
+        # release-date constant.
+        "target_date": current_date if time_sensitive else "",
+        "strict_date": explicit_today,
+    }
 
     queue: asyncio.Queue = asyncio.Queue()
     background_tasks: list[asyncio.Task] = []

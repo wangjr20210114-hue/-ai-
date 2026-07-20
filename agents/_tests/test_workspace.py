@@ -324,6 +324,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(required_tool_for_plan({"needs_web_search": True}), "rich_search")
         self.assertEqual(required_tool_for_plan({"needs_web_search": False}), "")
 
+    def test_temporal_policy_is_derived_after_capability_planning(self):
+        source = (Path(__file__).parents[1] / "chat" / "index.py").read_text(encoding="utf-8")
+        planned = source.index("capability_plan = await plan_capabilities")
+        strict_date = source.index('explicit_today = bool(capability_plan.get("strict_today_only"))')
+        self.assertLess(planned, strict_date)
+
     def test_semantic_plan_builds_short_native_action_chain(self):
         plan = {
             "needs_web_search": True,
