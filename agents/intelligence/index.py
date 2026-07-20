@@ -56,6 +56,13 @@ async def handler(ctx):
             if changes.get("enforcement") in {"off", "soft", "hard"}:
                 current["enforcement"] = changes["enforcement"]
             state["usage_preferences"] = current
+        elif operation == "update_memory_preferences":
+            state["memory_preferences"] = {
+                "enabled": bool((body.get("preferences") or {}).get("enabled", True)),
+            }
+        elif operation == "clear_memories":
+            state["memories"] = {}
+            state["memory_proposals"] = {}
         else:
             raise ValueError("不支持的记忆与反馈操作")
         saved = await save_intelligence_state(store, state, user_id)

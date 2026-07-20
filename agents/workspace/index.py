@@ -14,6 +14,7 @@ from .._shared.proactive import (
     ingest_external_signal,
     load_proactive_state,
     process_schedule_signals,
+    reconcile_schedule_notifications,
     save_proactive_state,
 )
 from .._shared.auth import require_user, scoped_conversation_id
@@ -72,12 +73,15 @@ async def _record_calendar_signal(store, changed: list[dict], source: str, user_
         signals = collect_schedule_signals(schedules, now, lookahead)
         provider_signals, provider_diagnostics = await collect_provider_signals(env or {}, schedules, now, lookahead)
         signals.extend(provider_signals)
+        affected_ids = {str(item.get("id") or "") for item in changed if str(item.get("id") or "")}
+        reconciliation = reconcile_schedule_notifications(state, signals, affected_ids, now)
         stats = process_schedule_signals(state, signals, now)
         state.setdefault("checkpoints", {})["calendar_change"] = {
             "last_scan_at": now,
             "schedule_count": len(schedules),
             "signal_count": len(signals),
             "provider": provider_diagnostics,
+            "reconciliation": reconciliation,
             "stats": stats,
         }
     except Exception as exc:

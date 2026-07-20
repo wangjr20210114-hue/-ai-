@@ -129,6 +129,8 @@ export interface MakersIntelligenceState {
   revision: number;
   memory_proposals: MakersMemoryProposal[];
   memories: MakersMemory[];
+  memory_count?: number;
+  memory_preferences?: { enabled: boolean };
   rule_proposals: ProactiveRuleProposal[];
   feedback_count: number;
   usage: {

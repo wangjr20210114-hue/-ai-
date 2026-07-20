@@ -121,8 +121,9 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.match(readerClient, /makersConversationHeaders\(getOrCreateConversationId\(\)\)/);
   assert.match(chatError, /failed to fetch/i);
   assert.match(chatTools, /initial_visual_references/);
-  assert.match(chatGraph, /handle_tool_errors=TOOL_FAILURE_MESSAGE/);
+  assert.match(chatGraph, /handle_tool_errors=_tool_failure_message/);
   assert.match(chatGraph, /工具暂时没有完成/);
+  assert.match(chatGraph, /isinstance\(exc, ValueError\)/);
   assert.match(workspace, /collect_schedule_signals/);
 });
 

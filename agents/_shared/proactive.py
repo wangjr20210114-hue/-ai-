@@ -545,8 +545,55 @@ def _quiet_until(preferences: dict[str, Any], now: int) -> int:
 
 
 def _created_today(notification: dict[str, Any], now: int) -> bool:
+    if notification.get("dismissed_at"):
+        return False
     created = int(notification.get("created_at") or 0)
     return datetime.fromtimestamp(created, BEIJING).date() == datetime.fromtimestamp(now, BEIJING).date()
+
+
+def reconcile_schedule_notifications(
+    state: dict[str, Any], signals: list[dict[str, Any]], affected_schedule_ids: set[str], now: int,
+) -> dict[str, int]:
+    """Refresh or retire notifications whose source schedule was edited/deleted."""
+    valid = {str(signal.get("dedup_key") or ""): signal for signal in signals}
+    refreshed = superseded = 0
+    notifications = state.setdefault("notifications", {})
+    for event in state.setdefault("events", {}).values():
+        subjects = {str(value) for value in (event.get("subject_ids") or [])}
+        if not subjects.intersection(affected_schedule_ids):
+            continue
+        dedup_key = str(event.get("dedup_key") or "")
+        signal = valid.get(dedup_key)
+        related = [item for item in notifications.values() if item.get("event_id") == event.get("id")]
+        if signal is not None:
+            event["payload"] = copy.deepcopy(signal)
+            event["updated_at"] = now
+            for notification in related:
+                if notification.get("dismissed_at"):
+                    continue
+                notification.update({
+                    "title": str(signal.get("title") or "主动提醒"),
+                    "body": str(signal.get("detail") or ""),
+                    "reason": str(signal.get("detail") or ""),
+                    "action_prompt": str(signal.get("action") or ""),
+                    "priority": str(signal.get("priority") or "normal"),
+                    "evidence": copy.deepcopy(signal.get("evidence") or {}),
+                    "updated_at": now,
+                    "version": int(notification.get("version") or 1) + 1,
+                })
+                refreshed += 1
+            continue
+        for notification in related:
+            if notification.get("dismissed_at"):
+                continue
+            notification.update({
+                "status": "superseded",
+                "dismissed_at": now,
+                "updated_at": now,
+                "version": int(notification.get("version") or 1) + 1,
+            })
+            superseded += 1
+    return {"refreshed": refreshed, "superseded": superseded}
 
 
 def process_schedule_signals(state: dict[str, Any], signals: list[dict[str, Any]], now: int) -> dict[str, int]:

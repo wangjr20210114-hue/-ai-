@@ -114,6 +114,29 @@ describe('app state reducer', () => {
     expect(updated.mapRevision).toBe(initialState.mapRevision + 1);
   });
 
+  it('keeps the map persistent across identical checkpoint snapshots', () => {
+    const places = [{
+      place_id: 'poi-wumen', provider: 'tencent', name: '午门', address: '北京市东城区',
+      latitude: 39.912, longitude: 116.397,
+    }];
+    const activated = reducer(initialState, {
+      type: 'SET_MAP_PLACES', payload: { title: '故宫路线', places },
+    });
+    const snapshot = reducer(activated, {
+      type: 'HYDRATE_WORKSPACE',
+      payload: { schedules: [], mapPlaces: [{ ...places[0] }], mapTitle: '故宫路线' },
+    });
+    const transportOnlySnapshot = reducer(snapshot, {
+      type: 'HYDRATE_WORKSPACE', payload: { schedules: [] },
+    });
+
+    expect(snapshot.mapPlaces).toBe(activated.mapPlaces);
+    expect(snapshot.mapRevision).toBe(activated.mapRevision);
+    expect(transportOnlySnapshot.mapPlaces).toBe(activated.mapPlaces);
+    expect(transportOnlySnapshot.mapTitle).toBe('故宫路线');
+    expect(transportOnlySnapshot.mapRevision).toBe(activated.mapRevision);
+  });
+
   it('hydrates the persistent proactive inbox independently from conversations', () => {
     const proactive = {
       schema_version: 1,

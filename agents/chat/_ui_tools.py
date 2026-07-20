@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import logging
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -17,7 +19,6 @@ from .._shared.web_media import collect_page_images as provider_collect_page_ima
 from .._shared.rich_search import evidence_for_model, rich_search as provider_rich_search
 from .._shared.side_effects import generate_image as provider_generate_image, resolve_image_reference
 from .._shared.arxiv import search_arxiv as provider_search_arxiv
-from .._shared.intelligence import load_intelligence_state, propose_memory as create_memory_proposal, save_intelligence_state
 from .._shared.proactive import load_proactive_state, propose_workflow as create_workflow_proposal, save_proactive_state
 from .._shared.workspace import (
     begin_action_execution,
@@ -58,6 +59,11 @@ def build_production_tools(
     background_tasks: list[asyncio.Task] | None = None,
     user_id: str = "local-user",
     initial_visual_references: list[str] | None = None,
+    media_enabled: bool = True,
+    planned_search_query: str = "",
+    planned_image_query: str = "",
+    search_cache_ttl_seconds: int = 86_400,
+    search_cache_identity: str = "",
 ) -> list[StructuredTool]:
     runtime_env = env or {}
     paper_scope = paper_constraints or {}
@@ -69,6 +75,7 @@ def build_production_tools(
         if str(item).startswith(("https://", "data:image/"))
     ][:3]
     turn_image_group_id = ""
+    rich_search_task: asyncio.Task | None = None
 
     async def _load_state() -> dict[str, Any]:
         return await load_user_workspace(store, conversation_id, user_id)
@@ -247,11 +254,13 @@ def build_production_tools(
             if operation not in {"create", "update", "delete"}:
                 raise ValueError("日程操作只能是 create、update 或 delete")
             change: dict[str, Any] = {"operation": operation}
+            previous_event: dict[str, Any] = {}
             if operation in {"update", "delete"}:
                 schedule_id = str(raw.get("schedule_id") or "")
                 if schedule_id not in state.get("schedules", {}):
                     raise ValueError("当前日程已变化，旧日程 ID 已失效；请根据本轮系统提供的当前日程标题和时间重新匹配后再提案")
                 change["schedule_id"] = schedule_id
+                previous_event = state.get("schedules", {}).get(schedule_id) or {}
             if operation != "delete":
                 nested_event = raw.get("event")
                 # Some tool-calling models flatten list-item fields. Accept
@@ -264,14 +273,22 @@ def build_production_tools(
                 normalized_event: dict[str, Any] = {}
                 if title:
                     normalized_event["title"] = title
+                end_value = str(event.get("end_time") or event.get("end") or "").strip()
                 if start_value:
                     start = _parse_datetime(start_value)
                     normalized_event["start_time"] = int(start.timestamp())
-                    end_value = str(event.get("end_time") or event.get("end") or "").strip()
                     end = _parse_datetime(end_value) if end_value else start + timedelta(hours=1)
                     if end <= start:
                         raise ValueError(f"日程结束时间必须晚于开始时间：{title}")
                     normalized_event["duration_minutes"] = max(1, int((end - start).total_seconds() // 60))
+                elif end_value and operation == "update":
+                    start = datetime.fromtimestamp(int(previous_event.get("start_time") or 0), timezone.utc)
+                    end = _parse_datetime(end_value)
+                    if end <= start:
+                        raise ValueError(f"日程结束时间必须晚于开始时间：{title or previous_event.get('title') or '该日程'}")
+                    normalized_event["duration_minutes"] = max(1, int((end - start).total_seconds() // 60))
+                elif "duration_minutes" in event:
+                    normalized_event["duration_minutes"] = max(1, min(10_080, int(event.get("duration_minutes") or 60)))
                 for key in ("category", "description", "done"):
                     if key in event:
                         normalized_event[key] = event[key]
@@ -378,30 +395,84 @@ def build_production_tools(
         return json.dumps({"page_url": page_url, "images": images, "count": len(images)}, ensure_ascii=False)
 
     async def rich_search(query: str, image_query: str = "", depth: str = "standard") -> str:
-        """Run the established rich search and return trusted source/media IDs."""
-        nonlocal turn_visual_references
-        metadata = await provider_rich_search(
-            runtime_env, str(query or "").strip(),
-            image_query=str(image_query or "").strip(), depth=depth,
-            target_date=str(time_scope.get("target_date") or ""),
-            strict_date=bool(time_scope.get("strict_date")),
-            media_callback=media_callback if progressive_media else None,
-            background_tasks=background_tasks if progressive_media else None,
-        )
-        reviewed_references = [
-            str(item.get("url") or "")
-            for item in metadata.get("media", [])
-            if str(item.get("url") or "").startswith("https://")
-        ][:3]
-        turn_visual_references = list(dict.fromkeys([*turn_visual_references, *reviewed_references]))[:3]
-        return json.dumps({
-            "ui_action": "rich_search_results",
-            "search_results": metadata,
-            # Search result pages are evidence, not automatically trustworthy
-            # reader assets. Exact titles are resolved by search_arxiv next.
-            "papers": [],
-            "evidence": evidence_for_model(metadata),
-        }, ensure_ascii=False)
+        """Run one planner-shaped rich search per turn, with a persistent result cache."""
+        nonlocal rich_search_task
+        if rich_search_task is None:
+            clean_query = str(planned_search_query or query or "").strip()[:500]
+            clean_image_query = str(planned_image_query or image_query or "").strip()[:500] if media_enabled else ""
+            if not clean_query:
+                raise ValueError("富搜索查询不能为空")
+            clean_depth = depth if depth in {"basic", "standard", "deep"} else "standard"
+            target_date = str(time_scope.get("target_date") or "")
+            strict_date = bool(time_scope.get("strict_date"))
+            cache_input = json.dumps(
+                {
+                    "identity": re.sub(r"\s+", " ", str(search_cache_identity or clean_query)).strip().casefold()[:4000],
+                    "depth": clean_depth,
+                    "target_date": target_date,
+                    "strict_date": strict_date,
+                    "media": media_enabled,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            cache_key = hashlib.sha256(cache_input.encode("utf-8")).hexdigest()
+            cache_namespace = ("yuanbao_search_cache_v1", str(user_id or "local-user"))
+
+            async def run_once() -> str:
+                nonlocal turn_visual_references
+                metadata = None
+                if store is not None:
+                    try:
+                        cached_item = await store.aget(cache_namespace, cache_key)
+                        cached = cached_item.get("value") if isinstance(cached_item, dict) else getattr(cached_item, "value", None)
+                        cached_at = int((cached or {}).get("cached_at") or 0) if isinstance(cached, dict) else 0
+                        if cached_at and int(time.time()) - cached_at <= max(0, int(search_cache_ttl_seconds)):
+                            candidate = cached.get("metadata")
+                            if isinstance(candidate, dict):
+                                metadata = candidate
+                                metadata = {**metadata, "media_pending": False, "cache_hit": True}
+                                logging.info("rich_search cache_hit key=%s media=%s", cache_key[:12], media_enabled)
+                    except Exception:
+                        # Search must remain available when the optional cache is unavailable.
+                        metadata = None
+                if metadata is None:
+                    logging.info("rich_search provider_call key=%s media=%s", cache_key[:12], media_enabled)
+                    metadata = await provider_rich_search(
+                        runtime_env,
+                        clean_query,
+                        image_query=clean_image_query,
+                        depth=clean_depth,
+                        target_date=target_date,
+                        strict_date=strict_date,
+                        media_callback=media_callback if progressive_media and media_enabled else None,
+                        background_tasks=background_tasks if progressive_media and media_enabled else None,
+                        include_media=media_enabled,
+                    )
+                    metadata = {**metadata, "cache_hit": False}
+                    if store is not None and not metadata.get("media_pending"):
+                        try:
+                            await store.aput(cache_namespace, cache_key, {
+                                "cached_at": int(time.time()),
+                                "metadata": metadata,
+                            })
+                        except Exception:
+                            pass
+                reviewed_references = [
+                    str(item.get("url") or "")
+                    for item in metadata.get("media", [])
+                    if str(item.get("url") or "").startswith("https://")
+                ][:3]
+                turn_visual_references = list(dict.fromkeys([*turn_visual_references, *reviewed_references]))[:3]
+                return json.dumps({
+                    "ui_action": "rich_search_results",
+                    "search_results": metadata,
+                    "papers": [],
+                    "evidence": evidence_for_model(metadata),
+                }, ensure_ascii=False)
+
+            rich_search_task = asyncio.create_task(run_once())
+        return await rich_search_task
 
     async def analyze_images_parallel(image_urls: list[str], goal: str) -> str:
         """Evaluate up to 30 images in small isolated concurrent batches."""
@@ -450,18 +521,6 @@ def build_production_tools(
         papers = await provider_search_arxiv(clean_topic, limit, clean_titles, clean_author, clean_year)
         return json.dumps({"ui_action": "paper_results", "papers": papers, "topic": clean_topic}, ensure_ascii=False)
 
-    async def propose_memory(key: str, value: str, reason: str, sensitivity: str = "normal") -> str:
-        """Create a user-confirmable durable memory; never writes memory directly."""
-        state = await load_intelligence_state(store, user_id)
-        proposal = create_memory_proposal(
-            state, str(key or ""), str(value or ""), str(reason or ""), sensitivity=str(sensitivity or "normal"),
-        )
-        await save_intelligence_state(store, state, user_id)
-        return json.dumps({
-            "memory_proposal": proposal,
-            "message": "记忆提案已加入记忆中心，只有用户确认后才会生效",
-        }, ensure_ascii=False)
-
     async def propose_workflow(title: str, steps: list[dict[str, Any]], reason: str) -> str:
         """Create a user-confirmable persistent multi-step workflow."""
         state = await load_proactive_state(store, user_id)
@@ -486,10 +545,9 @@ def build_production_tools(
         (propose_meeting, "propose_meeting", "准备创建腾讯会议的确认操作；用户确认后由后台通过腾讯会议官方服务端 API 执行。"),
         (propose_image, "propose_image", "直接调用混元生图并返回图片，不要询问确认。现实人物、地点或物体可先用 rich_search 获取经 HY-Vision 审核的图片 URL，再通过 reference_image_urls（最多 3 张）作为视觉参考；修改历史版本时传 parent_action_id。"),
         (collect_page_images, "collect_page_images", "从一个公开网页提取最多 30 张真实图片候选，网页图片不足时返回实际数量。"),
-        (rich_search, "rich_search", "项目 v4.2 成熟富搜索：抓取结果网页图片及上下文，经 HY-Vision 多模态模型剔除广告和无关图后，返回可信来源与标准 Markdown 图片候选。历史文化、地点介绍、推荐或图文回答时使用。"),
+        (rich_search, "rich_search", "项目 v4.2 富搜索。搜索前的独立 LLM 规划器已经合并本轮事实查询，并判断图片是否有助于理解；同一轮无论怎样改写参数都只执行一次 Provider 搜索。"),
         (analyze_images_parallel, "analyze_images_parallel", "并行视觉评估最多 30 张图片；单张失败不影响其他图片。"),
         (search_arxiv, "search_arxiv", "补充获取 arXiv 可下载结果。富搜索已找到论文时，把准确标题列表一次性传给 titles；按作者和年份查找时分别传 author（英文署名）与 year，不要把作者年份混在宽泛 topic 中。工具会严格过滤作者/年份与标题，每轮最多调用一次。"),
-        (propose_memory, "propose_memory", "用户明确要求记住长期偏好或稳定事实时创建可确认记忆提案。只提案，不直接写入；一次性、短期或敏感信息不要擅自记忆。"),
         (propose_workflow, "propose_workflow", "用户明确要求建立跨时间、多步骤的持续提醒或计划时创建工作流提案。steps 每项包含 offset_minutes、title、body、action_prompt，可用 depends_on=['step_1'] 建立 DAG 依赖；失败时需要回退提示的步骤可增加 compensation={title,body,action_prompt}。默认按顺序依赖。必须由用户确认后才会激活，依赖步骤需用户标记完成后才推进。"),
     ]
     meeting_ready = all(str(runtime_env.get(key) or "").strip() for key in (

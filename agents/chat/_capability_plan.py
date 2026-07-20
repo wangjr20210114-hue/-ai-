@@ -71,13 +71,15 @@ def parse_capability_plan(content: Any) -> dict[str, Any]:
     return _decode_capability_plan(content) or dict(DEFAULT_PLAN)
 
 
-async def plan_capabilities(model, user_message: str) -> dict[str, Any]:
+async def plan_capabilities(model, user_message: str, memory_context: str = "") -> dict[str, Any]:
     today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
     prompt = f"""你是能力路由器，只判断完成本轮用户请求需要哪些能力，不回答问题。当前北京时间日期是运行时得到的 {today}；“今天、今日、今年、最近 N 年”等相对时间必须据此解析并写入搜索查询，绝不能沿用训练数据、示例或旧会话里的日期。
 返回严格 JSON：needs_web_search、needs_rich_answer、needs_images、needs_places、needs_map_action、needs_calendar_action、needs_meeting_action、needs_image_generation、needs_papers 为布尔值；search_query、image_query、paper_author 为字符串；paper_year、paper_limit 为整数。
 判断原则：
 - 这些字段只是给主模型的能力建议，绝不是工具开关；主模型始终可以自主决定是否搜索、使用多少素材以及怎样组织回答。
-- 判断外部网页、图片等素材是否可能增进回答。稳定知识也可以搜索核实或补充视觉资料，但不能因为搜索结果存在，就要求主模型围绕网页逐条复述。
+- 先语义判断是否需要外部事实。简单计算、脑筋急转弯、闲聊或模型可直接可靠回答的请求不搜索；时效事实、用户明确要求查证、需要来源或现实世界信息时搜索。
+- 独立判断图片是否能明显加快理解。现实事件的新闻/近期进展综述，如果现场、人物、产品或实物图片能帮助用户区分各条进展，通常设置 needs_images=true；只有用户明确要极简文字、主题高度抽象或确实没有有意义视觉对象时才设为 false。地点、产品、动植物、历史实物等同理。不能机械地按“用户有没有说图片”判断。
+- search_query 必须把完成目标所需的事实约束合并成一次高质量查询；不要拆成多个近义查询，也不要预留“第二次再搜”。近期进展综述要在同一查询中要求多个独立事件、可核验日期和可靠来源，避免只命中一条宽泛报道。image_query 只表达最能代表这些事实的视觉对象，可与事实搜索并发。
 - rich_answer/images 表示富媒体素材可能有帮助，不规定最终版式；模型可以采用、穿插、重排或完全舍弃素材。
 - 旅行目的地介绍、第一次去某城市、请介绍当地有什么好玩/好吃/值得去，回答天然会包含多个可到访点，所以 needs_places 和 needs_map_action 都必须为 true；不能因为用户没说“地图”就关掉地图能力。
 - 单一地点的历史、文化或原理解说不需要 map_action，除非用户同时要求周边或路线。
@@ -88,6 +90,13 @@ async def plan_capabilities(model, user_message: str) -> dict[str, Any]:
 - 用户明确询问“今天/今日”的新闻或进展时，search_query 必须包含上面的当前完整日期，并强调只要发布日期可核验为该日的内容；不能用“过去一周”或其他日期代替。
 - 需要图片时，image_query 写成适合找到具体视觉素材的查询，包含主体和最有代表性的可视对象；否则为空字符串。
 不要根据固定关键词机械匹配，要理解整句话的目标。只输出 JSON。"""
+    safe_memory = str(memory_context or "").strip()[:4000]
+    if safe_memory:
+        prompt += (
+            "\n以下是已过滤为非敏感的长期记忆。只在确实相关时用于个性化查询；"
+            "不得把姓名、联系方式、精确地址、账号、证件、健康、财务或任何秘密写入外部搜索词。"
+            f"\n{safe_memory}"
+        )
     messages = [
         {"role": "system", "content": prompt},
         {"role": "user", "content": str(user_message or "")[:4000]},

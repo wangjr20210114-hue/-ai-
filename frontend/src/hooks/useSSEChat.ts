@@ -140,6 +140,9 @@ class SSEChatClient {
               case 'tool_call':
                 {
                   const toolName = String(event.name || '');
+                  // Some provider streams include a companion tool-call chunk
+                  // without a name. It is transport noise, not a new search.
+                  if (!toolName) break;
                   const labels: Record<string, string> = {
                     web_search: '正在查找相关信息…',
                     search_places: '正在核实真实地点…',
@@ -166,6 +169,7 @@ class SSEChatClient {
                 }
                 break;
               case 'tool_result':
+                if (!String(event.name || '')) break;
                 this.emit({
                   type: 'search_status',
                   payload: { id: streamId, status: 'analyzing', statusText: '工具已返回，正在整理…' },

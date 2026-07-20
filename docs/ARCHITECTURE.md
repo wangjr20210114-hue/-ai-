@@ -39,6 +39,9 @@ React / Vite
 - Conversation Store：会话列表、标题和消息。
 - Checkpointer：每个会话的 LangGraph 执行状态。
 - LangGraph Store：用户级日程、地图、Action、Provider Ledger、Event、Run、Notification、Workflow、Memory、Feedback 和 Usage。
+- 搜索规划：独立 LLM 读取当前问题和已过滤的非敏感记忆，合并一次事实查询并语义判断图片价值；单轮任务缓存阻止重复 Provider 调用，跨轮结果按时效 TTL 存入用户级 LangGraph Store。
+- 长期记忆：后台 LLM 只提取用户明确表达的稳定偏好、目标和项目背景；应用层再次拒绝联系方式、凭证、证件、精确地址、财务和医疗信息，并按置信度、TTL 和使用次数清理。记忆值不进入公共 API 或前端列表。
+- 日程变更：大模型只冻结确认 Action；服务端按当前 Workspace 的 schedule_id 执行。地点必须是地点服务返回的 place_id；成功后立即重算日程/天气/路线信号，刷新仍有效的通知并淘汰旧通知。
 - Blob：PDF、论文、生成图片、阅读库资产索引。
 - Neon：用户、角色、账号状态和外部连接器 Token 哈希；不复制 Agent 业务状态。
 - Migration：本地 SQLite 只读导出；一次性 `/migration` 只调用 Conversation Store/LangGraph Store，文件只调用官方 Blob SDK。

@@ -6,11 +6,6 @@ import type { MakersIntelligenceState } from '../../types';
 import { revokeConnectorSecret, rotateConnectorSecret } from '../../services/auth';
 import { useSession } from '../auth/session';
 
-function renderValue(value: unknown) {
-  if (typeof value === 'string') return value;
-  try { return JSON.stringify(value, null, 2); } catch { return String(value); }
-}
-
 export default function AgentIntelligencePanel() {
   const { conversationId } = useAppState();
   const session = useSession();
@@ -42,28 +37,15 @@ export default function AgentIntelligencePanel() {
     catch (error) { MessagePlugin.error(error instanceof Error ? error.message : '操作失败'); }
     finally { setBusy(''); }
   };
-  const pendingMemories = (state?.memory_proposals || []).filter((item) => item.status === 'pending');
   const pendingRules = (state?.rule_proposals || []).filter((item) => item.status === 'pending');
 
   return (
     <div className="my-panel-card intelligence-card">
       <details>
         <summary className="section-title">
-          <span>🧠 记忆与学习</span>
-          <Tag size="small" variant="light">{state?.memories.length || 0}</Tag>
+          <span>🧠 主动策略与预算</span>
         </summary>
         <div className="intelligence-content">
-          {pendingMemories.map((proposal) => (
-            <div className="intelligence-proposal" key={proposal.id}>
-              <strong>待确认记忆：{proposal.memory_key}</strong>
-              <pre>{renderValue(proposal.value)}</pre>
-              <small>{proposal.reason}{proposal.sensitivity === 'sensitive' ? ' · 敏感' : ''}</small>
-              <div>
-                <Button size="small" variant="text" loading={busy === `confirm:${proposal.id}`} onClick={() => { void mutate(`confirm:${proposal.id}`, 'confirm_memory', { proposal_id: proposal.id, version: proposal.version }); }}>确认</Button>
-                <Button size="small" variant="text" onClick={() => { void mutate(`reject:${proposal.id}`, 'reject_memory', { proposal_id: proposal.id, version: proposal.version }); }}>拒绝</Button>
-              </div>
-            </div>
-          ))}
           {pendingRules.map((rule) => (
             <div className="intelligence-proposal" key={rule.id}>
               <strong>规则建议</strong><span>{rule.reason}</span>
@@ -73,20 +55,19 @@ export default function AgentIntelligencePanel() {
               </div>
             </div>
           ))}
-          {(state?.memories || []).map((memory) => (
-            <div className="intelligence-memory" key={memory.id}>
-              <strong>{memory.memory_key} <small>v{memory.version}</small></strong>
-              <pre>{renderValue(memory.value)}</pre>
-              {memory.history && memory.history.length > 0 && (
-                <Button size="small" variant="text" onClick={() => {
-                  const previous = memory.history?.[memory.history.length - 1];
-                  if (previous) void mutate(`rollback:${memory.id}`, 'rollback_memory', { memory_id: memory.id, target_version: previous.version });
-                }}>回滚上一版</Button>
-              )}
-              <Button size="small" variant="text" onClick={() => { void mutate(`delete:${memory.id}`, 'delete_memory', { memory_id: memory.id }); }}>删除</Button>
-            </div>
-          ))}
-          {!pendingMemories.length && !pendingRules.length && !state?.memories.length && <div className="proactive-empty">暂无已确认记忆或待处理提案</div>}
+          {!pendingRules.length && <div className="proactive-empty">暂无待处理的主动策略建议</div>}
+          <details className="intelligence-budget">
+            <summary>自动记忆控制</summary>
+            <p>记忆内容由后台自动过滤和维护，不在页面展示。</p>
+            <label><input type="checkbox" disabled={busy === 'memory-enabled'} checked={state?.memory_preferences?.enabled ?? true} onChange={(event) => {
+              void mutate('memory-enabled', 'update_memory_preferences', { preferences: { enabled: event.target.checked } });
+            }} />启用自动记忆</label>
+            <Button size="small" variant="text" theme="danger" loading={busy === 'clear-memory'} onClick={() => {
+              if (window.confirm('确定清除全部自动记忆吗？此操作不会删除聊天记录。')) {
+                void mutate('clear-memory', 'clear_memories', {});
+              }
+            }}>清除全部自动记忆</Button>
+          </details>
           {state?.usage && (
             <div className="intelligence-usage">
               今日 {state.usage.daily_tokens.toLocaleString()} tokens · 本月 {state.usage.monthly_tokens.toLocaleString()}

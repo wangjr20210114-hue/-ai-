@@ -24,6 +24,7 @@ from agents._shared.auth import require_user, scoped_conversation_id, verify_jwt
 from agents._shared.rich_search import (
     _filter_for_target_date,
     _review_image,
+    _vision_filter,
     evidence_for_model,
     rich_search as run_rich_search,
 )
@@ -63,10 +64,13 @@ from agents._shared.proactive import (
     ingest_external_signal,
 )
 from agents._shared.intelligence import (
+    apply_automatic_memory_candidates,
     confirm_memory,
     confirmed_memory_context,
     empty_intelligence_state,
     propose_memory,
+    prune_automatic_memories,
+    public_intelligence_state,
     record_feedback,
     record_usage,
     rollback_memory,
@@ -209,6 +213,14 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(plan["needs_web_search"])
         self.assertTrue(plan["needs_images"])
         self.assertEqual(plan["image_query"], "故宫建筑")
+
+    async def test_capability_planner_receives_filtered_memory_context(self):
+        model = AsyncMock()
+        model.ainvoke.return_value = SimpleNamespace(content=json.dumps({"needs_web_search": False}))
+        await plan_capabilities(model, "帮我规划旅行", "- preference.travel: 喜欢安静的博物馆")
+        system_prompt = model.ainvoke.await_args.args[0][0]["content"]
+        self.assertIn("喜欢安静的博物馆", system_prompt)
+        self.assertIn("不得把姓名、联系方式", system_prompt)
 
     async def test_message_restore_keeps_rich_search_metadata(self):
         metadata = {"total": 1, "results": [{"title": "故宫", "url": "https://example.com"}], "media": []}
@@ -541,6 +553,22 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         confirm_memory(state, proposal["id"], proposal["version"])
         self.assertNotIn("敏感内容", confirmed_memory_context(state))
 
+    def test_automatic_memory_filters_private_data_and_is_not_exposed(self):
+        state = empty_intelligence_state()
+        changed = apply_automatic_memory_candidates(state, [
+            {"key": "preference.answer_style", "value": "喜欢先给结论", "confidence": 0.95, "ttl_days": 180},
+            {"key": "contact.phone", "value": "13800138000", "confidence": 1, "ttl_days": 365},
+            {"key": "preference.uncertain", "value": "可能喜欢咖啡", "confidence": 0.4, "ttl_days": 180},
+        ], now=1_800_000_000)
+        self.assertEqual(changed, 1)
+        self.assertIn("喜欢先给结论", confirmed_memory_context(state))
+        public = public_intelligence_state(state)
+        self.assertEqual(public["memory_count"], 1)
+        self.assertEqual(public["memories"], [])
+        memory = next(iter(state["memories"].values()))
+        memory["expires_at"] = 1_799_999_999
+        self.assertEqual(prune_automatic_memories(state, 1_800_000_000), 1)
+
     def test_feedback_creates_confirmable_rule_instead_of_silent_policy_change(self):
         state = empty_intelligence_state()
         for index in range(3):
@@ -705,6 +733,79 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(event["title"], "游览北海公园")
         self.assertEqual(event["place"]["place_id"], PLACE["place_id"])
 
+    async def test_calendar_tool_updates_end_time_without_requiring_start_time_again(self):
+        store = FakeStore()
+        state = empty_workspace()
+        created = apply_calendar_changes(state, [{
+            "operation": "create",
+            "event": {"title": "评审", "start_time": 1_800_000_000, "duration_minutes": 60, "place": PLACE},
+        }])[0]
+        await save_workspace(store, USER_WORKSPACE_ID, state)
+        tools = build_production_tools(None, store=store, conversation_id="calendar-end", env={})
+        calendar_tool = next(tool for tool in tools if tool.name == "propose_calendar_changes")
+        end_iso = "2027-01-15T17:40:00+08:00"
+        result = json.loads(await calendar_tool.ainvoke({
+            "summary": "延长评审",
+            "changes": [{"operation": "update", "schedule_id": created["id"], "event": {"end_time": end_iso}}],
+        }))
+        event = result["action"]["payload"]["changes"][0]["event"]
+        self.assertGreater(event["duration_minutes"], 60)
+
+    async def test_rich_search_executes_once_per_turn_and_reuses_persistent_cache(self):
+        store = FakeStore()
+        metadata = {
+            "query": "合并后的 AI 新闻查询", "results": [], "media": [], "images": [],
+            "total": 0, "media_pending": False, "timings_ms": {"search": 1, "page_media": 0, "vision": 0, "total": 1},
+        }
+        provider = AsyncMock(return_value=metadata)
+        with patch("agents.chat._ui_tools.provider_rich_search", new=provider):
+            tools = build_production_tools(
+                None, store=store, conversation_id="search-one", env={}, media_enabled=False,
+                planned_search_query="合并后的 AI 新闻查询", search_cache_ttl_seconds=3600,
+            )
+            tool = next(item for item in tools if item.name == "rich_search")
+            first = json.loads(await tool.ainvoke({"query": "第一次改写"}))
+            second = json.loads(await tool.ainvoke({"query": "第二次改写"}))
+            self.assertEqual(first, second)
+            self.assertEqual(provider.await_count, 1)
+            self.assertEqual(provider.await_args.args[1], "合并后的 AI 新闻查询")
+            self.assertFalse(provider.await_args.kwargs["include_media"])
+
+            next_turn_tools = build_production_tools(
+                None, store=store, conversation_id="search-two", env={}, media_enabled=False,
+                planned_search_query="合并后的 AI 新闻查询", search_cache_ttl_seconds=3600,
+            )
+            next_tool = next(item for item in next_turn_tools if item.name == "rich_search")
+            cached = json.loads(await next_tool.ainvoke({"query": "任意改写"}))
+            self.assertEqual(provider.await_count, 1)
+            self.assertTrue(cached["search_results"]["cache_hit"])
+
+    async def test_calendar_edit_refreshes_and_delete_retires_proactive_reminder(self):
+        store = FakeStore()
+        start = int(time.time()) + 3600
+        created_response = await handler(FakeContext(store, {
+            "operation": "direct_calendar_changes",
+            "changes": [{"operation": "create", "event": {
+                "title": "旧标题", "start_time": start, "duration_minutes": 60, "place": PLACE,
+            }}],
+        }))
+        schedule_id = created_response["schedules"][0]["id"]
+        await handler(FakeContext(store, {
+            "operation": "direct_calendar_changes",
+            "changes": [{"operation": "update", "schedule_id": schedule_id, "event": {"title": "新标题"}}],
+        }))
+        proactive = public_proactive_state(await load_proactive_state(store))
+        upcoming = [item for item in proactive["notifications"] if item["type"] == "schedule_upcoming"]
+        self.assertEqual(len(upcoming), 1)
+        self.assertIn("新标题", upcoming[0]["body"])
+
+        await handler(FakeContext(store, {
+            "operation": "direct_calendar_changes",
+            "changes": [{"operation": "delete", "schedule_id": schedule_id}],
+        }))
+        proactive = public_proactive_state(await load_proactive_state(store))
+        self.assertFalse(any(item["type"] == "schedule_upcoming" for item in proactive["notifications"]))
+
     def test_tencent_polyline_delta_decode(self):
         path = decode_polyline([39.9, 116.3, 100000, 200000])
         self.assertAlmostEqual(path[1]["latitude"], 40.0)
@@ -788,6 +889,23 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(url, "https://tokenhub.tencentmaas.com/v1/chat/completions")
         self.assertEqual(payload["model"], "hy-vision-2.0-instruct")
         self.assertEqual(headers["Authorization"], "Bearer vision-key")
+
+    async def test_vision_batch_reviews_multiple_candidates_in_one_model_call(self):
+        response = {"choices": [{"message": {"content": json.dumps({"items": [
+            {"index": 1, "description": "发布会现场", "relevant": True},
+            {"index": 2, "description": "广告", "relevant": False},
+        ]}, ensure_ascii=False)}}]}
+        candidates = [
+            {"url": "https://example.com/1.jpg", "source_url": "https://source.example/1", "source_title": "一", "context": "现场"},
+            {"url": "https://example.com/2.jpg", "source_url": "https://source.example/2", "source_title": "二", "context": "广告"},
+        ]
+        with patch("agents._shared.rich_search._json_request", return_value=response) as request:
+            reviewed, diagnostics = await _vision_filter({"HUNYUAN_IMAGE_API_KEY": "vision-key"}, "AI 新闻", candidates)
+        self.assertEqual([item["url"] for item in reviewed], ["https://example.com/1.jpg"])
+        self.assertEqual(diagnostics["reviewed"], 2)
+        self.assertEqual(request.call_count, 1)
+        payload = request.call_args.args[1]
+        self.assertEqual(sum(block.get("type") == "image_url" for block in payload["messages"][0]["content"]), 2)
 
     def test_dsml_tool_protocol_is_normalized(self):
         wire = '''<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="search_arxiv"><｜｜DSML｜｜parameter name="topic" string="true">Zhi-Hua Zhou 2026</｜｜DSML｜｜parameter><｜｜DSML｜｜parameter name="limit" string="false">5</｜｜DSML｜｜parameter></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>'''

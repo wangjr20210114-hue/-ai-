@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -32,6 +33,7 @@ def empty_intelligence_state() -> dict[str, Any]:
             "monthly_token_limit": 3_000_000,
             "enforcement": "soft",
         },
+        "memory_preferences": {"enabled": True},
     }
 
 
@@ -60,6 +62,11 @@ async def load_intelligence_state(store: Any, user_id: str = USER_WORKSPACE_ID) 
     for key in ("feedback", "usage"):
         if not isinstance(state.get(key), list):
             state[key] = []
+    if not isinstance(state.get("memory_preferences"), dict):
+        state["memory_preferences"] = {"enabled": True}
+    else:
+        state["memory_preferences"]["enabled"] = bool(state["memory_preferences"].get("enabled", True))
+    prune_automatic_memories(state)
     return state
 
 
@@ -71,6 +78,7 @@ async def save_intelligence_state(
     saved["revision"] = int(saved.get("revision") or 0) + 1
     saved["feedback"] = list(saved.get("feedback") or [])[-500:]
     saved["usage"] = list(saved.get("usage") or [])[-2000:]
+    prune_automatic_memories(saved)
     if len(saved.get("memory_proposals", {})) > 300:
         ordered = sorted(saved["memory_proposals"].values(), key=lambda item: int(item.get("updated_at") or 0), reverse=True)[:300]
         saved["memory_proposals"] = {item["id"]: item for item in ordered}
@@ -279,11 +287,14 @@ def usage_summary(state: dict[str, Any], now: int | None = None) -> dict[str, An
 
 
 def confirmed_memory_context(state: dict[str, Any], limit: int = 20) -> str:
+    now = int(time.time())
     memories = [
         item for item in sorted(
             state.get("memories", {}).values(), key=lambda item: int(item.get("updated_at") or 0), reverse=True,
         )
         if item.get("sensitivity") != "sensitive"
+        and (not int(item.get("expires_at") or 0) or int(item.get("expires_at") or 0) > now)
+        and _safe_memory(str(item.get("memory_key") or ""), item.get("value"))
     ][:limit]
     if not memories:
         return ""
@@ -293,12 +304,155 @@ def confirmed_memory_context(state: dict[str, Any], limit: int = 20) -> str:
     )
 
 
+SENSITIVE_KEY_RE = re.compile(
+    r"password|passwd|secret|token|api.?key|credential|身份证|证件|护照|银行卡|信用卡|"
+    r"手机号|电话|邮箱|住址|详细地址|病历|疾病|诊断|药物|过敏|财务|收入|账户",
+    re.I,
+)
+SENSITIVE_VALUE_RES = (
+    re.compile(r"\b1[3-9]\d{9}\b"),
+    re.compile(r"\b\d{15}(?:\d{2}[0-9Xx])?\b"),
+    re.compile(r"\b\d{16,19}\b"),
+    re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}"),
+    re.compile(r"(?:password|passwd|secret|token|api.?key|密码|口令|密钥)\s*[:：=]", re.I),
+)
+
+
+def _safe_memory(key: str, value: Any) -> bool:
+    text = json.dumps(value, ensure_ascii=False, default=str)[:4000]
+    if not key.strip() or not text.strip() or SENSITIVE_KEY_RE.search(key) or SENSITIVE_KEY_RE.search(text):
+        return False
+    return not any(pattern.search(text) for pattern in SENSITIVE_VALUE_RES)
+
+
+def prune_automatic_memories(state: dict[str, Any], now: int | None = None) -> int:
+    """Remove expired, sensitive, low-confidence, and stale low-value memories."""
+    timestamp = int(now or time.time())
+    removed = 0
+    for memory_id, item in list(state.setdefault("memories", {}).items()):
+        confidence = float(item.get("confidence") or 0)
+        expires_at = int(item.get("expires_at") or 0)
+        updated_at = int(item.get("updated_at") or item.get("created_at") or 0)
+        low_value_stale = confidence < 0.65 and int(item.get("use_count") or 0) <= 1 and timestamp - updated_at > 90 * 86_400
+        if (
+            item.get("sensitivity") == "sensitive"
+            or not _safe_memory(str(item.get("memory_key") or ""), item.get("value"))
+            or (expires_at and expires_at <= timestamp)
+            or low_value_stale
+        ):
+            state["memories"].pop(memory_id, None)
+            removed += 1
+    return removed
+
+
+def apply_automatic_memory_candidates(
+    state: dict[str, Any], candidates: list[dict[str, Any]], source_message_id: str = "", now: int | None = None,
+) -> int:
+    """Upsert model-extracted non-sensitive stable memories without a confirmation UI."""
+    if not bool((state.get("memory_preferences") or {}).get("enabled", True)):
+        return 0
+    timestamp = int(now or time.time())
+    changed = 0
+    for candidate in candidates[:3]:
+        if not isinstance(candidate, dict):
+            continue
+        key = str(candidate.get("key") or candidate.get("memory_key") or "").strip()[:120]
+        value = candidate.get("value")
+        try:
+            confidence = max(0.0, min(1.0, float(candidate.get("confidence") or 0)))
+            ttl_days = max(30, min(365, int(candidate.get("ttl_days") or 180)))
+        except (TypeError, ValueError):
+            continue
+        if confidence < 0.7 or not _safe_memory(key, value):
+            continue
+        current = next((item for item in state.get("memories", {}).values() if item.get("memory_key") == key), None)
+        encoded_new = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+        encoded_old = json.dumps((current or {}).get("value"), ensure_ascii=False, sort_keys=True, default=str)
+        if isinstance(current, dict):
+            history = list(current.get("history") or [])
+            if encoded_new != encoded_old:
+                history.append({
+                    "version": int(current.get("version") or 1),
+                    "value": copy.deepcopy(current.get("value")),
+                    "sensitivity": "normal",
+                    "source_message_id": current.get("source_message_id") or "",
+                    "updated_at": int(current.get("updated_at") or timestamp),
+                })
+                current["value"] = copy.deepcopy(value)
+                current["version"] = int(current.get("version") or 1) + 1
+            current.update({
+                "confidence": max(float(current.get("confidence") or 0), confidence),
+                "sensitivity": "normal",
+                "source": "automatic",
+                "source_message_id": str(source_message_id or ""),
+                "history": history[-20:],
+                "use_count": int(current.get("use_count") or 0) + 1,
+                "last_used_at": timestamp,
+                "expires_at": timestamp + ttl_days * 86_400,
+                "updated_at": timestamp,
+            })
+        else:
+            memory_id = f"memory_{uuid.uuid4().hex}"
+            state.setdefault("memories", {})[memory_id] = {
+                "id": memory_id,
+                "memory_key": key,
+                "value": copy.deepcopy(value),
+                "confidence": confidence,
+                "sensitivity": "normal",
+                "source": "automatic",
+                "source_message_id": str(source_message_id or ""),
+                "version": 1,
+                "history": [],
+                "use_count": 1,
+                "last_used_at": timestamp,
+                "expires_at": timestamp + ttl_days * 86_400,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }
+        changed += 1
+    prune_automatic_memories(state, timestamp)
+    return changed
+
+
+def _memory_candidates(content: Any) -> list[dict[str, Any]]:
+    text = content if isinstance(content, str) else str(content or "")
+    match = re.search(r"\{[\s\S]*\}", text)
+    if match:
+        text = match.group(0)
+    try:
+        payload = json.loads(text)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    values = payload.get("memories") if isinstance(payload, dict) else []
+    return values if isinstance(values, list) else []
+
+
+async def extract_automatic_memory_candidates(model: Any, user_message: str) -> list[dict[str, Any]]:
+    """Use semantic extraction; deterministic filters remain the final privacy boundary."""
+    prompt = """你是后台记忆筛选器，只从用户自己的话提取值得跨会话保留的非敏感稳定信息，不回答用户。
+可保留：长期偏好、长期目标、反复习惯、稳定项目背景、用户明确陈述且非敏感的事实。
+必须丢弃：一次性任务参数、临时时间地点、寒暄、普通问题、搜索词、模型推断、第三方信息，以及密码/令牌/密钥/账号/联系方式/证件/精确地址/财务/健康医疗等敏感信息。
+如果没有合格内容返回 {"memories":[]}。否则最多 3 项，每项为 {"key":"稳定的语义键","value":"简洁事实","confidence":0到1,"ttl_days":30到365}。只有置信度至少 0.7 的内容才输出。只输出 JSON。"""
+    try:
+        response = await model.ainvoke([
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": str(user_message or "")[:4000]},
+        ])
+    except Exception:
+        return []
+    return _memory_candidates(getattr(response, "content", ""))
+
+
 def public_intelligence_state(state: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
         "revision": int(state.get("revision") or 0),
-        "memory_proposals": sorted(state.get("memory_proposals", {}).values(), key=lambda item: int(item.get("updated_at") or 0), reverse=True),
-        "memories": sorted(state.get("memories", {}).values(), key=lambda item: int(item.get("updated_at") or 0), reverse=True),
+        # Memory content is intentionally private implementation state. The UI
+        # only receives a count and controls, never the stored values.
+        "memory_proposals": [],
+        "memories": [],
+        "memory_count": len(state.get("memories", {})),
+        "memory_preferences": copy.deepcopy(state.get("memory_preferences") or {"enabled": True}),
         "rule_proposals": sorted(state.get("rule_proposals", {}).values(), key=lambda item: int(item.get("updated_at") or 0), reverse=True),
         "feedback_count": len(state.get("feedback") or []),
         "usage": usage_summary(state),

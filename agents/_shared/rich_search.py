@@ -129,6 +129,8 @@ async def _extract_candidates(results: list[dict[str, Any]]) -> list[dict[str, s
     candidates: list[dict[str, str]] = []
     for result in results:
         image = unescape(str(result.get("image") or "").strip())
+        if image.startswith("http://"):
+            image = "https://" + image[len("http://"):]
         path = urllib.parse.urlparse(image).path.lower()
         if image.startswith(("http://", "https://")) and not path.endswith((".svg", ".gif", ".ico")):
             candidates.append({"url": image, "alt": "", "context": "搜索结果主图", "source_url": result["url"], "source_title": result["title"]})
@@ -138,7 +140,14 @@ async def _extract_candidates(results: list[dict[str, Any]]) -> list[dict[str, s
             items = await collect_page_media(result["url"], 10)
         except Exception:
             return []
-        return [{**item, "source_url": result["url"], "source_title": result["title"]} for item in items]
+        normalized = []
+        for item in items:
+            image_url = str(item.get("url") or "")
+            if image_url.startswith("http://"):
+                image_url = "https://" + image_url[len("http://"):]
+            if image_url.startswith("https://"):
+                normalized.append({**item, "url": image_url, "source_url": result["url"], "source_title": result["title"]})
+        return normalized
 
     for batch in await asyncio.gather(*(page(result) for result in results[:6])):
         candidates.extend(batch)
@@ -229,32 +238,85 @@ def _review_image(
 async def _vision_filter(
     env: dict[str, Any], query: str, candidates: list[dict[str, str]],
 ) -> tuple[list[dict[str, str]], dict[str, int]]:
+    api_key = str(
+        env.get("HUNYUAN_VISION_API_KEY")
+        or env.get("HUNYUAN_IMAGE_API_KEY")
+        or env.get("HUNYUAN_API_KEY")
+        or ""
+    ).strip()
+    if not api_key:
+        return [], {"missing_api_key": 1, "candidates": len(candidates), "reviewed": 0}
+
+    # Prefer one candidate per source before filling remaining slots. One
+    # multi-image model call is substantially faster than N independent calls
+    # while preserving pixel-level ad/relevance review.
+    selected: list[dict[str, str]] = []
+    remaining: list[dict[str, str]] = []
+    seen_sources: set[str] = set()
+    for candidate in candidates[:30]:
+        source = str(candidate.get("source_url") or "")
+        if source and source not in seen_sources:
+            seen_sources.add(source)
+            selected.append(candidate)
+        else:
+            remaining.append(candidate)
+    selected = (selected + remaining)[:6]
+    if not selected:
+        return [], {"candidates": 0, "reviewed": 0}
+
+    prompt = (
+        '你会依次收到编号图片。逐张判断是否直接帮助理解用户问题；广告、二维码、Logo、图标、UI、占位图、'
+        '纯文字截图或无关内容必须判为 false。只返回 JSON：'
+        '{"items":[{"index":1,"description":"准确描述实际画面","relevant":true}]}。'
+        '不得遗漏编号；不确定时 relevant=false。\n'
+        f'用户问题：{query[:160]}'
+    )
+    content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+    for index, candidate in enumerate(selected, 1):
+        context = str(candidate.get("context") or candidate.get("alt") or candidate.get("source_title") or "")[:240]
+        content.extend([
+            {"type": "text", "text": f"图片 {index}；网页上下文：{context}"},
+            {"type": "image_url", "image_url": {"url": candidate["url"]}},
+        ])
+    payload = {
+        "model": str(env.get("HUNYUAN_VISION_MODEL") or "hy-vision-2.0-instruct"),
+        "messages": [{"role": "user", "content": content}],
+        "max_tokens": 800,
+        "temperature": 0.1,
+        "stream": False,
+    }
+    try:
+        data = await asyncio.to_thread(
+            _json_request,
+            _vision_endpoint(env),
+            payload,
+            {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            20,
+        )
+        raw = str(data["choices"][0]["message"]["content"]).strip().strip("`").strip()
+        if raw.startswith("json"):
+            raw = raw[4:].strip()
+        match = re.search(r"\{[\s\S]*\}", raw)
+        reviewed = json.loads(match.group(0) if match else raw)
+        items = reviewed.get("items") if isinstance(reviewed, dict) else []
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        return [], {f"batch_{type(exc).__name__}": 1, "candidates": len(candidates), "reviewed": 0}
+
     output: list[dict[str, str]] = []
     diagnostics: Counter[str] = Counter()
-    semaphore = asyncio.Semaphore(4)
-
-    async def review(candidate: dict[str, str]):
-        async with semaphore:
-            description, outcome = await asyncio.to_thread(_review_image, env, candidate, query)
-        return candidate, description, outcome
-
-    # Review one bounded batch at a time. Stop only after enough images have
-    # actually passed vision review; irrelevant/ad candidates trigger the next
-    # batch instead of reducing quality.
-    bounded = candidates[:30]
-    for start in range(0, len(bounded), 8):
-        reviewed = await asyncio.gather(*(review(item) for item in bounded[start:start + 8]))
-        diagnostics.update(outcome for _candidate, _description, outcome in reviewed)
-        output.extend(
-            {**candidate, "description": description}
-            for candidate, description, _outcome in reviewed if description
-        )
-        if len(output) >= 4:
-            break
-    diagnostics["candidates"] = len(bounded)
-    diagnostics["reviewed"] = sum(
-        count for key, count in diagnostics.items() if key not in {"candidates", "reviewed"}
-    )
+    by_index = {int(item.get("index") or 0): item for item in items if isinstance(item, dict)}
+    for index, candidate in enumerate(selected, 1):
+        item = by_index.get(index) or {}
+        description = str(item.get("description") or "").strip()[:240]
+        if item.get("relevant") is True and description:
+            output.append({**candidate, "description": description})
+            diagnostics["approved"] += 1
+        else:
+            diagnostics["irrelevant"] += 1
+    diagnostics["candidates"] = len(candidates)
+    diagnostics["reviewed"] = len(selected)
     return output[:4], dict(diagnostics)
 
 
@@ -269,6 +331,7 @@ async def rich_search(
     strict_date: bool = False,
     media_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     background_tasks: list[asyncio.Task] | None = None,
+    include_media: bool = True,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     api_key = str(env.get("WSA_API_KEY") or "").strip()
@@ -322,7 +385,7 @@ async def rich_search(
         "schema_version": 2, "query": query, "results": sources, "media": [],
         "images": [], "sources_used": ["wsa"] if sources else [], "total": len(sources),
         "target_date": target_date, "strict_date": strict_date, "date_filter": date_filter,
-        "media_pending": media_callback is not None and background_tasks is not None,
+        "media_pending": include_media and media_callback is not None and background_tasks is not None,
         "timings_ms": {
             "search": round((searched_at - started) * 1000),
             "page_media": 0, "vision": 0,
@@ -333,22 +396,19 @@ async def rich_search(
     async def enrich_media() -> dict[str, Any]:
         source_by_url = {item["url"]: item for item in sources}
         visual_candidates = await _extract_candidates(visual_results)
+        if visual_results is not results:
+            seen = {item["url"] for item in visual_candidates}
+            visual_candidates.extend(
+                item for item in await _extract_candidates(results) if item["url"] not in seen
+            )
         extracted_at = time.perf_counter()
         review_goal = image_query.strip() or query
-        reviewed, diagnostics = await _vision_filter(env, review_goal, visual_candidates)
-        if not reviewed and visual_results is not results:
-            # A second factual-source pass is still vision-gated; it never
-            # promotes an unreviewed candidate.
-            seen = {item["url"] for item in visual_candidates}
-            fact_candidates = [
-                item for item in await _extract_candidates(results)
-                if item["url"] not in seen
-            ]
-            reviewed, second_diagnostics = await _vision_filter(env, review_goal, fact_candidates)
-            diagnostics = {
-                key: diagnostics.get(key, 0) + second_diagnostics.get(key, 0)
-                for key in set(diagnostics) | set(second_diagnostics)
-            }
+        try:
+            reviewed, diagnostics = await asyncio.wait_for(
+                _vision_filter(env, review_goal, visual_candidates), timeout=22,
+            )
+        except asyncio.TimeoutError:
+            reviewed, diagnostics = [], {"timeout": 1, "candidates": len(visual_candidates), "reviewed": 0}
         reviewed_at = time.perf_counter()
         media = []
         for index, candidate in enumerate(reviewed, 1):
@@ -378,6 +438,8 @@ async def rich_search(
             await media_callback(enriched)
         return enriched
 
+    if not include_media:
+        return base_metadata
     if media_callback is not None and background_tasks is not None:
         task = asyncio.create_task(enrich_media())
         background_tasks.append(task)

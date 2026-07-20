@@ -93,6 +93,21 @@ export const initialState: AppState = {
   proactive: null,
 };
 
+function sameMapPlaces(current: MakersMapPlace[], next: MakersMapPlace[]): boolean {
+  if (current === next) return true;
+  if (current.length !== next.length) return false;
+  return current.every((place, index) => {
+    const candidate = next[index];
+    return Boolean(candidate)
+      && place.place_id === candidate.place_id
+      && place.provider === candidate.provider
+      && place.name === candidate.name
+      && place.address === candidate.address
+      && place.latitude === candidate.latitude
+      && place.longitude === candidate.longitude;
+  });
+}
+
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'SET_CONNECTED': return { ...state, connected: action.payload };
@@ -143,25 +158,32 @@ export function reducer(state: AppState, action: Action): AppState {
       action.payload.forEach((item) => merged.set(item.id, item));
       return { ...state, schedules: Array.from(merged.values()).sort((a, b) => a.start_time - b.start_time) };
     }
-    case 'SET_MAP_PLACES':
+    case 'SET_MAP_PLACES': {
+      const nextTitle = action.payload.title || '相关地点';
+      const placesChanged = !sameMapPlaces(state.mapPlaces, action.payload.places);
       return {
         ...state,
-        mapPlaces: action.payload.places,
-        mapTitle: action.payload.title || '相关地点',
-        mapRevision: state.mapRevision + 1,
+        mapPlaces: placesChanged ? action.payload.places : state.mapPlaces,
+        mapTitle: nextTitle,
+        mapRevision: placesChanged ? state.mapRevision + 1 : state.mapRevision,
       };
+    }
     case 'PULSE_CALENDAR':
       return { ...state, calendarPulse: { ...action.payload, token: Date.now() } };
     case 'CLEAR_CALENDAR_PULSE':
       return { ...state, calendarPulse: null };
-    case 'HYDRATE_WORKSPACE':
+    case 'HYDRATE_WORKSPACE': {
+      const hasMapSnapshot = action.payload.mapPlaces !== undefined;
+      const nextPlaces = hasMapSnapshot ? action.payload.mapPlaces || [] : state.mapPlaces;
+      const placesChanged = hasMapSnapshot && !sameMapPlaces(state.mapPlaces, nextPlaces);
       return {
         ...state,
         schedules: action.payload.schedules || [],
-        mapPlaces: action.payload.mapPlaces || [],
-        mapTitle: action.payload.mapTitle || '相关地点',
-        mapRevision: action.payload.mapPlaces?.length ? state.mapRevision + 1 : state.mapRevision,
+        mapPlaces: placesChanged ? nextPlaces : state.mapPlaces,
+        mapTitle: hasMapSnapshot ? action.payload.mapTitle || '相关地点' : state.mapTitle,
+        mapRevision: placesChanged ? state.mapRevision + 1 : state.mapRevision,
       };
+    }
     case 'ADD_SCHEDULE': return { ...state, schedules: [action.payload, ...state.schedules] };
     case 'UPDATE_SCHEDULE':
       return { ...state, schedules: state.schedules.map((item) => item.id === action.payload.id ? action.payload : item) };

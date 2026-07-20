@@ -1,7 +1,7 @@
 # EdgeOne Makers 能力基线
 
-> 当前业务提交：`9ed04b19150843b9a3a4efed091bbf39c2d22138`
-> 更新日期：2026-07-18
+> 当前业务分支：`agent/makers-native-persistence-fixes`（本轮变更待提交）
+> 更新日期：2026-07-20
 > 生产目标：EdgeOne Makers 是唯一线上运行时；FastAPI/SQLite 只作为迁移期间的历史能力参考。
 
 ## 1. 基线原则
@@ -17,9 +17,9 @@
 | 能力 | 代码状态 | 部署状态 | 主要事实源 |
 | --- | --- | --- | --- |
 | 多会话聊天、SSE、停止、刷新恢复 | 已实现并测试 | Preview/Production 已连接并加载历史会话 | `agents/chat`、`agents/messages`、`cloud-functions/conversations` |
-| 联网图文回答 | 已实现并测试 | 依赖 WSA、视觉模型配置 | `agents/_shared/rich_search.py` |
+| 联网图文回答 | 已实现并测试 | 搜索前保留 LLM 语义规划；单轮富搜索只执行一次，查询合并并使用 Makers Store TTL 缓存；是否取图由规划器按理解价值决定 | `agents/chat/_capability_plan.py`、`agents/chat/_ui_tools.py`、`agents/_shared/rich_search.py` |
 | 地点、地图、道路路线、费用估算 | 已实现并测试 | 腾讯结果与查询不匹配时回退 OSM；路线按用户缓存 6 小时 | `agents/places`、`agents/routes`、`agents/_shared/tencent_location.py` |
-| 日程 CRUD 与确认式变更 | 已实现并测试 | 用户级日程上下文每轮注入；跨对话变更会刷新右栏并立即触发主动扫描 | `agents/workspace`、`agents/chat/_calendar_context.py`、LangGraph Store |
+| 日程 CRUD 与确认式变更 | 已实现并测试 | 可用自然语言新增、改标题/描述/时间/地点、删除；地点修改必须来自地点库；不存在/不唯一目标会自然提示；变更后旧主动提醒同步刷新或失效 | `agents/workspace`、`agents/chat/_calendar_context.py`、LangGraph Store |
 | 腾讯会议创建 | 官方 API 适配已实现 | 最后阶段可选；未配置时不暴露工具 | `agents/_shared/side_effects.py` |
 | 文生图、图生图、版本、Blob、ZIP | 已实现并测试 | 支持选择或 Cmd/Ctrl+V 粘贴参考图；生成状态覆盖浏览器图片载入 | `agents/image`、`ImageStudioCard.tsx`、`InputBar.tsx` |
 | PDF、图片上传、阅读库、论文助读 | 已实现核心链路 | PDF 上传后直接打开内置助读；阅读库支持手动分类与删除反馈；无 DOCX/OCR | `cloud-functions/files`、`library`、`papers`、`agents/reader` |
@@ -66,9 +66,9 @@
 
 ## 5. 当前自动化基线
 
-2026-07-18 当前 `9ed04b1` 结果：
+2026-07-20 当前工作树结果：
 
-- Makers Agent：63 项通过。
+- Makers Agent：75 项通过。
 - SQLite 导出工具：2 项通过。
 - Cloud Functions、验收持久化和平台约束：16 项通过。
 - 前端 Vitest：34 项通过。
