@@ -3,6 +3,7 @@ const LEGACY_STORAGE_KEY = 'yuanbao.acceptance.v1';
 const HOST_KEY = 'yuanbao.acceptance.host.v1';
 const API_KEY_STORAGE = 'yuanbao.acceptance.sync-key.v1';
 const API_PATH = '/acceptance';
+const RETIRED_CASE_IDS = new Set(['AUTH-02', 'AUTH-03', 'CONNECT-01']);
 const IMPLEMENTATION_LABELS = {
   implemented: '已实现', 'requires-config': '需配置', 'platform-pending': '平台待验证',
   partial: '部分实现', 'not-implemented': '未实现', 'optional-last': '最后阶段可选',
@@ -170,7 +171,7 @@ async function refreshRemote(showMessage=true) {
 }
 function safetyFor(test) {
   const safety = test.safety || {};
-  const destructive = ['CORE-08','SEARCH-03','PRO-08','SEC-02','AUTH-03','CONNECT-01'].includes(test.id);
+  const destructive = ['CORE-08','SEARCH-03','PRO-08','SEC-02'].includes(test.id);
   return {
     environment: safety.environment || (destructive ? '仅 Preview / 本地，不得在 Production 制造故障' : '优先 Preview；Production 只做只读回归'),
     impact: safety.impact || (destructive ? '使用专用测试会话、测试数据或临时无效配置；禁止修改生产 Provider、密钥和正式数据' : '只操作带 TEST- 前缀的测试数据，完成后按清理步骤恢复'),
@@ -327,7 +328,7 @@ async function importFile(file) {
 }
 function toast(message,isError=false){const node=document.querySelector('#toast');node.textContent=message;node.className=`toast ${isError?'error':''} show`;clearTimeout(toast.timer);toast.timer=setTimeout(()=>node.classList.remove('show'),4200);}
 async function boot() {
-  const response=await fetch('./cases.json'); cases=await response.json();
+  const response=await fetch('./cases.json'); cases=(await response.json()).filter(test=>!RETIRED_CASE_IDS.has(test.id));
   const modules=[...new Set(cases.map(test=>test.module))];document.querySelector('#module-filter').innerHTML+=modules.map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('');
   fillMeta();document.querySelector('#sync-key').value=localStorage.getItem(API_KEY_STORAGE)||'';
   ['search','module-filter','implementation-filter','result-filter','blocker-only'].forEach(id=>document.querySelector(`#${id}`).addEventListener(id==='search'?'input':'change',render));

@@ -3,18 +3,17 @@ import { Button, MessagePlugin, Tag } from 'tdesign-react';
 import { useAppState } from '../../store/appState';
 import { intelligenceOperation } from '../../services/api';
 import type { MakersIntelligenceState } from '../../types';
-import { revokeConnectorSecret, rotateConnectorSecret } from '../../services/auth';
-import { useSession } from '../auth/session';
 
 export default function AgentIntelligencePanel() {
   const { conversationId } = useAppState();
-  const session = useSession();
   const [state, setState] = useState<MakersIntelligenceState | null>(null);
   const [busy, setBusy] = useState('');
   const [dailyLimit, setDailyLimit] = useState('250000');
   const [monthlyLimit, setMonthlyLimit] = useState('3000000');
   const [enforcement, setEnforcement] = useState<'off' | 'soft' | 'hard'>('soft');
-  const [connectorSecret, setConnectorSecret] = useState('');
+  const [resultLimit, setResultLimit] = useState(8);
+  const [imageLimit, setImageLimit] = useState(2);
+  const [parallelImageSearch, setParallelImageSearch] = useState(true);
   const refresh = useCallback(async () => {
     try {
       const next = await intelligenceOperation(conversationId);
@@ -22,6 +21,9 @@ export default function AgentIntelligencePanel() {
       setDailyLimit(String(next.usage.preferences.daily_token_limit));
       setMonthlyLimit(String(next.usage.preferences.monthly_token_limit));
       setEnforcement(next.usage.preferences.enforcement);
+      setResultLimit(next.search_preferences?.result_limit ?? 8);
+      setImageLimit(next.search_preferences?.image_limit ?? 2);
+      setParallelImageSearch(next.search_preferences?.parallel_image_search ?? true);
     }
     catch (error) { console.warn('intelligence refresh failed', error); }
   }, [conversationId]);
@@ -75,29 +77,20 @@ export default function AgentIntelligencePanel() {
             </div>
           )}
           <details className="intelligence-budget">
+            <summary>联网搜索设置</summary>
+            <p>推荐值兼顾速度与答案质量。新闻等适合配图的问题仍由 LLM 规划是否检索图片。</p>
+            <label>网页结果上限<select value={resultLimit} onChange={(event) => setResultLimit(Number(event.target.value))}><option value={4}>4（最快）</option><option value={8}>8（推荐）</option><option value={12}>12</option><option value={18}>18（最完整）</option></select></label>
+            <label>回答图片上限<select value={imageLimit} onChange={(event) => setImageLimit(Number(event.target.value))}><option value={0}>0（关闭配图）</option><option value={2}>2（推荐）</option><option value={4}>4</option></select></label>
+            <label><input type="checkbox" checked={parallelImageSearch} onChange={(event) => setParallelImageSearch(event.target.checked)} />事实与图片查询并行（推荐）</label>
+            <Button size="small" variant="text" loading={busy === 'search'} onClick={() => { void mutate('search', 'update_search_preferences', { preferences: { result_limit: resultLimit, image_limit: imageLimit, parallel_image_search: parallelImageSearch } }); }}>保存搜索设置</Button>
+          </details>
+          <details className="intelligence-budget">
             <summary>Token 预算</summary>
             <label>每日<input inputMode="numeric" value={dailyLimit} onChange={(event) => setDailyLimit(event.target.value)} /></label>
             <label>每月<input inputMode="numeric" value={monthlyLimit} onChange={(event) => setMonthlyLimit(event.target.value)} /></label>
             <label>策略<select value={enforcement} onChange={(event) => setEnforcement(event.target.value as 'off' | 'soft' | 'hard')}><option value="off">仅记录</option><option value="soft">提醒</option><option value="hard">阻止</option></select></label>
             <Button size="small" variant="text" onClick={() => { void mutate('budget', 'update_usage_preferences', { preferences: { daily_token_limit: Number(dailyLimit), monthly_token_limit: Number(monthlyLimit), enforcement } }); }}>保存预算</Button>
           </details>
-          {session?.mode === 'multi_user' && (
-            <details className="intelligence-budget">
-              <summary>外部信号连接器</summary>
-              <p>为日历、邮件或企业消息 webhook 生成用户级密钥。新密钥仅显示一次，轮换会立即撤销旧密钥。</p>
-              {connectorSecret && <code className="connector-secret">{connectorSecret}</code>}
-              <div>
-                <Button size="small" variant="text" onClick={async () => {
-                  try { setConnectorSecret(await rotateConnectorSecret()); MessagePlugin.success('已轮换连接器密钥'); }
-                  catch (error) { MessagePlugin.error(error instanceof Error ? error.message : '操作失败'); }
-                }}>生成/轮换</Button>
-                <Button size="small" variant="text" onClick={async () => {
-                  try { await revokeConnectorSecret(); setConnectorSecret(''); MessagePlugin.success('已撤销连接器密钥'); }
-                  catch (error) { MessagePlugin.error(error instanceof Error ? error.message : '操作失败'); }
-                }}>撤销</Button>
-              </div>
-            </details>
-          )}
         </div>
       </details>
     </div>

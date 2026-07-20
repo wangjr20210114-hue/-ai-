@@ -125,7 +125,9 @@ def _filter_for_target_date(
     }
 
 
-async def _extract_candidates(results: list[dict[str, Any]]) -> list[dict[str, str]]:
+async def _extract_candidates(
+    results: list[dict[str, Any]], page_limit: int = 6,
+) -> list[dict[str, str]]:
     candidates: list[dict[str, str]] = []
     for result in results:
         image = unescape(str(result.get("image") or "").strip())
@@ -149,7 +151,7 @@ async def _extract_candidates(results: list[dict[str, Any]]) -> list[dict[str, s
                 normalized.append({**item, "url": image_url, "source_url": result["url"], "source_title": result["title"]})
         return normalized
 
-    for batch in await asyncio.gather(*(page(result) for result in results[:6])):
+    for batch in await asyncio.gather(*(page(result) for result in results[:max(1, min(6, page_limit))])):
         candidates.extend(batch)
     output: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -236,8 +238,11 @@ def _review_image(
 
 
 async def _vision_filter(
-    env: dict[str, Any], query: str, candidates: list[dict[str, str]],
+    env: dict[str, Any], query: str, candidates: list[dict[str, str]], output_limit: int = 4,
 ) -> tuple[list[dict[str, str]], dict[str, int]]:
+    output_limit = max(0, min(4, int(output_limit)))
+    if output_limit == 0:
+        return [], {"candidates": len(candidates), "reviewed": 0, "disabled": 1}
     api_key = str(
         env.get("HUNYUAN_VISION_API_KEY")
         or env.get("HUNYUAN_IMAGE_API_KEY")
@@ -260,7 +265,7 @@ async def _vision_filter(
             selected.append(candidate)
         else:
             remaining.append(candidate)
-    selected = (selected + remaining)[:6]
+    selected = (selected + remaining)[:min(6, max(4, output_limit * 2))]
     if not selected:
         return [], {"candidates": 0, "reviewed": 0}
 
@@ -317,7 +322,7 @@ async def _vision_filter(
             diagnostics["irrelevant"] += 1
     diagnostics["candidates"] = len(candidates)
     diagnostics["reviewed"] = len(selected)
-    return output[:4], dict(diagnostics)
+    return output[:output_limit], dict(diagnostics)
 
 
 async def rich_search(
@@ -327,6 +332,8 @@ async def rich_search(
     depth: str = "standard",
     *,
     parallel_queries: bool = True,
+    result_limit: int | None = None,
+    image_limit: int = 4,
     target_date: str = "",
     strict_date: bool = False,
     media_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
@@ -338,7 +345,10 @@ async def rich_search(
     base_url = str(env.get("WSA_BASE_URL") or "https://api.wsa.cloud.tencent.com").rstrip("/")
     if not api_key:
         raise RuntimeError("富搜索缺少 WSA_API_KEY")
-    limit = {"basic": 8, "standard": 12, "deep": 18}.get(depth, 12)
+    limit = max(4, min(18, int(result_limit))) if result_limit is not None else {
+        "basic": 8, "standard": 12, "deep": 18,
+    }.get(depth, 12)
+    image_limit = max(0, min(4, int(image_limit)))
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json; charset=utf-8"}
     provider_query = query
     if target_date:
@@ -385,7 +395,14 @@ async def rich_search(
         "schema_version": 2, "query": query, "results": sources, "media": [],
         "images": [], "sources_used": ["wsa"] if sources else [], "total": len(sources),
         "target_date": target_date, "strict_date": strict_date, "date_filter": date_filter,
-        "media_pending": include_media and media_callback is not None and background_tasks is not None,
+        "media_pending": include_media and image_limit > 0 and media_callback is not None and background_tasks is not None,
+        "search_config": {
+            "result_limit": limit,
+            "image_limit": image_limit,
+            "parallel_image_search": bool(parallel_queries),
+            "provider_request_count": 2 if distinct_visual_query else 1,
+            "page_fetch_limit": min(6, max(4, image_limit * 2)) if image_limit else 0,
+        },
         "timings_ms": {
             "search": round((searched_at - started) * 1000),
             "page_media": 0, "vision": 0,
@@ -395,17 +412,18 @@ async def rich_search(
 
     async def enrich_media() -> dict[str, Any]:
         source_by_url = {item["url"]: item for item in sources}
-        visual_candidates = await _extract_candidates(visual_results)
+        page_fetch_limit = min(6, max(4, image_limit * 2))
+        visual_candidates = await _extract_candidates(visual_results, page_fetch_limit)
         if visual_results is not results:
             seen = {item["url"] for item in visual_candidates}
             visual_candidates.extend(
-                item for item in await _extract_candidates(results) if item["url"] not in seen
+                item for item in await _extract_candidates(results, page_fetch_limit) if item["url"] not in seen
             )
         extracted_at = time.perf_counter()
         review_goal = image_query.strip() or query
         try:
             reviewed, diagnostics = await asyncio.wait_for(
-                _vision_filter(env, review_goal, visual_candidates), timeout=22,
+                _vision_filter(env, review_goal, visual_candidates, image_limit), timeout=22,
             )
         except asyncio.TimeoutError:
             reviewed, diagnostics = [], {"timeout": 1, "candidates": len(visual_candidates), "reviewed": 0}
@@ -438,7 +456,7 @@ async def rich_search(
             await media_callback(enriched)
         return enriched
 
-    if not include_media:
+    if not include_media or image_limit == 0:
         return base_metadata
     if media_callback is not None and background_tasks is not None:
         task = asyncio.create_task(enrich_media())

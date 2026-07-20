@@ -4,9 +4,6 @@ import unittest
 import json
 import ast
 import threading
-import base64
-import hashlib
-import hmac
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,7 +23,7 @@ from agents.chat._ui_tools import build_production_tools
 from agents.chat._protocol import PublicStreamFilter, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
 from agents._shared.side_effects import _meeting_payload, _meeting_result, _meeting_signature
-from agents._shared.auth import require_user, scoped_conversation_id, verify_jwt
+from agents._shared.auth import require_user, scoped_conversation_id
 from agents._shared.rich_search import (
     _filter_for_target_date,
     _review_image,
@@ -67,7 +64,7 @@ from agents._shared.proactive import (
     run_proactive_tick,
     save_proactive_state,
     update_preferences,
-    ingest_external_signal,
+    ingest_workspace_signal,
 )
 from agents._shared.intelligence import (
     apply_automatic_memory_candidates,
@@ -162,47 +159,12 @@ class FakeContext:
         self.env = {}
 
 
-def signed_test_jwt(user_id: str, secret: str, now: int | None = None) -> str:
-    now = int(now or time.time())
-    def encode(value):
-        raw = json.dumps(value, separators=(",", ":")).encode("utf-8")
-        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
-    header = encode({"alg": "HS256", "typ": "JWT"})
-    payload = encode({"sub": user_id, "username": "alice", "roles": ["user"], "iat": now - 1, "exp": now + 3600})
-    signature = hmac.new(secret.encode(), f"{header}.{payload}".encode(), hashlib.sha256).digest()
-    return f"{header}.{payload}.{base64.urlsafe_b64encode(signature).decode().rstrip('=')}"
-
-
 class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
-    def test_multi_user_jwt_and_conversation_scope_are_tenant_bound(self):
-        secret = "0123456789abcdef0123456789abcdef"
-        user_a = "11111111-1111-1111-1111-111111111111"
-        user_b = "22222222-2222-2222-2222-222222222222"
-        token = signed_test_jwt(user_a, secret)
-        self.assertEqual(verify_jwt(token, secret)["sub"], user_a)
-        ctx = SimpleNamespace(
-            env={"AUTH_MODE": "multi_user", "JWT_SECRET": secret},
-            request=FakeRequest({}, {"cookie": f"jwt_token={token}"}),
-            conversation_id="conversation-shared",
-        )
-        self.assertEqual(require_user(ctx)["user_id"], user_a)
-        self.assertEqual(scoped_conversation_id(ctx, user_a), f"tenant:{user_a}:conversation-shared")
-        self.assertNotEqual(scoped_conversation_id(ctx, user_a), f"tenant:{user_b}:conversation-shared")
-
-    async def test_user_workspaces_and_proactive_state_are_isolated(self):
-        store = FakeStore()
-        user_a = "11111111-1111-1111-1111-111111111111"
-        user_b = "22222222-2222-2222-2222-222222222222"
-        workspace = empty_workspace()
-        workspace["schedules"]["private-a"] = {"id": "private-a", "title": "A 的日程", "start_time": 1, "end_time": 2}
-        await save_workspace(store, user_a, workspace)
-        self.assertIn("private-a", (await load_user_workspace(store, user_id=user_a))["schedules"])
-        self.assertNotIn("private-a", (await load_user_workspace(store, user_id=user_b))["schedules"])
-        proactive = empty_proactive_state()
-        proactive["preferences"]["enabled"] = False
-        await save_proactive_state(store, proactive, user_a)
-        self.assertFalse((await load_proactive_state(store, user_a))["preferences"]["enabled"])
-        self.assertTrue((await load_proactive_state(store, user_b))["preferences"]["enabled"])
+    def test_personal_runtime_uses_one_fixed_owner_and_raw_conversation_id(self):
+        ctx = SimpleNamespace(request=FakeRequest({}), conversation_id="conversation-personal")
+        self.assertEqual(require_user(ctx)["user_id"], USER_WORKSPACE_ID)
+        self.assertEqual(require_user(ctx)["roles"], ["owner"])
+        self.assertEqual(scoped_conversation_id(ctx, USER_WORKSPACE_ID), "conversation-personal")
 
     def test_long_history_is_trimmed_at_human_boundary(self):
         messages = [SimpleNamespace(type="human", content=f"q{index}") if index % 3 == 0
@@ -485,12 +447,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(restored["preferences"]["daily_limit"], 2)
         self.assertEqual(restored["notifications"]["ntf-1"]["status"], "snoozed")
 
-    def test_external_connector_signals_are_persistent_and_deduplicated(self):
+    def test_workspace_signals_are_persistent_and_deduplicated(self):
         state = empty_proactive_state()
-        first, created = ingest_external_signal(
+        first, created = ingest_workspace_signal(
             state, signal_type="file_uploaded", dedup_key="blob-1", payload={"filename": "paper.pdf"}, now=100,
         )
-        repeated, created_again = ingest_external_signal(
+        repeated, created_again = ingest_workspace_signal(
             state, signal_type="file_uploaded", dedup_key="blob-1", payload={"filename": "paper.pdf"}, now=101,
         )
         self.assertTrue(created)
@@ -815,6 +777,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(provider.await_count, 1)
             self.assertEqual(provider.await_args.args[1], "合并后的 AI 新闻查询")
             self.assertFalse(provider.await_args.kwargs["include_media"])
+            self.assertEqual(provider.await_args.kwargs["result_limit"], 8)
+            self.assertEqual(provider.await_args.kwargs["image_limit"], 2)
+            self.assertTrue(provider.await_args.kwargs["parallel_queries"])
 
             next_turn_tools = build_production_tools(
                 None, store=store, conversation_id="search-two", env={}, media_enabled=False,
@@ -824,6 +789,15 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             cached = json.loads(await next_tool.ainvoke({"query": "任意改写"}))
             self.assertEqual(provider.await_count, 1)
             self.assertTrue(cached["search_results"]["cache_hit"])
+
+    def test_search_preferences_have_fast_balanced_defaults_and_public_state(self):
+        state = empty_intelligence_state()
+        self.assertEqual(state["search_preferences"], {
+            "result_limit": 8,
+            "image_limit": 2,
+            "parallel_image_search": True,
+        })
+        self.assertEqual(public_intelligence_state(state)["search_preferences"], state["search_preferences"])
 
     async def test_calendar_edit_refreshes_and_delete_retires_proactive_reminder(self):
         store = FakeStore()
@@ -952,6 +926,23 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         payload = request.call_args.args[1]
         self.assertEqual(sum(block.get("type") == "image_url" for block in payload["messages"][0]["content"]), 2)
 
+    async def test_vision_batch_obeys_user_image_limit(self):
+        response = {"choices": [{"message": {"content": json.dumps({"items": [
+            {"index": index, "description": f"相关图片 {index}", "relevant": True}
+            for index in range(1, 7)
+        ]}, ensure_ascii=False)}}]}
+        candidates = [
+            {"url": f"https://example.com/{index}.jpg", "source_url": f"https://source.example/{index}", "source_title": str(index)}
+            for index in range(1, 7)
+        ]
+        with patch("agents._shared.rich_search._json_request", return_value=response) as request:
+            reviewed, diagnostics = await _vision_filter(
+                {"HUNYUAN_IMAGE_API_KEY": "vision-key"}, "AI 新闻", candidates, 2,
+            )
+        self.assertEqual(len(reviewed), 2)
+        self.assertEqual(diagnostics["reviewed"], 4)
+        self.assertEqual(request.call_count, 1)
+
     def test_dsml_tool_protocol_is_normalized(self):
         wire = '''<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="search_arxiv"><｜｜DSML｜｜parameter name="topic" string="true">Zhi-Hua Zhou 2026</｜｜DSML｜｜parameter><｜｜DSML｜｜parameter name="limit" string="false">5</｜｜DSML｜｜parameter></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>'''
         calls = dsml_tool_calls(wire, {"search_arxiv"})
@@ -1038,6 +1029,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(result["total"], 0)
         self.assertIn("timings_ms", result)
+        self.assertEqual(result["search_config"]["provider_request_count"], 2)
+        self.assertTrue(result["search_config"]["parallel_image_search"])
 
 
 if __name__ == "__main__":

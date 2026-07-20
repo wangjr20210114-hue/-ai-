@@ -6,24 +6,15 @@
 - 已创建或关联 Makers 项目。
 - Node.js 22。
 - Python 3.11 用于与 CI 对齐的本地 Agent 测试。
-- 个人部署默认 `single_user`，不需要数据库。
-- 只有 `multi_user` 模式需要创建 Neon 并执行 `db/001_users.sql`。
+- 固定个人单所有者部署，不需要应用数据库或身份环境变量。
 
 ## 2. 环境变量
 
-### 所有模式必需
+### 必需
 
 - `AI_GATEWAY_API_KEY`
 - `AI_GATEWAY_BASE_URL`
 - `AI_GATEWAY_MODEL`（可省略，代码有 Makers 默认模型）
-- `AUTH_MODE=single_user`（个人部署推荐）
-
-### 仅多用户模式必需
-
-- `AUTH_MODE=multi_user`
-- `DATABASE_URL`
-- `JWT_SECRET`，至少 32 字符
-- `PROACTIVE_SCHEDULE_SECRET`，至少 32 字符
 
 ### 业务 Provider
 
@@ -100,20 +91,19 @@ Preview 验收通过后，只有获得明确生产发布授权，才能在控制
 
 下列清单的可执行步骤、测试数据、预期结果和证据要求以静态测试站 `/test-cases/` 为准；测试站同时记录需配置、平台待验证、部分实现和未实现能力，不能用“不适用”掩盖应当阻断生产的失败项。
 
-1. 单用户模式无需登录即可使用全部核心功能；多用户模式再测注册、登录、退出和未登录 401。
-2. 多用户模式测试 A/B 用户会话、Workspace、Blob、Memory、Proactive 和连接器互不可见。
-3. 对话流式输出、5 秒心跳、停止和刷新恢复。
-4. 联网搜索来源、图片和严格今日日期过滤。
-5. 地点、地图、路线和日程确认。
-6. 腾讯会议仅在连接器配置后测试；不作为个人核心 Preview 阻塞项。
-7. 文生图、图生图、版本轮播、单图/ZIP 下载。
-8. PDF 上传、阅读库、论文检索、全文助读。
-9. 浏览器关闭跨整点后 `last_tick` 推进且提醒不重复。
-10. `/system` 无待核对 Action，Makers Trace 可看到对应 Run。
+1. 无需登录即可使用个人工作区全部核心功能。
+2. 对话流式输出、5 秒心跳、停止和刷新恢复。
+3. 联网搜索来源、图片、可持久化搜索设置和严格今日日期过滤。
+4. 地点、地图、路线和日程确认。
+5. 腾讯会议仅在连接器配置后测试；不作为个人核心 Preview 阻塞项。
+6. 文生图、图生图、版本轮播、单图/ZIP 下载。
+7. PDF 上传、阅读库、论文检索、全文助读。
+8. 浏览器关闭跨整点后 `last_tick` 推进且提醒不重复。
+9. `/system` 无待核对 Action，Makers Trace 可看到对应 Run。
 
 ## 7. 回滚
 
 - 保留部署前稳定 Deployment ID。
 - Schema 变更只允许向前兼容和幂等执行。
-- Preview 验收失败时回滚部署，不删除 Blob、Store、Neon 或旧 SQLite 数据。
+- Preview 验收失败时回滚部署，不删除 Blob、Store 或旧 SQLite 数据。
 - Provider 凭据切换失败时关闭对应能力入口并显示明确配置状态，不能回退到外部 FastAPI。

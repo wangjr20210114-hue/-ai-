@@ -131,6 +131,7 @@ export interface MakersIntelligenceState {
   memories: MakersMemory[];
   memory_count?: number;
   memory_preferences?: { enabled: boolean };
+  search_preferences?: { result_limit: number; image_limit: number; parallel_image_search: boolean };
   rule_proposals: ProactiveRuleProposal[];
   feedback_count: number;
   usage: {
@@ -223,6 +224,14 @@ export interface SearchMeta {
   media_pending?: boolean;
   vision_diagnostics?: Record<string, number>;
   timings_ms?: Record<string, number>;
+  cache_hit?: boolean;
+  search_config?: {
+    result_limit: number;
+    image_limit: number;
+    parallel_image_search: boolean;
+    provider_request_count: number;
+    page_fetch_limit: number;
+  };
 }
 
 export interface ChatMessage {

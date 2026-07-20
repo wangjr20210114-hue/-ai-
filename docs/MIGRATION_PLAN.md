@@ -29,7 +29,7 @@
 - Schema 幂等创建用户、角色、状态和连接器 Token 索引。
 - 添加结构测试，避免 roles 类型再次漂移。
 
-完成条件：新 Neon 项目只需执行一份 SQL。
+完成条件：个人部署无需创建或维护应用数据库。
 
 ## P1：清除单仓库部署阻塞（完成）
 
@@ -49,7 +49,7 @@
 状态：项目已关联 GitHub，并通过平台 Git 构建链完成 Preview 与 Production。当前 Preview `dph2wvagts0x` 构建提交 `9ed04b1` 成功，生成 13 条 Python Agent 路由和每日 Schedule；受保护访问链接显示“已连接”，历史会话、日程、路线缓存、阅读库和代码展示读取通过。小时级 Cron 已按 Makers 最短 1 天限制改为每日 08:00；详情见 `CURRENT_RELEASE.md`。
 
 - 从目标分支创建独立 Makers Preview。
-- 校验当前身份模式必需环境变量、Blob 和 Conversation Store；仅多用户模式校验 Neon Schema。
+- 校验模型/Provider 必需环境变量、Blob 和 Conversation Store；身份固定为个人所有者。
 - 完成聊天、搜索、地图、日程、生图、PDF、论文、会议冒烟。
 - 跨整点验证无浏览器 Cron。
 - 使用两个真实测试用户完成负向隔离。

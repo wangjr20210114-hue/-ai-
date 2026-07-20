@@ -682,16 +682,16 @@ def process_schedule_signals(state: dict[str, Any], signals: list[dict[str, Any]
     return stats
 
 
-def ingest_external_signal(
+def ingest_workspace_signal(
     state: dict[str, Any], *, signal_type: str, dedup_key: str, payload: dict[str, Any], now: int,
 ) -> tuple[dict[str, Any], bool]:
-    allowed = {"file_uploaded", "calendar_changed", "external_webhook"}
+    allowed = {"file_uploaded", "calendar_changed"}
     normalized_type = str(signal_type or "")
     if normalized_type not in allowed:
-        raise ValueError("不支持的外部信号类型")
+        raise ValueError("不支持的工作区信号类型")
     normalized_key = str(dedup_key or "").strip()
     if not normalized_key:
-        raise ValueError("外部信号缺少去重键")
+        raise ValueError("工作区信号缺少去重键")
     event_id = _stable_id("evt", f"{normalized_type}:{normalized_key}")
     existing = state.setdefault("events", {}).get(event_id)
     if isinstance(existing, dict):
@@ -699,7 +699,7 @@ def ingest_external_signal(
     event = {
         "id": event_id,
         "type": normalized_type,
-        "source": "external_connector",
+        "source": "workspace",
         "dedup_key": normalized_key,
         "subject_ids": [],
         "payload": copy.deepcopy(payload),
@@ -714,12 +714,12 @@ def ingest_external_signal(
         "event_id": event_id,
         "status": "succeeded",
         "intent": normalized_type,
-        "trigger_origin": "external_connector",
+        "trigger_origin": "workspace_change",
         "reason": "signal_persisted",
         "created_at": now,
         "updated_at": now,
     }
-    _observation(state, run_id, "succeeded", "external_signal_persisted", now, event_id=event_id)
+    _observation(state, run_id, "succeeded", "workspace_signal_persisted", now, event_id=event_id)
     return copy.deepcopy(event), True
 
 

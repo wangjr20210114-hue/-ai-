@@ -49,13 +49,13 @@ GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当
 - ESLint、TypeScript/Vite EdgeOne 构建和 `git diff --check`：通过。
 - EdgeOne 云端构建：成功；依赖审计为 0 个漏洞。
 
-这些自动化和只读冒烟不替代真实模型、外部 Provider、图片生成、跨日 Cron 和多用户隔离的人工验收。
+这些自动化和只读冒烟不替代真实模型、外部 Provider、图片生成和跨日 Cron 的人工验收。
 
 ## 当前边界
 
 - `dph2wvagts0x` 尚未发布生产；必须先在 `/test-cases/` 完成相关用例复验。
 - 真实旧 SQLite 备份尚未执行数量、哈希和抽样回读；迁移代码与测试已完成。
-- 多用户 A/B 隔离、真实平台跨日定时触发和各 Provider 付费调用仍需专项验收。
+- 真实平台跨日定时触发和各 Provider 付费调用仍需专项验收。
 - 腾讯会议是最后阶段可选连接器；个人部署不要求先申请企业 API。
 - DOC/DOCX、扫描 PDF OCR、页码级引用尚未实现。
 - 未绑定自定义域名，Preview 测试链接默认有效 3 小时，签名不得提交仓库。
@@ -64,4 +64,4 @@ GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当
 
 - 当前生产回滚目标：上一成功 Production Deployment `dpk92buifgid`。
 - Preview 失败只废弃对应 Preview，不影响当前生产。
-- 回滚只切换 Deployment，不删除 Blob、LangGraph Store、Conversation Store、Neon 或旧 SQLite 数据。
+- 回滚只切换 Deployment，不删除 Blob、LangGraph Store、Conversation Store 或旧 SQLite 数据。

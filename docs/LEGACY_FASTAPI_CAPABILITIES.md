@@ -21,7 +21,7 @@
 | Run 人工取消/重试 | 部分等价 | 工作流步骤已有入口；通用 Run 产品入口待补 |
 | 旅行计划 CRUD 资产 | 数据可迁移，UI 待补 | TravelPlan 已进入 Workspace 持久状态；专用 CRUD 产品入口待补 |
 | SQLite 备份/恢复 | 迁移链已实现 | 只读导出到 Conversation Store、LangGraph Store 和 Blob；真实库待执行 |
-| 本地访问令牌 | 不迁移 | 多用户采用官方 Neon + JWT + Middleware |
+| 本地访问令牌 | 不迁移 | 当前个人演示固定所有者，不提供登录入口 |
 | SQLite/WAL/进程锁 | 不迁移 | 属于旧实现，不是用户功能 |
 | FastAPI/WebSocket/Supervisor | 不迁移 | 由 Makers Runtime、SSE、Cron 取代 |
 | 本地 OSM 数据库 | 不原样迁移 | 保留“Provider 失败可降级”的用户结果，不部署本地数据库 |

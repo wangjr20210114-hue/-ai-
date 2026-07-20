@@ -217,6 +217,12 @@ async def handler(ctx):
         await fail_run(message_text)
         return error(message_text, 429)
     memory_context = confirmed_memory_context(intelligence)
+    search_preferences = intelligence.get("search_preferences") or {}
+    search_result_limit = max(4, min(18, int(search_preferences.get("result_limit") or 8)))
+    search_image_limit = max(0, min(4, int(
+        search_preferences.get("image_limit") if search_preferences.get("image_limit") is not None else 2
+    )))
+    parallel_image_search = bool(search_preferences.get("parallel_image_search", True))
     workspace = await load_user_workspace(ctx.store.langgraph_store, conversation_id, user_id)
     current_calendar_context = calendar_context(workspace)
     try:
@@ -276,11 +282,14 @@ async def handler(ctx):
         background_tasks=background_tasks,
         user_id=user_id,
         initial_visual_references=reference_images,
-        media_enabled=bool(capability_plan.get("needs_images")),
+        media_enabled=bool(capability_plan.get("needs_images")) and search_image_limit > 0,
         planned_search_query=str(capability_plan.get("search_query") or ""),
         planned_image_query=str(capability_plan.get("image_query") or ""),
         search_cache_ttl_seconds=300 if explicit_today else (900 if time_sensitive else 86_400),
         search_cache_identity=f"{message}\n{memory_context}",
+        search_result_limit=search_result_limit,
+        search_image_limit=search_image_limit,
+        parallel_image_search=parallel_image_search,
     )
     # Rich search is the single search path. Exposing the platform's plain
     # web_search beside it made semantically identical turns randomly lose the

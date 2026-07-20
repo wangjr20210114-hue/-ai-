@@ -15,7 +15,8 @@
 - [`TESTING.md`](TESTING.md)：自动化测试、本地测试站启动、Preview 验收和测试数据边界。
 - [`ACCEPTANCE_SITE.md`](ACCEPTANCE_SITE.md)：跨主机验收站、证据上传、编辑审计与安全测试说明。
 - [`MAKERS_PROACTIVE_IMPLEMENTATION_STATUS.md`](MAKERS_PROACTIVE_IMPLEMENTATION_STATUS.md)：主动运行时实现状态。
-- [`MULTI_USER_CUTOVER.md`](MULTI_USER_CUTOVER.md)：多用户切换步骤。
+- [`SEARCH_CONFIGURATION.md`](SEARCH_CONFIGURATION.md)：搜索并行策略、上限、缓存与性能结论。
+- [`TENCENT_MEETING_SETUP.md`](TENCENT_MEETING_SETUP.md)：腾讯会议个人账号边界和环境变量来源。
 
 ## 文档维护规则
 

@@ -17,11 +17,11 @@ Makers 项目：`ai-active-agent`（`makers-0oeuhire655w`）。项目使用 GitH
 | AI 生图 | 混元 `hy-image-v3.0` 直接生成；现实主体可复用富搜索 + HY-Vision 审核图，支持版本轮播、绘制动画、Blob 归档与 ZIP 下载 |
 | 论文与 PDF | 普通富搜索后桥接公开 PDF/arXiv 下载；PDF 自动分类、文件夹化“我的阅读”，论文支持选词、翻译、总结、全文助读和问答 |
 | 主动运行时 | EdgeOne cron 每日触发（当前 Makers 平台最短间隔为 1 天）；持久 Event/Run/Observation、日程/天气/路线 Collector、去重 Notification Inbox、免打扰和每日上限 |
-| 长期记忆与反馈 | 记忆先提案后确认；提醒接受/忽略/稍后反馈；连续忽略生成可确认规则提案；Token 日/月预算 |
+| 长期记忆与反馈 | 后台自动提取、过滤和清理非敏感稳定记忆；提醒接受/忽略/稍后反馈；连续忽略生成可确认规则提案；Token 日/月预算 |
 | 持久工作流 | 主模型可创建多步骤工作流提案；用户确认后后台按依赖和到期时间推进，步骤需显式完成/跳过 |
 | 安全副作用 | Action 冻结快照、SHA-256、幂等键、Provider 调用账本、执行租约和未知结果人工核对 |
 
-代码支持单用户和多用户两种模式。个人部署推荐 `single_user`，不需要数据库；多用户采用腾讯官方 Makers 认证参考架构（Neon、bcrypt、HttpOnly JWT），并在每个 Cloud Function 与 Agent 入口执行身份校验、隔离 Conversation、Store、Blob 和连接器 Secret。完整架构见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)，数据迁移见 [DATA_MIGRATION.md](docs/DATA_MIGRATION.md)。
+当前产品固定为个人单所有者演示，不包含注册、登录、JWT、租户或用户数据库。线上业务状态完全使用 Makers Conversation Store、LangGraph Store 和 Blob；不需要 SQLite、Neon 或其他应用数据库。完整架构见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)，旧 SQLite 数据迁移见 [DATA_MIGRATION.md](docs/DATA_MIGRATION.md)。
 
 ## 目录
 
@@ -70,7 +70,6 @@ edgeone.json              # Makers 构建与 Agent 配置
 | `HUNYUAN_IMAGE_API_KEY` | TokenHub 多模态图片筛选与混元生图（Hy3 是纯文本模型，不用于看图） |
 | `HUNYUAN_VISION_API_KEY` / `HUNYUAN_VISION_MODEL` | 可选的独立视觉密钥与模型覆盖，默认复用上项并调用 `hy-vision-2.0-instruct` |
 | `TENCENT_MAP_SERVER_KEY` | 腾讯地点与路线服务 |
-| `AUTH_MODE` | 个人部署使用 `single_user`；开放多用户时才切换并配置 Neon/JWT |
 | `TENCENT_MEETING_*` | 最后阶段可选连接器；个人开发者当前可不配置 |
 
 ## Makers 本地开发
@@ -91,10 +90,10 @@ edgeone makers dev
 ## 质量检查
 
 ```bash
-python -m compileall agents
-python -m unittest discover -s agents/_tests -v
-python -m unittest discover -s tools/tests -v
-node --test cloud-functions/_jwt.test.js cloud-functions/platform-reuse.test.js
+python3 -m compileall agents
+python3 -m unittest discover -s agents/_tests -v
+python3 -m unittest discover -s tools/tests -v
+npm test
 
 cd frontend
 npm ci

@@ -27,7 +27,7 @@
 | Notification、免打扰、每日上限、稍后提醒 | 已实现并测试 | 在线读取通过；真实 Cron 触发待跨日终验 | `agents/_shared/proactive.py` |
 | Memory、Feedback、Rule、Token 预算 | 已实现并测试 | 待预览复验 | `agents/intelligence` |
 | 持久工作流、失败阻断、重试与补偿 | 已实现并测试 | 待预览复验 | `agents/_shared/proactive.py` |
-| 单用户/多用户身份 | 已实现并测试 | 个人单用户无需 Neon；多用户 A/B 隔离待线上终验 | `cloud-functions/auth`、`auth/current-user.js`、`agents/_shared/auth.py` |
+| 个人所有者身份 | 已实现并测试 | 固定 `local-user`，无注册登录或应用数据库 | `auth/current-user.js`、`agents/_shared/auth.py` |
 | SQLite 历史数据迁移 | 导出/导入链已实现并测试 | 真实数据数量、哈希、抽样回读待执行 | `tools/export_sqlite.py`、`agents/migration` |
 | 业务健康视图 | 已实现 | Makers/CLS 告警待控制台配置 | `agents/system` |
 
@@ -36,14 +36,14 @@
 ### P0：已在本分支完成，待 CI 平台复核
 
 - CI 已以 Makers Agent、Cloud Functions 和 EdgeOne 构建作为发布门槛。
-- Neon 已统一为 `db/001_users.sql` 一份 Schema。
+- 已删除 Neon、JWT、登录注册和租户隔离代码，个人演示不需要身份数据库。
 - 根 Python 直接依赖已锁定版本。
 - 当前架构、能力基线、部署和迁移计划已有唯一事实源。
 
 ### P1：代码阻塞与核心线上验收已完成
 
 - 腾讯会议已改用官方服务端 API，外部 Meeting Bridge 和设备登录态已移除。
-- 本分支已完成真实 EdgeOne Preview/Production、动态路由登记和单用户核心读取验收；真实 Cron 和双用户隔离仍待专项终验。
+- 本分支已完成真实 EdgeOne Preview/Production、动态路由登记和个人工作区核心读取验收；真实 Cron 仍待专项终验。
 - SQLite 迁移工具已完成，真实旧库迁移与 Preview 回读尚未执行。
 
 ### P2：产品增强但不阻塞核心迁移
@@ -52,7 +52,7 @@
 - 论文长任务的可恢复分块索引与全文处理。
 - 阅读库 JSON 索引的并发写冲突防护。
 - 前端 PDF、KaTeX、地图进一步动态拆包。
-- 邮件、系统日历和企业 IM 的真实授权连接器。
+- 邮件、系统日历和企业 IM 的真实授权连接器（当前个人演示不提供）。
 
 ## 4. 零缩水验收门槛
 
@@ -60,7 +60,7 @@
 - 生产入口不存在活动 FastAPI、Uvicorn、SQLite、`/api` 或 WebSocket fallback。
 - 会议、日程等高风险副作用重复确认不会重复执行。
 - Provider 超时或结果未知时进入人工核对，不能直接重试。
-- Conversation、Workspace、Blob、Intelligence、Proactive 和连接器 Secret 按用户隔离。
+- Conversation、Workspace、Blob、Intelligence 和 Proactive 均固定写入个人所有者工作区。
 - 浏览器关闭时 EdgeOne Cron 仍能推进 `last_tick`。
 - 从全新 clone 只依赖文档声明的环境变量即可构建和部署。
 
@@ -77,4 +77,4 @@
 - EdgeOne Preview `dph2wvagts0x`：构建成功，应用已连接，核心只读数据加载通过。
 - 已知非阻塞项：主 JS chunk 约 1.52 MB，后续需要代码拆包优化。
 
-这些结果不替代真实 Provider、平台 Cron、多用户和预览部署验收。
+这些结果不替代真实 Provider、平台 Cron 和预览部署验收。

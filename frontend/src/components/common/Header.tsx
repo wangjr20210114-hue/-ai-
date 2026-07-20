@@ -1,8 +1,7 @@
 import { Button, Tooltip } from 'tdesign-react';
-import { ChatBubbleHistoryIcon, ChevronLeftIcon, ChevronRightIcon, LogoutIcon, ModeDarkIcon, ModeLightIcon } from 'tdesign-icons-react';
+import { ChatBubbleHistoryIcon, ChevronLeftIcon, ChevronRightIcon, ModeDarkIcon, ModeLightIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
-import { useSession } from '../auth/session';
 
 const THEME_KEY = 'travel-theme';
 
@@ -18,7 +17,6 @@ export default function Header({
 }) {
   const { theme } = useAppState();
   const dispatch = useAppDispatch();
-  const session = useSession();
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -46,7 +44,6 @@ export default function Header({
         <span className="brand-logo">元宝 Agent</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        {session?.mode === 'multi_user' && <span className="session-username">{session.user.username}</span>}
         <StatusIndicator />
         {onToggleRightPanel && (
           <Tooltip content={rightPanelOpen ? '收起右栏' : '展开右栏'}>
@@ -72,11 +69,6 @@ export default function Header({
             icon={theme === 'dark' ? <ModeLightIcon /> : <ModeDarkIcon />}
           />
         </Tooltip>
-        {session?.mode === 'multi_user' && (
-          <Tooltip content="退出登录">
-            <Button shape="circle" variant="text" size="medium" onClick={session.logout} aria-label="退出登录" icon={<LogoutIcon />} />
-          </Tooltip>
-        )}
       </div>
     </header>
   );

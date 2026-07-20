@@ -4,11 +4,9 @@
   "version": "5.1.0",
   "type": "module",
   "scripts": {
-    "test": "node --test cloud-functions/_jwt.test.js cloud-functions/platform-reuse.test.js cloud-functions/acceptance/index.test.js"
+    "test": "node --test cloud-functions/platform-reuse.test.js cloud-functions/acceptance/index.test.js"
   },
   "dependencies": {
-    "@edgeone/pages-blob": "^0.0.14",
-    "@neondatabase/serverless": "^0.10.4",
-    "bcryptjs": "^2.4.3"
+    "@edgeone/pages-blob": "^0.0.14"
   }
 }

@@ -12,11 +12,9 @@ React / Vite
   │    ├─ LangGraph Store
   │    └─ Makers Trace
   ├─ Makers Cloud Functions (Node.js)
-  │    ├─ Auth / Conversation / File / Library / Paper
-  │    ├─ External Signal Connector
+  │    ├─ Conversation / File / Library / Paper
   │    └─ Scheduled Tick Bridge
-  ├─ Makers Blob
-  └─ Neon Serverless Postgres (仅 multi_user 身份；个人单用户不需要)
+  └─ Makers Blob
 ```
 
 ## 2. 平台能力边界
@@ -25,12 +23,12 @@ React / Vite
 | --- | --- | --- |
 | Agent 运行 | Makers Agent Runtime | LangGraph 图、领域工具、SSE 公共协议 |
 | 模型 | Makers Models / AI Gateway | 模型选择、预算和业务提示词 |
-| 会话 | Conversation Store | 标题、前端会话体验、租户外部 ID 映射 |
+| 会话 | Conversation Store | 标题与前端会话体验 |
 | 短期状态 | LangGraph Checkpointer | 图状态结构与历史裁剪 |
 | 用户长期状态 | LangGraph Store | Workspace、Event、Run、Notification、Workflow、Memory |
-| 文件 | Makers Blob | 租户 Key、资产元数据、内容校验 |
+| 文件 | Makers Blob | 资产元数据与内容校验 |
 | 调度 | `edgeone.json.schedules` | Collector、Policy、去重和通知语义 |
-| 身份 | 官方 Makers Auth 参考架构 + Neon | 角色、状态、连接器 Token 哈希 |
+| 身份 | 固定个人所有者 | 不提供注册、登录或租户能力 |
 | 可观测 | Makers Trace / CLS | `/system` 只报告业务 SLO |
 | 边缘安全 | EdgeOne WAF/Bot/频控 | 资源级授权与输入校验 |
 
@@ -43,14 +41,12 @@ React / Vite
 - 长期记忆：后台 LLM 只提取用户明确表达的稳定偏好、目标和项目背景；应用层再次拒绝联系方式、凭证、证件、精确地址、财务和医疗信息，并按置信度、TTL 和使用次数清理。记忆值不进入公共 API 或前端列表。
 - 日程变更：大模型只冻结确认 Action；服务端按当前 Workspace 的 schedule_id 执行。地点必须是地点服务返回的 place_id；成功后立即重算日程/天气/路线信号，刷新仍有效的通知并淘汰旧通知。
 - Blob：PDF、论文、生成图片、阅读库资产索引。
-- Neon：用户、角色、账号状态和外部连接器 Token 哈希；不复制 Agent 业务状态。
 - Migration：本地 SQLite 只读导出；一次性 `/migration` 只调用 Conversation Store/LangGraph Store，文件只调用官方 Blob SDK。
 
 ## 4. 安全约束
 
-- 多用户模式下内部会话 ID 必须带服务端生成的 tenant scope。
-- Agent 入口不能信任浏览器自报 user header；必须验签 Cookie 或系统调度 Secret。
-- Blob Key 必须使用租户前缀，下载和删除均验证前缀。
+- 所有运行状态固定写入 `local-user` 工作区；前端不能覆盖该所有者。
+- 会话 ID 必须限制长度并由 Makers Conversation Store/Checkpointer 作为事实源。
 - 高风险副作用只读取服务端冻结 Action，不接收浏览器重传完整参数。
 - Provider 调用前写幂等账本；成功后先持久化结果再更新 UI。
 - 网络超时视为结果未知，进入 `reconciliation_required`。

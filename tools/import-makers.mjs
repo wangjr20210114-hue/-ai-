@@ -41,7 +41,6 @@ async function migrationRequest(options, payload) {
       'Content-Type': 'application/json',
       'makers-conversation-id': 'migration-control',
       'x-yuanbao-migration-secret': options.secret,
-      ...(options.cookie ? { Cookie: options.cookie } : {}),
     },
     body: JSON.stringify(payload),
   });
@@ -61,8 +60,7 @@ async function importFiles(options, manifest, files) {
     return { imported: 0, skipped: files.length, reason: 'Blob upload requires --project-id and --api-token' };
   }
   const store = getStore({ name: 'yuanbao-files', projectId: options.projectId, token: options.apiToken, consistency: 'strong' });
-  const tenantPrefix = options.multiUser ? `tenants/${options.userId}/` : '';
-  const indexKey = `${tenantPrefix}library/index.json`;
+  const indexKey = 'library/index.json';
   const existing = await store.get(indexKey, { type: 'json', consistency: 'strong' }).catch(() => []);
   const library = Array.isArray(existing) ? existing : [];
   let imported = 0;
@@ -74,7 +72,7 @@ async function importFiles(options, manifest, files) {
     const digest = sha256(bytes);
     if (item.actual_sha256 && digest !== item.actual_sha256) throw new Error(`File hash mismatch: ${item.exported_path}`);
     const filename = safeSegment(item.original_name || basename(localPath));
-    const storageKey = `${tenantPrefix}uploads/migration/${manifest.export_id}/${safeSegment(item.id, digest.slice(0, 16))}-${filename}`;
+    const storageKey = `uploads/migration/${manifest.export_id}/${safeSegment(item.id, digest.slice(0, 16))}-${filename}`;
     const contentType = String(item.mime_type || (filename.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'));
     const upload = await store.createUploadUrl(storageKey, { expireSeconds: 600, contentType });
     const response = await fetch(upload.url, { method: 'PUT', headers: { 'Content-Type': contentType }, body: bytes });
@@ -117,11 +115,9 @@ async function main() {
     bundle: resolve(String(args.bundle)),
     baseUrl: String(args['base-url']),
     secret: String(args.secret),
-    cookie: args.cookie ? String(args.cookie) : '',
     projectId: args['project-id'] ? String(args['project-id']) : '',
     apiToken: args['api-token'] ? String(args['api-token']) : '',
     userId: String(args['user-id'] || 'local-user'),
-    multiUser: Boolean(args['multi-user']),
   };
   if (options.secret.length < 32) throw new Error('--secret must contain at least 32 characters');
   const manifest = await jsonFile(resolve(options.bundle, 'manifest.json'));

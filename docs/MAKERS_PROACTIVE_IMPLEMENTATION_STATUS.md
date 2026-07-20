@@ -6,9 +6,7 @@
 
 ## 1. 结论
 
-本轮已经把系统从“页面内主动提示”改造成**可切换单用户/多用户的主动 Agent**：页面关闭后，EdgeOne cron 仍会触发后台扫描；Event、Run、Observation、Notification、工作流、记忆与反馈均持久化；高风险副作用仍需确认，并具备快照、幂等账本、未知结果阻断和人工补偿。
-
-多用户采用腾讯官方 `makers-agents-auth` 架构：Neon 用户唯一索引、bcrypt、HttpOnly `jwt_token`、Cloud Function/Agent 入口验签和租户 namespace。生产切换仍需配置身份环境变量后在线终验。
+本轮已经把系统从“页面内主动提示”改造成固定个人所有者的主动 Agent：页面关闭后，EdgeOne cron 仍会触发后台扫描；Event、Run、Observation、Notification、工作流、记忆与反馈均持久化；高风险副作用仍需确认，并具备快照、幂等账本、未知结果阻断和人工补偿。
 
 ## 2. P0：最小主动闭环
 
@@ -42,7 +40,7 @@
 | Usage/预算 | 已实现 | 持久 token 统计；日/月预算；off/soft/hard |
 | 文件信号 | 已实现 | PDF 上传后写入去重 Event/Run |
 | 日历变更信号 | 已实现 | 直接 CRUD 和确认 Action 写入去重 Event/Run，并立即扫描；标题/描述/地点变化刷新同一提醒，时间变化或删除会让旧提醒失效再按新状态生成 |
-| 外部连接器 | 已实现租户入口 | 每用户可轮换 Bearer Secret；数据库只保存哈希；日历、邮件、企业消息统一进入 Event/Run |
+| 外部连接器 | 当前不提供 | 个人演示聚焦内置日程、文件、天气和路线信号，不保留租户 Bearer 入口 |
 
 ## 5. P3：持久工作流与生产化
 
@@ -52,7 +50,7 @@
 | 人工介入 | 已实现 | 依赖步骤必须由用户明确完成、跳过或补偿后推进 |
 | 健康与指标 | 已实现 | `/system` 报告业务 scheduler、Run、通知、Action、账本、记忆、预算和策略接受/忽略率；通用 Trace/日志复用 Makers/CLS |
 | 浏览器通知 | 已实现基础层 | 用户授权后、页面打开或后台存活时显示系统通知；持久 Inbox 不依赖页面 |
-| 多用户/RBAC | 代码完成，待配置终验 | 官方 Neon+bcrypt+JWT 架构；用户/管理员角色；Conversation、Store、Blob、连接器密钥均按租户隔离 |
+| 个人所有者 | 已实现 | 固定 `local-user`；无注册、登录、JWT、RBAC 或用户数据库 |
 | 调度与原子抢占 | 复用平台 | EdgeOne Cron + Blob `onlyIfNew` 强一致原子锁；不自研队列或通用 Worker |
 | DAG/补偿 | 已实现安全业务层 | 依赖、失败、重试、补偿和分支阻断；不自动编排未确认的高风险副作用 |
 
@@ -86,7 +84,6 @@
 4. 页面刷新后通知、Run、工作流和记忆仍存在。
 5. 等待平台计划任务跨整点触发，确认 `last_tick.started_at` 在无聊天请求时推进。
 6. “猜你想问”点击后只更新输入栏，不产生用户消息。
-7. 多用户模式下 A/B 用户的 Conversation、Workspace、Blob、Intelligence、Proactive 与连接器 Secret 互不可见。
-8. 工作流失败后只生成一次补偿提醒；重试使用新的 attempt 去重键，依赖步骤在补偿完成前不推进。
+7. 工作流失败后只生成一次补偿提醒；重试使用新的 attempt 去重键，依赖步骤在补偿完成前不推进。
 
 2026-07-18 线上证据：当前 Preview Deployment `dph2wvagts0x` 从提交 `9ed04b1` 构建成功，构建日志确认生成 13 条 Python Agent 路由和 1 条 `Asia/Shanghai` Schedule；受保护链接显示“已连接”，可读取最近主动检查状态。自动化已证明日程变更后的即时扫描与去重通知，但无浏览器的下一次 08:00 平台触发仍需跨日复验；在取得真实运行日志前不能把 Cron 终验记为通过。

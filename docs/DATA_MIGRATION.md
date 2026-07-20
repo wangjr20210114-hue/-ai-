@@ -9,15 +9,12 @@
 | Event、Run、Notification、Checkpoint | Makers LangGraph Store 的 Proactive namespace |
 | Memory、Feedback、Usage | Makers LangGraph Store 的 Intelligence namespace |
 | PDF、论文和上传文件 | Makers Blob `yuanbao-files` namespace |
-| 多用户账号 | Neon `users` 表；不迁移旧本地访问令牌或明文密码 |
 
 生产代码不安装 SQLite 驱动。`tools/export_sqlite.py` 是一次性本地只读工具，`agents/migration` 只接收标准迁移包并调用 Makers 内置 Store。
 
-## 1. 选择身份模式
+## 1. 固定目标工作区
 
-个人部署建议先使用 `AUTH_MODE=single_user`。该模式不需要 Neon、`DATABASE_URL` 或 `JWT_SECRET`，Conversation Store、LangGraph Store、Blob 和 Cron 仍由 Makers 提供。
-
-需要开放给多名用户时，再创建 Neon、执行 `db/001_users.sql`，并切换 `AUTH_MODE=multi_user`。旧 SQLite 的 `local-user` 数据导入到登录后的目标账号；不复制旧本地 Token。
+迁移目标固定为 `local-user`。Conversation Store、LangGraph Store、Blob 和 Cron 均由 Makers 提供；无需创建 SQL 用户库，也不迁移旧访问令牌或密码。
 
 ## 2. 只读导出
 
@@ -40,7 +37,7 @@ git push -u origin <迁移验收分支>
 
 随后从 EdgeOne 控制台 → Makers → `ai-active-agent` → 构建部署 → 新建部署，选择迁移验收分支并创建 Preview。当前项目是 GitHub Provider，不能使用 `edgeone makers deploy` 直传本地目录。
 
-`/migration` 同时要求迁移密钥；多用户模式还要求目标用户的有效 HttpOnly 登录 Cookie。消息每批最多 50 条，状态采用非破坏合并；相同 ID 内容不同会返回冲突，不覆盖线上数据。
+`/migration` 要求迁移密钥。消息每批最多 50 条，状态采用非破坏合并；相同 ID 内容不同会返回冲突，不覆盖线上数据。
 
 ## 4. 导入 Makers Store 与 Blob
 
@@ -64,7 +61,7 @@ node tools/import-makers.mjs \
   --api-token '<edgeone-api-token>'
 ```
 
-多用户模式额外传 `--multi-user --user-id '<uuid>' --cookie 'jwt_token=...'`。Token、Cookie 和迁移密钥不得写入仓库或普通日志。
+迁移密钥不得写入仓库或普通日志。
 
 ## 5. 验收与关闭入口
 

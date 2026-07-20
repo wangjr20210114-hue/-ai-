@@ -60,6 +60,16 @@ async def handler(ctx):
             state["memory_preferences"] = {
                 "enabled": bool((body.get("preferences") or {}).get("enabled", True)),
             }
+        elif operation == "update_search_preferences":
+            changes = body.get("preferences") or {}
+            current = dict(state.get("search_preferences") or {})
+            if "result_limit" in changes:
+                current["result_limit"] = max(4, min(18, int(changes["result_limit"])))
+            if "image_limit" in changes:
+                current["image_limit"] = max(0, min(4, int(changes["image_limit"])))
+            if "parallel_image_search" in changes:
+                current["parallel_image_search"] = bool(changes["parallel_image_search"])
+            state["search_preferences"] = current
         elif operation == "clear_memories":
             state["memories"] = {}
             state["memory_proposals"] = {}

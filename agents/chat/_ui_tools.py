@@ -64,6 +64,9 @@ def build_production_tools(
     planned_image_query: str = "",
     search_cache_ttl_seconds: int = 86_400,
     search_cache_identity: str = "",
+    search_result_limit: int = 8,
+    search_image_limit: int = 2,
+    parallel_image_search: bool = True,
 ) -> list[StructuredTool]:
     runtime_env = env or {}
     paper_scope = paper_constraints or {}
@@ -412,6 +415,9 @@ def build_production_tools(
                     "target_date": target_date,
                     "strict_date": strict_date,
                     "media": media_enabled,
+                    "result_limit": search_result_limit,
+                    "image_limit": search_image_limit,
+                    "parallel_image_search": parallel_image_search,
                 },
                 ensure_ascii=False,
                 sort_keys=True,
@@ -448,6 +454,9 @@ def build_production_tools(
                         media_callback=media_callback if progressive_media and media_enabled else None,
                         background_tasks=background_tasks if progressive_media and media_enabled else None,
                         include_media=media_enabled,
+                        result_limit=search_result_limit,
+                        image_limit=search_image_limit,
+                        parallel_queries=parallel_image_search,
                     )
                     metadata = {**metadata, "cache_hit": False}
                     if store is not None and not metadata.get("media_pending"):

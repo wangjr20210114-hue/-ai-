@@ -34,6 +34,11 @@ def empty_intelligence_state() -> dict[str, Any]:
             "enforcement": "soft",
         },
         "memory_preferences": {"enabled": True},
+        "search_preferences": {
+            "result_limit": 8,
+            "image_limit": 2,
+            "parallel_image_search": True,
+        },
     }
 
 
@@ -66,6 +71,14 @@ async def load_intelligence_state(store: Any, user_id: str = USER_WORKSPACE_ID) 
         state["memory_preferences"] = {"enabled": True}
     else:
         state["memory_preferences"]["enabled"] = bool(state["memory_preferences"].get("enabled", True))
+    preferences = state.get("search_preferences")
+    if not isinstance(preferences, dict):
+        preferences = {}
+    state["search_preferences"] = {
+        "result_limit": max(4, min(18, int(preferences.get("result_limit") or 8))),
+        "image_limit": max(0, min(4, int(preferences.get("image_limit") if preferences.get("image_limit") is not None else 2))),
+        "parallel_image_search": bool(preferences.get("parallel_image_search", True)),
+    }
     prune_automatic_memories(state)
     return state
 
@@ -453,6 +466,9 @@ def public_intelligence_state(state: dict[str, Any]) -> dict[str, Any]:
         "memories": [],
         "memory_count": len(state.get("memories", {})),
         "memory_preferences": copy.deepcopy(state.get("memory_preferences") or {"enabled": True}),
+        "search_preferences": copy.deepcopy(state.get("search_preferences") or {
+            "result_limit": 8, "image_limit": 2, "parallel_image_search": True,
+        }),
         "rule_proposals": sorted(state.get("rule_proposals", {}).values(), key=lambda item: int(item.get("updated_at") or 0), reverse=True),
         "feedback_count": len(state.get("feedback") or []),
         "usage": usage_summary(state),

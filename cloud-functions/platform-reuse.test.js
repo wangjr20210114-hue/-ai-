@@ -27,24 +27,15 @@ test('conversation, state, object and schedule infrastructure reuse EdgeOne Make
   assert.doesNotMatch(chat + messages, /yuanbao_chat_runs_v1|chat_runs/);
 });
 
-test('identity follows the official Makers auth architecture', async () => {
-  const [database, login, currentUser, agentAuth, manifest, schema] = await Promise.all([
-    read('cloud-functions/_db.js'),
-    read('cloud-functions/auth/login/index.js'),
+test('personal demo uses one fixed owner without an application database', async () => {
+  const [currentUser, agentAuth, manifest] = await Promise.all([
     read('auth/current-user.js'),
     read('agents/_shared/auth.py'),
     read('package.json'),
-    read('db/001_users.sql'),
   ]);
-  assert.match(database, /@neondatabase\/serverless/);
-  assert.match(login, /bcryptjs/);
-  assert.match(login, /serializeSession/);
-  assert.match(currentUser, /requireAuth/);
-  assert.match(agentAuth, /verify_jwt/);
-  assert.match(manifest, /@neondatabase\/serverless/);
-  assert.match(schema, /roles JSONB NOT NULL/);
-  assert.match(schema, /connector_token_hash/);
-  assert.doesNotMatch(database + login, /PBKDF2|deriveBits|auth\/users|auth\/rate/);
+  assert.match(currentUser, /local-user/);
+  assert.match(agentAuth, /USER_WORKSPACE_ID/);
+  assert.doesNotMatch(currentUser + agentAuth + manifest, /JWT_SECRET|DATABASE_URL|neondatabase|bcrypt|tenant:/i);
 });
 
 test('release gates execute the Makers production chain', async () => {
@@ -189,7 +180,7 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
     /["'`]\/api\/|useWebSocket|new WebSocket|X-Agent-Token|127\.0\.0\.1:8000|target:\s*["'`]ws/,
   );
   assert.match(active, /useSSEChat/);
-  assert.match(active, /AuthGate/);
+  assert.doesNotMatch(active, /AuthGate|loginAppSession|registerAppSession/);
   const chatClient = await read('frontend/src/hooks/useSSEChat.ts');
   const stopRequest = chatClient.match(/fetch\(withEdgeOneAuth\('\/stop'\)[\s\S]*?body: JSON\.stringify/);
   assert.ok(stopRequest);

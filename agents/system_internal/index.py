@@ -101,9 +101,8 @@ async def handler(ctx):
             )),
         },
         "identity": {
-            "mode": "multi_user" if str(ctx.env.get("AUTH_MODE") or "single_user") == "multi_user" else "single_user",
+            "mode": "single_user",
             "user_id": user_id,
             "roles": identity.get("roles") or [],
-            "multi_user_ready": bool(str(ctx.env.get("AUTH_MODE") or "single_user") == "multi_user"),
         },
     }

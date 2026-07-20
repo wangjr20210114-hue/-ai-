@@ -8,10 +8,10 @@ const json = (data, status = 200) => new Response(JSON.stringify(data), {
 });
 
 export async function onRequest(context) {
-  const { request, env } = context;
+  const { request } = context;
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
   let user;
-  try { user = await currentUser(request, env); } catch { return json({ error: 'Unauthorized' }, 401); }
+  user = await currentUser();
 
   if (request.headers.get('makers-conversation-id')) {
     return new Response(null, {
@@ -30,7 +30,7 @@ export async function onRequest(context) {
       note: '详细运行状态由 Makers Agent 从原生 LangGraph Store 读取',
     },
     identity: {
-      mode: String(env.AUTH_MODE || 'single_user') === 'multi_user' ? 'multi_user' : 'single_user',
+      mode: 'single_user',
       user_id: user.id,
     },
   });

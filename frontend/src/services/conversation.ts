@@ -3,23 +3,15 @@ import type { ChatMessage, ConversationSummary } from '../types';
 const CONVERSATION_KEY = 'yuanbao.conversationId';
 const CONVERSATION_LIST_KEY = 'yuanbao.conversations';
 
-function scopedKey(key: string): string {
-  if (typeof sessionStorage === 'undefined') return key;
-  try {
-    const scope = sessionStorage.getItem('yuanbao.userScope') || 'local-user';
-    return scope === 'local-user' ? key : `${key}.${scope}`;
-  } catch { return key; }
-}
-
 export function loadLocalConversations(): ConversationSummary[] {
   try {
-    const value = JSON.parse(localStorage.getItem(scopedKey(CONVERSATION_LIST_KEY)) || '[]') as ConversationSummary[];
+    const value = JSON.parse(localStorage.getItem(CONVERSATION_LIST_KEY) || '[]') as ConversationSummary[];
     return Array.isArray(value) ? value.filter((item) => item?.id).slice(0, 100) : [];
   } catch { return []; }
 }
 
 export function saveLocalConversations(items: ConversationSummary[]): void {
-  try { localStorage.setItem(scopedKey(CONVERSATION_LIST_KEY), JSON.stringify(items.slice(0, 100))); }
+  try { localStorage.setItem(CONVERSATION_LIST_KEY, JSON.stringify(items.slice(0, 100))); }
   catch { /* Remote conversation index remains authoritative. */ }
 }
 
@@ -30,19 +22,19 @@ export function createConversationId(): string {
 
 export function setActiveConversationId(conversationId: string): void {
   if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(scopedKey(CONVERSATION_KEY), conversationId);
+  localStorage.setItem(CONVERSATION_KEY, conversationId);
 }
 
 export function getOrCreateConversationId(): string {
   if (typeof window === 'undefined') return createConversationId();
   try {
-    const cached = localStorage.getItem(scopedKey(CONVERSATION_KEY));
+    const cached = localStorage.getItem(CONVERSATION_KEY);
     if (cached) {
-      localStorage.setItem(scopedKey(CONVERSATION_KEY), cached);
+      localStorage.setItem(CONVERSATION_KEY, cached);
       return cached;
     }
     const created = createConversationId();
-    localStorage.setItem(scopedKey(CONVERSATION_KEY), created);
+    localStorage.setItem(CONVERSATION_KEY, created);
     return created;
   } catch {
     return createConversationId();

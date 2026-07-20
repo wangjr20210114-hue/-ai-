@@ -11,7 +11,7 @@ from .._shared.side_effects import create_tencent_meeting, generate_image, resol
 from .._shared.proactive import (
     collect_provider_signals,
     collect_schedule_signals,
-    ingest_external_signal,
+    ingest_workspace_signal,
     load_proactive_state,
     process_schedule_signals,
     reconcile_schedule_notifications,
@@ -57,7 +57,7 @@ async def _record_calendar_signal(store, changed: list[dict], source: str, user_
         return
     value = "|".join(sorted(f"{item.get('id')}:{item.get('updated_at')}:{bool(item.get('deleted'))}" for item in changed))
     state = await load_proactive_state(store, user_id)
-    ingest_external_signal(
+    ingest_workspace_signal(
         state,
         signal_type="calendar_changed",
         dedup_key=hashlib.sha256(f"{source}:{value}".encode("utf-8")).hexdigest(),

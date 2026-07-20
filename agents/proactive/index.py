@@ -10,7 +10,6 @@ from .._shared.proactive import (
     load_proactive_state,
     decide_workflow,
     decide_workflow_step,
-    ingest_external_signal,
     mutate_notification,
     public_proactive_state,
     run_proactive_tick,
@@ -25,7 +24,7 @@ from .._shared.http import error
 
 
 async def handler(ctx):
-    identity = require_user(ctx, allow_system=True)
+    identity = require_user(ctx)
     user_id = str(identity["user_id"])
     body = ctx.request.body or {}
     operation = str(body.get("operation") or "get")
@@ -42,19 +41,6 @@ async def handler(ctx):
             preferences = update_preferences(state, body.get("preferences") or {})
             saved = await save_proactive_state(store, state, user_id)
             return {**public_proactive_state(saved), "preferences": preferences}
-        if operation == "ingest_signal":
-            signal_type = str(body.get("signal_type") or "")
-            if signal_type == "external_webhook" and not identity.get("system"):
-                raise ValueError("外部信号只接受已验证的系统连接器")
-            event, created = ingest_external_signal(
-                state,
-                signal_type=signal_type,
-                dedup_key=str(body.get("dedup_key") or ""),
-                payload=body.get("payload") if isinstance(body.get("payload"), dict) else {},
-                now=int(time.time()),
-            )
-            saved = await save_proactive_state(store, state, user_id)
-            return {**public_proactive_state(saved), "event": event, "created": created}
         if operation == "propose_workflow":
             workflow = propose_workflow(
                 state,
