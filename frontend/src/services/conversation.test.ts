@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../types';
-import { canReusePendingConversation, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
+import { canReusePendingConversation, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
 
 describe('getOrCreateConversationId', () => {
   beforeEach(() => {
@@ -136,5 +136,19 @@ describe('stopped stream settlement', () => {
       messages[0],
       { ...messages[1], streaming: false },
     ]);
+  });
+});
+
+describe('eventually consistent conversation summaries', () => {
+  it('keeps a known first-message title and message count until Makers indexing catches up', () => {
+    const remote = { id: 'conv', title: '新对话', createdAt: 1, updatedAt: 3, messageCount: 0, pending: true };
+    const local = { id: 'conv', title: 'TEST-CORE-07-A：北京故宫', createdAt: 1, updatedAt: 2, messageCount: 2, pending: false, activityStatus: 'idle' as const };
+    expect(reconcileConversationSummary(remote, local)).toEqual({
+      ...remote,
+      title: local.title,
+      messageCount: 2,
+      pending: false,
+      activityStatus: 'idle',
+    });
   });
 });

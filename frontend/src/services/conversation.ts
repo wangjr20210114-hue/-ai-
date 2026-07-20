@@ -75,6 +75,26 @@ export function settleStoppedMessages(messages: ChatMessage[]): ChatMessage[] {
     .map((message) => message.streaming ? { ...message, streaming: false } : message);
 }
 
+function placeholderConversationTitle(title: string): boolean {
+  return !title.trim() || ['新对话', '历史对话'].includes(title.trim());
+}
+
+export function reconcileConversationSummary(
+  remote: ConversationSummary,
+  local?: ConversationSummary,
+): ConversationSummary {
+  if (!local) return remote;
+  return {
+    ...remote,
+    title: placeholderConversationTitle(remote.title) && !placeholderConversationTitle(local.title)
+      ? local.title
+      : remote.title,
+    messageCount: Math.max(Number(remote.messageCount || 0), Number(local.messageCount || 0)),
+    pending: Boolean(remote.pending && local.pending),
+    activityStatus: remote.activityStatus || local.activityStatus,
+  };
+}
+
 function messageFingerprint(message: ChatMessage): string {
   return `${message.role}\u0000${message.content.trim()}`;
 }

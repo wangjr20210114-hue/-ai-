@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { createNewConversation, listConversations } from '../../services/api';
-import { canReusePendingConversation, setActiveConversationId } from '../../services/conversation';
+import { canReusePendingConversation, reconcileConversationSummary, setActiveConversationId } from '../../services/conversation';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ConversationSummary } from '../../types';
 import { formatConversationTime } from '../../services/time';
@@ -42,7 +42,7 @@ export default function ConversationSidebar({ open, onClose }: Props) {
       // of relabeling a real conversation as a new empty one.
       const remoteWithActivity = stored.map((remote) => {
         const local = conversations.find((item) => item.id === remote.id);
-        return remote.activityStatus ? remote : (local?.activityStatus ? { ...remote, activityStatus: local.activityStatus } : remote);
+        return reconcileConversationSummary(remote, local);
       });
       const localMissing = conversations.filter((item) => !remoteWithActivity.some((remote) => remote.id === item.id));
       const activeFallback = remoteWithActivity.some((item) => item.id === conversationId) || localMissing.some((item) => item.id === conversationId)

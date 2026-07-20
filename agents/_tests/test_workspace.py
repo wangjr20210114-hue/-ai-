@@ -12,7 +12,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from agents.chat._capability_plan import parse_capability_plan, plan_capabilities
+from agents.chat._capability_plan import (
+    parse_capability_plan,
+    plan_capabilities,
+    next_required_tool,
+    required_tool_for_plan,
+    required_tools_for_plan,
+)
 from agents.chat._followups import parse_followups
 from agents.chat._history import bounded_history
 from agents.chat._calendar_context import calendar_context
@@ -312,6 +318,38 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan["search_query"], "北京旅行")
         self.assertEqual(plan["image_query"], "故宫建筑")
         self.assertNotIn("unknown", plan)
+
+    def test_semantic_search_plan_requires_one_rich_search_first_step(self):
+        self.assertEqual(required_tool_for_plan({"needs_web_search": True}), "rich_search")
+        self.assertEqual(required_tool_for_plan({"needs_web_search": False}), "")
+
+    def test_semantic_plan_builds_short_native_action_chain(self):
+        plan = {
+            "needs_web_search": True,
+            "needs_places": True,
+            "needs_map_action": True,
+            "needs_calendar_action": True,
+        }
+        self.assertEqual(
+            required_tools_for_plan(plan),
+            ("rich_search", "recommend_places_on_map", "propose_calendar_changes"),
+        )
+        allowed = {"rich_search", "recommend_places_on_map", "propose_calendar_changes"}
+        self.assertEqual(next_required_tool(required_tools_for_plan(plan), [], allowed), "rich_search")
+        self.assertEqual(
+            next_required_tool(required_tools_for_plan(plan), ["rich_search"], allowed),
+            "recommend_places_on_map",
+        )
+        self.assertEqual(
+            next_required_tool(required_tools_for_plan(plan), ["rich_search", "recommend_places_on_map"], allowed),
+            "propose_calendar_changes",
+        )
+
+    def test_calendar_place_plan_looks_up_place_before_proposal(self):
+        self.assertEqual(
+            required_tools_for_plan({"needs_places": True, "needs_calendar_action": True}),
+            ("search_places", "propose_calendar_changes"),
+        )
 
     def test_follow_up_parser_accepts_only_three_unique_questions(self):
         self.assertEqual(

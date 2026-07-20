@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Iterable
 
 
 DEFAULT_PLAN = {
@@ -69,6 +69,55 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
 
 def parse_capability_plan(content: Any) -> dict[str, Any]:
     return _decode_capability_plan(content) or dict(DEFAULT_PLAN)
+
+
+def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
+    """Turn the semantic plan into the shortest required capability chain.
+
+    The routing decision remains model-driven.  This function only maps the
+    planner's semantic booleans to existing Makers-native tools so the main
+    model cannot claim that a map, calendar change, meeting, or generated image
+    is ready without actually producing the corresponding UI action.
+    """
+    required: list[str] = []
+    if bool(plan.get("needs_web_search")) or bool(plan.get("needs_papers")):
+        required.append("rich_search")
+
+    # The composite map tool verifies every model-selected place and prepares
+    # the terminal map Action in one call.  For a single non-map location (most
+    # commonly a calendar destination), retain the focused place lookup.
+    if bool(plan.get("needs_map_action")):
+        required.append("recommend_places_on_map")
+    elif bool(plan.get("needs_places")):
+        required.append("search_places")
+
+    if bool(plan.get("needs_calendar_action")):
+        required.append("propose_calendar_changes")
+    if bool(plan.get("needs_meeting_action")):
+        required.append("propose_meeting")
+    if bool(plan.get("needs_image_generation")):
+        required.append("propose_image")
+    return tuple(dict.fromkeys(required))
+
+
+def required_tool_for_plan(plan: dict[str, Any]) -> str:
+    """Backward-compatible first item of the semantic capability chain."""
+    required = required_tools_for_plan(plan)
+    return required[0] if required else ""
+
+
+def next_required_tool(
+    required_tools: Iterable[str],
+    used_tool_names: Iterable[str],
+    allowed_tool_names: set[str],
+) -> str:
+    """Return the next available planner-required tool not used this turn."""
+    used = set(used_tool_names)
+    for name in required_tools:
+        clean_name = str(name or "").strip()
+        if clean_name and clean_name in allowed_tool_names and clean_name not in used:
+            return clean_name
+    return ""
 
 
 async def plan_capabilities(model, user_message: str, memory_context: str = "") -> dict[str, Any]:

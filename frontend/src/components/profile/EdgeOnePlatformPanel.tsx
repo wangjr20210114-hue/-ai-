@@ -31,6 +31,7 @@ export default function EdgeOnePlatformPanel() {
   const [formOpen, setFormOpen] = useState(false);
   const [formTitle, setFormTitle] = useState('');
   const [formStart, setFormStart] = useState('');
+  const [formEnd, setFormEnd] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [placeQuery, setPlaceQuery] = useState('');
   const [placeOptions, setPlaceOptions] = useState<MakersMapPlace[]>([]);
@@ -97,9 +98,12 @@ export default function EdgeOnePlatformPanel() {
   const openScheduleForm = (item?: ScheduleItem) => {
     const start = item ? new Date(item.start_time * 1000) : new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 9, 0);
     const local = new Date(start.getTime() - start.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+    const end = new Date(start.getTime() + (item?.duration_minutes || 60) * 60_000);
+    const localEnd = new Date(end.getTime() - end.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
     setEditingId(item?.id || '');
     setFormTitle(item?.title || '');
     setFormStart(local);
+    setFormEnd(localEnd);
     setFormDescription(item?.description || '');
     autoDescriptionRef.current = '';
     setSelectedPlace(item?.extra?.place || null);
@@ -167,19 +171,25 @@ export default function EdgeOnePlatformPanel() {
   };
 
   const saveSchedule = async () => {
-    if (!formTitle.trim() || !formStart || !selectedPlace) {
-      MessagePlugin.warning('请填写标题、时间，并从地点候选中选择真实地点');
+    if (!formTitle.trim() || !formStart || !formEnd || !selectedPlace) {
+      MessagePlugin.warning('请填写标题、开始/结束时间，并从地点候选中选择真实地点');
+      return;
+    }
+    const startTime = Math.floor(new Date(formStart).getTime() / 1000);
+    const endTime = Math.floor(new Date(formEnd).getTime() / 1000);
+    if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime <= startTime) {
+      MessagePlugin.warning('结束时间必须晚于开始时间');
       return;
     }
     setFormBusy(true);
     try {
-      const startTime = Math.floor(new Date(formStart).getTime() / 1000);
+      const durationMinutes = Math.max(1, Math.round((endTime - startTime) / 60));
       const response = await workspaceOperation(conversationId, 'direct_calendar_changes', {
         changes: [{
           operation: editingId ? 'update' : 'create',
           ...(editingId ? { schedule_id: editingId } : {}),
           event: {
-            title: formTitle.trim(), start_time: startTime, duration_minutes: 60,
+            title: formTitle.trim(), start_time: startTime, duration_minutes: durationMinutes,
             description: formDescription.trim(),
             category: 'travel', place: selectedPlace, location: selectedPlace.address || selectedPlace.name,
           },
@@ -273,10 +283,15 @@ export default function EdgeOnePlatformPanel() {
             <div className="calendar-day-scroll">
               {formOpen && (
                 <div className="makers-schedule-form">
-                  <input value={formTitle} onChange={(event) => setFormTitle(event.target.value)} placeholder="日程标题" maxLength={120} />
+                  <input value={formTitle} onInput={(event) => setFormTitle(event.currentTarget.value)} placeholder="日程标题" maxLength={120} />
                   <div className="makers-schedule-datetime">
-                    <label>日期<input aria-label="日程日期" type="date" value={formStart.slice(0, 10)} onChange={(event) => setFormStart(`${event.target.value}T${formStart.slice(11, 16) || '09:00'}`)} /></label>
-                    <label>开始时间<input aria-label="日程开始时间" type="time" value={formStart.slice(11, 16)} onChange={(event) => setFormStart(`${formStart.slice(0, 10) || dateKey(selectedDate)}T${event.target.value}`)} /></label>
+                    <label>日期<input aria-label="日程日期" type="date" value={formStart.slice(0, 10)} onInput={(event) => {
+                      const date = event.currentTarget.value;
+                      setFormStart(`${date}T${formStart.slice(11, 16) || '09:00'}`);
+                      setFormEnd(`${date}T${formEnd.slice(11, 16) || '10:00'}`);
+                    }} /></label>
+                    <label>开始时间<input aria-label="日程开始时间" type="time" value={formStart.slice(11, 16)} onInput={(event) => setFormStart(`${formStart.slice(0, 10) || dateKey(selectedDate)}T${event.currentTarget.value}`)} /></label>
+                    <label>结束时间<input aria-label="日程结束时间" type="time" value={formEnd.slice(11, 16)} onInput={(event) => setFormEnd(`${formEnd.slice(0, 10) || formStart.slice(0, 10) || dateKey(selectedDate)}T${event.currentTarget.value}`)} /></label>
                   </div>
                   <textarea value={formDescription} onChange={(event) => { setFormDescription(event.target.value); autoDescriptionRef.current = ''; }} placeholder="日程描述（可编辑；选择地点后会自动生成建议）" maxLength={1000} rows={3} />
                   <div className="makers-place-picker" ref={placePickerRef}>
