@@ -312,9 +312,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("invalid_request", message)
 
     def test_capability_plan_parser_is_bounded_to_known_booleans(self):
-        plan = parse_capability_plan('```json\n{"needs_places": true, "needs_map_action": 1, "search_query": "北京旅行", "image_query": "故宫建筑", "unknown": true}\n```')
+        plan = parse_capability_plan('```json\n{"needs_places": true, "needs_map_action": 1, "strict_today_only": true, "search_query": "北京旅行", "image_query": "故宫建筑", "unknown": true}\n```')
         self.assertTrue(plan["needs_places"])
         self.assertTrue(plan["needs_map_action"])
+        self.assertTrue(plan["strict_today_only"])
         self.assertEqual(plan["search_query"], "北京旅行")
         self.assertEqual(plan["image_query"], "故宫建筑")
         self.assertNotIn("unknown", plan)
