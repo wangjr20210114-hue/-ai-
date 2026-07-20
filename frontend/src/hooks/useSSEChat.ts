@@ -4,7 +4,7 @@ import { bootstrapApp, proactiveOperation, workspaceOperation } from '../service
 import type { BootstrapData, MakersChatRun } from '../services/api';
 import { withEdgeOneAuth } from '../services/auth';
 import { presentableChatError } from '../services/chatError';
-import { makersConversationHeaders, mergeMessages } from '../services/conversation';
+import { durableMessageCount, makersConversationHeaders, mergeMessages } from '../services/conversation';
 import { splitSseFrames } from '../services/sse';
 import { useAppDispatch, useAppState } from '../store/appState';
 import type { ChatMessage, PaperInfo, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
@@ -345,13 +345,14 @@ export function useSSEChat() {
   const setConversationActivity = (id: string, activityStatus: 'idle' | 'running' | 'failed') => {
     const now = Date.now();
     const previous = conversationsRef.current.find((item) => item.id === id);
+    const messageCount = durableMessageCount(cached(id));
     const next = {
       id,
       title: previous?.title || '新对话',
       createdAt: previous?.createdAt || now,
       updatedAt: now,
-      messageCount: Number(previous?.messageCount || 0),
-      pending: previous?.pending,
+      messageCount: Math.max(Number(previous?.messageCount || 0), messageCount),
+      pending: activityStatus === 'running' ? previous?.pending : false,
       activityStatus,
     };
     conversationsRef.current = [next, ...conversationsRef.current.filter((item) => item.id !== id)];

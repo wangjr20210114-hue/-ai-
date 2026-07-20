@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { createNewConversation, listConversations } from '../../services/api';
-import { setActiveConversationId } from '../../services/conversation';
+import { canReusePendingConversation, setActiveConversationId } from '../../services/conversation';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ConversationSummary } from '../../types';
 import { formatConversationTime } from '../../services/time';
@@ -27,7 +27,7 @@ function pendingConversation(conversationId: string): ConversationSummary {
 }
 
 export default function ConversationSidebar({ open, onClose }: Props) {
-  const { conversationId, conversations } = useAppState();
+  const { conversationId, conversations, messages } = useAppState();
   const dispatch = useAppDispatch();
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -92,7 +92,9 @@ export default function ConversationSidebar({ open, onClose }: Props) {
 
   const create = async () => {
     if (creating) return;
-    const reusable = conversations.find((item) => item.pending && !item.messageCount);
+    const reusable = conversations.find((item) => (
+      canReusePendingConversation(item, conversationId, messages)
+    ));
     if (reusable) {
       if (reusable.id !== conversationId) {
         setActiveConversationId(reusable.id);

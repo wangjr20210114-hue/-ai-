@@ -53,6 +53,22 @@ export function makersConversationHeaders(conversationId: string): Record<string
   return { 'makers-conversation-id': conversationId };
 }
 
+export function durableMessageCount(messages: ChatMessage[]): number {
+  return messages.filter((message) => (
+    !message.failed && (message.role === 'user' || (message.role === 'ai' && Boolean(message.content.trim())))
+  )).length;
+}
+
+export function canReusePendingConversation(
+  candidate: ConversationSummary,
+  currentConversationId: string,
+  currentMessages: ChatMessage[],
+): boolean {
+  return Boolean(candidate.pending)
+    && !candidate.messageCount
+    && (candidate.id !== currentConversationId || durableMessageCount(currentMessages) === 0);
+}
+
 function messageFingerprint(message: ChatMessage): string {
   return `${message.role}\u0000${message.content.trim()}`;
 }

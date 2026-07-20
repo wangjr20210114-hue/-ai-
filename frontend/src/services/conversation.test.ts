@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../types';
-import { createConversationId, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, saveLocalConversations, setActiveConversationId } from './conversation';
+import { canReusePendingConversation, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, saveLocalConversations, setActiveConversationId } from './conversation';
 
 describe('getOrCreateConversationId', () => {
   beforeEach(() => {
@@ -105,5 +105,22 @@ describe('mergeMessages', () => {
       { id: 'failed-u2', role: 'user', content: '失败后残留二', ts: 13 },
     ];
     expect(mergeMessages(remote, local).map((item) => item.id)).toEqual(['r1', 'r2']);
+  });
+});
+
+describe('pending conversation reuse', () => {
+  const pending = { id: 'current', title: '新对话', createdAt: 1, updatedAt: 1, messageCount: 0, pending: true };
+
+  it('does not reuse the active pending summary after real messages exist locally', () => {
+    const messages: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: '最近有什么 AI 进展', ts: 1 },
+      { id: 'a1', role: 'ai', content: '这是搜索后的回答', ts: 2 },
+    ];
+    expect(durableMessageCount(messages)).toBe(2);
+    expect(canReusePendingConversation(pending, 'current', messages)).toBe(false);
+  });
+
+  it('reuses a genuinely empty pending conversation', () => {
+    expect(canReusePendingConversation(pending, 'current', [])).toBe(true);
   });
 });
