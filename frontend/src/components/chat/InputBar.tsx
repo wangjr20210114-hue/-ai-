@@ -42,6 +42,7 @@ export default function InputBar({ client }: Props) {
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [webSearch, setWebSearch] = useState(true);
   const [referenceImage, setReferenceImage] = useState<{ name: string; dataUrl: string } | null>(null);
   const activeStreaming = messages.some((message) => message.streaming);
@@ -73,7 +74,7 @@ export default function InputBar({ client }: Props) {
 
   const handleSend = async () => {
     const content = text.trim();
-    if (!content || sending || activeStreaming) return;
+    if (!content || sending || stopping || activeStreaming) return;
     const message = {
       id: Date.now().toString(),
       role: 'user' as const,
@@ -103,13 +104,14 @@ export default function InputBar({ client }: Props) {
   };
 
   const handleStop = async () => {
-    if (!activeStreaming || !client.current?.stop) return;
+    if (!activeStreaming || stopping || !client.current?.stop) return;
+    setStopping(true);
     try {
       await client.current.stop();
       MessagePlugin.info('已停止生成');
     } catch {
       MessagePlugin.warning('停止请求未确认，请稍后重试');
-    }
+    } finally { setStopping(false); }
   };
 
   const handleUpload = async (files: UploadFile[]) => {
@@ -207,6 +209,7 @@ export default function InputBar({ client }: Props) {
         <Textarea
           value={text}
           onChange={(v) => setText(v as string)}
+          disabled={stopping}
           placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
           autosize={{ minRows: 1, maxRows: 5 }}
           style={{ width: '100%' }}
@@ -242,9 +245,9 @@ export default function InputBar({ client }: Props) {
               联网搜索
             </Checkbox>
           </div>
-          {activeStreaming ? (
-            <Button theme="danger" variant="outline" onClick={() => { void handleStop(); }} aria-label="停止生成">
-              ■ 停止生成
+          {activeStreaming || stopping ? (
+            <Button theme="danger" variant="outline" loading={stopping} disabled={stopping} onClick={() => { void handleStop(); }} aria-label={stopping ? '正在停止生成' : '停止生成'}>
+              {stopping ? '正在停止…' : '■ 停止生成'}
             </Button>
           ) : (
             <Button
