@@ -309,13 +309,12 @@ async def handler(ctx):
         planned_search_query=str(capability_plan.get("search_query") or ""),
         planned_image_query=str(capability_plan.get("image_query") or ""),
         search_cache_ttl_seconds=300 if explicit_today else (900 if time_sensitive else 86_400),
-        # The planner already folded relevant non-sensitive memory into the
-        # merged query. Keying by that semantic query lets harmless user
-        # paraphrases reuse the same result instead of calling SearchPro again.
-        search_cache_identity=(
-            f"{capability_plan.get('search_query') or message}\n"
-            f"{capability_plan.get('image_query') or ''}"
-        ),
+        # Planning still determines the actual search query, but it must not
+        # make the cache key unstable: two plans for the exact same user turn
+        # can differ only in wording and otherwise trigger duplicate SearchPro
+        # calls. Date scope and user-adjustable limits remain part of the key in
+        # the tool adapter.
+        search_cache_identity=message,
         search_result_limit=search_result_limit,
         search_image_limit=search_image_limit,
         parallel_image_search=parallel_image_search,

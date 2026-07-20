@@ -31,6 +31,37 @@ def _embedded_image_url(value: Any) -> str:
     return match.group(1).strip() if match else ""
 
 
+def _provider_image_candidates(results: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Return only SearchPro-supplied article images, never page-scraped media.
+
+    These are the conservative fallback when every configured vision provider is
+    unavailable or times out. They are not used when vision explicitly rejects
+    an image as irrelevant.
+    """
+    candidates: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for result in results:
+        image = unescape(str(result.get("image") or "").strip())
+        if image.startswith("http://"):
+            image = "https://" + image[len("http://"):]
+        path = urllib.parse.urlparse(image).path.lower()
+        if (
+            not image.startswith("https://")
+            or path.endswith((".svg", ".gif", ".ico"))
+            or image in seen
+        ):
+            continue
+        seen.add(image)
+        candidates.append({
+            "url": image,
+            "alt": "",
+            "context": "搜索服务返回的文章主图",
+            "source_url": result["url"],
+            "source_title": result["title"],
+        })
+    return candidates
+
+
 def _json_request(url: str, payload: dict, headers: dict, timeout: int) -> dict:
     request = urllib.request.Request(
         url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -141,14 +172,7 @@ def _filter_for_target_date(
 async def _extract_candidates(
     results: list[dict[str, Any]], page_limit: int = 6, parallel: bool = True,
 ) -> list[dict[str, str]]:
-    candidates: list[dict[str, str]] = []
-    for result in results:
-        image = unescape(str(result.get("image") or "").strip())
-        if image.startswith("http://"):
-            image = "https://" + image[len("http://"):]
-        path = urllib.parse.urlparse(image).path.lower()
-        if image.startswith(("http://", "https://")) and not path.endswith((".svg", ".gif", ".ico")):
-            candidates.append({"url": image, "alt": "", "context": "搜索结果主图", "source_url": result["url"], "source_title": result["title"]})
+    candidates = _provider_image_candidates(results)
 
     async def page(result: dict[str, Any]) -> list[dict[str, str]]:
         try:
@@ -432,20 +456,7 @@ async def rich_search(
         except asyncio.TimeoutError:
             # Do not discard fast provider-supplied article images merely
             # because one source page was slow to parse.
-            visual_candidates = []
-            for result in visual_results:
-                image = unescape(str(result.get("image") or "").strip())
-                if image.startswith("http://"):
-                    image = "https://" + image[len("http://"):]
-                path = urllib.parse.urlparse(image).path.lower()
-                if image.startswith("https://") and not path.endswith((".svg", ".gif", ".ico")):
-                    visual_candidates.append({
-                        "url": image,
-                        "alt": "",
-                        "context": "搜索结果主图",
-                        "source_url": result["url"],
-                        "source_title": result["title"],
-                    })
+            visual_candidates = _provider_image_candidates(visual_results)
         extracted_at = time.perf_counter()
         review_goal = image_query.strip() or query
         vision_timeout = max(2, min(12, int(env.get("RICH_SEARCH_VISION_TIMEOUT_SECONDS") or 7)))
@@ -457,6 +468,22 @@ async def rich_search(
         except asyncio.TimeoutError:
             reviewed, diagnostics = [], {"timeout": 1, "candidates": len(visual_candidates), "reviewed": 0}
         reviewed_at = time.perf_counter()
+        # A missing/failed vision provider must not make news answers permanently
+        # text-only. Fall back only to SearchPro's own article hero images; do
+        # not use page-scraped candidates and do not override an explicit vision
+        # rejection.
+        if not reviewed and not diagnostics.get("irrelevant"):
+            provider_fallback = _provider_image_candidates(visual_results)[:image_limit]
+            reviewed = [
+                {
+                    **candidate,
+                    "description": candidate.get("source_title") or "搜索结果文章配图",
+                    "vision_reviewed": False,
+                }
+                for candidate in provider_fallback
+            ]
+            if reviewed:
+                diagnostics = {**diagnostics, "provider_image_fallback": len(reviewed)}
         media = []
         for index, candidate in enumerate(reviewed, 1):
             source = source_by_url.get(candidate["source_url"], {})
@@ -466,6 +493,7 @@ async def rich_search(
                 "source_id": source.get("id", ""), "source_url": candidate["source_url"],
                 "source_title": candidate["source_title"], "alt": caption, "caption": caption,
                 "attribution": candidate["source_title"], "generated": False,
+                "vision_reviewed": candidate.get("vision_reviewed", True),
             })
         enriched = {
             **base_metadata, "media": media, "images": [item["url"] for item in media],

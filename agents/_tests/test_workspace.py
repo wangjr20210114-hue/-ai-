@@ -1067,6 +1067,47 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["search_config"]["visual_query_merged"])
         self.assertTrue(result["search_config"]["parallel_image_search"])
 
+    async def test_rich_search_uses_provider_article_image_when_vision_is_unavailable(self):
+        page = {
+            "url": "https://example.com/news",
+            "title": "AI 发布会",
+            "passage": "<p>报道</p><img src='http://img.example.com/hero.jpg'>",
+        }
+        with (
+            patch("agents._shared.rich_search._json_request", return_value={"Pages": [page]}),
+            patch("agents._shared.rich_search.collect_page_media", new=AsyncMock(return_value=[])),
+        ):
+            result = await run_rich_search(
+                {"WSA_API_KEY": "test"}, "AI 新闻", "AI 发布会现场", "basic", image_limit=2,
+            )
+        self.assertEqual(result["images"], ["https://img.example.com/hero.jpg"])
+        self.assertFalse(result["media"][0]["vision_reviewed"])
+        self.assertEqual(result["vision_diagnostics"]["provider_image_fallback"], 1)
+
+    async def test_exact_repeat_reuses_persistent_rich_search_cache(self):
+        store = FakeStore()
+        metadata = {
+            "query": "AI 新闻", "results": [], "media": [], "images": [],
+            "total": 0, "media_pending": False,
+        }
+        with patch(
+            "agents.chat._ui_tools.provider_rich_search",
+            new=AsyncMock(return_value=metadata),
+        ) as provider:
+            for conversation_id in ("cache-turn-1", "cache-turn-2"):
+                tools = build_production_tools(
+                    None,
+                    store=store,
+                    conversation_id=conversation_id,
+                    env={},
+                    planned_search_query="AI 近期重要进展",
+                    search_cache_identity="最近AI有什么新进展",
+                    media_enabled=False,
+                )
+                tool = next(item for item in tools if item.name == "rich_search")
+                await tool.ainvoke({"query": "模型本次生成的不同搜索措辞"})
+        self.assertEqual(provider.await_count, 1)
+
     def test_free_vision_fallback_chain_keeps_hunyuan_primary(self):
         providers = vision_providers({
             "HUNYUAN_IMAGE_API_KEY": "hy",
