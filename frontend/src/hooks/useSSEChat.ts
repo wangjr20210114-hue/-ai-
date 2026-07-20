@@ -52,7 +52,7 @@ class SSEChatClient {
     // platform propagates the abort.
     this.emit({ type: 'stop_requested', payload: {} });
     try {
-      await fetch(withEdgeOneAuth('/stop'), {
+      const response = await fetch(withEdgeOneAuth('/stop'), {
         method: 'POST',
         // Makers documents that stop must not carry the target conversation
         // header, otherwise this request can replace the active run signal.
@@ -60,8 +60,21 @@ class SSEChatClient {
         body: JSON.stringify({ conversation_id: this.conversationId }),
         credentials: 'same-origin',
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      // The platform acknowledges cancel_requested before the detached
+      // producer necessarily reaches its next cancellation checkpoint. Keep
+      // the composer gated until Makers publishes a terminal run state, so a
+      // quick follow-up is never rejected as "still processing".
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const run = (await bootstrapApp(this.conversationId)).run;
+        if (!run || ['cancelled', 'completed', 'failed'].includes(String(run.status || ''))) return;
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+      }
+      throw new Error('取消已提交，但运行尚未结束');
     } catch {
-      // Best-effort cancellation; the aborted request signal is the first line of defence.
+      // Best-effort cancellation; the aborted request signal and Makers
+      // cancel_requested marker remain the first lines of defence.
+      throw new Error('停止请求未确认，请稍后重试');
     }
   }
 
