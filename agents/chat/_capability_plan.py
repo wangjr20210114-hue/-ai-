@@ -108,16 +108,16 @@ def required_tool_for_plan(plan: dict[str, Any]) -> str:
 
 
 def media_enabled_for_plan(plan: dict[str, Any], image_limit: int) -> bool:
-    """Recover useful media when a semantic rich-answer plan misses its image flag.
+    """Make reviewed media available for semantic web-search turns.
 
-    A broad, multi-part web answer may still benefit from reviewed media even
-    when the probabilistic planner returns ``needs_images=false``.  Without a
-    distinct image query the rich-search pipeline reuses the fact response, so
-    this fallback does not add another SearchPro request.
+    The planner still decides whether external facts are needed and produces the
+    merged query. Once it chooses web search, the same result may also provide
+    reviewed image candidates unless the user set the image limit to zero. A
+    distinct visual query still follows the planner; otherwise the fact response
+    is reused and no second SearchPro request is added.
     """
     return int(image_limit) > 0 and bool(
-        plan.get("needs_images")
-        or (plan.get("needs_web_search") and plan.get("needs_rich_answer"))
+        plan.get("needs_web_search") or plan.get("needs_images")
     )
 
 

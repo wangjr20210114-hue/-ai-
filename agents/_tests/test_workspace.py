@@ -287,14 +287,14 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(required_tool_for_plan({"needs_web_search": True}), "rich_search")
         self.assertEqual(required_tool_for_plan({"needs_web_search": False}), "")
 
-    def test_rich_web_answer_recovers_media_without_keyword_rules(self):
+    def test_semantic_web_search_makes_media_available_without_keyword_rules(self):
         self.assertTrue(media_enabled_for_plan({
             "needs_web_search": True,
-            "needs_rich_answer": True,
+            "needs_rich_answer": False,
             "needs_images": False,
         }, 2))
         self.assertFalse(media_enabled_for_plan({
-            "needs_web_search": True,
+            "needs_web_search": False,
             "needs_rich_answer": False,
             "needs_images": False,
         }, 2))
