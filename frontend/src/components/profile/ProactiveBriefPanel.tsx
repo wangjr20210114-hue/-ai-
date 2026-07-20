@@ -51,7 +51,12 @@ export default function ProactiveBriefPanel() {
       }).catch((error) => console.warn('proactive inbox refresh failed', error));
     };
     const timer = window.setInterval(refresh, 60_000);
-    return () => { disposed = true; window.clearInterval(timer); };
+    window.addEventListener('yuanbao:calendar-changed', refresh);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      window.removeEventListener('yuanbao:calendar-changed', refresh);
+    };
   }, [conversationId, dispatch]);
 
   const run = async (key: string, operation: string, input: Record<string, unknown> = {}) => {

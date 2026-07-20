@@ -52,6 +52,9 @@ export async function workspaceOperation(
   if (!res.ok) throw new Error(data.error || '工作区操作失败');
   if (typeof window !== 'undefined' && Array.isArray(data.schedules)) {
     window.dispatchEvent(new CustomEvent('yuanbao:workspace-changed', { detail: data }));
+    if (Array.isArray(data.changed) && data.changed.length > 0) {
+      window.dispatchEvent(new CustomEvent('yuanbao:calendar-changed', { detail: data }));
+    }
   }
   return data;
 }
