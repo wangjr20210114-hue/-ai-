@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../types';
-import { canReusePendingConversation, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, saveLocalConversations, setActiveConversationId } from './conversation';
+import { canReusePendingConversation, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
 
 describe('getOrCreateConversationId', () => {
   beforeEach(() => {
@@ -122,5 +122,19 @@ describe('pending conversation reuse', () => {
 
   it('reuses a genuinely empty pending conversation', () => {
     expect(canReusePendingConversation(pending, 'current', [])).toBe(true);
+  });
+});
+
+describe('stopped stream settlement', () => {
+  it('removes an empty thinking placeholder and preserves partial text as completed', () => {
+    const messages: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: '长回答', ts: 1 },
+      { id: 'partial', role: 'ai', content: '已经生成的部分', ts: 2, streaming: true },
+      { id: 'empty', role: 'ai', content: '', ts: 3, streaming: true },
+    ];
+    expect(settleStoppedMessages(messages)).toEqual([
+      messages[0],
+      { ...messages[1], streaming: false },
+    ]);
   });
 });

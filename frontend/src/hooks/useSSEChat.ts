@@ -4,7 +4,7 @@ import { bootstrapApp, proactiveOperation, workspaceOperation } from '../service
 import type { BootstrapData, MakersChatRun } from '../services/api';
 import { withEdgeOneAuth } from '../services/auth';
 import { presentableChatError } from '../services/chatError';
-import { durableMessageCount, makersConversationHeaders, mergeMessages } from '../services/conversation';
+import { durableMessageCount, makersConversationHeaders, mergeMessages, settleStoppedMessages } from '../services/conversation';
 import { splitSseFrames } from '../services/sse';
 import { useAppDispatch, useAppState } from '../store/appState';
 import type { ChatMessage, PaperInfo, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
@@ -46,6 +46,11 @@ class SSEChatClient {
     this.controller = null;
     this.resumeController?.abort();
     this.resumeController = null;
+    // Settle the UI immediately for both a live response stream and a
+    // checkpoint-resume stream. Makers cancellation remains the durable
+    // backend operation, but it must not leave the composer locked while the
+    // platform propagates the abort.
+    this.emit({ type: 'stop_requested', payload: {} });
     try {
       await fetch(withEdgeOneAuth('/stop'), {
         method: 'POST',
@@ -443,6 +448,12 @@ export function useSSEChat() {
             patch(id, streamId, complete);
             setConversationActivity(id, 'idle');
           }
+          break;
+        }
+        case 'stop_requested': {
+          streams.clear();
+          publish(id, settleStoppedMessages(cached(id)));
+          setConversationActivity(id, 'idle');
           break;
         }
         case 'search_status': {

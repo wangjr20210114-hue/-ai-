@@ -69,6 +69,12 @@ export function canReusePendingConversation(
     && (candidate.id !== currentConversationId || durableMessageCount(currentMessages) === 0);
 }
 
+export function settleStoppedMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages
+    .filter((message) => !message.streaming || message.role === 'user' || Boolean(message.content.trim()))
+    .map((message) => message.streaming ? { ...message, streaming: false } : message);
+}
+
 function messageFingerprint(message: ChatMessage): string {
   return `${message.role}\u0000${message.content.trim()}`;
 }
