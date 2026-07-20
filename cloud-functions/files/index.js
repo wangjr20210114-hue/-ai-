@@ -2,6 +2,10 @@ import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
+// Makers Cloud Functions cap a response body at 6 MB. Keep every file part
+// below that limit while continuing to persist the original object in the
+// Makers Blob store.
+const DOWNLOAD_PART_BYTES = 4 * 1024 * 1024;
 const SUPPORTED_TYPES = new Map([
   ['application/pdf', ['.pdf']],
   ['image/png', ['.png']],
@@ -30,7 +34,7 @@ export async function onRequest(context) {
   let user;
   try { user = await currentUser(request, env); } catch { return json({ error: 'Unauthorized' }, 401); }
   const prefix = tenantPrefix(user, env);
-  const store = getStore({ name: 'yuanbao-files', consistency: 'strong' });
+  const store = context.__store || getStore({ name: 'yuanbao-files', consistency: 'strong' });
 
   if (request.method === 'POST') {
     const body = await request.json();
@@ -55,20 +59,44 @@ export async function onRequest(context) {
     return json({ ...upload, content_url: `/files?key=${encodeURIComponent(key)}` });
   }
 
-  if (request.method === 'GET') {
-    const key = new URL(request.url).searchParams.get('key') || '';
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    const url = new URL(request.url);
+    const key = url.searchParams.get('key') || '';
     if (!key.startsWith(`${prefix}uploads/`) && !key.startsWith(`${prefix}generated/`)) return json({ error: '无效文件标识' }, 400);
-    const [body, metadata] = await Promise.all([
-      store.get(key, { type: 'arrayBuffer' }),
-      store.getMetadata(key),
-    ]);
+    const metadata = await store.getMetadata(key);
+    if (!metadata) return json({ error: '文件不存在' }, 404);
+    const contentType = metadata.contentType || (key.startsWith(`${prefix}generated/`) ? `image/${key.endsWith('.jpg') ? 'jpeg' : key.endsWith('.webp') ? 'webp' : 'png'}` : 'application/pdf');
+    const contentLength = Number(metadata.size || metadata.contentLength || metadata.headers?.['content-length'] || 0);
+    const commonHeaders = {
+      'Content-Type': contentType,
+      'Content-Disposition': `inline; filename="${safeSegment(key.split('/').pop(), key.startsWith(`${prefix}generated/`) ? 'image.png' : 'document.pdf')}"`,
+      'Cache-Control': 'private, max-age=60',
+      'Accept-Ranges': 'makers-parts',
+      'X-Yuanbao-Part-Size': String(DOWNLOAD_PART_BYTES),
+      ...(contentLength > 0 ? { 'Content-Length': String(contentLength) } : {}),
+    };
+    if (request.method === 'HEAD') return new Response(null, { headers: commonHeaders });
+
+    const body = await store.get(key, { type: 'arrayBuffer', consistency: 'eventual' });
     if (!body) return json({ error: '文件不存在' }, 404);
+    const rawPart = url.searchParams.get('part');
+    if (rawPart !== null) {
+      const part = Number(rawPart);
+      if (!Number.isSafeInteger(part) || part < 0) return json({ error: '无效文件分片' }, 400);
+      const start = part * DOWNLOAD_PART_BYTES;
+      if (start >= body.byteLength) return json({ error: '文件分片不存在' }, 416);
+      const end = Math.min(start + DOWNLOAD_PART_BYTES, body.byteLength);
+      return new Response(body.slice(start, end), {
+        headers: {
+          ...commonHeaders,
+          'Content-Length': String(end - start),
+          'Content-Range': `bytes ${start}-${end - 1}/${body.byteLength}`,
+          'X-Yuanbao-Part-Index': String(part),
+        },
+      });
+    }
     return new Response(body, {
-      headers: {
-        'Content-Type': metadata?.contentType || (key.startsWith(`${prefix}generated/`) ? `image/${key.endsWith('.jpg') ? 'jpeg' : key.endsWith('.webp') ? 'webp' : 'png'}` : 'application/pdf'),
-        'Content-Disposition': `inline; filename="${safeSegment(key.split('/').pop(), key.startsWith(`${prefix}generated/`) ? 'image.png' : 'document.pdf')}"`,
-        'Cache-Control': 'private, max-age=60',
-      },
+      headers: { ...commonHeaders, 'Content-Length': String(body.byteLength) },
     });
   }
 
@@ -81,3 +109,5 @@ export async function onRequest(context) {
 
   return json({ error: 'Method not allowed' }, 405);
 }
+
+export const __test = { DOWNLOAD_PART_BYTES };

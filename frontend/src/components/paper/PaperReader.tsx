@@ -1,4 +1,3 @@
-import { authorizedFetch } from '../../services/auth';
 /**
  * PaperReader：全屏论文阅读器。
  * 流程：搜索论文 → 展示推荐列表 → 用户选一篇 → 自动下载 PDF → 打开阅读器
@@ -16,7 +15,7 @@ import {
   translateParagraph, summarizeParagraph,
   explainTerm, explainFormula, analyzePaper, fullTranslate, extractTerms, paperQA,
   type PaperInfo,
-  paperFileUrl,
+  fetchPaperFile,
 } from '../../services/paperApi';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 
@@ -135,7 +134,7 @@ export default function PaperReader({ onClose, initialTopic }: Props) {
       setPaperTitle(result.title);
 
       // 从后端获取 PDF 文件内容
-      const fileResp = await authorizedFetch(paperFileUrl(result.file_id));
+      const fileResp = await fetchPaperFile(result.file_id);
       if (fileResp.ok) {
         const blob = await fileResp.blob();
         const buffer = await blob.arrayBuffer();

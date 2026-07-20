@@ -136,6 +136,39 @@ export function paperFileUrl(fileId: string): string {
   return withEdgeOneAuth(`/files?key=${encodeURIComponent(fileId)}`);
 }
 
+/**
+ * Read a Makers Blob object without crossing the 6 MB Cloud Function response
+ * ceiling. Small files keep the single-request path; larger files are joined
+ * from authenticated 4 MB parts exposed by the same Makers-backed endpoint.
+ */
+export async function fetchPaperFile(fileId: string, signal?: AbortSignal): Promise<Response> {
+  const url = paperFileUrl(fileId);
+  const head = await authorizedFetch(url, { method: 'HEAD', signal });
+  if (!head.ok) return head;
+  const size = Number(head.headers.get('content-length') || 0);
+  const partSize = Number(head.headers.get('x-yuanbao-part-size') || 0);
+  if (!Number.isFinite(size) || size <= 0 || !Number.isFinite(partSize) || partSize <= 0 || size <= partSize) {
+    return authorizedFetch(url, { signal });
+  }
+
+  const chunks: Uint8Array[] = [];
+  const totalParts = Math.ceil(size / partSize);
+  for (let part = 0; part < totalParts; part += 1) {
+    const separator = url.includes('?') ? '&' : '?';
+    const response = await authorizedFetch(`${url}${separator}part=${part}`, { signal });
+    if (!response.ok) return response;
+    chunks.push(new Uint8Array(await response.arrayBuffer()));
+  }
+  const blob = new Blob(chunks, { type: head.headers.get('content-type') || 'application/pdf' });
+  if (blob.size !== size) {
+    return new Response(JSON.stringify({ error: 'PDF 分片不完整，请重试' }), {
+      status: 502,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    });
+  }
+  return new Response(blob, { status: 200, headers: { 'Content-Type': blob.type, 'Content-Length': String(blob.size) } });
+}
+
 /** SSE 流式调用通用方法 */
 export function streamPaper(
   endpoint: string,

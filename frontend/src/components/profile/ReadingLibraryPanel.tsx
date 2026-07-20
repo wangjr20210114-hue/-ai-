@@ -4,7 +4,7 @@ import { Button, MessagePlugin } from 'tdesign-react';
 import { AddIcon, DeleteIcon, DownloadIcon, EditIcon, FileIcon, FolderIcon, RefreshIcon } from 'tdesign-icons-react';
 import {
   createReadingFolder, deleteSavedPaper, getReadingLibrary, moveReadingItem,
-  paperFileUrl, renameReadingFolder, type ReadingFolder, type ReadingSettings, type SavedPaper,
+  fetchPaperFile, renameReadingFolder, type ReadingFolder, type ReadingSettings, type SavedPaper,
 } from '../../services/paperApi';
 import { createZip } from '../../services/zip';
 import PaperFullReader from '../paper/PaperFullReader';
@@ -71,7 +71,7 @@ export default function ReadingLibraryPanel() {
     setBusyFolder(folder.id || 'unfiled');
     try {
       const entries = await Promise.all(folderItems.map(async (item, index) => {
-        const response = await fetch(paperFileUrl(item.file_id));
+        const response = await fetchPaperFile(item.file_id);
         if (!response.ok) throw new Error(`“${item.title}”下载失败`);
         const safe = (item.title || item.filename || `文档-${index + 1}`).replace(/[\\/:*?"<>|]/g, '_');
         return { name: `${safe}.pdf`, data: new Uint8Array(await response.arrayBuffer()) };

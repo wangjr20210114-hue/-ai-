@@ -1,4 +1,3 @@
-import { authorizedFetch } from '../../services/auth';
 /**
  * PaperInlineReader：内联在对话中的论文预览。
  * 极简：只渲染 PDF（高清晰度）+ 全屏按钮。
@@ -7,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button, Loading, MessagePlugin } from 'tdesign-react';
 import { FullscreenIcon } from 'tdesign-icons-react';
 import { loadPdf, type PDFDocumentProxy } from '../../services/pdf';
-import { paperFileUrl } from '../../services/paperApi';
+import { fetchPaperFile } from '../../services/paperApi';
 
 interface Props {
   fileId: string;
@@ -36,7 +35,7 @@ export default function PaperInlineReader({ fileId, fileName, title, onExpand }:
     let cancelled = false;
     (async () => {
       try {
-        const resp = await authorizedFetch(paperFileUrl(fileId));
+        const resp = await fetchPaperFile(fileId);
         if (!resp.ok) { MessagePlugin.error('加载 PDF 失败'); setLoading(false); return; }
         const blob = await resp.blob();
         const buffer = await blob.arrayBuffer();

@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { DownloadIcon, FullscreenIcon } from 'tdesign-icons-react';
 import type { ChatMessage, PaperInfo } from '../../types';
-import { downloadPaper, paperFileUrl } from '../../services/paperApi';
+import { downloadPaper, fetchPaperFile } from '../../services/paperApi';
 import { dedupePapers } from '../../services/paperUtils';
 import InfoCard from '../common/InfoCard';
 import PaperFullReader from './PaperFullReader';
@@ -61,7 +61,7 @@ export default function PaperListCard({ message }: Props) {
   const savePdf = async (paper: PaperInfo) => {
     const stored = await ensureDownloaded(paper); if (!stored) return;
     try {
-      const response = await fetch(paperFileUrl(stored.fileId));
+      const response = await fetchPaperFile(stored.fileId);
       if (!response.ok) throw new Error('文件下载失败');
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement('a'); link.href = url; link.download = stored.fileName || `${paper.title}.pdf`; link.click();

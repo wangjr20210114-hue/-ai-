@@ -1,4 +1,3 @@
-import { authorizedFetch } from '../../services/auth';
 /**
  * PaperFullReader：全屏论文阅读器。
  * 使用 PDF.js TextLayer 实现原生文本选择 + 段落交互。
@@ -7,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button, Loading, MessagePlugin, Textarea, Tag } from 'tdesign-react';
 import { CloseIcon, DownloadIcon, FullscreenIcon } from 'tdesign-icons-react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { paperFileUrl } from '../../services/paperApi';
+import { fetchPaperFile } from '../../services/paperApi';
 import {
   loadPdf, extractParagraphs, isNonInteractiveParagraph,
   type PDFDocumentProxy, type Paragraph,
@@ -59,6 +58,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; text: string } | null>(null);
   const [floatBar, setFloatBar] = useState<{ x: number; y: number; text: string } | null>(null);
   const [scale, setScale] = useState(1.5);
+  const [objectUrl, setObjectUrl] = useState('');
 
   const [aiResult, setAiResult] = useState<AIResult | null>(null);
   const [aiTab, setAiTab] = useState<'result' | 'qa'>('result');
@@ -75,10 +75,12 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
       try {
         setLoading(true); setLoadError('');
         fetchTimer = window.setTimeout(() => fetchController.abort(), 30_000);
-        const resp = await authorizedFetch(paperFileUrl(fileId), { signal: fetchController.signal });
+        const resp = await fetchPaperFile(fileId, fetchController.signal);
         window.clearTimeout(fetchTimer);
         if (!resp.ok) throw new Error(`PDF 下载失败（${resp.status}）`);
         const blob = await resp.blob();
+        const nextObjectUrl = URL.createObjectURL(blob);
+        setObjectUrl((current) => { if (current) URL.revokeObjectURL(current); return nextObjectUrl; });
         const buffer = await blob.arrayBuffer();
         const d = await loadPdf(buffer);
         if (cancelled) return;
@@ -94,6 +96,8 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
     })();
     return () => { cancelled = true; window.clearTimeout(fetchTimer); fetchController.abort(); };
   }, [fileId]);
+
+  useEffect(() => () => { if (objectUrl) URL.revokeObjectURL(objectUrl); }, [objectUrl]);
 
   // 渲染 canvas + text layer（scale 变化时重新渲染）
   // 用 ref 跟踪已渲染的 scale，避免 setPages 导致无限循环
@@ -305,7 +309,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             {/* 下载按钮 */}
             <a
-              href={paperFileUrl(fileId)}
+              href={objectUrl || undefined}
               download={`${title || 'paper'}.pdf`}
               style={{ textDecoration: 'none' }}
             >
@@ -331,7 +335,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
         <div className="paper-body" style={{ display: 'flex', overflow: 'hidden' }}>
           {/* PDF 侧 */}
           <div style={{ flex: 1, overflow: 'auto', padding: 16, background: '#525659' }}>
-            {nativeMode ? <iframe className="paper-native-frame" src={paperFileUrl(fileId)} title={title} /> : <>
+            {nativeMode ? <iframe className="paper-native-frame" src={objectUrl} title={title} /> : <>
             {loading && <div className="paper-loading-state"><Loading /><span>正在载入 PDF 和渲染引擎…</span></div>}
             {loadError && <div className="paper-load-error"><strong>PDF 打开失败</strong><span>{loadError}</span><Button size="small" onClick={() => setNativeMode(true)}>使用兼容预览</Button></div>}
             {doc && pages.map(pg => (
