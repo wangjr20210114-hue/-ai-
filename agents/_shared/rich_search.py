@@ -23,6 +23,13 @@ from typing import Any, Awaitable, Callable
 from .web_media import collect_page_media
 
 
+def _embedded_image_url(value: Any) -> str:
+    """Read a provider-supplied article image embedded in an HTML passage."""
+    text = unescape(str(value or ""))
+    match = re.search(r"<img\b[^>]*\bsrc\s*=\s*['\"]([^'\"]+)['\"]", text, re.IGNORECASE)
+    return match.group(1).strip() if match else ""
+
+
 def _json_request(url: str, payload: dict, headers: dict, timeout: int) -> dict:
     request = urllib.request.Request(
         url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -53,10 +60,15 @@ def _parse_pages(data: dict[str, Any], limit: int) -> list[dict[str, Any]]:
             r"(?:^|\.)(?:bilibili\.com|youtube\.com|youtu\.be|v\.qq\.com|youku\.com|douyin\.com|ixigua\.com)$",
             host,
         ) else "wsa"
+        snippet = str(page.get("passage") or page.get("snippet") or page.get("description") or "")
         results.append({
             "source": source_kind, "title": str(page.get("title") or page.get("name") or url)[:200],
-            "snippet": str(page.get("passage") or page.get("snippet") or page.get("description") or "")[:500],
-            "url": url, "image": str(page.get("image") or page.get("image_url") or page.get("thumbnail") or ""),
+            "snippet": snippet[:500],
+            "url": url,
+            "image": str(
+                page.get("image") or page.get("image_url") or page.get("thumbnail")
+                or _embedded_image_url(snippet)
+            ),
             "date": str(page.get("date") or page.get("publish_time") or "")[:40],
         })
         if len(results) >= limit:

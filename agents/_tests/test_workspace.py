@@ -27,6 +27,7 @@ from agents._shared.side_effects import _meeting_payload, _meeting_result, _meet
 from agents._shared.auth import require_user, scoped_conversation_id
 from agents._shared.rich_search import (
     _filter_for_target_date,
+    _parse_pages,
     _review_image,
     _vision_filter,
     evidence_for_model,
@@ -303,6 +304,14 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "needs_rich_answer": True,
             "needs_images": True,
         }, 0))
+
+    def test_searchpro_html_passage_exposes_provider_article_image(self):
+        pages = _parse_pages({"Response": {"Pages": [{
+            "url": "https://news.example/item",
+            "title": "大会新闻",
+            "passage": "<p>正文</p><img src='http://qqpublic.qpic.cn/news.jpg' width='700'>",
+        }]}}, 8)
+        self.assertEqual(pages[0]["image"], "http://qqpublic.qpic.cn/news.jpg")
 
     def test_temporal_policy_is_derived_after_capability_planning(self):
         source = (Path(__file__).parents[1] / "chat" / "index.py").read_text(encoding="utf-8")
