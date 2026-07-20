@@ -23,7 +23,11 @@
 - `VITE_TENCENT_MAP_KEY`
 - `HUNYUAN_IMAGE_API_KEY`
 - `HUNYUAN_VISION_API_KEY`（可复用生图 Key 时可省略）
+- `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_WORKERS_AI_TOKEN`（推荐的每日免费额度视觉/生图降级）
+- `DASHSCOPE_API_KEY`、`GEMINI_API_KEY`（可选的视觉理解后备，不承担当前免费生图）
 - 腾讯会议五项凭据均为最后阶段可选连接器；未配置时不暴露会议创建工具，不影响部署。
+
+默认搜索硬预算为 SearchPro 10 秒、页面媒体 5 秒、视觉审核 7 秒，可用 `RICH_SEARCH_PROVIDER_TIMEOUT_SECONDS`、`RICH_SEARCH_MEDIA_TIMEOUT_SECONDS`、`RICH_SEARCH_VISION_TIMEOUT_SECONDS` 在 Preview 调整。免费视觉 Provider 的额度与配置步骤见 [`VISUAL_PROVIDER_FALLBACK.md`](VISUAL_PROVIDER_FALLBACK.md)。
 
 一次性数据迁移可配置 `LEGACY_IMPORT_SECRET`，验收后必须删除。完整步骤见 [`DATA_MIGRATION.md`](DATA_MIGRATION.md)。
 

@@ -428,38 +428,68 @@ def build_production_tools(
             async def run_once() -> str:
                 nonlocal turn_visual_references
                 metadata = None
+                stale_metadata = None
+                stale_age = 0
                 if store is not None:
                     try:
                         cached_item = await store.aget(cache_namespace, cache_key)
                         cached = cached_item.get("value") if isinstance(cached_item, dict) else getattr(cached_item, "value", None)
                         cached_at = int((cached or {}).get("cached_at") or 0) if isinstance(cached, dict) else 0
-                        if cached_at and int(time.time()) - cached_at <= max(0, int(search_cache_ttl_seconds)):
-                            candidate = cached.get("metadata")
-                            if isinstance(candidate, dict):
+                        candidate = cached.get("metadata") if isinstance(cached, dict) else None
+                        if cached_at and isinstance(candidate, dict):
+                            stale_age = max(0, int(time.time()) - cached_at)
+                            stale_metadata = candidate
+                            if stale_age <= max(0, int(search_cache_ttl_seconds)):
                                 metadata = candidate
-                                metadata = {**metadata, "media_pending": False, "cache_hit": True}
+                                metadata = {
+                                    **metadata,
+                                    "media_pending": False,
+                                    "cache_hit": True,
+                                    "cache_age_seconds": stale_age,
+                                }
                                 logging.info("rich_search cache_hit key=%s media=%s", cache_key[:12], media_enabled)
                     except Exception:
                         # Search must remain available when the optional cache is unavailable.
                         metadata = None
                 if metadata is None:
                     logging.info("rich_search provider_call key=%s media=%s", cache_key[:12], media_enabled)
-                    metadata = await provider_rich_search(
-                        runtime_env,
-                        clean_query,
-                        image_query=clean_image_query,
-                        depth=clean_depth,
-                        target_date=target_date,
-                        strict_date=strict_date,
-                        media_callback=media_callback if progressive_media and media_enabled else None,
-                        background_tasks=background_tasks if progressive_media and media_enabled else None,
-                        include_media=media_enabled,
-                        result_limit=search_result_limit,
-                        image_limit=search_image_limit,
-                        parallel_queries=parallel_image_search,
-                    )
-                    metadata = {**metadata, "cache_hit": False}
-                    if store is not None and not metadata.get("media_pending"):
+                    try:
+                        metadata = await provider_rich_search(
+                            runtime_env,
+                            clean_query,
+                            image_query=clean_image_query,
+                            depth=clean_depth,
+                            target_date=target_date,
+                            strict_date=strict_date,
+                            media_callback=media_callback if progressive_media and media_enabled else None,
+                            background_tasks=background_tasks if progressive_media and media_enabled else None,
+                            include_media=media_enabled,
+                            result_limit=search_result_limit,
+                            image_limit=search_image_limit,
+                            parallel_queries=parallel_image_search,
+                        )
+                        metadata = {**metadata, "cache_hit": False}
+                    except Exception:
+                        stale_limit = max(3600, int(search_cache_ttl_seconds) * 4)
+                        if isinstance(stale_metadata, dict) and stale_age <= stale_limit:
+                            metadata = {
+                                **stale_metadata,
+                                "media_pending": False,
+                                "cache_hit": True,
+                                "stale_cache_hit": True,
+                                "cache_age_seconds": stale_age,
+                            }
+                            logging.warning(
+                                "rich_search stale_cache_hit key=%s age=%s",
+                                cache_key[:12], stale_age,
+                            )
+                        else:
+                            raise
+                    if (
+                        store is not None
+                        and not metadata.get("media_pending")
+                        and not metadata.get("stale_cache_hit")
+                    ):
                         try:
                             await store.aput(cache_namespace, cache_key, {
                                 "cached_at": int(time.time()),

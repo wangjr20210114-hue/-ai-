@@ -21,6 +21,7 @@ from html import unescape
 from typing import Any, Awaitable, Callable
 
 from .web_media import collect_page_media
+from .vision import vision_completion, vision_providers
 
 
 def _embedded_image_url(value: Any) -> str:
@@ -138,7 +139,7 @@ def _filter_for_target_date(
 
 
 async def _extract_candidates(
-    results: list[dict[str, Any]], page_limit: int = 6,
+    results: list[dict[str, Any]], page_limit: int = 6, parallel: bool = True,
 ) -> list[dict[str, str]]:
     candidates: list[dict[str, str]] = []
     for result in results:
@@ -163,7 +164,12 @@ async def _extract_candidates(
                 normalized.append({**item, "url": image_url, "source_url": result["url"], "source_title": result["title"]})
         return normalized
 
-    for batch in await asyncio.gather(*(page(result) for result in results[:max(1, min(6, page_limit))])):
+    selected_results = results[:max(1, min(6, page_limit))]
+    if parallel:
+        batches = await asyncio.gather(*(page(result) for result in selected_results))
+    else:
+        batches = [await page(result) for result in selected_results]
+    for batch in batches:
         candidates.extend(batch)
     output: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -255,13 +261,7 @@ async def _vision_filter(
     output_limit = max(0, min(4, int(output_limit)))
     if output_limit == 0:
         return [], {"candidates": len(candidates), "reviewed": 0, "disabled": 1}
-    api_key = str(
-        env.get("HUNYUAN_VISION_API_KEY")
-        or env.get("HUNYUAN_IMAGE_API_KEY")
-        or env.get("HUNYUAN_API_KEY")
-        or ""
-    ).strip()
-    if not api_key:
+    if not vision_providers(env):
         return [], {"missing_api_key": 1, "candidates": len(candidates), "reviewed": 0}
 
     # Prefer one candidate per source before filling remaining slots. One
@@ -295,22 +295,20 @@ async def _vision_filter(
             {"type": "text", "text": f"图片 {index}；网页上下文：{context}"},
             {"type": "image_url", "image_url": {"url": candidate["url"]}},
         ])
-    payload = {
-        "model": str(env.get("HUNYUAN_VISION_MODEL") or "hy-vision-2.0-instruct"),
-        "messages": [{"role": "user", "content": content}],
-        "max_tokens": 800,
-        "temperature": 0.1,
-        "stream": False,
-    }
     try:
-        data = await asyncio.to_thread(
-            _json_request,
-            _vision_endpoint(env),
-            payload,
-            {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            20,
+        raw, provider_diagnostics = await vision_completion(
+            env,
+            content,
+            max_tokens=800,
+            timeout=float(env.get("RICH_SEARCH_VISION_TIMEOUT_SECONDS") or 7),
         )
-        raw = str(data["choices"][0]["message"]["content"]).strip().strip("`").strip()
+        if not raw:
+            return [], {
+                str(provider_diagnostics.get("error") or "vision_failed"): 1,
+                "candidates": len(candidates),
+                "reviewed": 0,
+            }
+        raw = raw.strip().strip("`").strip()
         if raw.startswith("json"):
             raw = raw[4:].strip()
         match = re.search(r"\{[\s\S]*\}", raw)
@@ -334,6 +332,9 @@ async def _vision_filter(
             diagnostics["irrelevant"] += 1
     diagnostics["candidates"] = len(candidates)
     diagnostics["reviewed"] = len(selected)
+    provider_name = str(provider_diagnostics.get("provider") or "")
+    if provider_name:
+        diagnostics[f"provider_{provider_name}"] = 1
     return output[:output_limit], dict(diagnostics)
 
 
@@ -369,36 +370,31 @@ async def rich_search(
             + (f"只返回发布日期可核验为 {target_date} 的当日内容，每条结果必须带发布日期。" if strict_date
                else "检索和排序必须以该日期为时间基准，不要混用旧年份信息。")
         )
-    fact_request = asyncio.to_thread(
-        _json_request, f"{base_url}/SearchPro", {"Query": provider_query[:500]}, headers, 25,
-    )
+    provider_timeout = max(4, min(20, int(env.get("RICH_SEARCH_PROVIDER_TIMEOUT_SECONDS") or 10)))
     distinct_visual_query = bool(image_query and image_query.strip() != query.strip())
-    visual_provider_query = image_query
-    if target_date and visual_provider_query:
-        visual_provider_query += f" {target_date} 当日发布 现场照片 新闻图片"
-    if distinct_visual_query and parallel_queries:
-        data, visual_data = await asyncio.gather(
-            fact_request,
-            asyncio.to_thread(_json_request, f"{base_url}/SearchPro", {"Query": visual_provider_query[:500]}, headers, 25),
-        )
-    elif distinct_visual_query:
-        data = await fact_request
-        visual_data = await asyncio.to_thread(
-            _json_request, f"{base_url}/SearchPro", {"Query": visual_provider_query[:500]}, headers, 25,
-        )
-    else:
-        data = await fact_request
-        visual_data = data
+    # SearchPro already returns article passages and provider-supplied images.
+    # Merge the planner's visual intent into the one factual request instead of
+    # paying for a second near-duplicate search. Page extraction remains
+    # concurrent and pixel review still happens below.
+    if distinct_visual_query:
+        provider_query += f"\n同时优先返回包含这些可视对象的结果：{image_query[:180]}"
+    data = await asyncio.wait_for(
+        asyncio.to_thread(
+            _json_request,
+            f"{base_url}/SearchPro",
+            {"Query": provider_query[:500]},
+            headers,
+            provider_timeout,
+        ),
+        timeout=provider_timeout + 0.5,
+    )
+    visual_data = data
     searched_at = time.perf_counter()
     results = _parse_pages(data, limit)
     visual_results = results
-    if distinct_visual_query:
-        visual_results = _parse_pages(visual_data, 8)
     date_filter = {"received": len(results), "kept": len(results), "undated": 0, "mismatched": 0}
     if strict_date and target_date:
         results, date_filter = _filter_for_target_date(results, target_date)
-        if distinct_visual_query:
-            visual_results, _ = _filter_for_target_date(visual_results, target_date)
     sources = [{
         "id": f"source-{index}", "source": item["source"], "title": item["title"],
         "snippet": item["snippet"][:240], "url": item["url"], "date": item["date"],
@@ -412,7 +408,9 @@ async def rich_search(
             "result_limit": limit,
             "image_limit": image_limit,
             "parallel_image_search": bool(parallel_queries),
-            "provider_request_count": 2 if distinct_visual_query else 1,
+            "provider_request_count": 1,
+            "visual_query_merged": distinct_visual_query,
+            "provider_timeout_seconds": provider_timeout,
             "page_fetch_limit": min(6, max(4, image_limit * 2)) if image_limit else 0,
         },
         "timings_ms": {
@@ -425,17 +423,36 @@ async def rich_search(
     async def enrich_media() -> dict[str, Any]:
         source_by_url = {item["url"]: item for item in sources}
         page_fetch_limit = min(6, max(4, image_limit * 2))
-        visual_candidates = await _extract_candidates(visual_results, page_fetch_limit)
-        if visual_results is not results:
-            seen = {item["url"] for item in visual_candidates}
-            visual_candidates.extend(
-                item for item in await _extract_candidates(results, page_fetch_limit) if item["url"] not in seen
+        media_timeout = max(2, min(10, int(env.get("RICH_SEARCH_MEDIA_TIMEOUT_SECONDS") or 5)))
+        try:
+            visual_candidates = await asyncio.wait_for(
+                _extract_candidates(visual_results, page_fetch_limit, parallel=parallel_queries),
+                timeout=media_timeout,
             )
+        except asyncio.TimeoutError:
+            # Do not discard fast provider-supplied article images merely
+            # because one source page was slow to parse.
+            visual_candidates = []
+            for result in visual_results:
+                image = unescape(str(result.get("image") or "").strip())
+                if image.startswith("http://"):
+                    image = "https://" + image[len("http://"):]
+                path = urllib.parse.urlparse(image).path.lower()
+                if image.startswith("https://") and not path.endswith((".svg", ".gif", ".ico")):
+                    visual_candidates.append({
+                        "url": image,
+                        "alt": "",
+                        "context": "搜索结果主图",
+                        "source_url": result["url"],
+                        "source_title": result["title"],
+                    })
         extracted_at = time.perf_counter()
         review_goal = image_query.strip() or query
+        vision_timeout = max(2, min(12, int(env.get("RICH_SEARCH_VISION_TIMEOUT_SECONDS") or 7)))
         try:
             reviewed, diagnostics = await asyncio.wait_for(
-                _vision_filter(env, review_goal, visual_candidates, image_limit), timeout=22,
+                _vision_filter(env, review_goal, visual_candidates, image_limit),
+                timeout=vision_timeout + 0.5,
             )
         except asyncio.TimeoutError:
             reviewed, diagnostics = [], {"timeout": 1, "candidates": len(visual_candidates), "reviewed": 0}

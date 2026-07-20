@@ -81,7 +81,7 @@ export default function AgentIntelligencePanel() {
             <p>推荐值兼顾速度与答案质量。新闻等适合配图的问题仍由 LLM 规划是否检索图片。</p>
             <label>网页结果上限<select value={resultLimit} onChange={(event) => setResultLimit(Number(event.target.value))}><option value={4}>4（最快）</option><option value={8}>8（推荐）</option><option value={12}>12</option><option value={18}>18（最完整）</option></select></label>
             <label>回答图片上限<select value={imageLimit} onChange={(event) => setImageLimit(Number(event.target.value))}><option value={0}>0（关闭配图）</option><option value={2}>2（推荐）</option><option value={4}>4</option></select></label>
-            <label><input type="checkbox" checked={parallelImageSearch} onChange={(event) => setParallelImageSearch(event.target.checked)} />事实与图片查询并行（推荐）</label>
+            <label><input type="checkbox" checked={parallelImageSearch} onChange={(event) => setParallelImageSearch(event.target.checked)} />并行提取来源页图片（推荐，更快）</label>
             <Button size="small" variant="text" loading={busy === 'search'} onClick={() => { void mutate('search', 'update_search_preferences', { preferences: { result_limit: resultLimit, image_limit: imageLimit, parallel_image_search: parallelImageSearch } }); }}>保存搜索设置</Button>
           </details>
           <details className="intelligence-budget">

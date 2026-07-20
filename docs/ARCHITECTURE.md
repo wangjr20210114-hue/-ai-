@@ -23,6 +23,7 @@ React / Vite
 | --- | --- | --- |
 | Agent 运行 | Makers Agent Runtime | LangGraph 图、领域工具、SSE 公共协议 |
 | 模型 | Makers Models / AI Gateway | 模型选择、预算和业务提示词 |
+| 视觉/生图 Provider | 混元 + 可配置外部托管 API | Provider 顺序、超时预算、结果校验；不自建推理服务 |
 | 会话 | Conversation Store | 标题与前端会话体验 |
 | 短期状态 | LangGraph Checkpointer | 图状态结构与历史裁剪 |
 | 用户长期状态 | LangGraph Store | Workspace、Event、Run、Notification、Workflow、Memory |
@@ -37,7 +38,8 @@ React / Vite
 - Conversation Store：会话列表、标题和消息。
 - Checkpointer：每个会话的 LangGraph 执行状态。
 - LangGraph Store：用户级日程、地图、Action、Provider Ledger、Event、Run、Notification、Workflow、Memory、Feedback 和 Usage。
-- 搜索规划：独立 LLM 读取当前问题和已过滤的非敏感记忆，合并一次事实查询并语义判断图片价值；单轮任务缓存阻止重复 Provider 调用，跨轮结果按时效 TTL 存入用户级 LangGraph Store。
+- 搜索规划：独立 LLM 读取当前问题和已过滤的非敏感记忆，合并事实与视觉意图；每轮一次 SearchPro，来源页按设置并发，默认 10/5/7 秒分段预算；单轮任务缓存阻止重复调用，跨轮结果按时效 TTL 存入用户级 LangGraph Store。
+- 视觉能力：混元优先；Cloudflare Workers AI 复用托管视觉、文生图和图生图模型，百炼/Gemini 可作视觉理解后备。应用只保留降级路由、输入边界和 Makers Blob 持久化，不实现模型推理。
 - 长期记忆：后台 LLM 只提取用户明确表达的稳定偏好、目标和项目背景；应用层再次拒绝联系方式、凭证、证件、精确地址、财务和医疗信息，并按置信度、TTL 和使用次数清理。记忆值不进入公共 API 或前端列表。
 - 日程变更：大模型只冻结确认 Action；服务端按当前 Workspace 的 schedule_id 执行。地点必须是地点服务返回的 place_id；成功后立即重算日程/天气/路线信号，刷新仍有效的通知并淘汰旧通知。
 - Blob：PDF、论文、生成图片、阅读库资产索引。

@@ -69,8 +69,13 @@ edgeone.json              # Makers 构建与 Agent 配置
 | `WSA_API_KEY` / `WSA_BASE_URL` | 联网富搜索 |
 | `HUNYUAN_IMAGE_API_KEY` | TokenHub 多模态图片筛选与混元生图（Hy3 是纯文本模型，不用于看图） |
 | `HUNYUAN_VISION_API_KEY` / `HUNYUAN_VISION_MODEL` | 可选的独立视觉密钥与模型覆盖，默认复用上项并调用 `hy-vision-2.0-instruct` |
+| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_WORKERS_AI_TOKEN` | 可选的每日免费额度视觉理解、文生图和图生图降级 |
+| `DASHSCOPE_API_KEY` / `GEMINI_API_KEY` | 可选的视觉理解后备；不作为当前免费生图链 |
+| `RICH_SEARCH_*_TIMEOUT_SECONDS` | 搜索、媒体提取和视觉审核硬预算；默认 10/5/7 秒 |
 | `TENCENT_MAP_SERVER_KEY` | 腾讯地点与路线服务 |
 | `TENCENT_MEETING_*` | 最后阶段可选连接器；个人开发者当前可不配置 |
+
+视觉免费额度、Provider 顺序和无破坏 Preview 验收见 [VISUAL_PROVIDER_FALLBACK.md](docs/VISUAL_PROVIDER_FALLBACK.md)。
 
 ## Makers 本地开发
 

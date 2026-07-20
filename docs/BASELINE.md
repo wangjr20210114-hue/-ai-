@@ -17,11 +17,11 @@
 | 能力 | 代码状态 | 部署状态 | 主要事实源 |
 | --- | --- | --- | --- |
 | 多会话聊天、SSE、停止、刷新恢复 | 已实现并测试 | Preview/Production 已连接并加载历史会话 | `agents/chat`、`agents/messages`、`cloud-functions/conversations` |
-| 联网图文回答 | 已实现并测试 | 搜索前保留 LLM 语义规划；单轮富搜索只执行一次，查询合并并使用 Makers Store TTL 缓存；是否取图由规划器按理解价值决定 | `agents/chat/_capability_plan.py`、`agents/chat/_ui_tools.py`、`agents/_shared/rich_search.py` |
+| 联网图文回答 | 已实现并测试 | 搜索前保留 LLM 语义规划；单轮一次 rich_search/一次 SearchPro；事实与视觉意图合并，使用 Makers Store TTL/安全陈旧缓存；默认搜索/提图/视觉硬预算 10/5/7 秒 | `agents/chat/_capability_plan.py`、`agents/chat/_ui_tools.py`、`agents/_shared/rich_search.py` |
 | 地点、地图、道路路线、费用估算 | 已实现并测试 | 腾讯结果与查询不匹配时回退 OSM；路线按用户缓存 6 小时 | `agents/places`、`agents/routes`、`agents/_shared/tencent_location.py` |
 | 日程 CRUD 与确认式变更 | 已实现并测试 | 可用自然语言新增、改标题/描述/时间/地点、删除；地点修改必须来自地点库；不存在/不唯一目标会自然提示；变更后旧主动提醒同步刷新或失效 | `agents/workspace`、`agents/chat/_calendar_context.py`、LangGraph Store |
 | 腾讯会议创建 | 官方 API 适配已实现 | 最后阶段可选；未配置时不暴露工具 | `agents/_shared/side_effects.py` |
-| 文生图、图生图、版本、Blob、ZIP | 已实现并测试 | 支持选择或 Cmd/Ctrl+V 粘贴参考图；生成状态覆盖浏览器图片载入 | `agents/image`、`ImageStudioCard.tsx`、`InputBar.tsx` |
+| 多模态理解、文生图、图生图、版本、Blob、ZIP | 已实现并测试 | 用户附图先经视觉 Provider 描述；混元为主，Cloudflare Workers AI 提供视觉/文生图/图生图降级，百炼与 Gemini 可作视觉后备；生成结果复制到 Makers Blob | `agents/_shared/vision.py`、`agents/_shared/side_effects.py`、`agents/image`、`InputBar.tsx` |
 | PDF、图片上传、阅读库、论文助读 | 已实现核心链路 | PDF 上传后直接打开内置助读；阅读库支持手动分类与删除反馈；无 DOCX/OCR | `cloud-functions/files`、`library`、`papers`、`agents/reader` |
 | 主动日程/天气/路线提醒 | 已实现并测试 | EdgeOne Cron 需无浏览器线上终验 | `agents/proactive`、`proactive-tick` |
 | Notification、免打扰、每日上限、稍后提醒 | 已实现并测试 | 在线读取通过；真实 Cron 触发待跨日终验 | `agents/_shared/proactive.py` |
@@ -68,10 +68,10 @@
 
 2026-07-20 当前工作树结果：
 
-- Makers Agent：75 项通过。
+- Makers Agent：85 项通过。
 - SQLite 导出工具：2 项通过。
-- Cloud Functions、验收持久化和平台约束：16 项通过。
-- 前端 Vitest：34 项通过。
+- Cloud Functions、验收持久化和平台约束：14 项通过。
+- 前端 Vitest：37 项通过。
 - ESLint：通过。
 - EdgeOne 模式生产构建：通过。
 - EdgeOne Preview `dph2wvagts0x`：构建成功，应用已连接，核心只读数据加载通过。

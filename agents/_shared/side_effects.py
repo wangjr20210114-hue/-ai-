@@ -157,6 +157,67 @@ def _post_image(
     return {"ok": True, "image_url": image_url, "prompt": prompt, "model": model}
 
 
+def _reference_bytes(value: str) -> tuple[bytes, str]:
+    reference = str(value or "").strip()
+    if reference.startswith("data:image/"):
+        header, encoded = reference.split(",", 1)
+        mime = header.split(";", 1)[0].split(":", 1)[1].lower()
+        body = base64.b64decode(encoded, validate=True)
+        if not body or len(body) > 8 * 1024 * 1024:
+            raise ValueError("参考图片大小无效或超过 8MB")
+        return body, mime
+    return _download_image(reference)
+
+
+def _post_cloudflare_image(
+    account_id: str,
+    api_token: str,
+    model: str,
+    prompt: str,
+    reference_images: list[str] | None = None,
+) -> tuple[bytes, str]:
+    references = list(reference_images or [])
+    payload: dict[str, Any] = {"prompt": prompt}
+    if references:
+        body, _mime = _reference_bytes(references[0])
+        payload.update({
+            "image_b64": base64.b64encode(body).decode("ascii"),
+            "strength": 0.72,
+            "num_steps": 12,
+            "width": 1024,
+            "height": 1024,
+        })
+    else:
+        payload.update({"steps": 4})
+    endpoint = (
+        f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
+    )
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=90) as response:
+        content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].lower()
+        response_body = response.read(16 * 1024 * 1024 + 1)
+    if not response_body or len(response_body) > 16 * 1024 * 1024:
+        raise RuntimeError("Workers AI 返回图片大小无效")
+    if content_type.startswith("image/"):
+        return response_body, content_type
+    data = json.loads(response_body.decode("utf-8"))
+    result = data.get("result") if isinstance(data.get("result"), dict) else data
+    encoded = str(result.get("image") or result.get("image_b64") or "")
+    if encoded.startswith("data:image/"):
+        return _reference_bytes(encoded)
+    if not encoded:
+        raise RuntimeError("Workers AI 未返回图片")
+    return base64.b64decode(encoded), "image/jpeg"
+
+
 def _download_image(url: str) -> tuple[bytes, str]:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme != "https":
@@ -188,6 +249,31 @@ async def _persist_generated_image(image_url: str, storage_prefix: str = "") -> 
         return {"storage_key": "", "image_url": image_url}
 
 
+async def _persist_generated_bytes(
+    body: bytes,
+    content_type: str,
+    storage_prefix: str = "",
+) -> dict[str, str]:
+    """Persist a provider's binary/base64 response directly in Makers Blob."""
+    try:
+        from pages_blob import get_store
+
+        if not body or len(body) > 16 * 1024 * 1024:
+            raise ValueError("生成图片大小无效或超过 16MB")
+        mime = str(content_type or "image/png").split(";", 1)[0].lower()
+        suffix = {"image/jpeg": "jpg", "image/webp": "webp", "image/bmp": "bmp"}.get(mime, "png")
+        key = f"{storage_prefix}generated/{uuid.uuid4().hex}.{suffix}"
+        store = get_store("yuanbao-files", consistency="strong")
+        await store.set(key, body, cache_control="private, max-age=31536000")
+        return {"storage_key": key, "image_url": f"/files?key={urllib.parse.quote(key)}"}
+    except Exception:
+        mime = str(content_type or "image/png").split(";", 1)[0].lower()
+        return {
+            "storage_key": "",
+            "image_url": f"data:{mime};base64,{base64.b64encode(body).decode('ascii')}",
+        }
+
+
 async def resolve_image_reference(result: dict[str, Any], prefer_blob: bool = False) -> str:
     """Prefer the persistent Blob copy when editing an older image version."""
     provider_url = str(result.get("provider_image_url") or "")
@@ -213,31 +299,85 @@ async def generate_image(
     user_id: str = "local-user",
 ) -> dict[str, Any]:
     api_key = str(env.get("HUNYUAN_IMAGE_API_KEY") or "").strip()
-    if not api_key:
-        return {"ok": False, "error": "未配置 HUNYUAN_IMAGE_API_KEY"}
     base_url = str(env.get("HUNYUAN_IMAGE_BASE_URL") or "https://tokenhub.tencentmaas.com").rstrip("/")
     model = str(env.get("HUNYUAN_IMAGE_MODEL") or "hy-image-v3.0")
     storage_prefix = ""
     references = [str(url).strip() for url in (reference_images or []) if str(url).startswith(("https://", "data:image/"))][:3]
-    try:
-        endpoint = f"{base_url}/v1/images/generations" if model.lower() == "hy-image-v3.0" or references else f"{base_url}/v1/api/image/lite"
-        result = await asyncio.to_thread(
-            _post_image, endpoint, api_key, model, prompt, references,
+    failures: list[str] = []
+    if api_key:
+        try:
+            endpoint = f"{base_url}/v1/images/generations" if model.lower() == "hy-image-v3.0" or references else f"{base_url}/v1/api/image/lite"
+            result = await asyncio.to_thread(
+                _post_image, endpoint, api_key, model, prompt, references,
+            )
+            provider_image_url = str(result["image_url"])
+            persisted = await _persist_generated_image(provider_image_url, storage_prefix)
+            return {
+                **result,
+                "provider": "hunyuan",
+                "provider_image_url": provider_image_url,
+                **persisted,
+                "reference_images": references,
+            }
+        except Exception as exc:
+            failures.append(f"混元：{type(exc).__name__}")
+            # Preserve legacy text-to-image availability when v3 is not enabled.
+            if not references and model.lower() == "hy-image-v3.0":
+                try:
+                    result = await asyncio.to_thread(
+                        _post_image, f"{base_url}/v1/api/image/lite", api_key, "hy-image-lite", prompt, [],
+                    )
+                    provider_image_url = str(result["image_url"])
+                    persisted = await _persist_generated_image(provider_image_url, storage_prefix)
+                    return {
+                        **result,
+                        "provider": "hunyuan",
+                        "provider_image_url": provider_image_url,
+                        **persisted,
+                        "reference_images": [],
+                        "fallback": True,
+                    }
+                except Exception as fallback_exc:
+                    failures.append(f"混元 Lite：{type(fallback_exc).__name__}")
+
+    cloudflare_account = str(env.get("CLOUDFLARE_ACCOUNT_ID") or "").strip()
+    cloudflare_token = str(
+        env.get("CLOUDFLARE_WORKERS_AI_TOKEN") or env.get("CLOUDFLARE_API_TOKEN") or ""
+    ).strip()
+    if cloudflare_account and cloudflare_token:
+        cloudflare_model = str(
+            env.get("CLOUDFLARE_IMAGE_EDIT_MODEL")
+            or "@cf/runwayml/stable-diffusion-v1-5-img2img"
+        ) if references else str(
+            env.get("CLOUDFLARE_IMAGE_MODEL")
+            or "@cf/black-forest-labs/flux-1-schnell"
         )
-        provider_image_url = str(result["image_url"])
-        persisted = await _persist_generated_image(provider_image_url, storage_prefix)
-        return {**result, "provider_image_url": provider_image_url, **persisted, "reference_images": references}
-    except Exception as exc:
-        # Preserve legacy text-to-image availability when an account has not
-        # enabled v3 yet. Reference-image edits cannot safely fall back to lite.
-        if not references and model.lower() == "hy-image-v3.0":
-            try:
-                result = await asyncio.to_thread(
-                    _post_image, f"{base_url}/v1/api/image/lite", api_key, "hy-image-lite", prompt, [],
-                )
-                provider_image_url = str(result["image_url"])
-                persisted = await _persist_generated_image(provider_image_url, storage_prefix)
-                return {**result, "provider_image_url": provider_image_url, **persisted, "reference_images": [], "fallback": True}
-            except Exception as fallback_exc:
-                return {"ok": False, "error": f"生成图片失败：{fallback_exc}"}
-        return {"ok": False, "error": f"生成图片失败：{exc}"}
+        try:
+            body, content_type = await asyncio.to_thread(
+                _post_cloudflare_image,
+                cloudflare_account,
+                cloudflare_token,
+                cloudflare_model,
+                prompt,
+                references,
+            )
+            persisted = await _persist_generated_bytes(body, content_type, storage_prefix)
+            return {
+                "ok": True,
+                "provider": "cloudflare",
+                "model": cloudflare_model,
+                "prompt": prompt,
+                "provider_image_url": "",
+                **persisted,
+                "reference_images": references[:1],
+                "fallback": bool(api_key),
+            }
+        except Exception as exc:
+            failures.append(f"Workers AI：{type(exc).__name__}")
+
+    if not failures:
+        return {
+            "ok": False,
+            "error": "未配置生图服务；请配置 HUNYUAN_IMAGE_API_KEY，或 Cloudflare Account ID 与 Workers AI Token",
+        }
+    return {"ok": False, "error": f"生成图片失败（{'；'.join(failures)}）"}

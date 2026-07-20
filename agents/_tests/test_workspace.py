@@ -3,7 +3,6 @@ from __future__ import annotations
 import unittest
 import json
 import ast
-import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,7 +22,8 @@ from agents.chat._calendar_context import calendar_context
 from agents.chat._ui_tools import build_production_tools
 from agents.chat._protocol import PublicStreamFilter, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
-from agents._shared.side_effects import _meeting_payload, _meeting_result, _meeting_signature
+from agents._shared.side_effects import _meeting_payload, _meeting_result, _meeting_signature, generate_image
+from agents._shared.vision import describe_reference_images, vision_providers
 from agents._shared.auth import require_user, scoped_conversation_id
 from agents._shared.rich_search import (
     _filter_for_target_date,
@@ -265,6 +265,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             now="2026-07-15 12:00:00 UTC+08:00",
             capability_plan='{"needs_places": true}',
             calendar_context='[{"id":"cal-live"}]',
+            reference_image_context="无",
         )
         self.assertIn("2026-07-15", rendered)
 
@@ -937,32 +938,39 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(headers["Authorization"], "Bearer vision-key")
 
     async def test_vision_batch_reviews_multiple_candidates_in_one_model_call(self):
-        response = {"choices": [{"message": {"content": json.dumps({"items": [
+        response = json.dumps({"items": [
             {"index": 1, "description": "发布会现场", "relevant": True},
             {"index": 2, "description": "广告", "relevant": False},
-        ]}, ensure_ascii=False)}}]}
+        ]}, ensure_ascii=False)
         candidates = [
             {"url": "https://example.com/1.jpg", "source_url": "https://source.example/1", "source_title": "一", "context": "现场"},
             {"url": "https://example.com/2.jpg", "source_url": "https://source.example/2", "source_title": "二", "context": "广告"},
         ]
-        with patch("agents._shared.rich_search._json_request", return_value=response) as request:
+        with patch(
+            "agents._shared.rich_search.vision_completion",
+            new=AsyncMock(return_value=(response, {"provider": "cloudflare"})),
+        ) as request:
             reviewed, diagnostics = await _vision_filter({"HUNYUAN_IMAGE_API_KEY": "vision-key"}, "AI 新闻", candidates)
         self.assertEqual([item["url"] for item in reviewed], ["https://example.com/1.jpg"])
         self.assertEqual(diagnostics["reviewed"], 2)
         self.assertEqual(request.call_count, 1)
-        payload = request.call_args.args[1]
-        self.assertEqual(sum(block.get("type") == "image_url" for block in payload["messages"][0]["content"]), 2)
+        content = request.call_args.args[1]
+        self.assertEqual(sum(block.get("type") == "image_url" for block in content), 2)
+        self.assertEqual(diagnostics["provider_cloudflare"], 1)
 
     async def test_vision_batch_obeys_user_image_limit(self):
-        response = {"choices": [{"message": {"content": json.dumps({"items": [
+        response = json.dumps({"items": [
             {"index": index, "description": f"相关图片 {index}", "relevant": True}
             for index in range(1, 7)
-        ]}, ensure_ascii=False)}}]}
+        ]}, ensure_ascii=False)
         candidates = [
             {"url": f"https://example.com/{index}.jpg", "source_url": f"https://source.example/{index}", "source_title": str(index)}
             for index in range(1, 7)
         ]
-        with patch("agents._shared.rich_search._json_request", return_value=response) as request:
+        with patch(
+            "agents._shared.rich_search.vision_completion",
+            new=AsyncMock(return_value=(response, {"provider": "hunyuan"})),
+        ) as request:
             reviewed, diagnostics = await _vision_filter(
                 {"HUNYUAN_IMAGE_API_KEY": "vision-key"}, "AI 新闻", candidates, 2,
             )
@@ -1043,21 +1051,64 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(action["payload"]["reference_image_urls"], [reference])
         provider.assert_awaited_once_with({}, "按参考图生成卡通版", [reference], user_id="local-user")
 
-    async def test_rich_search_starts_fact_and_visual_queries_in_parallel(self):
-        barrier = threading.Barrier(2, timeout=2)
-
+    async def test_rich_search_merges_fact_and_visual_intent_into_one_provider_call(self):
         def request(*_args, **_kwargs):
-            barrier.wait()
             return {"Pages": []}
 
-        with patch("agents._shared.rich_search._json_request", side_effect=request):
+        with patch("agents._shared.rich_search._json_request", side_effect=request) as provider:
             result = await run_rich_search(
                 {"WSA_API_KEY": "test"}, "factual query", "visual query", "basic",
             )
         self.assertEqual(result["total"], 0)
         self.assertIn("timings_ms", result)
-        self.assertEqual(result["search_config"]["provider_request_count"], 2)
+        self.assertEqual(provider.call_count, 1)
+        self.assertIn("visual query", provider.call_args.args[1]["Query"])
+        self.assertEqual(result["search_config"]["provider_request_count"], 1)
+        self.assertTrue(result["search_config"]["visual_query_merged"])
         self.assertTrue(result["search_config"]["parallel_image_search"])
+
+    def test_free_vision_fallback_chain_keeps_hunyuan_primary(self):
+        providers = vision_providers({
+            "HUNYUAN_IMAGE_API_KEY": "hy",
+            "CLOUDFLARE_ACCOUNT_ID": "account",
+            "CLOUDFLARE_WORKERS_AI_TOKEN": "cf",
+            "DASHSCOPE_API_KEY": "qwen",
+            "GEMINI_API_KEY": "gemini",
+        })
+        self.assertEqual([item.name for item in providers], [
+            "hunyuan", "cloudflare", "dashscope", "gemini",
+        ])
+
+    async def test_user_reference_image_uses_multimodal_provider_once(self):
+        with patch(
+            "agents._shared.vision.vision_completion",
+            new=AsyncMock(return_value=("一只戴红围巾的猫", {"provider": "cloudflare"})),
+        ) as completion:
+            description, diagnostics = await describe_reference_images(
+                {}, ["data:image/jpeg;base64,ZmFrZQ=="], "描述图片",
+            )
+        self.assertEqual(description, "一只戴红围巾的猫")
+        self.assertEqual(diagnostics["provider"], "cloudflare")
+        self.assertEqual(completion.await_count, 1)
+
+    async def test_image_generation_falls_back_to_cloudflare_workers_ai(self):
+        env = {
+            "CLOUDFLARE_ACCOUNT_ID": "account",
+            "CLOUDFLARE_WORKERS_AI_TOKEN": "token",
+        }
+        persisted = {"storage_key": "generated/test.jpg", "image_url": "/files?key=generated/test.jpg"}
+        with patch(
+            "agents._shared.side_effects._post_cloudflare_image",
+            return_value=(b"jpeg", "image/jpeg"),
+        ) as provider, patch(
+            "agents._shared.side_effects._persist_generated_bytes",
+            new=AsyncMock(return_value=persisted),
+        ):
+            result = await generate_image(env, "一只猫")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["provider"], "cloudflare")
+        self.assertEqual(result["storage_key"], "generated/test.jpg")
+        self.assertEqual(provider.call_count, 1)
 
 
 if __name__ == "__main__":

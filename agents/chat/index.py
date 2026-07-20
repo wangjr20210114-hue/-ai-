@@ -34,11 +34,13 @@ from .._shared.makers_conversation import (
 )
 from .._shared.http import error
 from .._shared.workspace import load_user_workspace
+from .._shared.vision import describe_reference_images
 
 SYSTEM_PROMPT = """你是元宝，一个可靠、主动、自然的中文智能助手。使用 GitHub Flavored Markdown 回复；多行代码必须使用带语言标识的围栏代码块，不能用普通缩进或行内代码冒充代码块。
 当前北京时间是 {now}。
 当前用户日程（每轮从 Makers 用户 Workspace 实时读取；更新或删除只能使用这里仍存在的 id）：{calendar_context}
 本轮主动模块建议（由独立模型做语义判断，不是关键词规则）：{capability_plan}。它只提示可用能力，不规定你的措辞或回答结构；不要在回答中提及它。需要搜索时可优先采用其中的 search_query 和 image_query，也可以根据上下文自然调整。
+本轮用户附图的视觉理解（由配置的多模态 Provider 一次性提取；没有附图时为“无”）：{reference_image_context}
 需要地点、地图、联网事实或图片时自然调用对应工具；视觉模型筛选过的图片只在确实有助于理解时使用。不要为了满足格式而机械调用或重复调用工具。
 “今天”“今日”“今年”“近 N 年”等相对时间必须以当前北京时间计算，不要沿用训练数据、示例或旧会话中的日期。用户问“今天/今日”的新闻时，把运行时完整日期作为强约束：只采用发布日期可核验为该日的来源，逐条标注日期；无日期或日期不符的结果不能写成今日新闻。找不到足够结果时如实说明，禁止用过去一周或别的日期凑数。
 rich_search 始终是可用能力。是否搜索由你根据问题自主判断；独立 LLM 规划器已把本轮事实约束合并为一个查询并判断图片价值。若调用 rich_search，本轮只调用一次；结果不足时明确边界，不要换近义词重复搜索。搜索结果只是素材和证据，不限制你使用自身知识、措辞、观点或回答结构。不要用网页列表代替综合回答，也不要为了展示工具而罗列素材。回答时效事实时，采用的事实必须在相关段落内附上工具返回的 Markdown 来源链接；没有可核验来源的具体新闻、日期、数字或型号不要写。用户泛问近期动态且没有指定篇幅时，优先提炼 3–5 条最重要进展，避免重复总结和过长铺陈。
@@ -225,8 +227,29 @@ async def handler(ctx):
     parallel_image_search = bool(search_preferences.get("parallel_image_search", True))
     workspace = await load_user_workspace(ctx.store.langgraph_store, conversation_id, user_id)
     current_calendar_context = calendar_context(workspace)
+    reference_image_context = ""
+    if reference_images:
+        reference_image_context, vision_diagnostics = await describe_reference_images(
+            ctx.env,
+            reference_images,
+            message,
+            timeout=float(ctx.env.get("REFERENCE_VISION_TIMEOUT_SECONDS") or 8),
+        )
+        logging.info(
+            "reference image analysis provider=%s attempted=%s",
+            vision_diagnostics.get("provider") or "none",
+            vision_diagnostics.get("attempted") or 0,
+        )
+        if not reference_image_context:
+            reference_image_context = (
+                "附图存在，但视觉 Provider 本轮未返回描述。除非用户要求生成或修改图片，否则不要声称已看见其内容；"
+                "应自然说明暂时无法识别，并请用户重试或用文字补充。"
+            )
     try:
-        capability_plan = await plan_capabilities(model, message, memory_context)
+        planning_message = message
+        if reference_image_context:
+            planning_message += f"\n\n[附图视觉事实，仅用于能力规划]\n{reference_image_context[:1600]}"
+        capability_plan = await plan_capabilities(model, planning_message, memory_context)
     except Exception as exc:
         logging.exception("chat capability planning failed")
         message_text = public_error(exc)
@@ -286,7 +309,13 @@ async def handler(ctx):
         planned_search_query=str(capability_plan.get("search_query") or ""),
         planned_image_query=str(capability_plan.get("image_query") or ""),
         search_cache_ttl_seconds=300 if explicit_today else (900 if time_sensitive else 86_400),
-        search_cache_identity=f"{message}\n{memory_context}",
+        # The planner already folded relevant non-sensitive memory into the
+        # merged query. Keying by that semantic query lets harmless user
+        # paraphrases reuse the same result instead of calling SearchPro again.
+        search_cache_identity=(
+            f"{capability_plan.get('search_query') or message}\n"
+            f"{capability_plan.get('image_query') or ''}"
+        ),
         search_result_limit=search_result_limit,
         search_image_limit=search_image_limit,
         parallel_image_search=parallel_image_search,
@@ -303,6 +332,7 @@ async def handler(ctx):
             now=current_beijing.strftime("%Y-%m-%d %H:%M:%S UTC+08:00"),
             capability_plan=json.dumps(capability_plan, ensure_ascii=False),
             calendar_context=current_calendar_context,
+            reference_image_context=reference_image_context or "无",
         ) + (f"\n\n以下是用户已明确确认的长期记忆，只在相关时自然使用：\n{memory_context}" if memory_context else ""),
         checkpointer=ctx.store.langgraph_checkpointer,
         store=ctx.store.langgraph_store,
