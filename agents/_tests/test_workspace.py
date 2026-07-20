@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from agents.chat._capability_plan import (
+    media_enabled_for_plan,
     parse_capability_plan,
     plan_capabilities,
     next_required_tool,
@@ -285,6 +286,23 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
     def test_semantic_search_plan_requires_one_rich_search_first_step(self):
         self.assertEqual(required_tool_for_plan({"needs_web_search": True}), "rich_search")
         self.assertEqual(required_tool_for_plan({"needs_web_search": False}), "")
+
+    def test_rich_web_answer_recovers_media_without_keyword_rules(self):
+        self.assertTrue(media_enabled_for_plan({
+            "needs_web_search": True,
+            "needs_rich_answer": True,
+            "needs_images": False,
+        }, 2))
+        self.assertFalse(media_enabled_for_plan({
+            "needs_web_search": True,
+            "needs_rich_answer": False,
+            "needs_images": False,
+        }, 2))
+        self.assertFalse(media_enabled_for_plan({
+            "needs_web_search": True,
+            "needs_rich_answer": True,
+            "needs_images": True,
+        }, 0))
 
     def test_temporal_policy_is_derived_after_capability_planning(self):
         source = (Path(__file__).parents[1] / "chat" / "index.py").read_text(encoding="utf-8")

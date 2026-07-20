@@ -107,6 +107,20 @@ def required_tool_for_plan(plan: dict[str, Any]) -> str:
     return required[0] if required else ""
 
 
+def media_enabled_for_plan(plan: dict[str, Any], image_limit: int) -> bool:
+    """Recover useful media when a semantic rich-answer plan misses its image flag.
+
+    A broad, multi-part web answer may still benefit from reviewed media even
+    when the probabilistic planner returns ``needs_images=false``.  Without a
+    distinct image query the rich-search pipeline reuses the fact response, so
+    this fallback does not add another SearchPro request.
+    """
+    return int(image_limit) > 0 and bool(
+        plan.get("needs_images")
+        or (plan.get("needs_web_search") and plan.get("needs_rich_answer"))
+    )
+
+
 def next_required_tool(
     required_tools: Iterable[str],
     used_tool_names: Iterable[str],
