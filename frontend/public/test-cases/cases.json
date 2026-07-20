@@ -2914,8 +2914,8 @@
   {
     "id": "OPS-01",
     "module": "运维与健康",
-    "title": "/system 业务健康视图",
-    "scope": "验证 scheduler、Run、通知、Action、账本、记忆、预算和 Provider 状态。",
+    "title": "/system 公共健康与应用运行记录",
+    "scope": "验证公共健康路由不泄密，并从应用运行记录核对 scheduler、Run 与通知状态；详细 Store 状态不要求浏览器伪造 Makers 内部请求头。",
     "implementation": "implemented",
     "releaseBlocker": true,
     "preconditions": [
@@ -2931,18 +2931,18 @@
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
-      "【目标网页】请求 /system。",
-      "【目标网页】核对 scheduler 配置和 last_tick。",
-      "【目标网页】检查待核对 Action、账本和 Provider。",
-      "【目标网页】刷新后再次请求。",
+      "【Preview 地址栏】在域名后输入 /system，并保留控制台生成的 eo_token/eo_time 参数；回车。若浏览器插件拦截该 JSON 路由，可在终端使用 curl -L 并启用临时 Cookie jar 做同一只读 GET，不要把签名写进验收备注。",
+      "【/system JSON】确认 HTTP 200、status=ok、scope=public、scheduler.schedule=0 8 * * *、timezone=Asia/Shanghai、identity.mode=single_user；details 应明确详细状态位于 /system_internal 且需要 Makers 会话请求头。",
+      "【目标应用左栏】点击“运行记录”；核对最近检查时间、schedule_upcoming/weather_risk/calendar_changed 等 Run 的 succeeded 状态以及当前主动提醒。详细状态必须通过应用的 Makers Agent 调用读取，不在地址栏手工添加内部请求头。",
+      "【目标网页】刷新后再次打开 /system 和“运行记录”，确认只读操作没有创建新 Action 或重复通知。",
       "【验收站】回到 OPS-01，按实际结果选择“通过/失败/阻塞/不适用”；备注写明实际现象、关键请求状态和复现条件，不要填写密钥。",
       "【验收站】在“证据”上传页面截图、Network/Console 截图或短录屏；等待提示已保存到 Makers Blob，再刷新测试站确认附件仍可打开。"
     ],
     "expected": [
       "返回结构化 JSON 200",
       "不泄露密钥值",
-      "状态与 UI 一致",
-      "待核对副作用会明确显示",
+      "公共 scheduler 与 UI 最近检查/运行记录一致",
+      "公共路由不暴露 Store 明细；详细 Run 与通知由应用运行记录展示",
       "除用例明确要求的受控失败外，相关请求无意外 4xx/5xx，Console 无新增未捕获异常。",
       "结果、备注、最后编辑主机/时间和上传证据在刷新后仍存在，并可从另一台主机同步看到。"
     ],

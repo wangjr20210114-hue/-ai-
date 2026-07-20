@@ -236,6 +236,44 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             [("user", "最近AI有什么新进展"), ("ai", "这是恢复后的回答")],
         )
 
+    async def test_message_restore_rehydrates_image_versions_from_current_workspace(self):
+        workspace = empty_workspace()
+        first = new_action(
+            "image_generate", {"prompt": "黄围巾", "group_id": "cat-group"},
+            requires_confirmation=False,
+        )
+        second = new_action(
+            "image_generate",
+            {"prompt": "红围巾", "group_id": "cat-group", "parent_action_id": first["id"]},
+            requires_confirmation=False,
+        )
+        for created_at, action, url in (
+            (1, first, "https://example.com/yellow.png"),
+            (2, second, "https://example.com/red.png"),
+        ):
+            action["created_at"] = created_at
+            action["status"] = "succeeded"
+            action["result"] = {"ok": True, "image_url": url}
+            put_action(workspace, action)
+        store_data = FakeStore()
+        await save_workspace(store_data, USER_WORKSPACE_ID, workspace)
+        checkpoint_action = {**first, "result": {**first["result"], "versions": image_versions(workspace, "cat-group")[:1]}}
+        messages = [
+            {"type": "human", "content": "画一只猫", "id": "u-image"},
+            {"type": "tool", "content": json.dumps({"ui_action": "side_effect_action", "action": checkpoint_action})},
+            {"type": "ai", "content": "图片已经生成", "id": "a-image"},
+        ]
+        store = SimpleNamespace(
+            langgraph_checkpointer=FakeCheckpointer(messages),
+            langgraph_store=store_data,
+        )
+        response = await messages_handler(SimpleNamespace(conversation_id="restore-image", store=store))
+        action = next(item for item in response["messages"] if item["role"] == "ai")["workspaceActions"][0]
+        self.assertEqual(
+            [item["image_url"] for item in action["result"]["versions"]],
+            ["https://example.com/yellow.png", "https://example.com/red.png"],
+        )
+
     async def test_message_restore_hides_legacy_unanswered_failure_prompts(self):
         messages = [
             MakersCheckpointMessage(type="human", content="失败测试一", id="u-failed-1"),

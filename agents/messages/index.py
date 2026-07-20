@@ -3,7 +3,7 @@
 import json
 import logging
 
-from .._shared.workspace import active_map_payload, load_user_workspace, public_action
+from .._shared.workspace import active_map_payload, image_versions, load_user_workspace, public_action
 from .._shared.auth import require_user, scoped_conversation_id
 from .._shared.http import error
 from .._shared.makers_conversation import public_chat_run, read_chat_run
@@ -108,7 +108,25 @@ async def handler(ctx):
             }:
                 prepared = action.get("action")
                 if isinstance(prepared, dict):
-                    pending_actions.append(prepared)
+                    # The checkpoint stores the action snapshot produced during
+                    # the chat turn. Image edits happen later through Workspace,
+                    # so that snapshot can say 1/1 forever even though the
+                    # persisted group has more versions. Rehydrate from the
+                    # current Makers Store while preserving the checkpoint as a
+                    # fallback for legacy or already-cleaned actions.
+                    action_id = str(prepared.get("id") or "")
+                    current = (workspace.get("actions") or {}).get(action_id)
+                    hydrated = public_action(current) if isinstance(current, dict) else prepared
+                    if hydrated.get("kind") == "image_generate":
+                        payload = hydrated.get("payload") or {}
+                        group_id = str(payload.get("group_id") or hydrated.get("id") or "")
+                        versions = image_versions(workspace, group_id)
+                        if versions:
+                            hydrated = {
+                                **hydrated,
+                                "result": {**(hydrated.get("result") or {}), "versions": versions},
+                            }
+                    pending_actions.append(hydrated)
             elif isinstance(action, dict) and action.get("ui_action") == "rich_search_results":
                 metadata = action.get("search_results")
                 if isinstance(metadata, dict):

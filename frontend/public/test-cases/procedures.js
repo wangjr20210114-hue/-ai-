@@ -92,7 +92,7 @@ window.CASE_PROCEDURES = {
   'TRAVEL-01': [
     S('目标网页', '新建对话，发送“北京故宫在哪里？请在地图显示”。', '回答给出地点信息；右侧地图出现故宫标记或可执行的地图操作。'),
     S('右侧地图/地点卡片', '点击故宫地点；核对名称和地址。', '名称为故宫或故宫博物院，地址属于北京市东城区，不出现同名错误城市。'),
-    S('右侧日程 → ＋ 添加', '在地点输入框键入“故宫博物院”，等待候选出现；按 Esc。再次点输入框后，点击“×”。', '候选可出现；Esc 和“×”都能关闭；关闭后列表不会挡住下面第一个日程。'),
+    S('右侧日程', '先点击今天的日期格进入“X月X日安排”详情页，再点击右上角“＋ 添加”。在地点输入框键入“故宫博物院”，等待候选出现；按 Esc。先点“日程标题”使地点框失焦，再点地点框，候选重开后点击“×”；最后点“取消”，不要创建测试日程。', '候选首项是“故宫博物院 / 北京市东城区景山前街4号”；Esc 和“×”都能关闭；关闭后列表不会挡住下面第一个日程，取消后没有新增数据。'),
   ],
   'TRAVEL-02': [
     S('目标网页', '新建对话，发送“把北京故宫、天坛、颐和园显示在地图上”。', '回答识别三个地点；地图只自动切换一次，不要求重复点确认。'),
@@ -328,9 +328,10 @@ window.CASE_PROCEDURES = {
     S('目标网页/恢复', '抽样打开 3 个会话、3 条日程和 3 个文件；完成后删除导入 Secret 并重新部署。', '抽样内容与源库一致；导入入口在 Secret 删除后不可再用；旧数据仍保留到验收结束。'),
   ],
   'OPS-01': [
-    S('Preview 地址栏', '在域名后输入“/system”，保留 eo_token/eo_time 参数；回车。', 'HTTP 200，页面显示结构化 JSON，而不是应用 index.html。'),
-    S('/system JSON', '搜索 scheduler、last_tick、providers、reconciliation 或 pending_actions。', '字段存在且与 UI/运行记录一致；Secret/Key 只显示 configured/布尔值，不出现真实值。'),
-    S('浏览器', '刷新 /system 并比较两次结果。', '只读刷新不创建新 Action；待人工核对的副作用会明确列出。'),
+    S('Preview 地址栏或终端', '在域名后输入“/system”并保留 eo_token/eo_time。若浏览器扩展显示 ERR_BLOCKED_BY_CLIENT，用 curl -L 加临时 Cookie jar执行同一只读 GET；不要把签名复制进备注。', 'HTTP 200 且返回 JSON；浏览器客户端拦截可由只读 curl 结果排除，不误判成应用 401。'),
+    S('/system 公共 JSON', '核对 status=ok、scope=public、scheduler 的 0 8 * * * / Asia/Shanghai、identity.mode=single_user，以及 details.path=/system_internal。', '只显示公共配置和内部详情入口，不出现 Secret、Key、Cookie、Store 内容。'),
+    S('目标应用左栏', '点击“运行记录”，查看最近检查时间、Run 类型和状态，再与主动提醒列表核对。不要在地址栏伪造 makers-conversation-id。', '可见 schedule_upcoming、weather_risk、calendar_changed 等运行结果；成功项为 succeeded，通知数量与列表一致。'),
+    S('浏览器', '刷新应用后再次打开 /system 和“运行记录”。', '只读刷新不创建新 Action 或重复通知；历史运行记录仍可读取。'),
   ],
   'OPS-02': [
     S('Makers 控制台', 'EdgeOne → Makers → ai-active-agent → 构建部署 → 点击本轮 Deployment ID；确认状态“成功”、环境“预览”、提交哈希正确。', '构建四阶段均完成，没有 Failed；提交对应本轮代码。'),
