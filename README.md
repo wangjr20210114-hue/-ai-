@@ -95,6 +95,7 @@ edgeone makers dev
 ## 质量检查
 
 ```bash
+. .venv/bin/activate
 python3 -m compileall agents
 python3 -m unittest discover -s agents/_tests -v
 python3 -m unittest discover -s tools/tests -v

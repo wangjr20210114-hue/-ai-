@@ -554,6 +554,26 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         decide_workflow_step(state, workflow["id"], "step_2", "complete", 3800)
         self.assertEqual(state["workflows"][workflow["id"]]["status"], "completed")
 
+    def test_pending_workflow_title_is_idempotent_across_model_variations(self):
+        state = empty_proactive_state()
+        first = propose_workflow(
+            state,
+            title="TEST-WORKFLOW",
+            reason="第一次模型表述",
+            steps=[{"offset_minutes": 0, "title": "核对测试", "body": "检查状态"}],
+            now=100,
+        )
+        repeated = propose_workflow(
+            state,
+            title="  test-workflow  ",
+            reason="第二次模型换了一种说法",
+            steps=[{"offset_minutes": 0, "title": "执行测试", "body": "核对结果并报告"}],
+            now=101,
+        )
+        self.assertEqual(repeated["id"], first["id"])
+        self.assertEqual(repeated["reason"], "第一次模型表述")
+        self.assertEqual(len(state["workflows"]), 1)
+
     def test_workflow_failure_emits_compensation_and_blocks_dependents_until_resolved(self):
         state = empty_proactive_state()
         workflow = propose_workflow(
@@ -600,6 +620,33 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         retried = collect_workflow_signals(state, 120)
         self.assertEqual(len(retried), 1)
         self.assertIn(":1:", retried[0]["dedup_key"].replace("workflow_step_due", ""))
+
+    def test_workflow_step_transition_retires_stale_notification(self):
+        state = empty_proactive_state()
+        workflow = propose_workflow(
+            state,
+            title="补偿通知清理",
+            reason="测试完成后不再主动展示旧提醒",
+            steps=[{
+                "offset_minutes": 0,
+                "title": "核对",
+                "compensation": {"title": "恢复", "body": "恢复测试状态"},
+            }],
+            now=100,
+        )
+        decide_workflow(state, workflow["id"], workflow["version"], True, 100)
+        due = collect_workflow_signals(state, 100)
+        process_schedule_signals(state, due, 100)
+        self.assertEqual(len(public_proactive_state(state)["notifications"]), 1)
+
+        decide_workflow_step(state, workflow["id"], "step_1", "fail", 110)
+        self.assertEqual(public_proactive_state(state)["notifications"], [])
+        compensation = collect_workflow_signals(state, 110)
+        process_schedule_signals(state, compensation, 110)
+        self.assertEqual(public_proactive_state(state)["notifications"][0]["title"], "恢复")
+
+        decide_workflow_step(state, workflow["id"], "step_1", "compensate", 120)
+        self.assertEqual(public_proactive_state(state)["notifications"], [])
 
     def test_memory_requires_confirmation_and_is_injected_only_after_confirmation(self):
         state = empty_intelligence_state()

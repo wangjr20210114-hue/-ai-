@@ -367,12 +367,24 @@ def propose_workflow(
         else:
             step.pop("_explicit_depends", None)
         step["depends_on"] = normalized
+    # A repeated model turn can phrase the same requested workflow with slightly
+    # different step bodies or reasons.  While a proposal with the same title is
+    # still pending or active, return it instead of creating a second card that
+    # the user must reconcile manually.  Completed/rejected/cancelled workflows
+    # do not block a later run with the same human-facing title.
+    title_identity = " ".join(clean_title.casefold().split())
+    for pending in state.setdefault("workflows", {}).values():
+        if not isinstance(pending, dict) or pending.get("status") not in {"awaiting_confirmation", "active"}:
+            continue
+        pending_title = " ".join(str(pending.get("title") or "").casefold().split())
+        if pending_title == title_identity:
+            return copy.deepcopy(pending)
     canonical = repr((clean_title, [
         (step["offset_minutes"], step["title"], step["body"], step["depends_on"], step.get("compensation"))
         for step in clean_steps
     ]))
     workflow_id = _stable_id("workflow", canonical)
-    existing = state.setdefault("workflows", {}).get(workflow_id)
+    existing = state["workflows"].get(workflow_id)
     if isinstance(existing, dict) and existing.get("status") in {"awaiting_confirmation", "active"}:
         return copy.deepcopy(existing)
     workflow = {
@@ -403,7 +415,29 @@ def decide_workflow(state: dict[str, Any], workflow_id: str, version: int, accep
         workflow["anchor_at"] = now
         for step in workflow.get("steps") or []:
             step["due_at"] = now + int(step.get("offset_minutes") or 0) * 60
+    else:
+        _retire_workflow_notifications(state, workflow_id, now)
     return copy.deepcopy(workflow)
+
+
+def _retire_workflow_notifications(
+    state: dict[str, Any], workflow_id: str, now: int, step_id: str | None = None,
+) -> None:
+    """Hide workflow notifications as soon as their workflow/step is resolved."""
+    for notification in state.setdefault("notifications", {}).values():
+        if not isinstance(notification, dict) or notification.get("dismissed_at"):
+            continue
+        evidence = notification.get("evidence") if isinstance(notification.get("evidence"), dict) else {}
+        if str(evidence.get("workflow_id") or "") != workflow_id:
+            continue
+        if step_id is not None and str(evidence.get("step_id") or "") != step_id:
+            continue
+        notification.update({
+            "status": "dismissed",
+            "dismissed_at": now,
+            "updated_at": now,
+            "version": int(notification.get("version") or 1) + 1,
+        })
 
 
 def collect_workflow_signals(state: dict[str, Any], now: int) -> list[dict[str, Any]]:
@@ -457,6 +491,7 @@ def collect_workflow_signals(state: dict[str, Any], now: int) -> list[dict[str, 
         if workflow.get("steps") and all(step.get("status") in {"completed", "skipped", "compensated"} for step in workflow["steps"]):
             workflow["status"] = "completed"
             workflow["updated_at"] = now
+            _retire_workflow_notifications(state, str(workflow.get("id") or ""), now)
     return signals
 
 
@@ -496,10 +531,12 @@ def decide_workflow_step(
     else:
         step["status"] = "compensated"
         step["resolved_at"] = now
+    _retire_workflow_notifications(state, workflow_id, now, step_id)
     workflow["version"] = int(workflow.get("version") or 1) + 1
     workflow["updated_at"] = now
     if all(item.get("status") in {"completed", "skipped", "compensated"} for item in workflow.get("steps") or []):
         workflow["status"] = "completed"
+        _retire_workflow_notifications(state, workflow_id, now)
     return copy.deepcopy(workflow)
 
 
@@ -510,6 +547,7 @@ def cancel_workflow(state: dict[str, Any], workflow_id: str, version: int, now: 
     if int(workflow.get("version") or 0) != int(version):
         raise ValueError("工作流版本已变化")
     workflow.update({"status": "cancelled", "version": int(workflow["version"]) + 1, "updated_at": now})
+    _retire_workflow_notifications(state, workflow_id, now)
     return copy.deepcopy(workflow)
 
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button, Dialog, MessagePlugin, Tag } from 'tdesign-react';
 import { AppIcon } from 'tdesign-icons-react';
 import { useAppState } from '../../store/appState';
@@ -18,13 +18,13 @@ export default function SkillsMarketplaceButton() {
   const [visible, setVisible] = useState(false);
   const [skills, setSkills] = useState<MarketplaceSkill[]>([]);
   const [loading, setLoading] = useState(false);
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true);
     try { setSkills((await skillsOperation(conversationId)).skills || []); }
     catch (error) { MessagePlugin.error(error instanceof Error ? error.message : '读取 Skills 状态失败'); }
     finally { setLoading(false); }
-  };
-  useEffect(() => { if (visible) void refresh(); }, [visible]);
+  }, [conversationId]);
+  useEffect(() => { if (visible) void refresh(); }, [refresh, visible]);
   return <>
     <Button className="sidebar-settings-button" block variant="text" icon={<AppIcon />} onClick={() => setVisible(true)}>Skills 广场</Button>
     <Dialog visible={visible} header="Skills 广场" width={680} footer={false} onClose={() => setVisible(false)} onCancel={() => setVisible(false)}>

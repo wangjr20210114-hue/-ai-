@@ -36,6 +36,7 @@
 ## 3. 本地发布检查
 
 ```bash
+. .venv/bin/activate
 python -m compileall -q agents
 python -m unittest discover -s agents/_tests -v
 python -m unittest discover -s tools/tests -v

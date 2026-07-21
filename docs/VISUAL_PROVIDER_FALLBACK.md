@@ -51,7 +51,7 @@ CLOUDFLARE_WORKERS_AI_TOKEN=<API Token>
 - 图生图：混元失败后，Cloudflare 使用 img2img；当前降级适配器使用第一张参考图，混元仍支持最多三张参考图。
 - 所有成功生成图片都复制到 Makers Blob；Provider 临时 URL 不是历史记录的唯一来源。
 
-当前 Makers Preview 尚未配置 Cloudflare 两项变量，因此代码降级链已经可用，但 Cloudflare 实际调用仍需配置后再验收。没有这些变量时不会影响混元主链，也不会把请求发往 Cloudflare。
+当前 Makers 项目已把测试 `CLOUDFLARE_WORKERS_AI_TOKEN` 的生效范围收紧并核验为“预览”，生产环境不继承；`CLOUDFLARE_ACCOUNT_ID` 仍未配置。代码降级链已经可用，但在补齐 Account ID、重新构建 Preview 并完成真实调用前，不能把 Cloudflare 记为通过。缺少任一变量时不会影响混元主链，也不会把请求发往 Cloudflare。
 
 ## 无破坏 Preview 验收
 
