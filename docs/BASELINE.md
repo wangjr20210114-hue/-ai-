@@ -23,8 +23,8 @@
 | 腾讯会议创建 | 官方个人 MCP Skill 适配已实现 | Skills 广场引导个人用户取得 Token；未配置时不暴露工具；确认后才调用 `schedule_meeting` | `agents/_shared/side_effects.py`、`SkillsMarketplaceButton.tsx` |
 | 多模态理解、文生图、图生图、版本、Blob、ZIP | 已实现并测试 | 用户附图先经视觉 Provider 描述；混元为主，Cloudflare Workers AI 提供视觉/文生图/图生图降级，百炼与 Gemini 可作视觉后备；生成结果复制到 Makers Blob | `agents/_shared/vision.py`、`agents/_shared/side_effects.py`、`agents/image`、`InputBar.tsx` |
 | PDF、图片上传、阅读库、论文助读 | 已实现核心链路 | PDF 上传后直接打开内置助读；阅读库支持手动分类与删除反馈；无 DOCX/OCR | `cloud-functions/files`、`library`、`papers`、`agents/reader` |
-| 主动日程/天气/路线提醒 | 已实现并测试 | 打开网页及相关日程变更时刷新；未读风险由模型在空白新对话中自然发起，策略设置位于统一设置；EdgeOne Schedule 触发 `/api/proactive-tick` Cloud Function，复用 Makers Blob 原子锁后转给 `/proactive` Agent，需在修复后的 Preview 完成无浏览器终验 | `cloud-functions/api/proactive-tick`、`agents/proactive`、`useSSEChat.ts` |
-| Notification、免打扰、每日上限、稍后提醒 | 已实现并测试 | 在线读取通过；真实 Cron 触发待跨日终验 | `agents/_shared/proactive.py` |
+| 主动日程/天气/路线提醒 | 已实现并测试 | 打开网页及相关日程变更时刷新；未读风险由模型在空白新对话中自然发起，策略设置位于统一设置；EdgeOne Schedule 触发 `/api/proactive-tick` Cloud Function，复用 Makers Blob 原子锁后转给 `/proactive` Agent；受保护 Preview 的平台请求当前在进入已部署 Function 前 404 | `cloud-functions/api/proactive-tick`、`agents/proactive`、`useSSEChat.ts` |
+| Notification、免打扰、每日上限、稍后提醒 | 已实现并测试 | 在线读取、即时刷新和业务去重通过；后台 Schedule 仍受 Preview 平台路由阻塞 | `agents/_shared/proactive.py` |
 | Memory、Feedback、Rule、Token 预算 | 已实现并测试 | 待预览复验 | `agents/intelligence` |
 | 持久工作流、失败阻断、重试与补偿 | 已实现并测试 | 待预览复验 | `agents/_shared/proactive.py` |
 | 个人所有者身份 | 已实现并测试 | 固定 `local-user`，无注册登录或应用数据库 | `auth/current-user.js`、`agents/_shared/auth.py` |
@@ -43,7 +43,7 @@
 ### P1：代码阻塞与核心线上验收已完成
 
 - 腾讯会议已优先改用官方个人 MCP Token/Skill，外部 Meeting Bridge 和设备登录态已移除；旧企业 API 仅保留兼容。
-- 本分支已完成真实 EdgeOne Preview/Production、动态路由登记和个人工作区核心读取验收；真实 Cron 仍待专项终验。
+- 本分支已完成真实 EdgeOne Preview/Production、动态路由登记和个人工作区核心读取验收；Cron 业务链与云端路由已核验，受保护 Preview 的 Schedule 请求在进入 Function 运行时前 404，生产未发布。
 - SQLite 迁移工具已完成，真实旧库迁移与 Preview 回读尚未执行。
 
 ### P2：产品增强但不阻塞核心迁移
@@ -61,7 +61,7 @@
 - 会议、日程等高风险副作用重复确认不会重复执行。
 - Provider 超时或结果未知时进入人工核对，不能直接重试。
 - Conversation、Workspace、Blob、Intelligence 和 Proactive 均固定写入个人所有者工作区。
-- 浏览器关闭时 EdgeOne Cron 仍能推进 `last_tick`。
+- 浏览器关闭时 EdgeOne Cron 能推进 `last_tick`；若受保护 Preview 的平台 Schedule 仍在路由层 404，该项保持外部阻塞，禁止用手动 tick 冒充通过。
 - 从全新 clone 只依赖文档声明的环境变量即可构建和部署。
 
 ## 5. 当前自动化基线

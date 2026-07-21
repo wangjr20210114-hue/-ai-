@@ -2,7 +2,7 @@
 
 > 更新日期：2026-07-21
 > 范围：当前 Makers 生产主链；不把 `backend/` 旧 FastAPI 能力计入完成度  
-> 状态：代码、本地回归和最新 Preview 只读回归完成；日程变更可立即扫描，Schedule 跨日平台触发仍待确认
+> 状态：代码、本地回归和 Preview 路由核验完成；日程变更可立即扫描，受保护 Preview 的 Schedule 请求在进入 Function 运行时前 404，生产未发布
 
 ## 1. 结论
 
@@ -12,7 +12,7 @@
 
 | 任务点 | 状态 | 实现 |
 | --- | --- | --- |
-| 平台后台触发 | 修复后待三次真实验证 | `edgeone.json` 配置 `Asia/Shanghai` 每日 08:00，POST 官方示例风格的 `/api/proactive-tick` Makers Cloud Function；Function 只用 Makers Blob `onlyIfNew` 原子锁防重复投递，再转给 `/proactive` Agent。2026-07-21 首次专用 Preview 证明 Schedule 会在网页关闭时请求，但旧根级 Function 路由返回 404；第二次证明 Schedule 不直接调度 Agent。现已改为嵌套 API Function，等待新 Preview 复验。 |
+| 平台后台触发 | Preview 平台阻塞 | `edgeone.json` 配置 `Asia/Shanghai` 每日 08:00，POST 官方示例风格的 `/api/proactive-tick` Makers Cloud Function；Function 只用 Makers Blob `onlyIfNew` 原子锁防重复投递，再转给 `/proactive` Agent，失败释放锁。2026-07-21 三轮专用 Preview 证明：Schedule 会在网页关闭时请求，Schedule 不直接调度 Agent，嵌套 Function 也已进入云端路由清单；但平台请求仍在进入运行时前以 0ms 返回 404。当前不发布生产，仅把该项保留为受保护 Preview 外部阻塞。 |
 | 持久 Event/Run/Observation/Notification | 已实现 | LangGraph Store 单用户 namespace；确定性 ID 和去重键 |
 | 后端日程 Collector | 已实现 | 临近、冲突、紧接行程；页面不再计算机会 |
 | Policy | 已实现 | 总开关、提醒类型、免打扰、每日上限、去重 |
@@ -86,4 +86,4 @@
 6. “猜你想问”点击后只更新输入栏，不产生用户消息。
 7. 工作流失败后只生成一次补偿提醒；重试使用新的 attempt 去重键，依赖步骤在补偿完成前不推进。
 
-2026-07-18 线上证据：当前 Preview Deployment `dph2wvagts0x` 从提交 `9ed04b1` 构建成功，构建日志确认生成 13 条 Python Agent 路由和 1 条 `Asia/Shanghai` Schedule；受保护链接显示“已连接”，可读取最近主动检查状态。自动化已证明日程变更后的即时扫描与去重通知，但无浏览器的下一次 08:00 平台触发仍需跨日复验；在取得真实运行日志前不能把 Cron 终验记为通过。
+2026-07-21 线上证据：`dpjffjsmaokh @ 9f1e79e` 构建成功 67 秒，云端清单同时存在 `/api/proactive-tick` Node Function、`/proactive` Python Agent 和 1 条 `Asia/Shanghai` Schedule。应用标签关闭时，平台于 15:59:01 请求该 Deployment 的 `/api/proactive-tick`，但在 Function 运行时前返回 404、运行时间 0ms，请求 ID `08e15dc7-84da-11f1-9911-5254002dcfb7`。此前根级 Function 同样 404，直接 Agent 路径则没有调度请求。因此业务实现、路由产物和适配器测试均完成，但受保护 Preview 的平台 Schedule 终验不能记为通过；生产未发布。
