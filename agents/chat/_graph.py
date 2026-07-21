@@ -1,6 +1,7 @@
 """LangGraph state graph backed by Makers checkpointer and store adapters."""
 
 from typing import Iterable, Literal
+import uuid
 
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -57,6 +58,18 @@ def build_graph(
         required_name = "" if force_finalize else next_required_tool(
             required_sequence, used_tool_names, allowed_tool_names,
         )
+        # The semantic LLM planner has already decided that rich_search is
+        # required and the tool adapter already owns its merged search query.
+        # Asking a second tool-bound LLM to merely echo that decision adds a
+        # full model round without changing any provider input.  Emit the
+        # planned call directly; all search decisions still come from the LLM
+        # plan and the answering pass remains model-generated.
+        if required_name == "rich_search" and not rich_search_used:
+            return {"messages": [AIMessage(content="", tool_calls=[{
+                "name": "rich_search",
+                "args": {"query": "使用本轮 LLM 规划器已合并的查询"},
+                "id": f"planned-rich-search-{uuid.uuid4().hex}",
+            }])]}
         # Once the planner-required rich search is complete and no other
         # capability remains, close the tool surface for the answer pass.  A
         # tool-bound answer model otherwise tends to request rich_search again;
