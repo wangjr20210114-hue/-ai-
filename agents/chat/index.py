@@ -300,10 +300,13 @@ async def handler(ctx):
             "limit": capability_plan.get("paper_limit") or 0,
         },
         temporal_context=temporal_context,
-        # Reviewed media must be part of the tool result seen by the answering
-        # model. This lets image Markdown arrive inside the same answer stream
-        # instead of being selected by a second model after the answer ends.
-        progressive_media=False,
+        # For ordinary web answers, media extraction and vision review run in
+        # parallel with the final LLM synthesis.  SearchMediaGallery renders
+        # reviewed media as soon as the callback arrives, so images no longer
+        # add their full latency to the text answer.  Realistic image generation
+        # remains synchronous because the following image tool needs reviewed
+        # reference URLs in the same capability chain.
+        progressive_media=not bool(capability_plan.get("needs_image_generation")),
         media_callback=publish_media,
         background_tasks=background_tasks,
         user_id=user_id,

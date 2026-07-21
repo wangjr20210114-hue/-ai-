@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
 import json
 import ast
@@ -855,6 +856,58 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             cached = json.loads(await next_tool.ainvoke({"query": "任意改写"}))
             self.assertEqual(provider.await_count, 1)
             self.assertTrue(cached["search_results"]["cache_hit"])
+
+    async def test_progressive_rich_search_publishes_and_caches_enriched_media(self):
+        store = FakeStore()
+        background_tasks = []
+        published = []
+        base = {
+            "query": "AI 新闻", "results": [], "media": [], "images": [],
+            "total": 0, "media_pending": True,
+        }
+        enriched = {
+            **base,
+            "media": [{
+                "id": "media-1", "url": "https://example.com/news.jpg",
+                "caption": "新闻现场", "source_title": "示例来源",
+            }],
+            "images": ["https://example.com/news.jpg"],
+            "media_pending": False,
+        }
+
+        async def provider(*_args, media_callback=None, background_tasks=None, **_kwargs):
+            async def finish_media():
+                await media_callback(enriched)
+            background_tasks.append(asyncio.create_task(finish_media()))
+            return base
+
+        async def publish(metadata):
+            published.append(metadata)
+
+        with patch("agents.chat._ui_tools.provider_rich_search", new=AsyncMock(side_effect=provider)) as mocked:
+            tools = build_production_tools(
+                None, store=store, conversation_id="progressive-search", env={},
+                media_enabled=True, progressive_media=True, media_callback=publish,
+                background_tasks=background_tasks, planned_search_query="AI 新闻",
+                search_cache_identity="progressive-media-test",
+            )
+            tool = next(item for item in tools if item.name == "rich_search")
+            first = json.loads(await tool.ainvoke({"query": "AI 新闻"}))
+            self.assertTrue(first["search_results"]["media_pending"])
+            await asyncio.gather(*background_tasks)
+            self.assertEqual(published[0]["images"], enriched["images"])
+
+            cached_tools = build_production_tools(
+                None, store=store, conversation_id="progressive-search-2", env={},
+                media_enabled=True, progressive_media=True, media_callback=publish,
+                background_tasks=[], planned_search_query="AI 新闻",
+                search_cache_identity="progressive-media-test",
+            )
+            cached_tool = next(item for item in cached_tools if item.name == "rich_search")
+            cached = json.loads(await cached_tool.ainvoke({"query": "不同措辞"}))
+            self.assertTrue(cached["search_results"]["cache_hit"])
+            self.assertEqual(cached["search_results"]["images"], enriched["images"])
+            self.assertEqual(mocked.await_count, 1)
 
     def test_search_preferences_have_fast_balanced_defaults_and_public_state(self):
         state = empty_intelligence_state()

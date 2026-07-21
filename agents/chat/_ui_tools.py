@@ -454,6 +454,19 @@ def build_production_tools(
                 if metadata is None:
                     logging.info("rich_search provider_call key=%s media=%s", cache_key[:12], media_enabled)
                     try:
+                        async def publish_enriched_media(enriched: dict[str, Any]) -> None:
+                            completed = {**enriched, "cache_hit": False, "media_pending": False}
+                            if store is not None:
+                                try:
+                                    await store.aput(cache_namespace, cache_key, {
+                                        "cached_at": int(time.time()),
+                                        "metadata": completed,
+                                    })
+                                except Exception:
+                                    pass
+                            if media_callback is not None:
+                                await media_callback(completed)
+
                         metadata = await provider_rich_search(
                             runtime_env,
                             clean_query,
@@ -461,7 +474,7 @@ def build_production_tools(
                             depth=clean_depth,
                             target_date=target_date,
                             strict_date=strict_date,
-                            media_callback=media_callback if progressive_media and media_enabled else None,
+                            media_callback=publish_enriched_media if progressive_media and media_enabled else None,
                             background_tasks=background_tasks if progressive_media and media_enabled else None,
                             include_media=media_enabled,
                             result_limit=search_result_limit,
