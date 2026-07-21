@@ -10,6 +10,29 @@ import { useAppDispatch, useAppState } from '../store/appState';
 import type { ChatMessage, PaperInfo, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
 
 type ClientEvent = { type: string; payload: Record<string, unknown> };
+
+export function mergeSearchMeta(previous: SearchMeta | undefined, incoming: Partial<SearchMeta>): SearchMeta {
+  const previousMedia = previous?.media || [];
+  const incomingMedia = Array.isArray(incoming.media) ? incoming.media : [];
+  const previousImages = previous?.images || [];
+  const incomingImages = Array.isArray(incoming.images) ? incoming.images : [];
+  const retainedMedia = incomingMedia.length ? incomingMedia : previousMedia;
+  const retainedImages = incomingImages.length ? incomingImages : previousImages;
+  return {
+    ...(previous || {}),
+    ...incoming,
+    query: String(incoming.query ?? previous?.query ?? ''),
+    results: Array.isArray(incoming.results) ? incoming.results : (previous?.results || []),
+    media: retainedMedia,
+    images: retainedImages,
+    sources_used: Array.isArray(incoming.sources_used) ? incoming.sources_used : (previous?.sources_used || []),
+    total: typeof incoming.total === 'number' ? incoming.total : (previous?.total || 0),
+    media_pending: previous?.media_pending === false && previousMedia.length > 0
+      ? false
+      : (incoming.media_pending ?? previous?.media_pending),
+  };
+}
+
 function responseError(data: unknown, fallback: string): string {
   if (Array.isArray(data) && data[0] && typeof data[0] === 'object') {
     return responseError(data[0], fallback);
@@ -479,22 +502,23 @@ export function useSSEChat() {
           streams.set(streamId, { ...current, skill }); patch(id, streamId, { skill }); break;
         }
         case 'search_results': {
-          const current = streams.get(streamId); const searchResults = event.payload as unknown as SearchMeta;
-          if (current && Array.isArray(searchResults.results)) { streams.set(streamId, { ...current, searchResults }); patch(id, streamId, { searchResults }); }
+          const current = streams.get(streamId); const incoming = event.payload as unknown as Partial<SearchMeta>;
+          if (current && Array.isArray(incoming.results)) {
+            const searchResults = mergeSearchMeta(current.searchResults, incoming);
+            streams.set(streamId, { ...current, searchResults }); patch(id, streamId, { searchResults });
+          }
           break;
         }
         case 'search_media': {
           const current = streams.get(streamId); if (!current) break;
-          const previous = current.searchResults;
-          if (!previous) break;
-          const searchResults = {
-            ...previous,
-            media: Array.isArray(event.payload.media) ? event.payload.media : previous.media,
-            images: Array.isArray(event.payload.images) ? event.payload.images : previous.images,
+          const searchResults = mergeSearchMeta(current.searchResults, {
+            query: String(event.payload.query || ''),
+            media: Array.isArray(event.payload.media) ? event.payload.media : [],
+            images: Array.isArray(event.payload.images) ? event.payload.images : [],
             media_pending: false,
             vision_diagnostics: event.payload.vision_diagnostics as Record<string, number> | undefined,
             timings_ms: event.payload.timings_ms as Record<string, number> | undefined,
-          } as SearchMeta;
+          } as Partial<SearchMeta>);
           streams.set(streamId, { ...current, searchResults }); patch(id, streamId, { searchResults });
           break;
         }
