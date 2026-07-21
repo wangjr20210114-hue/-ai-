@@ -123,6 +123,23 @@ describe('reconcileCompletedMessage', () => {
     expect(reconciled[0].content).toBe('这是模型生成的完整地点说明。');
     expect(reconciled[0].workspaceActions).toHaveLength(1);
   });
+
+  it('reattaches an Action when a final checkpoint already replaced the live row', () => {
+    const action = { id: 'map-2', kind: 'map_recommendation', status: 'ready', version: 1, payload: {} } as never;
+    const messages: ChatMessage[] = [{
+      id: 'user-1', role: 'user', content: '故宫在哪里？', ts: 1,
+    }, {
+      id: 'checkpoint-ai', role: 'ai', content: '故宫博物院已完成真实地点核实。', ts: 2,
+    }];
+    const reconciled = reconcileCompletedMessage(messages, {
+      id: 'live-ai', role: 'ai', content: '地点已经过真实地点服务核实。请点击下方按钮显示地点。',
+      ts: 3, streaming: false, workspaceActions: [action],
+    });
+    expect(reconciled).toHaveLength(2);
+    expect(reconciled[1].id).toBe('checkpoint-ai');
+    expect(reconciled[1].content).toBe('故宫博物院已完成真实地点核实。');
+    expect(reconciled[1].workspaceActions).toEqual([action]);
+  });
 });
 
 describe('pending conversation reuse', () => {

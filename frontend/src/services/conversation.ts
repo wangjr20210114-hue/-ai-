@@ -84,13 +84,22 @@ function actionFallbackLike(content: string): boolean {
 /** Replace a live placeholder and coalesce any checkpoint row carrying the same durable Action. */
 export function reconcileCompletedMessage(messages: ChatMessage[], complete: ChatMessage): ChatMessage[] {
   const completedActionIds = workspaceActionIds(complete);
-  const duplicateIndex = completedActionIds.size ? messages.findIndex((message) => (
+  let duplicateIndex = completedActionIds.size ? messages.findIndex((message) => (
     message.id !== complete.id
     && message.role === 'ai'
     && [...workspaceActionIds(message)].some((actionId) => completedActionIds.has(actionId))
   )) : -1;
+  const liveIndex = messages.findIndex((message) => message.id === complete.id);
+  if (duplicateIndex < 0 && completedActionIds.size && liveIndex < 0) {
+    const lastUserIndex = messages.reduce((last, message, index) => message.role === 'user' ? index : last, -1);
+    duplicateIndex = messages.reduce((last, message, index) => (
+      index > lastUserIndex && message.role === 'ai' ? index : last
+    ), -1);
+  }
   if (duplicateIndex < 0) {
-    return messages.map((message) => message.id === complete.id ? complete : message);
+    return liveIndex < 0
+      ? [...messages, complete]
+      : messages.map((message) => message.id === complete.id ? complete : message);
   }
   const duplicate = messages[duplicateIndex];
   const duplicateFallback = actionFallbackLike(duplicate.content);
