@@ -954,6 +954,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["partial"])
         self.assertEqual(result["verified_place_count"], 1)
         self.assertEqual(result["unverified_queries"], ["未核实餐馆"])
+        self.assertIn("实际核实成功 1/2 个地点", result["response_constraint"])
+        self.assertIn("正文只能声称地图显示了 1 个", result["response_constraint"])
+        self.assertIn("未核实餐馆", result["response_constraint"])
         self.assertEqual([place["name"] for place in result["action"]["payload"]["places"]], ["真实餐馆"])
 
     async def test_route_change_retires_stale_route_risk_notification(self):

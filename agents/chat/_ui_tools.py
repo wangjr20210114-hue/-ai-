@@ -272,13 +272,21 @@ def build_production_tools(
         )
         put_action(state, action)
         await _save_state(state)
+        verified_count = len(selected)
+        requested_count = len(normalized)
+        response_constraint = (
+            f"实际核实成功 {verified_count}/{requested_count} 个地点；正文只能声称地图显示了 {verified_count} 个。"
+        )
+        if missing:
+            response_constraint += f" 未核实且不得放入地图：{'、'.join(missing)}。"
         return json.dumps({
             "ui_action": "map_action",
             "action": action,
-            "verified_place_count": len(selected),
-            "requested_place_count": len(normalized),
+            "verified_place_count": verified_count,
+            "requested_place_count": requested_count,
             "partial": bool(missing),
             "unverified_queries": missing,
+            "response_constraint": response_constraint,
         }, ensure_ascii=False)
 
     async def propose_calendar_changes(summary: str, changes: list[dict]) -> str:
