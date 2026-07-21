@@ -52,6 +52,7 @@ from agents._shared.tencent_location import decode_polyline, search_verified_pla
 from agents._shared.workspace import (
     USER_WORKSPACE_ID,
     apply_calendar_changes,
+    calendar_change_warnings,
     begin_action_execution,
     empty_workspace,
     image_versions,
@@ -65,6 +66,7 @@ from agents._shared.workspace import (
     recover_stale_actions,
     start_provider_call,
     verify_action_snapshot,
+    validate_calendar_change_window,
 )
 from agents._shared.proactive import (
     collect_schedule_signals,
@@ -540,6 +542,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first["id"], repeated["id"])
         self.assertEqual(len(state["runs"]), 1)
 
+        route, route_created = ingest_workspace_signal(
+            state, signal_type="route_changed", dedup_key="route-1", payload={"source": "map"}, now=102,
+        )
+        self.assertTrue(route_created)
+        self.assertEqual(route["type"], "route_changed")
+
     def test_workflow_requires_confirmation_and_emits_due_steps_once(self):
         state = empty_proactive_state()
         workflow = propose_workflow(
@@ -782,6 +790,35 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(removed["deleted"])
         self.assertFalse(state["schedules"])
 
+    def test_calendar_mutations_before_beijing_today_are_rejected(self):
+        state = empty_workspace()
+        past = apply_calendar_changes(state, [{
+            "operation": "create",
+            "event": {"title": "历史日程", "start_time": 1_700_000_000, "place": PLACE},
+        }])[0]
+        now = 1_800_000_000
+        with self.assertRaisesRegex(ValueError, "只供查看"):
+            validate_calendar_change_window(
+                state, [{"operation": "delete", "schedule_id": past["id"]}], now=now,
+            )
+        with self.assertRaisesRegex(ValueError, "今天之前"):
+            validate_calendar_change_window(
+                state, [{"operation": "create", "event": {"title": "补录", "start_time": 1_700_000_000}}],
+                now=now,
+            )
+
+    def test_calendar_change_preview_reports_overlap(self):
+        state = empty_workspace()
+        existing = apply_calendar_changes(state, [{
+            "operation": "create",
+            "event": {"title": "已有会议", "start_time": 1_900_000_000, "duration_minutes": 60},
+        }])[0]
+        warnings = calendar_change_warnings(state, [{
+            "operation": "create",
+            "event": {"title": "冲突会议", "start_time": existing["start_time"] + 1800, "duration_minutes": 60},
+        }])
+        self.assertEqual(warnings, ["“已有会议”与“冲突会议”时间重叠"])
+
     def test_calendar_context_exposes_current_user_schedule_ids_and_beijing_time(self):
         state = empty_workspace()
         state["schedules"]["cal-live"] = {
@@ -844,6 +881,41 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(before["map"])
         after = await handler(FakeContext(store, {"operation": "activate_map", "action_id": action["id"], "version": 1}))
         self.assertEqual(after["map"]["places"][0]["place_id"], "poi-1")
+        proactive = await load_proactive_state(store)
+        self.assertEqual(proactive["checkpoints"]["route_change"]["schedule_count"], 0)
+        self.assertTrue(any(event["type"] == "route_changed" for event in proactive["events"].values()))
+
+    async def test_route_change_retires_stale_route_risk_notification(self):
+        store = FakeStore()
+        now = int(time.time())
+        state = empty_workspace()
+        first = apply_calendar_changes(state, [{
+            "operation": "create",
+            "event": {"title": "A", "start_time": now + 3600, "duration_minutes": 60, "place": PLACE},
+        }])[0]
+        second_place = {**PLACE, "place_id": "poi-2", "name": "颐和园", "longitude": 116.273}
+        apply_calendar_changes(state, [{
+            "operation": "create",
+            "event": {"title": "B", "start_time": now + 7500, "duration_minutes": 60, "place": second_place},
+        }])
+        await save_workspace(store, USER_WORKSPACE_ID, state)
+        proactive = empty_proactive_state()
+        signals = [{
+            "type": "route_risk", "source": "provider_route",
+            "dedup_key": f"route_risk:{first['id']}:old", "priority": "high",
+            "subject_ids": [first["id"]], "title": "路程不足", "detail": "旧风险",
+            "action": "调整时间", "evidence": {}, "occurred_at": now,
+        }]
+        process_schedule_signals(proactive, signals, now)
+        await save_proactive_state(store, proactive)
+        with patch("agents.workspace.index.collect_provider_signals", AsyncMock(return_value=([], {}))):
+            response = await handler(FakeContext(store, {
+                "operation": "save_travel_plan",
+                "plan": {"title": "路线变更", "destination": "北京", "days": 1},
+            }))
+        self.assertEqual(response["travel_plan"]["title"], "路线变更")
+        refreshed = public_proactive_state(await load_proactive_state(store))
+        self.assertFalse(any(item["type"] == "route_risk" for item in refreshed["notifications"]))
 
     async def test_calendar_tool_accepts_flat_model_wire_shape(self):
         store = FakeStore()
@@ -857,8 +929,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "changes": [{
                 "operation": "create",
                 "title": "游览北海公园",
-                "start_time": "2026-07-16T09:00:00+08:00",
-                "end_time": "2026-07-16T10:00:00+08:00",
+                "start_time": "2099-07-16T09:00:00+08:00",
+                "end_time": "2099-07-16T10:00:00+08:00",
                 "place_id": PLACE["place_id"],
             }],
         }))
@@ -1176,6 +1248,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         }
 
         class Response:
+            headers = {"X-Tc-Trace": "trace-meeting-1"}
             def __enter__(self): return self
             def __exit__(self, *_args): return None
             def read(self, _limit): return json.dumps(payload).encode("utf-8")
@@ -1187,9 +1260,38 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertTrue(result["ok"])
         self.assertEqual(result["meeting_code"], "123456789")
+        self.assertEqual(result["trace_id"], "trace-meeting-1")
         request = opened.call_args.args[0]
         self.assertEqual(request.headers["X-tencent-meeting-token"], "secret")
         self.assertEqual(json.loads(request.data)["params"]["name"], "schedule_meeting")
+
+    async def test_successful_tencent_meeting_is_written_to_calendar_once(self):
+        store = FakeStore()
+        state = empty_workspace()
+        action = new_action("meeting_create", {
+            "subject": "联调会议",
+            "start_time": "2099-07-22T10:00:00+08:00",
+            "end_time": "2099-07-22T10:15:00+08:00",
+        }, requires_confirmation=True)
+        put_action(state, action)
+        await save_workspace(store, USER_WORKSPACE_ID, state)
+        result = {
+            "ok": True, "subject": "联调会议", "meeting_id": "meeting-1",
+            "meeting_code": "123456789", "join_url": "https://meeting.tencent.com/dm/example",
+        }
+        body = {"operation": "confirm_action", "action_id": action["id"], "version": action["version"]}
+        with patch("agents.workspace.index.create_tencent_meeting", AsyncMock(return_value=result)) as provider:
+            first = await handler(FakeContext(store, body))
+            second = await handler(FakeContext(store, {
+                "operation": "confirm_action", "action_id": action["id"], "version": first["action"]["version"],
+            }))
+        self.assertEqual(provider.await_count, 1)
+        self.assertEqual(len(first["schedules"]), 1)
+        self.assertEqual(len(second["schedules"]), 1)
+        schedule = first["schedules"][0]
+        self.assertEqual(schedule["category"], "meeting")
+        self.assertEqual(schedule["extra"]["meeting_id"], "meeting-1")
+        self.assertEqual(first["action"]["result"]["schedule_id"], schedule["id"])
 
     async def test_travel_plan_asset_crud_uses_user_workspace(self):
         store = FakeStore()

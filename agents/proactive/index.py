@@ -37,6 +37,46 @@ def _message_text(value) -> str:
     return ""
 
 
+def _field(value, name: str, default=None):
+    if isinstance(value, dict):
+        return value.get(name, default)
+    try:
+        return getattr(value, name)
+    except (AttributeError, KeyError):
+        return default
+
+
+async def _conversation_has_durable_messages(store, conversation_id: str) -> bool:
+    """Recheck an empty conversation after the opening LLM call.
+
+    A user can send their first message while the proactive opening is being
+    composed.  In that case the user turn wins: do not append an unsolicited
+    assistant message behind it or mark the reminder as delivered.
+    """
+    if not hasattr(store, "get_messages"):
+        return False
+    try:
+        result = await store.get_messages(
+            conversation_id=conversation_id, limit=5, order="desc"
+        )
+    except Exception:
+        return False
+    if isinstance(result, list):
+        items = result
+    elif isinstance(result, dict):
+        items = result.get("items") or []
+    else:
+        items = _field(result, "items", [])
+    if not isinstance(items, list):
+        return False
+    for item in items or []:
+        role = str(_field(item, "role", _field(item, "type", ""))).lower()
+        content = _field(item, "content", "")
+        if role in {"user", "human", "assistant", "ai"} and _message_text(content):
+            return True
+    return False
+
+
 async def _compose_opening(env, notifications: list[dict]) -> str:
     facts = "\n".join(
         f"- {item.get('title') or '提醒'}：{item.get('body') or ''}；可建议：{item.get('action_prompt') or ''}"
@@ -102,6 +142,13 @@ async def handler(ctx):
                 return {**public, "tick_stats": stats, "proactive_message": None}
 
             content = await _compose_opening(ctx.env, prompts)
+            if await _conversation_has_durable_messages(ctx.store, conversation_id):
+                return {
+                    **public_proactive_state(state),
+                    "tick_stats": stats,
+                    "proactive_message": None,
+                    "opening_suppressed": "conversation_became_active",
+                }
             now = int(time.time())
             message_id = await ctx.store.append_message(
                 conversation_id=conversation_id,
@@ -141,9 +188,21 @@ async def handler(ctx):
         if operation == "get":
             return public_proactive_state(state)
         if operation == "update_preferences":
-            preferences = update_preferences(state, body.get("preferences") or {})
-            saved = await save_proactive_state(store, state, user_id)
-            return {**public_proactive_state(saved), "preferences": preferences}
+            changes = body.get("preferences") or {}
+            preferences = update_preferences(state, changes)
+            state.setdefault("checkpoints", {})["preference_change"] = {
+                "updated_at": int(time.time()),
+                "fields": sorted(str(key) for key in changes if key in preferences),
+            }
+            await save_proactive_state(store, state, user_id)
+            refreshed, stats = await run_proactive_tick(
+                store, env=ctx.env, user_id=user_id
+            )
+            return {
+                **public_proactive_state(refreshed),
+                "preferences": preferences,
+                "tick_stats": stats,
+            }
         if operation == "propose_workflow":
             workflow = propose_workflow(
                 state,

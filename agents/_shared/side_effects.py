@@ -90,6 +90,23 @@ def _find_meeting_payload(value: Any) -> dict[str, Any] | None:
     return None
 
 
+def _find_meeting_trace(value: Any) -> str:
+    if isinstance(value, dict):
+        for key in ("X-Tc-Trace", "x-tc-trace", "rpcUuid", "rpc_uuid", "trace_id"):
+            if value.get(key):
+                return str(value[key])
+        for nested in value.values():
+            found = _find_meeting_trace(nested)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for nested in value:
+            found = _find_meeting_trace(nested)
+            if found:
+                return found
+    return ""
+
+
 def _post_tencent_meeting_mcp(env: dict[str, Any], subject: str, start_iso: str, end_iso: str) -> dict[str, Any]:
     """Call Tencent Meeting's official remote MCP using a personal Skill token."""
     token = str(env.get("TENCENT_MEETING_TOKEN") or "").strip()
@@ -125,8 +142,12 @@ def _post_tencent_meeting_mcp(env: dict[str, Any], subject: str, start_iso: str,
         },
         method="POST",
     )
+    response_trace = ""
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
+            headers = getattr(response, "headers", None)
+            if headers is not None:
+                response_trace = str(headers.get("X-Tc-Trace") or headers.get("x-tc-trace") or "")
             data = json.loads(response.read(2 * 1024 * 1024).decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code >= 500:
@@ -150,6 +171,7 @@ def _post_tencent_meeting_mcp(env: dict[str, Any], subject: str, start_iso: str,
         "subject": str(meeting.get("subject") or subject),
         "start_time": start_iso,
         "provider": "tencent-meeting-official-mcp",
+        "trace_id": response_trace or _find_meeting_trace(data),
     }
 
 

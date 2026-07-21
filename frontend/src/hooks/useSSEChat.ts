@@ -33,6 +33,10 @@ export function mergeSearchMeta(previous: SearchMeta | undefined, incoming: Part
   };
 }
 
+export function shouldPublishProactiveOpening(restored: ChatMessage[], latest: ChatMessage[]): boolean {
+  return durableMessageCount(restored) === 0 && durableMessageCount(latest) === 0;
+}
+
 function responseError(data: unknown, fallback: string): string {
   if (Array.isArray(data) && data[0] && typeof data[0] === 'object') {
     return responseError(data[0], fallback);
@@ -622,7 +626,10 @@ export function useSSEChat() {
             dispatch({ type: 'HYDRATE_PROACTIVE', payload: proactive });
             const opening = proactive.proactive_message;
             if (merged.length === 0 && opening?.content) {
-              publish(conversationId, [opening]);
+              const latest = cached(conversationId);
+              if (shouldPublishProactiveOpening(merged, latest)) {
+                publish(conversationId, [opening]);
+              }
             }
           }
         }).catch((error) => console.warn('proactive bootstrap failed', error));

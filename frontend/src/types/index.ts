@@ -435,6 +435,7 @@ export interface WorkspaceAction {
     subject?: string;
     start_time?: string;
     end_time?: string;
+    warnings?: string[];
     prompt?: string;
     parent_action_id?: string;
     group_id?: string;

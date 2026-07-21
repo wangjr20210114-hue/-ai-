@@ -1,6 +1,6 @@
 # 视觉 Provider 降级链
 
-更新时间：2026-07-20。
+更新时间：2026-07-21。
 
 ## 结论
 
@@ -51,7 +51,7 @@ CLOUDFLARE_WORKERS_AI_TOKEN=<API Token>
 - 图生图：混元失败后，Cloudflare 使用 img2img；当前降级适配器使用第一张参考图，混元仍支持最多三张参考图。
 - 所有成功生成图片都复制到 Makers Blob；Provider 临时 URL 不是历史记录的唯一来源。
 
-当前 Makers 项目已把测试 `CLOUDFLARE_WORKERS_AI_TOKEN` 的生效范围收紧并核验为“预览”，生产环境不继承；`CLOUDFLARE_ACCOUNT_ID` 仍未配置。代码降级链已经可用，但在补齐 Account ID、重新构建 Preview 并完成真实调用前，不能把 Cloudflare 记为通过。缺少任一变量时不会影响混元主链，也不会把请求发往 Cloudflare。
+当前 Makers 项目的测试 `CLOUDFLARE_WORKERS_AI_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID` 均已收紧并核验为“预览”，生产环境不继承。代码和请求契约自动测试已通过；仍需用包含这两项变量的新部署完成多模态理解、文生图和图生图真实调用，真实调用完成前不能把 Cloudflare Provider 记为最终通过。
 
 ## 无破坏 Preview 验收
 

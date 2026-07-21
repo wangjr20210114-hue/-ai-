@@ -7,6 +7,7 @@ import type { ConversationSummary } from '../../types';
 import { formatConversationTime } from '../../services/time';
 import AppSettingsButton from '../profile/AppSettingsButton';
 import SkillsMarketplaceButton from '../profile/SkillsMarketplaceButton';
+import ProactiveBriefPanel from '../profile/ProactiveBriefPanel';
 
 interface Props {
   open: boolean;
@@ -170,6 +171,7 @@ export default function ConversationSidebar({ open, onClose }: Props) {
             </button>
           ))}
         </div>
+        <ProactiveBriefPanel />
         <div className="conversation-sidebar-tools">
           <SkillsMarketplaceButton />
           <AppSettingsButton />

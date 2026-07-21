@@ -22,6 +22,7 @@ from .._shared.arxiv import search_arxiv as provider_search_arxiv
 from .._shared.proactive import load_proactive_state, propose_workflow as create_workflow_proposal, save_proactive_state
 from .._shared.workspace import (
     begin_action_execution,
+    calendar_change_warnings,
     finish_provider_call,
     get_action,
     image_versions,
@@ -31,6 +32,7 @@ from .._shared.workspace import (
     save_user_workspace,
     seal_action_snapshot,
     start_provider_call,
+    validate_calendar_change_window,
 )
 
 
@@ -307,9 +309,11 @@ def build_production_tools(
                     normalized_event["location"] = place.get("address") or place.get("name")
                 change["event"] = normalized_event
             normalized.append(change)
+        validate_calendar_change_window(state, normalized)
+        warnings = calendar_change_warnings(state, normalized)
         action = new_action(
             "calendar_changes",
-            {"summary": str(summary or "日程变更")[:300], "changes": normalized},
+            {"summary": str(summary or "日程变更")[:300], "changes": normalized, "warnings": warnings},
             requires_confirmation=True,
         )
         put_action(state, action)
@@ -323,9 +327,17 @@ def build_production_tools(
         if end <= start:
             raise ValueError("会议结束时间必须晚于开始时间")
         state = await _load_state()
+        meeting_change = [{"operation": "create", "event": {
+            "title": str(subject or "腾讯会议")[:120],
+            "start_time": int(start.timestamp()),
+            "duration_minutes": max(1, int((end - start).total_seconds() // 60)),
+            "category": "meeting",
+        }}]
+        validate_calendar_change_window(state, meeting_change)
+        warnings = calendar_change_warnings(state, meeting_change)
         action = new_action(
             "meeting_create",
-            {"subject": str(subject or "腾讯会议")[:120], "start_time": start.isoformat(), "end_time": end.isoformat()},
+            {"subject": str(subject or "腾讯会议")[:120], "start_time": start.isoformat(), "end_time": end.isoformat(), "warnings": warnings},
             requires_confirmation=True,
         )
         put_action(state, action)

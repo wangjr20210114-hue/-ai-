@@ -6,6 +6,7 @@ import hashlib
 import logging
 import time
 import uuid
+from datetime import datetime
 
 from .._shared.side_effects import create_tencent_meeting, generate_image, resolve_image_reference
 from .._shared.proactive import (
@@ -22,6 +23,7 @@ from .._shared.http import error
 from .._shared.workspace import (
     active_map_payload,
     apply_calendar_changes,
+    validate_calendar_change_window,
     begin_action_execution,
     check_action_version,
     finish_provider_call,
@@ -89,6 +91,44 @@ async def _record_calendar_signal(store, changed: list[dict], source: str, user_
     await save_proactive_state(store, state, user_id)
 
 
+async def _record_route_signal(store, source: str, user_id: str, env: dict | None = None) -> None:
+    """Persist and immediately rescan after a route/travel context change."""
+    state = await load_proactive_state(store, user_id)
+    now = int(time.time())
+    ingest_workspace_signal(
+        state,
+        signal_type="route_changed",
+        dedup_key=hashlib.sha256(source.encode("utf-8")).hexdigest(),
+        payload={"source": source},
+        now=now,
+    )
+    try:
+        workspace = await load_user_workspace(store, user_id=user_id)
+        schedules = list((workspace.get("schedules") or {}).values())
+        preferences = state.get("preferences") or {}
+        lookahead = int(preferences.get("lookahead_hours") or 24)
+        signals = collect_schedule_signals(schedules, now, lookahead)
+        provider_signals, provider_diagnostics = await collect_provider_signals(
+            env or {}, schedules, now, lookahead
+        )
+        signals.extend(provider_signals)
+        affected_ids = {str(item.get("id") or "") for item in schedules if str(item.get("id") or "")}
+        reconciliation = reconcile_schedule_notifications(state, signals, affected_ids, now)
+        stats = process_schedule_signals(state, signals, now)
+        state.setdefault("checkpoints", {})["route_change"] = {
+            "last_scan_at": now,
+            "schedule_count": len(schedules),
+            "signal_count": len(signals),
+            "provider": provider_diagnostics,
+            "reconciliation": reconciliation,
+            "stats": stats,
+            "source": source,
+        }
+    except Exception as exc:
+        logging.warning("immediate proactive route scan failed: %s", exc)
+    await save_proactive_state(store, state, user_id)
+
+
 async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
@@ -147,6 +187,7 @@ async def handler(ctx):
             }
             plans[plan_id] = plan
             state = await save_workspace(store, workspace_id, state)
+            await _record_route_signal(store, f"travel_plan_saved:{plan_id}:{now}", user_id, ctx.env)
             return _response(state, travel_plan=plan, travel_plans=list(state["travel_plans"].values()))
 
         if operation == "delete_travel_plan":
@@ -154,6 +195,7 @@ async def handler(ctx):
             if state.setdefault("travel_plans", {}).pop(plan_id, None) is None:
                 raise ValueError("旅行计划不存在")
             state = await save_workspace(store, workspace_id, state)
+            await _record_route_signal(store, f"travel_plan_deleted:{plan_id}:{int(time.time())}", user_id, ctx.env)
             return _response(state, deleted_plan_id=plan_id, travel_plans=list(state["travel_plans"].values()))
 
         if operation == "activate_map":
@@ -165,17 +207,25 @@ async def handler(ctx):
             action["updated_at"] = int(time.time())
             state["active_map_action_id"] = action["id"]
             state = await save_workspace(store, workspace_id, state)
+            await _record_route_signal(
+                store, f"map_activated:{action['id']}:{action['version']}", user_id, ctx.env
+            )
             return _response(state, action)
 
         if operation == "deactivate_map":
+            previous_map_action_id = str(state.get("active_map_action_id") or "")
             state["active_map_action_id"] = ""
             state = await save_workspace(store, workspace_id, state)
+            await _record_route_signal(
+                store, f"map_deactivated:{previous_map_action_id}:{int(time.time())}", user_id, ctx.env
+            )
             return _response(state)
 
         if operation == "direct_calendar_changes":
             changes = body.get("changes") or []
             if not isinstance(changes, list) or not changes:
                 raise ValueError("缺少日程变更")
+            validate_calendar_change_window(state, changes)
             changed = apply_calendar_changes(state, changes)
             state["active_map_action_id"] = ""
             state = await save_workspace(store, workspace_id, state)
@@ -242,6 +292,7 @@ async def handler(ctx):
         payload = action.get("payload") or {}
         verify_action_snapshot(action)
         if kind == "calendar_changes":
+            validate_calendar_change_window(state, payload.get("changes") or [])
             changed = apply_calendar_changes(state, payload.get("changes") or [])
             action["status"] = "succeeded"
             action["result"] = {"changed": changed}
@@ -271,9 +322,39 @@ async def handler(ctx):
         latest = await load_workspace(store, workspace_id)
         action = get_action(latest, action["id"])
         finish_provider_call(latest, action, result, int(time.time()))
+        changed = []
+        if kind == "meeting_create" and result.get("ok"):
+            schedule_id = f"meeting-{action['id']}"
+            if schedule_id not in (latest.get("schedules") or {}):
+                start = int(datetime.fromisoformat(str(payload.get("start_time") or "").replace("Z", "+00:00")).timestamp())
+                end = int(datetime.fromisoformat(str(payload.get("end_time") or "").replace("Z", "+00:00")).timestamp())
+                changed = apply_calendar_changes(latest, [{
+                    "operation": "create",
+                    "event": {
+                        "title": str(result.get("subject") or payload.get("subject") or "腾讯会议"),
+                        "start_time": start,
+                        "duration_minutes": max(1, (end - start) // 60),
+                        "category": "meeting",
+                        "description": "腾讯会议" + (f" · 会议号 {result.get('meeting_code')}" if result.get("meeting_code") else ""),
+                        "extra": {
+                            "source": "tencent-meeting-official-mcp",
+                            "meeting_id": str(result.get("meeting_id") or ""),
+                            "meeting_code": str(result.get("meeting_code") or ""),
+                            "join_url": str(result.get("join_url") or ""),
+                            "action_id": action["id"],
+                        },
+                    },
+                }])
+                created = changed[0]
+                latest["schedules"].pop(created["id"], None)
+                created["id"] = schedule_id
+                latest["schedules"][schedule_id] = created
+                action.setdefault("result", {})["schedule_id"] = schedule_id
         if kind == "image_generate" and result.get("ok"):
             action["result"]["versions"] = image_versions(latest, str(action["payload"].get("group_id") or action["id"]))
         latest = await save_workspace(store, workspace_id, latest)
-        return _response(latest, action)
+        if changed:
+            await _record_calendar_signal(store, changed, action["id"], user_id, ctx.env)
+        return _response(latest, action, **({"changed": changed} if changed else {}))
     except Exception as exc:
         return error(str(exc))

@@ -11,6 +11,7 @@ import hashlib
 import json
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 
@@ -289,6 +290,10 @@ def normalize_schedule(event: dict[str, Any], *, existing_id: str = "") -> dict[
     if category not in {"travel", "meeting", "dining", "remind", "task", "other"}:
         category = "other"
     location = str(event.get("location") or (place or {}).get("address") or "").strip()[:240]
+    extra = copy.deepcopy(event.get("extra")) if isinstance(event.get("extra"), dict) else {}
+    extra["source"] = str(extra.get("source") or "makers-workspace")
+    if place:
+        extra["place"] = copy.deepcopy(place)
     return {
         "id": existing_id or f"makers-{uuid.uuid4().hex}",
         "session_id": "makers",
@@ -300,11 +305,60 @@ def normalize_schedule(event: dict[str, Any], *, existing_id: str = "") -> dict[
         "location": location,
         "description": str(event.get("description") or "").strip()[:1000],
         "markdown_content": "",
-        "extra": {"source": "makers-workspace", "place": copy.deepcopy(place)} if place else {"source": "makers-workspace"},
+        "extra": extra,
         "done": bool(event.get("done", False)),
         "created_at": int(event.get("created_at") or now),
         "updated_at": now,
     }
+
+
+def beijing_day_start(now: int | None = None) -> int:
+    """Return the start of today in the product's fixed Asia/Shanghai timezone."""
+    tz = timezone(timedelta(hours=8))
+    current = datetime.fromtimestamp(int(now if now is not None else time.time()), tz)
+    return int(current.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+
+
+def validate_calendar_change_window(
+    state: dict[str, Any], changes: list[dict[str, Any]], *, now: int | None = None,
+) -> None:
+    """Reject every mutation whose existing or resulting schedule is before today."""
+    floor = beijing_day_start(now)
+    schedules = state.get("schedules") or {}
+    for change in changes:
+        operation = str(change.get("operation") or "create")
+        previous = schedules.get(str(change.get("schedule_id") or ""))
+        if operation in {"update", "delete"} and isinstance(previous, dict):
+            if int(previous.get("start_time") or 0) < floor:
+                raise ValueError("今天之前的日程只供查看，不能修改或删除")
+        if operation != "delete":
+            event = change.get("event") if isinstance(change.get("event"), dict) else {}
+            start = int(event.get("start_time") or (previous or {}).get("start_time") or 0)
+            if start and start < floor:
+                raise ValueError("不能新增或移动到今天之前的日程")
+
+
+def calendar_change_warnings(state: dict[str, Any], changes: list[dict[str, Any]]) -> list[str]:
+    """Preview deterministic overlap warnings without mutating the live workspace."""
+    preview = copy.deepcopy(state)
+    changed = apply_calendar_changes(preview, changes)
+    changed_ids = {str(item.get("id") or "") for item in changed if not item.get("deleted")}
+    schedules = sorted(
+        (item for item in (preview.get("schedules") or {}).values() if isinstance(item, dict)),
+        key=lambda item: int(item.get("start_time") or 0),
+    )
+    warnings: list[str] = []
+    for index, left in enumerate(schedules):
+        left_start = int(left.get("start_time") or 0)
+        left_end = left_start + max(1, int(left.get("duration_minutes") or 60)) * 60
+        for right in schedules[index + 1:]:
+            right_start = int(right.get("start_time") or 0)
+            if right_start >= left_end:
+                break
+            if str(left.get("id") or "") not in changed_ids and str(right.get("id") or "") not in changed_ids:
+                continue
+            warnings.append(f"“{left.get('title') or '日程'}”与“{right.get('title') or '日程'}”时间重叠")
+    return list(dict.fromkeys(warnings))[:6]
 
 
 def apply_calendar_changes(state: dict[str, Any], changes: list[dict[str, Any]]) -> list[dict[str, Any]]:

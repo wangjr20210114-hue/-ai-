@@ -18,6 +18,10 @@ function dateKey(date: Date): string {
   ].join('-');
 }
 
+function isPastCalendarDate(date: Date, now = new Date()): boolean {
+  return dateKey(date) < dateKey(now);
+}
+
 export default function EdgeOnePlatformPanel() {
   const dispatch = useAppDispatch();
   const { conversationId, schedules, mapPlaces, mapTitle, mapRevision, calendarPulse } = useAppState();
@@ -94,8 +98,14 @@ export default function EdgeOnePlatformPanel() {
     ? mapTitle
     : `${selectedDate.getMonth() + 1}月${selectedDate.getDate()}日日程路线`;
   const monthLabel = `${currentMonth.getFullYear()}年${currentMonth.getMonth() + 1}月`;
+  const selectedDateIsPast = isPastCalendarDate(selectedDate);
+  const todayKey = dateKey(new Date());
 
   const openScheduleForm = (item?: ScheduleItem) => {
+    if (isPastCalendarDate(item ? new Date(item.start_time * 1000) : selectedDate)) {
+      MessagePlugin.warning('今天之前的日程只供查看，不能修改');
+      return;
+    }
     const start = item ? new Date(item.start_time * 1000) : new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 9, 0);
     const local = new Date(start.getTime() - start.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
     const end = new Date(start.getTime() + (item?.duration_minutes || 60) * 60_000);
@@ -181,6 +191,10 @@ export default function EdgeOnePlatformPanel() {
       MessagePlugin.warning('结束时间必须晚于开始时间');
       return;
     }
+    if (isPastCalendarDate(new Date(startTime * 1000))) {
+      MessagePlugin.warning('不能新增或移动到今天之前的日程');
+      return;
+    }
     setFormBusy(true);
     try {
       const durationMinutes = Math.max(1, Math.round((endTime - startTime) / 60));
@@ -211,6 +225,10 @@ export default function EdgeOnePlatformPanel() {
   };
 
   const deleteSchedule = async (item: ScheduleItem) => {
+    if (isPastCalendarDate(new Date(item.start_time * 1000))) {
+      MessagePlugin.warning('今天之前的日程只供查看，不能删除');
+      return;
+    }
     if (!window.confirm(`确定删除“${item.title}”吗？`)) return;
     try {
       const response = await workspaceOperation(conversationId, 'direct_calendar_changes', {
@@ -278,14 +296,14 @@ export default function EdgeOnePlatformPanel() {
                 <strong>{selectedDate.getMonth() + 1}月{selectedDate.getDate()}日安排</strong>
                 <span>{selectedItems.length} 项</span>
               </div>
-              <Button size="small" variant="text" onClick={() => openScheduleForm()}>＋ 添加</Button>
+              <Button size="small" variant="text" disabled={selectedDateIsPast} onClick={() => openScheduleForm()}>＋ 添加</Button>
             </div>
             <div className="calendar-day-scroll">
               {formOpen && (
                 <div className="makers-schedule-form">
                   <input value={formTitle} onInput={(event) => setFormTitle(event.currentTarget.value)} placeholder="日程标题" maxLength={120} />
                   <div className="makers-schedule-datetime">
-                    <label>日期<input aria-label="日程日期" type="date" value={formStart.slice(0, 10)} onInput={(event) => {
+                    <label>日期<input aria-label="日程日期" type="date" min={todayKey} value={formStart.slice(0, 10)} onInput={(event) => {
                       const date = event.currentTarget.value;
                       setFormStart(`${date}T${formStart.slice(11, 16) || '09:00'}`);
                       setFormEnd(`${date}T${formEnd.slice(11, 16) || '10:00'}`);
@@ -340,10 +358,12 @@ export default function EdgeOnePlatformPanel() {
                           <div className="makers-day-title">{item.title}</div>
                           {item.location && <div className="makers-day-location">📍 {item.location}</div>}
                           {item.description && <div className="makers-day-description">{item.description}</div>}
-                          <div className="makers-day-actions">
-                            <button type="button" onClick={() => openScheduleForm(item)}>编辑</button>
-                            <button type="button" onClick={() => void deleteSchedule(item)}>删除</button>
-                          </div>
+                          {!selectedDateIsPast && (
+                            <div className="makers-day-actions">
+                              <button type="button" onClick={() => openScheduleForm(item)}>编辑</button>
+                              <button type="button" onClick={() => void deleteSchedule(item)}>删除</button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );

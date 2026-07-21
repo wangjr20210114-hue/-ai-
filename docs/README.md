@@ -7,6 +7,7 @@
 - [`ARCHITECTURE.md`](ARCHITECTURE.md)：唯一目标架构与状态所有权。
 - [`BASELINE.md`](BASELINE.md)：当前功能、条件能力、缺口和零缩水门槛。
 - [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md)：按 P0–P3 执行的改造计划。
+- [`CONTEST_GAP_AND_IMPLEMENTATION_PLAN_2026-07-21.md`](CONTEST_GAP_AND_IMPLEMENTATION_PLAN_2026-07-21.md)：C 端主动式 AI 比赛差距、优先级和验收门槛。
 - [`DEPLOYMENT.md`](DEPLOYMENT.md)：环境变量、构建、Preview、终验与回滚。
 - [`DATA_MIGRATION.md`](DATA_MIGRATION.md)：SQLite 只读导出和 Makers Store/Blob 导入。
 - [`LEGACY_FASTAPI_CAPABILITIES.md`](LEGACY_FASTAPI_CAPABILITIES.md)：旧用户结果的迁移对照，不是目标技术方案。

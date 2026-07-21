@@ -16,7 +16,7 @@
 | 持久 Event/Run/Observation/Notification | 已实现 | LangGraph Store 单用户 namespace；确定性 ID 和去重键 |
 | 后端日程 Collector | 已实现 | 临近、冲突、紧接行程；页面不再计算机会 |
 | Policy | 已实现 | 总开关、提醒类型、免打扰、每日上限、去重 |
-| Notification Inbox | 已实现 | 未读、已读、忽略、稍后、原因、证据、下一步 |
+| Notification Inbox | 已实现 | 左栏最多四条简洁有效提醒；未读、忽略、稍后、下一步；设置和运行记录留在设置页 |
 | 触达 | 已实现基础层 | 持久站内 Inbox；页面打开时可授权浏览器系统通知 |
 
 ## 3. P1：可靠执行与垂直主动能力
@@ -28,7 +28,7 @@
 | lease/recovery | 已实现 | 执行租约；过期进入 `reconciliation_required`，不盲重试副作用 |
 | 天气 Collector | 已实现 | 已核实坐标 → 腾讯天气；风险天气才提醒；失败只写 checkpoint |
 | 路线 Collector | 已实现 | 已核实坐标 → 真实路线时长；衔接不足才提醒 |
-| Run 时间线 | 已实现 | 左栏显示最近持久 Run；`/system` 输出状态聚合 |
+| Run 时间线 | 已实现 | 设置页显示最近持久 Run；`/system` 输出状态聚合 |
 
 ## 4. P2：记忆、反馈和信号
 
@@ -40,6 +40,8 @@
 | Usage/预算 | 已实现 | 持久 token 统计；日/月预算；off/soft/hard |
 | 文件信号 | 已实现 | PDF 上传后写入去重 Event/Run |
 | 日历变更信号 | 已实现 | 直接 CRUD 和确认 Action 写入去重 Event/Run，并立即扫描；标题/描述/地点变化刷新同一提醒，时间变化或删除会让旧提醒失效再按新状态生成 |
+| 日历时间边界 | 已实现 | 今天之前只读；前端、模型提案和 Workspace 写入层均拒绝增改删；重叠在确认卡预警 |
+| 腾讯会议日历同步 | 已实现代码 | 官方个人 MCP 成功后按 Action ID 幂等写入一条 meeting 日程；待个人 Token Preview 真实联调 |
 | 外部连接器 | 当前不提供 | 个人演示聚焦内置日程、文件、天气和路线信号，不保留租户 Bearer 入口 |
 
 ## 5. P3：持久工作流与生产化
@@ -65,9 +67,9 @@
 
 ## 7. 自动化基线
 
-- Makers Agent：99 项通过。
+- Makers Agent：105 项通过。
 - SQLite 只读导出：2 项通过。
-- 前端 Vitest：41 项通过。
+- 前端 Vitest：44 项通过。
 - Cloud Functions、Schedule 适配、验收持久化与平台复用/安全契约：20 项通过。
 - 旧 FastAPI 不再作为 Makers 发布回归门槛；用户结果迁移见 [`LEGACY_FASTAPI_CAPABILITIES.md`](LEGACY_FASTAPI_CAPABILITIES.md)。
 - TypeScript/Vite 生产构建：通过。

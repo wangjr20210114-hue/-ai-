@@ -421,6 +421,9 @@ export default function MessageBubble({ message }: Props) {
                     {action.kind === 'meeting_create' && action.payload.start_time && (
                       <div className="workspace-confirm-meta">{new Date(action.payload.start_time).toLocaleString('zh-CN')}</div>
                     )}
+                    {action.payload.warnings?.map((warning) => (
+                      <div key={warning} className="workspace-confirm-warning">⚠ {warning}，请确认是否仍要继续</div>
+                    ))}
                     {action.status === 'awaiting_confirmation' ? (
                       <div className="workspace-confirm-actions">
                         <Button size="small" theme="primary" loading={busy} onClick={() => void handleWorkspaceAction(action, 'confirm_action')}>确认</Button>
@@ -432,6 +435,7 @@ export default function MessageBubble({ message }: Props) {
                       </div>
                     )}
                     {typeof result.join_url === 'string' && result.join_url && <a href={result.join_url} target="_blank" rel="noreferrer">加入腾讯会议</a>}
+                    {typeof result.trace_id === 'string' && result.trace_id && <div className="workspace-confirm-meta">追踪号：{result.trace_id}</div>}
                     {typeof result.image_url === 'string' && result.image_url && <img className="workspace-generated-image" src={result.image_url} alt={String(action.payload.prompt || '生成图片')} />}
                   </div>
                 );
