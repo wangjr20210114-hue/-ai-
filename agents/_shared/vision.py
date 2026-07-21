@@ -55,11 +55,15 @@ def vision_providers(env: dict[str, Any]) -> list[VisionProvider]:
         env.get("CLOUDFLARE_WORKERS_AI_TOKEN") or env.get("CLOUDFLARE_API_TOKEN") or ""
     ).strip()
     if cloudflare_account and cloudflare_token:
+        cloudflare_model = str(
+            env.get("CLOUDFLARE_VISION_MODEL")
+            or "@cf/meta/llama-3.2-11b-vision-instruct"
+        )
         providers.append(VisionProvider(
             "cloudflare",
-            f"https://api.cloudflare.com/client/v4/accounts/{cloudflare_account}/ai/v1/chat/completions",
+            f"https://api.cloudflare.com/client/v4/accounts/{cloudflare_account}/ai/run/{cloudflare_model}",
             cloudflare_token,
-            str(env.get("CLOUDFLARE_VISION_MODEL") or "@cf/meta/llama-3.2-11b-vision-instruct"),
+            cloudflare_model,
         ))
 
     dashscope_key = str(env.get("DASHSCOPE_API_KEY") or "").strip()
@@ -94,13 +98,36 @@ def _post_completion(
     max_tokens: int,
     timeout: float,
 ) -> str:
-    payload = {
-        "model": provider.model,
-        "messages": [{"role": "user", "content": content}],
-        "max_tokens": max(64, min(1600, int(max_tokens))),
-        "temperature": 0.1,
-        "stream": False,
-    }
+    if provider.name == "cloudflare":
+        # Workers AI's documented Llama Vision REST schema is not the
+        # OpenAI multi-part content schema.  It accepts text messages plus one
+        # top-level image (a data URI or HTTPS URL) at /ai/run/<model>.
+        text_parts: list[str] = []
+        image = ""
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "text" and item.get("text"):
+                text_parts.append(str(item["text"]))
+            elif item.get("type") == "image_url" and not image:
+                value = item.get("image_url") or {}
+                image = str(value.get("url") if isinstance(value, dict) else value or "")
+        payload: dict[str, Any] = {
+            "messages": [{"role": "user", "content": "\n".join(text_parts)}],
+            "max_tokens": max(64, min(1600, int(max_tokens))),
+            "temperature": 0.1,
+            "stream": False,
+        }
+        if image.startswith(("https://", "data:image/")):
+            payload["image"] = image
+    else:
+        payload = {
+            "model": provider.model,
+            "messages": [{"role": "user", "content": content}],
+            "max_tokens": max(64, min(1600, int(max_tokens))),
+            "temperature": 0.1,
+            "stream": False,
+        }
     request = urllib.request.Request(
         provider.endpoint,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -112,6 +139,9 @@ def _post_completion(
     )
     with urllib.request.urlopen(request, timeout=max(1.0, timeout)) as response:
         data = json.loads(response.read(4 * 1024 * 1024).decode("utf-8"))
+    if provider.name == "cloudflare":
+        result = data.get("result") if isinstance(data.get("result"), dict) else data
+        return str(result.get("response") or "").strip()
     return str(data["choices"][0]["message"]["content"]).strip()
 
 

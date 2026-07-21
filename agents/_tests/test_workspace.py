@@ -24,7 +24,12 @@ from agents.chat._ui_tools import build_production_tools
 from agents.chat._protocol import PublicStreamFilter, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
 from agents._shared.side_effects import _meeting_payload, _meeting_result, _meeting_signature, _post_tencent_meeting_mcp, generate_image
-from agents._shared.vision import describe_reference_images, vision_providers
+from agents._shared.vision import (
+    VisionProvider,
+    _post_completion,
+    describe_reference_images,
+    vision_providers,
+)
 from agents._shared.auth import require_user, scoped_conversation_id
 from agents._shared.rich_search import (
     _filter_for_target_date,
@@ -1292,6 +1297,46 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([item.name for item in providers], [
             "hunyuan", "cloudflare", "dashscope", "gemini",
         ])
+        self.assertEqual(
+            providers[1].endpoint,
+            "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-11b-vision-instruct",
+        )
+
+    def test_cloudflare_vision_uses_official_run_schema(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return json.dumps({
+                    "success": True,
+                    "result": {"response": "一只戴红围巾的猫"},
+                }).encode("utf-8")
+
+        provider = VisionProvider(
+            "cloudflare",
+            "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-11b-vision-instruct",
+            "token",
+            "@cf/meta/llama-3.2-11b-vision-instruct",
+        )
+        content = [
+            {"type": "text", "text": "描述图片"},
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,ZmFrZQ=="}},
+        ]
+        with patch(
+            "agents._shared.vision.urllib.request.urlopen",
+            return_value=Response(),
+        ) as urlopen:
+            result = _post_completion(provider, content, 200, 2)
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(result, "一只戴红围巾的猫")
+        self.assertEqual(payload["messages"], [{"role": "user", "content": "描述图片"}])
+        self.assertEqual(payload["image"], "data:image/jpeg;base64,ZmFrZQ==")
+        self.assertNotIn("model", payload)
 
     async def test_user_reference_image_uses_multimodal_provider_once(self):
         with patch(
