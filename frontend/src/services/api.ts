@@ -89,8 +89,12 @@ export async function intelligenceOperation(
   return data;
 }
 
-export async function skillsOperation(): Promise<{ skills: Array<{ id: string; name: string; description: string; configured: boolean; install_url?: string; credential_name?: string }> }> {
-  const res = await authorizedFetch('/system', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operation: 'get' }) });
+export async function skillsOperation(conversationId: string): Promise<{ skills: Array<{ id: string; name: string; description: string; configured: boolean; install_url?: string; credential_name?: string }> }> {
+  const res = await authorizedFetch('/system_internal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
+    body: JSON.stringify({ operation: 'get' }),
+  });
   const data = await res.json().catch(() => ({})) as { providers?: { meeting?: boolean }; error?: string };
   if (!res.ok) throw new Error(data.error || 'Skills 状态读取失败');
   return { skills: [{

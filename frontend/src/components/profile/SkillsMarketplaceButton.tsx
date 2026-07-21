@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, Dialog, MessagePlugin, Tag } from 'tdesign-react';
 import { AppIcon } from 'tdesign-icons-react';
+import { useAppState } from '../../store/appState';
 import { skillsOperation } from '../../services/api';
 
 interface MarketplaceSkill {
@@ -13,12 +14,13 @@ interface MarketplaceSkill {
 }
 
 export default function SkillsMarketplaceButton() {
+  const { conversationId } = useAppState();
   const [visible, setVisible] = useState(false);
   const [skills, setSkills] = useState<MarketplaceSkill[]>([]);
   const [loading, setLoading] = useState(false);
   const refresh = async () => {
     setLoading(true);
-    try { setSkills((await skillsOperation()).skills || []); }
+    try { setSkills((await skillsOperation(conversationId)).skills || []); }
     catch (error) { MessagePlugin.error(error instanceof Error ? error.message : '读取 Skills 状态失败'); }
     finally { setLoading(false); }
   };

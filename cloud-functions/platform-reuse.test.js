@@ -120,15 +120,19 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
 });
 
 test('Tencent Meeting is optional and never restores a FastAPI bridge', async () => {
-  const [provider, tools, envExample] = await Promise.all([
+  const [provider, tools, envExample, skillsApi] = await Promise.all([
     read('agents/_shared/side_effects.py'),
     read('agents/chat/_ui_tools.py'),
     read('.env.example'),
+    read('frontend/src/services/api.ts'),
   ]);
   assert.match(provider, /https:\/\/api\.meeting\.qq\.com\/v1\/meetings/);
   assert.match(provider, /X-TC-Signature/);
   assert.match(envExample, /TENCENT_MEETING_SECRET_ID/);
   assert.match(tools, /if not meeting_ready/);
+  assert.match(skillsApi, /authorizedFetch\('\/system_internal'/);
+  assert.match(skillsApi, /makersConversationHeaders\(conversationId\)/);
+  assert.doesNotMatch(skillsApi, /skillsOperation[\s\S]{0,500}authorizedFetch\('\/system'/);
   assert.doesNotMatch(provider + envExample, /MEETING_BRIDGE|shutil\.which\("tmeet"\)|create_subprocess_exec/);
 });
 
