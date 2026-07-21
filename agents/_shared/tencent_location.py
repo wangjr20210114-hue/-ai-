@@ -120,13 +120,29 @@ async def search_osm_places(query: str, *, city: str = "", limit: int = 10) -> l
     return places
 
 
+def _normalized_lookup_text(value: Any) -> str:
+    return "".join(re.findall(r"[\w\u4e00-\u9fff]+", str(value or "").lower()))
+
+
+def _primary_place_matches(item: dict[str, Any], normalized_query: str) -> bool:
+    normalized_name = _normalized_lookup_text(item.get("name"))
+    normalized_record = _normalized_lookup_text(f"{item.get('name', '')}{item.get('address', '')}")
+    return bool(
+        normalized_query
+        and (
+            normalized_query in normalized_record
+            or (len(normalized_name) >= 3 and normalized_name in normalized_query)
+        )
+    )
+
+
 async def search_verified_places(key: str, query: str, *, city: str = "全国", limit: int = 10) -> list[dict[str, Any]]:
-    normalized_query = "".join(re.findall(r"[\w\u4e00-\u9fff]+", str(query or "").lower()))
+    normalized_query = _normalized_lookup_text(query)
     primary: list[dict[str, Any]] = []
     if key:
         try:
             primary = await search_places(key, query, city=city, limit=limit)
-            if any(normalized_query and normalized_query in "".join(re.findall(r"[\w\u4e00-\u9fff]+", f"{item.get('name', '')}{item.get('address', '')}".lower())) for item in primary):
+            if any(_primary_place_matches(item, normalized_query) for item in primary):
                 return primary
         except Exception:
             pass

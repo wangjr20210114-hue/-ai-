@@ -1168,6 +1168,19 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(places[0]["name"], "查干湖")
         fallback.assert_awaited_once()
 
+    async def test_place_search_accepts_verified_primary_name_inside_descriptive_query(self):
+        primary = {
+            **PLACE,
+            "place_id": "tencent:trb-hutong",
+            "name": "TRB Hutong",
+            "address": "北京市东城区沙滩北街23号",
+        }
+        with patch("agents._shared.tencent_location.search_places", new=AsyncMock(return_value=[primary])), \
+             patch("agents._shared.tencent_location.search_osm_places", new=AsyncMock(return_value=[])) as fallback:
+            places = await search_verified_places("map-key", "TRB Hutong北京胡同创意西餐厅", city="北京")
+        self.assertEqual(places[0]["place_id"], "tencent:trb-hutong")
+        fallback.assert_not_awaited()
+
     def test_image_versions_are_grouped_and_ordered(self):
         state = empty_workspace()
         first = new_action("image_generate", {"prompt": "初版", "group_id": "group-1"}, requires_confirmation=False)

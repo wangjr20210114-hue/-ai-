@@ -253,7 +253,7 @@ def build_production_tools(
             map_key,
             normalized,
             city=city or "全国",
-            timeout_seconds=float(runtime_env.get("PLACE_LOOKUP_TIMEOUT_SECONDS") or 10),
+            timeout_seconds=float(runtime_env.get("PLACE_LOOKUP_TIMEOUT_SECONDS") or 5),
         )
         if not selected:
             raise ValueError("所有候选地点都未通过真实地点服务核实，不能生成地图")
