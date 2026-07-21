@@ -1144,6 +1144,24 @@ html.is-resizing-workspace * {
   font-size: 11px;
   line-height: 1.65;
 }
+.makers-map-loading {
+  position: absolute;
+  left: 50%;
+  top: 132px;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  padding: 7px 10px;
+  border-radius: 999px;
+  color: var(--app-text-2);
+  background: color-mix(in srgb, var(--app-panel) 90%, transparent);
+  box-shadow: var(--app-shadow);
+  font-size: 11px;
+}
+.makers-map-fallback strong { display: block; margin-bottom: 6px; color: var(--app-text); }
+.makers-map-fallback-places { display: grid; gap: 5px; margin-bottom: 8px; }
+.makers-map-fallback-places > div { display: grid; padding: 5px 6px; border-radius: 6px; background: rgba(78, 124, 255, .06); }
+.makers-map-fallback-places b { color: var(--app-text); font-size: 11px; }
+.makers-map-fallback-places span { color: var(--app-text-3); font-size: 10px; }
 .makers-place-chips {
   display: flex;
   gap: 5px;
@@ -1196,6 +1214,8 @@ html.is-resizing-workspace * {
 }
 .meeting-confirm-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .meeting-confirm-error { padding: 7px 8px; border-radius: 7px; color: #b42318; background: rgba(217, 45, 32, .07); font-size: 11px; }
+.meeting-quick-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--app-text-3); font-size: 11px; }
+.meeting-quick-actions button { padding-inline: 4px; }
 .meeting-warning-choice { display: flex !important; grid-template-columns: none !important; align-items: flex-start; gap: 8px !important; padding: 9px; border: 1px solid rgba(230, 162, 60, .35); border-radius: 8px; background: #fff9ed; cursor: pointer; }
 .meeting-warning-choice input { margin-top: 2px; }
 .meeting-warning-choice span { display: grid; gap: 2px; color: #754c00; font-weight: 400; line-height: 1.45; }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../types';
-import { canReusePendingConversation, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
+import { canReusePendingConversation, coalesceActionMessages, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
 
 describe('getOrCreateConversationId', () => {
   beforeEach(() => {
@@ -105,6 +105,32 @@ describe('mergeMessages', () => {
       { id: 'failed-u2', role: 'user', content: '失败后残留二', ts: 13 },
     ];
     expect(mergeMessages(remote, local).map((item) => item.id)).toEqual(['r1', 'r2']);
+  });
+
+  it('coalesces restored model prose and action fallback rows by Action ID', () => {
+    const action = { id: 'image-duplicate', kind: 'image_generate', status: 'succeeded', version: 1, payload: {} } as never;
+    const restored: ChatMessage[] = [
+      { id: 'user', role: 'user', content: '画一只猫', ts: 1 },
+      { id: 'rich', role: 'ai', content: '图片已经生成，可以继续修改。', ts: 2, workspaceActions: [action] },
+      { id: 'fallback', role: 'ai', content: '图片任务已准备好，可在下方图片工坊查看结果。', ts: 3, workspaceActions: [action] },
+    ];
+    const merged = mergeMessages(restored, []);
+    expect(merged).toHaveLength(2);
+    expect(merged[1].id).toBe('rich');
+    expect(merged[1].content).toBe('图片已经生成，可以继续修改。');
+    expect(merged[1].workspaceActions).toEqual([action]);
+  });
+});
+
+describe('coalesceActionMessages', () => {
+  it('keeps unrelated action rows separate', () => {
+    const first = { id: 'map-a', kind: 'map_recommendation', status: 'ready', version: 1, payload: {} } as never;
+    const second = { id: 'map-b', kind: 'map_recommendation', status: 'ready', version: 1, payload: {} } as never;
+    const messages: ChatMessage[] = [
+      { id: 'a', role: 'ai', content: '地点 A', ts: 1, workspaceActions: [first] },
+      { id: 'b', role: 'ai', content: '地点 B', ts: 2, workspaceActions: [second] },
+    ];
+    expect(coalesceActionMessages(messages)).toHaveLength(2);
   });
 });
 

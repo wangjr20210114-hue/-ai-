@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ChatMessage, TravelPlan, SkillInfo, MeetingResult, ScheduleItem, WorkspaceAction } from '../../types';
@@ -10,6 +10,7 @@ import PaperInlineReader from '../paper/PaperInlineReader';
 import ImageStudioCard from '../image/ImageStudioCard';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { followUpDraftAction } from './followUps';
+import { nextWholeHourRange, usableMapPlaces } from './workspaceUi';
 import { isSafeRemoteUrl } from '../common/richContent';
 
 interface Props {
@@ -57,6 +58,7 @@ function MeetingConfirmationCard({
   onConfirm: () => Promise<void>;
   onCancel: () => Promise<void>;
 }) {
+  const startInputRef = useRef<HTMLInputElement>(null);
   const [subject, setSubject] = useState(String(action.payload.subject || '腾讯会议'));
   const [startTime, setStartTime] = useState(meetingInputValue(action.payload.start_time));
   const [endTime, setEndTime] = useState(meetingInputValue(action.payload.end_time));
@@ -81,6 +83,15 @@ function MeetingConfirmationCard({
   const timesComplete = Boolean(startTime && endTime && new Date(endTime).getTime() > new Date(startTime).getTime());
   const needsValidation = dirty || Boolean(action.payload.missing_fields?.length) || validationErrors.length > 0;
   const warningsAccepted = warnings.every((warning) => acknowledged.includes(warning));
+  const useSuggestedTime = () => {
+    const range = nextWholeHourRange();
+    setStartTime(meetingInputValue(range.start));
+    setEndTime(meetingInputValue(range.end));
+  };
+  const useOneHourDuration = () => {
+    if (!startTime) return;
+    setEndTime(meetingInputValue(new Date(new Date(startTime).getTime() + 60 * 60_000).toISOString()));
+  };
 
   if (action.status !== 'awaiting_confirmation') {
     return <div className="workspace-confirm-card meeting-confirm-card">
@@ -98,13 +109,18 @@ function MeetingConfirmationCard({
     <p className="meeting-confirm-help">请逐项检查或修改；信息不足时无需在聊天里反复回答。</p>
     <label>会议主题<input value={subject} maxLength={120} onInput={(event) => setSubject(event.currentTarget.value)} /></label>
     <div className="meeting-confirm-times">
-      <label>开始时间<input type="datetime-local" value={startTime} onInput={(event) => setStartTime(event.currentTarget.value)} /></label>
+      <label>开始时间<input ref={startInputRef} type="datetime-local" value={startTime} onInput={(event) => setStartTime(event.currentTarget.value)} /></label>
       <label>结束时间<input type="datetime-local" value={endTime} onInput={(event) => setEndTime(event.currentTarget.value)} /></label>
     </div>
     {validationErrors.map((message) => <div key={message} className="meeting-confirm-error">{message}</div>)}
     {!startTime && <div className="meeting-confirm-error">请选择开始时间</div>}
     {!endTime && <div className="meeting-confirm-error">请选择结束时间</div>}
     {startTime && endTime && !timesComplete && <div className="meeting-confirm-error">结束时间必须晚于开始时间</div>}
+    {(!startTime || !endTime) && <div className="meeting-quick-actions">
+      <span>快捷补全：</span>
+      <Button size="small" variant="text" disabled={busy} onClick={useSuggestedTime}>下一个整点开始，时长 1 小时</Button>
+      {startTime && !endTime && <Button size="small" variant="text" disabled={busy} onClick={useOneHourDuration}>从开始时间起 1 小时</Button>}
+    </div>}
     {!needsValidation && warnings.map((warning) => <label key={warning} className="meeting-warning-choice">
       <input
         type="checkbox"
@@ -113,6 +129,12 @@ function MeetingConfirmationCard({
       />
       <span><b>日程提醒</b>{warning}<small>勾选后表示已了解该冲突，仍可继续创建。</small></span>
     </label>)}
+    {!needsValidation && warnings.length > 1 && !warningsAccepted && <Button
+      size="small"
+      variant="text"
+      disabled={busy}
+      onClick={() => setAcknowledged([...warnings])}
+    >接受全部 {warnings.length} 项冲突提醒</Button>}
     <div className="workspace-confirm-actions">
       {needsValidation ? <Button
         size="small"
@@ -124,13 +146,16 @@ function MeetingConfirmationCard({
           start_time: new Date(startTime).toISOString(),
           end_time: new Date(endTime).toISOString(),
         })}
-      >检查并保存</Button> : <Button
-        size="small"
-        theme="primary"
-        loading={busy}
-        disabled={!timesComplete || !warningsAccepted}
-        onClick={() => void onConfirm()}
-      >{warnings.length ? '已了解，仍然创建' : '创建腾讯会议'}</Button>}
+      >保存并检查冲突</Button> : <>
+        {warnings.length > 0 && <Button size="small" variant="outline" disabled={busy} onClick={() => startInputRef.current?.focus()}>修改时间</Button>}
+        <Button
+          size="small"
+          theme="primary"
+          loading={busy}
+          disabled={!timesComplete || !warningsAccepted}
+          onClick={() => void onConfirm()}
+        >{warnings.length ? '接受已勾选冲突并创建' : '创建腾讯会议'}</Button>
+      </>}
       <Button size="small" variant="outline" disabled={busy} onClick={() => void onCancel()}>取消</Button>
     </div>
   </div>;
@@ -337,6 +362,16 @@ export default function MessageBubble({ message }: Props) {
     operation: 'activate_map' | 'update_meeting_action' | 'confirm_action' | 'cancel_action',
     input: Record<string, unknown> = {},
   ) => {
+    const mapSnapshot = operation === 'activate_map' ? usableMapPlaces(action) : [];
+    if (operation === 'activate_map' && mapSnapshot.length) {
+      // The Action already contains a frozen, server-verified place snapshot.
+      // Reveal it immediately so a slow/transient activation write cannot make
+      // a valid click look ineffective; the request below persists the choice.
+      dispatch({
+        type: 'SET_MAP_PLACES',
+        payload: { places: mapSnapshot, title: action.payload.title, reveal: true },
+      });
+    }
     setWorkspaceBusy(action.id);
     try {
       const response = await workspaceOperation(conversationId, operation, {
@@ -349,7 +384,8 @@ export default function MessageBubble({ message }: Props) {
         dispatch({ type: 'SET_MAP_PLACES', payload: { places: response.map.places, title: response.map.title, reveal: true } });
         MessagePlugin.success('已在右侧地图显示这些地点');
       } else if (operation === 'activate_map') {
-        throw new Error('地点数据暂时不可用，请重新生成地点推荐');
+        if (!mapSnapshot.length) throw new Error('地点数据暂时不可用，请重新生成地点推荐');
+        MessagePlugin.warning('已显示已核实地点，但本次激活状态未保存');
       }
       if (operation === 'update_meeting_action') MessagePlugin.success('会议信息已检查，请确认后创建');
       if (operation === 'confirm_action' && action.kind === 'calendar_changes') {
@@ -373,7 +409,12 @@ export default function MessageBubble({ message }: Props) {
       }
       if (operation === 'cancel_action') MessagePlugin.success('已取消该操作');
     } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '操作失败');
+      const text = error instanceof Error ? error.message : '操作失败';
+      if (operation === 'activate_map' && mapSnapshot.length) {
+        MessagePlugin.warning(`已用核实快照显示地点；激活状态暂未保存：${text}`);
+      } else {
+        MessagePlugin.error(text);
+      }
     } finally {
       setWorkspaceBusy('');
     }

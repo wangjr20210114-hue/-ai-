@@ -286,33 +286,46 @@ def _post_cloudflare_image(
     reference_images: list[str] | None = None,
 ) -> tuple[bytes, str]:
     references = list(reference_images or [])
-    payload: dict[str, Any] = {"prompt": prompt}
+    payloads: list[dict[str, Any]] = []
     if references:
         body, _mime = _reference_bytes(references[0])
-        payload.update({
-            "image_b64": base64.b64encode(body).decode("ascii"),
+        common = {
+            "prompt": prompt,
             "strength": 0.72,
             "num_steps": 12,
-            "width": 1024,
-            "height": 1024,
-        })
+        }
+        # Cloudflare's canonical img2img example sends the reference as an
+        # integer byte array.  The raw REST schema also accepts image_b64, so
+        # keep that as a bounded compatibility retry for older gateways.
+        if len(body) <= 2 * 1024 * 1024:
+            payloads.append({**common, "image": list(body)})
+        payloads.append({**common, "image_b64": base64.b64encode(body).decode("ascii")})
     else:
-        payload.update({"steps": 4})
+        payloads.append({"prompt": prompt, "steps": 4})
     endpoint = (
         f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
     )
-    request = urllib.request.Request(
-        endpoint,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_token}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=90) as response:
-        content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].lower()
-        response_body = response.read(16 * 1024 * 1024 + 1)
+    response_body = b""
+    content_type = ""
+    for index, payload in enumerate(payloads):
+        request = urllib.request.Request(
+            endpoint,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_token}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=90) as response:
+                content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].lower()
+                response_body = response.read(16 * 1024 * 1024 + 1)
+            break
+        except urllib.error.HTTPError as exc:
+            if index + 1 < len(payloads) and int(exc.code or 0) in {400, 404, 415, 422}:
+                continue
+            raise
     if not response_body or len(response_body) > 16 * 1024 * 1024:
         raise RuntimeError("Workers AI 返回图片大小无效")
     if content_type.startswith("image/"):
@@ -553,6 +566,13 @@ async def generate_image(
             }
         except Exception as exc:
             failures.append(f"Workers AI：{type(exc).__name__}")
+            status = int(getattr(exc, "code", 0) or 0)
+            diagnostic = (
+                "image generation provider=cloudflare failed model=%s reference_count=%s error_type=%s http_status=%s"
+                % (cloudflare_model, len(references), type(exc).__name__, status)
+            )
+            logging.warning(diagnostic)
+            print(diagnostic, flush=True)
         return None
 
     requested_order = [

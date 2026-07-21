@@ -36,6 +36,59 @@ def _text(content) -> str:
     return ""
 
 
+def _action_ids(message: dict) -> set[str]:
+    return {
+        str(action.get("id") or "")
+        for action in (message.get("workspaceActions") or [])
+        if isinstance(action, dict) and str(action.get("id") or "")
+    }
+
+
+def _coalesce_action_messages(messages: list[dict]) -> list[dict]:
+    """Keep one user-visible row for one durable Workspace Action.
+
+    Makers checkpoints can contain both the provider's final prose and a safe
+    action-only fallback when their writes race.  They describe the same
+    operation when they carry the same Action ID and must render as one row.
+    """
+    output: list[dict] = []
+    owner_by_action: dict[str, int] = {}
+    for message in messages:
+        action_ids = _action_ids(message)
+        owner = next((owner_by_action[action_id] for action_id in action_ids if action_id in owner_by_action), None)
+        if owner is None:
+            output.append(message)
+            index = len(output) - 1
+            for action_id in action_ids:
+                owner_by_action[action_id] = index
+            continue
+        existing = output[owner]
+        existing_actions = existing.get("workspaceActions") or []
+        incoming_actions = message.get("workspaceActions") or []
+        actions = []
+        seen = set()
+        for action in [*existing_actions, *incoming_actions]:
+            action_id = str(action.get("id") or "") if isinstance(action, dict) else ""
+            if not action_id or action_id in seen:
+                continue
+            seen.add(action_id)
+            actions.append(action)
+            owner_by_action[action_id] = owner
+        existing_fallback = str(existing.get("content") or "").strip() == action_fallback_content(existing_actions).strip()
+        incoming_fallback = str(message.get("content") or "").strip() == action_fallback_content(incoming_actions).strip()
+        if existing_fallback != incoming_fallback:
+            richer = message if existing_fallback else existing
+        else:
+            richer = message if len(str(message.get("content") or "").strip()) > len(str(existing.get("content") or "").strip()) else existing
+        merged = {**existing, **richer, "id": existing.get("id"), "ts": existing.get("ts"), "workspaceActions": actions}
+        for key in ("searchResults", "papers", "followUps"):
+            merged[key] = richer.get(key) or existing.get(key) or message.get(key)
+            if not merged[key]:
+                merged.pop(key, None)
+        output[owner] = merged
+    return output
+
+
 async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
@@ -189,7 +242,7 @@ async def handler(ctx):
             compacted[-1] = restored
         else:
             compacted.append(restored)
-    result = compacted
+    result = _coalesce_action_messages(compacted)
 
     if result and isinstance(latest_extras, dict):
         for restored in reversed(result):

@@ -81,6 +81,43 @@ function actionFallbackLike(content: string): boolean {
   ].some((prefix) => content.trim().startsWith(prefix));
 }
 
+/** Collapse restored rows that represent the same durable Workspace Action. */
+export function coalesceActionMessages(messages: ChatMessage[]): ChatMessage[] {
+  const output: ChatMessage[] = [];
+  const ownerByAction = new Map<string, number>();
+  messages.forEach((message) => {
+    const actionIds = [...workspaceActionIds(message)];
+    const owner = actionIds.map((id) => ownerByAction.get(id)).find((index) => index !== undefined);
+    if (owner === undefined) {
+      output.push(message);
+      const index = output.length - 1;
+      actionIds.forEach((id) => ownerByAction.set(id, index));
+      return;
+    }
+    const existing = output[owner];
+    const existingFallback = actionFallbackLike(existing.content);
+    const incomingFallback = actionFallbackLike(message.content);
+    const richer = existingFallback !== incomingFallback
+      ? (existingFallback ? message : existing)
+      : (message.content.trim().length > existing.content.trim().length ? message : existing);
+    const actions = [...(existing.workspaceActions || []), ...(message.workspaceActions || [])]
+      .filter((action, index, all) => all.findIndex((candidate) => candidate.id === action.id) === index);
+    actions.forEach((action) => ownerByAction.set(action.id, owner));
+    output[owner] = {
+      ...existing,
+      ...richer,
+      id: existing.id,
+      ts: existing.ts,
+      workspaceActions: actions,
+      searchResults: richer.searchResults || existing.searchResults || message.searchResults,
+      papers: richer.papers || existing.papers || message.papers,
+      followUps: richer.followUps || existing.followUps || message.followUps,
+      streaming: false,
+    };
+  });
+  return output;
+}
+
 /** Replace a live placeholder and coalesce any checkpoint row carrying the same durable Action. */
 export function reconcileCompletedMessage(messages: ChatMessage[], complete: ChatMessage): ChatMessage[] {
   const completedActionIds = workspaceActionIds(complete);
@@ -188,5 +225,5 @@ export function mergeMessages(remote: ChatMessage[], local: ChatMessage[]): Chat
       output.push({ ...message, streaming: false });
     }
   });
-  return output;
+  return coalesceActionMessages(output);
 }

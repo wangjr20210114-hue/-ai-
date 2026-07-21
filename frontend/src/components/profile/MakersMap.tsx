@@ -14,6 +14,12 @@ interface Props {
 type PermissionState = 'checking' | 'prompt' | 'granted' | 'denied' | 'unavailable';
 
 let sdkPromise: Promise<TencentMapNamespace> | null = null;
+const MAP_SDK_TIMEOUT_MS = 12_000;
+
+function resetTencentMapSdk() {
+  sdkPromise = null;
+  document.getElementById('qq-map-sdk-production')?.remove();
+}
 
 function loadTencentMap(key: string): Promise<TencentMapNamespace> {
   if (window.TMap) return Promise.resolve(window.TMap);
@@ -23,17 +29,28 @@ function loadTencentMap(key: string): Promise<TencentMapNamespace> {
     script.id = 'qq-map-sdk-production';
     script.src = `https://map.qq.com/api/gljs?v=1.exp&libraries=service&key=${encodeURIComponent(key)}`;
     script.async = true;
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resetTencentMapSdk();
+      reject(new Error('地图 SDK 加载超时'));
+    }, MAP_SDK_TIMEOUT_MS);
     script.onload = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
       if (window.TMap) resolve(window.TMap);
       else {
-        sdkPromise = null;
-        script.remove();
+        resetTencentMapSdk();
         reject(new Error('地图 SDK 加载失败'));
       }
     };
     script.onerror = () => {
-      sdkPromise = null;
-      script.remove();
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resetTencentMapSdk();
       reject(new Error('地图 SDK 加载失败'));
     };
     document.head.appendChild(script);
@@ -51,6 +68,7 @@ export default function MakersMap({ conversationId, title, places, revision, opt
   const containerRef = useRef<HTMLDivElement>(null);
   const [animating, setAnimating] = useState(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
+  const [mapLoading, setMapLoading] = useState(false);
   const [route, setRoute] = useState<MakersRoutePlan | null>(null);
   const [routeError, setRouteError] = useState('');
   const [permission, setPermission] = useState<PermissionState>('checking');
@@ -131,14 +149,17 @@ export default function MakersMap({ conversationId, title, places, revision, opt
     const key = import.meta.env.VITE_TENCENT_MAP_KEY?.trim();
     const container = containerRef.current;
     if (!key || !container || !displayPlaces.length) {
+      setMapLoading(false);
       setMapUnavailable(Boolean(displayPlaces.length && !key));
       return;
     }
     let cancelled = false;
     let map: TencentMapInstance | null = null;
     let fitBoundsTimer: number | null = null;
+    setMapLoading(true);
     void loadTencentMap(key).then((TMap) => {
       if (cancelled || !containerRef.current) return;
+      setMapLoading(false);
       setMapUnavailable(false);
       const renderedPlaces = route?.places?.length ? route.places : displayPlaces;
       const first = renderedPlaces[0];
@@ -187,7 +208,11 @@ export default function MakersMap({ conversationId, title, places, revision, opt
         fitPoints.forEach((point) => bounds.extend(new TMap.LatLng(point.latitude, point.longitude)));
         fitBoundsTimer = window.setTimeout(() => map?.fitBounds?.(bounds, { padding: 56 }), 150);
       }
-    }).catch(() => setMapUnavailable(true));
+    }).catch(() => {
+      if (cancelled) return;
+      setMapLoading(false);
+      setMapUnavailable(true);
+    });
     return () => {
       cancelled = true;
       if (fitBoundsTimer !== null) window.clearTimeout(fitBoundsTimer);
@@ -211,10 +236,21 @@ export default function MakersMap({ conversationId, title, places, revision, opt
     <div className={`makers-map ${animating ? 'is-updating' : ''}`}>
       <div className="makers-map-title">{places.length ? title : '当前位置'}</div>
       <div ref={containerRef} className="makers-map-canvas" aria-label={`${title}地图`} />
+      {mapLoading && <div className="makers-map-loading" role="status">正在加载腾讯地图…</div>}
       {mapUnavailable && (
-        <div className="makers-map-fallback">
-          <span>地图 SDK 暂时加载失败，地点数据已保留。</span>
-          <Button size="small" variant="outline" onClick={() => { setMapUnavailable(false); setRenderAttempt((value) => value + 1); }}>重试显示地点</Button>
+        <div className="makers-map-fallback" role="status">
+          <strong>底图暂时未加载，已核实地点仍可查看</strong>
+          <div className="makers-map-fallback-places">
+            {(route?.places?.length ? route.places : displayPlaces).map((place, index) => <div key={`${place.place_id}-${index}`}>
+              <b>{index + 1}. {place.name}</b>
+              <span>{place.address || `${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}`}</span>
+            </div>)}
+          </div>
+          <Button size="small" variant="outline" onClick={() => {
+            resetTencentMapSdk();
+            setMapUnavailable(false);
+            setRenderAttempt((value) => value + 1);
+          }}>重试加载底图</Button>
         </div>
       )}
       {routeError && <div className="makers-route-error">未能取得真实道路路线：{routeError}</div>}
@@ -230,7 +266,7 @@ export default function MakersMap({ conversationId, title, places, revision, opt
         </div>
       )}
       <div className="makers-place-chips">
-        {(route?.places?.length ? route.places : displayPlaces).map((place, index) => <span key={place.place_id}>{place.name === '当前位置' ? '📍' : index + 1} {place.name}</span>)}
+        {(route?.places?.length ? route.places : displayPlaces).map((place, index) => <span key={`${place.place_id}-${index}`}>{place.name === '当前位置' ? '📍' : index + 1} {place.name}</span>)}
       </div>
     </div>
   );

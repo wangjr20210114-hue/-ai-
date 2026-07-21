@@ -59,7 +59,7 @@ class FakeProactiveStores:
 class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
     async def test_empty_conversation_receives_one_model_written_proactive_opening(self):
         state = empty_proactive_state()
-        now = int(time.time())
+        now = int(datetime.fromisoformat("2026-07-21T12:00:00+08:00").timestamp())
         process_schedule_signals(state, [{
             "type": "schedule_upcoming", "dedup_key": "upcoming:test", "priority": "normal",
             "subject_ids": ["schedule-1"], "title": "即将开始", "detail": "产品评审将在一小时后开始",
@@ -83,7 +83,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_user_message_wins_race_with_proactive_opening(self):
         state = empty_proactive_state()
-        now = int(time.time())
+        now = int(datetime.fromisoformat("2026-07-21T12:00:00+08:00").timestamp())
         process_schedule_signals(state, [{
             "type": "schedule_upcoming", "dedup_key": "upcoming:race", "priority": "normal",
             "subject_ids": ["schedule-race"], "title": "即将开始", "detail": "会议即将开始",

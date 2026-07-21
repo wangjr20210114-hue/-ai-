@@ -6,6 +6,7 @@ import unittest
 import json
 import ast
 import time
+import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -293,6 +294,31 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         restored = next(item for item in response["messages"] if item["role"] == "ai")
         self.assertIn("点击", restored["content"])
         self.assertEqual(restored["workspaceActions"][0]["id"], action["id"])
+
+    async def test_message_restore_coalesces_model_prose_and_action_fallback(self):
+        action = new_action(
+            "image_generate", {"prompt": "蓝围巾橘猫", "group_id": "cat-duplicate"},
+            requires_confirmation=False,
+        )
+        action["status"] = "succeeded"
+        action["result"] = {"ok": True, "image_url": "https://example.com/cat.png"}
+        wire = json.dumps({"ui_action": "side_effect_action", "action": action})
+        messages = [
+            {"type": "human", "content": "画一只猫", "id": "u-image-duplicate"},
+            {"type": "tool", "content": wire},
+            {"type": "ai", "content": "图片已经生成，可以继续修改围巾颜色。", "id": "a-image-rich"},
+            {"type": "tool", "content": wire},
+            {"type": "ai", "content": action_fallback_content([action]), "id": "a-image-fallback"},
+        ]
+        store = SimpleNamespace(
+            langgraph_checkpointer=FakeCheckpointer(messages),
+            langgraph_store=FakeStore(),
+        )
+        response = await messages_handler(SimpleNamespace(conversation_id="restore-image-duplicate", store=store))
+        restored = [item for item in response["messages"] if item["role"] == "ai"]
+        self.assertEqual(len(restored), 1)
+        self.assertEqual(restored[0]["content"], "图片已经生成，可以继续修改围巾颜色。")
+        self.assertEqual([item["id"] for item in restored[0]["workspaceActions"]], [action["id"]])
 
     async def test_message_restore_rehydrates_image_versions_from_current_workspace(self):
         workspace = empty_workspace()
@@ -1809,7 +1835,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload, {"prompt": "一只猫", "steps": 4})
         self.assertEqual((body, content_type), (b"jpeg", "image/jpeg"))
 
-    def test_cloudflare_img2img_sends_base64_reference(self):
+    def test_cloudflare_img2img_uses_official_byte_array_reference(self):
         class Response:
             headers = {"Content-Type": "image/png"}
 
@@ -1835,9 +1861,41 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             )
         request = urlopen.call_args.args[0]
         payload = json.loads(request.data.decode("utf-8"))
-        self.assertEqual(payload["image_b64"], base64.b64encode(b"source").decode("ascii"))
+        self.assertEqual(payload["image"], list(b"source"))
         self.assertEqual(payload["num_steps"], 12)
         self.assertEqual(payload["strength"], 0.72)
+        self.assertNotIn("width", payload)
+        self.assertNotIn("height", payload)
+        self.assertEqual((body, content_type), (b"png", "image/png"))
+
+    def test_cloudflare_img2img_retries_base64_for_legacy_rest_gateway(self):
+        class Response:
+            headers = {"Content-Type": "image/png"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return b"png"
+
+        failed = urllib.error.HTTPError("https://example.com", 422, "schema", {}, None)
+        with patch(
+            "agents._shared.side_effects._reference_bytes",
+            return_value=(b"source", "image/jpeg"),
+        ), patch(
+            "agents._shared.side_effects.urllib.request.urlopen",
+            side_effect=[failed, Response()],
+        ) as urlopen:
+            body, content_type = _post_cloudflare_image(
+                "account", "token", "@cf/runwayml/stable-diffusion-v1-5-img2img",
+                "改成水彩", ["data:image/jpeg;base64,c291cmNl"],
+            )
+        self.assertEqual(urlopen.call_count, 2)
+        retry_payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(retry_payload["image_b64"], base64.b64encode(b"source").decode("ascii"))
         self.assertEqual((body, content_type), (b"png", "image/png"))
 
 
