@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import unittest
 import json
 import ast
@@ -23,7 +24,15 @@ from agents.chat._calendar_context import calendar_context
 from agents.chat._ui_tools import build_production_tools
 from agents.chat._protocol import PublicStreamFilter, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
-from agents._shared.side_effects import _meeting_payload, _meeting_result, _meeting_signature, _post_tencent_meeting_mcp, generate_image
+from agents.proactive.index import _acquire_scheduled_tick
+from agents._shared.side_effects import (
+    _meeting_payload,
+    _meeting_result,
+    _meeting_signature,
+    _post_cloudflare_image,
+    _post_tencent_meeting_mcp,
+    generate_image,
+)
 from agents._shared.vision import (
     VisionProvider,
     _post_completion,
@@ -503,6 +512,23 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         public = public_proactive_state(repeated, now)
         self.assertEqual(public["notifications"][0]["title"], "即将开始")
         self.assertEqual(public["checkpoints"]["schedule_collector"]["schedule_count"], 1)
+
+    async def test_scheduled_tick_lock_reuses_makers_blob_atomic_create(self):
+        lock_store = SimpleNamespace(set_json=AsyncMock())
+        acquired = await _acquire_scheduled_tick(1_800_000_000, "local-user", lock_store)
+        self.assertTrue(acquired)
+        args, kwargs = lock_store.set_json.call_args
+        self.assertIn("runtime-locks/proactive/local-user/", args[0])
+        self.assertEqual(args[1]["acquired_at"], 1_800_000_000)
+        self.assertTrue(kwargs["only_if_new"])
+
+    async def test_scheduled_tick_lock_treats_duplicate_delivery_as_noop(self):
+        PreconditionFailedError = type("PreconditionFailedError", (Exception,), {})
+        lock_store = SimpleNamespace(
+            set_json=AsyncMock(side_effect=PreconditionFailedError()),
+        )
+        acquired = await _acquire_scheduled_tick(1_800_000_000, "local-user", lock_store)
+        self.assertFalse(acquired)
 
     async def test_notification_controls_and_preferences_are_persistent(self):
         store = FakeStore()
@@ -1368,6 +1394,66 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["provider"], "cloudflare")
         self.assertEqual(result["storage_key"], "generated/test.jpg")
         self.assertEqual(provider.call_count, 1)
+
+    def test_cloudflare_flux_uses_official_image_schema(self):
+        class Response:
+            headers = {"Content-Type": "application/json"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return json.dumps({
+                    "success": True,
+                    "result": {"image": base64.b64encode(b"jpeg").decode("ascii")},
+                }).encode("utf-8")
+
+        with patch(
+            "agents._shared.side_effects.urllib.request.urlopen",
+            return_value=Response(),
+        ) as urlopen:
+            body, content_type = _post_cloudflare_image(
+                "account", "token", "@cf/black-forest-labs/flux-1-schnell", "一只猫",
+            )
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertTrue(request.full_url.endswith("/ai/run/@cf/black-forest-labs/flux-1-schnell"))
+        self.assertEqual(payload, {"prompt": "一只猫", "steps": 4})
+        self.assertEqual((body, content_type), (b"jpeg", "image/jpeg"))
+
+    def test_cloudflare_img2img_sends_base64_reference(self):
+        class Response:
+            headers = {"Content-Type": "image/png"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return b"png"
+
+        with patch(
+            "agents._shared.side_effects._reference_bytes",
+            return_value=(b"source", "image/jpeg"),
+        ), patch(
+            "agents._shared.side_effects.urllib.request.urlopen",
+            return_value=Response(),
+        ) as urlopen:
+            body, content_type = _post_cloudflare_image(
+                "account", "token", "@cf/runwayml/stable-diffusion-v1-5-img2img",
+                "改成水彩", ["data:image/jpeg;base64,c291cmNl"],
+            )
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(payload["image_b64"], base64.b64encode(b"source").decode("ascii"))
+        self.assertEqual(payload["num_steps"], 12)
+        self.assertEqual(payload["strength"], 0.72)
+        self.assertEqual((body, content_type), (b"png", "image/png"))
 
 
 if __name__ == "__main__":

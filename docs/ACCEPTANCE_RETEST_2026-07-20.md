@@ -70,7 +70,7 @@
 
 ## 自动化门禁
 
-- Python Agent：96/96。
+- Python Agent：101/101。
 - 迁移工具：2/2。
 - Cloud Functions/平台约束：17/17。
 - 前端 Vitest：41/41。

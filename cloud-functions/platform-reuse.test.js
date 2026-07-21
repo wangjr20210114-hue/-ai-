@@ -23,6 +23,8 @@ test('conversation, state, object and schedule infrastructure reuse EdgeOne Make
   const makersConfig = JSON.parse(config);
   assert.equal(makersConfig.schedules[0].cron, '0 8 * * *');
   assert.equal(makersConfig.schedules[0].timezone, 'Asia/Shanghai');
+  assert.equal(makersConfig.schedules[0].path, '/proactive');
+  assert.equal(makersConfig.schedules[0].payload?.trigger, 'edgeone_schedule');
   assert.equal(makersConfig.cloudFunctions.nodejs.maxDuration, 120);
   assert.doesNotMatch(chat + messages, /sqlite|FastAPI|websocket/i);
   assert.doesNotMatch(chat + messages, /yuanbao_chat_runs_v1|chat_runs/);
@@ -153,18 +155,19 @@ test('legacy data migration terminates in Makers-managed stores', async () => {
 });
 
 test('runtime does not reimplement generic tracing, queue or cron services', async () => {
-  const [system, tick, proactive] = await Promise.all([
+  const [system, proactiveEndpoint, proactive] = await Promise.all([
     read('agents/system_internal/index.py'),
-    read('cloud-functions/proactive-tick/index.js'),
+    read('agents/proactive/index.py'),
     read('agents/_shared/proactive.py'),
   ]);
-  assert.match(tick, /onlyIfNew/);
+  assert.match(proactiveEndpoint, /pages_blob/);
+  assert.match(proactiveEndpoint, /only_if_new=True/);
   assert.match(system, /ctx\.store\.langgraph_store/);
   assert.match(system, /notification_statuses/);
   assert.match(system, /["']schedule["']:\s*["']0 8 \* \* \*["']/);
   assert.doesNotMatch(system, /["']schedule["']:\s*["']0 \* \* \* \*["']/);
   assert.match(proactive, /Policy|policy|notification/i);
-  assert.doesNotMatch(system + tick, /OPS_ALERT_WEBHOOK|PROACTIVE_OPS_WEBHOOK|Sentry|OpenTelemetry/);
+  assert.doesNotMatch(system + proactiveEndpoint, /OPS_ALERT_WEBHOOK|PROACTIVE_OPS_WEBHOOK|Sentry|OpenTelemetry/);
 });
 
 test('production frontend has no active FastAPI or WebSocket transport fallback', async () => {

@@ -44,7 +44,7 @@ CLOUDFLARE_WORKERS_AI_TOKEN=<API Token>
 
 ## 运行行为
 
-- 新闻图片审核：在一个共享 7 秒视觉预算内按顺序尝试已配置 Provider，并记录 `vision_diagnostics.provider_*`，不会把密钥或原始错误返回前端。
+- 新闻图片审核：在一个共享 7 秒视觉预算内按顺序尝试已配置 Provider，并记录 `vision_diagnostics.provider_*`，不会把密钥或原始错误返回前端。Cloudflare 适配器使用官方 `/ai/run/@cf/meta/llama-3.2-11b-vision-instruct` REST 契约，将文本放入 `messages`、首张待审图片放入顶层 `image`；不把只明确支持文本生成的 OpenAI 兼容端点当作多模态接口。
 - 新闻图片保底：如果所有视觉 Provider 均未配置、超时或暂时不可用，但 SearchPro 已返回文章主图，则保留去重后的 HTTPS 文章主图；只有视觉模型明确判断“不相关”时才丢弃。这样“最近 AI 有什么进展”不会仅因视觉密钥缺失退化为纯文字。
 - 用户附图理解：发送前端压缩后的图片后，服务端先做一次多模态描述，再把事实描述交给 LLM 规划和回答；原始 Base64 不进入文本提示。
 - 文生图：混元失败后，Cloudflare 使用 `FLUX.1 Schnell`。

@@ -26,9 +26,9 @@
     {
       "name": "proactive-daily-scan",
       "cron": "0 8 * * *",
-      "path": "/proactive-tick",
+      "path": "/proactive",
       "method": "POST",
-      "payload": { "operation": "tick" },
+      "payload": { "operation": "tick", "trigger": "edgeone_schedule" },
       "timezone": "Asia/Shanghai"
     }
   ]

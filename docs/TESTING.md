@@ -37,7 +37,7 @@ python -m unittest discover -s tools/tests -v
 git diff --check
 ```
 
-当前分支 2026-07-21 的已验证结果：Cloud Functions/平台约束 17 项、前端 Vitest 41 项、Python Agent 96 项、迁移工具 2 项均通过；ESLint、TypeScript/Vite 构建、`edgeone makers build` 和 `git diff --check` 通过。运行 Python 测试前必须先激活上一步创建的 `.venv`；直接使用未安装依赖的系统 Python 会报 `langchain_core` 缺失，这属于本地环境错误而不是代码失败。主包体积警告是已知非阻断优化项。
+当前分支 2026-07-21 的已验证结果：Cloud Functions/平台约束 17 项、前端 Vitest 41 项、Python Agent 101 项、迁移工具 2 项均通过；ESLint、TypeScript/Vite 构建、`edgeone makers build` 和 `git diff --check` 通过。运行 Python 测试前必须先激活上一步创建的 `.venv`；直接使用未安装依赖的系统 Python 会报 `langchain_core` 缺失，这属于本地环境错误而不是代码失败。主包体积警告是已知非阻断优化项。
 
 搜索调用次数要在 Makers 控制台日志中验证：按本次请求时间范围搜索 `rich_search provider_call`，同一轮应恰好 1 条；第二个相同查询命中缓存时会出现 `rich_search cache_hit`。浏览器 Network 只看到外层 `POST /chat`，不能据此推断内部工具次数。
 
@@ -67,7 +67,7 @@ http://127.0.0.1:8088/test-cases/
 
 判断是否完整启动成功：
 
-1. 页面显示 64 条测试用例。
+1. 页面显示 67 条测试用例。
 2. 顶部同步状态显示“已同步”，而不是“离线模式”。
 3. 修改任一测试结果或备注后版本号递增。
 4. 刷新页面后数据仍存在；另一台主机使用同一 Makers 环境时能看到更新。

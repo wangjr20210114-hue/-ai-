@@ -1,6 +1,6 @@
 # EdgeOne Makers 主动式 Agent 实现状态
 
-> 更新日期：2026-07-18
+> 更新日期：2026-07-21
 > 范围：当前 Makers 生产主链；不把 `backend/` 旧 FastAPI 能力计入完成度  
 > 状态：代码、本地回归和最新 Preview 只读回归完成；日程变更可立即扫描，Schedule 跨日平台触发仍待确认
 
@@ -12,7 +12,7 @@
 
 | 任务点 | 状态 | 实现 |
 | --- | --- | --- |
-| 平台后台触发 | 配置已部署，平台触发待确认 | `edgeone.json` 配置 `Asia/Shanghai` 每日 08:00 触发 `/proactive-tick` Makers Function（当前 Makers 平台最短间隔为 1 天）；生产构建日志确认发现 1 个 Schedule，但 2026-07-18 07:55–08:15 的运行日志为空，应用仍显示等待首次检查 |
+| 平台后台触发 | 修复后待二次真实验证 | `edgeone.json` 配置 `Asia/Shanghai` 每日 08:00，直接 POST `/proactive` Makers Agent；平台 payload 标识 `edgeone_schedule`，Agent 使用 Makers Blob `only_if_new` 原子锁防止重复投递。2026-07-21 首次专用 Preview 已证明 Schedule 会在网页关闭时发请求，同时发现旧 Cloud Function 中转路径返回 404；该中转层已移除，等待新 Preview 复验。 |
 | 持久 Event/Run/Observation/Notification | 已实现 | LangGraph Store 单用户 namespace；确定性 ID 和去重键 |
 | 后端日程 Collector | 已实现 | 临近、冲突、紧接行程；页面不再计算机会 |
 | Policy | 已实现 | 总开关、提醒类型、免打扰、每日上限、去重 |
@@ -65,10 +65,10 @@
 
 ## 7. 自动化基线
 
-- Makers Agent：63 项通过。
+- Makers Agent：101 项通过。
 - SQLite 只读导出：2 项通过。
-- 前端 Vitest：34 项通过。
-- Cloud Functions、验收持久化与平台复用/安全契约：16 项通过。
+- 前端 Vitest：41 项通过。
+- Cloud Functions、验收持久化与平台复用/安全契约：17 项通过。
 - 旧 FastAPI 不再作为 Makers 发布回归门槛；用户结果迁移见 [`LEGACY_FASTAPI_CAPABILITIES.md`](LEGACY_FASTAPI_CAPABILITIES.md)。
 - TypeScript/Vite 生产构建：通过。
 - ESLint：通过。

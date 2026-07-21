@@ -257,10 +257,12 @@ window.CASE_PROCEDURES = {
     S('右侧日历', '把第二条开始时间后移 2 小时，再触发检查。', '不再新增同一风险；旧通知仍可审计。'),
   ],
   'PRO-07': [
-    S('Makers 控制台', '项目 ai-active-agent → 构建部署 → 目标 Deployment → Schedules；找到 proactive-daily-scan。', 'Cron 为“0 8 * * *”，时区为“Asia/Shanghai”，状态已部署。'),
-    S('目标网页（07:50 前）', '打开 /system，记录 scheduler.last_tick；创建一条“TEST-CRON”可扫描日程，然后关闭所有目标应用标签页。', '记录到测试前 last_tick；关闭应用后没有浏览器触发主动检查。'),
-    S('Makers 控制台（08:05 后）', '进入日志分析，时间选 07:55–08:05；筛选 proactive-tick 和 POST。', '出现平台发起的 /proactive-tick，状态 2xx；不是浏览器 User-Agent 发起。'),
-    S('目标网页', '重新打开 /system，再到设置展开“运行记录与诊断”。', 'last_tick 推进，新增平台触发 Run；同一 dedup_key 没有重复通知。', '当天无法跨 08:00 验证时标“阻塞”，不要把 Cron 临时改为高频。'),
+    S('专用测试提交', '只在测试分支把 edgeone.json 的 0 8 * * * 临时改为今天至少 15 分钟后的一个“每日一次”时刻，例如 10 15 * * *；提交并推送。不要使用 */5 等高频表达式。', 'GitHub 出现独立 TEST Cron 提交；Production 分支和 Deployment 完全未变。'),
+    S('Makers 控制台', '新建 Preview，选择测试分支；核对提交 SHA、环境=预览、构建日志 Found 1 schedule，并记录 Deployment ID。', '专用 Preview 构建成功，Schedule 名为 proactive-daily-scan，时区 Asia/Shanghai。'),
+    S('目标 Preview', '创建未来 24 小时内、地点有效的 TEST-CRON 日程；设置→主动式服务→运行记录与诊断，记录“最近检查”；随后关闭这个 Preview 的所有应用标签。', '日程已确认并持久化；基线时间明确，关闭页面后不会有浏览器触发检查。'),
+    S('GitHub 分支', '立即把 edgeone.json 恢复为 0 8 * * * 并推送，但先不要删除已部署的专用 Preview。', '分支 HEAD 已恢复正式 Cron；不可变专用 Preview 仍保留一次测试触发。'),
+    S('Makers 日志（触发后）', '时间范围选计划时刻前后 5 分钟；筛选 /proactive、来源 Agents、POST 和专用 Deployment ID。', '出现平台直接发起的 /proactive，来源 Agents、状态 2xx；触发时应用页面已关闭。'),
+    S('恢复与清理', '部署已恢复 0 8 * * * 的最终 Preview；打开应用核对运行记录，再用对话删除 TEST-CRON 日程。', '平台触发 Run 可审计、同一 dedup_key 无重复通知；最终 Preview 使用正式 08:00 Cron，测试日程已删除。'),
   ],
   'PRO-08': [
     S('目标网页 · 补偿分支', '发送“创建 TEST-WORKFLOW-COMP：步骤1立即提醒，失败时生成清理测试状态的补偿；步骤2依赖步骤1并等待人工确认”；查看提案但先不确认。', '显示两个步骤、依赖和补偿；确认前没有步骤执行。重复发送同标题时仍只有一张待确认卡。'),
