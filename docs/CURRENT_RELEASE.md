@@ -18,12 +18,12 @@
 ## 当前 Preview
 
 - Preview 分支：`agent/makers-native-persistence-fixes`
-- Preview 提交：`7c6a9c5de3fd33cdcaa9f6b103e9850e33638c54`
-- Preview Deployment：`dpl61xo277ys`
-- 创建时间：2026-07-20 19:52（Asia/Shanghai）
-- 构建结果：成功，67 秒。
+- Preview 提交：`eb1bc19`
+- Preview Deployment：`dppucqhthhnt`
+- 创建时间：2026-07-21 13:40（Asia/Shanghai）
+- 构建结果：成功，72 秒。
 - 构建内容：前端静态资源、Node Cloud Functions、13 条 Python Agent 路由和 1 条 `Asia/Shanghai` 每日 Schedule。
-- 线上回归：新闻冷搜索工具阶段 23.6 秒内完成、缓存复问外部检索约 1 秒且保留文章主图；文生图、图生图、版本刷新和下载通过；62 页中文文件名 PDF 分片阅读、全文分析/问答/翻译通过；arXiv 慢下载不再触发平台 30 秒 504；北京站到故宫真实道路路线返回 6.4 公里/24 分钟；主动延后、设置持久化和立即检查通过。
+- 线上回归：无缓存新闻搜索保留独立 LLM 规划，工具阶段 17.8 秒、正文 27.3 秒；单轮只有 1 次 SearchPro，请求完成后不再产生冗余工具绑定模型轮次。SearchPro 曾返回并成功加载 919×376 的真实新闻现场图；图片审核改为与文本综合并行，任意 SSE 到达顺序都不会丢图。新对话在有未读风险时由模型自然主动开场；旧左栏主动提醒区已移除，设置、Skills 广场和腾讯会议个人授权引导已上线。最终应用和 64 条验收站均连接成功。
 
 本 Preview 是个人演示版：运行时固定单用户，已移除 JWT、Neon、登录注册和租户隔离；持久化使用 Makers Conversation Store、LangGraph Store/Checkpointer、Blob 与 Schedule。搜索保留独立 LLM 规划、单轮一次 `rich_search`、并发事实/视觉查询和持久缓存，并提供 4/8/12/18 个网页结果、0/2/4 张图片与并发开关。
 
@@ -38,17 +38,18 @@
 | Preview | `dph2wvagts0x` | `9ed04b1` | 成功；包含当时全部带描述验收问题修复。 |
 | Preview | `dpre2ruu98hn` | `4262a26` | 成功；个人演示、搜索设置与多用户删除后的首个干净构建。 |
 | Preview | `dpxl03mjkz33` | `438093f` | 历史 Preview；成功；补充 SearchPro 内嵌新闻主图解析。 |
-| Preview | `dpl61xo277ys` | `7c6a9c5` | 当前 Preview；成功；视觉降级、搜索预算、图片版本、大 PDF 分片/中文文件名与 arXiv 120 秒平台时限均已上线复测。 |
+| Preview | `dpl61xo277ys` | `7c6a9c5` | 历史 Preview；成功；视觉降级、搜索预算、图片版本、大 PDF 分片/中文文件名与 arXiv 120 秒平台时限均已上线复测。 |
+| Preview | `dppucqhthhnt` | `eb1bc19` | 当前 Preview；成功；新对话主动服务、搜索真实图片画廊、Skills 广场、腾讯会议个人 MCP 引导与 30 秒搜索性能改造。 |
 
 GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当前发布方式是先推送目标分支，再从 EdgeOne 控制台“构建部署 → 新建部署”选择该分支。详细步骤见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
 ## 自动化证据
 
-当前运行代码 `7c6a9c5` 已验证：
+当前运行代码 `eb1bc19` 已验证：
 
 - Cloud Functions、验收持久化与平台约束：17 项通过。
-- 前端 Vitest：39 项通过。
-- Python Agent：88 项通过。
+- 前端 Vitest：41 项通过。
+- Python Agent：94 项通过。
 - 旧数据迁移工具：2 项通过。
 - ESLint、TypeScript/Vite EdgeOne 构建和 `git diff --check`：通过。
 - EdgeOne 云端构建：成功。
@@ -57,12 +58,12 @@ GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当
 
 ## 当前边界
 
-- `dpl61xo277ys` 尚未发布生产；共享验收站当前 50 条通过、0 条失败、14 条阻塞/未测，生产阻断通过 39/42，门禁仍明确为“禁止生产发布”。原 34 条阻塞专项已归类为 20 通过、11 不适用/外部阻塞、3 条真实场景待测。
-- “最近AI有什么新进展”冷搜索工具阶段约 23.6 秒，完整长回答约 48.3 秒；缓存复问外部检索约 1 秒，完整回答约 33 秒。`rich_search` 已低于 30 秒，但完整长答案尚不能普遍承诺 5–10 秒。
-- 当前未配置 Cloudflare Workers AI Account ID/Token；因此免费视觉降级代码已就绪但未做真实 Cloudflare Provider 调用。新闻在视觉 Provider 不可用时会保留 SearchPro HTTPS 文章主图，混元文生图和图生图已真实通过。
+- `dppucqhthhnt` 尚未发布生产；共享验收站当前 50 条通过、0 条失败、14 条阻塞/未测，生产阻断通过 39/42，门禁仍明确为“禁止生产发布”。原 34 条阻塞专项已归类为 20 通过、11 不适用/外部阻塞、3 条真实场景待测。
+- “最近AI有什么新进展”最终无缓存样例在 17.8 秒拿到工具结果、27.3 秒显示正文，达到最慢约 30 秒目标；5–10 秒仍只能在缓存命中或 Provider 较快时达到，不能普遍承诺。
+- Cloudflare Workers AI 测试 Token 已仅配置到 Preview 且验证为有效，但该 Token 无权列出 Account，当前仍缺 `CLOUDFLARE_ACCOUNT_ID`，因此免费视觉降级尚不能真实调用。SearchPro 图片链路已真实成功过，但视觉 Provider 不可用或候选不相关时会诚实不展示图片，不再声称图片正在生成。混元文生图和图生图已真实通过。
 - 真实旧 SQLite 备份尚未执行数量、哈希和抽样回读；迁移代码与测试已完成。
 - 真实平台跨日定时触发和各 Provider 付费调用仍需专项验收。
-- 腾讯会议是最后阶段可选连接器；个人部署不要求先申请企业 API。
+- 腾讯会议是可选 Skill；个人账号不要求企业 `SecretId/AppId`，但仍需从腾讯会议 AI Skill 页面取得个人 MCP Token，并只保存到 Makers 环境变量。
 - DOC/DOCX、扫描 PDF OCR、页码级引用尚未实现。
 - 未绑定自定义域名，Preview 测试链接默认有效 3 小时，签名不得提交仓库。
 
