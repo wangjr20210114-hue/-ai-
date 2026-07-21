@@ -47,8 +47,8 @@ const specialSteps = {
   'PRO-07': [
     '【Makers 控制台】进入目标项目 → 当前 Deployment → Schedules，确认存在 proactive-daily-scan，Cron 为 0 8 * * *，时区 Asia/Shanghai。',
     '【目标网页】07:50 前打开 /system，记录 scheduler.last_tick、Deployment ID 和当前北京时间；准备一条带 TEST-CRON 前缀的可扫描日程。',
-    '【浏览器】关闭目标应用的所有标签页；测试站可保持打开，因为它不会发送带 edgeone_schedule 标识的 POST /proactive。',
-    '【Makers 控制台】08:05 后进入日志分析，把时间范围设为 07:55—08:05，筛选 /proactive、来源 Agents、POST 和 2xx/5xx 状态。',
+    '【浏览器】关闭目标应用的所有标签页；测试站可保持打开，因为它不会调用 /api/proactive-tick。',
+    '【Makers 控制台】08:05 后进入日志分析，把时间范围设为 07:55—08:05，先筛选 /api/proactive-tick、来源 Cloud Functions，再筛选 /proactive、来源 Agents 和 2xx/5xx 状态。',
     '【目标网页】重新打开 /system 和主动运行记录；确认 last_tick 推进、出现平台触发的 Run，且同一 dedup_key 没有重复通知。',
     '【验收站】上传 Schedule 配置、函数日志和 Run 三张截图；当天无法等待 08:00 时标“阻塞”，不要临时把生产 Cron 改成高频。',
   ],

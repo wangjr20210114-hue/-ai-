@@ -24,7 +24,6 @@ from agents.chat._calendar_context import calendar_context
 from agents.chat._ui_tools import build_production_tools
 from agents.chat._protocol import PublicStreamFilter, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
-from agents.proactive.index import _acquire_scheduled_tick
 from agents._shared.side_effects import (
     _meeting_payload,
     _meeting_result,
@@ -512,23 +511,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         public = public_proactive_state(repeated, now)
         self.assertEqual(public["notifications"][0]["title"], "即将开始")
         self.assertEqual(public["checkpoints"]["schedule_collector"]["schedule_count"], 1)
-
-    async def test_scheduled_tick_lock_reuses_makers_blob_atomic_create(self):
-        lock_store = SimpleNamespace(set_json=AsyncMock())
-        acquired = await _acquire_scheduled_tick(1_800_000_000, "local-user", lock_store)
-        self.assertTrue(acquired)
-        args, kwargs = lock_store.set_json.call_args
-        self.assertIn("runtime-locks/proactive/local-user/", args[0])
-        self.assertEqual(args[1]["acquired_at"], 1_800_000_000)
-        self.assertTrue(kwargs["only_if_new"])
-
-    async def test_scheduled_tick_lock_treats_duplicate_delivery_as_noop(self):
-        PreconditionFailedError = type("PreconditionFailedError", (Exception,), {})
-        lock_store = SimpleNamespace(
-            set_json=AsyncMock(side_effect=PreconditionFailedError()),
-        )
-        acquired = await _acquire_scheduled_tick(1_800_000_000, "local-user", lock_store)
-        self.assertFalse(acquired)
 
     async def test_notification_controls_and_preferences_are_persistent(self):
         store = FakeStore()

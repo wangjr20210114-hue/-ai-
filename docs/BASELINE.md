@@ -23,7 +23,7 @@
 | 腾讯会议创建 | 官方个人 MCP Skill 适配已实现 | Skills 广场引导个人用户取得 Token；未配置时不暴露工具；确认后才调用 `schedule_meeting` | `agents/_shared/side_effects.py`、`SkillsMarketplaceButton.tsx` |
 | 多模态理解、文生图、图生图、版本、Blob、ZIP | 已实现并测试 | 用户附图先经视觉 Provider 描述；混元为主，Cloudflare Workers AI 提供视觉/文生图/图生图降级，百炼与 Gemini 可作视觉后备；生成结果复制到 Makers Blob | `agents/_shared/vision.py`、`agents/_shared/side_effects.py`、`agents/image`、`InputBar.tsx` |
 | PDF、图片上传、阅读库、论文助读 | 已实现核心链路 | PDF 上传后直接打开内置助读；阅读库支持手动分类与删除反馈；无 DOCX/OCR | `cloud-functions/files`、`library`、`papers`、`agents/reader` |
-| 主动日程/天气/路线提醒 | 已实现并测试 | 打开网页及相关日程变更时刷新；未读风险由模型在空白新对话中自然发起，策略设置位于统一设置；EdgeOne Schedule 直接触发 `/proactive` Agent，Makers Blob 原子锁防重复投递，需在修复后的 Preview 完成无浏览器终验 | `agents/proactive`、`useSSEChat.ts` |
+| 主动日程/天气/路线提醒 | 已实现并测试 | 打开网页及相关日程变更时刷新；未读风险由模型在空白新对话中自然发起，策略设置位于统一设置；EdgeOne Schedule 触发 `/api/proactive-tick` Cloud Function，复用 Makers Blob 原子锁后转给 `/proactive` Agent，需在修复后的 Preview 完成无浏览器终验 | `cloud-functions/api/proactive-tick`、`agents/proactive`、`useSSEChat.ts` |
 | Notification、免打扰、每日上限、稍后提醒 | 已实现并测试 | 在线读取通过；真实 Cron 触发待跨日终验 | `agents/_shared/proactive.py` |
 | Memory、Feedback、Rule、Token 预算 | 已实现并测试 | 待预览复验 | `agents/intelligence` |
 | 持久工作流、失败阻断、重试与补偿 | 已实现并测试 | 待预览复验 | `agents/_shared/proactive.py` |
@@ -68,7 +68,7 @@
 
 2026-07-21 当前工作树结果：
 
-- Makers Agent：101 项通过。
+- Makers Agent：99 项通过。
 - SQLite 导出工具：2 项通过。
 - Cloud Functions、验收持久化和平台约束：17 项通过。
 - 前端 Vitest：41 项通过。

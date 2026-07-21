@@ -37,31 +37,6 @@ def _message_text(value) -> str:
     return ""
 
 
-async def _acquire_scheduled_tick(
-    timestamp: int,
-    user_id: str,
-    lock_store=None,
-) -> bool:
-    """Use Makers Blob's atomic create to deduplicate platform deliveries."""
-    if lock_store is None:
-        from pages_blob import get_store
-
-        lock_store = get_store("yuanbao-auth", consistency="strong")
-    bucket = time.strftime("%Y%m%d%H", time.gmtime(timestamp))
-    key = f"runtime-locks/proactive/{user_id}/{bucket}.json"
-    try:
-        await lock_store.set_json(
-            key,
-            {"user_id": user_id, "acquired_at": timestamp},
-            only_if_new=True,
-        )
-        return True
-    except Exception as exc:
-        if type(exc).__name__ == "PreconditionFailedError":
-            return False
-        raise
-
-
 async def _compose_opening(env, notifications: list[dict]) -> str:
     facts = "\n".join(
         f"- {item.get('title') or '提醒'}：{item.get('body') or ''}；可建议：{item.get('action_prompt') or ''}"
@@ -159,21 +134,6 @@ async def handler(ctx):
             }
 
         if operation == "tick":
-            if str(body.get("trigger") or "") == "edgeone_schedule":
-                timestamp = int(time.time())
-                if not await _acquire_scheduled_tick(timestamp, user_id):
-                    state = await load_proactive_state(store, user_id)
-                    return {
-                        **public_proactive_state(state),
-                        "tick_stats": {
-                            "scheduled_duplicate": 1,
-                            "signals": 0,
-                            "events_created": 0,
-                            "runs_created": 0,
-                            "notifications_created": 0,
-                            "skipped": 1,
-                        },
-                    }
             state, stats = await run_proactive_tick(store, env=ctx.env, user_id=user_id)
             return {**public_proactive_state(state), "tick_stats": stats}
 

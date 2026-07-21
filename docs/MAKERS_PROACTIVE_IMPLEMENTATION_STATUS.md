@@ -12,7 +12,7 @@
 
 | 任务点 | 状态 | 实现 |
 | --- | --- | --- |
-| 平台后台触发 | 修复后待二次真实验证 | `edgeone.json` 配置 `Asia/Shanghai` 每日 08:00，直接 POST `/proactive` Makers Agent；平台 payload 标识 `edgeone_schedule`，Agent 使用 Makers Blob `only_if_new` 原子锁防止重复投递。2026-07-21 首次专用 Preview 已证明 Schedule 会在网页关闭时发请求，同时发现旧 Cloud Function 中转路径返回 404；该中转层已移除，等待新 Preview 复验。 |
+| 平台后台触发 | 修复后待三次真实验证 | `edgeone.json` 配置 `Asia/Shanghai` 每日 08:00，POST 官方示例风格的 `/api/proactive-tick` Makers Cloud Function；Function 只用 Makers Blob `onlyIfNew` 原子锁防重复投递，再转给 `/proactive` Agent。2026-07-21 首次专用 Preview 证明 Schedule 会在网页关闭时请求，但旧根级 Function 路由返回 404；第二次证明 Schedule 不直接调度 Agent。现已改为嵌套 API Function，等待新 Preview 复验。 |
 | 持久 Event/Run/Observation/Notification | 已实现 | LangGraph Store 单用户 namespace；确定性 ID 和去重键 |
 | 后端日程 Collector | 已实现 | 临近、冲突、紧接行程；页面不再计算机会 |
 | Policy | 已实现 | 总开关、提醒类型、免打扰、每日上限、去重 |
@@ -65,7 +65,7 @@
 
 ## 7. 自动化基线
 
-- Makers Agent：101 项通过。
+- Makers Agent：99 项通过。
 - SQLite 只读导出：2 项通过。
 - 前端 Vitest：41 项通过。
 - Cloud Functions、验收持久化与平台复用/安全契约：17 项通过。
