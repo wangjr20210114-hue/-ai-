@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import secrets
 import socket
 import urllib.error
@@ -326,6 +327,57 @@ def _post_cloudflare_image(
     return base64.b64decode(encoded), "image/jpeg"
 
 
+def _cloudflare_image_prompt(
+    account_id: str,
+    api_token: str,
+    model: str,
+    prompt: str,
+) -> str:
+    """Translate CJK image instructions for image models that follow English best."""
+    if not re.search(r"[\u3400-\u9fff]", prompt):
+        return prompt
+    endpoint = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
+    payload = {
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "Translate Chinese image-generation or image-editing instructions into one precise "
+                    "English diffusion prompt. Preserve every subject, color, layout, background, exclusion, "
+                    "and edit constraint. Output only the English prompt, without quotes or explanation."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "max_completion_tokens": 300,
+        "temperature": 0,
+    }
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        data = json.loads(response.read(1024 * 1024).decode("utf-8"))
+    result = data.get("result") if isinstance(data, dict) else None
+    translated = ""
+    if isinstance(result, dict):
+        translated = str(result.get("response") or "").strip()
+        choices = result.get("choices")
+        if not translated and isinstance(choices, list) and choices:
+            choice = choices[0] if isinstance(choices[0], dict) else {}
+            message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
+            translated = str(message.get("content") or choice.get("text") or "").strip()
+    translated = translated.strip().strip("`").strip().strip('"').strip()
+    if not translated or re.search(r"[\u3400-\u9fff]", translated):
+        raise RuntimeError("Workers AI 未返回纯英文图片提示词")
+    return translated[:2048]
+
+
 def _download_image(url: str) -> tuple[bytes, str]:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme != "https":
@@ -468,12 +520,23 @@ async def generate_image(
             or "@cf/black-forest-labs/flux-1-schnell"
         )
         try:
+            translation_model = str(
+                env.get("CLOUDFLARE_PROMPT_TRANSLATION_MODEL")
+                or "@cf/zai-org/glm-4.7-flash"
+            )
+            provider_prompt = await asyncio.to_thread(
+                _cloudflare_image_prompt,
+                cloudflare_account,
+                cloudflare_token,
+                translation_model,
+                prompt,
+            )
             body, content_type = await asyncio.to_thread(
                 _post_cloudflare_image,
                 cloudflare_account,
                 cloudflare_token,
                 cloudflare_model,
-                prompt,
+                provider_prompt,
                 references,
             )
             persisted = await _persist_generated_bytes(body, content_type, storage_prefix)
@@ -486,6 +549,7 @@ async def generate_image(
                 **persisted,
                 "reference_images": references[:1],
                 "fallback": bool(failures),
+                "prompt_translated": provider_prompt != prompt,
             }
         except Exception as exc:
             failures.append(f"Workers AI：{type(exc).__name__}")
@@ -500,13 +564,18 @@ async def generate_image(
     for provider_name in provider_order:
         result = await (try_cloudflare() if provider_name == "cloudflare" else try_hunyuan())
         if result is not None:
-            logging.info(
-                "image generation provider=%s model=%s reference_count=%s fallback=%s",
-                result.get("provider") or "none",
-                result.get("model") or "none",
-                len(references),
-                bool(result.get("fallback")),
+            diagnostic = (
+                "image generation provider=%s model=%s reference_count=%s fallback=%s prompt_translated=%s"
+                % (
+                    result.get("provider") or "none",
+                    result.get("model") or "none",
+                    len(references),
+                    bool(result.get("fallback")),
+                    bool(result.get("prompt_translated")),
+                )
             )
+            logging.info(diagnostic)
+            print(diagnostic, flush=True)
             return result
 
     if not failures:

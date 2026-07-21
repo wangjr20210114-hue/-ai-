@@ -27,6 +27,7 @@ from agents.chat._ui_tools import build_production_tools, verify_place_queries_p
 from agents.chat._protocol import PublicStreamFilter, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
 from agents._shared.side_effects import (
+    _cloudflare_image_prompt,
     _meeting_payload,
     _meeting_result,
     _meeting_signature,
@@ -959,6 +960,21 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("未核实餐馆", result["response_constraint"])
         self.assertEqual([place["name"] for place in result["action"]["payload"]["places"]], ["真实餐馆"])
 
+    async def test_map_recommendation_rejects_when_every_place_is_unverified(self):
+        async def provider(_map_key, query, *, city, limit):
+            return []
+
+        with patch("agents.chat._ui_tools.provider_search_places", new=provider):
+            tools = build_production_tools(None, store=FakeStore(), conversation_id="empty-map", env={})
+            tool = next(item for item in tools if item.name == "recommend_places_on_map")
+            with self.assertRaisesRegex(ValueError, "所有候选地点都未通过真实地点服务核实"):
+                await tool.ainvoke({
+                    "queries": ["未核实餐馆甲", "未核实餐馆乙"],
+                    "city": "北京",
+                    "title": "餐馆推荐",
+                    "action_text": "在地图中查看",
+                })
+
     async def test_route_change_retires_stale_route_risk_notification(self):
         store = FakeStore()
         now = int(time.time())
@@ -1606,6 +1622,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         }
         persisted = {"storage_key": "generated/test.jpg", "image_url": "/files?key=generated/test.jpg"}
         with patch(
+            "agents._shared.side_effects._cloudflare_image_prompt",
+            return_value="an orange cat",
+        ) as translator, patch(
             "agents._shared.side_effects._post_cloudflare_image",
             return_value=(b"jpeg", "image/jpeg"),
         ) as provider, patch(
@@ -1615,7 +1634,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             result = await generate_image(env, "一只猫")
         self.assertTrue(result["ok"])
         self.assertEqual(result["provider"], "cloudflare")
+        self.assertTrue(result["prompt_translated"])
         self.assertEqual(result["storage_key"], "generated/test.jpg")
+        translator.assert_called_once_with(
+            "account", "token", "@cf/zai-org/glm-4.7-flash", "一只猫",
+        )
         self.assertEqual(provider.call_count, 1)
 
     async def test_preview_can_force_cloudflare_image_generation_first(self):
@@ -1626,6 +1649,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "IMAGE_PROVIDER_ORDER": "cloudflare,hunyuan",
         }
         with patch(
+            "agents._shared.side_effects._cloudflare_image_prompt",
+            return_value="an orange cat",
+        ), patch(
             "agents._shared.side_effects._post_cloudflare_image",
             return_value=(b"jpeg", "image/jpeg"),
         ) as cloudflare, patch(
@@ -1639,6 +1665,55 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["fallback"])
         self.assertEqual(cloudflare.call_count, 1)
         hunyuan.assert_not_called()
+
+    def test_cloudflare_translates_chinese_image_prompt_with_current_multilingual_model(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return json.dumps({
+                    "success": True,
+                    "result": {
+                        "choices": [{
+                            "message": {
+                                "content": "An orange cat wearing a blue scarf on a white background, no text."
+                            }
+                        }],
+                    },
+                }).encode("utf-8")
+
+        with patch(
+            "agents._shared.side_effects.urllib.request.urlopen",
+            return_value=Response(),
+        ) as urlopen:
+            translated = _cloudflare_image_prompt(
+                "account", "token", "@cf/zai-org/glm-4.7-flash",
+                "一只戴蓝色围巾的橘猫，白色背景，不要文字",
+            )
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertTrue(request.full_url.endswith("/ai/run/@cf/zai-org/glm-4.7-flash"))
+        self.assertEqual(payload["temperature"], 0)
+        self.assertIn("一只戴蓝色围巾的橘猫", payload["messages"][1]["content"])
+        self.assertEqual(
+            translated,
+            "An orange cat wearing a blue scarf on a white background, no text.",
+        )
+
+    def test_cloudflare_keeps_english_image_prompt_without_translation_call(self):
+        with patch("agents._shared.side_effects.urllib.request.urlopen") as urlopen:
+            prompt = "An orange cat wearing a blue scarf."
+            self.assertEqual(
+                _cloudflare_image_prompt(
+                    "account", "token", "@cf/zai-org/glm-4.7-flash", prompt,
+                ),
+                prompt,
+            )
+        urlopen.assert_not_called()
 
     def test_cloudflare_flux_uses_official_image_schema(self):
         class Response:
