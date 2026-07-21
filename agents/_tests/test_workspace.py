@@ -23,7 +23,7 @@ from agents.chat._followups import parse_followups
 from agents.chat._llm import _model_timeout
 from agents.chat._history import bounded_history
 from agents.chat._calendar_context import calendar_context
-from agents.chat._ui_tools import build_production_tools
+from agents.chat._ui_tools import build_production_tools, verify_place_queries_parallel
 from agents.chat._protocol import PublicStreamFilter, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
 from agents._shared.side_effects import (
@@ -904,6 +904,57 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         proactive = await load_proactive_state(store)
         self.assertEqual(proactive["checkpoints"]["route_change"]["schedule_count"], 0)
         self.assertTrue(any(event["type"] == "route_changed" for event in proactive["events"].values()))
+
+    async def test_model_selected_places_are_verified_in_parallel(self):
+        started: set[str] = set()
+        all_started = asyncio.Event()
+
+        async def provider(_map_key, query, *, city, limit):
+            self.assertEqual(city, "北京")
+            self.assertEqual(limit, 3)
+            started.add(query)
+            if len(started) == 3:
+                all_started.set()
+            await asyncio.wait_for(all_started.wait(), timeout=0.2)
+            return [{
+                **PLACE,
+                "place_id": f"poi-{query}",
+                "name": query,
+                "address": f"北京市朝阳区{query}",
+            }]
+
+        selected, candidates, missing = await verify_place_queries_parallel(
+            provider,
+            "map-key",
+            ["餐馆甲", "餐馆乙", "餐馆丙"],
+            city="北京",
+            timeout_seconds=1,
+        )
+
+        self.assertEqual([place["name"] for place in selected], ["餐馆甲", "餐馆乙", "餐馆丙"])
+        self.assertEqual(len(candidates), 3)
+        self.assertEqual(missing, [])
+
+    async def test_map_recommendation_keeps_verified_subset(self):
+        async def provider(_map_key, query, *, city, limit):
+            if query == "未核实餐馆":
+                return []
+            return [{**PLACE, "place_id": f"poi-{query}", "name": query}]
+
+        with patch("agents.chat._ui_tools.provider_search_places", new=provider):
+            tools = build_production_tools(None, store=FakeStore(), conversation_id="partial-map", env={})
+            tool = next(item for item in tools if item.name == "recommend_places_on_map")
+            result = json.loads(await tool.ainvoke({
+                "queries": ["真实餐馆", "未核实餐馆"],
+                "city": "北京",
+                "title": "餐馆推荐",
+                "action_text": "在地图中查看",
+            }))
+
+        self.assertTrue(result["partial"])
+        self.assertEqual(result["verified_place_count"], 1)
+        self.assertEqual(result["unverified_queries"], ["未核实餐馆"])
+        self.assertEqual([place["name"] for place in result["action"]["payload"]["places"]], ["真实餐馆"])
 
     async def test_route_change_retires_stale_route_risk_notification(self):
         store = FakeStore()

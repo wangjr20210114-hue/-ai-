@@ -52,6 +52,40 @@ def _message_text(content) -> str:
     return str(content or "")
 
 
+async def verify_place_queries_parallel(
+    provider: Callable[..., Awaitable[list[dict[str, Any]]]],
+    map_key: str,
+    queries: list[str],
+    *,
+    city: str = "全国",
+    timeout_seconds: float = 10.0,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    """Verify independent model-selected places concurrently, preserving query order."""
+    timeout = max(3.0, min(15.0, float(timeout_seconds)))
+
+    async def verify(query: str) -> tuple[str, list[dict[str, Any]]]:
+        try:
+            matches = await asyncio.wait_for(
+                provider(map_key, query, city=city or "全国", limit=3),
+                timeout=timeout,
+            )
+        except Exception:
+            matches = []
+        return query, matches
+
+    results = await asyncio.gather(*(verify(query) for query in queries))
+    selected: list[dict[str, Any]] = []
+    all_candidates: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for query, matches in results:
+        if matches:
+            selected.append(matches[0])
+            all_candidates.extend(matches)
+        else:
+            missing.append(query)
+    return selected, all_candidates, missing
+
+
 def build_production_tools(
     model, *, store=None, conversation_id: str = "", env: dict | None = None,
     paper_constraints: dict | None = None,
@@ -184,11 +218,6 @@ def build_production_tools(
         if not places:
             raise ValueError("推荐地点均未通过地点服务验证，不能显示到地图")
         expected = max(1, min(12, int(expected_place_count or 2)))
-        if len(places) < expected:
-            raise ValueError(
-                f"推荐仅包含 {len(places)} 个有效地点，但回答需要 {expected} 个；"
-                "请用 search_places_batch 分别核实每个地点，并从每组选择一个 place_id"
-            )
         action = new_action(
             "map_recommendation",
             {
@@ -200,7 +229,13 @@ def build_production_tools(
         )
         put_action(state, action)
         await _save_state(state)
-        return json.dumps({"ui_action": "map_action", "action": action}, ensure_ascii=False)
+        return json.dumps({
+            "ui_action": "map_action",
+            "action": action,
+            "verified_place_count": len(places),
+            "requested_place_count": expected,
+            "partial": len(places) < expected,
+        }, ensure_ascii=False)
 
     async def recommend_places_on_map(
         queries: list[str],
@@ -213,21 +248,15 @@ def build_production_tools(
         if not 2 <= len(normalized) <= 12:
             raise ValueError("地图推荐需要模型提供 2 到 12 个独立地点名称")
         map_key = str(runtime_env.get("TENCENT_MAP_SERVER_KEY") or runtime_env.get("TENCENT_MAP_KEY") or runtime_env.get("VITE_TENCENT_MAP_KEY") or "")
-        selected = []
-        missing = []
-        all_candidates = []
-        for query in normalized:
-            try:
-                matches = await provider_search_places(map_key, query, city=city or "全国", limit=3)
-            except Exception:
-                matches = []
-            if matches:
-                selected.append(matches[0])
-                all_candidates.extend(matches)
-            else:
-                missing.append(query)
-        if missing:
-            raise ValueError(f"以下地点未核实成功，请换用更精确的官方名称后重试：{'、'.join(missing)}")
+        selected, all_candidates, missing = await verify_place_queries_parallel(
+            provider_search_places,
+            map_key,
+            normalized,
+            city=city or "全国",
+            timeout_seconds=float(runtime_env.get("PLACE_LOOKUP_TIMEOUT_SECONDS") or 10),
+        )
+        if not selected:
+            raise ValueError("所有候选地点都未通过真实地点服务核实，不能生成地图")
         state = await _load_state()
         candidates = state.setdefault("place_candidates", {})
         for place in all_candidates:
@@ -243,7 +272,14 @@ def build_production_tools(
         )
         put_action(state, action)
         await _save_state(state)
-        return json.dumps({"ui_action": "map_action", "action": action}, ensure_ascii=False)
+        return json.dumps({
+            "ui_action": "map_action",
+            "action": action,
+            "verified_place_count": len(selected),
+            "requested_place_count": len(normalized),
+            "partial": bool(missing),
+            "unverified_queries": missing,
+        }, ensure_ascii=False)
 
     async def propose_calendar_changes(summary: str, changes: list[dict]) -> str:
         """Prepare create/update/delete changes; the calendar is mutated only after UI confirmation."""

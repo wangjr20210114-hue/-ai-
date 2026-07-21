@@ -195,6 +195,7 @@ class SSEChatClient {
                     web_search: '正在查找相关信息…',
                     search_places: '正在核实真实地点…',
                     prepare_map_recommendation: '正在准备可查看的地图地点…',
+                    recommend_places_on_map: '正在并行核实真实地点并生成地图…',
                     propose_calendar_changes: '正在整理待确认的日程变更…',
                     propose_meeting: '正在准备会议创建信息…',
                     propose_image: '正在直接生成图片…',
