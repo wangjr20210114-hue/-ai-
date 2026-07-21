@@ -87,6 +87,7 @@ export interface ProactiveState {
   workflows: ProactiveWorkflow[];
   checkpoints: Record<string, Record<string, unknown>>;
   last_tick?: { started_at: number; finished_at: number; stats: Record<string, number> } | null;
+  proactive_message?: ChatMessage | null;
 }
 
 export interface MakersMemoryProposal {
@@ -241,6 +242,7 @@ export interface ChatMessage {
   ts: number;
   streaming?: boolean;      // 是否正在流式输出
   failed?: boolean;         // 瞬时失败提示；不写入本地缓存或 Makers 历史
+  proactive?: boolean;      // 主动服务在空白新对话中生成的持久开场消息
   followUps?: string[];
 
   // 通用技能数据

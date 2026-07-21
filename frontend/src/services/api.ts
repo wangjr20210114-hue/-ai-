@@ -89,6 +89,20 @@ export async function intelligenceOperation(
   return data;
 }
 
+export async function skillsOperation(): Promise<{ skills: Array<{ id: string; name: string; description: string; configured: boolean; install_url?: string; credential_name?: string }> }> {
+  const res = await authorizedFetch('/system', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operation: 'get' }) });
+  const data = await res.json().catch(() => ({})) as { providers?: { meeting?: boolean }; error?: string };
+  if (!res.ok) throw new Error(data.error || 'Skills 状态读取失败');
+  return { skills: [{
+    id: 'tencent-meeting',
+    name: '腾讯会议',
+    description: '使用腾讯会议官方 MCP/Skill 创建、修改、取消和查询会议；个人账号可用，不需要企业应用 SecretId/AppId。',
+    configured: Boolean(data.providers?.meeting),
+    install_url: 'https://meeting.tencent.com/ai-skill',
+    credential_name: 'TENCENT_MEETING_TOKEN',
+  }] };
+}
+
 export async function streamImageEdit(
   conversationId: string,
   prompt: string,

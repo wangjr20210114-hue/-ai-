@@ -13,7 +13,9 @@ from agents._shared.makers_conversation import (
 )
 from agents._shared.http import error
 from agents._shared.proactive import collect_provider_signals
+from agents._shared.proactive import empty_proactive_state, process_schedule_signals
 from agents._shared.tencent_location import plan_driving_route
+from agents.proactive.index import handler as proactive_handler
 from agents.stop.index import handler as stop_handler
 from agents.system_internal.index import _expected_tick_after
 
@@ -41,7 +43,41 @@ class FakeConversationStore:
         self.metadata.update(value["metadata"])
 
 
+class FakeProactiveStores:
+    def __init__(self):
+        self.langgraph_store = FakeStore()
+        self.messages = []
+
+    async def append_message(self, **value):
+        self.messages.append(value)
+        return "proactive-message-1"
+
+
 class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_empty_conversation_receives_one_model_written_proactive_opening(self):
+        state = empty_proactive_state()
+        now = int(time.time())
+        process_schedule_signals(state, [{
+            "type": "schedule_upcoming", "dedup_key": "upcoming:test", "priority": "normal",
+            "subject_ids": ["schedule-1"], "title": "即将开始", "detail": "产品评审将在一小时后开始",
+            "action": "检查地点和材料", "evidence": {}, "occurred_at": now,
+        }], now)
+        stores = FakeProactiveStores()
+        ctx = SimpleNamespace(
+            env={}, store=stores, conversation_id="new-conversation",
+            request=SimpleNamespace(body={"operation": "open_conversation"}, headers={}),
+        )
+        model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content="产品评审一小时后开始。要我帮你检查地点或准备材料吗？")))
+        with (
+            patch("agents.proactive.index.run_proactive_tick", AsyncMock(return_value=(state, {"signals": 1}))),
+            patch("agents.proactive.index.get_model", return_value=model),
+        ):
+            response = await proactive_handler(ctx)
+        self.assertTrue(response["proactive_message"]["proactive"])
+        self.assertEqual(len(stores.messages), 1)
+        self.assertEqual(stores.messages[0]["metadata"]["source"], "yuanbao-proactive")
+        self.assertEqual(response["notifications"][0]["status"], "read")
+
     async def test_chat_run_uses_native_conversation_metadata(self):
         store = FakeConversationStore()
         await write_chat_run(store, "conversation-1", run_id="run-1", status="running")

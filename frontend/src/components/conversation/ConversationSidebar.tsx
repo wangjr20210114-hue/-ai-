@@ -5,9 +5,8 @@ import { canReusePendingConversation, reconcileConversationSummary, setActiveCon
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ConversationSummary } from '../../types';
 import { formatConversationTime } from '../../services/time';
-import ProactiveBriefPanel from '../profile/ProactiveBriefPanel';
-import AgentIntelligencePanel from '../profile/AgentIntelligencePanel';
-import LibrarySettingsButton from '../profile/LibrarySettingsButton';
+import AppSettingsButton from '../profile/AppSettingsButton';
+import SkillsMarketplaceButton from '../profile/SkillsMarketplaceButton';
 
 interface Props {
   open: boolean;
@@ -172,9 +171,8 @@ export default function ConversationSidebar({ open, onClose }: Props) {
           ))}
         </div>
         <div className="conversation-sidebar-tools">
-          <ProactiveBriefPanel />
-          <AgentIntelligencePanel />
-          <LibrarySettingsButton />
+          <SkillsMarketplaceButton />
+          <AppSettingsButton />
         </div>
       </aside>
     </>

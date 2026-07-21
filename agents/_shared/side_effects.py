@@ -69,6 +69,90 @@ class MeetingResultUnknown(RuntimeError):
     """The provider may have accepted the request but no response was observed."""
 
 
+def _find_meeting_payload(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        if any(key in value for key in ("meeting_id", "meeting_code", "join_url")):
+            return value
+        for nested in value.values():
+            found = _find_meeting_payload(nested)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for nested in value:
+            found = _find_meeting_payload(nested)
+            if found:
+                return found
+    elif isinstance(value, str):
+        try:
+            return _find_meeting_payload(json.loads(value))
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _post_tencent_meeting_mcp(env: dict[str, Any], subject: str, start_iso: str, end_iso: str) -> dict[str, Any]:
+    """Call Tencent Meeting's official remote MCP using a personal Skill token."""
+    token = str(env.get("TENCENT_MEETING_TOKEN") or "").strip()
+    if not token:
+        raise ValueError("腾讯会议 Skill 尚未安装")
+    if _meeting_epoch(end_iso) <= _meeting_epoch(start_iso):
+        raise ValueError("腾讯会议结束时间必须晚于开始时间")
+    endpoint = str(
+        env.get("TENCENT_MEETING_MCP_URL")
+        or "https://mcp.meeting.tencent.com/mcp/wemeet-open/v1"
+    ).strip()
+    payload = {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+            "name": "schedule_meeting",
+            "arguments": {
+                "subject": str(subject or "腾讯会议")[:240],
+                "start_time": start_iso,
+                "end_time": end_iso,
+                "_client_info": {"os": "EdgeOne-Makers", "agent": "yuanbao", "model": "configured"},
+            },
+        },
+        "id": uuid.uuid4().hex,
+    }
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "X-Tencent-Meeting-Token": token,
+            "X-Skill-Version": str(env.get("TENCENT_MEETING_SKILL_VERSION") or "v1.0.11"),
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.loads(response.read(2 * 1024 * 1024).decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code >= 500:
+            raise MeetingResultUnknown(f"腾讯会议 MCP 返回 {exc.code}，结果未知") from exc
+        return {"ok": False, "error": f"腾讯会议授权失效或请求被拒绝（{exc.code}）"}
+    except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+        raise MeetingResultUnknown("腾讯会议 MCP 请求中断，外部结果未知") from exc
+    if isinstance(data.get("error"), dict):
+        return {"ok": False, "error": str(data["error"].get("message") or "腾讯会议 MCP 调用失败")[:300]}
+    result = data.get("result") if isinstance(data, dict) else None
+    if isinstance(result, dict) and isinstance(result.get("error"), dict):
+        return {"ok": False, "error": str(result["error"].get("message") or "腾讯会议 MCP 调用失败")[:300]}
+    meeting = _find_meeting_payload(result)
+    if not meeting:
+        return {"ok": False, "error": "腾讯会议 MCP 未返回可识别的会议信息"}
+    return {
+        "ok": True,
+        "meeting_id": str(meeting.get("meeting_id") or ""),
+        "meeting_code": str(meeting.get("meeting_code") or ""),
+        "join_url": str(meeting.get("join_url") or meeting.get("meeting_url") or ""),
+        "subject": str(meeting.get("subject") or subject),
+        "start_time": start_iso,
+        "provider": "tencent-meeting-official-mcp",
+    }
+
+
 def _post_tencent_meeting(env: dict[str, Any], subject: str, start_iso: str, end_iso: str) -> dict[str, Any]:
     secret_id = str(env.get("TENCENT_MEETING_SECRET_ID") or "").strip()
     secret_key = str(env.get("TENCENT_MEETING_SECRET_KEY") or "").strip()
@@ -119,9 +203,10 @@ def _post_tencent_meeting(env: dict[str, Any], subject: str, start_iso: str, end
 
 
 async def create_tencent_meeting(env: dict[str, Any], subject: str, start_iso: str, end_iso: str) -> dict[str, Any]:
-    """Create a meeting directly through Tencent Meeting's official server API."""
+    """Create through the personal official MCP, with the legacy server API as fallback."""
     try:
-        return await asyncio.to_thread(_post_tencent_meeting, env, subject, start_iso, end_iso)
+        provider = _post_tencent_meeting_mcp if str(env.get("TENCENT_MEETING_TOKEN") or "").strip() else _post_tencent_meeting
+        return await asyncio.to_thread(provider, env, subject, start_iso, end_iso)
     except MeetingResultUnknown as exc:
         return {"ok": False, "error": str(exc), "reconciliation_required": True}
     except Exception as exc:

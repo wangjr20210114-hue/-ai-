@@ -20,10 +20,10 @@
 | 联网图文回答 | 已实现并测试 | 搜索前保留 LLM 语义规划；单轮一次 rich_search/一次 SearchPro；事实与视觉意图合并，使用 Makers Store TTL/安全陈旧缓存；默认搜索/提图/视觉硬预算 10/5/7 秒 | `agents/chat/_capability_plan.py`、`agents/chat/_ui_tools.py`、`agents/_shared/rich_search.py` |
 | 地点、地图、道路路线、费用估算 | 已实现并测试 | 腾讯结果与查询不匹配时回退 OSM；路线按用户缓存 6 小时 | `agents/places`、`agents/routes`、`agents/_shared/tencent_location.py` |
 | 日程 CRUD 与确认式变更 | 已实现并测试 | 可用自然语言新增、改标题/描述/时间/地点、删除；地点修改必须来自地点库；不存在/不唯一目标会自然提示；变更后旧主动提醒同步刷新或失效 | `agents/workspace`、`agents/chat/_calendar_context.py`、LangGraph Store |
-| 腾讯会议创建 | 官方 API 适配已实现 | 最后阶段可选；未配置时不暴露工具 | `agents/_shared/side_effects.py` |
+| 腾讯会议创建 | 官方个人 MCP Skill 适配已实现 | Skills 广场引导个人用户取得 Token；未配置时不暴露工具；确认后才调用 `schedule_meeting` | `agents/_shared/side_effects.py`、`SkillsMarketplaceButton.tsx` |
 | 多模态理解、文生图、图生图、版本、Blob、ZIP | 已实现并测试 | 用户附图先经视觉 Provider 描述；混元为主，Cloudflare Workers AI 提供视觉/文生图/图生图降级，百炼与 Gemini 可作视觉后备；生成结果复制到 Makers Blob | `agents/_shared/vision.py`、`agents/_shared/side_effects.py`、`agents/image`、`InputBar.tsx` |
 | PDF、图片上传、阅读库、论文助读 | 已实现核心链路 | PDF 上传后直接打开内置助读；阅读库支持手动分类与删除反馈；无 DOCX/OCR | `cloud-functions/files`、`library`、`papers`、`agents/reader` |
-| 主动日程/天气/路线提醒 | 已实现并测试 | EdgeOne Cron 需无浏览器线上终验 | `agents/proactive`、`proactive-tick` |
+| 主动日程/天气/路线提醒 | 已实现并测试 | 打开网页及相关日程变更时刷新；未读风险由模型在空白新对话中自然发起，策略设置位于统一设置；EdgeOne Cron 需无浏览器线上终验 | `agents/proactive`、`proactive-tick`、`useSSEChat.ts` |
 | Notification、免打扰、每日上限、稍后提醒 | 已实现并测试 | 在线读取通过；真实 Cron 触发待跨日终验 | `agents/_shared/proactive.py` |
 | Memory、Feedback、Rule、Token 预算 | 已实现并测试 | 待预览复验 | `agents/intelligence` |
 | 持久工作流、失败阻断、重试与补偿 | 已实现并测试 | 待预览复验 | `agents/_shared/proactive.py` |
@@ -42,7 +42,7 @@
 
 ### P1：代码阻塞与核心线上验收已完成
 
-- 腾讯会议已改用官方服务端 API，外部 Meeting Bridge 和设备登录态已移除。
+- 腾讯会议已优先改用官方个人 MCP Token/Skill，外部 Meeting Bridge 和设备登录态已移除；旧企业 API 仅保留兼容。
 - 本分支已完成真实 EdgeOne Preview/Production、动态路由登记和个人工作区核心读取验收；真实 Cron 仍待专项终验。
 - SQLite 迁移工具已完成，真实旧库迁移与 Preview 回读尚未执行。
 
@@ -66,12 +66,12 @@
 
 ## 5. 当前自动化基线
 
-2026-07-20 当前工作树结果：
+2026-07-21 当前工作树结果：
 
-- Makers Agent：85 项通过。
+- Makers Agent：90 项通过。
 - SQLite 导出工具：2 项通过。
 - Cloud Functions、验收持久化和平台约束：14 项通过。
-- 前端 Vitest：37 项通过。
+- 前端 Vitest：39 项通过。
 - ESLint：通过。
 - EdgeOne 模式生产构建：通过。
 - EdgeOne Preview `dph2wvagts0x`：构建成功，应用已连接，核心只读数据加载通过。

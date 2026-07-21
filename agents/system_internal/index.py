@@ -93,9 +93,14 @@ async def handler(ctx):
         "providers": {
             "model": bool(ctx.env.get("AI_GATEWAY_API_KEY") or ctx.env.get("HUNYUAN_API_KEY")),
             "search": bool(ctx.env.get("WSA_API_KEY")),
-            "vision": bool(ctx.env.get("HUNYUAN_VISION_API_KEY") or ctx.env.get("HUNYUAN_IMAGE_API_KEY")),
+            "vision": bool(
+                ctx.env.get("HUNYUAN_VISION_API_KEY") or ctx.env.get("HUNYUAN_IMAGE_API_KEY")
+                or (ctx.env.get("CLOUDFLARE_ACCOUNT_ID") and (
+                    ctx.env.get("CLOUDFLARE_WORKERS_AI_TOKEN") or ctx.env.get("CLOUDFLARE_API_TOKEN")
+                ))
+            ),
             "map": bool(ctx.env.get("TENCENT_MAP_SERVER_KEY") or ctx.env.get("TENCENT_MAP_KEY")),
-            "meeting": all(bool(ctx.env.get(key)) for key in (
+            "meeting": bool(ctx.env.get("TENCENT_MEETING_TOKEN")) or all(bool(ctx.env.get(key)) for key in (
                 "TENCENT_MEETING_SECRET_ID", "TENCENT_MEETING_SECRET_KEY",
                 "TENCENT_MEETING_APP_ID", "TENCENT_MEETING_SDK_ID", "TENCENT_MEETING_USER_ID",
             )),

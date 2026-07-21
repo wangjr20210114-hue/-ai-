@@ -4,7 +4,7 @@ import { useAppState } from '../../store/appState';
 import { intelligenceOperation } from '../../services/api';
 import type { MakersIntelligenceState } from '../../types';
 
-export default function AgentIntelligencePanel() {
+export default function AgentIntelligencePanel({ embedded = false }: { embedded?: boolean }) {
   const { conversationId } = useAppState();
   const [state, setState] = useState<MakersIntelligenceState | null>(null);
   const [busy, setBusy] = useState('');
@@ -41,8 +41,8 @@ export default function AgentIntelligencePanel() {
   };
   const pendingRules = (state?.rule_proposals || []).filter((item) => item.status === 'pending');
 
-  return (
-    <div className="my-panel-card intelligence-card">
+  const content = (
+    <div className={embedded ? 'app-settings-section' : 'my-panel-card intelligence-card'}>
       <details>
         <summary className="section-title">
           <span>🧠 主动策略与预算</span>
@@ -95,4 +95,5 @@ export default function AgentIntelligencePanel() {
       </details>
     </div>
   );
+  return content;
 }

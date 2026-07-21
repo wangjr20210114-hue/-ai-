@@ -3,13 +3,14 @@ import { Button, MessagePlugin } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ChatMessage, TravelPlan, SkillInfo, MeetingResult, ScheduleItem, WorkspaceAction } from '../../types';
 import type { ChatClient } from '../../services/chatClient';
-import { workspaceOperation } from '../../services/api';
+import { proactiveOperation, workspaceOperation } from '../../services/api';
 import TravelPlanCard from '../travel/TravelPlanCard';
 import PaperListCard from '../paper/PaperListCard';
 import PaperInlineReader from '../paper/PaperInlineReader';
 import ImageStudioCard from '../image/ImageStudioCard';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { followUpDraftAction } from './followUps';
+import { isSafeRemoteUrl } from '../common/richContent';
 
 interface Props {
   message: ChatMessage;
@@ -53,11 +54,29 @@ function ImageCreationProgress({ message }: { message: ChatMessage }) {
     <strong>{steps[step]}</strong><small>图片工坊正在绘制，请稍候</small>
   </div>;
 }
+
+function SearchMediaGallery({ message }: { message: ChatMessage }) {
+  const media = (message.searchResults?.media || [])
+    .filter((item) => isSafeRemoteUrl(item.url) && !message.content.includes(item.url))
+    .slice(0, 4);
+  const [failed, setFailed] = useState<string[]>([]);
+  const visible = media.filter((item) => !failed.includes(item.id));
+  if (!visible.length) return null;
+  return <div className="search-media-carousel" aria-label="搜索配图">
+    {visible.map((asset) => <figure className="search-media-card" key={asset.id}>
+      <img src={asset.url} alt={asset.alt || asset.caption || '搜索配图'} loading="lazy" onError={() => setFailed((items) => [...items, asset.id])} />
+      <figcaption>
+        <span>{asset.caption || asset.alt || '相关图片'}</span>
+        {asset.source_url && isSafeRemoteUrl(asset.source_url) && <a href={asset.source_url} target="_blank" rel="noreferrer">图片来源</a>}
+      </figcaption>
+    </figure>)}
+  </div>;
+}
 /** 单条消息气泡。AI 消息下方根据 skill.intent 渲染不同卡片。 */
 export default function MessageBubble({ message }: Props) {
   const isUser = message.role === 'user';
   const dispatch = useAppDispatch();
-  const { conversationId, messages } = useAppState();
+  const { conversationId, messages, proactive } = useAppState();
   // 追问只在最后一条 AI 消息显示
   const isLastAIMessage = !isUser && messages[messages.length - 1]?.id === message.id;
   const messageIndex = messages.findIndex((item) => item.id === message.id);
@@ -79,6 +98,17 @@ export default function MessageBubble({ message }: Props) {
   const [skillActioned, setSkillActioned] = useState(false);
   const [workspaceActions, setWorkspaceActions] = useState<WorkspaceAction[]>(consolidateActions(message.workspaceActions || []));
   const [workspaceBusy, setWorkspaceBusy] = useState('');
+  const [proactiveBusy, setProactiveBusy] = useState('');
+
+  const mutateProactive = async (key: string, operation: string, input: Record<string, unknown>) => {
+    setProactiveBusy(key);
+    try {
+      const next = await proactiveOperation(conversationId, operation, input);
+      dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
+    } catch (error) {
+      MessagePlugin.error(error instanceof Error ? error.message : '主动服务操作失败');
+    } finally { setProactiveBusy(''); }
+  };
 
   // Tool actions arrive after the streaming message bubble has mounted. Keep
   // the local interactive copy in sync instead of freezing the initial empty
@@ -307,6 +337,41 @@ export default function MessageBubble({ message }: Props) {
                 </div>
               )}
               {message.content && <MarkdownRenderer content={message.content} searchMeta={message.searchResults} />}
+              {message.content && <SearchMediaGallery message={message} />}
+              {message.proactive && proactive && <div className="proactive-conversation-actions">
+                {(proactive.notifications || []).filter((item) => item.status !== 'dismissed').slice(0, 3).map((item) => <div className="proactive-conversation-item" key={item.id}>
+                  <span>{item.title}</span>
+                  <div>
+                    <Button size="small" variant="text" onClick={() => dispatch({ type: 'SET_DRAFT', payload: item.action_prompt || `请帮我处理：${item.title}` })}>帮我处理</Button>
+                    <Button size="small" variant="text" loading={proactiveBusy === `snooze:${item.id}`} onClick={() => void mutateProactive(`snooze:${item.id}`, 'snooze', { notification_id: item.id, until: Math.floor(Date.now() / 1000) + 3600 })}>1 小时后提醒</Button>
+                    <Button size="small" variant="text" loading={proactiveBusy === `dismiss:${item.id}`} onClick={() => void mutateProactive(`dismiss:${item.id}`, 'dismiss', { notification_id: item.id })}>忽略</Button>
+                  </div>
+                </div>)}
+                {(proactive.workflows || []).filter((item) => item.status === 'awaiting_confirmation').map((workflow) => <div className="proactive-conversation-item" key={workflow.id}>
+                  <span>持续任务：{workflow.title}</span><small>{workflow.reason}</small>
+                  <div>
+                    <Button size="small" theme="primary" loading={proactiveBusy === `workflow:${workflow.id}`} onClick={() => void mutateProactive(`workflow:${workflow.id}`, 'confirm_workflow', { workflow_id: workflow.id, version: workflow.version })}>确认启用</Button>
+                    <Button size="small" variant="text" onClick={() => void mutateProactive(`workflow:${workflow.id}`, 'reject_workflow', { workflow_id: workflow.id, version: workflow.version })}>暂不启用</Button>
+                  </div>
+                </div>)}
+                {(proactive.workflows || []).filter((item) => item.status === 'active').map((workflow) => {
+                  const step = workflow.steps.find((item) => !['completed', 'skipped', 'compensated'].includes(item.status));
+                  return <div className="proactive-conversation-item" key={workflow.id}>
+                    <span>进行中的持续任务：{workflow.title}</span>
+                    <small>{step ? `当前步骤：${step.title}` : '所有步骤已处理，等待状态同步'}</small>
+                    <div>
+                      {step && ['pending', 'notified'].includes(step.status) && <>
+                        <Button size="small" theme="success" loading={proactiveBusy === `complete:${step.id}`} onClick={() => void mutateProactive(`complete:${step.id}`, 'complete_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>完成步骤</Button>
+                        <Button size="small" variant="text" loading={proactiveBusy === `skip:${step.id}`} onClick={() => void mutateProactive(`skip:${step.id}`, 'skip_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>跳过步骤</Button>
+                        <Button size="small" variant="text" loading={proactiveBusy === `fail:${step.id}`} onClick={() => void mutateProactive(`fail:${step.id}`, 'fail_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>标记失败</Button>
+                      </>}
+                      {step?.status === 'compensating' && <Button size="small" theme="success" loading={proactiveBusy === `compensate:${step.id}`} onClick={() => void mutateProactive(`compensate:${step.id}`, 'compensate_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>补偿已完成</Button>}
+                      {step && ['failed', 'attention_required'].includes(step.status) && <Button size="small" variant="outline" loading={proactiveBusy === `retry:${step.id}`} onClick={() => void mutateProactive(`retry:${step.id}`, 'retry_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>重试步骤</Button>}
+                      <Button size="small" variant="text" loading={proactiveBusy === `cancel:${workflow.id}`} onClick={() => void mutateProactive(`cancel:${workflow.id}`, 'cancel_workflow', { workflow_id: workflow.id, version: workflow.version })}>停止工作流</Button>
+                    </div>
+                  </div>;
+                })}
+              </div>}
               {message.failed && previousUserMessage && (
                 <button
                   type="button"

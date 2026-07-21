@@ -593,9 +593,13 @@ export function useSSEChat() {
       }
       if (activeConversationRef.current === conversationId) {
         dispatch({ type: 'HYDRATE_WORKSPACE', payload: { schedules: data.schedules, mapPlaces: data.map_places, mapTitle: data.map_title } });
-        void proactiveOperation(conversationId).then((proactive) => {
+        void proactiveOperation(conversationId, merged.length === 0 ? 'open_conversation' : 'refresh').then((proactive) => {
           if (!disposed && activeConversationRef.current === conversationId) {
             dispatch({ type: 'HYDRATE_PROACTIVE', payload: proactive });
+            const opening = proactive.proactive_message;
+            if (merged.length === 0 && opening?.content) {
+              publish(conversationId, [opening]);
+            }
           }
         }).catch((error) => console.warn('proactive bootstrap failed', error));
         dispatch({ type: 'SET_CONNECTED', payload: true });
@@ -623,8 +627,17 @@ export function useSSEChat() {
         dispatch({ type: 'SET_SCHEDULES', payload: detail.schedules as ScheduleItem[] });
       }
     };
+    const refreshProactive = () => {
+      void proactiveOperation(activeConversationRef.current, 'refresh')
+        .then((proactive) => dispatch({ type: 'HYDRATE_PROACTIVE', payload: proactive }))
+        .catch((error) => console.warn('proactive workspace refresh failed', error));
+    };
     window.addEventListener('yuanbao:workspace-changed', refreshWorkspace);
-    return () => window.removeEventListener('yuanbao:workspace-changed', refreshWorkspace);
+    window.addEventListener('yuanbao:calendar-changed', refreshProactive);
+    return () => {
+      window.removeEventListener('yuanbao:workspace-changed', refreshWorkspace);
+      window.removeEventListener('yuanbao:calendar-changed', refreshProactive);
+    };
   }, [dispatch]);
 
   return clientRef;

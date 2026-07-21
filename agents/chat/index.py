@@ -126,7 +126,10 @@ async def _imported_conversation_seed(ctx, conversation_id: str, current_message
     items = result if isinstance(result, list) else _field(result, "items", [])
     if not isinstance(items, list) or not any(
         isinstance(_field(item, "metadata", {}), dict)
-        and _field(item, "metadata", {}).get("migration_export_id")
+        and (
+            _field(item, "metadata", {}).get("migration_export_id")
+            or _field(item, "metadata", {}).get("source") == "yuanbao-proactive"
+        )
         for item in items
     ):
         return []

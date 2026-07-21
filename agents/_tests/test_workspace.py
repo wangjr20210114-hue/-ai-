@@ -22,7 +22,7 @@ from agents.chat._calendar_context import calendar_context
 from agents.chat._ui_tools import build_production_tools
 from agents.chat._protocol import PublicStreamFilter, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
-from agents._shared.side_effects import _meeting_payload, _meeting_result, _meeting_signature, generate_image
+from agents._shared.side_effects import _meeting_payload, _meeting_result, _meeting_signature, _post_tencent_meeting_mcp, generate_image
 from agents._shared.vision import describe_reference_images, vision_providers
 from agents._shared.auth import require_user, scoped_conversation_id
 from agents._shared.rich_search import (
@@ -1042,6 +1042,33 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "TENCENT_MEETING_USER_ID": "user",
         })
         self.assertIn("propose_meeting", {tool.name for tool in ready})
+        personal = build_production_tools(None, store=FakeStore(), conversation_id="meeting", env={
+            "TENCENT_MEETING_TOKEN": "personal-token",
+        })
+        self.assertIn("propose_meeting", {tool.name for tool in personal})
+
+    def test_personal_tencent_meeting_skill_uses_official_mcp_transport(self):
+        payload = {
+            "jsonrpc": "2.0", "id": "1", "result": {"content": [{"type": "text", "text": json.dumps({
+                "meeting_id": "meeting-1", "meeting_code": "123456789", "join_url": "https://meeting.tencent.com/dm/example",
+            })}]},
+        }
+
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return None
+            def read(self, _limit): return json.dumps(payload).encode("utf-8")
+
+        with patch("agents._shared.side_effects.urllib.request.urlopen", return_value=Response()) as opened:
+            result = _post_tencent_meeting_mcp(
+                {"TENCENT_MEETING_TOKEN": "secret"}, "产品周会",
+                "2026-07-21T15:00:00+08:00", "2026-07-21T16:00:00+08:00",
+            )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["meeting_code"], "123456789")
+        request = opened.call_args.args[0]
+        self.assertEqual(request.headers["X-tencent-meeting-token"], "secret")
+        self.assertEqual(json.loads(request.data)["params"]["name"], "schedule_meeting")
 
     async def test_travel_plan_asset_crud_uses_user_workspace(self):
         store = FakeStore()
