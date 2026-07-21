@@ -70,7 +70,7 @@
 
 - Makers Agent：99 项通过。
 - SQLite 导出工具：2 项通过。
-- Cloud Functions、验收持久化和平台约束：17 项通过。
+- Cloud Functions、Schedule 适配、验收持久化和平台约束：20 项通过。
 - 前端 Vitest：41 项通过。
 - ESLint：通过。
 - EdgeOne 模式生产构建：通过。

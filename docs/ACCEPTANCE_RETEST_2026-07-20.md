@@ -72,7 +72,7 @@
 
 - Python Agent：99/99。
 - 迁移工具：2/2。
-- Cloud Functions/平台约束：17/17。
+- Cloud Functions/Schedule 适配/平台约束：20/20。
 - 前端 Vitest：41/41。
 - ESLint、TypeScript/Vite build、`git diff --check`：通过。
 

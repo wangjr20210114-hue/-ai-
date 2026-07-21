@@ -26,7 +26,7 @@ async function acquireTick(store, userId) {
   }
 }
 
-async function tickUser(request, store) {
+export async function tickUser(request, store) {
   const userId = 'local-user';
   const lockKey = await acquireTick(store, userId);
   if (!lockKey) {

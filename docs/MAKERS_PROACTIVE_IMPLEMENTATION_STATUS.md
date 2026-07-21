@@ -68,7 +68,7 @@
 - Makers Agent：99 项通过。
 - SQLite 只读导出：2 项通过。
 - 前端 Vitest：41 项通过。
-- Cloud Functions、验收持久化与平台复用/安全契约：17 项通过。
+- Cloud Functions、Schedule 适配、验收持久化与平台复用/安全契约：20 项通过。
 - 旧 FastAPI 不再作为 Makers 发布回归门槛；用户结果迁移见 [`LEGACY_FASTAPI_CAPABILITIES.md`](LEGACY_FASTAPI_CAPABILITIES.md)。
 - TypeScript/Vite 生产构建：通过。
 - ESLint：通过。
