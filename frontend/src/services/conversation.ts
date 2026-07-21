@@ -67,6 +67,50 @@ export function settleStoppedMessages(messages: ChatMessage[]): ChatMessage[] {
     .map((message) => message.streaming ? { ...message, streaming: false } : message);
 }
 
+function workspaceActionIds(message: ChatMessage): Set<string> {
+  return new Set((message.workspaceActions || []).map((action) => action.id).filter(Boolean));
+}
+
+function actionFallbackLike(content: string): boolean {
+  return [
+    '地点已经核实，请点击下方按钮显示地点',
+    '地点已经过真实地点服务核实',
+    '腾讯会议确认卡已准备好',
+    '日程变更确认卡已准备好',
+    '图片任务已准备好',
+  ].some((prefix) => content.trim().startsWith(prefix));
+}
+
+/** Replace a live placeholder and coalesce any checkpoint row carrying the same durable Action. */
+export function reconcileCompletedMessage(messages: ChatMessage[], complete: ChatMessage): ChatMessage[] {
+  const completedActionIds = workspaceActionIds(complete);
+  const duplicateIndex = completedActionIds.size ? messages.findIndex((message) => (
+    message.id !== complete.id
+    && message.role === 'ai'
+    && [...workspaceActionIds(message)].some((actionId) => completedActionIds.has(actionId))
+  )) : -1;
+  if (duplicateIndex < 0) {
+    return messages.map((message) => message.id === complete.id ? complete : message);
+  }
+  const duplicate = messages[duplicateIndex];
+  const duplicateFallback = actionFallbackLike(duplicate.content);
+  const completeFallback = actionFallbackLike(complete.content);
+  const richer = duplicateFallback !== completeFallback
+    ? (duplicateFallback ? complete : duplicate)
+    : (duplicate.content.trim().length >= complete.content.trim().length ? duplicate : complete);
+  const actions = [...(duplicate.workspaceActions || []), ...(complete.workspaceActions || [])]
+    .filter((action, index, all) => all.findIndex((candidate) => candidate.id === action.id) === index);
+  return messages
+    .filter((message) => message.id !== complete.id)
+    .map((message) => message.id === duplicate.id ? {
+      ...duplicate,
+      ...richer,
+      id: duplicate.id,
+      workspaceActions: actions,
+      streaming: false,
+    } : message);
+}
+
 function placeholderConversationTitle(title: string): boolean {
   return !title.trim() || ['新对话', '历史对话'].includes(title.trim());
 }

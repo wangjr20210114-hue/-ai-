@@ -4,7 +4,7 @@ import { bootstrapApp, proactiveOperation } from '../services/api';
 import type { BootstrapData, MakersChatRun } from '../services/api';
 import { withEdgeOneAuth } from '../services/auth';
 import { presentableChatError } from '../services/chatError';
-import { durableMessageCount, makersConversationHeaders, mergeMessages, settleStoppedMessages } from '../services/conversation';
+import { durableMessageCount, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../services/conversation';
 import { splitSseFrames } from '../services/sse';
 import { useAppDispatch, useAppState } from '../store/appState';
 import type { ChatMessage, PaperInfo, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
@@ -502,7 +502,7 @@ export function useSSEChat() {
               content: current.content.trim() ? current.content : actionOnlyFallback(current.workspaceActions),
               streaming: false,
             };
-            patch(id, streamId, complete);
+            publish(id, reconcileCompletedMessage(cached(id), complete));
             setConversationActivity(id, 'idle');
           }
           break;

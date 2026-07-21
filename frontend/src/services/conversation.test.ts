@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../types';
-import { canReusePendingConversation, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
+import { canReusePendingConversation, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
 
 describe('getOrCreateConversationId', () => {
   beforeEach(() => {
@@ -105,6 +105,23 @@ describe('mergeMessages', () => {
       { id: 'failed-u2', role: 'user', content: '失败后残留二', ts: 13 },
     ];
     expect(mergeMessages(remote, local).map((item) => item.id)).toEqual(['r1', 'r2']);
+  });
+});
+
+describe('reconcileCompletedMessage', () => {
+  it('keeps richer prose and one copy of a durable Action', () => {
+    const action = { id: 'map-1', kind: 'map_recommendation', status: 'ready', version: 1, payload: {} } as never;
+    const messages: ChatMessage[] = [{
+      id: 'checkpoint-ai', role: 'ai', content: '这是模型生成的完整地点说明。', ts: 1, workspaceActions: [action],
+    }, {
+      id: 'live-ai', role: 'ai', content: '', ts: 2, streaming: true, workspaceActions: [action],
+    }];
+    const reconciled = reconcileCompletedMessage(messages, {
+      ...messages[1], content: '地点已经核实，请点击下方按钮显示地点。', streaming: false,
+    });
+    expect(reconciled).toHaveLength(1);
+    expect(reconciled[0].content).toBe('这是模型生成的完整地点说明。');
+    expect(reconciled[0].workspaceActions).toHaveLength(1);
   });
 });
 
