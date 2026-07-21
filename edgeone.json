@@ -25,7 +25,7 @@
   "schedules": [
     {
       "name": "proactive-daily-scan",
-      "cron": "0 8 * * *",
+      "cron": "35 15 * * *",
       "path": "/proactive",
       "method": "POST",
       "payload": { "operation": "tick", "trigger": "edgeone_schedule" },
