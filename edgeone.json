@@ -25,7 +25,7 @@
   "schedules": [
     {
       "name": "proactive-daily-scan",
-      "cron": "10 15 * * *",
+      "cron": "0 8 * * *",
       "path": "/proactive-tick",
       "method": "POST",
       "payload": { "operation": "tick" },
