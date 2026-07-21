@@ -18,12 +18,12 @@
 ## 当前 Preview
 
 - Preview 分支：`agent/makers-native-persistence-fixes`
-- Preview 提交：`8486779fff13c3030626a17a9a9f399e06feab10`
-- Preview Deployment：`dp2ohxgfckff`
-- 创建时间：2026-07-21 21:54（Asia/Shanghai）
+- Preview 提交：`32ccf95bbaefbe9e09256bdd788a266546c11804`
+- Preview Deployment：`dpmnthmfw7fx`
+- 创建时间：2026-07-21 22:56（Asia/Shanghai）
 - 构建结果：成功。
 - 构建内容：前端静态资源、Node Cloud Functions、13 条 Python Agent 路由和 1 条 `Asia/Shanghai` 每日 Schedule。
-- 线上回归：应用已连接，设置、Skills 广场、历史会话、日历和 Makers 持久化数据可读取；专项 `TEST-CRON-1510` 日程已从 7 月 22 日清理。无缓存新闻搜索保留独立 LLM 规划，工具阶段 17.8 秒、正文 27.3 秒；单轮只有 1 次 SearchPro，请求完成后不再产生冗余工具绑定模型轮次。SearchPro 曾返回并成功加载 919×376 的真实新闻现场图；图片审核改为与文本综合并行，任意 SSE 到达顺序都不会丢图。新对话在有未读风险时由模型自然主动开场；设置、Skills 广场和腾讯会议个人授权引导已上线。CAL-06、PRO-06 和 PRO-08 已在真实 Preview 完成：重叠日程、路线风险、自然语言修改和清理均通过；工作流补偿、重试、依赖恢复、同标题去重及结束后通知清理均通过。地图专项 `TEST-MAP-PARTIAL-HEAD` 在线验证 3 个候选中 2 个核实成功：地图只显示悠航 SLOWBOAT 与潇湘阁，未核实的 BOTTEGA 未进入地图，也未被“三里屯”商圈冒充；正文准确显示成功 `2/3`、失败 `1/3`。当前代码同时覆盖“全部候选均未核实则拒绝生成地图”的边界，禁止空地图和虚假点位。`dpu2leh922y2` 进一步在线验证：切到 7 月 22 日日历详情后再次点击同一地图 Action，地图画布及两个已核实地点均重新展开；腾讯会议缺失开始/结束时间时显示可编辑卡片，补齐后重新计算出 3 条日程冲突，必须逐条勾选才启用“已了解，仍然创建”。测试未调用会议创建 Provider，提案随后已取消。当前 `dp2ohxgfckff` 又用 `TEST-MAP-DEDUPE-8486779` 验证：模型回复仅保留 1 个“查看故宫博物院位置”Action，生成期间旧地图不刷新，点击后显示腾讯地图与核实地点；切到 7 月 22 日日历再点同一 Action 仍可重新展开。空模型终稿、checkpoint 先于流结束以及 Action 重复到达三种竞态均有自动回归。
+- 线上回归：应用已连接，设置、Skills 广场、历史会话、日历和 Makers 持久化数据可读取；专项 `TEST-CRON-1510` 日程已从 7 月 22 日清理。无缓存新闻搜索保留独立 LLM 规划，工具阶段 17.8 秒、正文 27.3 秒；单轮只有 1 次 SearchPro，请求完成后不再产生冗余工具绑定模型轮次。SearchPro 曾返回并成功加载 919×376 的真实新闻现场图；图片审核改为与文本综合并行，任意 SSE 到达顺序都不会丢图。新对话在有未读风险时由模型自然主动开场；设置、Skills 广场和腾讯会议个人授权引导已上线。CAL-06、PRO-06 和 PRO-08 已在真实 Preview 完成：重叠日程、路线风险、自然语言修改和清理均通过；工作流补偿、重试、依赖恢复、同标题去重及结束后通知清理均通过。地图专项 `TEST-MAP-PARTIAL-HEAD` 在线验证 3 个候选中 2 个核实成功：地图只显示悠航 SLOWBOAT 与潇湘阁，未核实的 BOTTEGA 未进入地图，也未被“三里屯”商圈冒充；正文准确显示成功 `2/3`、失败 `1/3`。当前代码同时覆盖“全部候选均未核实则拒绝生成地图”的边界，禁止空地图和虚假点位。最终 `dpmnthmfw7fx` 用 `TEST-MAP-DEDUPE-8486779` 验证：先切到 7 月 22 日日历详情，再点击“查看故宫博物院位置”，右栏立即恢复为“北京故宫博物院”，腾讯地图和唯一核实地点均出现；加载失败时仍保留核实地点列表和重试入口。`TEST-MEETING-FINAL-32ccf95` 验证缺失时间集中在同一可编辑卡片，填写 10:00–11:00 后得到 3 个独立冲突勾选项，以及“接受全部 3 项冲突提醒”“修改时间”“取消”和接受后创建入口；测试提案已取消，未调用会议 Provider。Cloudflare img2img 真实命中 `@cf/runwayml/stable-diffusion-v1-5-img2img`、`reference_count=1`、`fallback=False`，图片进入第 5 个版本且仍只有一张图片工坊卡；中文翻译预处理失败后使用原提示词继续执行，因此可用性通过但编辑跟随质量有限。空模型终稿、checkpoint 先于流结束以及 Action 重复到达三种竞态均有自动回归。
 
 主动后台触发最终结构为 EdgeOne Schedule 每日 08:00 POST `/api/proactive-tick`，Node Cloud Function 使用 Makers Blob `onlyIfNew` 原子锁后转发 `/proactive` Agent，失败时释放锁。当前 Preview 的云端 Function 与 Agent 清单均已核对；受保护 Preview 的 Schedule 请求仍在进入 Function 运行时前被平台路由以 404 拦截，因此 PRO-07 保持外部阻塞，未发布生产。
 
@@ -51,7 +51,10 @@
 | Preview | `dpnfctdj8ld1` | `b520a74` | 历史 Preview；成功，137 秒；包含部分成功地图规则、全失败拒绝边界测试与 Cloudflare 中文图片提示词翻译修复。 |
 | Preview | `dpu2leh922y2` | `f0e0165` | 历史 Preview；成功；地图 Action 显式/重复展开与腾讯会议可编辑条件卡、逐条冲突确认在线通过。 |
 | Preview | `dpjo3fvc3aqe` | `3cb7f7d` | 历史诊断 Preview；成功；验证 Action 去重后暴露 checkpoint 先结束时的 Action 回挂竞态。 |
-| Preview | `dp2ohxgfckff` | `8486779` | 当前 Preview；成功，70 秒；单一地图 Action、点击后显示、旧地图持久和切换日历后重复打开在线通过。 |
+| Preview | `dp2ohxgfckff` | `8486779` | 历史 Preview；成功，70 秒；单一地图 Action、点击后显示、旧地图持久和切换日历后重复打开在线通过。 |
+| Preview | `dp062qb6xrjm` | `040908d` | 历史 Preview；地图乐观展开与 SDK 超时回退、腾讯会议条件编辑和多冲突独立确认在线通过。 |
+| Preview | `dpj3l8pjbwl6` | `1899df4` | 历史诊断 Preview；确认 Cloudflare 翻译预处理失败后混元安全兜底。 |
+| Preview | `dpmnthmfw7fx` | `32ccf95` | 当前 Preview；成功；地点显示、会议多选条件卡和 Cloudflare img2img 真实调用在线通过。 |
 
 GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当前发布方式是先推送目标分支，再从 EdgeOne 控制台“构建部署 → 新建部署”选择该分支。详细步骤见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
@@ -60,8 +63,8 @@ GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当
 当前分支待发布代码已验证：
 
 - Cloud Functions、Schedule 桥接、验收持久化与平台约束：20 项通过。
-- 前端 Vitest：48 项通过。
-- Python Agent：121 项通过。
+- 前端 Vitest：52 项通过。
+- Python Agent：125 项通过。
 - 旧数据迁移工具：2 项通过。
 - ESLint、TypeScript/Vite EdgeOne 构建、`edgeone makers build` 和 `git diff --check`：通过。
 - EdgeOne 云端构建：成功。
@@ -75,10 +78,10 @@ GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当
 - `dpy9p2uloo7d` 尚未发布生产；共享验收站当前 53 条通过、0 条失败、11 条阻塞/未测，生产阻断通过 40/42，门禁仍明确为“禁止生产发布”。原 34 条阻塞专项已归类为 23 条通过、11 条不适用/外部阻塞、0 条真实场景待测。
 - PRO-08 清理后的首次整页重载曾出现 1 次 EdgeOne `CLOUD_FUNCTION_INVOCATION_TIMEOUT`；立即使用同一 Preview 链接重试后恢复，应用重新连接，随后新建对话与刷新均正常。当前按不可稳定复现的平台瞬时错误记录，生产发布前仍需继续观察日志和冷启动重载。
 - “最近AI有什么新进展”最终无缓存样例在 17.8 秒拿到工具结果、27.3 秒显示正文，达到最慢约 30 秒目标；5–10 秒仍只能在缓存命中或 Provider 较快时达到，不能普遍承诺。
-- Cloudflare Workers AI 的测试 Token 与 Account ID 均只配置到 Preview，生产环境不继承。多模态理解真实调用已通过；Flux 英文文生图真实生成了白底、蓝围巾橘猫，证明接口和图片模型可用。中文文生图与图生图在修复前出现提示词跟随偏差，当前提交已增加 GLM-4.7-Flash 中文到英文提示词转换并通过自动测试；受保护 Preview 的签名链接有效期为 3 小时，本轮真实强制回归仍待补证，不能把它记为已通过。SearchPro 图片链路已真实成功过，但视觉 Provider 不可用或候选不相关时会诚实不展示图片，不再声称图片正在生成。混元文生图和图生图已真实通过。
+- Cloudflare Workers AI 的测试 Token 与 Account ID 均只配置到 Preview，生产环境不继承。多模态理解、Flux 英文文生图和 img2img 真实调用均已通过；最终 img2img 日志为 `provider=cloudflare`、`reference_count=1`、`fallback=False`。但 GLM-4.7-Flash 中文翻译预处理在真实 Preview 返回不可用形态，本次以原中文提示词继续生成，虽然有图片结果，颜色、构图和禁字约束的跟随质量不足。因此 Cloudflare 当前定位是“外部主 Provider 失败时仍能出图”的免费降级，不与混元质量等价。SearchPro 图片链路已真实成功过，但视觉 Provider 不可用或候选不相关时会诚实不展示图片，不再声称图片正在生成。混元文生图和图生图已真实通过。
 - 真实旧 SQLite 备份尚未执行数量、哈希和抽样回读；迁移代码与测试已完成。
 - PRO-07 已完成三轮专用 Preview：Schedule 可在页面关闭时请求，但受保护 Preview 的路由/访问保护在进入已部署 Function 前返回 404；该项是当前平台外部阻塞，不用手动 tick 冒充通过。CORE-08 仍需测试人员按 Chrome“请求条件”完成一次真实网络阻断证据。
-- 腾讯会议是可选 Skill；个人账号不要求企业 `SecretId/AppId`，但仍需从腾讯会议 AI Skill 页面取得个人 MCP Token，并只保存到 Makers 环境变量。
+- 腾讯会议是可选 Skill；个人账号不要求企业 `SecretId/AppId`。个人 MCP Token 已仅保存到 Preview 并完成真实创会、日历单条写入和用户侧核对；生产不继承测试 Token。
 - DOC/DOCX、扫描 PDF OCR、页码级引用尚未实现。
 - 未绑定自定义域名，Preview 测试链接默认有效 3 小时，签名不得提交仓库。
 

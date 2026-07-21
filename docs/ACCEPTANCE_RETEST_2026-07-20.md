@@ -44,7 +44,7 @@
 | MIG-01 | 没有用户真实旧 SQLite 备份；迁移器 2 项只读/不覆盖测试通过。 |
 | LIMIT-01、LIMIT-02 | 依赖真实额度耗尽或平台限流，不在共享生产 Provider 上制造。 |
 | CORE-08 | 需要专用无效 Provider Preview；安全错误归一化自动化测试已通过。 |
-| IMAGE-04 | 没有公开无敏感参考图；Cloudflare 测试 Token 已仅配置到 Preview，但仍缺 `CLOUDFLARE_ACCOUNT_ID`，无法组成 Workers AI 调用地址。 |
+| IMAGE-04 | 已完成。Cloudflare Account ID 与测试 Token 均只在 Preview；多模态理解、英文文生图和 img2img 均有真实调用证据。最终 img2img 命中 Cloudflare 且未回退，但中文翻译预处理失败，生成质量仅按“可用降级”通过，不按高保真编辑通过。 |
 | READ-07 | 阅读库没有至少 2 个可删除的 `TEST-` 文件，不删除用户资料。 |
 | LIMIT-03、LIMIT-04 | 当前产品没有对应的完整额度 UI/故障注入能力，作为未实现边界而非代码回归。 |
 

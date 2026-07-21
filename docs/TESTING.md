@@ -37,7 +37,7 @@ python -m unittest discover -s tools/tests -v
 git diff --check
 ```
 
-当前分支 2026-07-21 的已验证结果：Cloud Functions/Schedule 适配/平台约束 20 项、前端 Vitest 48 项、Python Agent 121 项、迁移工具 2 项均通过；ESLint、TypeScript/Vite 构建、`edgeone makers build` 和 `git diff --check` 通过。地图测试同时覆盖“3 个候选仅 2 个核实成功时只展示 2 个”“全部候选均未核实时拒绝生成地图”“同一地图 Action 在切换日历后可再次显式展开”，以及“地点工具成功但最终模型文字为空时，Action 在流结束和刷新恢复后仍保留”。前端还覆盖 checkpoint 最终消息先替换临时行、Action 后结束的竞态：Action 会重新挂到本轮 AI 回复，并按 Action ID 合并为单实例。腾讯会议测试覆盖缺失时间保留、卡片内编辑、冲突重新计算、Action 版本/快照更新，以及创建成功后只写入一条日程。运行 Python 测试前必须先激活上一步创建的 `.venv`；直接使用未安装依赖的系统 Python 会报 `langchain_core` 缺失，这属于本地环境错误而不是代码失败。主包体积警告是已知非阻断优化项。
+当前分支 2026-07-21 的已验证结果：Cloud Functions/Schedule 适配/平台约束 20 项、前端 Vitest 52 项、Python Agent 125 项、迁移工具 2 项均通过；ESLint、TypeScript/Vite 构建、EdgeOne 云端构建和 `git diff --check` 通过。地图测试同时覆盖“3 个候选仅 2 个核实成功时只展示 2 个”“全部候选均未核实时拒绝生成地图”“同一地图 Action 在切换日历后可再次显式展开”“点击后先显示冻结的核实地点，再持久化激活状态”，以及“地图 SDK 超时后保留地点列表和重试”。前端还覆盖 checkpoint 最终消息先替换临时行、Action 后结束的竞态：Action 会重新挂到本轮 AI 回复，并按 Action ID 合并为单实例。腾讯会议测试覆盖缺失时间保留、卡片内编辑、冲突重新计算、逐条/全选接受冲突、修改时间和取消，以及创建成功后只写入一条日程。Cloudflare 测试覆盖 HTTP 200 错误信封后改用 `image_b64`、翻译预处理失败时继续调用图片模型，以及安全诊断不写入 Token、提示词或响应体。运行 Python 测试前必须先激活上一步创建的 `.venv`；直接使用未安装依赖的系统 Python 会报依赖缺失，这属于本地环境错误而不是代码失败。主包体积警告是已知非阻断优化项。
 
 搜索调用次数要在 Makers 控制台日志中验证：按本次请求时间范围搜索 `rich_search provider_call`，同一轮应恰好 1 条；第二个相同查询命中缓存时会出现 `rich_search cache_hit`。浏览器 Network 只看到外层 `POST /chat`，不能据此推断内部工具次数。
 

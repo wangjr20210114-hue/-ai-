@@ -60,7 +60,7 @@ IMAGE_PROVIDER_ORDER=cloudflare,hunyuan
 - 图生图：混元失败后，Cloudflare 使用 img2img；当前降级适配器使用第一张参考图，混元仍支持最多三张参考图。
 - 所有成功生成图片都复制到 Makers Blob；Provider 临时 URL 不是历史记录的唯一来源。
 
-当前 Makers 项目的测试 `CLOUDFLARE_WORKERS_AI_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID` 均已收紧并核验为“预览”，生产环境不继承。多模态理解真实调用已正确识别合成测试图；Flux 英文文生图也已正确生成白底、蓝围巾橘猫。中文提示词在修复前会偏离主体，现已使用 Cloudflare 当前多语言模型 `@cf/zai-org/glm-4.7-flash` 先翻译为英文，并为中文翻译、英文免翻译、文生图与图生图契约增加自动测试。中文文生图和图生图仍须通过有效期内的 Preview 签名链接完成最终真实复测，不能只凭自动测试记为最终通过。
+当前 Makers 项目的测试 `CLOUDFLARE_WORKERS_AI_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID` 均已收紧并核验为“预览”，生产环境不继承。多模态理解真实调用已正确识别合成测试图；Flux 英文文生图已正确生成白底、蓝围巾橘猫；`dpmnthmfw7fx` 的图生图日志真实显示 `provider=cloudflare`、`model=@cf/runwayml/stable-diffusion-v1-5-img2img`、`reference_count=1`、`fallback=False`，因此三条能力的接口可用性均已有 Preview 证据。中文翻译预处理使用 `@cf/zai-org/glm-4.7-flash`，但最终图生图实测仍返回不可用的翻译结果；适配器现在把翻译当可选步骤，失败后继续用原提示词调用图片模型。该次确实出图并保存为图片工坊新版本，但颜色、构图和“不要文字”的跟随效果有限，所以 Cloudflare 只作为免费可用性降级，不宣称与混元质量等价。
 
 ## 无破坏 Preview 验收
 
