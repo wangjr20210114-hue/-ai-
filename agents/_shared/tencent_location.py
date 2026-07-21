@@ -124,16 +124,18 @@ def _normalized_lookup_text(value: Any) -> str:
     return "".join(re.findall(r"[\w\u4e00-\u9fff]+", str(value or "").lower()))
 
 
-def _primary_place_matches(item: dict[str, Any], normalized_query: str) -> bool:
+def _primary_place_match_score(item: dict[str, Any], normalized_query: str) -> float:
     normalized_name = _normalized_lookup_text(item.get("name"))
     normalized_record = _normalized_lookup_text(f"{item.get('name', '')}{item.get('address', '')}")
-    return bool(
-        normalized_query
-        and (
-            normalized_query in normalized_record
-            or (len(normalized_name) >= 3 and normalized_name in normalized_query)
-        )
-    )
+    if not normalized_query or not normalized_name:
+        return 0.0
+    if normalized_query in normalized_record:
+        return 3.0 + min(1.0, len(normalized_query) / max(1, len(normalized_record)))
+    if len(normalized_name) >= 3 and normalized_name in normalized_query:
+        coverage = len(normalized_name) / max(1, len(normalized_query))
+        if coverage >= 0.25:
+            return 2.0 + coverage
+    return 0.0
 
 
 async def search_verified_places(key: str, query: str, *, city: str = "全国", limit: int = 10) -> list[dict[str, Any]]:
@@ -142,8 +144,16 @@ async def search_verified_places(key: str, query: str, *, city: str = "全国", 
     if key:
         try:
             primary = await search_places(key, query, city=city, limit=limit)
-            if any(_primary_place_matches(item, normalized_query) for item in primary):
-                return primary
+            ranked_primary = sorted(
+                (
+                    (_primary_place_match_score(item, normalized_query), index, item)
+                    for index, item in enumerate(primary)
+                ),
+                key=lambda candidate: (-candidate[0], candidate[1]),
+            )
+            matched_primary = [item for score, _index, item in ranked_primary if score > 0]
+            if matched_primary:
+                return matched_primary
         except Exception:
             pass
     fallback = await search_osm_places(query, city=city, limit=limit)

@@ -1181,6 +1181,30 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(places[0]["place_id"], "tencent:trb-hutong")
         fallback.assert_not_awaited()
 
+    async def test_place_search_ranks_named_restaurant_above_generic_area(self):
+        generic = {
+            **PLACE,
+            "place_id": "tencent:sanlitun-area",
+            "name": "三里屯",
+            "address": "北京市朝阳区三里屯街道",
+        }
+        restaurant = {
+            **PLACE,
+            "place_id": "tencent:bottega",
+            "name": "BOTTEGA意库(三里屯店)",
+            "address": "北京市朝阳区三里屯路19号",
+        }
+        with patch(
+            "agents._shared.tencent_location.search_places",
+            new=AsyncMock(return_value=[generic, restaurant]),
+        ), patch(
+            "agents._shared.tencent_location.search_osm_places",
+            new=AsyncMock(return_value=[]),
+        ) as fallback:
+            places = await search_verified_places("map-key", "BOTTEGA意库三里屯", city="北京")
+        self.assertEqual(places[0]["place_id"], "tencent:bottega")
+        fallback.assert_not_awaited()
+
     def test_image_versions_are_grouped_and_ordered(self):
         state = empty_workspace()
         first = new_action("image_generate", {"prompt": "初版", "group_id": "group-1"}, requires_confirmation=False)
