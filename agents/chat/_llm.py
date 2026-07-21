@@ -5,7 +5,14 @@ from typing import Any
 from langchain_openai import ChatOpenAI
 
 DEFAULT_MODEL = "@makers/deepseek-v4-flash"
-_model_cache: dict[tuple[str, str, bool], Any] = {}
+_model_cache: dict[tuple[str, str, bool, float, float], Any] = {}
+
+
+def _model_timeout(env: dict, key: str, default: float) -> float:
+    try:
+        return max(5.0, min(30.0, float(env.get(key) or default)))
+    except (TypeError, ValueError):
+        return default
 
 
 def _is_quota_error(error: Exception) -> bool:
@@ -58,7 +65,9 @@ def get_model(env: dict):
     model_name = str(env.get("AI_GATEWAY_MODEL") or DEFAULT_MODEL)
     base_url = str(env["AI_GATEWAY_BASE_URL"]).rstrip("/")
     direct_key = str(env.get("DEEPSEEK_API_KEY") or "").strip()
-    cache_key = (model_name, base_url, bool(direct_key))
+    gateway_timeout = _model_timeout(env, "AI_GATEWAY_TIMEOUT_SECONDS", 12.0)
+    fallback_timeout = _model_timeout(env, "DEEPSEEK_TIMEOUT_SECONDS", 12.0)
+    cache_key = (model_name, base_url, bool(direct_key), gateway_timeout, fallback_timeout)
     if cache_key in _model_cache:
         return _model_cache[cache_key]
 
@@ -67,7 +76,7 @@ def get_model(env: dict):
         api_key=env["AI_GATEWAY_API_KEY"],
         base_url=base_url,
         temperature=0.0,
-        timeout=300,
+        timeout=gateway_timeout,
         streaming=True,
     )
     if direct_key:
@@ -76,7 +85,7 @@ def get_model(env: dict):
             api_key=direct_key,
             base_url=str(env.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com/v1").rstrip("/"),
             temperature=0.0,
-            timeout=300,
+            timeout=fallback_timeout,
             streaming=True,
         )
         model = QuotaFailoverModel(model, fallback)

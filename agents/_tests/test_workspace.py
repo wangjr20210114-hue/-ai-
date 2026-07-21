@@ -20,6 +20,7 @@ from agents.chat._capability_plan import (
     required_tools_for_plan,
 )
 from agents.chat._followups import parse_followups
+from agents.chat._llm import _model_timeout
 from agents.chat._history import bounded_history
 from agents.chat._calendar_context import calendar_context
 from agents.chat._ui_tools import build_production_tools
@@ -179,6 +180,11 @@ class FakeContext:
 
 
 class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
+    def test_model_timeout_is_bounded_for_fast_failover(self):
+        self.assertEqual(_model_timeout({}, "AI_GATEWAY_TIMEOUT_SECONDS", 12), 12)
+        self.assertEqual(_model_timeout({"AI_GATEWAY_TIMEOUT_SECONDS": "999"}, "AI_GATEWAY_TIMEOUT_SECONDS", 12), 30)
+        self.assertEqual(_model_timeout({"AI_GATEWAY_TIMEOUT_SECONDS": "1"}, "AI_GATEWAY_TIMEOUT_SECONDS", 12), 5)
+
     def test_personal_runtime_uses_one_fixed_owner_and_raw_conversation_id(self):
         ctx = SimpleNamespace(request=FakeRequest({}), conversation_id="conversation-personal")
         self.assertEqual(require_user(ctx)["user_id"], USER_WORKSPACE_ID)
