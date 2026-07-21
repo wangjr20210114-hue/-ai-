@@ -1620,6 +1620,59 @@
     ]
   },
   {
+    "id": "IMAGE-05",
+    "module": "AI 生图",
+    "title": "Cloudflare Workers AI 真实降级",
+    "scope": "在不覆盖混元密钥、不影响 Production 的前提下，真实验证 Cloudflare 多模态理解、文生图和图生图三条链路。",
+    "implementation": "requires-config",
+    "releaseBlocker": false,
+    "preconditions": [
+      "已在 Makers 中把 CLOUDFLARE_ACCOUNT_ID 与 CLOUDFLARE_WORKERS_AI_TOKEN 限定为 Preview，Production 不继承",
+      "已创建专用 Preview；有权限临时增加和删除两个非敏感顺序变量",
+      "准备一张无敏感信息、主体和颜色清晰的测试图片"
+    ],
+    "data": [
+      "VISION_PROVIDER_ORDER=cloudflare,hunyuan",
+      "IMAGE_PROVIDER_ORDER=cloudflare,hunyuan",
+      "附图消息：只描述图中的主体、主色和可见文字",
+      "文生图消息：TEST-CF-IMAGE：生成一只戴蓝色围巾的橘猫，白色背景，不要文字",
+      "图生图消息：保持同一只猫和构图，只把围巾改成红色"
+    ],
+    "steps": [
+      "【Makers 控制台】项目设置 → 环境变量；确认 Cloudflare Account ID 与 Token 的环境均为 Preview。只检查变量名和环境标签，不展开、复制或截图变量值。",
+      "【Makers 控制台】新增 VISION_PROVIDER_ORDER 与 IMAGE_PROVIDER_ORDER，值都填 cloudflare,hunyuan，环境只选 Preview；保存后从当前分支新建专用 Preview。",
+      "【专用 Preview】从 Deployment 的“预览”按钮打开受保护链接；新建会话，上传无敏感测试图并发送附图描述消息。",
+      "【专用 Preview】新建会话并发送 TEST-CF-IMAGE 文生图消息；等待图片工坊显示第一版。",
+      "【专用 Preview】在同一版本组发送图生图修改消息；等待第二版并对比围巾颜色。",
+      "【Makers 日志】按三次请求的时间和 Request ID 筛选；只记录 provider=cloudflare、模型名、状态与时长，不记录请求头、Token、图片 Base64 或完整响应。",
+      "【Makers 控制台】删除两个顺序变量，重新部署普通 Preview；发送一次普通文生图，确认默认顺序恢复且 Production Deployment 未变化。",
+      "【验收站】填写三条链路各自结果并上传不含密钥的页面/日志截图；任一真实调用未采用 Cloudflare 时不得标记通过。"
+    ],
+    "expected": [
+      "附图描述与真实像素一致，日志证明视觉 Provider 为 cloudflare",
+      "文生图生成成功并进入 Makers Blob，日志证明 Provider 为 cloudflare",
+      "图生图保留主体和构图并修改围巾颜色，日志证明 Provider 为 cloudflare",
+      "最终页面、日志和证据不泄露 Token、请求头或 Base64",
+      "删除顺序变量后恢复混元优先；Production 始终未修改",
+      "结果、备注、最后编辑主机/时间和证据可在另一台主机同步看到"
+    ],
+    "evidence": [
+      "三条真实调用的页面结果与脱敏 Provider 日志",
+      "顺序变量删除后普通 Preview 恢复截图"
+    ],
+    "detailVersion": 3,
+    "safety": {
+      "environment": "仅专用 Preview；Production 禁止配置顺序变量或执行强制 Provider 测试。",
+      "impact": "只增加两个非敏感顺序变量，不覆盖任何真实密钥；测试图片不得含个人或敏感信息。",
+      "rollback": "删除 VISION_PROVIDER_ORDER 与 IMAGE_PROVIDER_ORDER，重新部署 Preview 并做一次普通生图冒烟。"
+    },
+    "cleanup": [
+      "删除两个 Provider 顺序变量并确认 Production 环境从未选中。",
+      "保留 TEST-CF-IMAGE 版本作为 Blob 证据；如需删除，只删除本轮 TEST- 版本。",
+      "关闭日志筛选，刷新普通 Preview，确认新对话和普通生图仍可用。"
+    ]
+  },
+  {
     "id": "READ-01",
     "module": "阅读与论文",
     "title": "PDF 上传与 Blob 直传",

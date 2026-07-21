@@ -23,6 +23,15 @@ class VisionProvider:
     model: str
 
 
+def _ordered_names(value: Any, defaults: list[str]) -> list[str]:
+    requested = [
+        item.strip().lower()
+        for item in str(value or "").split(",")
+        if item.strip().lower() in defaults
+    ]
+    return list(dict.fromkeys([*requested, *defaults]))
+
+
 def _openai_endpoint(base_url: str) -> str:
     base = str(base_url or "").rstrip("/")
     if base.endswith("/chat/completions"):
@@ -89,7 +98,12 @@ def vision_providers(env: dict[str, Any]) -> list[VisionProvider]:
             gemini_key,
             str(env.get("GEMINI_VISION_MODEL") or "gemini-2.5-flash-lite"),
         ))
-    return providers
+    order = _ordered_names(
+        env.get("VISION_PROVIDER_ORDER"),
+        [provider.name for provider in providers],
+    )
+    rank = {name: index for index, name in enumerate(order)}
+    return sorted(providers, key=lambda provider: rank[provider.name])
 
 
 def _post_completion(

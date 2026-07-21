@@ -24,6 +24,7 @@
 - `HUNYUAN_IMAGE_API_KEY`
 - `HUNYUAN_VISION_API_KEY`（可复用生图 Key 时可省略）
 - `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_WORKERS_AI_TOKEN`（推荐的每日免费额度视觉/生图降级）
+- `VISION_PROVIDER_ORDER` + `IMAGE_PROVIDER_ORDER`（仅专用 Preview 取证时临时设为 `cloudflare,hunyuan`；Production 不配置）
 - `DASHSCOPE_API_KEY`、`GEMINI_API_KEY`（可选的视觉理解后备，不承担当前免费生图）
 - 腾讯会议为最后阶段可选 Skill；个人部署只需从官方 AI Skill 页面取得 `TENCENT_MEETING_TOKEN` 并保存到 Preview 环境变量，不需要企业五项凭据。未配置时不暴露会议创建工具，不影响部署。
 

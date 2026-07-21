@@ -100,7 +100,7 @@ export async function skillsOperation(conversationId: string): Promise<{ skills:
   return { skills: [{
     id: 'tencent-meeting',
     name: '腾讯会议',
-    description: '使用腾讯会议官方 MCP/Skill 创建、修改、取消和查询会议；个人账号可用，不需要企业应用 SecretId/AppId。',
+    description: '使用腾讯会议官方 MCP/Skill 创建真实会议，并把会议号和加入链接同步写入日程；个人账号可用，不需要企业应用 SecretId/AppId。',
     configured: Boolean(data.providers?.meeting),
     install_url: 'https://meeting.tencent.com/ai-skill',
     credential_name: 'TENCENT_MEETING_TOKEN',

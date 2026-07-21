@@ -1542,6 +1542,15 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-11b-vision-instruct",
         )
 
+    def test_preview_can_force_cloudflare_vision_first_without_changing_default_order(self):
+        providers = vision_providers({
+            "HUNYUAN_IMAGE_API_KEY": "hy",
+            "CLOUDFLARE_ACCOUNT_ID": "account",
+            "CLOUDFLARE_WORKERS_AI_TOKEN": "cf",
+            "VISION_PROVIDER_ORDER": "cloudflare,hunyuan",
+        })
+        self.assertEqual([item.name for item in providers], ["cloudflare", "hunyuan"])
+
     def test_cloudflare_vision_uses_official_run_schema(self):
         class Response:
             def __enter__(self):
@@ -1608,6 +1617,28 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["provider"], "cloudflare")
         self.assertEqual(result["storage_key"], "generated/test.jpg")
         self.assertEqual(provider.call_count, 1)
+
+    async def test_preview_can_force_cloudflare_image_generation_first(self):
+        env = {
+            "HUNYUAN_IMAGE_API_KEY": "hunyuan-key",
+            "CLOUDFLARE_ACCOUNT_ID": "account",
+            "CLOUDFLARE_WORKERS_AI_TOKEN": "token",
+            "IMAGE_PROVIDER_ORDER": "cloudflare,hunyuan",
+        }
+        with patch(
+            "agents._shared.side_effects._post_cloudflare_image",
+            return_value=(b"jpeg", "image/jpeg"),
+        ) as cloudflare, patch(
+            "agents._shared.side_effects._post_image",
+        ) as hunyuan, patch(
+            "agents._shared.side_effects._persist_generated_bytes",
+            new=AsyncMock(return_value={"storage_key": "generated/test.jpg", "image_url": "/files?key=generated/test.jpg"}),
+        ):
+            result = await generate_image(env, "一只猫")
+        self.assertEqual(result["provider"], "cloudflare")
+        self.assertFalse(result["fallback"])
+        self.assertEqual(cloudflare.call_count, 1)
+        hunyuan.assert_not_called()
 
     def test_cloudflare_flux_uses_official_image_schema(self):
         class Response:

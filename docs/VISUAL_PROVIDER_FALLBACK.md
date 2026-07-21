@@ -38,6 +38,15 @@ CLOUDFLARE_ACCOUNT_ID=<Account ID>
 CLOUDFLARE_WORKERS_AI_TOKEN=<API Token>
 ```
 
+正常环境不需要配置 Provider 顺序，默认始终是混元优先、Cloudflare 失败降级。只为专用 Preview 做真实降级取证时，可以临时增加：
+
+```text
+VISION_PROVIDER_ORDER=cloudflare,hunyuan
+IMAGE_PROVIDER_ORDER=cloudflare,hunyuan
+```
+
+这两个变量只改变已配置托管 Provider 的调用顺序，不开启本地推理、不绕过安全过滤，也不应配置到 Production。取证完成后删除它们即可恢复默认顺序。
+
 模型变量已有安全默认值，通常不需要填写。第一次使用 Llama 3.2 11B Vision 前，需要按 Cloudflare 官方模型页接受 Meta License；未完成时该 Provider 会失败并继续尝试后续视觉 Provider。
 
 不要把 Token 写进仓库、验收备注、截图或浏览器前端变量。这里只从 Makers Agent 服务端读取。
@@ -51,14 +60,14 @@ CLOUDFLARE_WORKERS_AI_TOKEN=<API Token>
 - 图生图：混元失败后，Cloudflare 使用 img2img；当前降级适配器使用第一张参考图，混元仍支持最多三张参考图。
 - 所有成功生成图片都复制到 Makers Blob；Provider 临时 URL 不是历史记录的唯一来源。
 
-当前 Makers 项目的测试 `CLOUDFLARE_WORKERS_AI_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID` 均已收紧并核验为“预览”，生产环境不继承。代码和请求契约自动测试已通过；仍需用包含这两项变量的新部署完成多模态理解、文生图和图生图真实调用，真实调用完成前不能把 Cloudflare Provider 记为最终通过。
+当前 Makers 项目的测试 `CLOUDFLARE_WORKERS_AI_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID` 均已收紧并核验为“预览”，生产环境不继承。代码和请求契约自动测试已通过；仍需在专用 Preview 临时把上述顺序设为 Cloudflare 优先，完成多模态理解、文生图和图生图真实调用，真实调用完成前不能把 Cloudflare Provider 记为最终通过。
 
 ## 无破坏 Preview 验收
 
-不要改 Production 密钥。创建专用 Preview，只在该 Preview 配置 Cloudflare 两项变量：
+不要改 Production 密钥，也不要覆盖混元密钥。创建专用 Preview，只在 Preview 添加 Cloudflare 两项凭据和两个顺序变量：
 
-1. 正常保留混元：验证输出结果的 `provider` 为 `hunyuan`。
-2. 在另一个专用故障 Preview 把 `HUNYUAN_IMAGE_API_KEY` 设为字面值 `invalid-for-acceptance`，不要复制真实值。
+1. 先不设置顺序变量，验证正常输出仍优先使用 `hunyuan`。
+2. 临时把 `VISION_PROVIDER_ORDER` 和 `IMAGE_PROVIDER_ORDER` 设为 `cloudflare,hunyuan`。
 3. 执行文生图、基于上一版本修改和上传图片问答。
 4. 验证三项仍成功、生成图进入 Makers Blob、应用无密钥泄露；日志应显示 Cloudflare Provider 被采用。
-5. 删除专用故障 Preview。不得把无效值带到 Production。
+5. 删除两个顺序变量并重新部署 Preview，确认恢复混元优先。不得把顺序变量带到 Production。

@@ -190,6 +190,15 @@ window.CASE_PROCEDURES = {
     S('生成结果', '把成图与来源中的太和殿外观对照屋顶、台基和主立面。', '主体仍可识别，没有完全变成无关建筑；系统不声称像素级一致。'),
     S('清理', '完成证据截图后移除测试参考图或删除测试会话。', '测试素材不再出现在当前会话入口，其他会话数据不受影响。'),
   ],
+  'IMAGE-05': [
+    S('Makers 项目设置 → 环境变量', '只查看 Cloudflare 两个变量的名称和“Preview”环境标签，不点击显示值、不复制、不截图密钥；新增 VISION_PROVIDER_ORDER 和 IMAGE_PROVIDER_ORDER，值均为 cloudflare,hunyuan，环境只选 Preview。', '两个顺序变量保存为 Preview-only；Production 没有新增或修改变量。'),
+    S('Makers 构建部署', '从 agent/makers-native-persistence-fixes 新建专用 Preview；部署成功后点击“预览”取得受保护链接，记下 Deployment ID。', '新 Deployment 明确标为 Preview，提交与测试分支一致；当前 Production Deployment ID 未变化。'),
+    S('专用 Preview 新会话', '上传一张无敏感信息的测试图片，发送“只描述图中的主体、主色和可见文字”。', '回答与真实像素一致；正文不显示 Cloudflare、Token、Base64 或内部提示词。'),
+    S('专用 Preview 新会话', '发送“TEST-CF-IMAGE：生成一只戴蓝色围巾的橘猫，白色背景，不要文字”；等待第一版进入图片工坊。', '第一版可见且符合主体/颜色要求；图片请求来自 /files?key=generated/...，证明已进入 Makers Blob。'),
+    S('同一图片版本组', '发送“保持同一只猫和构图，只把围巾改成红色”；等待第二版并切换对比。', '第二版仍是同一主体和构图，主要变化是围巾变红；第一版仍可访问。'),
+    S('Makers 日志', '按三次请求的时间和 Request ID 查看脱敏诊断，只记录 provider、model、状态和时长。', '视觉理解、文生图、图生图三次都能证明 provider=cloudflare；日志中没有 Token 或图片 Base64。'),
+    S('Makers 项目设置 → 环境变量', '删除 VISION_PROVIDER_ORDER 和 IMAGE_PROVIDER_ORDER；重新部署普通 Preview 并做一次普通文生图。', '默认恢复混元优先；普通 Preview 可用；Production 从始至终未变化。'),
+  ],
   'READ-01': [
     S('测试文件', '准备一个可复制文字、无敏感信息、大小 7–20MB 的 PDF，重命名为“TEST-中文大文件-READ-01.pdf”；先在本机打开确认不是空白或扫描件。', '文件名确实含中文，大小超过 Makers Cloud Functions 6MB 响应上限但没有超过应用 20MB 上传上限。'),
     S('目标网页底部', '点击输入框左侧“上传文件”，只选择一次 TEST-中文大文件-READ-01.pdf；保持页面打开直到上传提示结束。', '页面先取得 POST /files 签名地址，再由浏览器直接 PUT 到 Makers Blob；整份 PDF 不经过业务函数。'),

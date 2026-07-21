@@ -67,7 +67,7 @@
 
 ## 7. 自动化基线
 
-- Makers Agent：112 项通过。
+- Makers Agent：114 项通过。
 - SQLite 只读导出：2 项通过。
 - 前端 Vitest：44 项通过。
 - Cloud Functions、Schedule 适配、验收持久化与平台复用/安全契约：20 项通过。

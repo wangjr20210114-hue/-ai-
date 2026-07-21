@@ -411,7 +411,10 @@ async def generate_image(
     storage_prefix = ""
     references = [str(url).strip() for url in (reference_images or []) if str(url).startswith(("https://", "data:image/"))][:3]
     failures: list[str] = []
-    if api_key:
+
+    async def try_hunyuan() -> dict[str, Any] | None:
+        if not api_key:
+            return None
         try:
             endpoint = f"{base_url}/v1/images/generations" if model.lower() == "hy-image-v3.0" or references else f"{base_url}/v1/api/image/lite"
             result = await asyncio.to_thread(
@@ -425,6 +428,7 @@ async def generate_image(
                 "provider_image_url": provider_image_url,
                 **persisted,
                 "reference_images": references,
+                "fallback": bool(failures),
             }
         except Exception as exc:
             failures.append(f"混元：{type(exc).__name__}")
@@ -446,12 +450,15 @@ async def generate_image(
                     }
                 except Exception as fallback_exc:
                     failures.append(f"混元 Lite：{type(fallback_exc).__name__}")
+        return None
 
     cloudflare_account = str(env.get("CLOUDFLARE_ACCOUNT_ID") or "").strip()
     cloudflare_token = str(
         env.get("CLOUDFLARE_WORKERS_AI_TOKEN") or env.get("CLOUDFLARE_API_TOKEN") or ""
     ).strip()
-    if cloudflare_account and cloudflare_token:
+    async def try_cloudflare() -> dict[str, Any] | None:
+        if not cloudflare_account or not cloudflare_token:
+            return None
         cloudflare_model = str(
             env.get("CLOUDFLARE_IMAGE_EDIT_MODEL")
             or "@cf/runwayml/stable-diffusion-v1-5-img2img"
@@ -477,10 +484,22 @@ async def generate_image(
                 "provider_image_url": "",
                 **persisted,
                 "reference_images": references[:1],
-                "fallback": bool(api_key),
+                "fallback": bool(failures),
             }
         except Exception as exc:
             failures.append(f"Workers AI：{type(exc).__name__}")
+        return None
+
+    requested_order = [
+        item.strip().lower()
+        for item in str(env.get("IMAGE_PROVIDER_ORDER") or "").split(",")
+        if item.strip().lower() in {"hunyuan", "cloudflare"}
+    ]
+    provider_order = list(dict.fromkeys([*requested_order, "hunyuan", "cloudflare"]))
+    for provider_name in provider_order:
+        result = await (try_cloudflare() if provider_name == "cloudflare" else try_hunyuan())
+        if result is not None:
+            return result
 
     if not failures:
         return {
