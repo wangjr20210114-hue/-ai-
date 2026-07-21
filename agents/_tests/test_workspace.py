@@ -1898,6 +1898,46 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(retry_payload["image_b64"], base64.b64encode(b"source").decode("ascii"))
         self.assertEqual((body, content_type), (b"png", "image/png"))
 
+    def test_cloudflare_img2img_retries_when_schema_error_uses_http_200_envelope(self):
+        class Response:
+            headers = {"Content-Type": "application/json"}
+
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return json.dumps(self.payload).encode("utf-8")
+
+        rejected = Response({"success": False, "errors": [{"code": 1001, "message": "schema"}]})
+        succeeded = Response({
+            "success": True,
+            "result": base64.b64encode(b"jpeg").decode("ascii"),
+        })
+        with patch(
+            "agents._shared.side_effects._reference_bytes",
+            return_value=(b"source", "image/jpeg"),
+        ), patch(
+            "agents._shared.side_effects.urllib.request.urlopen",
+            side_effect=[rejected, succeeded],
+        ) as urlopen:
+            body, content_type = _post_cloudflare_image(
+                "account", "token", "@cf/runwayml/stable-diffusion-v1-5-img2img",
+                "green scarf", ["data:image/jpeg;base64,c291cmNl"],
+            )
+
+        self.assertEqual(urlopen.call_count, 2)
+        first_payload = json.loads(urlopen.call_args_list[0].args[0].data.decode("utf-8"))
+        retry_payload = json.loads(urlopen.call_args_list[1].args[0].data.decode("utf-8"))
+        self.assertIn("image", first_payload)
+        self.assertIn("image_b64", retry_payload)
+        self.assertEqual((body, content_type), (b"jpeg", "image/jpeg"))
+
 
 if __name__ == "__main__":
     unittest.main()

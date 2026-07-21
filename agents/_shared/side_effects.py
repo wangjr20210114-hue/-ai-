@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 from datetime import datetime
 import hashlib
 import hmac
@@ -17,6 +18,14 @@ import urllib.parse
 import urllib.request
 import uuid
 from typing import Any
+
+
+class WorkersAIImageResponseError(RuntimeError):
+    """A response-shape failure with a deliberately non-sensitive reason."""
+
+    def __init__(self, safe_reason: str):
+        self.safe_reason = str(safe_reason or "unknown")[:120]
+        super().__init__(f"Workers AI 图片响应无效：{self.safe_reason}")
 
 
 def _meeting_result(data: dict[str, Any], subject: str, start_iso: str) -> dict[str, Any]:
@@ -305,8 +314,50 @@ def _post_cloudflare_image(
     endpoint = (
         f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
     )
-    response_body = b""
-    content_type = ""
+    last_response_error: WorkersAIImageResponseError | None = None
+
+    def decode_response(response_body: bytes, content_type: str) -> tuple[bytes, str]:
+        if not response_body or len(response_body) > 16 * 1024 * 1024:
+            raise WorkersAIImageResponseError("invalid_size")
+        if content_type.startswith("image/"):
+            return response_body, content_type
+        try:
+            data = json.loads(response_body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise WorkersAIImageResponseError("non_image_non_json") from exc
+        if not isinstance(data, dict):
+            raise WorkersAIImageResponseError("invalid_envelope")
+        if data.get("success") is False:
+            codes = []
+            for item in data.get("errors") or []:
+                if isinstance(item, dict) and str(item.get("code") or "").strip():
+                    codes.append(str(item.get("code"))[:32])
+            suffix = f":{','.join(codes[:4])}" if codes else ""
+            raise WorkersAIImageResponseError(f"api_error{suffix}")
+        result: Any = data.get("result", data)
+        if isinstance(result, list) and all(isinstance(item, int) and 0 <= item <= 255 for item in result):
+            return bytes(result), "image/png"
+        if isinstance(result, str):
+            encoded = result
+        elif isinstance(result, dict):
+            raw_image = result.get("image") or result.get("image_b64") or ""
+            if isinstance(raw_image, list) and all(isinstance(item, int) and 0 <= item <= 255 for item in raw_image):
+                return bytes(raw_image), "image/png"
+            encoded = str(raw_image or "")
+        else:
+            encoded = ""
+        if encoded.startswith("data:image/"):
+            return _reference_bytes(encoded)
+        if not encoded:
+            raise WorkersAIImageResponseError("missing_image")
+        try:
+            decoded = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise WorkersAIImageResponseError("invalid_base64") from exc
+        if not decoded:
+            raise WorkersAIImageResponseError("empty_image")
+        return decoded, "image/jpeg"
+
     for index, payload in enumerate(payloads):
         request = urllib.request.Request(
             endpoint,
@@ -321,23 +372,21 @@ def _post_cloudflare_image(
             with urllib.request.urlopen(request, timeout=90) as response:
                 content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].lower()
                 response_body = response.read(16 * 1024 * 1024 + 1)
-            break
+            try:
+                return decode_response(response_body, content_type)
+            except WorkersAIImageResponseError as exc:
+                last_response_error = exc
+                # Cloudflare can return a schema rejection inside an HTTP 200
+                # API envelope. Try the documented image_b64 compatibility
+                # form before falling back to another provider.
+                if index + 1 < len(payloads):
+                    continue
+                raise
         except urllib.error.HTTPError as exc:
             if index + 1 < len(payloads) and int(exc.code or 0) in {400, 404, 415, 422}:
                 continue
             raise
-    if not response_body or len(response_body) > 16 * 1024 * 1024:
-        raise RuntimeError("Workers AI 返回图片大小无效")
-    if content_type.startswith("image/"):
-        return response_body, content_type
-    data = json.loads(response_body.decode("utf-8"))
-    result = data.get("result") if isinstance(data.get("result"), dict) else data
-    encoded = str(result.get("image") or result.get("image_b64") or "")
-    if encoded.startswith("data:image/"):
-        return _reference_bytes(encoded)
-    if not encoded:
-        raise RuntimeError("Workers AI 未返回图片")
-    return base64.b64decode(encoded), "image/jpeg"
+    raise last_response_error or WorkersAIImageResponseError("no_response")
 
 
 def _cloudflare_image_prompt(
@@ -567,9 +616,10 @@ async def generate_image(
         except Exception as exc:
             failures.append(f"Workers AI：{type(exc).__name__}")
             status = int(getattr(exc, "code", 0) or 0)
+            safe_reason = str(getattr(exc, "safe_reason", "") or "")
             diagnostic = (
-                "image generation provider=cloudflare failed model=%s reference_count=%s error_type=%s http_status=%s"
-                % (cloudflare_model, len(references), type(exc).__name__, status)
+                "image generation provider=cloudflare failed model=%s reference_count=%s error_type=%s http_status=%s safe_reason=%s"
+                % (cloudflare_model, len(references), type(exc).__name__, status, safe_reason or "-")
             )
             logging.warning(diagnostic)
             print(diagnostic, flush=True)
