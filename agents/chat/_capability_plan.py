@@ -7,6 +7,7 @@ answer or performs a side effect.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from datetime import datetime, timedelta, timezone
@@ -175,3 +176,25 @@ async def plan_capabilities(model, user_message: str, memory_context: str = "") 
         except Exception:
             continue
     return dict(DEFAULT_PLAN)
+
+
+async def plan_capabilities_bounded(
+    model,
+    user_message: str,
+    memory_context: str = "",
+    timeout_seconds: float = 6.0,
+) -> tuple[dict[str, Any], bool]:
+    """Run the semantic planner without letting it block the whole turn.
+
+    A timeout does not replace semantic routing with keyword rules. The main
+    chat model still receives the complete tool set and decides which tools to
+    use; only the optional pre-plan and its forced-tool hints are omitted.
+    """
+    try:
+        plan = await asyncio.wait_for(
+            plan_capabilities(model, user_message, memory_context),
+            timeout=max(0.01, float(timeout_seconds)),
+        )
+        return plan, False
+    except asyncio.TimeoutError:
+        return dict(DEFAULT_PLAN), True

@@ -14,6 +14,7 @@ from agents.chat._capability_plan import (
     media_enabled_for_plan,
     parse_capability_plan,
     plan_capabilities,
+    plan_capabilities_bounded,
     next_required_tool,
     required_tool_for_plan,
     required_tools_for_plan,
@@ -208,6 +209,19 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("喜欢安静的博物馆", system_prompt)
         self.assertIn("不得把姓名、联系方式", system_prompt)
 
+    async def test_capability_planner_timeout_keeps_main_semantic_routing_available(self):
+        model = AsyncMock()
+        async def slow_plan(*_args, **_kwargs):
+            await asyncio.sleep(10)
+        model.ainvoke.side_effect = slow_plan
+        plan, timed_out = await plan_capabilities_bounded(
+            model,
+            "推荐北京三里屯附近的餐馆",
+            timeout_seconds=0.01,
+        )
+        self.assertTrue(timed_out)
+        self.assertFalse(any(plan[key] for key in plan if key.startswith("needs_")))
+
     async def test_message_restore_keeps_rich_search_metadata(self):
         metadata = {"total": 1, "results": [{"title": "故宫", "url": "https://example.com"}], "media": []}
         messages = [
@@ -370,7 +384,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     def test_temporal_policy_is_derived_after_capability_planning(self):
         source = (Path(__file__).parents[1] / "chat" / "index.py").read_text(encoding="utf-8")
-        planned = source.index("capability_plan = await plan_capabilities")
+        planned = source.index("capability_plan, planner_timed_out = await plan_capabilities_bounded")
         strict_date = source.index('explicit_today = bool(capability_plan.get("strict_today_only"))')
         self.assertLess(planned, strict_date)
 

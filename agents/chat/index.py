@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from ._graph import build_graph
 from ._llm import get_model
 from ._ui_tools import build_production_tools
-from ._capability_plan import media_enabled_for_plan, plan_capabilities, required_tools_for_plan
+from ._capability_plan import media_enabled_for_plan, plan_capabilities_bounded, required_tools_for_plan
 from ._followups import generate_followups
 from ._protocol import PublicStreamFilter, public_error
 from ._calendar_context import calendar_context
@@ -248,16 +248,23 @@ async def handler(ctx):
                 "附图存在，但视觉 Provider 本轮未返回描述。除非用户要求生成或修改图片，否则不要声称已看见其内容；"
                 "应自然说明暂时无法识别，并请用户重试或用文字补充。"
             )
-    try:
-        planning_message = message
-        if reference_image_context:
-            planning_message += f"\n\n[附图视觉事实，仅用于能力规划]\n{reference_image_context[:1600]}"
-        capability_plan = await plan_capabilities(model, planning_message, memory_context)
-    except Exception as exc:
-        logging.exception("chat capability planning failed")
-        message_text = public_error(exc)
-        await fail_run(message_text)
-        return error(message_text, 503)
+    planning_message = message
+    if reference_image_context:
+        planning_message += f"\n\n[附图视觉事实，仅用于能力规划]\n{reference_image_context[:1600]}"
+    planner_timeout = max(3.0, min(12.0, float(
+        ctx.env.get("CAPABILITY_PLAN_TIMEOUT_SECONDS") or 6
+    )))
+    capability_plan, planner_timed_out = await plan_capabilities_bounded(
+        model,
+        planning_message,
+        memory_context,
+        timeout_seconds=planner_timeout,
+    )
+    if planner_timed_out:
+        logging.warning(
+            "chat capability planning timed out after %.1fs; main semantic model retains all tools",
+            planner_timeout,
+        )
     logging.info("capability plan enabled=%s", [key for key, value in capability_plan.items() if value])
 
     # Publication-date strictness is a semantic planner decision.  Keyword
