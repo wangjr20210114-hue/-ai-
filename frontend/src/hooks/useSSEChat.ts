@@ -37,6 +37,15 @@ export function shouldPublishProactiveOpening(restored: ChatMessage[], latest: C
   return durableMessageCount(restored) === 0 && durableMessageCount(latest) === 0;
 }
 
+export function actionOnlyFallback(actions: WorkspaceAction[] | undefined): string {
+  const kinds = new Set((actions || []).map((action) => action.kind));
+  if (kinds.has('map_recommendation')) return '地点已经核实，请点击下方按钮显示地点。';
+  if (kinds.has('meeting_create')) return '腾讯会议确认卡已准备好，请补齐并核对条件。';
+  if (kinds.has('calendar_changes')) return '日程变更确认卡已准备好，请核对后确认。';
+  if (kinds.has('image_generate')) return '图片任务已准备好，可在下方查看结果。';
+  return '';
+}
+
 function responseError(data: unknown, fallback: string): string {
   if (Array.isArray(data) && data[0] && typeof data[0] === 'object') {
     return responseError(data[0], fallback);
@@ -483,12 +492,16 @@ export function useSSEChat() {
           if (current) {
             streams.delete(streamId);
             if (current.failed) break;
-            if (!current.content.trim()) {
+            if (!current.content.trim() && !current.workspaceActions?.length) {
               publish(id, cached(id).filter((item) => item.id !== streamId));
               setConversationActivity(id, 'idle');
               break;
             }
-            const complete = { ...current, streaming: false };
+            const complete = {
+              ...current,
+              content: current.content.trim() ? current.content : actionOnlyFallback(current.workspaceActions),
+              streaming: false,
+            };
             patch(id, streamId, complete);
             setConversationActivity(id, 'idle');
           }

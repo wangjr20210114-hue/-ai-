@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { mergeSearchMeta, shouldPublishProactiveOpening } from './useSSEChat';
+import { actionOnlyFallback, mergeSearchMeta, shouldPublishProactiveOpening } from './useSSEChat';
+import type { WorkspaceAction } from '../types';
 import type { ChatMessage, SearchMeta } from '../types';
 
 const media = [{
@@ -42,5 +43,14 @@ describe('shouldPublishProactiveOpening', () => {
       id: 'user-race', role: 'user', content: '我先问一个问题', ts: Date.now(),
     }];
     expect(shouldPublishProactiveOpening([], latest)).toBe(false);
+  });
+});
+
+describe('actionOnlyFallback', () => {
+  it('keeps a successful map Action visible when final model prose is empty', () => {
+    const action = {
+      id: 'map-1', kind: 'map_recommendation', status: 'ready', version: 1, payload: {},
+    } as WorkspaceAction;
+    expect(actionOnlyFallback([action])).toContain('点击');
   });
 });

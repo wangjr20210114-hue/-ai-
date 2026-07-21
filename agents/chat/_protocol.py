@@ -35,6 +35,24 @@ def public_error(error: Any) -> str:
     return text if len(text) <= 180 else f"{text[:180]}…"
 
 
+def action_fallback_content(actions: list[dict[str, Any]]) -> str:
+    """Keep a durable UI action visible when a provider returns no final prose."""
+    kinds = {
+        str(((item.get("action") if isinstance(item.get("action"), dict) else item) or {}).get("kind") or "")
+        for item in actions
+        if isinstance(item, dict)
+    }
+    if "map_recommendation" in kinds:
+        return "地点已经过真实地点服务核实。请点击下方按钮显示地点；未核实的地点不会进入地图。"
+    if "meeting_create" in kinds:
+        return "腾讯会议确认卡已准备好，请在卡片中补齐并核对条件后继续。"
+    if "calendar_changes" in kinds:
+        return "日程变更确认卡已准备好，请核对后再确认。"
+    if "image_generate" in kinds:
+        return "图片任务已准备好，可在下方图片工坊查看结果。"
+    return "操作卡已准备好，请核对下方内容后继续。"
+
+
 class PublicStreamFilter:
     """Quarantine a short suffix while streaming and suppress provider wire text.
 

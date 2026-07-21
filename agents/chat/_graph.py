@@ -19,6 +19,20 @@ TOOL_FAILURE_MESSAGE = (
 )
 
 
+def tool_completion_fallback(tool_names: Iterable[str]) -> str:
+    """Return safe prose when a successful action tool is followed by an empty model turn."""
+    names = set(tool_names)
+    if names & {"prepare_map_recommendation", "recommend_places_on_map"}:
+        return "地点已经过真实地点服务核实。请点击下方按钮显示地点；未核实的地点不会进入地图。"
+    if "propose_meeting" in names:
+        return "腾讯会议确认卡已准备好，请在卡片中补齐并核对条件后继续。"
+    if "propose_calendar_changes" in names:
+        return "日程变更确认卡已准备好，请核对后再确认。"
+    if "propose_image" in names:
+        return "图片任务已准备好，可在下方图片工坊查看结果。"
+    return ""
+
+
 def _tool_failure_message(exc: Exception) -> str:
     """Keep safe validation feedback so the model can answer naturally."""
     if isinstance(exc, ValueError):
@@ -139,6 +153,10 @@ def build_graph(
             ])
             if not public_content(getattr(response, "content", "")).strip():
                 response = AIMessage(content="没有获得足够且符合条件的可靠信息；我没有用不相关内容凑数。你可以缩小范围或补充约束后再试。")
+        if not getattr(response, "tool_calls", None) and not public_content(getattr(response, "content", "")).strip():
+            fallback = tool_completion_fallback(used_tool_names)
+            if fallback:
+                response = AIMessage(content=fallback)
         return {"messages": [response]}
 
     def should_continue(state: MessagesState) -> Literal["tools", "__end__"]:

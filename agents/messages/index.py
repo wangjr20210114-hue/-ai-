@@ -7,7 +7,7 @@ from .._shared.workspace import active_map_payload, image_versions, load_user_wo
 from .._shared.auth import require_user, scoped_conversation_id
 from .._shared.http import error
 from .._shared.makers_conversation import public_chat_run, read_chat_run
-from ..chat._protocol import public_content
+from ..chat._protocol import action_fallback_content, public_content
 
 
 def _value(item, key, default=None):
@@ -169,6 +169,15 @@ async def handler(ctx):
             restored["papers"] = pending_papers
             pending_papers = None
         result.append(restored)
+
+    if pending_actions:
+        result.append({
+            "id": f"checkpoint-action-{len(result)}",
+            "role": "ai",
+            "content": action_fallback_content(pending_actions),
+            "ts": len(result),
+            "workspaceActions": pending_actions,
+        })
 
     # Older builds persisted the user prompt before the Agent call, so several
     # failed attempts could appear as consecutive user-only rows after a later

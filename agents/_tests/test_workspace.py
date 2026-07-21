@@ -23,8 +23,9 @@ from agents.chat._followups import parse_followups
 from agents.chat._llm import _model_timeout
 from agents.chat._history import bounded_history
 from agents.chat._calendar_context import calendar_context
+from agents.chat._graph import tool_completion_fallback
 from agents.chat._ui_tools import build_production_tools, verify_place_queries_parallel
-from agents.chat._protocol import PublicStreamFilter, dsml_tool_calls, public_content, public_error
+from agents.chat._protocol import PublicStreamFilter, action_fallback_content, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
 from agents._shared.side_effects import (
     _cloudflare_image_prompt,
@@ -273,6 +274,25 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             [(item["role"], item["content"]) for item in response["messages"]],
             [("user", "最近AI有什么新进展"), ("ai", "这是恢复后的回答")],
         )
+
+    async def test_message_restore_keeps_action_when_final_model_prose_is_empty(self):
+        action = new_action(
+            "map_recommendation", {"title": "故宫", "places": [PLACE]},
+            requires_confirmation=False,
+        )
+        messages = [
+            {"type": "human", "content": "故宫在哪里", "id": "u-map-empty"},
+            {"type": "tool", "content": json.dumps({"ui_action": "map_action", "action": action})},
+            {"type": "ai", "content": "", "id": "a-map-empty"},
+        ]
+        store = SimpleNamespace(
+            langgraph_checkpointer=FakeCheckpointer(messages),
+            langgraph_store=FakeStore(),
+        )
+        response = await messages_handler(SimpleNamespace(conversation_id="restore-map-empty", store=store))
+        restored = next(item for item in response["messages"] if item["role"] == "ai")
+        self.assertIn("点击", restored["content"])
+        self.assertEqual(restored["workspaceActions"][0]["id"], action["id"])
 
     async def test_message_restore_rehydrates_image_versions_from_current_workspace(self):
         workspace = empty_workspace()
@@ -1308,6 +1328,14 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         leaked = '搜到了，我再补充。<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="search_arxiv">'
         self.assertEqual(public_content(leaked), "")
         self.assertEqual(public_content("这是最终回答。"), "这是最终回答。")
+
+    def test_action_tools_have_safe_empty_prose_fallbacks(self):
+        self.assertIn("点击", tool_completion_fallback(["prepare_map_recommendation"]))
+        self.assertIn("补齐", tool_completion_fallback(["propose_meeting"]))
+        self.assertIn("点击", action_fallback_content([{
+            "ui_action": "map_action",
+            "action": {"kind": "map_recommendation"},
+        }]))
 
     def test_public_stream_filter_streams_prose_and_retracts_late_protocol(self):
         guard = PublicStreamFilter(hold_chars=16)
