@@ -586,13 +586,29 @@ async def generate_image(
                 env.get("CLOUDFLARE_PROMPT_TRANSLATION_MODEL")
                 or "@cf/zai-org/glm-4.7-flash"
             )
-            provider_prompt = await asyncio.to_thread(
-                _cloudflare_image_prompt,
-                cloudflare_account,
-                cloudflare_token,
-                translation_model,
-                prompt,
-            )
+            try:
+                provider_prompt = await asyncio.to_thread(
+                    _cloudflare_image_prompt,
+                    cloudflare_account,
+                    cloudflare_token,
+                    translation_model,
+                    prompt,
+                )
+            except Exception as translation_exc:
+                # Translation improves adherence for some image models, but it
+                # is optional preprocessing. A temporary translation failure
+                # must not disable Workers AI image generation entirely.
+                provider_prompt = prompt
+                translation_diagnostic = (
+                    "image generation provider=cloudflare prompt_translation_failed "
+                    "error_type=%s http_status=%s"
+                    % (
+                        type(translation_exc).__name__,
+                        int(getattr(translation_exc, "code", 0) or 0),
+                    )
+                )
+                logging.warning(translation_diagnostic)
+                print(translation_diagnostic, flush=True)
             body, content_type = await asyncio.to_thread(
                 _post_cloudflare_image,
                 cloudflare_account,

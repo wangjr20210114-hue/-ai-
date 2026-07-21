@@ -1757,6 +1757,32 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cloudflare.call_count, 1)
         hunyuan.assert_not_called()
 
+    async def test_cloudflare_image_generation_continues_when_prompt_translation_fails(self):
+        env = {
+            "CLOUDFLARE_ACCOUNT_ID": "account",
+            "CLOUDFLARE_WORKERS_AI_TOKEN": "token",
+            "IMAGE_PROVIDER_ORDER": "cloudflare,hunyuan",
+        }
+        with patch(
+            "agents._shared.side_effects._cloudflare_image_prompt",
+            side_effect=RuntimeError("translation response shape changed"),
+        ), patch(
+            "agents._shared.side_effects._post_cloudflare_image",
+            return_value=(b"png", "image/png"),
+        ) as cloudflare, patch(
+            "agents._shared.side_effects._persist_generated_bytes",
+            new=AsyncMock(return_value={
+                "storage_key": "generated/result.png",
+                "image_url": "/files?key=result",
+            }),
+        ):
+            result = await generate_image(env, "一只戴紫色围巾的橘猫")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["provider"], "cloudflare")
+        self.assertFalse(result["prompt_translated"])
+        self.assertEqual(cloudflare.call_args.args[3], "一只戴紫色围巾的橘猫")
+
     def test_cloudflare_translates_chinese_image_prompt_with_current_multilingual_model(self):
         class Response:
             def __enter__(self):
