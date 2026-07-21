@@ -8,6 +8,7 @@ from datetime import datetime
 import hashlib
 import hmac
 import json
+import logging
 import secrets
 import socket
 import urllib.error
@@ -499,6 +500,13 @@ async def generate_image(
     for provider_name in provider_order:
         result = await (try_cloudflare() if provider_name == "cloudflare" else try_hunyuan())
         if result is not None:
+            logging.info(
+                "image generation provider=%s model=%s reference_count=%s fallback=%s",
+                result.get("provider") or "none",
+                result.get("model") or "none",
+                len(references),
+                bool(result.get("fallback")),
+            )
             return result
 
     if not failures:
