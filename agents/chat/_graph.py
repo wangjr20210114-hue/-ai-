@@ -53,12 +53,20 @@ def build_graph(
         # normal answer from the evidence already collected instead of exposing
         # LangGraph's recursion error to the user.
         force_finalize = tools_this_turn >= 4
-        if force_finalize:
+        rich_search_used = "rich_search" in used_tool_names
+        required_name = "" if force_finalize else next_required_tool(
+            required_sequence, used_tool_names, allowed_tool_names,
+        )
+        # Once the planner-required rich search is complete and no other
+        # capability remains, close the tool surface for the answer pass.  A
+        # tool-bound answer model otherwise tends to request rich_search again;
+        # the request is safely suppressed below, but that costs a second LLM
+        # round after the provider has already returned.
+        finalize_after_rich_search = rich_search_used and not required_name
+        tools_closed = force_finalize or finalize_after_rich_search
+        if tools_closed:
             active_model = model
         else:
-            required_name = next_required_tool(
-                required_sequence, used_tool_names, allowed_tool_names,
-            )
             active_model = (
                 model.bind_tools(tools, tool_choice=required_name)
                 if required_name else model_with_tools
@@ -70,20 +78,18 @@ def build_graph(
                 "本轮工具阶段已经结束。不要再描述搜索过程，不要再输出或模拟任何工具调用。"
                 "请直接基于已有工具结果回答用户；结果不足时明确说明缺少多少和检索边界。"
             )))
+        elif finalize_after_rich_search:
+            messages.append(SystemMessage(content=(
+                "本轮唯一一次富搜索已经完成，工具阶段现在结束。请直接基于已有证据回答，"
+                "不要再次调用或描述搜索过程；用户未指定长文时用 3–5 个重点简洁综合。"
+            )))
         response = await active_model.ainvoke(messages)
-        if not force_finalize and not getattr(response, "tool_calls", None):
+        if not tools_closed and not getattr(response, "tool_calls", None):
             normalized = dsml_tool_calls(getattr(response, "content", ""), allowed_tool_names)
             if normalized:
                 response = AIMessage(content="", tool_calls=normalized)
         response_tool_calls = list(getattr(response, "tool_calls", None) or [])
-        if not force_finalize and response_tool_calls:
-            rich_search_used = False
-            for message in reversed(state["messages"]):
-                if getattr(message, "type", "") in {"human", "user"}:
-                    break
-                if getattr(message, "type", "") == "tool" and getattr(message, "name", "") == "rich_search":
-                    rich_search_used = True
-                    break
+        if not tools_closed and response_tool_calls:
             filtered_tool_calls = []
             suppressed_rich_search = False
             for tool_call in response_tool_calls:
