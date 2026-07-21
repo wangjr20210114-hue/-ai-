@@ -133,7 +133,7 @@ def _primary_place_match_score(item: dict[str, Any], normalized_query: str) -> f
         return 3.0 + min(1.0, len(normalized_query) / max(1, len(normalized_record)))
     if len(normalized_name) >= 3 and normalized_name in normalized_query:
         coverage = len(normalized_name) / max(1, len(normalized_query))
-        if coverage >= 0.25:
+        if coverage > 0.25:
             return 2.0 + coverage
     return 0.0
 
@@ -160,7 +160,11 @@ async def search_verified_places(key: str, query: str, *, city: str = "全国", 
     if not fallback and str(city or "全国").strip() == "全国":
         fallback = await search_osm_places(f"{query} 中国", limit=limit)
     output, seen = [], set()
-    for item in [*fallback, *primary]:
+    # Unmatched Tencent candidates are real POIs but not verified answers to
+    # this query (for example, the generic "三里屯" area returned for a missing
+    # restaurant brand). Never reintroduce them merely because the public
+    # fallback is empty.
+    for item in fallback:
         place_id = str(item.get("place_id") or "")
         if place_id and place_id not in seen:
             seen.add(place_id)
