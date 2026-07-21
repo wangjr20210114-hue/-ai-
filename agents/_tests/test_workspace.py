@@ -909,6 +909,14 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(cached["search_results"]["images"], enriched["images"])
             self.assertEqual(mocked.await_count, 1)
 
+    def test_pending_search_media_never_promises_image_generation(self):
+        prompt = evidence_for_model({
+            "results": [], "media": [], "media_pending": True,
+        })
+        self.assertIn("前端并行审核", prompt)
+        self.assertIn("不要声称正在生成图片", prompt)
+        self.assertIn("只有后续真实 URL 通过审核", prompt)
+
     def test_search_preferences_have_fast_balanced_defaults_and_public_state(self):
         state = empty_intelligence_state()
         self.assertEqual(state["search_preferences"], {

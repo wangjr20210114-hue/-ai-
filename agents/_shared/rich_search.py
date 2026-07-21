@@ -532,9 +532,15 @@ def evidence_for_model(metadata: dict[str, Any]) -> str:
         f"- {item.get('id') or 'media'} | ![{item['caption']}]({item['url']}) | 来源={item.get('source_title') or item.get('source_url') or '未知'}"
         for item in metadata.get("media", [])
     ) or "无通过视觉筛选的图片，不要插图。"
+    media_status = (
+        "图片候选正在由前端并行审核；不要等待、不要声称正在生成图片或稍后一定会有图片。"
+        "只有后续真实 URL 通过审核时，前端会自行显示。"
+        if metadata.get("media_pending") else
+        "没有列出的真实图片 URL 就表示本轮无合格配图；不要声称图片正在生成或可在图片工坊查看。"
+    )
     return (
         f"可选网页/视频素材：\n{sources or '无'}\n\n"
-        f"经视觉模型审核的可选图片素材：\n{media}\n\n"
+        f"经视觉模型审核的可选图片素材：\n{media}\n{media_status}\n\n"
         "这些只是素材，不是回答提纲。由你决定采用哪些、放在何处以及以什么顺序呈现，也可以全部不用。"
         "若采用网页或视频，直接在相关段落使用上面给出的 Markdown 链接；若采用图片，直接在相关段落使用上面给出的 Markdown 图片。"
         "前端会就地渲染为网页卡片、视频卡片或带来源图片。不要把资源统一罗列或堆在回答末尾。"
