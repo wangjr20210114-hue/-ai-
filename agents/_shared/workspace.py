@@ -361,6 +361,61 @@ def calendar_change_warnings(state: dict[str, Any], changes: list[dict[str, Any]
     return list(dict.fromkeys(warnings))[:6]
 
 
+def meeting_action_payload(
+    state: dict[str, Any],
+    subject: Any,
+    start_time: Any,
+    end_time: Any,
+) -> dict[str, Any]:
+    """Build an editable meeting proposal without inventing missing details."""
+    clean_subject = str(subject or "").strip()[:120] or "腾讯会议"
+    raw_start = str(start_time or "").strip()
+    raw_end = str(end_time or "").strip()
+    missing_fields: list[str] = []
+    validation_errors: list[str] = []
+
+    def parse(value: str, field: str) -> datetime | None:
+        if not value:
+            missing_fields.append(field)
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            validation_errors.append("开始时间格式无效" if field == "start_time" else "结束时间格式无效")
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone(timedelta(hours=8)))
+        return parsed
+
+    start = parse(raw_start, "start_time")
+    end = parse(raw_end, "end_time")
+    warnings: list[str] = []
+    if start is not None and end is not None:
+        if end <= start:
+            validation_errors.append("会议结束时间必须晚于开始时间")
+        else:
+            meeting_change = [{"operation": "create", "event": {
+                "title": clean_subject,
+                "start_time": int(start.timestamp()),
+                "duration_minutes": max(1, int((end - start).total_seconds() // 60)),
+                "category": "meeting",
+            }}]
+            try:
+                validate_calendar_change_window(state, meeting_change)
+            except ValueError as exc:
+                validation_errors.append(str(exc))
+            warnings = calendar_change_warnings(state, meeting_change)
+
+    return {
+        "subject": clean_subject,
+        "start_time": start.isoformat() if start is not None else raw_start,
+        "end_time": end.isoformat() if end is not None else raw_end,
+        "missing_fields": missing_fields,
+        "validation_errors": list(dict.fromkeys(validation_errors)),
+        "warnings": warnings,
+    }
+
+
 def apply_calendar_changes(state: dict[str, Any], changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     schedules = state.setdefault("schedules", {})
     changed: list[dict[str, Any]] = []

@@ -137,6 +137,22 @@ describe('app state reducer', () => {
     expect(transportOnlySnapshot.mapRevision).toBe(activated.mapRevision);
   });
 
+  it('reveals the same saved map again after an explicit action click', () => {
+    const places = [{
+      place_id: 'poi-wumen', provider: 'tencent', name: '午门', address: '北京市东城区',
+      latitude: 39.912, longitude: 116.397,
+    }];
+    const activated = reducer(initialState, {
+      type: 'SET_MAP_PLACES', payload: { title: '故宫路线', places },
+    });
+    const revealedAgain = reducer(activated, {
+      type: 'SET_MAP_PLACES', payload: { title: '故宫路线', places: [{ ...places[0] }], reveal: true },
+    });
+
+    expect(revealedAgain.mapPlaces).toBe(activated.mapPlaces);
+    expect(revealedAgain.mapRevision).toBe(activated.mapRevision + 1);
+  });
+
   it('hydrates the persistent proactive inbox independently from conversations', () => {
     const proactive = {
       schema_version: 1,

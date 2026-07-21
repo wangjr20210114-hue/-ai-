@@ -60,7 +60,7 @@ export type Action =
   | { type: 'DELETE_PLAN'; payload: string }
   | { type: 'SET_SCHEDULES'; payload: ScheduleItem[] }
   | { type: 'MERGE_SCHEDULES'; payload: ScheduleItem[] }
-  | { type: 'SET_MAP_PLACES'; payload: { places: MakersMapPlace[]; title?: string } }
+  | { type: 'SET_MAP_PLACES'; payload: { places: MakersMapPlace[]; title?: string; reveal?: boolean } }
   | { type: 'PULSE_CALENDAR'; payload: { date: string; count: number } }
   | { type: 'CLEAR_CALENDAR_PULSE'; payload: Record<string, never> }
   | { type: 'HYDRATE_WORKSPACE'; payload: { schedules?: ScheduleItem[]; mapPlaces?: MakersMapPlace[]; mapTitle?: string } }
@@ -165,7 +165,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         mapPlaces: placesChanged ? action.payload.places : state.mapPlaces,
         mapTitle: nextTitle,
-        mapRevision: placesChanged ? state.mapRevision + 1 : state.mapRevision,
+        mapRevision: placesChanged || action.payload.reveal ? state.mapRevision + 1 : state.mapRevision,
       };
     }
     case 'PULSE_CALENDAR':

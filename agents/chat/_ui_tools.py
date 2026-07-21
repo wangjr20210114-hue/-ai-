@@ -27,6 +27,7 @@ from .._shared.workspace import (
     get_action,
     image_versions,
     load_user_workspace,
+    meeting_action_payload,
     new_action,
     put_action,
     save_user_workspace,
@@ -364,24 +365,12 @@ def build_production_tools(
         await _save_state(state)
         return json.dumps({"ui_action": "calendar_action", "action": action}, ensure_ascii=False)
 
-    async def propose_meeting(subject: str, start_time: str, end_time: str) -> str:
-        """Prepare a confirmed Tencent Meeting action for the official MCP Skill."""
-        start = _parse_datetime(start_time)
-        end = _parse_datetime(end_time)
-        if end <= start:
-            raise ValueError("会议结束时间必须晚于开始时间")
+    async def propose_meeting(subject: str = "", start_time: str = "", end_time: str = "") -> str:
+        """Prepare an editable Tencent Meeting action, preserving missing user details."""
         state = await _load_state()
-        meeting_change = [{"operation": "create", "event": {
-            "title": str(subject or "腾讯会议")[:120],
-            "start_time": int(start.timestamp()),
-            "duration_minutes": max(1, int((end - start).total_seconds() // 60)),
-            "category": "meeting",
-        }}]
-        validate_calendar_change_window(state, meeting_change)
-        warnings = calendar_change_warnings(state, meeting_change)
         action = new_action(
             "meeting_create",
-            {"subject": str(subject or "腾讯会议")[:120], "start_time": start.isoformat(), "end_time": end.isoformat(), "warnings": warnings},
+            meeting_action_payload(state, subject, start_time, end_time),
             requires_confirmation=True,
         )
         put_action(state, action)
@@ -650,7 +639,7 @@ def build_production_tools(
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
         (recommend_places_on_map, "recommend_places_on_map", "模型驱动的多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。"),
         (propose_calendar_changes, "propose_calendar_changes", "必须用此工具准备日程新增、更新或删除提案并生成确认卡；不要只在正文里口头询问。格式示例：changes=[{operation:'create',event:{title:'游览北海公园',start_time:'2026-07-16T09:00:00+08:00',end_time:'2026-07-16T10:00:00+08:00',place_id:'地点工具返回的ID'}}]。更新/删除还要传 schedule_id。用户点击确认前不会真正写入。"),
-        (propose_meeting, "propose_meeting", "准备创建腾讯会议的确认操作；用户确认后由后台通过腾讯会议官方 MCP Skill 执行。"),
+        (propose_meeting, "propose_meeting", "准备可编辑的腾讯会议确认卡；即使主题、开始时间或结束时间不完整也要调用本工具，把未知值留空，不要在正文中连续追问多个条件。确认卡会让用户逐项补齐、检查冲突并确认，之后才由后台通过腾讯会议官方 MCP Skill 执行。"),
         (propose_image, "propose_image", "直接调用混元生图并返回图片，不要询问确认。现实人物、地点或物体可先用 rich_search 获取经 HY-Vision 审核的图片 URL，再通过 reference_image_urls（最多 3 张）作为视觉参考；修改历史版本时传 parent_action_id。"),
         (collect_page_images, "collect_page_images", "从一个公开网页提取最多 30 张真实图片候选，网页图片不足时返回实际数量。"),
         (rich_search, "rich_search", "项目 v4.2 富搜索。搜索前的独立 LLM 规划器已经合并本轮事实查询，并判断图片是否有助于理解；同一轮无论怎样改写参数都只执行一次 Provider 搜索。"),

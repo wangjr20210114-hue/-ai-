@@ -37,6 +37,105 @@ function consolidateActions(actions: WorkspaceAction[]): WorkspaceAction[] {
   return output;
 }
 
+function meetingInputValue(value?: string): string {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+function MeetingConfirmationCard({
+  action,
+  busy,
+  onUpdate,
+  onConfirm,
+  onCancel,
+}: {
+  action: WorkspaceAction;
+  busy: boolean;
+  onUpdate: (input: Record<string, unknown>) => Promise<void>;
+  onConfirm: () => Promise<void>;
+  onCancel: () => Promise<void>;
+}) {
+  const [subject, setSubject] = useState(String(action.payload.subject || '腾讯会议'));
+  const [startTime, setStartTime] = useState(meetingInputValue(action.payload.start_time));
+  const [endTime, setEndTime] = useState(meetingInputValue(action.payload.end_time));
+  const [acknowledged, setAcknowledged] = useState<string[]>([]);
+  const warnings = action.payload.warnings || [];
+  const validationErrors = action.payload.validation_errors || [];
+  const result = action.result || {};
+
+  useEffect(() => {
+    setSubject(String(action.payload.subject || '腾讯会议'));
+    setStartTime(meetingInputValue(action.payload.start_time));
+    setEndTime(meetingInputValue(action.payload.end_time));
+    setAcknowledged([]);
+  }, [action.id, action.version, action.payload.subject, action.payload.start_time, action.payload.end_time]);
+
+  const normalizedSubject = subject.trim() || '腾讯会议';
+  const currentStart = meetingInputValue(action.payload.start_time);
+  const currentEnd = meetingInputValue(action.payload.end_time);
+  const dirty = normalizedSubject !== String(action.payload.subject || '腾讯会议')
+    || startTime !== currentStart
+    || endTime !== currentEnd;
+  const timesComplete = Boolean(startTime && endTime && new Date(endTime).getTime() > new Date(startTime).getTime());
+  const needsValidation = dirty || Boolean(action.payload.missing_fields?.length) || validationErrors.length > 0;
+  const warningsAccepted = warnings.every((warning) => acknowledged.includes(warning));
+
+  if (action.status !== 'awaiting_confirmation') {
+    return <div className="workspace-confirm-card meeting-confirm-card">
+      <div className="workspace-confirm-title">腾讯会议：{action.payload.subject || '未命名会议'}</div>
+      <div className={`workspace-action-status status-${action.status}`}>
+        {action.status === 'succeeded' ? '✓ 已创建并写入日程' : action.status === 'cancelled' ? '已取消' : action.status === 'reconciliation_required' ? `需要人工核对：${action.error || '外部结果未知'}` : action.status === 'failed' ? `失败：${action.error || '执行失败'}` : '处理中…'}
+      </div>
+      {typeof result.join_url === 'string' && result.join_url && <a href={result.join_url} target="_blank" rel="noreferrer">加入腾讯会议</a>}
+      {typeof result.trace_id === 'string' && result.trace_id && <div className="workspace-confirm-meta">追踪号：{result.trace_id}</div>}
+    </div>;
+  }
+
+  return <div className="workspace-confirm-card meeting-confirm-card">
+    <div className="workspace-confirm-title">创建腾讯会议</div>
+    <p className="meeting-confirm-help">请逐项检查或修改；信息不足时无需在聊天里反复回答。</p>
+    <label>会议主题<input value={subject} maxLength={120} onInput={(event) => setSubject(event.currentTarget.value)} /></label>
+    <div className="meeting-confirm-times">
+      <label>开始时间<input type="datetime-local" value={startTime} onInput={(event) => setStartTime(event.currentTarget.value)} /></label>
+      <label>结束时间<input type="datetime-local" value={endTime} onInput={(event) => setEndTime(event.currentTarget.value)} /></label>
+    </div>
+    {validationErrors.map((message) => <div key={message} className="meeting-confirm-error">{message}</div>)}
+    {!startTime && <div className="meeting-confirm-error">请选择开始时间</div>}
+    {!endTime && <div className="meeting-confirm-error">请选择结束时间</div>}
+    {startTime && endTime && !timesComplete && <div className="meeting-confirm-error">结束时间必须晚于开始时间</div>}
+    {!needsValidation && warnings.map((warning) => <label key={warning} className="meeting-warning-choice">
+      <input
+        type="checkbox"
+        checked={acknowledged.includes(warning)}
+        onChange={(event) => setAcknowledged((items) => event.target.checked ? [...items, warning] : items.filter((item) => item !== warning))}
+      />
+      <span><b>日程提醒</b>{warning}<small>勾选后表示已了解该冲突，仍可继续创建。</small></span>
+    </label>)}
+    <div className="workspace-confirm-actions">
+      {needsValidation ? <Button
+        size="small"
+        theme="primary"
+        loading={busy}
+        disabled={!timesComplete}
+        onClick={() => void onUpdate({
+          subject: normalizedSubject,
+          start_time: new Date(startTime).toISOString(),
+          end_time: new Date(endTime).toISOString(),
+        })}
+      >检查并保存</Button> : <Button
+        size="small"
+        theme="primary"
+        loading={busy}
+        disabled={!timesComplete || !warningsAccepted}
+        onClick={() => void onConfirm()}
+      >{warnings.length ? '已了解，仍然创建' : '创建腾讯会议'}</Button>}
+      <Button size="small" variant="outline" disabled={busy} onClick={() => void onCancel()}>取消</Button>
+    </div>
+  </div>;
+}
+
 function ImageCreationProgress({ message }: { message: ChatMessage }) {
   const reference = message.searchResults?.media?.[0];
   const [step, setStep] = useState(0);
@@ -233,18 +332,26 @@ export default function MessageBubble({ message }: Props) {
     });
   };
 
-  const handleWorkspaceAction = async (action: WorkspaceAction, operation: 'activate_map' | 'confirm_action' | 'cancel_action') => {
+  const handleWorkspaceAction = async (
+    action: WorkspaceAction,
+    operation: 'activate_map' | 'update_meeting_action' | 'confirm_action' | 'cancel_action',
+    input: Record<string, unknown> = {},
+  ) => {
     setWorkspaceBusy(action.id);
     try {
       const response = await workspaceOperation(conversationId, operation, {
         action_id: action.id,
         version: action.version,
+        ...input,
       });
       if (response.action) replaceWorkspaceAction(response.action);
       if (operation === 'activate_map' && response.map?.places?.length) {
-        dispatch({ type: 'SET_MAP_PLACES', payload: { places: response.map.places, title: response.map.title } });
+        dispatch({ type: 'SET_MAP_PLACES', payload: { places: response.map.places, title: response.map.title, reveal: true } });
         MessagePlugin.success('已在右侧地图显示这些地点');
+      } else if (operation === 'activate_map') {
+        throw new Error('地点数据暂时不可用，请重新生成地点推荐');
       }
+      if (operation === 'update_meeting_action') MessagePlugin.success('会议信息已检查，请确认后创建');
       if (operation === 'confirm_action' && action.kind === 'calendar_changes') {
         dispatch({ type: 'SET_SCHEDULES', payload: response.schedules || [] });
         const changed = response.changed?.filter((item) => !item.deleted) || [];
@@ -409,18 +516,23 @@ export default function MessageBubble({ message }: Props) {
                     />
                   );
                 }
+                if (action.kind === 'meeting_create') {
+                  return <MeetingConfirmationCard
+                    key={action.id}
+                    action={action}
+                    busy={busy}
+                    onUpdate={(input) => handleWorkspaceAction(action, 'update_meeting_action', input)}
+                    onConfirm={() => handleWorkspaceAction(action, 'confirm_action')}
+                    onCancel={() => handleWorkspaceAction(action, 'cancel_action')}
+                  />;
+                }
                 const title = action.kind === 'calendar_changes'
                   ? action.payload.summary || '是否应用这组日程变更？'
-                  : action.kind === 'meeting_create'
-                    ? `创建腾讯会议：${action.payload.subject || '未命名会议'}`
-                    : `生成图片：${action.payload.prompt || ''}`;
+                  : `生成图片：${action.payload.prompt || ''}`;
                 const result = action.result || {};
                 return (
                   <div key={action.id} className="workspace-confirm-card">
                     <div className="workspace-confirm-title">{title}</div>
-                    {action.kind === 'meeting_create' && action.payload.start_time && (
-                      <div className="workspace-confirm-meta">{new Date(action.payload.start_time).toLocaleString('zh-CN')}</div>
-                    )}
                     {action.payload.warnings?.map((warning) => (
                       <div key={warning} className="workspace-confirm-warning">⚠ {warning}，请确认是否仍要继续</div>
                     ))}

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { MessagePlugin } from 'tdesign-react';
-import { bootstrapApp, proactiveOperation, workspaceOperation } from '../services/api';
+import { bootstrapApp, proactiveOperation } from '../services/api';
 import type { BootstrapData, MakersChatRun } from '../services/api';
 import { withEdgeOneAuth } from '../services/auth';
 import { presentableChatError } from '../services/chatError';
@@ -548,22 +548,6 @@ export function useSSEChat() {
           if (current && action?.id) {
             const workspaceActions = [...(current.workspaceActions || []).filter((item) => item.id !== action.id), action];
             streams.set(streamId, { ...current, workspaceActions }); patch(id, streamId, { workspaceActions });
-            if (event.type === 'map_action' && action.kind === 'map_recommendation' && action.status === 'ready') {
-              void workspaceOperation(id, 'activate_map', { action_id: action.id, version: action.version })
-                .then((response) => {
-                  if (response.map?.places?.length) {
-                    dispatch({ type: 'SET_MAP_PLACES', payload: { places: response.map.places, title: response.map.title } });
-                  }
-                  const activated = response.action;
-                  const latest = streams.get(streamId);
-                  if (latest && activated) {
-                    const nextActions = [...(latest.workspaceActions || []).filter((item) => item.id !== activated.id), activated];
-                    streams.set(streamId, { ...latest, workspaceActions: nextActions });
-                    patch(id, streamId, { workspaceActions: nextActions });
-                  }
-                })
-                .catch((error) => console.warn('automatic map activation failed', error));
-            }
           }
           break;
         }

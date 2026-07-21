@@ -61,6 +61,7 @@ from agents._shared.workspace import (
     image_versions,
     load_user_workspace,
     load_workspace,
+    meeting_action_payload,
     new_action,
     normalize_schedule,
     put_action,
@@ -839,6 +840,42 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "event": {"title": "冲突会议", "start_time": existing["start_time"] + 1800, "duration_minutes": 60},
         }])
         self.assertEqual(warnings, ["“已有会议”与“冲突会议”时间重叠"])
+
+    def test_meeting_proposal_preserves_missing_times_for_structured_ui(self):
+        payload = meeting_action_payload(empty_workspace(), "产品讨论", "", "")
+        self.assertEqual(payload["subject"], "产品讨论")
+        self.assertEqual(payload["missing_fields"], ["start_time", "end_time"])
+        self.assertEqual(payload["validation_errors"], [])
+
+    async def test_meeting_proposal_can_be_edited_and_rechecks_conflicts(self):
+        store = FakeStore()
+        state = empty_workspace()
+        apply_calendar_changes(state, [{
+            "operation": "create",
+            "event": {"title": "已有日程", "start_time": 4_088_368_800, "duration_minutes": 60},
+        }])
+        action = new_action(
+            "meeting_create",
+            meeting_action_payload(state, "联调会", "", ""),
+            requires_confirmation=True,
+        )
+        put_action(state, action)
+        await save_workspace(store, USER_WORKSPACE_ID, state)
+
+        updated = await handler(FakeContext(store, {
+            "operation": "update_meeting_action",
+            "action_id": action["id"],
+            "version": action["version"],
+            "subject": "联调会（修改）",
+            "start_time": "2099-07-22T10:30:00+08:00",
+            "end_time": "2099-07-22T11:30:00+08:00",
+        }))
+
+        edited = updated["action"]
+        self.assertEqual(edited["version"], 2)
+        self.assertEqual(edited["payload"]["missing_fields"], [])
+        self.assertIn("时间重叠", edited["payload"]["warnings"][0])
+        verify_action_snapshot((await load_workspace(store, USER_WORKSPACE_ID))["actions"][action["id"]])
 
     def test_calendar_context_exposes_current_user_schedule_ids_and_beijing_time(self):
         state = empty_workspace()

@@ -54,14 +54,16 @@ GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当
 
 ## 自动化证据
 
-当前运行代码 `4e7cc46` 已验证：
+当前分支待发布代码已验证：
 
 - Cloud Functions、Schedule 桥接、验收持久化与平台约束：20 项通过。
-- 前端 Vitest：44 项通过。
-- Python Agent：112 项通过。
+- 前端 Vitest：45 项通过。
+- Python Agent：119 项通过。
 - 旧数据迁移工具：2 项通过。
 - ESLint、TypeScript/Vite EdgeOne 构建、`edgeone makers build` 和 `git diff --check`：通过。
 - EdgeOne 云端构建：成功。
+
+本轮新增回归覆盖地图 Action 仅在用户点击后激活、同一地点组重复点击仍可恢复右栏，以及地图 SDK 临时失败时保留地点并提供重试。腾讯会议缺失主题/时间和日程冲突改为同一卡片逐项编辑与确认，确认前不会调用外部 Provider。
 
 这些自动化和只读冒烟不替代真实模型、外部 Provider、图片生成和跨日 Cron 的人工验收。
 

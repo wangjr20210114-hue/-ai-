@@ -1178,6 +1178,29 @@ html.is-resizing-workspace * {
 .workspace-confirm-title { font-weight: 600; line-height: 1.55; }
 .workspace-confirm-meta { margin-top: 4px; color: var(--app-text-secondary, #687086); font-size: 12px; }
 .workspace-confirm-actions { display: flex; gap: 8px; margin-top: 10px; }
+.meeting-confirm-card { display: grid; gap: 9px; }
+.meeting-confirm-help { margin: 0; color: var(--app-text-3); font-size: 12px; line-height: 1.55; }
+.meeting-confirm-card > label,
+.meeting-confirm-times label { display: grid; gap: 5px; color: var(--app-text-2); font-size: 12px; font-weight: 600; }
+.meeting-confirm-card input[type='text'],
+.meeting-confirm-card input:not([type]),
+.meeting-confirm-card input[type='datetime-local'] {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--app-border);
+  border-radius: 7px;
+  color: var(--app-text);
+  background: var(--app-panel);
+  font: inherit;
+  font-weight: 400;
+}
+.meeting-confirm-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.meeting-confirm-error { padding: 7px 8px; border-radius: 7px; color: #b42318; background: rgba(217, 45, 32, .07); font-size: 11px; }
+.meeting-warning-choice { display: flex !important; grid-template-columns: none !important; align-items: flex-start; gap: 8px !important; padding: 9px; border: 1px solid rgba(230, 162, 60, .35); border-radius: 8px; background: #fff9ed; cursor: pointer; }
+.meeting-warning-choice input { margin-top: 2px; }
+.meeting-warning-choice span { display: grid; gap: 2px; color: #754c00; font-weight: 400; line-height: 1.45; }
+.meeting-warning-choice b { font-size: 11px; }
+.meeting-warning-choice small { color: #8a6a2f; font-size: 10px; }
 .workspace-action-status { margin-top: 8px; font-size: 13px; }
 .workspace-action-status.status-succeeded { color: #158452; }
 .workspace-action-status.status-failed { color: #c9353a; }
@@ -2963,6 +2986,9 @@ html.is-resizing-workspace * {
 .sidebar-reminder > div button:not(:first-child) { color: var(--app-text-3); }
 .sidebar-reminder > div button:disabled { opacity: .5; cursor: default; }
 .workspace-confirm-warning { margin-top: 7px; padding: 7px 8px; border-radius: 8px; color: #8a5a00; background: #fff7e6; font-size: 11px; line-height: 1.5; }
+@media (max-width: 720px) {
+  .meeting-confirm-times { grid-template-columns: 1fr; }
+}
 .sidebar-settings-button { justify-content: flex-start; color: var(--app-text-2); }
 .library-settings-options { display: flex; flex-direction: column; gap: 10px; }
 .library-settings-options label { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--app-border); border-radius: 10px; cursor: pointer; }

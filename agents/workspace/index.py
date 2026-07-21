@@ -31,6 +31,7 @@ from .._shared.workspace import (
     image_versions,
     load_user_workspace,
     load_workspace,
+    meeting_action_payload,
     new_action,
     put_action,
     public_action,
@@ -268,6 +269,24 @@ async def handler(ctx):
             latest = await save_workspace(store, workspace_id, latest)
             return _response(latest, action)
 
+        if operation == "update_meeting_action":
+            action = get_action(state, str(body.get("action_id") or ""))
+            check_action_version(action, int(body.get("version") or 0))
+            if action.get("kind") != "meeting_create" or action.get("status") != "awaiting_confirmation":
+                raise ValueError("该操作不是可编辑的腾讯会议提案")
+            verify_action_snapshot(action)
+            action["payload"] = meeting_action_payload(
+                state,
+                body.get("subject"),
+                body.get("start_time"),
+                body.get("end_time"),
+            )
+            action["version"] = int(action.get("version") or 1) + 1
+            action["updated_at"] = int(time.time())
+            seal_action_snapshot(action)
+            state = await save_workspace(store, workspace_id, state)
+            return _response(state, action)
+
         if operation == "cancel_action":
             action = get_action(state, str(body.get("action_id") or ""))
             check_action_version(action, int(body.get("version") or 0))
@@ -302,6 +321,14 @@ async def handler(ctx):
             state = await save_workspace(store, workspace_id, state)
             await _record_calendar_signal(store, changed, action["id"], user_id, ctx.env)
             return _response(state, action, changed=changed)
+
+        if kind == "meeting_create":
+            missing_fields = payload.get("missing_fields") or []
+            validation_errors = payload.get("validation_errors") or []
+            if missing_fields:
+                raise ValueError("请先在确认卡中补齐会议开始和结束时间")
+            if validation_errors:
+                raise ValueError(str(validation_errors[0]))
 
         now = int(time.time())
         begin_action_execution(action, owner=f"workspace:{action['id']}", now=now)

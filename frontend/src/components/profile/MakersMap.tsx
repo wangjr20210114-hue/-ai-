@@ -23,8 +23,19 @@ function loadTencentMap(key: string): Promise<TencentMapNamespace> {
     script.id = 'qq-map-sdk-production';
     script.src = `https://map.qq.com/api/gljs?v=1.exp&libraries=service&key=${encodeURIComponent(key)}`;
     script.async = true;
-    script.onload = () => window.TMap ? resolve(window.TMap) : reject(new Error('地图 SDK 加载失败'));
-    script.onerror = () => reject(new Error('地图 SDK 加载失败'));
+    script.onload = () => {
+      if (window.TMap) resolve(window.TMap);
+      else {
+        sdkPromise = null;
+        script.remove();
+        reject(new Error('地图 SDK 加载失败'));
+      }
+    };
+    script.onerror = () => {
+      sdkPromise = null;
+      script.remove();
+      reject(new Error('地图 SDK 加载失败'));
+    };
     document.head.appendChild(script);
   });
   return sdkPromise;
@@ -44,6 +55,7 @@ export default function MakersMap({ conversationId, title, places, revision, opt
   const [routeError, setRouteError] = useState('');
   const [permission, setPermission] = useState<PermissionState>('checking');
   const [userLocation, setUserLocation] = useState<MakersMapPlace | null>(null);
+  const [renderAttempt, setRenderAttempt] = useState(0);
 
   const displayPlaces = useMemo(
     () => places.length ? places : userLocation ? [userLocation] : [],
@@ -118,7 +130,6 @@ export default function MakersMap({ conversationId, title, places, revision, opt
   useEffect(() => {
     const key = import.meta.env.VITE_TENCENT_MAP_KEY?.trim();
     const container = containerRef.current;
-    if (places.length >= 2 && !route && !routeError) return;
     if (!key || !container || !displayPlaces.length) {
       setMapUnavailable(Boolean(displayPlaces.length && !key));
       return;
@@ -182,7 +193,7 @@ export default function MakersMap({ conversationId, title, places, revision, opt
       if (fitBoundsTimer !== null) window.clearTimeout(fitBoundsTimer);
       map?.destroy?.();
     };
-  }, [displayPlaces, places.length, route, routeError, revision]);
+  }, [displayPlaces, places.length, route, routeError, revision, renderAttempt]);
 
   if (!displayPlaces.length) {
     return (
@@ -201,7 +212,10 @@ export default function MakersMap({ conversationId, title, places, revision, opt
       <div className="makers-map-title">{places.length ? title : '当前位置'}</div>
       <div ref={containerRef} className="makers-map-canvas" aria-label={`${title}地图`} />
       {mapUnavailable && (
-        <div className="makers-map-fallback">地图 SDK 未配置或加载失败，地点数据已保留。</div>
+        <div className="makers-map-fallback">
+          <span>地图 SDK 暂时加载失败，地点数据已保留。</span>
+          <Button size="small" variant="outline" onClick={() => { setMapUnavailable(false); setRenderAttempt((value) => value + 1); }}>重试显示地点</Button>
+        </div>
       )}
       {routeError && <div className="makers-route-error">未能取得真实道路路线：{routeError}</div>}
       {places.length >= 2 && !route && !routeError && <div className="makers-route-loading">正在计算真实道路路线…</div>}
