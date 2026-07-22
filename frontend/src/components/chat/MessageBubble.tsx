@@ -11,6 +11,8 @@ import ImageStudioCard from '../image/ImageStudioCard';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { followUpDraftAction } from './followUps';
 import { nextWholeHourRange, usableMapPlaces } from './workspaceUi';
+import { hasTextSelectionInside } from './scrollSelection';
+import { visibleStreamingAnswer } from './streamingAnswer';
 
 interface Props {
   message: ChatMessage;
@@ -181,6 +183,8 @@ function ImageCreationProgress({ message }: { message: ChatMessage }) {
 /** 单条消息气泡。AI 消息下方根据 skill.intent 渲染不同卡片。 */
 export default function MessageBubble({ message }: Props) {
   const isUser = message.role === 'user';
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const [keepPlainAnswer, setKeepPlainAnswer] = useState(Boolean(message.streaming));
   const dispatch = useAppDispatch();
   const { conversationId, messages, proactive } = useAppState();
   // 追问只在最后一条 AI 消息显示
@@ -222,6 +226,24 @@ export default function MessageBubble({ message }: Props) {
   useEffect(() => {
     setWorkspaceActions(consolidateActions(message.workspaceActions || []));
   }, [message.workspaceActions]);
+
+  useEffect(() => {
+    if (message.streaming) {
+      setKeepPlainAnswer(true);
+      return;
+    }
+
+    const finishFormatting = () => {
+      if (hasTextSelectionInside(bubbleRef.current, window.getSelection())) return;
+      setKeepPlainAnswer(false);
+      document.removeEventListener('selectionchange', finishFormatting);
+    };
+    if (hasTextSelectionInside(bubbleRef.current, window.getSelection())) {
+      document.addEventListener('selectionchange', finishFormatting);
+      return () => document.removeEventListener('selectionchange', finishFormatting);
+    }
+    setKeepPlainAnswer(false);
+  }, [message.streaming]);
 
   // 兼容：从 skill 或旧字段获取意图
   const skill: SkillInfo | undefined = message.skill;
@@ -448,12 +470,12 @@ export default function MessageBubble({ message }: Props) {
   const searchStatus = typeof message.skill?.data?.statusText === 'string'
     ? message.skill.data.statusText
     : '正在搜索';
-  const progressStatus = message.content && searchStatus === '思考中…' ? '正在流式生成回答…' : searchStatus;
+  const progressStatus = message.content ? '正在流式生成回答…' : searchStatus;
   return (
     <div className={`msg-row ${isUser ? 'user' : 'ai'}`}>
       <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>{isUser ? '我' : 'AI'}</div>
       <div className="msg-content-wrap">
-        <div className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''}`}>
+        <div ref={bubbleRef} className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''}`}>
           {isUser ? (
             message.content
           ) : (
@@ -466,7 +488,9 @@ export default function MessageBubble({ message }: Props) {
                   <span className="image-generating-dots"><span>.</span><span>.</span><span>.</span></span>
                 </div>
               )}
-              {message.content && <MarkdownRenderer content={message.content} searchMeta={message.searchResults} streaming={message.streaming} />}
+              {message.content && (message.streaming || keepPlainAnswer
+                ? <div className="streaming-answer-text">{visibleStreamingAnswer(message.content)}</div>
+                : <MarkdownRenderer content={message.content} searchMeta={message.searchResults} />)}
               {message.proactive && proactive && <div className="proactive-conversation-actions">
                 {(proactive.notifications || []).filter((item) => item.status !== 'dismissed').slice(0, 3).map((item) => <div className="proactive-conversation-item" key={item.id}>
                   <span>{item.title}</span>
