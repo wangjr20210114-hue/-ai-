@@ -18,11 +18,13 @@
 ## 当前 Preview
 
 - Preview 分支：`agent/makers-native-persistence-fixes`
-- Preview 提交：`5ea04c5a3e17609b7d2bff9e18be048614811dc2`
-- Preview Deployment：`dpmo5r7e9b69`
-- 创建时间：2026-07-22 14:28（Asia/Shanghai）
-- 构建结果：成功，68 秒。
+- Preview 提交：`8c747c8372a752e580b90799b31592098fdf6b80`
+- Preview Deployment：`dpujm5tkw9fs`
+- 创建时间：2026-07-22 16:46（Asia/Shanghai）
+- 构建结果：成功，66 秒。
 - 构建内容：前端静态资源、Node Cloud Functions、13 条 Python Agent 路由和 1 条 `Asia/Shanghai` 每日 Schedule。
+- 本代修复新闻回答渲染稳定性：普通网页证据保持为 Markdown 内联链接，不再升级为卡片；AI 流式消息和富媒体不再反复播放入场动画；聊天区取消重叠的平滑自动滚动，用户向上滚轮、触摸或拖动滚动条时立即停止自动跟随；远程图片立即加载并始终以不透明状态显示。
+- `dpujm5tkw9fs` 线上实测“最近 AI 有什么进展？”只产生 1 条 AI 回答。新闻图片真实解码为 1000×555，`opacity=1`，图片和 AI 行动画均为 `none`；普通正文来源是无子卡片的内联链接。间隔 2.2 秒重复采样时，AI 行、图片和 `scrollTop` 的位置完全一致，未再出现持续抖动。
 - 本代新增：9 个默认开启且可联动提示依赖的 Skills、日程就地下拉编辑/删除、全局可点击元素微交互、AI 媒体槽排版与基于 AI 段落结构的异步图片兜底、文章主图透传、与 AI 气泡同宽的全幅图片，以及 `v5_20260722_clean` 干净业务数据命名空间。旧 Store/Blob 数据保留用于回滚，但不会出现在本代界面。
 - `dpmo5r7e9b69` 控制台构建成功后曾短暂出现 EdgeOne TLS 节点错误，随后恢复。最终签名 Preview 已连接：真实询问“最近 AI 有什么进展”只产生 1 条 AI 回答，返回 2 张 1080×452 / 1280×853 的真实新闻图片，分别位于开场说明后和第二个主题后，无媒体占位符泄漏；图片在动画起始缩放帧仍达到气泡宽度的 98.5%，播放完成为全幅。Skills 广场显示 9/9 默认开启，页面当前 63 个可点击元素均具有 transition 或 animation。
 - 线上回归：应用已连接，设置、Skills 广场、历史会话、日历和 Makers 持久化数据可读取；专项 `TEST-CRON-1510` 日程已从 7 月 22 日清理。无缓存新闻搜索保留独立 LLM 规划，工具阶段 17.8 秒、正文 27.3 秒；单轮只有 1 次 SearchPro，请求完成后不再产生冗余工具绑定模型轮次。SearchPro 曾返回并成功加载 919×376 的真实新闻现场图；图片审核改为与文本综合并行，任意 SSE 到达顺序都不会丢图。新对话在有未读风险时由模型自然主动开场；设置、Skills 广场和腾讯会议个人授权引导已上线。CAL-06、PRO-06 和 PRO-08 已在真实 Preview 完成：重叠日程、路线风险、自然语言修改和清理均通过；工作流补偿、重试、依赖恢复、同标题去重及结束后通知清理均通过。地图专项 `TEST-MAP-PARTIAL-HEAD` 在线验证 3 个候选中 2 个核实成功：地图只显示悠航 SLOWBOAT 与潇湘阁，未核实的 BOTTEGA 未进入地图，也未被“三里屯”商圈冒充；正文准确显示成功 `2/3`、失败 `1/3`。当前代码同时覆盖“全部候选均未核实则拒绝生成地图”的边界，禁止空地图和虚假点位。最终 `dpmnthmfw7fx` 用 `TEST-MAP-DEDUPE-8486779` 验证：先切到 7 月 22 日日历详情，再点击“查看故宫博物院位置”，右栏立即恢复为“北京故宫博物院”，腾讯地图和唯一核实地点均出现；加载失败时仍保留核实地点列表和重试入口。`TEST-MEETING-FINAL-32ccf95` 验证缺失时间集中在同一可编辑卡片，填写 10:00–11:00 后得到 3 个独立冲突勾选项，以及“接受全部 3 项冲突提醒”“修改时间”“取消”和接受后创建入口；测试提案已取消，未调用会议 Provider。Cloudflare img2img 真实命中 `@cf/runwayml/stable-diffusion-v1-5-img2img`、`reference_count=1`、`fallback=False`，图片进入第 5 个版本且仍只有一张图片工坊卡；中文翻译预处理失败后使用原提示词继续执行，因此可用性通过但编辑跟随质量有限。空模型终稿、checkpoint 先于流结束以及 Action 重复到达三种竞态均有自动回归。
@@ -61,7 +63,8 @@
 | Preview | `dpmnthmfw7fx` | `32ccf95` | 历史 Preview；成功；地点显示、会议多选条件卡和 Cloudflare img2img 真实调用在线通过。 |
 | Preview | `dpm39mg7jlk0` | `966ab80` | 成功，193 秒；删除 FastAPI/SQLite 旧运行时，加入消息去重、Provider 脱敏探测和文档收口。 |
 | Preview | `dp05mtwv0hfa` | `3f8f167` | 历史 Preview；成功，71 秒；规划超时仍保留搜索媒体，新闻单回答、刷新去重、25.6 秒正文和真实搜索配图在线通过。 |
-| Preview | `dpmo5r7e9b69` | `5ea04c5` | 当前 Preview；成功，68 秒；干净数据代、Skills、全局动效、日程就地编辑/删除和 AI 段落图片排版；最终新闻单回答与 2 张段落内真实图片在线通过。 |
+| Preview | `dpmo5r7e9b69` | `5ea04c5` | 历史 Preview；成功，68 秒；干净数据代、Skills、全局动效、日程就地编辑/删除和 AI 段落图片排版；新闻单回答与 2 张段落内真实图片在线通过。 |
+| Preview | `dpujm5tkw9fs` | `8c747c8` | 当前 Preview；成功，66 秒；新闻来源简化为 Markdown 链接，修复流式回答抖动、滚动争抢和图片透明白框；真实新闻问答与 DOM 稳定性复验通过。 |
 
 GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当前发布方式是先推送目标分支，再从 EdgeOne 控制台“构建部署 → 新建部署”选择该分支。详细步骤见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
@@ -70,12 +73,12 @@ GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当
 当前分支待发布代码已验证：
 
 - Cloud Functions、Schedule 桥接、验收持久化与平台约束：20 项通过。
-- 前端 Vitest：59 项通过。
+- 前端 Vitest：60 项通过。
 - Python Agent：131 项通过。
 - SQLite 只读迁移工具：2 项通过。
 - 旧数据迁移工具：2 项通过。
 - ESLint、TypeScript/Vite EdgeOne 构建、`edgeone makers build` 和 `git diff --check`：通过。
-- EdgeOne 云端构建：`dpmo5r7e9b69` 成功，68 秒。
+- EdgeOne 云端构建：`dpujm5tkw9fs` 成功，66 秒。
 
 本轮新增回归覆盖地图 Action 仅在用户点击后激活、同一地点组重复点击仍可恢复右栏，以及地图 SDK 临时失败时保留地点并提供重试。腾讯会议缺失主题/时间和日程冲突改为同一卡片逐项编辑与确认，确认前不会调用外部 Provider。
 
@@ -83,7 +86,7 @@ GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当
 
 ## 当前边界
 
-- `dpmo5r7e9b69` 尚未发布生产；生产仍保持 `dp8p5j6dewo0` 不变。共享验收站历史门禁仍明确为“禁止生产发布”，CORE-08（需测试人员按 Chrome“请求条件”补真实网络故障证据）和 PRO-07（受保护 Preview 的 EdgeOne Schedule 平台 404）仍未放行。
+- `dpujm5tkw9fs` 尚未发布生产；生产仍保持 `dp8p5j6dewo0` 不变。共享验收站历史门禁仍明确为“禁止生产发布”，CORE-08（需测试人员按 Chrome“请求条件”补真实网络故障证据）和 PRO-07（受保护 Preview 的 EdgeOne Schedule 平台 404）仍未放行。
 - PRO-08 清理后的首次整页重载曾出现 1 次 EdgeOne `CLOUD_FUNCTION_INVOCATION_TIMEOUT`；立即使用同一 Preview 链接重试后恢复，应用重新连接，随后新建对话与刷新均正常。当前按不可稳定复现的平台瞬时错误记录，生产发布前仍需继续观察日志和冷启动重载。
 - “最近AI有什么新进展”最终无缓存样例在 17.8 秒拿到工具结果、27.3 秒显示正文，达到最慢约 30 秒目标；5–10 秒仍只能在缓存命中或 Provider 较快时达到，不能普遍承诺。
 - Cloudflare Workers AI 的测试 Token 与 Account ID 均只配置到 Preview，生产环境不继承。Token、Flux 文生图和历史 img2img 实调可用；当前 Meta 视觉模型因许可返回 403/5016，LLaVA Beta 按官方小图字节数组仍返回 400/3010，混元视觉小图约 23.4 秒后返回 400/`400001`。因此多模态理解当前保持外部阻塞，不把历史成功写成现状。SearchPro 图片链路在 `dp05mtwv0hfa` 再次真实成功；没有可追溯候选或候选不相关时会诚实不展示图片。混元文生图和图生图已真实通过。
