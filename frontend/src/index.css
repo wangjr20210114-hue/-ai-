@@ -848,6 +848,8 @@ html.is-resizing-workspace * {
   font-weight: 600;
 }
 .msg-bubble.ai .markdown-body .search-source-links a {
+  display: inline-block;
+  max-width: 100%;
   position: relative;
   z-index: 1;
   color: var(--td-brand-color);

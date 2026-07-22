@@ -91,6 +91,12 @@ function placeStableStreamingMedia(content: string, media: RichMediaAsset[] = []
   return slotted;
 }
 
+function followExternalLink(event: React.MouseEvent<HTMLAnchorElement>, url: string) {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  window.location.assign(url);
+}
+
 function RichImage({ asset }: { asset: RichMediaAsset }) {
   const [failed, setFailed] = useState(false);
   if (failed) return null;
@@ -110,7 +116,7 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
           {asset.preview && <span className="rich-media-reviewing">图片核实中</span>}
           {asset.generated && <span className="rich-media-generated">AI 生成示意图</span>}
           {asset.source_url && isSafeRemoteUrl(asset.source_url) && (
-            <a href={asset.source_url}>
+            <a href={asset.source_url} onClick={(event) => followExternalLink(event, asset.source_url!)}>
               来源
             </a>
           )}
@@ -220,7 +226,7 @@ export default function MarkdownRenderer({
             // Chat answers keep web evidence compact and readable. Dedicated
             // paper/location surfaces can still use InfoCard, but a Markdown
             // citation inside prose should remain a normal inline link.
-            return isSafeRemoteUrl(url) ? <a href={url}>{children}</a> : <>{children}</>;
+            return isSafeRemoteUrl(url) ? <a href={url} onClick={(event) => followExternalLink(event, url)}>{children}</a> : <>{children}</>;
           },
           img: ({ src, alt }) => {
             const url = typeof src === 'string' ? src : '';
@@ -245,6 +251,7 @@ export default function MarkdownRenderer({
               key={source.id || source.url}
               href={source.url}
               title={source.title}
+              onClick={(event) => followExternalLink(event, source.url)}
             >
               {source.title || new URL(source.url).hostname}
             </a>
