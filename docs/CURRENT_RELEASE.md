@@ -18,12 +18,14 @@
 ## 当前 Preview
 
 - Preview 分支：`agent/makers-native-persistence-fixes`
-- Preview 提交：`8c747c8372a752e580b90799b31592098fdf6b80`
-- Preview Deployment：`dpujm5tkw9fs`
-- 创建时间：2026-07-22 16:46（Asia/Shanghai）
-- 构建结果：成功，66 秒。
+- Preview 提交：`df3cd82c36bbfb4a0c4dbc5e2d1462d031033d3d`
+- Preview Deployment：`dpuvibbfa7mr`
+- 创建时间：2026-07-22 17:15（Asia/Shanghai）
+- 构建结果：成功，70 秒。
 - 构建内容：前端静态资源、Node Cloud Functions、13 条 Python Agent 路由和 1 条 `Asia/Shanghai` 每日 Schedule。
-- 本代修复新闻回答渲染稳定性：普通网页证据保持为 Markdown 内联链接，不再升级为卡片；AI 流式消息和富媒体不再反复播放入场动画；聊天区取消重叠的平滑自动滚动，用户向上滚轮、触摸或拖动滚动条时立即停止自动跟随；远程图片立即加载并始终以不透明状态显示。
+- 本代修复新闻回答渲染稳定性：普通网页证据保持为 Markdown 内联链接，不再升级为卡片；AI 流式消息和富媒体不再反复播放入场动画；聊天区取消重叠的平滑自动滚动，用户向上滚轮、触摸、拖动滚动条、选择或复制文本时立即停止自动跟随；远程图片立即加载并始终以不透明状态显示。
+- 流式阶段改为稳定的纯文本增量层，过滤未完成的媒体槽标记，结束后再一次性切换为 Markdown；若用户在结束瞬间仍选中了回答文字，则延迟格式化直到选区收起，避免 DOM 替换破坏复制。结构化图片只在最终 Markdown 阶段进入排版，消除半截 Markdown 反复重建标题、列表、图片引起的高度回退。
+- `dpuvibbfa7mr` 线上无缓存长回答采样：13.2 秒出现首段，随后可见文本长度按 `51→93→204→…→1691` 单调增长，流式阶段始终使用 `.streaming-answer-text` 且没有一次回退；28.9 秒结束后才切换为 `.markdown-body`。新闻问答返回 1 条回答和 1 张真实图片，图片自然尺寸 700×525、渲染宽度 425.75px，AI 气泡宽度 429.75px，图片容器左右边框均为 1px，说明文字与图片同宽且未裁切。
 - `dpujm5tkw9fs` 线上实测“最近 AI 有什么进展？”只产生 1 条 AI 回答。新闻图片真实解码为 1000×555，`opacity=1`，图片和 AI 行动画均为 `none`；普通正文来源是无子卡片的内联链接。间隔 2.2 秒重复采样时，AI 行、图片和 `scrollTop` 的位置完全一致，未再出现持续抖动。
 - 本代新增：9 个默认开启且可联动提示依赖的 Skills、日程就地下拉编辑/删除、全局可点击元素微交互、AI 媒体槽排版与基于 AI 段落结构的异步图片兜底、文章主图透传、与 AI 气泡同宽的全幅图片，以及 `v5_20260722_clean` 干净业务数据命名空间。旧 Store/Blob 数据保留用于回滚，但不会出现在本代界面。
 - `dpmo5r7e9b69` 控制台构建成功后曾短暂出现 EdgeOne TLS 节点错误，随后恢复。最终签名 Preview 已连接：真实询问“最近 AI 有什么进展”只产生 1 条 AI 回答，返回 2 张 1080×452 / 1280×853 的真实新闻图片，分别位于开场说明后和第二个主题后，无媒体占位符泄漏；图片在动画起始缩放帧仍达到气泡宽度的 98.5%，播放完成为全幅。Skills 广场显示 9/9 默认开启，页面当前 63 个可点击元素均具有 transition 或 animation。
@@ -64,7 +66,9 @@
 | Preview | `dpm39mg7jlk0` | `966ab80` | 成功，193 秒；删除 FastAPI/SQLite 旧运行时，加入消息去重、Provider 脱敏探测和文档收口。 |
 | Preview | `dp05mtwv0hfa` | `3f8f167` | 历史 Preview；成功，71 秒；规划超时仍保留搜索媒体，新闻单回答、刷新去重、25.6 秒正文和真实搜索配图在线通过。 |
 | Preview | `dpmo5r7e9b69` | `5ea04c5` | 历史 Preview；成功，68 秒；干净数据代、Skills、全局动效、日程就地编辑/删除和 AI 段落图片排版；新闻单回答与 2 张段落内真实图片在线通过。 |
-| Preview | `dpujm5tkw9fs` | `8c747c8` | 当前 Preview；成功，66 秒；新闻来源简化为 Markdown 链接，修复流式回答抖动、滚动争抢和图片透明白框；真实新闻问答与 DOM 稳定性复验通过。 |
+| Preview | `dpujm5tkw9fs` | `8c747c8` | 历史 Preview；成功，66 秒；新闻来源简化为 Markdown 链接，修复流式回答抖动、滚动争抢和图片透明白框。 |
+| Preview | `dpld91zuafir` | `12516b9` | 中间 Preview；成功，69 秒；加入复制选区保护、停止强制贴底与图片/说明同宽边框修复。 |
+| Preview | `dpuvibbfa7mr` | `df3cd82` | 当前 Preview；成功，70 秒；流式纯文本单调增长、结束后一次性 Markdown 格式化，真实流式、新闻图片尺寸与边框复验通过。 |
 
 GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当前发布方式是先推送目标分支，再从 EdgeOne 控制台“构建部署 → 新建部署”选择该分支。详细步骤见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
@@ -73,12 +77,12 @@ GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当
 当前分支待发布代码已验证：
 
 - Cloud Functions、Schedule 桥接、验收持久化与平台约束：20 项通过。
-- 前端 Vitest：60 项通过。
+- 前端 Vitest：65 项通过。
 - Python Agent：131 项通过。
 - SQLite 只读迁移工具：2 项通过。
 - 旧数据迁移工具：2 项通过。
 - ESLint、TypeScript/Vite EdgeOne 构建、`edgeone makers build` 和 `git diff --check`：通过。
-- EdgeOne 云端构建：`dpujm5tkw9fs` 成功，66 秒。
+- EdgeOne 云端构建：`dpuvibbfa7mr` 成功，70 秒。
 
 本轮新增回归覆盖地图 Action 仅在用户点击后激活、同一地点组重复点击仍可恢复右栏，以及地图 SDK 临时失败时保留地点并提供重试。腾讯会议缺失主题/时间和日程冲突改为同一卡片逐项编辑与确认，确认前不会调用外部 Provider。
 
@@ -86,7 +90,7 @@ GitHub Provider 项目不支持 `edgeone makers deploy` 本地目录直传。当
 
 ## 当前边界
 
-- `dpujm5tkw9fs` 尚未发布生产；生产仍保持 `dp8p5j6dewo0` 不变。共享验收站历史门禁仍明确为“禁止生产发布”，CORE-08（需测试人员按 Chrome“请求条件”补真实网络故障证据）和 PRO-07（受保护 Preview 的 EdgeOne Schedule 平台 404）仍未放行。
+- `dpuvibbfa7mr` 尚未发布生产；生产仍保持 `dp8p5j6dewo0` 不变。共享验收站历史门禁仍明确为“禁止生产发布”，CORE-08（需测试人员按 Chrome“请求条件”补真实网络故障证据）和 PRO-07（受保护 Preview 的 EdgeOne Schedule 平台 404）仍未放行。
 - PRO-08 清理后的首次整页重载曾出现 1 次 EdgeOne `CLOUD_FUNCTION_INVOCATION_TIMEOUT`；立即使用同一 Preview 链接重试后恢复，应用重新连接，随后新建对话与刷新均正常。当前按不可稳定复现的平台瞬时错误记录，生产发布前仍需继续观察日志和冷启动重载。
 - “最近AI有什么新进展”最终无缓存样例在 17.8 秒拿到工具结果、27.3 秒显示正文，达到最慢约 30 秒目标；5–10 秒仍只能在缓存命中或 Provider 较快时达到，不能普遍承诺。
 - Cloudflare Workers AI 的测试 Token 与 Account ID 均只配置到 Preview，生产环境不继承。Token、Flux 文生图和历史 img2img 实调可用；当前 Meta 视觉模型因许可返回 403/5016，LLaVA Beta 按官方小图字节数组仍返回 400/3010，混元视觉小图约 23.4 秒后返回 400/`400001`。因此多模态理解当前保持外部阻塞，不把历史成功写成现状。SearchPro 图片链路在 `dp05mtwv0hfa` 再次真实成功；没有可追溯候选或候选不相关时会诚实不展示图片。混元文生图和图生图已真实通过。
