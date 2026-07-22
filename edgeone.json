@@ -30,6 +30,14 @@
       "method": "POST",
       "payload": { "operation": "tick" },
       "timezone": "Asia/Shanghai"
+    },
+    {
+      "name": "proactive-acceptance-every-2-minutes",
+      "cron": "*/2 * * * *",
+      "path": "/api/proactive-tick",
+      "method": "POST",
+      "payload": { "operation": "tick", "acceptance": true },
+      "timezone": "Asia/Shanghai"
     }
   ]
 }
