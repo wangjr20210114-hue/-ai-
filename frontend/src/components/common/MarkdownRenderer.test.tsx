@@ -51,7 +51,7 @@ describe('MarkdownRenderer', () => {
     );
     expect(html).toContain('aria-label="回答来源"');
     expect(html).toContain('href="https://news.example/ai"');
-    expect(html).toContain('target="_blank"');
+    expect(html).not.toContain('target="_blank"');
     expect(html).toContain('>AI 新闻</a>');
   });
 

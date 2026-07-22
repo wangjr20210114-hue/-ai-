@@ -91,20 +91,6 @@ function placeStableStreamingMedia(content: string, media: RichMediaAsset[] = []
   return slotted;
 }
 
-function openExternalLink(event: React.MouseEvent<HTMLAnchorElement>, url: string) {
-  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-  event.preventDefault();
-  const opened = window.open(url, '_blank');
-  if (opened) {
-    try { opened.opener = null; } catch { /* cross-origin window */ }
-    return;
-  }
-  // Some embedded browsers suppress new tabs even for a direct user click.
-  // Falling back to same-tab navigation is better than a link that appears
-  // inert; browser Back returns to the still-persisted conversation.
-  window.location.assign(url);
-}
-
 function RichImage({ asset }: { asset: RichMediaAsset }) {
   const [failed, setFailed] = useState(false);
   if (failed) return null;
@@ -124,7 +110,7 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
           {asset.preview && <span className="rich-media-reviewing">图片核实中</span>}
           {asset.generated && <span className="rich-media-generated">AI 生成示意图</span>}
           {asset.source_url && isSafeRemoteUrl(asset.source_url) && (
-            <a href={asset.source_url} target="_blank" rel="noreferrer" onClick={(event) => openExternalLink(event, asset.source_url!)}>
+            <a href={asset.source_url}>
               来源
             </a>
           )}
@@ -234,7 +220,7 @@ export default function MarkdownRenderer({
             // Chat answers keep web evidence compact and readable. Dedicated
             // paper/location surfaces can still use InfoCard, but a Markdown
             // citation inside prose should remain a normal inline link.
-            return isSafeRemoteUrl(url) ? <a href={url} target="_blank" rel="noreferrer" onClick={(event) => openExternalLink(event, url)}>{children}</a> : <>{children}</>;
+            return isSafeRemoteUrl(url) ? <a href={url}>{children}</a> : <>{children}</>;
           },
           img: ({ src, alt }) => {
             const url = typeof src === 'string' ? src : '';
@@ -258,10 +244,7 @@ export default function MarkdownRenderer({
             <a
               key={source.id || source.url}
               href={source.url}
-              target="_blank"
-              rel="noopener noreferrer"
               title={source.title}
-              onClick={(event) => openExternalLink(event, source.url)}
             >
               {source.title || new URL(source.url).hostname}
             </a>
