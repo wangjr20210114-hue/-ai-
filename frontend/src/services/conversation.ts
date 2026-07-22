@@ -1,7 +1,8 @@
 import type { ChatMessage, ConversationSummary } from '../types';
+import { CONVERSATION_PREFIX } from './dataVersion';
 
-const CONVERSATION_KEY = 'yuanbao.conversationId';
-const CONVERSATION_LIST_KEY = 'yuanbao.conversations';
+const CONVERSATION_KEY = 'yuanbao.v5.conversationId';
+const CONVERSATION_LIST_KEY = 'yuanbao.v5.conversations';
 
 export function loadLocalConversations(): ConversationSummary[] {
   try {
@@ -16,8 +17,9 @@ export function saveLocalConversations(items: ConversationSummary[]): void {
 }
 
 export function createConversationId(): string {
-  return globalThis.crypto?.randomUUID?.()
+  const unique = globalThis.crypto?.randomUUID?.()
     ?? `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+  return `${CONVERSATION_PREFIX}${unique}`;
 }
 
 export function setActiveConversationId(conversationId: string): void {

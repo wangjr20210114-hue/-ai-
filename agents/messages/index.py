@@ -5,6 +5,7 @@ import logging
 
 from .._shared.workspace import active_map_payload, image_versions, load_user_workspace, public_action
 from .._shared.auth import require_user, scoped_conversation_id
+from .._shared.data_version import namespace as data_namespace
 from .._shared.http import error
 from .._shared.makers_conversation import public_chat_run, read_chat_run
 from ..chat._protocol import action_fallback_content, public_content
@@ -104,7 +105,7 @@ async def handler(ctx):
     latest_extras = None
     if ctx.store.langgraph_store is not None:
         item = await ctx.store.langgraph_store.aget(
-            ("yuanbao_message_meta_v1", conversation_id), "latest_extras"
+            data_namespace("message_meta", conversation_id), "latest_extras"
         )
         latest_extras = _value(item, "value", None)
 

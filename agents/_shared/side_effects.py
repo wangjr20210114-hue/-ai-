@@ -419,7 +419,9 @@ async def _persist_generated_image(image_url: str, storage_prefix: str = "") -> 
 
         body, content_type = await asyncio.to_thread(_download_image, image_url)
         suffix = {"image/jpeg": "jpg", "image/webp": "webp", "image/bmp": "bmp"}.get(content_type, "png")
-        key = f"{storage_prefix}generated/{uuid.uuid4().hex}.{suffix}"
+        from .data_version import BLOB_GENERATION_PATH
+
+        key = f"{storage_prefix}generated/{BLOB_GENERATION_PATH}{uuid.uuid4().hex}.{suffix}"
         store = get_store("yuanbao-files", consistency="strong")
         await store.set(key, body, cache_control="private, max-age=31536000")
         return {"storage_key": key, "image_url": f"/files?key={urllib.parse.quote(key)}"}
@@ -441,7 +443,9 @@ async def _persist_generated_bytes(
             raise ValueError("生成图片大小无效或超过 16MB")
         mime = str(content_type or "image/png").split(";", 1)[0].lower()
         suffix = {"image/jpeg": "jpg", "image/webp": "webp", "image/bmp": "bmp"}.get(mime, "png")
-        key = f"{storage_prefix}generated/{uuid.uuid4().hex}.{suffix}"
+        from .data_version import BLOB_GENERATION_PATH
+
+        key = f"{storage_prefix}generated/{BLOB_GENERATION_PATH}{uuid.uuid4().hex}.{suffix}"
         store = get_store("yuanbao-files", consistency="strong")
         await store.set(key, body, cache_control="private, max-age=31536000")
         return {"storage_key": key, "image_url": f"/files?key={urllib.parse.quote(key)}"}

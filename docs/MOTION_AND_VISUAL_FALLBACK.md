@@ -6,8 +6,8 @@
 
 | 场景 | 时长 | 效果 |
 | --- | ---: | --- |
-| 按钮按下 | 70–120ms | 轻微缩放到 `0.97`，松开立即恢复 |
-| 按钮悬停 | 180ms | 上移 `1px`，极轻的亮度变化 |
+| 所有可点击控件按下 | 70–120ms | 按钮、链接、菜单、标签、日期、开关等轻微缩放到 `0.97`，松开立即恢复 |
+| 所有可点击控件悬停 | 180ms | 上移 `1px`，极轻的亮度变化 |
 | 消息进入 | 280ms | 透明度、`7px` 位移与 `0.985` 缩放共同过渡 |
 | 卡片/图片出现 | 240–320ms | 小幅淡入；图片附带短暂轻模糊消退 |
 | 输入框聚焦 | 180–240ms | 边框与低强度聚焦环过渡 |
@@ -15,6 +15,8 @@
 动效遵循 Apple 的 [Motion](https://developer.apple.com/design/human-interface-guidelines/motion) 和
 [Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility) 指导：反馈要短且有目的；当系统开启
 “减弱动态效果”时，页面通过 `prefers-reduced-motion` 关闭位移、模糊、平滑滚动和非必要动画。
+
+搜索图片由主模型在回答中插入媒体占位符，前端用审核通过的图片依次替换；不再固定追加在文末。AI 消息中的图片和正文容器同宽，完整实现与验收步骤见 [`V5_CLEAN_SKILLS_UI.md`](V5_CLEAN_SKILLS_UI.md)。
 
 ## 混元主链路
 

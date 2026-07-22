@@ -1,6 +1,8 @@
 import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
 
+const DATA_GENERATION = 'v5_20260722_clean';
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
 }
@@ -58,9 +60,9 @@ export async function onRequest(context) {
   try { user = await currentUser(request, env); } catch { return json({ error: 'Unauthorized' }, 401); }
   const prefix = tenantPrefix(user, env);
   const keys = {
-    index: `${prefix}library/index.json`,
-    folders: `${prefix}library/folders.json`,
-    settings: `${prefix}library/settings.json`,
+    index: `${prefix}library/${DATA_GENERATION}/index.json`,
+    folders: `${prefix}library/${DATA_GENERATION}/folders.json`,
+    settings: `${prefix}library/${DATA_GENERATION}/settings.json`,
   };
   const store = getStore({ name: 'yuanbao-files', consistency: 'strong' });
 

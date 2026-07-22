@@ -8,7 +8,9 @@ import time
 
 from .._shared.tencent_location import plan_verified_route
 from .._shared.auth import require_user
+from .._shared.data_version import namespace as data_namespace
 from .._shared.http import error
+from .._shared.intelligence import load_intelligence_state
 
 CACHE_TTL_SECONDS = 6 * 60 * 60
 
@@ -30,6 +32,9 @@ def _item_value(item):
 
 async def handler(ctx):
     identity = require_user(ctx)
+    intelligence = await load_intelligence_state(ctx.store.langgraph_store, str(identity["user_id"]))
+    if not (intelligence.get("skill_preferences") or {}).get("maps", True):
+        return error("地图 Skill 已关闭，请先到 Skills 广场开启", 403, code="SKILL_DISABLED")
     body = ctx.request.body or {}
     places = body.get("places") or []
     if not isinstance(places, list):
@@ -40,7 +45,7 @@ async def handler(ctx):
     except (TypeError, ValueError):
         return error("地点坐标格式无效")
     # v1 may contain Tencent minutes mislabeled as seconds.
-    namespace = ("yuanbao_route_cache_v2", str(identity["user_id"]))
+    namespace = data_namespace("route_cache", str(identity["user_id"]))
     store = getattr(ctx.store, "langgraph_store", None)
     now = int(time.time())
     if store is not None:

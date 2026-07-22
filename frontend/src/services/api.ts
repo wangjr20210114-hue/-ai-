@@ -4,6 +4,7 @@ import { authorizedFetch, withEdgeOneAuth } from './auth';
 import { createConversationId, makersConversationHeaders } from './conversation';
 import { splitSseFrames } from './sse';
 import { normalizeTimestamp } from './time';
+import { isCurrentConversationId } from './dataVersion';
 
 const BASE = '/api';
 
@@ -89,22 +90,28 @@ export async function intelligenceOperation(
   return data;
 }
 
-export async function skillsOperation(conversationId: string): Promise<{ skills: Array<{ id: string; name: string; description: string; configured: boolean; install_url?: string; credential_name?: string }> }> {
-  const res = await authorizedFetch('/system_internal', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
-    body: JSON.stringify({ operation: 'get' }),
-  });
-  const data = await res.json().catch(() => ({})) as { providers?: { meeting?: boolean }; error?: string };
-  if (!res.ok) throw new Error(data.error || 'Skills 状态读取失败');
-  return { skills: [{
-    id: 'tencent-meeting',
-    name: '腾讯会议',
-    description: '使用腾讯会议官方 MCP/Skill 创建真实会议，并把会议号和加入链接同步写入日程；个人账号可用，不需要企业应用 SecretId/AppId。',
-    configured: Boolean(data.providers?.meeting),
-    install_url: 'https://meeting.tencent.com/ai-skill',
-    credential_name: 'TENCENT_MEETING_TOKEN',
-  }] };
+export async function skillsOperation(
+  conversationId: string,
+  preferences?: Record<string, boolean>,
+): Promise<{ preferences: Record<string, boolean>; providers: { meeting: boolean } }> {
+  const headers = { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) };
+  const [intelligenceRes, systemRes] = await Promise.all([
+    authorizedFetch('/intelligence', {
+      method: 'POST', headers,
+      body: JSON.stringify(preferences ? { operation: 'update_skill_preferences', preferences } : { operation: 'get' }),
+    }),
+    authorizedFetch('/system_internal', {
+      method: 'POST', headers, body: JSON.stringify({ operation: 'get' }),
+    }),
+  ]);
+  const intelligence = await intelligenceRes.json().catch(() => ({})) as MakersIntelligenceState & { error?: string };
+  const system = await systemRes.json().catch(() => ({})) as { providers?: { meeting?: boolean }; error?: string };
+  if (!intelligenceRes.ok) throw new Error(intelligence.error || 'Skills 设置保存失败');
+  if (!systemRes.ok) throw new Error(system.error || 'Skills 状态读取失败');
+  return {
+    preferences: intelligence.skill_preferences || {},
+    providers: { meeting: Boolean(system.providers?.meeting) },
+  };
 }
 
 export async function streamImageEdit(
@@ -214,7 +221,7 @@ export async function listConversations(): Promise<ConversationSummary[]> {
   const data = await res.json() as { conversations?: Record<string, unknown>[] };
   return (data.conversations || [])
     .map(normalizeConversation)
-    .filter((item) => item.id)
+    .filter((item) => item.id && isCurrentConversationId(item.id))
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 

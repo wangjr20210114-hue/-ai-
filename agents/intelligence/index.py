@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .._shared.intelligence import (
+    DEFAULT_SKILL_PREFERENCES,
     confirm_memory,
     decide_rule,
     delete_memory,
@@ -70,6 +71,21 @@ async def handler(ctx):
             if "parallel_image_search" in changes:
                 current["parallel_image_search"] = bool(changes["parallel_image_search"])
             state["search_preferences"] = current
+        elif operation == "update_skill_preferences":
+            requested = body.get("preferences") or {}
+            if not isinstance(requested, dict):
+                raise ValueError("Skills 设置格式无效")
+            current = dict(state.get("skill_preferences") or DEFAULT_SKILL_PREFERENCES)
+            for skill_id in DEFAULT_SKILL_PREFERENCES:
+                if skill_id == "core":
+                    current[skill_id] = True
+                elif skill_id in requested:
+                    current[skill_id] = bool(requested[skill_id])
+            state["skill_preferences"] = current
+            if "proactive-agent" in requested:
+                proactive = await load_proactive_state(store, user_id)
+                update_preferences(proactive, {"enabled": bool(current["proactive-agent"])})
+                await save_proactive_state(store, proactive, user_id)
         elif operation == "clear_memories":
             state["memories"] = {}
             state["memory_proposals"] = {}

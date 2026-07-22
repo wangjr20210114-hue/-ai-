@@ -9,6 +9,23 @@ import InfoCard from './InfoCard';
 import type { RichMediaAsset, SearchMeta } from '../../types';
 import { isSafeRemoteUrl, replaceCitationMarkers } from './richContent';
 
+const MEDIA_SLOT = /\[\[YUANBAO_MEDIA(?:\s*:\s*(\d+))?\]\]/g;
+
+function markdownAlt(value: string): string {
+  return value.replace(/[[\]\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 180) || '回答配图';
+}
+
+function placeReviewedMedia(content: string, media: RichMediaAsset[] = []): string {
+  let nextIndex = 0;
+  const placed = content.replace(MEDIA_SLOT, (_slot, explicitIndex: string | undefined) => {
+    const requested = explicitIndex ? Math.max(0, Number(explicitIndex) - 1) : nextIndex++;
+    const asset = media[requested];
+    if (!asset || !isSafeRemoteUrl(asset.url)) return '';
+    return `\n\n![${markdownAlt(asset.caption || asset.alt || '')}](${asset.url})\n\n`;
+  });
+  return placed.replace(/\[\[YUANBAO_MEDIA[^\]]*$/, '');
+}
+
 function RichImage({ asset }: { asset: RichMediaAsset }) {
   const [failed, setFailed] = useState(false);
   if (failed) return null;
@@ -87,7 +104,7 @@ function isVideoUrl(value: string): boolean {
 
 export default function MarkdownRenderer({ content, searchMeta }: { content: string; searchMeta?: SearchMeta }) {
   const sources = searchMeta?.results || [];
-  const cleanedContent = replaceCitationMarkers(content, sources);
+  const cleanedContent = replaceCitationMarkers(placeReviewedMedia(content, searchMeta?.media || []), sources);
 
   return (
     <div className="markdown-body">

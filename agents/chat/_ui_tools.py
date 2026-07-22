@@ -17,6 +17,7 @@ from langchain_core.tools import StructuredTool
 from .._shared.tencent_location import search_verified_places as provider_search_places
 from .._shared.web_media import collect_page_images as provider_collect_page_images
 from .._shared.rich_search import evidence_for_model, rich_search as provider_rich_search
+from .._shared.data_version import namespace as data_namespace
 from .._shared.side_effects import generate_image as provider_generate_image, resolve_image_reference
 from .._shared.arxiv import search_arxiv as provider_search_arxiv
 from .._shared.proactive import load_proactive_state, propose_workflow as create_workflow_proposal, save_proactive_state
@@ -104,6 +105,7 @@ def build_production_tools(
     search_result_limit: int = 8,
     search_image_limit: int = 2,
     parallel_image_search: bool = True,
+    enabled_skills: set[str] | None = None,
 ) -> list[StructuredTool]:
     runtime_env = env or {}
     paper_scope = paper_constraints or {}
@@ -468,7 +470,7 @@ def build_production_tools(
                 sort_keys=True,
             )
             cache_key = hashlib.sha256(cache_input.encode("utf-8")).hexdigest()
-            cache_namespace = ("yuanbao_search_cache_v1", str(user_id or "local-user"))
+            cache_namespace = data_namespace("search_cache", str(user_id or "local-user"))
 
             async def run_once() -> str:
                 nonlocal turn_visual_references
@@ -650,4 +652,26 @@ def build_production_tools(
     meeting_ready = bool(str(runtime_env.get("TENCENT_MEETING_TOKEN") or "").strip())
     if not meeting_ready:
         definitions = [definition for definition in definitions if definition[1] != "propose_meeting"]
+    active = enabled_skills if enabled_skills is not None else {
+        "web-search", "vision", "image-studio", "maps", "calendar",
+        "proactive-agent", "paper-reading", "tencent-meeting",
+    }
+    active = set(active)
+    if "calendar" not in active:
+        active.discard("tencent-meeting")
+    tool_skills = {
+        "search_places": "maps",
+        "search_places_batch": "maps",
+        "prepare_map_recommendation": "maps",
+        "recommend_places_on_map": "maps",
+        "propose_calendar_changes": "calendar",
+        "propose_meeting": "tencent-meeting",
+        "propose_image": "image-studio",
+        "collect_page_images": "web-search",
+        "rich_search": "web-search",
+        "analyze_images_parallel": "vision",
+        "search_arxiv": "paper-reading",
+        "propose_workflow": "proactive-agent",
+    }
+    definitions = [definition for definition in definitions if tool_skills.get(definition[1]) in active]
     return [StructuredTool.from_function(coroutine=fn, name=name, description=description) for fn, name, description in definitions]

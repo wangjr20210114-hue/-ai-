@@ -11,12 +11,25 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from .data_version import namespace
 from .workspace import USER_WORKSPACE_ID
 
 
 SCHEMA_VERSION = 1
 STATE_KEY = "state"
 BEIJING = timezone(timedelta(hours=8))
+
+DEFAULT_SKILL_PREFERENCES = {
+    "core": True,
+    "web-search": True,
+    "vision": True,
+    "image-studio": True,
+    "maps": True,
+    "calendar": True,
+    "proactive-agent": True,
+    "paper-reading": True,
+    "tencent-meeting": True,
+}
 
 
 def empty_intelligence_state() -> dict[str, Any]:
@@ -39,6 +52,7 @@ def empty_intelligence_state() -> dict[str, Any]:
             "image_limit": 2,
             "parallel_image_search": True,
         },
+        "skill_preferences": copy.deepcopy(DEFAULT_SKILL_PREFERENCES),
     }
 
 
@@ -50,7 +64,7 @@ def _value(item: Any) -> dict[str, Any] | None:
 
 
 def intelligence_namespace(user_id: str = USER_WORKSPACE_ID) -> tuple[str, str]:
-    return ("yuanbao_intelligence_v1", str(user_id or USER_WORKSPACE_ID))
+    return namespace("intelligence", str(user_id or USER_WORKSPACE_ID))
 
 
 async def load_intelligence_state(store: Any, user_id: str = USER_WORKSPACE_ID) -> dict[str, Any]:
@@ -78,6 +92,13 @@ async def load_intelligence_state(store: Any, user_id: str = USER_WORKSPACE_ID) 
         "result_limit": max(4, min(18, int(preferences.get("result_limit") or 8))),
         "image_limit": max(0, min(4, int(preferences.get("image_limit") if preferences.get("image_limit") is not None else 2))),
         "parallel_image_search": bool(preferences.get("parallel_image_search", True)),
+    }
+    skill_preferences = state.get("skill_preferences")
+    if not isinstance(skill_preferences, dict):
+        skill_preferences = {}
+    state["skill_preferences"] = {
+        skill_id: True if skill_id == "core" else bool(skill_preferences.get(skill_id, enabled))
+        for skill_id, enabled in DEFAULT_SKILL_PREFERENCES.items()
     }
     prune_automatic_memories(state)
     return state
@@ -469,6 +490,7 @@ def public_intelligence_state(state: dict[str, Any]) -> dict[str, Any]:
         "search_preferences": copy.deepcopy(state.get("search_preferences") or {
             "result_limit": 8, "image_limit": 2, "parallel_image_search": True,
         }),
+        "skill_preferences": copy.deepcopy(state.get("skill_preferences") or DEFAULT_SKILL_PREFERENCES),
         "rule_proposals": sorted(state.get("rule_proposals", {}).values(), key=lambda item: int(item.get("updated_at") or 0), reverse=True),
         "feedback_count": len(state.get("feedback") or []),
         "usage": usage_summary(state),

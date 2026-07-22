@@ -14,6 +14,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from .data_version import namespace
+
 
 SCHEMA_VERSION = 1
 USER_WORKSPACE_ID = "local-user"
@@ -33,7 +35,7 @@ def empty_workspace() -> dict[str, Any]:
 
 
 def _namespace(conversation_id: str) -> tuple[str, str]:
-    return ("yuanbao_workspace_v1", conversation_id)
+    return namespace("workspace", conversation_id)
 
 
 def _item_value(item: Any) -> dict[str, Any] | None:

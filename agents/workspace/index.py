@@ -19,6 +19,7 @@ from .._shared.proactive import (
     save_proactive_state,
 )
 from .._shared.auth import require_user, scoped_conversation_id
+from .._shared.intelligence import load_intelligence_state
 from .._shared.http import error
 from .._shared.workspace import (
     active_map_payload,
@@ -141,6 +142,8 @@ async def handler(ctx):
     conversation_id = scoped_conversation_id(ctx, user_id, raw_conversation_id)
     store = ctx.store.langgraph_store
     state = await load_user_workspace(store, conversation_id, user_id)
+    intelligence = await load_intelligence_state(store, user_id)
+    enabled_skills = intelligence.get("skill_preferences") or {}
     workspace_id = user_id
     try:
         if operation == "get":
@@ -200,6 +203,8 @@ async def handler(ctx):
             return _response(state, deleted_plan_id=plan_id, travel_plans=list(state["travel_plans"].values()))
 
         if operation == "activate_map":
+            if not enabled_skills.get("maps", True):
+                raise ValueError("地图 Skill 已关闭，请先到 Skills 广场开启")
             action = get_action(state, str(body.get("action_id") or ""))
             check_action_version(action, int(body.get("version") or 0))
             if action.get("kind") != "map_recommendation" or action.get("status") not in {"ready", "active"}:
@@ -223,6 +228,8 @@ async def handler(ctx):
             return _response(state)
 
         if operation == "direct_calendar_changes":
+            if not enabled_skills.get("calendar", True):
+                raise ValueError("日程管理 Skill 已关闭，请先到 Skills 广场开启")
             changes = body.get("changes") or []
             if not isinstance(changes, list) or not changes:
                 raise ValueError("缺少日程变更")
@@ -234,6 +241,8 @@ async def handler(ctx):
             return _response(state, changed=changed)
 
         if operation == "generate_image":
+            if not enabled_skills.get("image-studio", True):
+                raise ValueError("图片工坊 Skill 已关闭，请先到 Skills 广场开启")
             prompt = str(body.get("prompt") or "").strip()[:2000]
             if not prompt:
                 raise ValueError("生图提示词不能为空")
@@ -270,6 +279,8 @@ async def handler(ctx):
             return _response(latest, action)
 
         if operation == "update_meeting_action":
+            if not enabled_skills.get("tencent-meeting", True) or not enabled_skills.get("calendar", True):
+                raise ValueError("腾讯会议需要同时开启腾讯会议与日程管理 Skill")
             action = get_action(state, str(body.get("action_id") or ""))
             check_action_version(action, int(body.get("version") or 0))
             if action.get("kind") != "meeting_create" or action.get("status") != "awaiting_confirmation":
@@ -308,6 +319,12 @@ async def handler(ctx):
         if action.get("status") != "awaiting_confirmation":
             raise ValueError("该操作当前不能确认")
         kind = str(action.get("kind") or "")
+        if kind == "calendar_changes" and not enabled_skills.get("calendar", True):
+            raise ValueError("日程管理 Skill 已关闭，请先到 Skills 广场开启")
+        if kind == "meeting_create" and (
+            not enabled_skills.get("tencent-meeting", True) or not enabled_skills.get("calendar", True)
+        ):
+            raise ValueError("腾讯会议需要同时开启腾讯会议与日程管理 Skill")
         payload = action.get("payload") or {}
         verify_action_snapshot(action)
         if kind == "calendar_changes":

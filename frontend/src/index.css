@@ -83,7 +83,7 @@ body {
 }
 
 /* Brief, purposeful feedback inspired by Apple's motion guidance. */
-:where(button, [role='button'], .t-button) {
+:where(button, a[href], summary, select, input[type='checkbox'], input[type='radio'], [role='button'], [role='switch'], .t-button) {
   transform-origin: center;
   transition:
     transform var(--motion-press) var(--motion-ease-out),
@@ -97,19 +97,19 @@ body {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  :where(button, [role='button'], .t-button):not(:disabled):hover {
+  :where(button, a[href], summary, select, input[type='checkbox'], input[type='radio'], [role='button'], [role='switch'], .t-button):not(:disabled):hover {
     transform: translateY(-1px);
     filter: brightness(1.025);
   }
 }
 
-:where(button, [role='button'], .t-button):not(:disabled):active {
+:where(button, a[href], summary, select, input[type='checkbox'], input[type='radio'], [role='button'], [role='switch'], .t-button):not(:disabled):active {
   transform: translateY(0) scale(0.97);
   filter: brightness(0.98);
   transition-duration: 70ms;
 }
 
-:where(button, [role='button'], .t-button):focus-visible {
+:where(button, a[href], summary, select, input[type='checkbox'], input[type='radio'], [role='button'], [role='switch'], .t-button):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--td-brand-color) 68%, transparent);
   outline-offset: 2px;
 }
@@ -118,6 +118,19 @@ body {
   transform: none;
   filter: none;
 }
+
+:where(.t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell) {
+  transition:
+    transform var(--motion-press) var(--motion-ease-out),
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    opacity var(--motion-fast) ease;
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  :where(.t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell):hover { transform: translateY(-1px); }
+}
+:where(.t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell):active { transform: scale(.98); transition-duration: 70ms; }
 
 /* ============ 布局 ============ */
 .app-shell {
@@ -157,7 +170,6 @@ body {
 .input-box,
 .panel,
 .conversation-item,
-.search-media-card,
 .workspace-confirm-card,
 .proactive-conversation-item,
 .skill-market-card {
@@ -168,7 +180,6 @@ body {
     background-color var(--motion-reveal) ease;
 }
 
-.search-media-card,
 .workspace-confirm-card,
 .image-studio-card,
 .rich-media-figure,
@@ -188,7 +199,6 @@ body {
 }
 
 .msg-bubble img,
-.search-media-card img,
 .rich-media-figure img {
   animation: media-reveal 320ms var(--motion-ease-out) both;
 }
@@ -740,11 +750,12 @@ html.is-resizing-workspace * {
   display: table-row-group;
 }
 
-/* 限制 AI 气泡内图片大小 */
+/* AI 图片与回答正文同宽；由模型通过媒体槽决定所在段落。 */
 .msg-bubble.ai .markdown-body img {
-  max-width: 280px;
-  max-height: 280px;
-  border-radius: 8px;
+  width: 100%;
+  max-width: 100%;
+  max-height: 520px;
+  border-radius: 0;
   display: block;
   margin: 6px 0;
   object-fit: contain;
@@ -753,7 +764,7 @@ html.is-resizing-workspace * {
 /* 结构化富媒体：图片始终携带说明、来源和失败回退 */
 .rich-media-figure {
   display: block !important;
-  width: min(100%, 520px);
+  width: 100%;
   margin: 12px 0;
   border: 1px solid var(--app-border);
   border-radius: 12px;
@@ -763,7 +774,7 @@ html.is-resizing-workspace * {
 .msg-bubble.ai .markdown-body .rich-media-figure img {
   width: 100%;
   max-width: 100%;
-  max-height: 360px;
+  max-height: 520px;
   margin: 0;
   border-radius: 0;
   object-fit: contain;
@@ -922,43 +933,6 @@ html.is-resizing-workspace * {
   background: var(--app-panel);
 }
 
-.search-media-carousel {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(190px, 42%);
-  gap: 10px;
-  margin-top: 14px;
-  padding: 2px 2px 8px;
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  scroll-snap-type: inline mandatory;
-}
-
-.search-media-card {
-  margin: 0;
-  overflow: hidden;
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.72);
-  scroll-snap-align: start;
-}
-
-.search-media-card img {
-  display: block;
-  width: 100%;
-  height: 132px;
-  object-fit: cover;
-}
-
-.search-media-card figcaption {
-  padding: 8px 10px 9px;
-  color: var(--text-secondary, #5f6673);
-  font-size: 12px;
-  line-height: 1.45;
-  display: grid;
-  gap: 5px;
-}
-.search-media-card figcaption a { color: var(--app-primary); font-size: 11px; text-decoration: none; }
 .my-panel-card {
   background: transparent;
   border: 0;
@@ -1343,6 +1317,8 @@ html.is-resizing-workspace * {
 .workspace-action-status.status-succeeded { color: #158452; }
 .workspace-action-status.status-failed { color: #c9353a; }
 .workspace-generated-image { display: block; max-width: 100%; margin-top: 10px; border-radius: 10px; }
+.message-generated-image { width: 100%; overflow: hidden; border: 1px solid var(--app-border); border-radius: 12px; background: var(--app-panel-2); }
+.message-generated-image img { display: block; width: 100%; max-height: 520px; object-fit: contain; }
 
 /* ============ 图片工作室 ============ */
 .image-studio-card {
@@ -1541,6 +1517,17 @@ html.is-resizing-workspace * {
 .makers-route-summary small { flex-basis: 100%; color: #798399; line-height: 1.45; }
 
 .makers-schedule-form { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; padding: 10px; border: 1px solid var(--app-border, #dce2ef); border-radius: 10px; background: var(--app-card, #fff); }
+.makers-day-item-shell { display: grid; gap: 0; }
+.makers-day-item-shell.is-editing .makers-day-item { border-color: color-mix(in srgb, var(--td-brand-color) 42%, var(--app-border)); border-radius: 9px 9px 5px 5px; background: color-mix(in srgb, var(--td-brand-color) 5%, var(--app-panel-2)); }
+.schedule-inline-editor { position: relative; margin: 0 4px 8px; border-top: 0; border-radius: 0 0 11px 11px; box-shadow: 0 14px 32px rgba(31, 46, 82, 0.12); transform-origin: top center; animation: scheduleEditorDrop 220ms var(--motion-ease-out) both; }
+.schedule-inline-editor.is-creating { margin: 0 0 10px; border-top: 1px solid var(--app-border); border-radius: 11px; }
+.schedule-inline-heading { display: flex; align-items: center; justify-content: space-between; color: var(--app-text); font-size: 12px; }
+.schedule-inline-heading button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--app-text-3); font-size: 18px; }
+.schedule-inline-delete { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 4px 8px; padding: 9px 10px; border: 1px solid rgba(192, 82, 88, .22); border-top: 0; border-radius: 0 0 10px 10px; background: rgba(192, 82, 88, .07); color: var(--app-text-2); font-size: 10.5px; line-height: 1.45; transform-origin: top center; animation: scheduleEditorDrop 190ms var(--motion-ease-out) both; }
+.schedule-inline-delete > div { display: flex; flex: 0 0 auto; gap: 6px; }
+.schedule-inline-delete button { padding: 4px 7px; border: 0; border-radius: 6px; background: transparent; color: var(--app-text-2); font-size: 10px; }
+.schedule-inline-delete button:first-child { background: #c05258; color: #fff; }
+@keyframes scheduleEditorDrop { from { opacity: 0; transform: translateY(-7px) scaleY(.96); } to { opacity: 1; transform: translateY(0) scaleY(1); } }
 .makers-schedule-form input,
 .makers-schedule-form textarea { width: 100%; box-sizing: border-box; border: 1px solid #ccd4e2; border-radius: 7px; padding: 8px 9px; color: inherit; background: transparent; font: inherit; }
 .makers-schedule-form textarea { resize: vertical; min-height: 68px; line-height: 1.5; }
@@ -1558,6 +1545,12 @@ html.is-resizing-workspace * {
 .makers-place-options button.selected { background: rgba(78, 124, 255, 0.1); }
 .makers-place-options span { margin-top: 2px; color: #737d91; font-size: 11px; }
 .makers-selected-place { color: #158452; font-size: 12px; }
+.schedule-map-dependency { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 9px; border-radius: 8px; background: rgba(78, 124, 255, .08); color: var(--app-text-2); font-size: 10.5px; line-height: 1.45; }
+.schedule-map-dependency button { flex: 0 0 auto; padding: 4px 8px; border: 0; border-radius: 7px; background: var(--td-brand-color); color: #fff; font-size: 10px; }
+.workspace-skill-disabled { display: grid; place-items: center; gap: 7px; min-height: 210px; padding: 22px; color: var(--app-text-2); text-align: center; }
+.workspace-skill-disabled > span { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 15px; background: rgba(78, 124, 255, .1); color: var(--td-brand-color); font-size: 24px; }
+.workspace-skill-disabled small { max-width: 250px; color: var(--app-text-3); line-height: 1.55; }
+.workspace-skill-disabled button { padding: 6px 11px; border: 0; border-radius: 8px; background: var(--td-brand-color); color: #fff; font-size: 11px; }
 .makers-form-actions { display: flex; gap: 8px; }
 .makers-day-content { min-width: 0; flex: 1; }
 .makers-day-description { margin-top: 4px; color: var(--app-text-3); font-size: 10px; line-height: 1.45; white-space: pre-wrap; }
@@ -3148,14 +3141,29 @@ html.is-resizing-workspace * {
 .proactive-settings-runs > div { display: grid; gap: 5px; max-height: 180px; overflow: auto; }
 .proactive-settings-runs > div > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; padding: 6px 8px; border-radius: 7px; background: var(--app-panel); font-size: 11px; }
 .proactive-settings-runs > div small { grid-column: 1 / -1; color: var(--app-text-3); }
-.skills-marketplace { min-height: 220px; }
-.skill-market-card { display: flex; gap: 14px; padding: 16px; border: 1px solid var(--app-border); border-radius: 14px; background: var(--app-panel-2); }
-.skill-market-icon { display: grid; place-items: center; width: 46px; height: 46px; flex: 0 0 46px; border-radius: 13px; background: #1677ff; color: white; font-size: 20px; font-weight: 700; }
+.skills-marketplace-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
+.skills-marketplace-head > div { display: grid; gap: 3px; }
+.skills-marketplace-head span { color: var(--app-text-3); font-size: 12px; }
+.skills-marketplace { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; min-height: 220px; max-height: min(65vh, 650px); padding: 2px; overflow: auto; }
+.skill-market-card { position: relative; display: flex; gap: 12px; min-height: 112px; padding: 14px 58px 14px 14px; border: 1px solid var(--app-border); border-radius: 16px; background: var(--app-panel-2); }
+.skill-market-card.is-enabled { border-color: color-mix(in srgb, var(--td-brand-color) 24%, var(--app-border)); background: color-mix(in srgb, var(--td-brand-color) 4%, var(--app-panel-2)); }
+.skill-market-card.is-disabled { opacity: .72; filter: saturate(.72); }
+.skill-market-icon { display: grid; place-items: center; width: 42px; height: 42px; flex: 0 0 42px; border-radius: 13px; background: linear-gradient(145deg, #5b8cff, #725cff); color: white; box-shadow: 0 8px 18px rgba(82, 104, 220, .22); font-size: 18px; font-weight: 700; }
 .skill-market-content { min-width: 0; flex: 1; }
 .skill-market-title { display: flex; align-items: center; gap: 8px; }
-.skill-market-content p, .skill-market-content ol { color: var(--app-text-2); font-size: 12px; line-height: 1.7; }
-.skill-market-content ol { padding-left: 18px; }
-.skill-market-actions { display: flex; gap: 8px; margin-top: 10px; }
+.skill-market-content p { margin: 6px 0; color: var(--app-text-2); font-size: 12px; line-height: 1.55; }
+.skill-dependency-note { margin-top: 7px; padding: 6px 8px; border-radius: 8px; background: rgba(78, 124, 255, .08); color: var(--app-text-2); font-size: 10.5px; line-height: 1.45; }
+.skill-dependency-note.is-blocked { background: rgba(228, 139, 42, .1); color: #9a5c15; }
+.skill-install-link { margin-top: 7px; padding: 0; border: 0; background: transparent; color: var(--td-brand-color); font-size: 11px; text-align: left; }
+.skill-toggle { position: absolute; top: 14px; right: 14px; width: 38px; height: 22px; padding: 2px; border: 0; border-radius: 999px; background: #c8ceda; box-shadow: inset 0 0 0 1px rgba(0,0,0,.04); }
+.skill-toggle span { display: block; width: 18px; height: 18px; border-radius: 50%; background: white; box-shadow: 0 2px 7px rgba(20, 31, 54, .24); transition: transform 180ms var(--motion-ease-out); }
+.skill-toggle.is-on { background: var(--td-brand-color); }
+.skill-toggle.is-on span { transform: translateX(16px); }
+.skill-toggle:disabled { opacity: .56; }
+.skills-marketplace-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--app-border); color: var(--app-text-3); font-size: 11px; }
+.t-dialog, .t-popup, .makers-place-options { transform-origin: top center; animation: content-reveal var(--motion-reveal) var(--motion-ease-smooth) both; }
+
+@media (max-width: 760px) { .skills-marketplace { grid-template-columns: 1fr; } }
 .proactive-conversation-actions { display: grid; gap: 8px; margin-top: 12px; }
 .proactive-conversation-item { display: grid; gap: 5px; padding: 9px 10px; border: 1px solid var(--app-border); border-radius: 10px; background: var(--app-panel-2); }
 .proactive-conversation-item > span { font-size: 12px; font-weight: 600; }
@@ -3376,9 +3384,11 @@ html.is-resizing-workspace * {
     transition-duration: 0.01ms !important;
   }
 
-  :where(button, [role='button'], .t-button):hover,
-  :where(button, [role='button'], .t-button):active {
+  :where(button, a[href], summary, select, input[type='checkbox'], input[type='radio'], [role='button'], [role='switch'], .t-button):hover,
+  :where(button, a[href], summary, select, input[type='checkbox'], input[type='radio'], [role='button'], [role='switch'], .t-button):active {
     transform: none !important;
     filter: none !important;
   }
+  :where(.t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell):hover,
+  :where(.t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell):active { transform: none !important; }
 }

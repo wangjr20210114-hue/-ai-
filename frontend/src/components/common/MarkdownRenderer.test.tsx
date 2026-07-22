@@ -1,6 +1,16 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import MarkdownRenderer from './MarkdownRenderer';
+import type { SearchMeta } from '../../types';
+
+const searchMeta: SearchMeta = {
+  query: 'AI 进展', results: [], images: ['https://img.example/one.jpg', 'https://img.example/two.jpg'],
+  sources_used: [], total: 0,
+  media: [
+    { id: 'one', kind: 'image', url: 'https://img.example/one.jpg', alt: '第一张', caption: '第一张', generated: false },
+    { id: 'two', kind: 'image', url: 'https://img.example/two.jpg', alt: '第二张', caption: '第二张', generated: false },
+  ],
+};
 
 describe('MarkdownRenderer', () => {
   it('renders fenced code as a bounded language-labelled block', () => {
@@ -20,5 +30,28 @@ describe('MarkdownRenderer', () => {
     );
     expect(html).toContain('class="md-table-wrap"');
     expect(html).toContain('<table>');
+  });
+
+  it('replaces model-selected media slots in paragraph order instead of appending a gallery', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer
+        content={'第一条进展。\n\n[[YUANBAO_MEDIA]]\n\n第二条进展。\n\n[[YUANBAO_MEDIA]]\n\n结论。'}
+        searchMeta={searchMeta}
+      />,
+    );
+    expect(html.indexOf('第一条进展')).toBeLessThan(html.indexOf('one.jpg'));
+    expect(html.indexOf('one.jpg')).toBeLessThan(html.indexOf('第二条进展'));
+    expect(html.indexOf('第二条进展')).toBeLessThan(html.indexOf('two.jpg'));
+    expect(html).not.toContain('YUANBAO_MEDIA');
+  });
+
+  it('removes unused media slots when no reviewed image survived', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer content={'正文\n\n[[YUANBAO_MEDIA]]\n\n结束'} searchMeta={{ ...searchMeta, media: [], images: [] }} />,
+    );
+    expect(html).toContain('正文');
+    expect(html).toContain('结束');
+    expect(html).not.toContain('YUANBAO_MEDIA');
+    expect(html).not.toContain('<img');
   });
 });

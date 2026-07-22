@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from .data_version import namespace
 from .workspace import USER_WORKSPACE_ID, load_user_workspace, recover_stale_actions, save_user_workspace
 from .tencent_location import get_current_weather, plan_verified_route
 
@@ -91,7 +92,7 @@ def _merge_preferences(value: Any) -> dict[str, Any]:
 
 
 def proactive_namespace(user_id: str = USER_WORKSPACE_ID) -> tuple[str, str]:
-    return ("yuanbao_proactive_v1", str(user_id or USER_WORKSPACE_ID))
+    return namespace("proactive", str(user_id or USER_WORKSPACE_ID))
 
 
 async def load_proactive_state(store: Any, user_id: str = USER_WORKSPACE_ID) -> dict[str, Any]:

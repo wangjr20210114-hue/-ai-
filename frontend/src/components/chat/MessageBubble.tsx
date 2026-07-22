@@ -11,7 +11,6 @@ import ImageStudioCard from '../image/ImageStudioCard';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { followUpDraftAction } from './followUps';
 import { nextWholeHourRange, usableMapPlaces } from './workspaceUi';
-import { isSafeRemoteUrl } from '../common/richContent';
 
 interface Props {
   message: ChatMessage;
@@ -179,23 +178,6 @@ function ImageCreationProgress({ message }: { message: ChatMessage }) {
   </div>;
 }
 
-function SearchMediaGallery({ message }: { message: ChatMessage }) {
-  const media = (message.searchResults?.media || [])
-    .filter((item) => isSafeRemoteUrl(item.url) && !message.content.includes(item.url))
-    .slice(0, 4);
-  const [failed, setFailed] = useState<string[]>([]);
-  const visible = media.filter((item) => !failed.includes(item.id));
-  if (!visible.length) return null;
-  return <div className="search-media-carousel" aria-label="搜索配图">
-    {visible.map((asset) => <figure className="search-media-card" key={asset.id}>
-      <img src={asset.url} alt={asset.alt || asset.caption || '搜索配图'} loading="lazy" onError={() => setFailed((items) => [...items, asset.id])} />
-      <figcaption>
-        <span>{asset.caption || asset.alt || '相关图片'}</span>
-        {asset.source_url && isSafeRemoteUrl(asset.source_url) && <a href={asset.source_url} target="_blank" rel="noreferrer">图片来源</a>}
-      </figcaption>
-    </figure>)}
-  </div>;
-}
 /** 单条消息气泡。AI 消息下方根据 skill.intent 渲染不同卡片。 */
 export default function MessageBubble({ message }: Props) {
   const isUser = message.role === 'user';
@@ -485,7 +467,6 @@ export default function MessageBubble({ message }: Props) {
                 </div>
               )}
               {message.content && <MarkdownRenderer content={message.content} searchMeta={message.searchResults} />}
-              {message.content && <SearchMediaGallery message={message} />}
               {message.proactive && proactive && <div className="proactive-conversation-actions">
                 {(proactive.notifications || []).filter((item) => item.status !== 'dismissed').slice(0, 3).map((item) => <div className="proactive-conversation-item" key={item.id}>
                   <span>{item.title}</span>
@@ -699,11 +680,10 @@ export default function MessageBubble({ message }: Props) {
         {/* === 生图结果 === */}
         {!isUser && intent === 'image' && !workspaceActions.some((action) => action.kind === 'image_generate') && imageResult && imageResult.ok && imageResult.image_url && (
           <div className="followup-section">
-            <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--app-border)', maxWidth: 280 }}>
+            <div className="message-generated-image">
               <img
                 src={imageResult.image_url}
                 alt={imageResult.prompt || '生成的图片'}
-                style={{ width: '100%', maxHeight: 280, objectFit: 'contain', display: 'block' }}
               />
             </div>
           </div>

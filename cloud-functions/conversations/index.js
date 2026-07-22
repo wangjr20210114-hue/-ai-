@@ -1,12 +1,14 @@
 import { currentUser } from '../../auth/current-user.js';
 
+const CONVERSATION_PREFIX = 'yuanbao_v5_20260722_clean_';
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
 }
 
 function normalizeConversationId(value) {
   const raw = String(value || '').trim();
-  if (!raw || raw.length > 180) throw new Error('Invalid conversation id');
+  if (!raw || raw.length > 180 || !raw.startsWith(CONVERSATION_PREFIX)) throw new Error('Invalid conversation id');
   return raw;
 }
 
@@ -50,7 +52,7 @@ export async function onRequest(context) {
   if (request.method === 'GET') {
     const result = await store.listConversations({ userId: user.id, limit: 100, order: 'desc' });
     const items = Array.isArray(result?.items) ? result.items : [];
-    return json({ conversations: items.map(publicConversation).filter((item) => item.conversationId) });
+    return json({ conversations: items.map(publicConversation).filter((item) => item.conversationId.startsWith(CONVERSATION_PREFIX)) });
   }
 
   if (request.method === 'POST') {

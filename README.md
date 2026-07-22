@@ -18,6 +18,7 @@ Makers 项目：`ai-active-agent`（`makers-0oeuhire655w`）。项目使用 GitH
 | 论文与 PDF | 普通富搜索后桥接公开 PDF/arXiv 下载；PDF 自动分类、文件夹化“我的阅读”，论文支持选词、翻译、总结、全文助读和问答 |
 | 主动运行时 | EdgeOne cron 每日触发（当前 Makers 平台最短间隔为 1 天）；持久 Event/Run/Observation、日程/天气/路线 Collector、去重 Notification Inbox、免打扰和每日上限 |
 | 长期记忆与反馈 | 后台自动提取、过滤和清理非敏感稳定记忆；提醒接受/忽略/稍后反馈；连续忽略生成可确认规则提案；Token 日/月预算 |
+| Skills 广场 | 现有能力默认全部开启；开关同时约束 Agent 工具与直接业务入口，支持硬依赖自动补齐和推荐依赖的上下文引导 |
 | 持久工作流 | 主模型可创建多步骤工作流提案；用户确认后后台按依赖和到期时间推进，步骤需显式完成/跳过 |
 | 安全副作用 | Action 冻结快照、SHA-256、幂等键、Provider 调用账本、执行租约和未知结果人工核对 |
 
@@ -124,6 +125,8 @@ edgeone makers dev
 访问 CLI 输出地址下的 `/test-cases/`，通常是 `http://127.0.0.1:8088/test-cases/`。只检查静态页面时可执行 `npm --prefix frontend run dev` 并访问 `http://127.0.0.1:5173/test-cases/index.html`；Vite 不应用 EdgeOne rewrite，不能省略 `index.html`。此模式没有 `/acceptance` Cloud Function，只使用当前浏览器 `localStorage`，不能验证跨主机持久化或证据上传。
 
 线上验收时，从 EdgeOne 控制台为目标 Git 分支创建 Preview，再打开其 3 小时签名链接的 `/test-cases/`。具体步骤见 [ACCEPTANCE_SITE.md](docs/ACCEPTANCE_SITE.md)。
+
+当前 V5 使用可回滚的数据代际启动空白 Preview，并包含 AI 自主富媒体排版、全局微交互和日程就地编辑；实现边界见 [V5_CLEAN_SKILLS_UI.md](docs/V5_CLEAN_SKILLS_UI.md)。
 
 ## GitHub Provider 发布
 

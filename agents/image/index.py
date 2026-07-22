@@ -7,6 +7,7 @@ import time
 from .._shared.side_effects import generate_image, resolve_image_reference
 from .._shared.auth import require_user, scoped_conversation_id
 from .._shared.http import error
+from .._shared.intelligence import load_intelligence_state
 from .._shared.workspace import (
     USER_WORKSPACE_ID,
     begin_action_execution,
@@ -34,6 +35,9 @@ async def handler(ctx):
         return error("修改提示词和原图版本不能为空")
 
     store = ctx.store.langgraph_store
+    intelligence = await load_intelligence_state(store, user_id)
+    if not (intelligence.get("skill_preferences") or {}).get("image-studio", True):
+        return error("图片工坊 Skill 已关闭，请先到 Skills 广场开启", 403, code="SKILL_DISABLED")
     state = await load_user_workspace(store, conversation_id, user_id)
     parent = get_action(state, parent_id)
     if parent.get("kind") != "image_generate" or parent.get("status") != "succeeded":

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .data_version import scoped_conversation
 from .workspace import USER_WORKSPACE_ID
 
 
@@ -20,4 +21,4 @@ def scoped_conversation_id(ctx: Any, user_id: str, conversation_id: str | None =
     raw = str(conversation_id if conversation_id is not None else getattr(ctx, "conversation_id", "") or "")
     if not raw or len(raw) > 180:
         raise ValueError("无效会话 ID")
-    return raw
+    return scoped_conversation(raw)

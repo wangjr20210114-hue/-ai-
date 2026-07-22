@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 
 from agents.conversation.index import handler
+from agents._shared.data_version import CONVERSATION_PREFIX
 
 
 class FakeConversationStore:
@@ -33,7 +34,7 @@ class ConversationRouteTests(unittest.IsolatedAsyncioTestCase):
         response = await handler(ctx)
         self.assertEqual(response, {"message_id": "native-message-1"})
         self.assertEqual(store.messages[0]["role"], "assistant")
-        self.assertEqual(store.messages[0]["conversation_id"], "conversation-role")
+        self.assertEqual(store.messages[0]["conversation_id"], f"{CONVERSATION_PREFIX}conversation-role")
         self.assertEqual(store.messages[0]["metadata"]["client_message_id"], "client-ai-1")
 
     async def test_first_user_message_sets_native_conversation_title(self):

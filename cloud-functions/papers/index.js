@@ -1,5 +1,6 @@
 import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
+const DATA_GENERATION = 'v5_20260722_clean';
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
 const decodeXml = (value) => String(value || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, '&');
 const textOf = (xml, tag) => decodeXml((xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i')) || [])[1] || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
@@ -31,7 +32,7 @@ export async function onRequest(context) {
   let user;
   try { user = await currentUser(request, env); } catch { return json({ error: 'Unauthorized' }, 401); }
   const prefix = tenantPrefix(user, env);
-  const indexKey = `${prefix}library/index.json`;
+  const indexKey = `${prefix}library/${DATA_GENERATION}/index.json`;
   if (request.method === 'GET') {
     const topic = new URL(request.url).searchParams.get('topic')?.trim() || '';
     if (!topic) return json({ error: '论文主题不能为空' }, 400);
@@ -69,7 +70,7 @@ export async function onRequest(context) {
     if (new TextDecoder().decode(data.slice(0, 5)) !== '%PDF-') return json({ error: '下载结果不是有效 PDF' }, 400);
     const store = getStore({ name: 'yuanbao-files', consistency: 'strong' });
     const safeId = arxivId.replace(/[^A-Za-z0-9.-]+/g, '-');
-    const key = `${prefix}uploads/papers/${crypto.randomUUID()}-${safeId}.pdf`;
+    const key = `${prefix}uploads/yuanbao_${DATA_GENERATION}_papers/${crypto.randomUUID()}-${safeId}.pdf`;
     await store.set(key, data);
     const now = Date.now();
     const title = String(body.title || `arXiv ${arxivId}`).slice(0, 240);

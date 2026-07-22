@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../types';
 import { canReusePendingConversation, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
+import { CONVERSATION_PREFIX, isCurrentConversationId } from './dataVersion';
 
 describe('getOrCreateConversationId', () => {
   beforeEach(() => {
@@ -30,6 +31,9 @@ describe('getOrCreateConversationId', () => {
 
   it('creates collision-resistant ids for fresh conversations', () => {
     expect(createConversationId()).not.toBe(createConversationId());
+    expect(createConversationId().startsWith(CONVERSATION_PREFIX)).toBe(true);
+    expect(isCurrentConversationId(createConversationId())).toBe(true);
+    expect(isCurrentConversationId('legacy-conversation')).toBe(false);
   });
 
   it('uses the Makers conversation header for every agent endpoint', () => {

@@ -187,11 +187,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_model_timeout({"AI_GATEWAY_TIMEOUT_SECONDS": "999"}, "AI_GATEWAY_TIMEOUT_SECONDS", 12), 30)
         self.assertEqual(_model_timeout({"AI_GATEWAY_TIMEOUT_SECONDS": "1"}, "AI_GATEWAY_TIMEOUT_SECONDS", 12), 5)
 
-    def test_personal_runtime_uses_one_fixed_owner_and_raw_conversation_id(self):
+    def test_personal_runtime_uses_one_fixed_owner_and_versioned_conversation_id(self):
         ctx = SimpleNamespace(request=FakeRequest({}), conversation_id="conversation-personal")
         self.assertEqual(require_user(ctx)["user_id"], USER_WORKSPACE_ID)
         self.assertEqual(require_user(ctx)["roles"], ["owner"])
-        self.assertEqual(scoped_conversation_id(ctx, USER_WORKSPACE_ID), "conversation-personal")
+        self.assertTrue(scoped_conversation_id(ctx, USER_WORKSPACE_ID).endswith("conversation-personal"))
+        self.assertIn("v5_20260722_clean", scoped_conversation_id(ctx, USER_WORKSPACE_ID))
 
     def test_long_history_is_trimmed_at_human_boundary(self):
         messages = [SimpleNamespace(type="human", content=f"q{index}") if index % 3 == 0
@@ -238,8 +239,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             {"type": "ai", "content": "## 故宫历史", "id": "a1"},
         ]
         langgraph_store = FakeStore()
+        from agents._shared.data_version import namespace as data_namespace
+        from agents._shared.data_version import scoped_conversation
         await langgraph_store.aput(
-            ("yuanbao_message_meta_v1", "restore-rich"),
+            data_namespace("message_meta", scoped_conversation("restore-rich")),
             "latest_extras",
             {
                 "original_content": "## 故宫历史",
@@ -1193,9 +1196,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         prompt = evidence_for_model({
             "results": [], "media": [], "media_pending": True,
         })
-        self.assertIn("前端并行审核", prompt)
+        self.assertIn("图片候选正在并行审核", prompt)
         self.assertIn("不要声称正在生成图片", prompt)
-        self.assertIn("只有后续真实 URL 通过审核", prompt)
+        self.assertIn("[[YUANBAO_MEDIA]]", prompt)
 
     def test_search_preferences_have_fast_balanced_defaults_and_public_state(self):
         state = empty_intelligence_state()

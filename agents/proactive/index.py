@@ -111,6 +111,20 @@ async def handler(ctx):
     operation = str(body.get("operation") or "get")
     store = ctx.store.langgraph_store
     try:
+        intelligence_state = await load_intelligence_state(store, user_id)
+        proactive_skill_enabled = bool(
+            (intelligence_state.get("skill_preferences") or {}).get("proactive-agent", True)
+        )
+        if not proactive_skill_enabled and operation in {"refresh", "open_conversation", "tick"}:
+            disabled_state = await load_proactive_state(store, user_id)
+            if (disabled_state.get("preferences") or {}).get("enabled", True):
+                update_preferences(disabled_state, {"enabled": False})
+                disabled_state = await save_proactive_state(store, disabled_state, user_id)
+            return {
+                **public_proactive_state(disabled_state),
+                "tick_stats": {"disabled_by_skill": True},
+                **({"proactive_message": None} if operation == "open_conversation" else {}),
+            }
         if operation in {"refresh", "open_conversation"}:
             state, stats = await run_proactive_tick(store, env=ctx.env, user_id=user_id)
             public = public_proactive_state(state)
@@ -188,7 +202,11 @@ async def handler(ctx):
         if operation == "get":
             return public_proactive_state(state)
         if operation == "update_preferences":
-            changes = body.get("preferences") or {}
+            changes = dict(body.get("preferences") or {})
+            if not proactive_skill_enabled:
+                if changes.get("enabled") is True:
+                    raise ValueError("主动式 Agent Skill 已关闭，请先到 Skills 广场开启")
+                changes["enabled"] = False
             preferences = update_preferences(state, changes)
             state.setdefault("checkpoints", {})["preference_change"] = {
                 "updated_at": int(time.time()),
@@ -204,6 +222,8 @@ async def handler(ctx):
                 "tick_stats": stats,
             }
         if operation == "propose_workflow":
+            if not proactive_skill_enabled:
+                raise ValueError("主动式 Agent Skill 已关闭，请先到 Skills 广场开启")
             workflow = propose_workflow(
                 state,
                 title=str(body.get("title") or ""),

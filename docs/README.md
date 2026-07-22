@@ -18,6 +18,7 @@
 - [`SEARCH_CONFIGURATION.md`](SEARCH_CONFIGURATION.md)：搜索并行策略、上限、缓存与性能结论。
 - [`VISUAL_PROVIDER_FALLBACK.md`](VISUAL_PROVIDER_FALLBACK.md)：免费视觉 API 结论、降级顺序、配置和安全验收。
 - [`MOTION_AND_VISUAL_FALLBACK.md`](MOTION_AND_VISUAL_FALLBACK.md)：Apple 风格微交互动效基线、混元当前接口与 Cloudflare 最小降级配置。
+- [`V5_CLEAN_SKILLS_UI.md`](V5_CLEAN_SKILLS_UI.md)：V5 干净数据代际、AI 富媒体排版、全局微交互、就地日程编辑和 Skills 依赖基线。
 - [`PROVIDER_HEALTH_2026-07-22.md`](PROVIDER_HEALTH_2026-07-22.md)：环境变量对应外部 API 的脱敏真实存活性快照。
 - [`ACCEPTANCE_RETEST_2026-07-20.md`](ACCEPTANCE_RETEST_2026-07-20.md)：原 34 条阻塞/未测用例的真实复测、外部阻塞分类和代码缺陷修复证据。
 - [`TENCENT_MEETING_SETUP.md`](TENCENT_MEETING_SETUP.md)：腾讯会议个人账号边界和环境变量来源。

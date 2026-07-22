@@ -2,11 +2,15 @@
 
 from .._shared.tencent_location import search_verified_places
 from .._shared.auth import require_user
+from .._shared.intelligence import load_intelligence_state
 from .._shared.http import error
 
 
 async def handler(ctx):
-    require_user(ctx)
+    identity = require_user(ctx)
+    intelligence = await load_intelligence_state(ctx.store.langgraph_store, str(identity["user_id"]))
+    if not (intelligence.get("skill_preferences") or {}).get("maps", True):
+        return error("地图 Skill 已关闭，请先到 Skills 广场开启", 403, code="SKILL_DISABLED")
     body = ctx.request.body or {}
     query = str(body.get("query") or "").strip()
     if not query:

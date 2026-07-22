@@ -25,6 +25,7 @@ from .._shared.intelligence import (
     usage_summary,
 )
 from .._shared.auth import require_user, scoped_conversation_id
+from .._shared.data_version import namespace as data_namespace
 from .._shared.makers_conversation import (
     RUNNING_STATES,
     ensure_conversation_title,
@@ -228,10 +229,19 @@ async def handler(ctx):
         search_preferences.get("image_limit") if search_preferences.get("image_limit") is not None else 2
     )))
     parallel_image_search = bool(search_preferences.get("parallel_image_search", True))
+    skill_preferences = intelligence.get("skill_preferences") or {}
+    enabled_skills = {skill_id for skill_id, enabled in skill_preferences.items() if enabled}
+    disabled_skills = sorted(skill_id for skill_id, enabled in skill_preferences.items() if not enabled)
+    skill_context = (
+        f"本轮已开启 Skills：{', '.join(sorted(enabled_skills)) or '仅核心对话'}。"
+        f"已关闭 Skills：{', '.join(disabled_skills) or '无'}。"
+        "绝不能声称或模拟已关闭能力。若用户请求受关闭能力影响，要自然说明受限，并建议到 Skills 广场开启对应能力；"
+        "日程在地图关闭时仍可创建无地点日程，但涉及真实地点时应建议开启地图；腾讯会议依赖日程写入。"
+    )
     workspace = await load_user_workspace(ctx.store.langgraph_store, conversation_id, user_id)
     current_calendar_context = calendar_context(workspace)
     reference_image_context = ""
-    if reference_images:
+    if reference_images and "vision" in enabled_skills:
         reference_image_context, vision_diagnostics = await describe_reference_images(
             ctx.env,
             reference_images,
@@ -249,6 +259,8 @@ async def handler(ctx):
                 "应自然说明暂时无法识别，并请用户重试或用文字补充。"
             )
     planning_message = message
+    if reference_images and "vision" not in enabled_skills:
+        reference_image_context = "用户附带了图片，但视觉理解 Skill 已关闭；不要声称看见图片内容，应建议到 Skills 广场开启视觉理解。"
     if reference_image_context:
         planning_message += f"\n\n[附图视觉事实，仅用于能力规划]\n{reference_image_context[:1600]}"
     planner_timeout = max(3.0, min(12.0, float(
@@ -281,8 +293,11 @@ async def handler(ctx):
 
     queue: asyncio.Queue = asyncio.Queue()
     background_tasks: list[asyncio.Task] = []
+    latest_enriched_media: dict | None = None
 
     async def publish_media(metadata: dict) -> None:
+        nonlocal latest_enriched_media
+        latest_enriched_media = metadata
         await queue.put(ctx.utils.sse({
             "type": "search_media",
             "payload": {
@@ -308,9 +323,9 @@ async def handler(ctx):
         },
         temporal_context=temporal_context,
         # For ordinary web answers, media extraction and vision review run in
-        # parallel with the final LLM synthesis.  SearchMediaGallery renders
-        # reviewed media as soon as the callback arrives, so images no longer
-        # add their full latency to the text answer.  Realistic image generation
+        # parallel with the final LLM synthesis. Model-selected media slots are
+        # filled as soon as the callback arrives, so images no longer add their
+        # full latency to the text answer. Realistic image generation
         # remains synchronous because the following image tool needs reviewed
         # reference URLs in the same capability chain.
         progressive_media=not bool(capability_plan.get("needs_image_generation")),
@@ -322,9 +337,9 @@ async def handler(ctx):
         # owns routing. Keep media available so a later model-selected
         # rich_search can use SearchPro article images; simple turns do not pay
         # any cost because no search tool is called.
-        media_enabled=media_enabled_for_plan(
+        media_enabled=("vision" in enabled_skills and media_enabled_for_plan(
             capability_plan, search_image_limit, planner_timed_out=planner_timed_out,
-        ),
+        )),
         planned_search_query=str(capability_plan.get("search_query") or ""),
         planned_image_query=str(capability_plan.get("image_query") or ""),
         search_cache_ttl_seconds=300 if explicit_today else (900 if time_sensitive else 86_400),
@@ -337,6 +352,7 @@ async def handler(ctx):
         search_result_limit=search_result_limit,
         search_image_limit=search_image_limit,
         parallel_image_search=parallel_image_search,
+        enabled_skills=enabled_skills,
     )
     # Rich search is the single search path. Exposing the platform's plain
     # web_search beside it made semantically identical turns randomly lose the
@@ -351,7 +367,7 @@ async def handler(ctx):
             capability_plan=json.dumps(capability_plan, ensure_ascii=False),
             calendar_context=current_calendar_context,
             reference_image_context=reference_image_context or "无",
-        ) + (f"\n\n以下是用户已明确确认的长期记忆，只在相关时自然使用：\n{memory_context}" if memory_context else ""),
+        ) + f"\n\n{skill_context}" + (f"\n\n以下是用户已明确确认的长期记忆，只在相关时自然使用：\n{memory_context}" if memory_context else ""),
         checkpointer=ctx.store.langgraph_checkpointer,
         store=ctx.store.langgraph_store,
         # Routing remains semantic and model-planned rather than keyword based.
@@ -557,14 +573,15 @@ async def handler(ctx):
                         )
                         if follow_ups:
                             await queue.put(ctx.utils.sse({"type": "follow_ups", "payload": {"items": follow_ups}}))
-                        if ctx.store.langgraph_store is not None and follow_ups:
+                        if ctx.store.langgraph_store is not None and (follow_ups or latest_enriched_media):
                             await ctx.store.langgraph_store.aput(
-                                ("yuanbao_message_meta_v1", conversation_id),
+                                data_namespace("message_meta", conversation_id),
                                 "latest_extras",
                                 {
                                     "original_content": final_answer,
                                     "content": final_answer,
                                     "follow_ups": follow_ups,
+                                    **({"search_results": latest_enriched_media} if latest_enriched_media else {}),
                                 },
                             )
                         if memory_candidates:

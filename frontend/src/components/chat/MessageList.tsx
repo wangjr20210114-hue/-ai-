@@ -72,9 +72,9 @@ export default function MessageList({ client }: Props) {
             }}
           >
             {STARTERS.map((s) => (
-              <span key={s} className="chip" onClick={() => dispatch({ type: 'SET_DRAFT', payload: s })}>
+              <button type="button" key={s} className="chip" onClick={() => dispatch({ type: 'SET_DRAFT', payload: s })}>
                 {s}
-              </span>
+              </button>
             ))}
           </div>
         </div>
