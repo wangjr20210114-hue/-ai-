@@ -424,6 +424,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "needs_rich_answer": True,
             "needs_images": True,
         }, 0))
+        self.assertTrue(media_enabled_for_plan({
+            "needs_web_search": False,
+            "needs_rich_answer": False,
+            "needs_images": False,
+        }, 2, planner_timed_out=True))
 
     def test_searchpro_html_passage_exposes_provider_article_image(self):
         pages = _parse_pages({"Response": {"Pages": [{

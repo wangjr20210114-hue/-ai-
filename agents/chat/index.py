@@ -318,7 +318,13 @@ async def handler(ctx):
         background_tasks=background_tasks,
         user_id=user_id,
         initial_visual_references=reference_images,
-        media_enabled=media_enabled_for_plan(capability_plan, search_image_limit),
+        # If the independent semantic planner times out, the main model still
+        # owns routing. Keep media available so a later model-selected
+        # rich_search can use SearchPro article images; simple turns do not pay
+        # any cost because no search tool is called.
+        media_enabled=media_enabled_for_plan(
+            capability_plan, search_image_limit, planner_timed_out=planner_timed_out,
+        ),
         planned_search_query=str(capability_plan.get("search_query") or ""),
         planned_image_query=str(capability_plan.get("image_query") or ""),
         search_cache_ttl_seconds=300 if explicit_today else (900 if time_sensitive else 86_400),

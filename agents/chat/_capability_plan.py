@@ -108,7 +108,9 @@ def required_tool_for_plan(plan: dict[str, Any]) -> str:
     return required[0] if required else ""
 
 
-def media_enabled_for_plan(plan: dict[str, Any], image_limit: int) -> bool:
+def media_enabled_for_plan(
+    plan: dict[str, Any], image_limit: int, planner_timed_out: bool = False,
+) -> bool:
     """Make reviewed media available for semantic web-search turns.
 
     The planner still decides whether external facts are needed and produces the
@@ -118,7 +120,7 @@ def media_enabled_for_plan(plan: dict[str, Any], image_limit: int) -> bool:
     is reused and no second SearchPro request is added.
     """
     return int(image_limit) > 0 and bool(
-        plan.get("needs_web_search") or plan.get("needs_images")
+        planner_timed_out or plan.get("needs_web_search") or plan.get("needs_images")
     )
 
 
