@@ -30,4 +30,10 @@ describe('streaming Markdown answer', () => {
     expect(streamingMarkdownAnswer('正文\n\n![新闻图片](https://img.example/full.jpg)'))
       .toBe('正文\n\n![新闻图片](https://img.example/full.jpg)');
   });
+
+  it('does not expose an unfinished emphasis delimiter', () => {
+    expect(streamingMarkdownAnswer('正文\n\n**正在生成的重点')).toBe('正文\n\n');
+    expect(streamingMarkdownAnswer('正文\n\n**完整重点**')).toBe('正文\n\n**完整重点**');
+    expect(streamingMarkdownAnswer('正文\n\n~~尚未结束')).toBe('正文\n\n');
+  });
 });
