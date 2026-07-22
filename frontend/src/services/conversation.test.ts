@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../types';
-import { canReusePendingConversation, coalesceActionMessages, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
+import { canReusePendingConversation, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
 
 describe('getOrCreateConversationId', () => {
   beforeEach(() => {
@@ -119,6 +119,65 @@ describe('mergeMessages', () => {
     expect(merged[1].id).toBe('rich');
     expect(merged[1].content).toBe('图片已经生成，可以继续修改。');
     expect(merged[1].workspaceActions).toEqual([action]);
+  });
+
+  it('retains local progressive images when the restored answer has only base search metadata', () => {
+    const remote: ChatMessage[] = [{
+      id: 'remote-ai', role: 'ai', content: 'AI 新闻回答', ts: 1,
+      searchResults: { query: 'AI 新闻', results: [], media: [], images: [], sources_used: ['wsa'], total: 0 },
+    }];
+    const local: ChatMessage[] = [{
+      id: 'local-ai', role: 'ai', content: 'AI 新闻回答', ts: 2,
+      searchResults: {
+        query: 'AI 新闻', results: [], sources_used: ['wsa'], total: 0,
+        media: [{ id: 'hero', kind: 'image', url: 'https://example.com/ai.jpg', alt: 'AI 新闻', caption: 'AI 新闻', generated: false }],
+        images: ['https://example.com/ai.jpg'], media_pending: false,
+      },
+    }];
+    const merged = mergeMessages(remote, local);
+    expect(merged[0].searchResults?.images).toEqual(['https://example.com/ai.jpg']);
+    expect(merged[0].searchResults?.media_pending).toBe(false);
+  });
+});
+
+describe('coalesceDuplicateAssistantMessages', () => {
+  it('collapses identical checkpoint and SSE answers in the same user turn', () => {
+    const messages: ChatMessage[] = [
+      { id: 'user', role: 'user', content: '最近 AI 有什么进展', ts: 1 },
+      { id: 'checkpoint-ai', role: 'ai', content: '这里是最新进展。', ts: 2 },
+      {
+        id: 'live-ai', role: 'ai', content: '这里是最新进展。', ts: 3,
+        searchResults: {
+          query: 'AI 进展', results: [], sources_used: ['wsa'], total: 0,
+          media: [], images: ['https://example.com/news.jpg'], media_pending: false,
+        },
+      },
+    ];
+    const coalesced = coalesceDuplicateAssistantMessages(messages);
+    expect(coalesced).toHaveLength(2);
+    expect(coalesced[1].id).toBe('checkpoint-ai');
+    expect(coalesced[1].searchResults?.images).toEqual(['https://example.com/news.jpg']);
+  });
+
+  it('preserves the same answer when it belongs to two separate user turns', () => {
+    const messages: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: '再说一次', ts: 1 },
+      { id: 'a1', role: 'ai', content: '相同回答', ts: 2 },
+      { id: 'u2', role: 'user', content: '再说一次', ts: 3 },
+      { id: 'a2', role: 'ai', content: '相同回答', ts: 4 },
+    ];
+    expect(coalesceDuplicateAssistantMessages(messages)).toEqual(messages);
+  });
+
+  it('keeps identical prose for unrelated Workspace Actions', () => {
+    const first = { id: 'map-a', kind: 'map_recommendation', status: 'ready', version: 1, payload: {} } as never;
+    const second = { id: 'map-b', kind: 'map_recommendation', status: 'ready', version: 1, payload: {} } as never;
+    const messages: ChatMessage[] = [
+      { id: 'user', role: 'user', content: '分别显示两个地点', ts: 1 },
+      { id: 'a', role: 'ai', content: '地点已核实。', ts: 2, workspaceActions: [first] },
+      { id: 'b', role: 'ai', content: '地点已核实。', ts: 3, workspaceActions: [second] },
+    ];
+    expect(coalesceDuplicateAssistantMessages(messages)).toHaveLength(3);
   });
 });
 

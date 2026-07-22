@@ -13,7 +13,7 @@ Makers 项目：`ai-active-agent`（`makers-0oeuhire655w`）。项目使用 GitH
 | 地点与地图 | 腾讯位置服务优先，OSM 降级；真实地点 ID 才能进入地图 |
 | 道路路线 | 腾讯路线优先，OSRM 降级；支持多点顺序与费用估算 |
 | 日程 | 跨对话用户工作区；Agent 提案确认后写入，右栏支持直接 CRUD |
-| 腾讯会议 | 最后阶段可选连接器；凭据齐全才暴露工具，不影响个人部署 |
+| 腾讯会议 | 可选的官方个人 MCP Skill；只配置个人 Token 后才暴露工具，不需要企业开发者凭据 |
 | AI 生图 | 混元 `hy-image-v3.0` 直接生成；现实主体可复用富搜索 + HY-Vision 审核图，支持版本轮播、绘制动画、Blob 归档与 ZIP 下载 |
 | 论文与 PDF | 普通富搜索后桥接公开 PDF/arXiv 下载；PDF 自动分类、文件夹化“我的阅读”，论文支持选词、翻译、总结、全文助读和问答 |
 | 主动运行时 | EdgeOne cron 每日触发（当前 Makers 平台最短间隔为 1 天）；持久 Event/Run/Observation、日程/天气/路线 Collector、去重 Notification Inbox、免打扰和每日上限 |
@@ -43,7 +43,6 @@ cloud-functions/
 ├── papers/               # arXiv 搜索、下载和论文归档
 └── conversations/        # Makers 会话列表、标题和消息追加
 frontend/                 # React + Vite 双模式前端
-backend/                  # 已退役 FastAPI/SQLite 历史参考；不部署、不新增功能
 tools/                    # SQLite 只读导出和 Makers 一次性导入工具；不进入运行时
 docs/                     # Makers 当前事实、迁移计划和部署验收
 frontend/public/test-cases/ # 静态全功能验收站（访问 /test-cases/）
@@ -73,7 +72,7 @@ edgeone.json              # Makers 构建与 Agent 配置
 | `DASHSCOPE_API_KEY` / `GEMINI_API_KEY` | 可选的视觉理解后备；不作为当前免费生图链 |
 | `RICH_SEARCH_*_TIMEOUT_SECONDS` | 搜索、媒体提取和视觉审核硬预算；默认 10/5/7 秒 |
 | `TENCENT_MAP_SERVER_KEY` | 腾讯地点与路线服务 |
-| `TENCENT_MEETING_*` | 最后阶段可选连接器；个人开发者当前可不配置 |
+| `TENCENT_MEETING_TOKEN` | 可选的腾讯会议个人 AI Skill Token；未配置时安全隐藏会议工具 |
 
 视觉免费额度、Provider 顺序和无破坏 Preview 验收见 [VISUAL_PROVIDER_FALLBACK.md](docs/VISUAL_PROVIDER_FALLBACK.md)。
 
@@ -138,6 +137,6 @@ git push -u origin <当前分支>
 
 ## 旧代码边界
 
-`backend/` 仅保留为旧能力和离线迁移参考。FastAPI `/api`、`/ws`、SQLite Scheduler、Supervisor 与本地 `tmeet` 不进入生产构建，也不能作为 Makers 故障回退。
+旧 FastAPI/SQLite 运行时代码已从仓库删除。历史数据迁移只保留独立的只读导出器和 Makers 导入器；FastAPI `/api`、`/ws`、SQLite Scheduler、Supervisor 与本地 `tmeet` 不再存在，也不能作为 Makers 故障回退。
 
 部署步骤见 [DEPLOYMENT.md](docs/DEPLOYMENT.md)，测试与测试站启动见 [TESTING.md](docs/TESTING.md)，最近发布记录见 [CURRENT_RELEASE.md](docs/CURRENT_RELEASE.md)。

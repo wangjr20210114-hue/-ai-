@@ -6,12 +6,9 @@ import asyncio
 import base64
 import binascii
 from datetime import datetime
-import hashlib
-import hmac
 import json
 import logging
 import re
-import secrets
 import socket
 import urllib.error
 import urllib.parse
@@ -28,22 +25,6 @@ class WorkersAIImageResponseError(RuntimeError):
         super().__init__(f"Workers AI 图片响应无效：{self.safe_reason}")
 
 
-def _meeting_result(data: dict[str, Any], subject: str, start_iso: str) -> dict[str, Any]:
-    meetings = data.get("meeting_info_list")
-    meeting = meetings[0] if isinstance(meetings, list) and meetings and isinstance(meetings[0], dict) else None
-    if not meeting:
-        error = data.get("message") or data.get("error") or data.get("error_info") or "腾讯会议未返回会议信息"
-        return {"ok": False, "error": str(error)}
-    return {
-        "ok": True,
-        "meeting_id": str(meeting.get("meeting_id") or ""),
-        "meeting_code": str(meeting.get("meeting_code") or ""),
-        "join_url": str(meeting.get("join_url") or ""),
-        "subject": str(meeting.get("subject") or subject),
-        "start_time": start_iso,
-    }
-
-
 def _meeting_epoch(value: str) -> int:
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
@@ -52,28 +33,6 @@ def _meeting_epoch(value: str) -> int:
     if parsed.tzinfo is None:
         raise ValueError("腾讯会议时间必须包含时区")
     return int(parsed.timestamp())
-
-
-def _meeting_signature(secret_id: str, secret_key: str, nonce: str, timestamp: str, body: str) -> str:
-    header = f"X-TC-Key={secret_id}&X-TC-Nonce={nonce}&X-TC-Timestamp={timestamp}"
-    value = f"POST\n{header}\n/v1/meetings\n{body}"
-    hex_digest = hmac.new(secret_key.encode("utf-8"), value.encode("utf-8"), hashlib.sha256).hexdigest()
-    return base64.b64encode(hex_digest.encode("ascii")).decode("ascii")
-
-
-def _meeting_payload(env: dict[str, Any], subject: str, start_iso: str, end_iso: str) -> dict[str, Any]:
-    start_time = _meeting_epoch(start_iso)
-    end_time = _meeting_epoch(end_iso)
-    if end_time <= start_time:
-        raise ValueError("腾讯会议结束时间必须晚于开始时间")
-    return {
-        "userid": str(env.get("TENCENT_MEETING_USER_ID") or "").strip(),
-        "instanceid": int(env.get("TENCENT_MEETING_INSTANCE_ID") or 1),
-        "subject": str(subject).strip()[:240],
-        "type": 0,
-        "start_time": str(start_time),
-        "end_time": str(end_time),
-    }
 
 
 class MeetingResultUnknown(RuntimeError):
@@ -186,60 +145,10 @@ def _post_tencent_meeting_mcp(env: dict[str, Any], subject: str, start_iso: str,
     }
 
 
-def _post_tencent_meeting(env: dict[str, Any], subject: str, start_iso: str, end_iso: str) -> dict[str, Any]:
-    secret_id = str(env.get("TENCENT_MEETING_SECRET_ID") or "").strip()
-    secret_key = str(env.get("TENCENT_MEETING_SECRET_KEY") or "").strip()
-    app_id = str(env.get("TENCENT_MEETING_APP_ID") or "").strip()
-    sdk_id = str(env.get("TENCENT_MEETING_SDK_ID") or "").strip()
-    payload = _meeting_payload(env, subject, start_iso, end_iso)
-    if not all((secret_id, secret_key, app_id, sdk_id, payload["userid"])):
-        raise ValueError("腾讯会议服务端 API 配置不完整")
-    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    timestamp = str(int(datetime.now().timestamp()))
-    nonce = str(secrets.randbelow(2_000_000_000) + 1)
-    request = urllib.request.Request(
-        "https://api.meeting.qq.com/v1/meetings",
-        data=body.encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "X-TC-Key": secret_id,
-            "X-TC-Timestamp": timestamp,
-            "X-TC-Nonce": nonce,
-            "X-TC-Signature": _meeting_signature(secret_id, secret_key, nonce, timestamp, body),
-            "X-TC-Registered": "1",
-            "AppId": app_id,
-            "SdkId": sdk_id,
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=25) as response:
-            response_body = response.read(1024 * 1024)
-    except urllib.error.HTTPError as exc:
-        response_body = exc.read(1024 * 1024)
-        detail = response_body.decode("utf-8", errors="replace")[:1000]
-        if exc.code >= 500:
-            raise MeetingResultUnknown(f"腾讯会议返回 {exc.code}，结果未知") from exc
-        try:
-            data = json.loads(detail)
-            detail = str(data.get("message") or data.get("error_info") or data.get("error") or detail)
-        except json.JSONDecodeError:
-            pass
-        return {"ok": False, "error": f"腾讯会议拒绝请求（{exc.code}）：{detail}"}
-    except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
-        raise MeetingResultUnknown("腾讯会议请求中断，外部结果未知") from exc
-    try:
-        data = json.loads(response_body.decode("utf-8"))
-    except json.JSONDecodeError as exc:
-        raise MeetingResultUnknown("腾讯会议返回无法解析，外部结果未知") from exc
-    return _meeting_result(data, subject, start_iso)
-
-
 async def create_tencent_meeting(env: dict[str, Any], subject: str, start_iso: str, end_iso: str) -> dict[str, Any]:
-    """Create through the personal official MCP, with the legacy server API as fallback."""
+    """Create through Tencent Meeting's official personal MCP Skill."""
     try:
-        provider = _post_tencent_meeting_mcp if str(env.get("TENCENT_MEETING_TOKEN") or "").strip() else _post_tencent_meeting
-        return await asyncio.to_thread(provider, env, subject, start_iso, end_iso)
+        return await asyncio.to_thread(_post_tencent_meeting_mcp, env, subject, start_iso, end_iso)
     except MeetingResultUnknown as exc:
         return {"ok": False, "error": str(exc), "reconciliation_required": True}
     except Exception as exc:

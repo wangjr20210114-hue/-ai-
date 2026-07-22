@@ -17,11 +17,10 @@
 | 会话与消息 | Makers Conversation Store | 复用 | 不维护第二套聊天数据库 |
 | Agent Checkpoint | Makers LangGraph Checkpointer | 复用 | 中断恢复和线程状态由平台注入 |
 | 用户长期状态 | Makers LangGraph Store | 复用 | Workspace、Proactive、Intelligence 只保存业务文档 |
-| 文件与 PDF | EdgeOne Pages Blob | 复用 | 强一致读取、元数据与租户前缀 |
+| 文件与 PDF | EdgeOne Pages Blob | 复用 | 强一致读取、元数据与个人工作区前缀 |
 | 定时触发 | `edgeone.json.schedules` + Makers Function | 复用 | 不使用浏览器 Timer 或常驻进程 |
 | 定时抢占 | Blob `setJSON(..., {onlyIfNew:true})` | 薄封装 | 使用平台原子条件写，未自建分布式锁服务 |
 | 用户身份 | 固定 `local-user` 所有者 | 应用约束 | 个人演示不开放终端用户注册和登录 |
-| 租户身份 | JWT `sub` + Agent 二次验签 | 官方参考扩展 | Middleware 早拒，Agent 不信任浏览器自报 header |
 | 通用日志与 Trace | Makers 可观测、腾讯云 CLS Agent 可观测 | 复用 | 删除应用自建 OPS webhook/通用 tracing；`/system` 只输出业务 SLO |
 | WAF、DDoS、Bot、IP 频控 | EdgeOne 安全能力 | 配置 | 不在业务代码重复实现边缘安全产品 |
 | Event/Run/Policy | 应用领域模型 | 保留 | 平台没有主动 Agent 的决策语义 |

@@ -71,6 +71,34 @@ function workspaceActionIds(message: ChatMessage): Set<string> {
   return new Set((message.workspaceActions || []).map((action) => action.id).filter(Boolean));
 }
 
+function mergeUniqueByKey<T>(
+  first: T[] | undefined,
+  second: T[] | undefined,
+  key: (item: T) => string,
+): T[] | undefined {
+  const values = [...(first || []), ...(second || [])];
+  if (!values.length) return undefined;
+  return values.filter((item, index, all) => (
+    all.findIndex((candidate) => key(candidate) === key(item)) === index
+  ));
+}
+
+function mergeSearchResults(preferred: ChatMessage['searchResults'], fallback: ChatMessage['searchResults']) {
+  if (!preferred) return fallback;
+  if (!fallback) return preferred;
+  return {
+    ...fallback,
+    ...preferred,
+    results: preferred.results?.length ? preferred.results : fallback.results,
+    media: preferred.media?.length ? preferred.media : fallback.media,
+    images: preferred.images?.length ? preferred.images : fallback.images,
+    sources_used: preferred.sources_used?.length ? preferred.sources_used : fallback.sources_used,
+    media_pending: preferred.media?.length || fallback.media?.length
+      ? false
+      : (preferred.media_pending ?? fallback.media_pending),
+  };
+}
+
 function actionFallbackLike(content: string): boolean {
   return [
     '地点已经核实，请点击下方按钮显示地点',
@@ -116,6 +144,69 @@ export function coalesceActionMessages(messages: ChatMessage[]): ChatMessage[] {
     };
   });
   return output;
+}
+
+/**
+ * Collapse an exact duplicate completed assistant row inside one user turn.
+ *
+ * A restored checkpoint and the live SSE completion can briefly use different
+ * ids for the same durable answer.  Repeated answers in later user turns are
+ * intentionally preserved, and rows carrying unrelated Actions stay separate.
+ */
+export function coalesceDuplicateAssistantMessages(messages: ChatMessage[]): ChatMessage[] {
+  const output: ChatMessage[] = [];
+  const completedByContent = new Map<string, number>();
+  messages.forEach((message) => {
+    if (message.role === 'user') {
+      completedByContent.clear();
+      output.push(message);
+      return;
+    }
+    const contentKey = message.content.trim();
+    if (message.role !== 'ai' || message.streaming || message.failed || !contentKey) {
+      output.push(message);
+      return;
+    }
+    const existingIndex = completedByContent.get(contentKey);
+    if (existingIndex === undefined) {
+      output.push(message);
+      completedByContent.set(contentKey, output.length - 1);
+      return;
+    }
+    const existing = output[existingIndex];
+    const existingActions = workspaceActionIds(existing);
+    const incomingActions = workspaceActionIds(message);
+    const relatedActions = !existingActions.size || !incomingActions.size
+      || [...incomingActions].some((id) => existingActions.has(id));
+    if (!relatedActions) {
+      output.push(message);
+      return;
+    }
+    output[existingIndex] = {
+      ...message,
+      ...existing,
+      id: existing.id,
+      ts: existing.ts,
+      searchResults: mergeSearchResults(existing.searchResults, message.searchResults),
+      workspaceActions: mergeUniqueByKey(
+        existing.workspaceActions,
+        message.workspaceActions,
+        (action) => action.id,
+      ),
+      papers: mergeUniqueByKey(
+        existing.papers,
+        message.papers,
+        (paper) => paper.arxiv_id || paper.arxiv_url || paper.title,
+      ),
+      followUps: mergeUniqueByKey(existing.followUps, message.followUps, (item) => item),
+      streaming: false,
+    };
+  });
+  return output;
+}
+
+export function normalizeMessages(messages: ChatMessage[]): ChatMessage[] {
+  return coalesceDuplicateAssistantMessages(coalesceActionMessages(messages));
 }
 
 /** Replace a live placeholder and coalesce any checkpoint row carrying the same durable Action. */
@@ -202,7 +293,7 @@ export function mergeMessages(remote: ChatMessage[], local: ChatMessage[]): Chat
       ...remoteMessage,
       id: remoteMessage.id,
       ts: localMessage.ts > 1_000_000_000_000 ? localMessage.ts : remoteMessage.ts,
-      searchResults: remoteMessage.searchResults || localMessage.searchResults,
+      searchResults: mergeSearchResults(remoteMessage.searchResults, localMessage.searchResults),
       workspaceActions: remoteMessage.workspaceActions || localMessage.workspaceActions,
       papers: remoteMessage.papers || localMessage.papers,
       streaming: false,
@@ -225,5 +316,5 @@ export function mergeMessages(remote: ChatMessage[], local: ChatMessage[]): Chat
       output.push({ ...message, streaming: false });
     }
   });
-  return coalesceActionMessages(output);
+  return normalizeMessages(output);
 }

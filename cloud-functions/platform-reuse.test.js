@@ -120,16 +120,17 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.match(workspace, /collect_schedule_signals/);
 });
 
-test('Tencent Meeting is optional and never restores a FastAPI bridge', async () => {
+test('Tencent Meeting uses only the optional personal official MCP Skill', async () => {
   const [provider, tools, envExample, skillsApi] = await Promise.all([
     read('agents/_shared/side_effects.py'),
     read('agents/chat/_ui_tools.py'),
     read('.env.example'),
     read('frontend/src/services/api.ts'),
   ]);
-  assert.match(provider, /https:\/\/api\.meeting\.qq\.com\/v1\/meetings/);
-  assert.match(provider, /X-TC-Signature/);
-  assert.match(envExample, /TENCENT_MEETING_SECRET_ID/);
+  assert.match(provider, /mcp\.meeting\.tencent\.com/);
+  assert.match(provider, /X-Tencent-Meeting-Token/);
+  assert.match(envExample, /TENCENT_MEETING_TOKEN/);
+  assert.doesNotMatch(provider + envExample, /TENCENT_MEETING_SECRET_ID|X-TC-Signature/);
   assert.match(tools, /if not meeting_ready/);
   assert.match(skillsApi, /authorizedFetch\('\/system_internal'/);
   assert.match(skillsApi, /makersConversationHeaders\(conversationId\)/);

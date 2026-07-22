@@ -1,1 +1,0 @@
-"""Proactive signal collectors."""

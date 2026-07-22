@@ -647,11 +647,7 @@ def build_production_tools(
         (search_arxiv, "search_arxiv", "补充获取 arXiv 可下载结果。富搜索已找到论文时，把准确标题列表一次性传给 titles；按作者和年份查找时分别传 author（英文署名）与 year，不要把作者年份混在宽泛 topic 中。工具会严格过滤作者/年份与标题，每轮最多调用一次。"),
         (propose_workflow, "propose_workflow", "用户明确要求建立跨时间、多步骤的持续提醒或计划时创建工作流提案。steps 每项包含 offset_minutes、title、body、action_prompt，可用 depends_on=['step_1'] 建立 DAG 依赖；失败时需要回退提示的步骤可增加 compensation={title,body,action_prompt}。默认按顺序依赖。必须由用户确认后才会激活，依赖步骤需用户标记完成后才推进。"),
     ]
-    legacy_meeting_ready = all(str(runtime_env.get(key) or "").strip() for key in (
-        "TENCENT_MEETING_SECRET_ID", "TENCENT_MEETING_SECRET_KEY", "TENCENT_MEETING_APP_ID",
-        "TENCENT_MEETING_SDK_ID", "TENCENT_MEETING_USER_ID",
-    ))
-    meeting_ready = bool(str(runtime_env.get("TENCENT_MEETING_TOKEN") or "").strip()) or legacy_meeting_ready
+    meeting_ready = bool(str(runtime_env.get("TENCENT_MEETING_TOKEN") or "").strip())
     if not meeting_ready:
         definitions = [definition for definition in definitions if definition[1] != "propose_meeting"]
     return [StructuredTool.from_function(coroutine=fn, name=name, description=description) for fn, name, description in definitions]

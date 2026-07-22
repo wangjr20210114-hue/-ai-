@@ -314,24 +314,6 @@ window.CASE_PROCEDURES = {
     S('目标网页', '查看页头、左栏和设置面板。', '没有注册、登录、退出、用户名或外部租户连接器入口；页面可直接使用。'),
     S('目标网页', '新建 TEST 会话和一条 TEST 日程，然后刷新。', '核心功能可用且数据恢复；不会跳转到登录页。'),
   ],
-  'AUTH-02': [
-    S('专用多用户 Preview', '确认 /auth/user 返回 multi_user；点击“注册”，用户名填 TEST-A-时间戳，密码使用专用测试密码。', '注册成功后进入应用；密码框不回显明文。', '若没有专用多用户 Preview，标“阻塞”；不要在个人单用户生产环境临时改模式。'),
-    S('账户菜单', '点击“退出”；刷新后尝试打开会话/日程。', '退出后受保护请求为 401 或跳到登录，原用户数据不直接显示。'),
-    S('登录页', '先用错误密码登录一次，再用正确密码登录。', '错误密码只提示凭据错误，不透露用户是否存在；正确密码成功。'),
-    S('开发者工具 Application', '查看 Cookies 中会话 Cookie 属性。', '会话 Cookie 为 HttpOnly、Secure（HTTPS）且退出后失效；页面脚本读不到密码。'),
-  ],
-  'AUTH-03': [
-    S('两个独立无痕窗口', '窗口 A 登录 TEST-A，窗口 B 登录 TEST-B；不要共用普通标签页，避免 Cookie 混用。', '两个窗口显示不同用户身份。'),
-    S('窗口 A', '创建标题“TEST-A-ONLY”的会话、日程、记忆并上传 TEST-A-ONLY.pdf；退出。', '四类数据都只在 A 工作区可见。'),
-    S('窗口 B', '搜索 TEST-A-ONLY；再创建“TEST-B-ONLY”四类数据。', 'B 找不到 A 的标题/文件/记忆；B 自己的数据可见。'),
-    S('窗口 A', '重新登录 A；确认 A 数据存在并搜索 TEST-B-ONLY。', 'A 看不到 B 数据；即使从 Network 复制对方 conversation_id 请求也返回 404/403，不泄露内容。'),
-  ],
-  'CONNECT-01': [
-    S('专用多用户 Preview 设置', '登录测试租户，进入外部信号/连接器设置，点击“生成 Secret”；只复制一次到临时密码管理器。', '页面之后只显示 Secret 尾号；服务端状态不返回明文。'),
-    S('本地终端', '执行 curl POST 到 Preview 的 /signals，Header 用“Authorization: Bearer <测试Secret>”，JSON 使用 event_id=TEST-SIGNAL-001、dedup_key=TEST-SIGNAL-001。', 'HTTP 2xx；信号进入当前租户运行记录。', '命令截图必须遮住 Bearer Secret；绝不把 Secret 写进验收备注。'),
-    S('本地终端', '原样再次发送同一 event_id/dedup_key。', '返回已存在/幂等结果，不产生第二条业务信号。'),
-    S('连接器设置', '点击“轮换 Secret”；用旧 Secret 再发一次，再用新 Secret 发 TEST-SIGNAL-002。', '旧 Secret 返回 401/403；新 Secret 成功，且只进入当前租户。'),
-  ],
   'MEET-01': [
     S('目标网页左栏', '点击“Skills 广场”，查看“腾讯会议”卡片。', '未配置 TENCENT_MEETING_TOKEN 时显示“未安装”，并给出 3 步安装说明；页面不要求 SecretId/AppId。'),
     S('腾讯会议卡片', '点击“开始安装”，确认新标签打开腾讯会议官方 AI Skill 页面；不要在网页、聊天或验收备注粘贴 Token。', '只打开 meeting.tencent.com 官方页面；授权凭据不会出现在当前网页 Network、Console 或 localStorage。'),

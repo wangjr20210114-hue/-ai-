@@ -4,7 +4,7 @@ import { bootstrapApp, proactiveOperation } from '../services/api';
 import type { BootstrapData, MakersChatRun } from '../services/api';
 import { withEdgeOneAuth } from '../services/auth';
 import { presentableChatError } from '../services/chatError';
-import { durableMessageCount, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../services/conversation';
+import { durableMessageCount, makersConversationHeaders, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../services/conversation';
 import { splitSseFrames } from '../services/sse';
 import { useAppDispatch, useAppState } from '../store/appState';
 import type { ChatMessage, PaperInfo, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
@@ -418,9 +418,10 @@ export function useSSEChat() {
   };
 
   const publish = (id: string, next: ChatMessage[]) => {
-    cacheRef.current.set(id, next);
-    writeMessageCache(id, next);
-    if (activeConversationRef.current === id) dispatch({ type: 'HYDRATE_MESSAGES', payload: next });
+    const normalized = normalizeMessages(next);
+    cacheRef.current.set(id, normalized);
+    writeMessageCache(id, normalized);
+    if (activeConversationRef.current === id) dispatch({ type: 'HYDRATE_MESSAGES', payload: normalized });
   };
   const cached = (id: string) => {
     if (!cacheRef.current.has(id)) cacheRef.current.set(id, readMessageCache(id));

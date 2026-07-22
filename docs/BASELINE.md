@@ -1,8 +1,8 @@
 # EdgeOne Makers 能力基线
 
 > 当前业务分支：`agent/makers-native-persistence-fixes`
-> 更新日期：2026-07-21
-> 生产目标：EdgeOne Makers 是唯一线上运行时；FastAPI/SQLite 只作为迁移期间的历史能力参考。
+> 更新日期：2026-07-22
+> 生产目标：EdgeOne Makers 是唯一线上运行时；FastAPI 运行时代码已删除，SQLite 只作为一次性只读迁移来源。
 
 ## 1. 基线原则
 
@@ -42,7 +42,7 @@
 
 ### P1：代码阻塞与核心线上验收已完成
 
-- 腾讯会议已优先改用官方个人 MCP Token/Skill，外部 Meeting Bridge 和设备登录态已移除；旧企业 API 仅保留兼容。
+- 腾讯会议只使用官方个人 MCP Token/Skill；外部 Meeting Bridge、设备登录态和旧企业签名 API 均已删除。
 - 本分支已完成真实 EdgeOne Preview/Production、动态路由登记和个人工作区核心读取验收；Cron 业务链与云端路由已核验，受保护 Preview 的 Schedule 请求在进入 Function 运行时前 404，生产未发布。
 - SQLite 迁移工具已完成，真实旧库迁移与 Preview 回读尚未执行。
 
@@ -66,12 +66,12 @@
 
 ## 5. 当前自动化基线
 
-2026-07-21 当前工作树结果：
+2026-07-22 当前工作树结果：
 
-- Makers Agent：99 项通过。
+- Makers Agent：123 项通过。
 - SQLite 导出工具：2 项通过。
 - Cloud Functions、Schedule 适配、验收持久化和平台约束：20 项通过。
-- 前端 Vitest：41 项通过。
+- 前端 Vitest：56 项通过。
 - ESLint：通过。
 - EdgeOne 模式生产构建：通过。
 - EdgeOne Preview `dph2wvagts0x`：构建成功，应用已连接，核心只读数据加载通过。

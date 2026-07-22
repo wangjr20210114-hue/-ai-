@@ -1,7 +1,7 @@
 # EdgeOne Makers 主动式 Agent 实现状态
 
 > 更新日期：2026-07-21
-> 范围：当前 Makers 生产主链；不把 `backend/` 旧 FastAPI 能力计入完成度  
+> 范围：当前 Makers 生产主链；旧 FastAPI 运行时代码已删除
 > 状态：代码、本地回归和 Preview 路由核验完成；日程变更可立即扫描，受保护 Preview 的 Schedule 请求在进入 Function 运行时前 404，生产未发布
 
 ## 1. 结论

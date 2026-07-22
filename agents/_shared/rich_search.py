@@ -228,7 +228,6 @@ def _review_image(
     api_key = str(
         env.get("HUNYUAN_VISION_API_KEY")
         or env.get("HUNYUAN_IMAGE_API_KEY")
-        or env.get("HUNYUAN_API_KEY")
         or ""
     ).strip()
     if not api_key:

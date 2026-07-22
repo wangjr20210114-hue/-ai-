@@ -91,7 +91,8 @@ async def handler(ctx):
             "note": "业务策略效果；通用日志、Trace、Token 与平台告警由 Makers/CLS 承担",
         },
         "providers": {
-            "model": bool(ctx.env.get("AI_GATEWAY_API_KEY") or ctx.env.get("HUNYUAN_API_KEY")),
+            "model": all(bool(ctx.env.get(key)) for key in ("AI_GATEWAY_API_KEY", "AI_GATEWAY_BASE_URL")),
+            "model_fallback": bool(ctx.env.get("DEEPSEEK_API_KEY")),
             "search": bool(ctx.env.get("WSA_API_KEY")),
             "vision": bool(
                 ctx.env.get("HUNYUAN_VISION_API_KEY") or ctx.env.get("HUNYUAN_IMAGE_API_KEY")
@@ -100,10 +101,7 @@ async def handler(ctx):
                 ))
             ),
             "map": bool(ctx.env.get("TENCENT_MAP_SERVER_KEY") or ctx.env.get("TENCENT_MAP_KEY")),
-            "meeting": bool(ctx.env.get("TENCENT_MEETING_TOKEN")) or all(bool(ctx.env.get(key)) for key in (
-                "TENCENT_MEETING_SECRET_ID", "TENCENT_MEETING_SECRET_KEY",
-                "TENCENT_MEETING_APP_ID", "TENCENT_MEETING_SDK_ID", "TENCENT_MEETING_USER_ID",
-            )),
+            "meeting": bool(ctx.env.get("TENCENT_MEETING_TOKEN")),
         },
         "identity": {
             "mode": "single_user",

@@ -55,9 +55,9 @@ React / Vite
 
 ## 5. 不进入生产的内容
 
-- `backend/` FastAPI、SQLite Repository、WebSocket、Supervisor 和 Scheduler。
+- 已删除的 FastAPI、SQLite Repository、WebSocket、Supervisor 和 Scheduler。
 - 本地 `tmeet` CLI、系统 Keychain 和 `meeting-bridge/`。
 - 旧 `/api` 前端 Transport fallback。
 - 自建会话数据库、对象存储、Cron、通用队列、通用 Trace 或分布式锁服务。
 
-迁移期间可以保留只读历史代码与离线导出工具，但它们不能进入 EdgeOne 构建、运行时依赖或发布门槛。数据验收完成后删除 `LEGACY_IMPORT_SECRET`，使导入入口不可用。
+迁移期间只保留独立的 SQLite 只读导出工具，不再保留旧运行时代码。导出工具不能进入 EdgeOne 构建、运行时依赖或发布门槛；数据验收完成后删除 `LEGACY_IMPORT_SECRET`，使导入入口不可用。

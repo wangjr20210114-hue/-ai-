@@ -30,9 +30,6 @@ from agents.chat._protocol import PublicStreamFilter, action_fallback_content, d
 from agents.messages.index import handler as messages_handler
 from agents._shared.side_effects import (
     _cloudflare_image_prompt,
-    _meeting_payload,
-    _meeting_result,
-    _meeting_signature,
     _post_cloudflare_image,
     _post_tencent_meeting_mcp,
     generate_image,
@@ -477,34 +474,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(parse_followups("不是 JSON"), [])
 
-
-    def test_tencent_meeting_result_normalizes_official_shape(self):
-        result = _meeting_result(
-            {"meeting_number": 1, "meeting_info_list": [{
-                "meeting_id": "m-1", "meeting_code": "123456789",
-                "join_url": "https://meeting.example/join", "subject": "评审会",
-            }]},
-            "评审会",
-            "2026-07-17T09:00:00+08:00",
-        )
-        self.assertEqual(result["meeting_id"], "m-1")
-        self.assertEqual(result["meeting_code"], "123456789")
-        self.assertEqual(result["join_url"], "https://meeting.example/join")
-
-    def test_tencent_meeting_signature_and_payload_follow_official_contract(self):
-        signature = _meeting_signature(
-            "AKIDEXAMPLE", "secret-key", "88080", "1572168600", '{"userid":"tester"}',
-        )
-        self.assertEqual(
-            signature,
-            "ZWY3YTFlMTgyMmFmYWU4OWJhMTQ1OWQ2NzQ2OGNkZjAxZTJlZTEzZjMxZDhhNWU4MTFjZDFmZTZhMTA5NGJhMw==",
-        )
-        payload = _meeting_payload(
-            {"TENCENT_MEETING_USER_ID": "tester", "TENCENT_MEETING_INSTANCE_ID": "1"},
-            "评审会", "2026-07-18T09:00:00+08:00", "2026-07-18T10:00:00+08:00",
-        )
-        self.assertEqual(payload["type"], 0)
-        self.assertEqual(int(payload["end_time"]) - int(payload["start_time"]), 3600)
 
     def test_rich_search_handoff_uses_standard_markdown(self):
         metadata = {
@@ -1395,7 +1364,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         response = {"choices": [{"message": {"content": '{"description":"发布会现场","relevant":true}'}}]}
         with patch("agents._shared.rich_search._json_request", return_value=response) as request:
             description, outcome = _review_image(
-                {"HUNYUAN_API_KEY": "text-plan", "HUNYUAN_IMAGE_API_KEY": "vision-key"},
+                {"HUNYUAN_IMAGE_API_KEY": "vision-key"},
                 {"url": "https://example.com/news.jpg", "context": "AI 发布会"},
                 "AI 最新进展",
             )
@@ -1461,17 +1430,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"papers": []', result)
         provider.assert_awaited_once_with("", 5, [], "Zhi-Hua Zhou", 2026)
 
-    def test_optional_meeting_tool_is_hidden_until_all_credentials_exist(self):
+    def test_optional_meeting_tool_is_hidden_until_personal_token_exists(self):
         hidden = build_production_tools(None, store=FakeStore(), conversation_id="meeting", env={})
         self.assertNotIn("propose_meeting", {tool.name for tool in hidden})
-        ready = build_production_tools(None, store=FakeStore(), conversation_id="meeting", env={
-            "TENCENT_MEETING_SECRET_ID": "id",
-            "TENCENT_MEETING_SECRET_KEY": "key",
-            "TENCENT_MEETING_APP_ID": "app",
-            "TENCENT_MEETING_SDK_ID": "sdk",
-            "TENCENT_MEETING_USER_ID": "user",
-        })
-        self.assertIn("propose_meeting", {tool.name for tool in ready})
         personal = build_production_tools(None, store=FakeStore(), conversation_id="meeting", env={
             "TENCENT_MEETING_TOKEN": "personal-token",
         })

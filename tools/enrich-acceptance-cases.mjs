@@ -6,7 +6,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const target = path.join(root, 'frontend/public/test-cases/cases.json');
 const cases = JSON.parse(fs.readFileSync(target, 'utf8'));
 
-const faultCases = new Set(['CORE-08', 'SEARCH-03', 'PRO-05', 'PRO-08', 'SEC-02', 'AUTH-02', 'AUTH-03', 'CONNECT-01', 'MEET-02', 'MIG-01']);
+const faultCases = new Set(['CORE-08', 'SEARCH-03', 'PRO-05', 'PRO-08', 'SEC-02', 'MEET-02', 'MIG-01']);
 const readOnlyCases = new Set(['CORE-01', 'CORE-04', 'CORE-06', 'SEARCH-02', 'OPS-01', 'OPS-02', 'OPS-03', 'LIMIT-01', 'LIMIT-02', 'LIMIT-03', 'LIMIT-04']);
 
 const specialSteps = {
@@ -63,7 +63,7 @@ const specialSteps = {
     '【Makers 控制台】进入项目 → 部署管理 → 目标 Preview → 构建日志；搜索 error、failed、route，确认构建成功且无路由生成失败。',
     '【Makers 控制台】分别打开 Cloud Functions、Agents、Schedules 页签，按列表逐项计数并截图；数量以当前基线文档为准，不只看首页 200。',
     '【目标网页/浏览器 Network】依次访问 /auth/user、/system，并从应用触发 /messages；检查 Content-Type，动态路由应返回 JSON 或 SSE，而不是 text/html 的 index.html。',
-    '【仓库只读检查】在代码搜索 Uvicorn、FastAPI、WebSocket；确认它们只存在 legacy/backend 或说明文档，不参与 edgeone.json 的生产构建入口。',
+    '【仓库只读检查】运行“rg -n \'Uvicorn|FastAPI|WebSocket\' --glob \'!docs/**\' --glob \'!frontend/public/test-cases/**\'”；确认业务源码无命中，旧运行时代码已删除。',
     '【验收站】记录实际函数/Agent/Schedule 数量和任一差异；数量不符或动态路由返回 HTML 时标失败并阻断生产。',
   ],
 };
