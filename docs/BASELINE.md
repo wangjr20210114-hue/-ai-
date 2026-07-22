@@ -75,7 +75,7 @@
 - 前端 Vitest：73 项通过（16 个测试文件）。
 - ESLint：通过。
 - EdgeOne 模式生产构建：通过。
-- EdgeOne Preview `dpbkmy4qt93e` 与 Production `dptvf8ss3dl9`：构建成功，应用已连接，核心读取及主动文档闭环通过。
+- EdgeOne Preview `dpbkmy4qt93e`、Production `dptvf8ss3dl9` 和生图主动闭环 Production `dpgwmrcmmoz5`：构建成功；应用已连接，主动文档闭环、真实混元生图及生图后语义迭代机会通过。
 - 已知非阻塞项：Vite 仍有大于 500 KB 的分包提示，后续需要继续按功能动态拆包。
 
 这些结果不替代真实 Provider、平台 Cron 和预览部署验收。

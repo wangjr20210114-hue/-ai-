@@ -12,6 +12,7 @@
 - Preview Deployment：`dpbkmy4qt93e`
 - Preview 构建：成功，71 秒，2026-07-22 18:50（Asia/Shanghai）
 - 已验证生产 Deployment：`dptvf8ss3dl9`，成功，69 秒，2026-07-22 19:31（Asia/Shanghai）
+- 生图主动闭环 Production：`dpgwmrcmmoz5`，提交 `bdc4dcd`，成功，72 秒，2026-07-22 20:14（Asia/Shanghai）
 - 后续生产 Deployment：以 EdgeOne Makers“构建部署”中该分支最新成功的 Production 行为准。
 
 生产分支已从旧的 `codex/edgeone-makers-refactor` 切换到当前分支。切换前的稳定生产 Deployment 为 `dp8p5j6dewo0`；它只用于回滚，不再代表当前功能基线。
@@ -52,6 +53,7 @@
 - `PRO-11`：在两个新会话重复发送同一管理层周报请求，revision 和同语义机会数量均不增加；6 小时同类冷却生效。
 - “稍后 / 已读 / 忽略”的时间戳在独立请求重新读取后仍存在；测试文档、Blob 对象和测试提醒已清理。
 - 共享验收站已持久化到版本 159：69 条 Case 中，生产阻断项通过 43/44；剩余 `PRO-07` 只等待 EdgeOne 每日 Schedule 在真实触发时刻的日志证据，不用手动请求冒充通过。
+- `dpgwmrcmmoz5` 的 `PRO-09` 增量验证：真实 `hy-image-v3.0` 生图成功、无降级并写入 Makers Blob；明确要求后续移动端版本时，`image_generated` 创建 1 个 0.95 置信度的 9:16 迭代建议；重复同一 Action 不创建第二条。测试图片和提醒已清理，共享验收站更新至版本 163。
 
 ## 测试站
 
