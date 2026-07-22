@@ -221,17 +221,35 @@ async def describe_reference_images(
     ][:3]
     if not selected:
         return "", {"provider": "", "attempted": 0}
-    content: list[dict[str, Any]] = [{
-        "type": "text",
-        "text": (
-            "分析用户附图，只输出给另一个助手使用的简洁事实描述。逐张说明可见主体、文字、布局、颜色和"
-            "与请求有关的关键细节；不要猜测身份、隐私或未显示的信息。"
-            f"\n用户请求：{str(user_request or '')[:500]}"
-        ),
-    }]
-    for index, image in enumerate(selected, 1):
-        content.extend([
-            {"type": "text", "text": f"附图 {index}"},
-            {"type": "image_url", "image_url": {"url": image}},
-        ])
-    return await vision_completion(env, content, max_tokens=700, timeout=timeout)
+    prompt = (
+        "分析这张用户附图，只输出给另一个助手使用的简洁事实描述。说明可见主体、文字、布局、颜色和"
+        "与请求有关的关键细节；不要猜测身份、隐私或未显示的信息。"
+        f"\n用户请求：{str(user_request or '')[:500]}"
+    )
+
+    async def describe(index: int, image: str) -> tuple[int, str, dict[str, Any]]:
+        text, diagnostics = await vision_completion(
+            env,
+            [
+                {"type": "image_url", "image_url": {"url": image}},
+                {"type": "text", "text": prompt},
+            ],
+            max_tokens=700,
+            timeout=timeout,
+        )
+        return index, text, diagnostics
+
+    results = await asyncio.gather(*(describe(index, image) for index, image in enumerate(selected, 1)))
+    successful = [(index, text, diagnostics) for index, text, diagnostics in results if text]
+    if not successful:
+        failures = [item for _index, _text, item in results]
+        return "", {"provider": "", "error": "providers_failed", "attempted": len(failures), "failures": failures}
+    if len(selected) == 1:
+        _index, text, diagnostics = successful[0]
+        return text, diagnostics
+    providers = [str(item.get("provider") or "") for _index, _text, item in successful]
+    return "\n".join(f"附图 {index}：{text}" for index, text, _item in successful), {
+        "provider": providers[0] if len(set(providers)) == 1 else "mixed",
+        "providers": providers,
+        "attempted": len(results),
+    }

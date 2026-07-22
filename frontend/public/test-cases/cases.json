@@ -3290,5 +3290,59 @@
       "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
       "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
     ]
+  },
+  {
+    "id": "UX-01",
+    "module": "前端体验",
+    "title": "Apple 风格短动效与减弱动态效果",
+    "scope": "逐项验证按钮、消息、卡片、图片和输入框的短反馈，并验证系统减少动态效果偏好会关闭位移动画。",
+    "implementation": "implemented",
+    "releaseBlocker": false,
+    "preconditions": [
+      "已在 Makers 控制台确认目标 Deployment 为 Preview，并记录 Deployment ID。",
+      "测试站显示“已同步”，当前主机名称和测试人已填写。",
+      "使用桌面版 Chrome 或 Edge，页面缩放为 100%。",
+      "准备手机或系统录屏工具，以 0.25 倍速回看短动效。"
+    ],
+    "data": [
+      "消息：请只回复“动效测试完成”",
+      "录屏片段：普通动效与 prefers-reduced-motion 各一段"
+    ],
+    "steps": [
+      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 Preview；复制 Deployment ID，并从该 Deployment 点击“预览”打开目标网页。",
+      "【验收站】顶部“测试环境”选择 Preview，填写 Deployment ID、测试人和当前主机名称；等待显示“已同步”。",
+      "【目标网页】开始录屏。把鼠标依次移到“新建对话”、主题切换、设置和发送按钮上；每个按钮停留约 1 秒，确认只轻微上移，不发生抖动或布局位移。",
+      "【目标网页】依次按下并松开上述按钮；以 0.25 倍速回看，确认按下时短暂缩小、松开立即恢复，反馈没有超过约 0.2 秒。关闭被打开的设置面板，回到新对话。",
+      "【目标网页】点击消息输入框；确认边框和淡色聚焦环平滑出现。输入测试消息并点击发送，观察用户气泡从右下方轻微淡入，AI 气泡从左下方轻微淡入；消息只能各出现一次。",
+      "【目标网页】打开一个带新闻图片的历史回答，或发送“最近 AI 有什么进展”；图片出现时应短暂淡入，不能闪白、跳高或导致地图/右侧面板刷新。",
+      "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）→ 右上角 ⋮ → More tools/更多工具 → Rendering/渲染；找到 Emulate CSS media feature prefers-reduced-motion，选择 reduce。若未看到 Rendering，在 DevTools 按 ⌘⇧P/ Ctrl+Shift+P，输入 Show Rendering 后回车。",
+      "【目标网页】保持录屏，再新建对话并发送同一测试消息；确认按钮、消息和图片不再产生可见位移、缩放或模糊动画，但点击、发送和聚焦状态仍立即可见且功能正常。",
+      "【浏览器工具】把 prefers-reduced-motion 恢复为 No emulation/无模拟，关闭 DevTools；再点击一个按钮确认普通短反馈恢复。",
+      "【验收站】回到 UX-01，按实际结果选择通过/失败/阻塞；备注写明浏览器版本、是否发现抖动及发生在哪个按钮或消息。上传普通与 reduce 两段录屏，等待提示证据已保存。"
+    ],
+    "expected": [
+      "所有可点击按钮都有一致且短于约 0.2 秒的按压反馈，不移动相邻布局。",
+      "用户消息与 AI 消息各只进入一次，方向自然，没有重复气泡。",
+      "卡片和图片淡入不造成滚动位置、地图或侧栏反复刷新。",
+      "输入框聚焦环清晰但不刺眼，键盘操作仍有可见焦点。",
+      "模拟 prefers-reduced-motion: reduce 后，空间位移、缩放、模糊和平滑滚动被关闭，所有功能仍可用。",
+      "Console 无新增未捕获异常，Network 无因动效产生的额外业务请求。",
+      "结果、备注、最后编辑主机/时间和录屏证据在刷新后仍存在，并可从另一台主机同步看到。"
+    ],
+    "evidence": [
+      "普通模式按钮与消息进入录屏",
+      "Reduce Motion 模式录屏",
+      "浏览器版本和 Console 0 errors 记录"
+    ],
+    "detailVersion": 2,
+    "safety": {
+      "environment": "只在 Preview 做交互验收；不修改 Production 环境变量或数据。",
+      "impact": "只创建一个普通测试会话并切换浏览器本地渲染模拟，不调用生图接口。",
+      "rollback": "把 prefers-reduced-motion 恢复为 No emulation，关闭录屏和 DevTools；可删除本轮 TEST 会话。"
+    },
+    "cleanup": [
+      "确认 Rendering 中 prefers-reduced-motion 已恢复 No emulation/无模拟。",
+      "停止录屏并关闭 DevTools；刷新目标网页，确认普通短动效和消息发送都正常。"
+    ]
   }
 ]

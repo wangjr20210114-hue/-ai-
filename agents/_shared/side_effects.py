@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import socket
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -182,6 +183,53 @@ def _post_image(
     if not image_url:
         raise RuntimeError("生图服务未返回图片地址")
     return {"ok": True, "image_url": image_url, "prompt": prompt, "model": model}
+
+
+def _post_image_v3(
+    base_url: str,
+    api_key: str,
+    model: str,
+    prompt: str,
+    reference_images: list[str] | None = None,
+) -> dict[str, Any]:
+    """Run TokenHub's documented async HY-Image-V3 submit/query workflow."""
+    root = str(base_url or "https://tokenhub.tencentmaas.com").rstrip("/")
+    submit_payload: dict[str, Any] = {"model": model, "prompt": prompt}
+    if reference_images:
+        submit_payload["images"] = list(reference_images)[:3]
+
+    def request_json(url: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read(2 * 1024 * 1024).decode("utf-8"))
+
+    submitted = request_json(f"{root}/v1/api/image/submit", submit_payload, 30)
+    job_id = str(submitted.get("id") or "").strip()
+    if not job_id:
+        raise RuntimeError("混元生图 3.0 未返回任务 ID")
+
+    deadline = time.monotonic() + 90
+    delay = 0.8
+    while time.monotonic() < deadline:
+        status = request_json(
+            f"{root}/v1/api/image/query",
+            {"model": model, "id": job_id},
+            min(30, max(2, deadline - time.monotonic())),
+        )
+        state = str(status.get("status") or "").strip().lower()
+        image_url = str((((status.get("data") or [{}])[0]) or {}).get("url") or "").strip()
+        if state in {"completed", "succeeded", "success"} and image_url:
+            return {"ok": True, "image_url": image_url, "prompt": prompt, "model": model}
+        if state in {"failed", "error", "cancelled", "canceled"}:
+            raise RuntimeError("混元生图 3.0 任务执行失败")
+        time.sleep(delay)
+        delay = min(3.0, delay * 1.45)
+    raise TimeoutError("混元生图 3.0 在 90 秒内未完成")
 
 
 def _reference_bytes(value: str) -> tuple[bytes, str]:
@@ -440,10 +488,14 @@ async def generate_image(
         if not api_key:
             return None
         try:
-            endpoint = f"{base_url}/v1/images/generations" if model.lower() == "hy-image-v3.0" or references else f"{base_url}/v1/api/image/lite"
-            result = await asyncio.to_thread(
-                _post_image, endpoint, api_key, model, prompt, references,
-            )
+            if model.lower() == "hy-image-v3.0":
+                result = await asyncio.to_thread(
+                    _post_image_v3, base_url, api_key, model, prompt, references,
+                )
+            else:
+                result = await asyncio.to_thread(
+                    _post_image, f"{base_url}/v1/api/image/lite", api_key, model, prompt, references,
+                )
             provider_image_url = str(result["image_url"])
             persisted = await _persist_generated_image(provider_image_url, storage_prefix)
             return {

@@ -31,6 +31,7 @@ from agents.messages.index import handler as messages_handler
 from agents._shared.side_effects import (
     _cloudflare_image_prompt,
     _post_cloudflare_image,
+    _post_image_v3,
     _post_tencent_meeting_mcp,
     generate_image,
 )
@@ -1379,32 +1380,31 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["model"], "hy-vision-2.0-instruct")
         self.assertEqual(headers["Authorization"], "Bearer vision-key")
 
-    async def test_vision_batch_reviews_multiple_candidates_in_one_model_call(self):
-        response = json.dumps({"items": [
-            {"index": 1, "description": "发布会现场", "relevant": True},
-            {"index": 2, "description": "广告", "relevant": False},
-        ]}, ensure_ascii=False)
+    async def test_vision_batch_reviews_candidates_as_parallel_single_image_calls(self):
+        responses = [
+            (json.dumps({"description": "发布会现场", "relevant": True}, ensure_ascii=False), {"provider": "hunyuan"}),
+            (json.dumps({"description": "广告", "relevant": False}, ensure_ascii=False), {"provider": "hunyuan"}),
+        ]
         candidates = [
             {"url": "https://example.com/1.jpg", "source_url": "https://source.example/1", "source_title": "一", "context": "现场"},
             {"url": "https://example.com/2.jpg", "source_url": "https://source.example/2", "source_title": "二", "context": "广告"},
         ]
         with patch(
             "agents._shared.rich_search.vision_completion",
-            new=AsyncMock(return_value=(response, {"provider": "cloudflare"})),
+            new=AsyncMock(side_effect=responses),
         ) as request:
             reviewed, diagnostics = await _vision_filter({"HUNYUAN_IMAGE_API_KEY": "vision-key"}, "AI 新闻", candidates)
         self.assertEqual([item["url"] for item in reviewed], ["https://example.com/1.jpg"])
         self.assertEqual(diagnostics["reviewed"], 2)
-        self.assertEqual(request.call_count, 1)
-        content = request.call_args.args[1]
-        self.assertEqual(sum(block.get("type") == "image_url" for block in content), 2)
-        self.assertEqual(diagnostics["provider_cloudflare"], 1)
+        self.assertEqual(request.call_count, 2)
+        for call in request.call_args_list:
+            content = call.args[1]
+            self.assertEqual(sum(block.get("type") == "image_url" for block in content), 1)
+            self.assertEqual(content[0]["type"], "image_url")
+        self.assertEqual(diagnostics["provider_hunyuan"], 2)
 
     async def test_vision_batch_obeys_user_image_limit(self):
-        response = json.dumps({"items": [
-            {"index": index, "description": f"相关图片 {index}", "relevant": True}
-            for index in range(1, 7)
-        ]}, ensure_ascii=False)
+        response = json.dumps({"description": "相关图片", "relevant": True}, ensure_ascii=False)
         candidates = [
             {"url": f"https://example.com/{index}.jpg", "source_url": f"https://source.example/{index}", "source_title": str(index)}
             for index in range(1, 7)
@@ -1418,7 +1418,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(len(reviewed), 2)
         self.assertEqual(diagnostics["reviewed"], 4)
-        self.assertEqual(request.call_count, 1)
+        self.assertEqual(request.call_count, 4)
 
     def test_dsml_tool_protocol_is_normalized(self):
         wire = '''<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="search_arxiv"><｜｜DSML｜｜parameter name="topic" string="true">Zhi-Hua Zhou 2026</｜｜DSML｜｜parameter><｜｜DSML｜｜parameter name="limit" string="false">5</｜｜DSML｜｜parameter></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>'''
@@ -1671,6 +1671,69 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(description, "一只戴红围巾的猫")
         self.assertEqual(diagnostics["provider"], "cloudflare")
         self.assertEqual(completion.await_count, 1)
+
+    async def test_multiple_reference_images_use_one_hy_vision_request_each(self):
+        with patch(
+            "agents._shared.vision.vision_completion",
+            new=AsyncMock(side_effect=[
+                ("第一张图片", {"provider": "hunyuan"}),
+                ("第二张图片", {"provider": "hunyuan"}),
+            ]),
+        ) as completion:
+            description, diagnostics = await describe_reference_images(
+                {}, ["https://example.com/1.jpg", "https://example.com/2.jpg"], "比较图片",
+            )
+        self.assertIn("附图 1：第一张图片", description)
+        self.assertIn("附图 2：第二张图片", description)
+        self.assertEqual(diagnostics["provider"], "hunyuan")
+        self.assertEqual(completion.await_count, 2)
+        for call in completion.call_args_list:
+            content = call.args[1]
+            self.assertEqual(sum(block.get("type") == "image_url" for block in content), 1)
+
+    def test_hunyuan_v3_uses_documented_submit_and_query_workflow(self):
+        class Response:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return json.dumps(self.payload).encode("utf-8")
+
+        responses = [
+            Response({"id": "job-1", "status": "queued"}),
+            Response({"id": "job-1", "status": "completed", "data": [{"url": "https://example.com/generated.jpg"}]}),
+        ]
+        with patch(
+            "agents._shared.side_effects.urllib.request.urlopen",
+            side_effect=responses,
+        ) as urlopen, patch("agents._shared.side_effects.time.sleep"):
+            result = _post_image_v3(
+                "https://tokenhub.tencentmaas.com", "secret", "hy-image-v3.0", "蓝色圆点",
+            )
+        self.assertEqual(result["image_url"], "https://example.com/generated.jpg")
+        self.assertTrue(urlopen.call_args_list[0].args[0].full_url.endswith("/v1/api/image/submit"))
+        self.assertTrue(urlopen.call_args_list[1].args[0].full_url.endswith("/v1/api/image/query"))
+
+    async def test_hunyuan_v3_generation_persists_provider_result(self):
+        env = {"HUNYUAN_IMAGE_API_KEY": "secret", "HUNYUAN_IMAGE_MODEL": "hy-image-v3.0"}
+        with patch(
+            "agents._shared.side_effects._post_image_v3",
+            return_value={"ok": True, "image_url": "https://example.com/generated.jpg", "model": "hy-image-v3.0"},
+        ) as provider, patch(
+            "agents._shared.side_effects._persist_generated_image",
+            new=AsyncMock(return_value={"storage_key": "generated/test.jpg", "image_url": "/files?key=generated/test.jpg"}),
+        ):
+            result = await generate_image(env, "蓝色圆点")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["provider"], "hunyuan")
+        self.assertEqual(result["storage_key"], "generated/test.jpg")
+        provider.assert_called_once()
 
     async def test_image_generation_falls_back_to_cloudflare_workers_ai(self):
         env = {

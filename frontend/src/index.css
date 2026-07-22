@@ -20,6 +20,12 @@
   --app-user-text: #ffffff;
   --app-ai-bubble: #ffffff;
   --app-shadow: 0 1px 3px rgba(20, 30, 60, 0.06), 0 4px 16px rgba(20, 30, 60, 0.05);
+  --motion-press: 120ms;
+  --motion-fast: 180ms;
+  --motion-enter: 280ms;
+  --motion-reveal: 240ms;
+  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
 
   --td-brand-color: #2b5aed;
   --td-brand-color-hover: #4e7cff;
@@ -76,12 +82,120 @@ body {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
+/* Brief, purposeful feedback inspired by Apple's motion guidance. */
+:where(button, [role='button'], .t-button) {
+  transform-origin: center;
+  transition:
+    transform var(--motion-press) var(--motion-ease-out),
+    filter var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    opacity var(--motion-fast) ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :where(button, [role='button'], .t-button):not(:disabled):hover {
+    transform: translateY(-1px);
+    filter: brightness(1.025);
+  }
+}
+
+:where(button, [role='button'], .t-button):not(:disabled):active {
+  transform: translateY(0) scale(0.97);
+  filter: brightness(0.98);
+  transition-duration: 70ms;
+}
+
+:where(button, [role='button'], .t-button):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--td-brand-color) 68%, transparent);
+  outline-offset: 2px;
+}
+
+:where(button, .t-button):disabled {
+  transform: none;
+  filter: none;
+}
+
 /* ============ 布局 ============ */
 .app-shell {
   display: flex;
   flex-direction: column;
   height: 100vh;
   width: 100vw;
+}
+
+.chat-scroll {
+  scroll-behavior: smooth;
+}
+
+.msg-row {
+  --message-enter-x: -8px;
+  animation: message-arrive var(--motion-enter) var(--motion-ease-out) both;
+  transform-origin: left bottom;
+}
+
+.msg-row.user {
+  --message-enter-x: 8px;
+  transform-origin: right bottom;
+}
+
+@keyframes message-arrive {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--message-enter-x), 7px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.msg-bubble,
+.input-box,
+.panel,
+.conversation-item,
+.search-media-card,
+.workspace-confirm-card,
+.proactive-conversation-item,
+.skill-market-card {
+  transition:
+    transform var(--motion-fast) var(--motion-ease-out),
+    box-shadow var(--motion-reveal) ease,
+    border-color var(--motion-fast) ease,
+    background-color var(--motion-reveal) ease;
+}
+
+.search-media-card,
+.workspace-confirm-card,
+.image-studio-card,
+.rich-media-figure,
+.followup-section {
+  animation: content-reveal var(--motion-reveal) var(--motion-ease-smooth) both;
+}
+
+@keyframes content-reveal {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.msg-bubble img,
+.search-media-card img,
+.rich-media-figure img {
+  animation: media-reveal 320ms var(--motion-ease-out) both;
+}
+
+@keyframes media-reveal {
+  from { opacity: 0; filter: blur(5px); transform: scale(1.015); }
+  to { opacity: 1; filter: blur(0); transform: scale(1); }
 }
 
 .app-body {
@@ -743,10 +857,14 @@ html.is-resizing-workspace * {
   border-radius: 16px;
   padding: 10px 12px;
   box-shadow: var(--app-shadow);
-  transition: border-color 0.2s;
+  transition:
+    border-color var(--motion-fast) ease,
+    box-shadow var(--motion-reveal) ease,
+    transform var(--motion-fast) var(--motion-ease-out);
 }
 .input-box:focus-within {
   border-color: var(--td-brand-color);
+  box-shadow: var(--app-shadow), 0 0 0 3px color-mix(in srgb, var(--td-brand-color) 14%, transparent);
 }
 .chat-reference-image {
   display: grid;
@@ -3239,5 +3357,28 @@ html.is-resizing-workspace * {
 
   .msg-bubble {
     max-width: 88%;
+  }
+}
+
+/* Respect the system's Reduce Motion preference: keep state changes visible,
+   but remove spatial movement, blur and smooth scrolling. */
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  :where(button, [role='button'], .t-button):hover,
+  :where(button, [role='button'], .t-button):active {
+    transform: none !important;
+    filter: none !important;
   }
 }

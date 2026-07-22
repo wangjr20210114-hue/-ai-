@@ -22,6 +22,9 @@ try {
 } finally {
   await unlink(envPath).catch(() => {});
 }
+// A TokenHub key can be scoped to all models. Mirror the application fallback
+// without ever printing or persisting the resolved secret.
+env.HUNYUAN_VISION_API_KEY ||= env.HUNYUAN_IMAGE_API_KEY;
 
 const configured = (key) => Boolean(String(env[key] || '').trim());
 const timeout = (milliseconds) => AbortSignal.timeout(milliseconds);
@@ -89,6 +92,51 @@ const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1H
 // Wikimedia original would inflate the JSON body enough to trigger input errors.
 const publicPhoto = 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Fronalpstock_big.jpg/320px-Fronalpstock_big.jpg';
 
+async function hunyuanV3Image() {
+  const root = String(env.HUNYUAN_IMAGE_BASE_URL || 'https://tokenhub.tencentmaas.com').replace(/\/$/, '');
+  const model = env.HUNYUAN_IMAGE_MODEL || 'hy-image-v3.0';
+  const headers = { Authorization: `Bearer ${env.HUNYUAN_IMAGE_API_KEY}`, 'Content-Type': 'application/json' };
+  const submitted = await fetch(`${root}/v1/api/image/submit`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ model, prompt: '白色背景上的蓝色圆点，简洁，无文字' }),
+    signal: timeout(30_000),
+  });
+  const submission = await jsonBody(submitted);
+  const id = submission?.id;
+  if (!submitted.ok || !id) return { live: false, http_status: submitted.status, phase: 'submit' };
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    const queried = await fetch(`${root}/v1/api/image/query`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ model, id }),
+      signal: timeout(30_000),
+    });
+    const result = await jsonBody(queried);
+    const state = String(result?.status || '').toLowerCase();
+    const imageUrl = result?.data?.[0]?.url;
+    if (queried.ok && state === 'completed' && imageUrl) {
+      return { live: true, http_status: queried.status, phase: 'completed' };
+    }
+    if (['failed', 'error', 'cancelled', 'canceled'].includes(state)) {
+      return { live: false, http_status: queried.status, phase: state };
+    }
+  }
+  return { live: false, phase: 'timeout' };
+}
+
+async function hunyuanLiteImageUrl() {
+  const root = String(env.HUNYUAN_IMAGE_BASE_URL || 'https://tokenhub.tencentmaas.com').replace(/\/$/, '');
+  const response = await fetch(`${root}/v1/api/image/lite`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.HUNYUAN_IMAGE_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'hy-image-lite', prompt: '白色背景上的蓝色圆点，简洁，无文字', rsp_img_type: 'url' }),
+    signal: timeout(90_000),
+  });
+  const data = await jsonBody(response);
+  return { response, url: data?.data?.[0]?.url || '' };
+}
+
 const jobs = [
   probe('makers_ai_gateway', ['AI_GATEWAY_API_KEY', 'AI_GATEWAY_BASE_URL'], () => (
     openAICompletion(env.AI_GATEWAY_API_KEY, env.AI_GATEWAY_BASE_URL, env.AI_GATEWAY_MODEL || '@makers/deepseek-v4-flash')
@@ -107,15 +155,15 @@ const jobs = [
     const pages = data?.Pages || data?.pages || data?.Data?.Pages || data?.data?.pages;
     return { live: response.ok && Boolean(data), http_status: response.status, result_count: Array.isArray(pages) ? pages.length : null };
   }),
-  probe('hunyuan_vision', ['HUNYUAN_IMAGE_API_KEY'], async () => {
+  probe('hunyuan_vision', ['HUNYUAN_VISION_API_KEY'], async () => {
     const response = await fetch('https://tokenhub.tencentmaas.com/v1/chat/completions', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${env.HUNYUAN_IMAGE_API_KEY}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${env.HUNYUAN_VISION_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: env.HUNYUAN_VISION_MODEL || 'hy-vision-2.0-instruct',
         messages: [{ role: 'user', content: [
-          { type: 'text', text: '这张图是什么颜色？只回复颜色。' },
           { type: 'image_url', image_url: { url: publicPhoto } },
+          { type: 'text', text: '用不超过十个字描述图片主体。' },
         ] }],
         max_tokens: 32, temperature: 0, stream: false,
       }),
@@ -126,6 +174,7 @@ const jobs = [
       live: response.ok && Boolean(data?.choices?.[0]?.message?.content),
       http_status: response.status, response_shape: Boolean(data?.choices),
       provider_error_code: data?.error?.code || data?.code || null,
+      provider_error_message: String(data?.error?.message || data?.message || '').slice(0, 160) || null,
     };
   }),
   probe('cloudflare_token', ['CLOUDFLARE_WORKERS_AI_TOKEN'], async () => {
@@ -223,15 +272,42 @@ const results = await Promise.all(jobs);
 
 // These two calls validate the actual image model, not just the shared token.
 if (selected('hunyuan_image')) results.push(await probe('hunyuan_image', ['HUNYUAN_IMAGE_API_KEY'], async () => {
-  const response = await fetch('https://tokenhub.tencentmaas.com/v1/images/generations', {
+  return hunyuanV3Image();
+}));
+
+if (selected('hunyuan_image_lite')) results.push(await probe('hunyuan_image_lite', ['HUNYUAN_IMAGE_API_KEY'], async () => {
+  const { response, url } = await hunyuanLiteImageUrl();
+  return { live: response.ok && Boolean(url), http_status: response.status, response_shape: Boolean(url) };
+}));
+
+// End-to-end visual contract: generate a Tencent-hosted image and immediately
+// feed exactly that one URL to HY-Vision. The generated URL is never printed.
+if (selected('hunyuan_visual_stack')) results.push(await probe('hunyuan_visual_stack', ['HUNYUAN_IMAGE_API_KEY', 'HUNYUAN_VISION_API_KEY'], async () => {
+  const generated = await hunyuanLiteImageUrl();
+  if (!generated.response.ok || !generated.url) {
+    return { live: false, image_live: false, vision_live: false, image_http_status: generated.response.status };
+  }
+  const response = await fetch('https://tokenhub.tencentmaas.com/v1/chat/completions', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${env.HUNYUAN_IMAGE_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: env.HUNYUAN_IMAGE_MODEL || 'hy-image-v3.0', prompt: '白底蓝色圆点，API 健康检查', size: '1024:1024', revise: 1 }),
-    signal: timeout(90_000),
+    headers: { Authorization: `Bearer ${env.HUNYUAN_VISION_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: env.HUNYUAN_VISION_MODEL || 'hy-vision-2.0-instruct',
+      messages: [{ role: 'user', content: [
+        { type: 'image_url', image_url: { url: generated.url } },
+        { type: 'text', text: '用不超过十个字描述图片主体。' },
+      ] }],
+      max_tokens: 64, temperature: 0, stream: false,
+    }),
+    signal: timeout(65_000),
   });
   const data = await jsonBody(response);
-  const image = data?.data?.[0]?.url || data?.data?.[0]?.b64_json || data?.images?.[0]?.url || data?.result?.image_url;
-  return { live: response.ok && Boolean(image), http_status: response.status, response_shape: Boolean(image) };
+  const visionLive = response.ok && Boolean(data?.choices?.[0]?.message?.content);
+  return {
+    live: visionLive, image_live: true, vision_live: visionLive,
+    vision_http_status: response.status, response_shape: Boolean(data?.choices),
+    provider_error_code: data?.error?.code || data?.code || null,
+    provider_error_message: String(data?.error?.message || data?.message || '').slice(0, 160) || null,
+  };
 }));
 
 if (selected('cloudflare_image')) results.push(await probe('cloudflare_image', ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_WORKERS_AI_TOKEN'], async () => {

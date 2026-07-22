@@ -287,9 +287,9 @@ async def _vision_filter(
     if not vision_providers(env):
         return [], {"missing_api_key": 1, "candidates": len(candidates), "reviewed": 0}
 
-    # Prefer one candidate per source before filling remaining slots. One
-    # multi-image model call is substantially faster than N independent calls
-    # while preserving pixel-level ad/relevance review.
+    # Prefer one candidate per source before filling remaining slots. HY-Vision
+    # supports exactly one image per request, so review a small bounded set in
+    # parallel instead of sending an invalid multi-image Chat Completions body.
     selected: list[dict[str, str]] = []
     remaining: list[dict[str, str]] = []
     seen_sources: set[str] = set()
@@ -300,53 +300,53 @@ async def _vision_filter(
             selected.append(candidate)
         else:
             remaining.append(candidate)
-    selected = (selected + remaining)[:min(6, max(4, output_limit * 2))]
+    selected = (selected + remaining)[:min(4, max(2, output_limit * 2))]
     if not selected:
         return [], {"candidates": 0, "reviewed": 0}
 
-    prompt = (
-        '你会依次收到编号图片。逐张判断是否直接帮助理解用户问题；广告、二维码、Logo、图标、UI、占位图、'
-        '纯文字截图或无关内容必须判为 false。只返回 JSON：'
-        '{"items":[{"index":1,"description":"准确描述实际画面","relevant":true}]}。'
-        '不得遗漏编号；不确定时 relevant=false。\n'
-        f'用户问题：{query[:160]}'
-    )
-    content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
-    for index, candidate in enumerate(selected, 1):
-        context = str(candidate.get("context") or candidate.get("alt") or candidate.get("source_title") or "")[:240]
-        content.extend([
-            {"type": "text", "text": f"图片 {index}；网页上下文：{context}"},
-            {"type": "image_url", "image_url": {"url": candidate["url"]}},
-        ])
-    try:
-        raw, provider_diagnostics = await vision_completion(
-            env,
-            content,
-            max_tokens=800,
-            timeout=float(env.get("RICH_SEARCH_VISION_TIMEOUT_SECONDS") or 7),
-        )
-        if not raw:
-            return [], {
-                str(provider_diagnostics.get("error") or "vision_failed"): 1,
-                "candidates": len(candidates),
-                "reviewed": 0,
-            }
-        raw = raw.strip().strip("`").strip()
-        if raw.startswith("json"):
-            raw = raw[4:].strip()
-        match = re.search(r"\{[\s\S]*\}", raw)
-        reviewed = json.loads(match.group(0) if match else raw)
-        items = reviewed.get("items") if isinstance(reviewed, dict) else []
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:
-        return [], {f"batch_{type(exc).__name__}": 1, "candidates": len(candidates), "reviewed": 0}
+    timeout = float(env.get("RICH_SEARCH_VISION_TIMEOUT_SECONDS") or 7)
 
+    async def review(candidate: dict[str, str]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        context = str(candidate.get("context") or candidate.get("alt") or candidate.get("source_title") or "")[:240]
+        prompt = (
+            '判断这张图片是否直接帮助理解用户问题。广告、二维码、Logo、图标、UI、占位图、纯文字截图或'
+            '无关内容必须判为 false。只返回 JSON：'
+            '{"description":"准确描述实际画面","relevant":true}；不确定时 relevant=false。\n'
+            f'用户问题：{query[:160]}\n网页上下文：{context}'
+        )
+        try:
+            raw, provider = await vision_completion(
+                env,
+                [
+                    {"type": "image_url", "image_url": {"url": candidate["url"]}},
+                    {"type": "text", "text": prompt},
+                ],
+                max_tokens=320,
+                timeout=timeout,
+            )
+            if not raw:
+                return None, provider
+            clean = raw.strip().strip("`").strip()
+            if clean.startswith("json"):
+                clean = clean[4:].strip()
+            match = re.search(r"\{[\s\S]*\}", clean)
+            item = json.loads(match.group(0) if match else clean)
+            return item if isinstance(item, dict) else None, provider
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            return None, {"error": f"review_{type(exc).__name__}"}
+
+    reviews = await asyncio.gather(*(review(candidate) for candidate in selected))
     output: list[dict[str, str]] = []
     diagnostics: Counter[str] = Counter()
-    by_index = {int(item.get("index") or 0): item for item in items if isinstance(item, dict)}
-    for index, candidate in enumerate(selected, 1):
-        item = by_index.get(index) or {}
+    for candidate, (item, provider_diagnostics) in zip(selected, reviews):
+        provider_name = str(provider_diagnostics.get("provider") or "")
+        if provider_name:
+            diagnostics[f"provider_{provider_name}"] += 1
+        if not item:
+            diagnostics[str(provider_diagnostics.get("error") or "vision_failed")] += 1
+            continue
         description = str(item.get("description") or "").strip()[:240]
         if item.get("relevant") is True and description:
             output.append({**candidate, "description": description})
@@ -355,9 +355,6 @@ async def _vision_filter(
             diagnostics["irrelevant"] += 1
     diagnostics["candidates"] = len(candidates)
     diagnostics["reviewed"] = len(selected)
-    provider_name = str(provider_diagnostics.get("provider") or "")
-    if provider_name:
-        diagnostics[f"provider_{provider_name}"] = 1
     return output[:output_limit], dict(diagnostics)
 
 

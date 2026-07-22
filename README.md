@@ -74,7 +74,7 @@ edgeone.json              # Makers 构建与 Agent 配置
 | `TENCENT_MAP_SERVER_KEY` | 腾讯地点与路线服务 |
 | `TENCENT_MEETING_TOKEN` | 可选的腾讯会议个人 AI Skill Token；未配置时安全隐藏会议工具 |
 
-视觉免费额度、Provider 顺序和无破坏 Preview 验收见 [VISUAL_PROVIDER_FALLBACK.md](docs/VISUAL_PROVIDER_FALLBACK.md)。
+视觉免费额度、Provider 顺序和无破坏 Preview 验收见 [VISUAL_PROVIDER_FALLBACK.md](docs/VISUAL_PROVIDER_FALLBACK.md)；当前混元接口、Apple 风格微交互与 Cloudflare 最小配置见 [MOTION_AND_VISUAL_FALLBACK.md](docs/MOTION_AND_VISUAL_FALLBACK.md)。
 
 ## Makers 本地开发
 

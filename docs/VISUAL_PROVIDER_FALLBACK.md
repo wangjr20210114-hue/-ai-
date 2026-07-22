@@ -53,7 +53,7 @@ IMAGE_PROVIDER_ORDER=cloudflare,hunyuan
 
 ## 运行行为
 
-- 新闻图片审核：在一个共享 7 秒视觉预算内按顺序尝试已配置 Provider，并记录 `vision_diagnostics.provider_*`，不会把密钥或原始错误返回前端。Cloudflare 适配器使用官方 `/ai/run/@cf/meta/llama-3.2-11b-vision-instruct` REST 契约，将文本放入 `messages`、首张待审图片放入顶层 `image`；不把只明确支持文本生成的 OpenAI 兼容端点当作多模态接口。
+- 新闻图片审核：每张候选图只发起一个单图请求，最多并发审核 4 张，并记录 `vision_diagnostics.provider_*`，不会把密钥或原始错误返回前端。HY-Vision 官方限制一次只能传一张图；Cloudflare 适配器使用官方 `/ai/run/@cf/meta/llama-3.2-11b-vision-instruct` REST 契约，将文本放入 `messages`、首张待审图片放入顶层 `image`。
 - 新闻图片保底：如果所有视觉 Provider 均未配置、超时或暂时不可用，但 SearchPro 已返回文章主图，则保留去重后的 HTTPS 文章主图；只有视觉模型明确判断“不相关”时才丢弃。这样“最近 AI 有什么进展”不会仅因视觉密钥缺失退化为纯文字。
 - 用户附图理解：发送前端压缩后的图片后，服务端先做一次多模态描述，再把事实描述交给 LLM 规划和回答；原始 Base64 不进入文本提示。
 - 文生图：混元失败后，Cloudflare 使用 `FLUX.1 Schnell`。
@@ -62,7 +62,9 @@ IMAGE_PROVIDER_ORDER=cloudflare,hunyuan
 
 当前 Makers 项目的测试 `CLOUDFLARE_WORKERS_AI_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID` 只配置在 Preview，生产环境不继承。2026-07-22 重新脱敏探测后，Token 本身仍为 active，Flux 文生图 HTTP 200（约 2 秒），历史 Preview 的 img2img 日志也真实显示 `provider=cloudflare`、`model=@cf/runwayml/stable-diffusion-v1-5-img2img`、`reference_count=1`、`fallback=False`；这两条生成降级仍可用。
 
-多模态理解的“历史成功”不能代表当前 Token 状态：Meta Llama 3.2 Vision 现返回 HTTP 403 / 5016，需账号接受模型许可；LLaVA Beta 按官方字节数组格式并把测试图缩至 320px 后仍返回 HTTP 400 / 3010。混元视觉对同一小图约 23.4 秒后返回 HTTP 400 / `400001`。因此当前视觉理解属于外部 Provider 阻塞，代码会在共享预算内快速降级；SearchPro 返回可追溯文章主图时仍可展示真实新闻图片，没有可靠候选时则诚实不展示。中文翻译预处理仍是可选步骤，失败后图片生成会继续使用原提示词；Cloudflare 只作为免费可用性降级，不宣称与混元质量等价。
+2026-07-22 按当前官方接口重新实测：`hy-image-v3.0` 的 `submit → query` 链路 HTTP 200，约 14 秒完成；`hy-image-lite` HTTP 200，约 2.6 秒；用 Lite 生成的腾讯托管图片立即调用 `hy-vision-2.0-instruct`，HTTP 200，端到端约 6.8 秒。因此混元视觉模型和密钥均已确认可用。单独使用境外公共测试图曾返回 `400001` 或超时，说明远程图片的可访问性仍会影响审核；代码在视觉 Provider 失败时保留 SearchPro 已返回且可追溯的 HTTPS 文章主图，避免新闻回答无图。
+
+Cloudflare 侧，Meta Llama 3.2 Vision 返回 HTTP 403 / 5016 时需要账号接受模型许可；这不影响 Flux 生图降级。中文翻译预处理仍是可选步骤，失败后图片生成会继续使用原提示词；Cloudflare 只作为免费可用性降级，不宣称与混元质量等价。
 
 ## 无破坏 Preview 验收
 
