@@ -35,7 +35,7 @@
       <ol>
         <li>先选择测试环境并填写部署 ID；不要在生产环境试验破坏性或付费场景。</li>
         <li>打开一个 Case 后，从“步骤 1”向下执行；每一步都在同一行写明操作位置、按钮文字、输入内容和本步预期。</li>
-        <li>为当前电脑填写“主机名称”。结果、备注、图片/视频证据会同步到 Makers Blob，多台电脑打开同一站点即可共享。</li>
+        <li>为当前电脑填写“主机名称”。结果、备注、图片/视频证据会同步到 Makers Blob；在任意电脑打开同一生产网址即可读取和编辑同一份数据。</li>
         <li>“测试数据”右侧可直接点复制。不要自己改写测试文案，否则不同测试人的结果无法比较。</li>
         <li>备注只填写文字现象；截图和录屏从“证据”入口上传。每次编辑都会记录主机、测试人和时间。</li>
         <li>生产阻断用例全部通过前禁止发布生产；JSON 导出仅作为离线备份。</li>
@@ -51,7 +51,6 @@
         <label>Deployment ID<input id="deployment-id" placeholder="例如 dpxxxxxxxxxx" /></label>
         <label>测试人<input id="tester" placeholder="姓名或代号" /></label>
         <label>当前主机名称<input id="host-name" placeholder="例如 王的 MacBook" /><small>主机 ID：<code id="host-id"></code></small></label>
-        <label>同步密钥（若项目已配置）<input id="sync-key" type="password" autocomplete="off" placeholder="未配置则留空" /></label>
         <div class="sync-panel"><span id="sync-status" class="sync-status syncing">正在连接共享数据…</span><small id="security-note">正在检查写保护…</small></div>
       </div>
     </section>

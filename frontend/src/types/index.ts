@@ -38,6 +38,7 @@ export interface ProactiveNotification {
   snoozed_until?: number | null;
   read_at?: number | null;
   dismissed_at?: number | null;
+  expires_at?: number | null;
   created_at: number;
   updated_at: number;
 }

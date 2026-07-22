@@ -45,6 +45,12 @@ def default_preferences() -> dict[str, Any]:
             "weather_risk": True,
             "route_risk": True,
             "workflow_step_due": True,
+            "opportunity_search_update": True,
+            "opportunity_writing_improvement": True,
+            "opportunity_translation_review": True,
+            "opportunity_image_iteration": True,
+            "opportunity_document_next_step": True,
+            "opportunity_task_next_step": True,
         },
     }
 
@@ -641,6 +647,15 @@ def process_schedule_signals(state: dict[str, Any], signals: list[dict[str, Any]
     stats = {"signals": len(signals), "events_created": 0, "runs_created": 0, "notifications_created": 0, "skipped": 0}
     daily_count = sum(1 for item in state.get("notifications", {}).values() if _created_today(item, now))
     for signal in signals:
+        cooldown_seconds = max(0, int(signal.get("cooldown_seconds") or 0))
+        if cooldown_seconds and any(
+            item.get("type") == signal.get("type")
+            and not item.get("dismissed_at")
+            and now - int(item.get("created_at") or 0) < cooldown_seconds
+            for item in state.get("notifications", {}).values()
+        ):
+            stats["skipped"] += 1
+            continue
         dedup_key = str(signal["dedup_key"])
         event_id = _stable_id("evt", dedup_key)
         if event_id in state.setdefault("events", {}):
@@ -710,6 +725,7 @@ def process_schedule_signals(state: dict[str, Any], signals: list[dict[str, Any]
             "snoozed_until": snoozed_until or None,
             "read_at": None,
             "dismissed_at": None,
+            "expires_at": int(signal.get("expires_at") or 0) or None,
             "created_at": now,
             "updated_at": now,
         }
@@ -826,7 +842,12 @@ async def run_proactive_tick(
 def public_proactive_state(state: dict[str, Any], now: int | None = None) -> dict[str, Any]:
     timestamp = int(now or time.time())
     notifications = sorted(
-        [copy.deepcopy(item) for item in state.get("notifications", {}).values() if not item.get("dismissed_at")],
+        [
+            copy.deepcopy(item)
+            for item in state.get("notifications", {}).values()
+            if not item.get("dismissed_at")
+            and (not int(item.get("expires_at") or 0) or int(item.get("expires_at") or 0) > timestamp)
+        ],
         key=lambda item: (0 if item.get("priority") == "high" else 1, -int(item.get("created_at") or 0)),
     )
     for item in notifications:

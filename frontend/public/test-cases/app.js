@@ -1,7 +1,6 @@
 const STORAGE_KEY = 'yuanbao.acceptance.v2';
 const LEGACY_STORAGE_KEY = 'yuanbao.acceptance.v1';
 const HOST_KEY = 'yuanbao.acceptance.host.v1';
-const API_KEY_STORAGE = 'yuanbao.acceptance.sync-key.v1';
 const API_PATH = '/acceptance';
 const IMPLEMENTATION_LABELS = {
   implemented: '已实现', 'requires-config': '需配置', 'platform-pending': '平台待验证',
@@ -17,7 +16,6 @@ let saved = loadSaved();
 let host = loadHost();
 let syncBusy = false;
 let remoteAvailable = false;
-let writeProtected = false;
 const notesTimers = new Map();
 
 function defaultState() {
@@ -123,13 +121,9 @@ function record(id) {
 }
 function caseHistory(id) { return (saved.audit||[]).filter(item=>item.caseId===id).slice(0, 30); }
 function identity() { return { hostId:host.hostId, hostName:host.hostName, tester:document.querySelector('#tester')?.value.trim()||saved.meta.tester||'' }; }
-function apiHeaders() {
-  const key = document.querySelector('#sync-key')?.value || localStorage.getItem(API_KEY_STORAGE) || '';
-  return { 'Content-Type':'application/json', ...(key ? {'X-Acceptance-Key':key} : {}) };
-}
 async function api(body) {
   const response = await fetch(withEdgeOneAuth(API_PATH), {
-    method:body ? 'POST' : 'GET', credentials:'same-origin', headers:body ? apiHeaders() : undefined,
+    method:body ? 'POST' : 'GET', credentials:'same-origin', headers:body ? {'Content-Type':'application/json'} : undefined,
     body:body ? JSON.stringify(body) : undefined,
   });
   const payload = await response.json().catch(()=>({}));
@@ -157,11 +151,10 @@ async function refreshRemote(showMessage=true) {
   setSyncStatus('syncing','正在从 Makers Blob 同步…');
   try {
     const state = await api();
-    writeProtected = Boolean(state.writeProtected);
     remoteAvailable = true;
     applyRemote(state);
     setSyncStatus('online',`已同步 · 版本 ${saved.revision} · ${formatTime(saved.updatedAt)}`);
-    document.querySelector('#security-note').textContent = writeProtected ? '服务端已启用同步密钥保护。' : '当前未设置同步密钥；仅应在受保护的 Preview 使用。';
+    document.querySelector('#security-note').textContent = '同一生产站点的所有主机共享 Makers Blob 数据；采用单人编辑、最后保存生效。';
     if (showMessage) toast('已取得其他主机的最新记录');
   } catch (error) {
     remoteAvailable = false;
@@ -272,12 +265,11 @@ async function saveRecord(id,patch) {
   const current=record(id); const optimistic={...current,...patch,updatedAt:new Date().toISOString(),updatedByHostId:host.hostId,updatedByHostName:host.hostName,updatedByTester:identity().tester};
   saved.cases={...(saved.cases||{}),[id]:optimistic}; persist(); updateSummary(); setSyncStatus('syncing',`${id} 正在保存…`);
   try {
-    const payload=await api({operation:'saveCase',caseId:id,patch,baseUpdatedAt:current.updatedAt,...identity()});
+    const payload=await api({operation:'saveCase',caseId:id,patch,...identity()});
     remoteAvailable=true; applyRemote(payload.state); setSyncStatus('online',`${id} 已保存 · 版本 ${saved.revision}`);
   } catch(error) {
-    if(error.status===409&&error.payload?.record){saved.cases[id]=error.payload.record;persist();render();}
     setSyncStatus('offline',`${id} 未同步：${error.message}`);
-    toast(error.status===409?'另一台主机刚刚修改了此用例，已载入服务端版本，请重新填写。':`保存失败，内容仍保存在本机：${error.message}`,true);
+    toast(`保存失败，内容仍保存在本机：${error.message}`,true);
   }
 }
 function collectMeta() { return { environment:document.querySelector('#environment').value, deploymentId:document.querySelector('#deployment-id').value.trim(), tester:document.querySelector('#tester').value.trim() }; }
@@ -329,11 +321,10 @@ function toast(message,isError=false){const node=document.querySelector('#toast'
 async function boot() {
   const response=await fetch('./cases.json'); cases=await response.json();
   const modules=[...new Set(cases.map(test=>test.module))];document.querySelector('#module-filter').innerHTML+=modules.map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('');
-  fillMeta();document.querySelector('#sync-key').value=localStorage.getItem(API_KEY_STORAGE)||'';
+  fillMeta();
   ['search','module-filter','implementation-filter','result-filter','blocker-only'].forEach(id=>document.querySelector(`#${id}`).addEventListener(id==='search'?'input':'change',render));
   ['environment','deployment-id','tester'].forEach(id=>document.querySelector(`#${id}`).addEventListener('change',()=>void saveMeta()));
   document.querySelector('#host-name').addEventListener('change',event=>{host.hostName=event.target.value.trim()||`未命名主机 · ${host.hostId.slice(0,6)}`;persist();render();});
-  document.querySelector('#sync-key').addEventListener('change',event=>{localStorage.setItem(API_KEY_STORAGE,event.target.value);void refreshRemote(false);});
   document.querySelector('#refresh').addEventListener('click',()=>void refreshRemote());
   document.querySelector('#export').addEventListener('click',exportResults);
   document.querySelector('#import').addEventListener('click',()=>document.querySelector('#import-file').click());

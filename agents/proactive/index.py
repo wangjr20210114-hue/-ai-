@@ -19,7 +19,9 @@ from .._shared.proactive import (
     update_preferences,
     propose_workflow,
     process_schedule_signals,
+    ingest_workspace_signal,
 )
+from .._shared.opportunities import file_opportunity_signal
 from .._shared.intelligence import load_intelligence_state, record_feedback, save_intelligence_state
 from .._shared.auth import require_user, scoped_conversation_id
 from .._shared.http import error
@@ -233,6 +235,29 @@ async def handler(ctx):
             )
             saved = await save_proactive_state(store, state, user_id)
             return {**public_proactive_state(saved), "workflow": workflow}
+        if operation == "ingest_signal":
+            if not proactive_skill_enabled:
+                raise ValueError("主动式 Agent Skill 已关闭，请先到 Skills 广场开启")
+            signal_type = str(body.get("signal_type") or "")
+            dedup_key = str(body.get("dedup_key") or "").strip()
+            payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
+            now = int(time.time())
+            _event, created = ingest_workspace_signal(
+                state,
+                signal_type=signal_type,
+                dedup_key=dedup_key,
+                payload=payload,
+                now=now,
+            )
+            stats = {"signals": 0, "events_created": 0, "runs_created": 0, "notifications_created": 0, "skipped": 0}
+            if created and signal_type == "file_uploaded":
+                stats = process_schedule_signals(
+                    state,
+                    [file_opportunity_signal(payload, dedup_key=dedup_key, now=now)],
+                    now,
+                )
+            saved = await save_proactive_state(store, state, user_id)
+            return {**public_proactive_state(saved), "signal_created": created, "tick_stats": stats}
         if operation in {"confirm_workflow", "reject_workflow"}:
             workflow = decide_workflow(
                 state,

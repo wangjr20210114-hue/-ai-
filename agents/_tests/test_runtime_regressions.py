@@ -129,6 +129,28 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["preferences"]["daily_limit"], 3)
         self.assertEqual(response["tick_stats"], {"signals": 0})
 
+    async def test_document_signal_immediately_creates_one_proactive_opportunity(self):
+        stores = FakeProactiveStores()
+        ctx = SimpleNamespace(
+            env={}, store=stores, conversation_id="document-conversation",
+            request=SimpleNamespace(body={
+                "operation": "ingest_signal",
+                "signal_type": "file_uploaded",
+                "dedup_key": "blob-document-1",
+                "payload": {
+                    "file_id": "file-1", "storage_key": "uploads/file-1",
+                    "filename": "TEST-方案.pdf", "is_paper": False,
+                },
+            }, headers={}),
+        )
+        first = await proactive_handler(ctx)
+        second = await proactive_handler(ctx)
+        self.assertTrue(first["signal_created"])
+        self.assertEqual(first["tick_stats"]["notifications_created"], 1)
+        self.assertEqual(first["notifications"][0]["type"], "opportunity_document_next_step")
+        self.assertFalse(second["signal_created"])
+        self.assertEqual(len(second["notifications"]), 1)
+
     async def test_chat_run_uses_native_conversation_metadata(self):
         store = FakeConversationStore()
         await write_chat_run(store, "conversation-1", run_id="run-1", status="running")

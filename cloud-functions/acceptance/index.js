@@ -62,12 +62,6 @@ function clientIdentity(body) {
   };
 }
 
-function writeAllowed(request, env) {
-  const expected = cleanText(env?.ACCEPTANCE_WRITE_SECRET, 500);
-  if (!expected) return true;
-  return cleanText(request.headers.get('x-acceptance-key'), 500) === expected;
-}
-
 async function loadState(store) {
   const stored = await store.get(STATE_KEY, { type: 'json', consistency: 'strong' });
   if (!stored || typeof stored !== 'object') return emptyState();
@@ -113,22 +107,11 @@ async function saveState(store, state) {
   return state;
 }
 
-function conflict(record) {
-  return json({
-    error: '该用例已被另一台主机更新，请先同步后再保存。',
-    code: 'EDIT_CONFLICT',
-    record,
-  }, 409);
-}
-
 async function saveCase(store, body) {
   const caseId = validCaseId(body.caseId);
   if (!caseId) return json({ error: '无效测试用例 ID' }, 400);
   const state = await loadState(store);
   const current = normalizeRecord(state.cases[caseId]);
-  const baseUpdatedAt = cleanText(body.baseUpdatedAt, 50);
-  if (baseUpdatedAt && current.updatedAt && baseUpdatedAt !== current.updatedAt) return conflict(current);
-
   const patch = body.patch && typeof body.patch === 'object' ? body.patch : {};
   const next = { ...current };
   if ('result' in patch) {
@@ -324,16 +307,15 @@ async function getEvidence(store, request) {
 }
 
 export async function onRequest(context) {
-  const { request, env = {} } = context;
+  const { request } = context;
   const store = context.__store || getStore({ name: STORE_NAME, consistency: 'strong' });
   try {
     if (request.method === 'GET') {
       if (new URL(request.url).searchParams.has('evidence')) return await getEvidence(store, request);
       const state = await loadState(store);
-      return json({ ...state, writeProtected: Boolean(env.ACCEPTANCE_WRITE_SECRET) });
+      return json(state);
     }
     if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
-    if (!writeAllowed(request, env)) return json({ error: '同步密钥错误' }, 403);
     const body = await request.json();
     if (body.operation === 'saveCase') return await saveCase(store, body);
     if (body.operation === 'saveMeta') return await saveMeta(store, body);

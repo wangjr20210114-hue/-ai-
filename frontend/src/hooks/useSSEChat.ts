@@ -7,7 +7,7 @@ import { presentableChatError } from '../services/chatError';
 import { durableMessageCount, makersConversationHeaders, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../services/conversation';
 import { splitSseFrames } from '../services/sse';
 import { useAppDispatch, useAppState } from '../store/appState';
-import type { ChatMessage, PaperInfo, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
+import type { ChatMessage, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
 
 type ClientEvent = { type: string; payload: Record<string, unknown> };
 
@@ -285,6 +285,14 @@ class SSEChatClient {
                 });
                 break;
                 }
+              case 'proactive_update':
+                this.emit({
+                  type: 'proactive_update',
+                  payload: (event.payload && typeof event.payload === 'object')
+                    ? event.payload as Record<string, unknown>
+                    : {},
+                });
+                break;
               case 'error_message':
                 this.emit({
                   type: 'error',
@@ -554,6 +562,12 @@ export function useSSEChat() {
           if (current && followUps.length) {
             const next = { ...current, followUps };
             streams.set(streamId, next); patch(id, streamId, { followUps });
+          }
+          break;
+        }
+        case 'proactive_update': {
+          if (activeConversationRef.current === id) {
+            dispatch({ type: 'HYDRATE_PROACTIVE', payload: event.payload as unknown as ProactiveState });
           }
           break;
         }

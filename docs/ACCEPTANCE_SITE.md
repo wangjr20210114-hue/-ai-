@@ -16,11 +16,11 @@
 
 结构化状态位于 `v2/state.json`，证据位于 `v2/evidence/<CASE-ID>/...`。图片上限 20MB，视频上限 100MB。Blob 内容不经过 Cloud Function 转发上传，避免大文件占用函数请求时间。
 
-## 数据模型
+## 数据模型与编辑方式
 
 - 每条用例：`result`、`notes`、`evidence[]`、`updatedAt`、`updatedByHostId`、`updatedByHostName`、`updatedByTester`。
 - 审计：字段、修改前/后值、用例 ID、主机 ID/名称、测试人、编辑时间；最多保留最近 1500 条。
-- 编辑冲突：客户端提交上次看到的 `baseUpdatedAt`。另一台主机已经更新同一用例时返回 HTTP 409，页面载入服务端版本并要求重新填写，避免静默覆盖。
+- 编辑方式：项目按个人测试者设计，不处理两人同时编辑。任意主机打开同一生产网址即可读写同一份 Makers Blob 状态，最后一次保存生效；仍保留主机、测试人和时间审计。
 - 本地兜底：Function 暂时不可用时，结果和备注仍保存在当前浏览器；媒体证据必须在线才能上传。
 
 ## 入口与使用
@@ -33,10 +33,6 @@
 4. 旧版 JSON 点击“导入 JSON”；导入会生成审计记录并写入共享 Blob。
 5. 备注只记录文本；截图/录屏从证据入口上传。刷新后确认附件仍可打开。
 6. 每条用例按安全说明执行。无法获得隔离 Preview 或本地 Mock 条件时标记“阻塞”，不得改 Production 配置制造故障。
-
-## 可选写保护
-
-受保护 Preview 可直接使用。若以后绑定公开自定义域名，必须在 Makers 项目设置 Secret 环境变量 `ACCEPTANCE_WRITE_SECRET`，重新部署后在每台测试电脑的“同步密钥”输入同一个值。密钥只保存在该浏览器，禁止写入源码、JSON 导出、截图或备注。
 
 ## 本地启动
 
@@ -58,11 +54,11 @@ edgeone makers dev
 npm --prefix frontend run dev
 ```
 
-访问 `http://127.0.0.1:5173/test-cases/index.html`。Vite 不应用 `edgeone.json` rewrite，不能省略 `index.html`。此模式不提供 `/acceptance`，页面会使用当前浏览器本地兜底，不能验证共享状态、编辑冲突或证据上传。
+访问 `http://127.0.0.1:5173/test-cases/index.html`。Vite 不应用 `edgeone.json` rewrite，不能省略 `index.html`。此模式不提供 `/acceptance`，页面会使用当前浏览器本地兜底，不能验证共享状态、编辑审计或证据上传。
 
 至少验证：
 
-- 66 条当前范围用例、7 列表格和 66 个证据入口完整出现；已取消的多用户、租户隔离和租户 Secret 用例不再加载。
+- 69 条当前范围用例、7 列表格和 69 个证据入口完整出现；包含回答后机会识别、文档主动总结和冷却/反馈闭环。
 - 表头 `position: static`，表头底部与 CORE-01 顶部相接但不重叠。
 - 修改结果和备注后版本号递增，刷新后仍存在，编辑记录包含主机和时间。
 - 上传测试图片后出现证据链接，刷新后仍可打开。
@@ -80,4 +76,4 @@ git push -u origin <当前分支>
 
 然后进入 EdgeOne 控制台 → Makers → `ai-active-agent` → 构建部署 → 新建部署，选择刚推送的分支并确认环境为“预览”。`edgeone makers deploy` 只支持 Upload Provider，不能用于当前项目。
 
-验收状态与业务 Workspace 使用不同 Blob Store/Key，但仍属于同一个 Makers 项目和 Deployment。故障注入、网络阻断和付费用例只允许在 Preview 或本地执行；Production 只做只读回归。不得因为更新测试站而直接发布 Production。
+验收状态与业务 Workspace 使用不同 Blob Store/Key，但仍属于同一个 Makers 项目和 Deployment。生产站用于日常跨主机编辑；故障注入、网络阻断和付费用例仍只允许在 Preview 或本地执行。Production 只执行明确标注为安全的普通功能回归。

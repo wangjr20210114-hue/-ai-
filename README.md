@@ -16,7 +16,7 @@ Makers 项目：`ai-active-agent`（`makers-0oeuhire655w`）。项目使用 GitH
 | 腾讯会议 | 可选的官方个人 MCP Skill；只配置个人 Token 后才暴露工具，不需要企业开发者凭据 |
 | AI 生图 | 混元 `hy-image-v3.0` 直接生成；现实主体可复用富搜索 + HY-Vision 审核图，支持版本轮播、绘制动画、Blob 归档与 ZIP 下载 |
 | 论文与 PDF | 普通富搜索后桥接公开 PDF/arXiv 下载；PDF 自动分类、文件夹化“我的阅读”，论文支持选词、翻译、总结、全文助读和问答 |
-| 主动运行时 | EdgeOne cron 每日触发（当前 Makers 平台最短间隔为 1 天）；持久 Event/Run/Observation、日程/天气/路线 Collector、去重 Notification Inbox、免打扰和每日上限 |
+| 主动运行时 | 回答完成后语义识别搜索/写作/翻译/生图/任务机会，文档上传直接产生下一步建议；EdgeOne cron 继续扫描日程/天气/路线/工作流；统一使用持久 Event/Run/Notification、冷却、过期、免打扰和每日上限 |
 | 长期记忆与反馈 | 后台自动提取、过滤和清理非敏感稳定记忆；提醒接受/忽略/稍后反馈；连续忽略生成可确认规则提案；Token 日/月预算 |
 | Skills 广场 | 现有能力默认全部开启；开关同时约束 Agent 工具与直接业务入口，支持硬依赖自动补齐和推荐依赖的上下文引导 |
 | 持久工作流 | 主模型可创建多步骤工作流提案；用户确认后后台按依赖和到期时间推进，步骤需显式完成/跳过 |
@@ -108,7 +108,7 @@ npm run lint
 npm run build -- --mode edgeone
 ```
 
-完整测试命令、测试站的两种本地启动方式和多主机共享说明见 [TESTING.md](docs/TESTING.md)。
+完整测试命令、测试站的两种本地启动方式和跨主机共享说明见 [TESTING.md](docs/TESTING.md)。比赛主动服务闭环见 [CONTEST_SOLUTION.md](docs/CONTEST_SOLUTION.md)。
 
 ## 测试 Case 启动
 
@@ -126,7 +126,7 @@ edgeone makers dev
 
 线上验收时，从 EdgeOne 控制台为目标 Git 分支创建 Preview，再打开其 3 小时签名链接的 `/test-cases/`。具体步骤见 [ACCEPTANCE_SITE.md](docs/ACCEPTANCE_SITE.md)。
 
-当前 V5 使用可回滚的数据代际启动空白 Preview，并包含 AI 自主富媒体排版、全局微交互和日程就地编辑；实现边界见 [V5_CLEAN_SKILLS_UI.md](docs/V5_CLEAN_SKILLS_UI.md)。
+当前数据代际、AI 自主富媒体排版、全局微交互、日程就地编辑和 Skills 依赖均已纳入 [`BASELINE.md`](docs/BASELINE.md) 与 [`ARCHITECTURE.md`](docs/ARCHITECTURE.md)，不再维护单次版本改造日志。
 
 ## GitHub Provider 发布
 

@@ -36,6 +36,13 @@ from .._shared.makers_conversation import (
 from .._shared.http import error
 from .._shared.workspace import load_user_workspace
 from .._shared.vision import describe_reference_images
+from .._shared.opportunities import detect_opportunity, opportunity_signal
+from .._shared.proactive import (
+    load_proactive_state,
+    process_schedule_signals,
+    public_proactive_state,
+    save_proactive_state,
+)
 
 SYSTEM_PROMPT = """你是元宝，一个可靠、主动、自然的中文智能助手。使用 GitHub Flavored Markdown 回复；多行代码必须使用带语言标识的围栏代码块，不能用普通缩进或行内代码冒充代码块。
 当前北京时间是 {now}。
@@ -568,8 +575,19 @@ async def handler(ctx):
                     try:
                         follow_up_task = asyncio.create_task(generate_followups(model, message, final_answer))
                         memory_task = asyncio.create_task(extract_automatic_memory_candidates(model, message))
-                        follow_ups, memory_candidates = await asyncio.wait_for(
-                            asyncio.gather(follow_up_task, memory_task), timeout=20,
+                        opportunity_task = asyncio.create_task(detect_opportunity(
+                            model,
+                            user_message=message,
+                            answer=final_answer,
+                            capability_plan=capability_plan,
+                            has_pending_action=any(
+                                action.get("action", {}).get("status") in {"awaiting_confirmation", "ready"}
+                                for action in pending_actions
+                            ),
+                            timeout_seconds=float(ctx.env.get("OPPORTUNITY_PLAN_TIMEOUT_SECONDS") or 6),
+                        ))
+                        follow_ups, memory_candidates, opportunity = await asyncio.wait_for(
+                            asyncio.gather(follow_up_task, memory_task, opportunity_task), timeout=20,
                         )
                         if follow_ups:
                             await queue.put(ctx.utils.sse({"type": "follow_ups", "payload": {"items": follow_ups}}))
@@ -592,6 +610,28 @@ async def handler(ctx):
                                 source_message_id=str(body.get("client_message_id") or ""),
                             ):
                                 await save_intelligence_state(ctx.store.langgraph_store, latest_intelligence, user_id)
+                        if opportunity and ctx.store.langgraph_store is not None:
+                            now = int(time.time())
+                            proactive_state = await load_proactive_state(ctx.store.langgraph_store, user_id)
+                            source_id = str(body.get("client_message_id") or run_id)
+                            opportunity_stats = process_schedule_signals(
+                                proactive_state,
+                                [opportunity_signal(opportunity, source_id=source_id, now=now)],
+                                now,
+                            )
+                            if opportunity_stats.get("notifications_created"):
+                                proactive_state.setdefault("checkpoints", {})["semantic_opportunity"] = {
+                                    "last_detected_at": now,
+                                    "type": opportunity.get("type"),
+                                    "source_id": source_id,
+                                }
+                                proactive_state = await save_proactive_state(
+                                    ctx.store.langgraph_store, proactive_state, user_id,
+                                )
+                                await queue.put(ctx.utils.sse({
+                                    "type": "proactive_update",
+                                    "payload": public_proactive_state(proactive_state),
+                                }))
                     except Exception as exc:
                         logging.warning("answer extras generation failed: %s", exc)
                 if pending_search_results is not None:

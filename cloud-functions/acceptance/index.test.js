@@ -51,7 +51,7 @@ test('saveCase persists shared state and audit identity', async () => {
   assert.deepEqual(payload.state.audit.map(item => item.field), ['result', 'notes']);
 });
 
-test('saveCase detects stale edits from another host', async () => {
+test('saveCase uses simple last-write-wins across hosts', async () => {
   const store = mockStore();
   const first = await call(store, {
     operation: 'saveCase', caseId: 'CORE-01', patch: { result: 'pass' }, hostId: 'a', hostName: 'A',
@@ -61,12 +61,14 @@ test('saveCase detects stale edits from another host', async () => {
     operation: 'saveCase', caseId: 'CORE-01', patch: { notes: 'newer' }, baseUpdatedAt: saved.record.updatedAt,
     hostId: 'b', hostName: 'B',
   });
-  const conflict = await call(store, {
+  const latest = await call(store, {
     operation: 'saveCase', caseId: 'CORE-01', patch: { notes: 'stale' }, baseUpdatedAt: saved.record.updatedAt,
     hostId: 'a', hostName: 'A',
   });
-  assert.equal(conflict.status, 409);
-  assert.equal((await conflict.json()).code, 'EDIT_CONFLICT');
+  assert.equal(latest.status, 200);
+  const payload = await latest.json();
+  assert.equal(payload.record.notes, 'stale');
+  assert.equal(payload.record.updatedByHostName, 'A');
 });
 
 test('schema v1 result export imports into v2 state', async () => {
@@ -103,4 +105,3 @@ test('evidence uses presigned upload and is attached only after blob exists', as
   assert.equal(payload.record.evidence.length, 1);
   assert.equal(payload.record.evidence[0].uploadedByHostName, 'A');
 });
-

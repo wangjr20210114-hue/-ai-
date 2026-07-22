@@ -38,11 +38,13 @@ React / Vite
 - Conversation Store：会话列表、标题和消息。
 - Checkpointer：每个会话的 LangGraph 执行状态。
 - LangGraph Store：用户级日程、地图、Action、Provider Ledger、Event、Run、Notification、Workflow、Memory、Feedback 和 Usage。
+- 主动机会：每次有效回答结束后，独立语义模型最多选择一个搜索跟进、写作优化、翻译复核、生图迭代、文档或任务下一步；通过置信度、隐私、6 小时同类冷却、过期、免打扰和每日上限后写入同一 Event/Run/Notification 链。成功文档上传直接作为可信业务信号，不再等待用户追加“请总结”。
 - 搜索规划：独立 LLM 读取当前问题和已过滤的非敏感记忆，合并事实与视觉意图；每轮一次 SearchPro，来源页按设置并发，默认 10/5/7 秒分段预算；单轮任务缓存阻止重复调用，跨轮结果按时效 TTL 存入用户级 LangGraph Store。
 - 视觉能力：混元优先；Cloudflare Workers AI 复用托管视觉、文生图和图生图模型，百炼/Gemini 可作视觉理解后备。应用只保留降级路由、输入边界和 Makers Blob 持久化，不实现模型推理。
 - 长期记忆：后台 LLM 只提取用户明确表达的稳定偏好、目标和项目背景；应用层再次拒绝联系方式、凭证、证件、精确地址、财务和医疗信息，并按置信度、TTL 和使用次数清理。记忆值不进入公共 API 或前端列表。
 - 日程变更：大模型只冻结确认 Action；服务端按当前 Workspace 的 schedule_id 执行。地点必须是地点服务返回的 place_id；成功后立即重算日程/天气/路线信号，刷新仍有效的通知并淘汰旧通知。
 - Blob：PDF、论文、生成图片、阅读库资产索引。
+- 验收站：静态页面随主应用发布；Case 状态与图片/视频证据使用独立 Makers Blob。产品按个人单编辑者设计，跨主机采用最后保存生效并保留主机/时间审计，不实现多人协同锁或冲突合并。
 - Migration：本地 SQLite 只读导出；一次性 `/migration` 只调用 Conversation Store/LangGraph Store，文件只调用官方 Blob SDK。
 
 ## 4. 安全约束
