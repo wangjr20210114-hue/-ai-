@@ -5,7 +5,6 @@ import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import InfoCard from './InfoCard';
 import type { RichMediaAsset, SearchMeta } from '../../types';
 import { isSafeRemoteUrl, replaceCitationMarkers } from './richContent';
 
@@ -80,7 +79,8 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
       <img
         src={asset.url}
         alt={asset.alt || asset.caption || '回答配图'}
-        loading="lazy"
+        loading="eager"
+        decoding="async"
         onError={() => setFailed(true)}
       />
       {(asset.caption || asset.source_url) && (
@@ -141,13 +141,6 @@ function sameUrl(left: string, right: string): boolean {
   } catch { return left === right; }
 }
 
-function isVideoUrl(value: string): boolean {
-  try {
-    const host = new URL(value).hostname.toLowerCase();
-    return /(^|\.)(bilibili\.com|youtube\.com|youtu\.be|v\.qq\.com|youku\.com|douyin\.com|ixigua\.com)$/.test(host);
-  } catch { return false; }
-}
-
 export default function MarkdownRenderer({ content, searchMeta }: { content: string; searchMeta?: SearchMeta }) {
   const sources = searchMeta?.results || [];
   const cleanedContent = replaceCitationMarkers(placeReviewedMedia(content, searchMeta?.media || []), sources);
@@ -181,28 +174,9 @@ export default function MarkdownRenderer({ content, searchMeta }: { content: str
           ),
           a: ({ href, children }) => {
             const url = typeof href === 'string' ? href : '';
-            const text = typeof children === 'string' ? children : String(children || '');
-            const source = sources.find((item) => sameUrl(item.url, url));
-            const isKnownCard = /zhihu\.com|weixin|baike\./i.test(url) || /知乎|公众号|百科/i.test(text);
-            if ((source || isKnownCard) && url && isSafeRemoteUrl(url)) {
-              const cardType = source?.source === 'video' || isVideoUrl(url)
-                ? 'video'
-                : source?.source === 'zhihu' || url.includes('zhihu')
-                  ? 'zhihu'
-                  : source?.source === 'wechat' || url.includes('weixin')
-                    ? 'wechat'
-                    : source?.source === 'baike' || url.includes('baike')
-                      ? 'baike'
-                      : 'web';
-              return <InfoCard
-                type={cardType}
-                title={text || source?.title || url}
-                url={url}
-                snippet={source?.snippet}
-                image={source?.image}
-                compact
-              />;
-            }
+            // Chat answers keep web evidence compact and readable. Dedicated
+            // paper/location surfaces can still use InfoCard, but a Markdown
+            // citation inside prose should remain a normal inline link.
             return isSafeRemoteUrl(url) ? <a href={url} target="_blank" rel="noreferrer">{children}</a> : <>{children}</>;
           },
           img: ({ src, alt }) => {

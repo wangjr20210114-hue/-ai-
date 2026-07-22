@@ -140,19 +140,14 @@ body {
   width: 100vw;
 }
 
-.chat-scroll {
-  scroll-behavior: smooth;
-}
-
 .msg-row {
-  --message-enter-x: -8px;
-  animation: message-arrive var(--motion-enter) var(--motion-ease-out) both;
   transform-origin: left bottom;
 }
 
 .msg-row.user {
   --message-enter-x: 8px;
   transform-origin: right bottom;
+  animation: message-arrive var(--motion-enter) var(--motion-ease-out);
 }
 
 @keyframes message-arrive {
@@ -182,7 +177,6 @@ body {
 
 .workspace-confirm-card,
 .image-studio-card,
-.rich-media-figure,
 .followup-section {
   animation: content-reveal var(--motion-reveal) var(--motion-ease-smooth) both;
 }
@@ -199,13 +193,11 @@ body {
 }
 
 .msg-bubble img,
+.rich-media-figure,
 .rich-media-figure img {
-  animation: media-reveal 320ms var(--motion-ease-out) both;
-}
-
-@keyframes media-reveal {
-  from { opacity: 0; filter: blur(5px); transform: scale(1.015); }
-  to { opacity: 1; filter: blur(0); transform: scale(1); }
+  opacity: 1;
+  filter: none;
+  transform: none;
 }
 
 .app-body {

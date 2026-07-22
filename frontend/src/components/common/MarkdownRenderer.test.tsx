@@ -4,7 +4,10 @@ import MarkdownRenderer from './MarkdownRenderer';
 import type { SearchMeta } from '../../types';
 
 const searchMeta: SearchMeta = {
-  query: 'AI 进展', results: [], images: ['https://img.example/one.jpg', 'https://img.example/two.jpg'],
+  query: 'AI 进展', results: [{
+    id: 'source-1', source: 'wsa', title: 'AI 新闻', snippet: '新闻摘要',
+    url: 'https://news.example/ai', image: 'https://img.example/card.jpg',
+  }], images: ['https://img.example/one.jpg', 'https://img.example/two.jpg'],
   sources_used: [], total: 0,
   media: [
     { id: 'one', kind: 'image', url: 'https://img.example/one.jpg', alt: '第一张', caption: '第一张', generated: false },
@@ -30,6 +33,16 @@ describe('MarkdownRenderer', () => {
     );
     expect(html).toContain('class="md-table-wrap"');
     expect(html).toContain('<table>');
+  });
+
+  it('keeps ordinary web evidence as a compact Markdown link instead of an InfoCard', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer content={'参考 [AI 新闻](https://news.example/ai)。'} searchMeta={searchMeta} />,
+    );
+    expect(html).toContain('<a href="https://news.example/ai"');
+    expect(html).toContain('>AI 新闻</a>');
+    expect(html).not.toContain('新闻摘要');
+    expect(html).not.toContain('card.jpg');
   });
 
   it('replaces model-selected media slots in paragraph order instead of appending a gallery', () => {

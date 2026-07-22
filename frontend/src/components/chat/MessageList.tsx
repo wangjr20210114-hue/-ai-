@@ -48,6 +48,10 @@ export default function MessageList({ client }: Props) {
     shouldStickToBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
   };
 
+  const stopAutoFollow = () => {
+    shouldStickToBottomRef.current = false;
+  };
+
   if (messages.length === 0) {
     return (
       <div className="chat-scroll" ref={scrollRef}>
@@ -83,7 +87,14 @@ export default function MessageList({ client }: Props) {
   }
 
   return (
-    <div className="chat-scroll" ref={scrollRef} onScroll={trackScrollPosition}>
+    <div
+      className="chat-scroll"
+      ref={scrollRef}
+      onScroll={trackScrollPosition}
+      onWheel={(event) => { if (event.deltaY < 0) stopAutoFollow(); }}
+      onTouchStart={stopAutoFollow}
+      onPointerDown={(event) => { if (event.target === event.currentTarget) stopAutoFollow(); }}
+    >
       <div className="chat-inner">
         {messages.map((m) => (
           <MessageBubble key={m.id} message={m} client={client} />
