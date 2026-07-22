@@ -93,14 +93,17 @@ def _parse_pages(data: dict[str, Any], limit: int) -> list[dict[str, Any]]:
             host,
         ) else "wsa"
         snippet = str(page.get("passage") or page.get("snippet") or page.get("description") or "")
+        image = str(
+            page.get("image") or page.get("image_url") or page.get("thumbnail")
+            or _embedded_image_url(snippet)
+        ).strip()
+        if image.startswith("http://"):
+            image = "https://" + image[len("http://"):]
         results.append({
             "source": source_kind, "title": str(page.get("title") or page.get("name") or url)[:200],
             "snippet": snippet[:500],
             "url": url,
-            "image": str(
-                page.get("image") or page.get("image_url") or page.get("thumbnail")
-                or _embedded_image_url(snippet)
-            ),
+            "image": image,
             "date": str(page.get("date") or page.get("publish_time") or "")[:40],
         })
         if len(results) >= limit:
@@ -418,6 +421,10 @@ async def rich_search(
     sources = [{
         "id": f"source-{index}", "source": item["source"], "title": item["title"],
         "snippet": item["snippet"][:240], "url": item["url"], "date": item["date"],
+        # Keep SearchPro's article hero image available to the source card as
+        # well as the separately reviewed full-width media pipeline.  Dropping
+        # it here made visually rich provider results look text-only.
+        "image": item.get("image", ""),
     } for index, item in enumerate(results, 1)]
     base_metadata = {
         "schema_version": 2, "query": query, "results": sources, "media": [],

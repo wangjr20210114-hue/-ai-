@@ -442,7 +442,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "title": "大会新闻",
             "passage": "<p>正文</p><img src='http://qqpublic.qpic.cn/news.jpg' width='700'>",
         }]}}, 8)
-        self.assertEqual(pages[0]["image"], "http://qqpublic.qpic.cn/news.jpg")
+        self.assertEqual(pages[0]["image"], "https://qqpublic.qpic.cn/news.jpg")
 
     def test_temporal_policy_is_derived_after_capability_planning(self):
         source = (Path(__file__).parents[1] / "chat" / "index.py").read_text(encoding="utf-8")
@@ -1577,6 +1577,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 {"WSA_API_KEY": "test"}, "AI 新闻", "AI 发布会现场", "basic", image_limit=2,
             )
         self.assertEqual(result["images"], ["https://img.example.com/hero.jpg"])
+        self.assertEqual(result["results"][0]["image"], "https://img.example.com/hero.jpg")
         self.assertFalse(result["media"][0]["vision_reviewed"])
         self.assertEqual(result["vision_diagnostics"]["provider_image_fallback"], 1)
 

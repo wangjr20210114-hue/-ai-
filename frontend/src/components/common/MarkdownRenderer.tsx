@@ -15,15 +15,61 @@ function markdownAlt(value: string): string {
   return value.replace(/[[\]\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 180) || '回答配图';
 }
 
+function mediaMarkdown(asset: RichMediaAsset): string {
+  return `\n\n![${markdownAlt(asset.caption || asset.alt || '')}](${asset.url})\n\n`;
+}
+
+function placeMediaByAnswerStructure(content: string, media: RichMediaAsset[]): string {
+  const safeMedia = media.filter((asset) => isSafeRemoteUrl(asset.url));
+  if (!safeMedia.length) return content;
+
+  // The answer model owns layout through explicit media slots. If it omitted
+  // them while async vision review was still running, use the structure the
+  // model did produce: distribute images after prose blocks, never as a fixed
+  // gallery at the end.
+  const parts = content.split(/(\n{2,})/);
+  const prose = parts.reduce<number[]>((indices, part, index) => {
+    if (
+      index % 2 === 0
+      && part.trim()
+      && !/^(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|\|)/.test(part.trim())
+    ) indices.push(index);
+    return indices;
+  }, []);
+  const anchors = prose.length > 1 ? prose.slice(0, -1) : prose;
+  if (anchors.length) {
+    safeMedia.forEach((asset, index) => {
+      const anchor = anchors[Math.min(
+        anchors.length - 1,
+        Math.floor((index * anchors.length) / safeMedia.length),
+      )];
+      parts[anchor] += mediaMarkdown(asset);
+    });
+    return parts.join('');
+  }
+
+  // A rare single-block answer still receives the image after its first
+  // complete sentence, so the fallback is not hard-coded to the answer tail.
+  const sentenceEnd = content.search(/[。！？.!?](?:\s|$)/);
+  if (sentenceEnd >= 0) {
+    const splitAt = sentenceEnd + 1;
+    return `${content.slice(0, splitAt)}${safeMedia.map(mediaMarkdown).join('')}${content.slice(splitAt)}`;
+  }
+  return `${content}${safeMedia.map(mediaMarkdown).join('')}`;
+}
+
 function placeReviewedMedia(content: string, media: RichMediaAsset[] = []): string {
   let nextIndex = 0;
+  let placedCount = 0;
   const placed = content.replace(MEDIA_SLOT, (_slot, explicitIndex: string | undefined) => {
     const requested = explicitIndex ? Math.max(0, Number(explicitIndex) - 1) : nextIndex++;
     const asset = media[requested];
     if (!asset || !isSafeRemoteUrl(asset.url)) return '';
-    return `\n\n![${markdownAlt(asset.caption || asset.alt || '')}](${asset.url})\n\n`;
+    placedCount += 1;
+    return mediaMarkdown(asset);
   });
-  return placed.replace(/\[\[YUANBAO_MEDIA[^\]]*$/, '');
+  const cleaned = placed.replace(/\[\[YUANBAO_MEDIA[^\]]*$/, '');
+  return placedCount > 0 ? cleaned : placeMediaByAnswerStructure(cleaned, media);
 }
 
 function RichImage({ asset }: { asset: RichMediaAsset }) {

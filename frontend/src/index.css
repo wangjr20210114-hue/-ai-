@@ -361,6 +361,7 @@ html.is-resizing-workspace * {
 }
 
 .msg-bubble {
+  --bubble-inline-padding: 16px;
   width: fit-content;
   max-width: 75%;
   min-width: 0;
@@ -764,9 +765,12 @@ html.is-resizing-workspace * {
 /* 结构化富媒体：图片始终携带说明、来源和失败回退 */
 .rich-media-figure {
   display: block !important;
-  width: 100%;
-  margin: 12px 0;
+  width: calc(100% + (2 * var(--bubble-inline-padding)));
+  max-width: none;
+  margin: 12px calc(-1 * var(--bubble-inline-padding));
   border: 1px solid var(--app-border);
+  border-left: 0;
+  border-right: 0;
   border-radius: 12px;
   overflow: hidden;
   background: var(--app-panel-2);

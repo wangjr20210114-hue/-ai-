@@ -54,4 +54,16 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('YUANBAO_MEDIA');
     expect(html).not.toContain('<img');
   });
+
+  it('uses AI-authored paragraph structure when async media arrives after an answer without slots', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer
+        content={'第一段解释 AI 进展。\n\n第二段补充影响。\n\n最后给出建议。'}
+        searchMeta={{ ...searchMeta, media: [searchMeta.media[0]], images: [searchMeta.images[0]] }}
+      />,
+    );
+    expect(html.indexOf('第一段解释')).toBeLessThan(html.indexOf('one.jpg'));
+    expect(html.indexOf('one.jpg')).toBeLessThan(html.indexOf('第二段补充'));
+    expect(html.indexOf('one.jpg')).not.toBeGreaterThan(html.indexOf('最后给出建议'));
+  });
 });
