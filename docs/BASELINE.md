@@ -24,7 +24,7 @@
 | 多模态理解、文生图、图生图、版本、Blob、ZIP | 已实现并测试 | 用户附图先经视觉 Provider 描述；混元为主，Cloudflare Workers AI 提供视觉/文生图/图生图降级，百炼与 Gemini 可作视觉后备；生成结果复制到 Makers Blob | `agents/_shared/vision.py`、`agents/_shared/side_effects.py`、`agents/image`、`InputBar.tsx` |
 | PDF、图片上传、阅读库、论文助读 | 已实现核心链路 | PDF 上传后直接打开内置助读；阅读库支持手动分类与删除反馈；无 DOCX/OCR | `cloud-functions/files`、`library`、`papers`、`agents/reader` |
 | 搜索/写作/翻译/生图/文档主动机会 | 已实现并测试 | 回答后由独立语义模型最多识别一条高价值下一步；文档上传和图片 Action 成功形成可信事件，生图结果返回后再异步做语义迭代判断；实时刷新提醒栏并在下一空白会话自然主动开场；包含置信度、冷却、过期、Action 去重和隐私过滤 | `agents/_shared/opportunities.py`、`agents/chat`、`agents/proactive`、`MessageBubble.tsx` |
-| 主动日程/天气/路线提醒 | 已实现并测试 | 打开网页及相关日程变更时刷新；未读风险由模型在空白新对话中自然发起，策略设置位于统一设置；EdgeOne Schedule 触发 `/api/proactive-tick` Cloud Function，复用 Makers Blob 原子锁后转给 `/proactive` Agent；生产已部署，真实每日触发待下一计划时刻观察日志 | `cloud-functions/api/proactive-tick`、`agents/proactive`、`useSSEChat.ts` |
+| 主动日程/天气/路线提醒 | 已实现并测试 | 打开网页及相关日程变更时刷新；未读风险由模型在空白新对话中自然发起，策略设置位于统一设置；EdgeOne Schedule 触发顶层 `/proactive-tick` Cloud Function，复用 Makers Blob 原子锁后转给 `/proactive` Agent；顶层路径已有历史生产触发证据，嵌套 `/api/proactive-tick` 回归已移除 | `cloud-functions/proactive-tick`、`agents/proactive`、`useSSEChat.ts` |
 | Notification、免打扰、每日上限、稍后提醒 | 已实现并测试 | 在线读取、即时刷新、业务去重及稍后/已读/忽略跨请求持久化均已在生产验证；只剩后台 Schedule 真实每日触发证据 | `agents/_shared/proactive.py` |
 | Memory、Feedback、Rule、Token 预算 | 已实现并测试 | 待预览复验 | `agents/intelligence` |
 | 持久工作流、失败阻断、重试与补偿 | 已实现并测试 | 待预览复验 | `agents/_shared/proactive.py` |

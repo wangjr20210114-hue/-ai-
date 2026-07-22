@@ -280,7 +280,7 @@ window.CASE_PROCEDURES = {
     S('Makers 控制台', '新建 Preview，选择测试分支；核对提交 SHA、环境=预览、构建日志 Found 1 schedule，并记录 Deployment ID。', '专用 Preview 构建成功，Schedule 名为 proactive-daily-scan，时区 Asia/Shanghai。'),
     S('目标 Preview', '创建未来 24 小时内、地点有效的 TEST-CRON 日程；设置→主动式服务→运行记录与诊断，记录“最近检查”；随后关闭这个 Preview 的所有应用标签。', '日程已确认并持久化；基线时间明确，关闭页面后不会有浏览器触发检查。'),
     S('GitHub 分支', '立即把 edgeone.json 恢复为 0 8 * * * 并推送，但先不要删除已部署的专用 Preview。', '分支 HEAD 已恢复正式 Cron；不可变专用 Preview 仍保留一次测试触发。'),
-    S('Makers 日志（触发后）', '时间范围选计划时刻前后 5 分钟；先筛选 /api/proactive-tick、来源 Cloud Functions，再筛选 /proactive、来源 Agents 和专用 Deployment ID。', '先出现平台 POST /api/proactive-tick，随后出现 Function 转发的 POST /proactive；两条均为 2xx，触发时应用页面已关闭。'),
+    S('Makers 日志（触发后）', '时间范围选计划时刻前后 5 分钟；先筛选 /proactive-tick、来源 Cloud Functions，再筛选 /proactive、来源 Agents 和专用 Deployment ID。', '先出现平台 POST /proactive-tick，随后出现 Function 转发的 POST /proactive；两条均为 2xx，触发时应用页面已关闭。'),
     S('恢复与清理', '部署已恢复 0 8 * * * 的最终 Preview；打开应用核对运行记录，再用对话删除 TEST-CRON 日程。', '平台触发 Run 可审计、同一 dedup_key 无重复通知；最终 Preview 使用正式 08:00 Cron，测试日程已删除。'),
   ],
   'PRO-08': [
