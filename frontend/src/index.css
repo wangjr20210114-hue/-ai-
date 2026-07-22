@@ -419,17 +419,6 @@ html.is-resizing-workspace * {
 .msg-bubble.ai .markdown-body > *:last-child {
   display: inline;
 }
-.streaming-answer-text {
-  min-width: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  cursor: text;
-  -webkit-user-select: text;
-  user-select: text;
-}
-.streaming-answer-text::selection {
-  background: rgba(43, 90, 237, 0.24);
-}
 .typing-cursor {
   display: inline-block;
   width: 2px;
