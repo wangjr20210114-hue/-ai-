@@ -85,7 +85,9 @@ async function openAICompletion(key, base, model) {
 }
 
 const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=';
-const publicPhoto = 'https://upload.wikimedia.org/wikipedia/commons/3/3f/Fronalpstock_big.jpg';
+// Keep the probe image small: Workers AI accepts byte arrays, so a full-size
+// Wikimedia original would inflate the JSON body enough to trigger input errors.
+const publicPhoto = 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Fronalpstock_big.jpg/320px-Fronalpstock_big.jpg';
 
 const jobs = [
   probe('makers_ai_gateway', ['AI_GATEWAY_API_KEY', 'AI_GATEWAY_BASE_URL'], () => (
@@ -149,6 +151,25 @@ const jobs = [
       provider_error_codes: Array.isArray(data?.errors) ? data.errors.map((item) => item?.code).filter(Boolean).slice(0, 4) : [],
     };
   }),
+  probe('cloudflare_vision_llava', ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_WORKERS_AI_TOKEN'], async () => {
+    const photo = await fetch(publicPhoto, { signal: timeout(20_000) });
+    const image = [...new Uint8Array(await photo.arrayBuffer())];
+    const model = '@cf/llava-hf/llava-1.5-7b-hf';
+    const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/ai/run/${model}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.CLOUDFLARE_WORKERS_AI_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image, prompt: 'Describe the main subject in one short sentence.', max_tokens: 64 }),
+      signal: timeout(30_000),
+    });
+    const data = await jsonBody(response);
+    const result = data?.result;
+    const text = typeof result === 'string' ? result : result?.description || result?.response;
+    return {
+      live: response.ok && data?.success === true && Boolean(text),
+      http_status: response.status, response_shape: Boolean(result),
+      provider_error_codes: Array.isArray(data?.errors) ? data.errors.map((item) => item?.code).filter(Boolean).slice(0, 4) : [],
+    };
+  }),
   probe('tencent_map_server', ['TENCENT_MAP_SERVER_KEY'], async () => {
     const url = new URL('https://apis.map.qq.com/ws/place/v1/search');
     url.searchParams.set('key', env.TENCENT_MAP_SERVER_KEY);
@@ -194,7 +215,7 @@ const jobs = [
   }),
 ].filter((job, index) => selected([
   'makers_ai_gateway', 'deepseek_direct', 'wsa_searchpro', 'hunyuan_vision',
-  'cloudflare_token', 'cloudflare_vision', 'tencent_map_server',
+  'cloudflare_token', 'cloudflare_vision', 'cloudflare_vision_llava', 'tencent_map_server',
   'tencent_map_browser_key', 'tencent_meeting_mcp',
 ][index]));
 

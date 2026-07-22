@@ -1,6 +1,6 @@
 # 视觉 Provider 降级链
 
-更新时间：2026-07-21。
+更新时间：2026-07-22。
 
 ## 结论
 
@@ -60,7 +60,9 @@ IMAGE_PROVIDER_ORDER=cloudflare,hunyuan
 - 图生图：混元失败后，Cloudflare 使用 img2img；当前降级适配器使用第一张参考图，混元仍支持最多三张参考图。
 - 所有成功生成图片都复制到 Makers Blob；Provider 临时 URL 不是历史记录的唯一来源。
 
-当前 Makers 项目的测试 `CLOUDFLARE_WORKERS_AI_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID` 均已收紧并核验为“预览”，生产环境不继承。多模态理解真实调用已正确识别合成测试图；Flux 英文文生图已正确生成白底、蓝围巾橘猫；`dpmnthmfw7fx` 的图生图日志真实显示 `provider=cloudflare`、`model=@cf/runwayml/stable-diffusion-v1-5-img2img`、`reference_count=1`、`fallback=False`，因此三条能力的接口可用性均已有 Preview 证据。中文翻译预处理使用 `@cf/zai-org/glm-4.7-flash`，但最终图生图实测仍返回不可用的翻译结果；适配器现在把翻译当可选步骤，失败后继续用原提示词调用图片模型。该次确实出图并保存为图片工坊新版本，但颜色、构图和“不要文字”的跟随效果有限，所以 Cloudflare 只作为免费可用性降级，不宣称与混元质量等价。
+当前 Makers 项目的测试 `CLOUDFLARE_WORKERS_AI_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID` 只配置在 Preview，生产环境不继承。2026-07-22 重新脱敏探测后，Token 本身仍为 active，Flux 文生图 HTTP 200（约 2 秒），历史 Preview 的 img2img 日志也真实显示 `provider=cloudflare`、`model=@cf/runwayml/stable-diffusion-v1-5-img2img`、`reference_count=1`、`fallback=False`；这两条生成降级仍可用。
+
+多模态理解的“历史成功”不能代表当前 Token 状态：Meta Llama 3.2 Vision 现返回 HTTP 403 / 5016，需账号接受模型许可；LLaVA Beta 按官方字节数组格式并把测试图缩至 320px 后仍返回 HTTP 400 / 3010。混元视觉对同一小图约 23.4 秒后返回 HTTP 400 / `400001`。因此当前视觉理解属于外部 Provider 阻塞，代码会在共享预算内快速降级；SearchPro 返回可追溯文章主图时仍可展示真实新闻图片，没有可靠候选时则诚实不展示。中文翻译预处理仍是可选步骤，失败后图片生成会继续使用原提示词；Cloudflare 只作为免费可用性降级，不宣称与混元质量等价。
 
 ## 无破坏 Preview 验收
 
