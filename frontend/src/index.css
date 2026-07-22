@@ -403,7 +403,18 @@ html.is-resizing-workspace * {
   white-space: normal;
   min-width: 0;
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.msg-bubble.ai .markdown-body *:not(button) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+.msg-bubble.ai .markdown-body ::selection,
+.rich-media-figure figcaption ::selection {
+  background: rgba(43, 90, 237, 0.24);
 }
 .msg-bubble.ai .markdown-body > *:last-child {
   display: inline;
@@ -761,8 +772,7 @@ html.is-resizing-workspace * {
   max-width: none;
   margin: 12px calc(-1 * var(--bubble-inline-padding));
   border: 1px solid var(--app-border);
-  border-left: 0;
-  border-right: 0;
+  box-sizing: border-box;
   border-radius: 12px;
   overflow: hidden;
   background: var(--app-panel-2);
@@ -780,6 +790,9 @@ html.is-resizing-workspace * {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   gap: 6px 10px;
   padding: 8px 10px;
   color: var(--app-text-2);
@@ -787,7 +800,14 @@ html.is-resizing-workspace * {
   line-height: 1.45;
   border-top: 1px solid var(--app-border);
 }
+.rich-media-caption-text {
+  flex: 1 1 240px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .rich-media-figure figcaption a {
+  flex: 0 0 auto;
   margin-left: auto;
   font-size: 10.5px;
 }

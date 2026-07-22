@@ -79,4 +79,28 @@ describe('MarkdownRenderer', () => {
     expect(html.indexOf('one.jpg')).toBeLessThan(html.indexOf('第二段补充'));
     expect(html.indexOf('one.jpg')).not.toBeGreaterThan(html.indexOf('最后给出建议'));
   });
+
+  it('does not move fallback media through an incomplete streaming answer', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer
+        streaming
+        content={'第一段仍在流式生成。\n\n第二段尚未完成'}
+        searchMeta={{ ...searchMeta, media: [searchMeta.media[0]], images: [searchMeta.images[0]] }}
+      />,
+    );
+    expect(html).toContain('is-streaming');
+    expect(html).not.toContain('one.jpg');
+  });
+
+  it('keeps an explicit model media slot visible during streaming', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer
+        streaming
+        content={'已经完成的段落。\n\n[[YUANBAO_MEDIA]]\n\n继续生成'}
+        searchMeta={{ ...searchMeta, media: [searchMeta.media[0]], images: [searchMeta.images[0]] }}
+      />,
+    );
+    expect(html).toContain('one.jpg');
+    expect(html).not.toContain('YUANBAO_MEDIA');
+  });
 });

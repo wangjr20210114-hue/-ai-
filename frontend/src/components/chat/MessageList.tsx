@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import MessageBubble from './MessageBubble';
 import type { ChatClient } from '../../services/chatClient';
+import { hasTextSelectionInside } from './scrollSelection';
 
 const STARTERS = [
   '最近AI有什么新进展',
@@ -27,14 +28,16 @@ export default function MessageList({ client }: Props) {
     const container = scrollRef.current;
     if (!container) return;
     const isInitialRestore = previousCountRef.current === 0 && messages.length > 0;
-    const hasNewMessage = messages.length > previousCountRef.current;
     if (isInitialRestore) {
       // Run before paint so a restored task opens at the bottom without a visible scroll.
       container.scrollTop = container.scrollHeight;
       requestAnimationFrame(() => {
         container.scrollTop = container.scrollHeight;
       });
-    } else if (hasNewMessage || shouldStickToBottomRef.current) {
+    } else if (hasTextSelectionInside(container, window.getSelection())) {
+      // Never move the viewport while the user is selecting/copying an answer.
+      shouldStickToBottomRef.current = false;
+    } else if (shouldStickToBottomRef.current) {
       // Status labels and streamed tokens update often. Keep the viewport anchored
       // without restarting a smooth-scroll animation on every text change.
       container.scrollTop = container.scrollHeight;
@@ -50,6 +53,12 @@ export default function MessageList({ client }: Props) {
 
   const stopAutoFollow = () => {
     shouldStickToBottomRef.current = false;
+  };
+
+  const finishPointerInteraction = () => {
+    const container = scrollRef.current;
+    if (!container || hasTextSelectionInside(container, window.getSelection())) return;
+    trackScrollPosition();
   };
 
   if (messages.length === 0) {
@@ -93,7 +102,12 @@ export default function MessageList({ client }: Props) {
       onScroll={trackScrollPosition}
       onWheel={(event) => { if (event.deltaY < 0) stopAutoFollow(); }}
       onTouchStart={stopAutoFollow}
-      onPointerDown={(event) => { if (event.target === event.currentTarget) stopAutoFollow(); }}
+      onPointerDown={(event) => {
+        const target = event.target as Element;
+        if (event.target === event.currentTarget || target.closest('.msg-bubble')) stopAutoFollow();
+      }}
+      onPointerUp={finishPointerInteraction}
+      onCopy={stopAutoFollow}
     >
       <div className="chat-inner">
         {messages.map((m) => (

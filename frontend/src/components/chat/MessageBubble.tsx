@@ -448,7 +448,7 @@ export default function MessageBubble({ message }: Props) {
   const searchStatus = typeof message.skill?.data?.statusText === 'string'
     ? message.skill.data.statusText
     : '正在搜索';
-  const progressStatus = message.content && searchStatus === '思考中…' ? '正在继续生成回答…' : searchStatus;
+  const progressStatus = message.content && searchStatus === '思考中…' ? '正在流式生成回答…' : searchStatus;
   return (
     <div className={`msg-row ${isUser ? 'user' : 'ai'}`}>
       <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>{isUser ? '我' : 'AI'}</div>
@@ -466,7 +466,7 @@ export default function MessageBubble({ message }: Props) {
                   <span className="image-generating-dots"><span>.</span><span>.</span><span>.</span></span>
                 </div>
               )}
-              {message.content && <MarkdownRenderer content={message.content} searchMeta={message.searchResults} />}
+              {message.content && <MarkdownRenderer content={message.content} searchMeta={message.searchResults} streaming={message.streaming} />}
               {message.proactive && proactive && <div className="proactive-conversation-actions">
                 {(proactive.notifications || []).filter((item) => item.status !== 'dismissed').slice(0, 3).map((item) => <div className="proactive-conversation-item" key={item.id}>
                   <span>{item.title}</span>

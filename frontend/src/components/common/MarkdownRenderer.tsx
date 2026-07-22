@@ -57,7 +57,7 @@ function placeMediaByAnswerStructure(content: string, media: RichMediaAsset[]): 
   return `${content}${safeMedia.map(mediaMarkdown).join('')}`;
 }
 
-function placeReviewedMedia(content: string, media: RichMediaAsset[] = []): string {
+function placeReviewedMedia(content: string, media: RichMediaAsset[] = [], allowStructuralFallback = true): string {
   let nextIndex = 0;
   let placedCount = 0;
   const placed = content.replace(MEDIA_SLOT, (_slot, explicitIndex: string | undefined) => {
@@ -68,7 +68,7 @@ function placeReviewedMedia(content: string, media: RichMediaAsset[] = []): stri
     return mediaMarkdown(asset);
   });
   const cleaned = placed.replace(/\[\[YUANBAO_MEDIA[^\]]*$/, '');
-  return placedCount > 0 ? cleaned : placeMediaByAnswerStructure(cleaned, media);
+  return placedCount > 0 || !allowStructuralFallback ? cleaned : placeMediaByAnswerStructure(cleaned, media);
 }
 
 function RichImage({ asset }: { asset: RichMediaAsset }) {
@@ -81,11 +81,12 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
         alt={asset.alt || asset.caption || '回答配图'}
         loading="eager"
         decoding="async"
+        draggable={false}
         onError={() => setFailed(true)}
       />
       {(asset.caption || asset.source_url) && (
         <figcaption>
-          <span>{asset.caption}</span>
+          <span className="rich-media-caption-text">{asset.caption}</span>
           {asset.generated && <span className="rich-media-generated">AI 生成示意图</span>}
           {asset.source_url && isSafeRemoteUrl(asset.source_url) && (
             <a href={asset.source_url} target="_blank" rel="noreferrer">
@@ -141,12 +142,26 @@ function sameUrl(left: string, right: string): boolean {
   } catch { return left === right; }
 }
 
-export default function MarkdownRenderer({ content, searchMeta }: { content: string; searchMeta?: SearchMeta }) {
+export default function MarkdownRenderer({
+  content,
+  searchMeta,
+  streaming = false,
+}: {
+  content: string;
+  searchMeta?: SearchMeta;
+  streaming?: boolean;
+}) {
   const sources = searchMeta?.results || [];
-  const cleanedContent = replaceCitationMarkers(placeReviewedMedia(content, searchMeta?.media || []), sources);
+  // While tokens are still arriving, only honor stable model-authored slots.
+  // Recomputing fallback placement from an incomplete paragraph tree makes an
+  // image jump between paragraphs and destroys the user's text selection.
+  const cleanedContent = replaceCitationMarkers(
+    placeReviewedMedia(content, searchMeta?.media || [], !streaming),
+    sources,
+  );
 
   return (
-    <div className="markdown-body">
+    <div className={`markdown-body${streaming ? ' is-streaming' : ''}`}>
       <ReactMarkdown
         remarkPlugins={[remarkMath, remarkGfm]}
         rehypePlugins={[rehypeKatex]}
