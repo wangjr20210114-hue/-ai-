@@ -344,9 +344,9 @@ SENSITIVE_KEY_RE = re.compile(
     re.I,
 )
 SENSITIVE_VALUE_RES = (
-    re.compile(r"\b1[3-9]\d{9}\b"),
-    re.compile(r"\b\d{15}(?:\d{2}[0-9Xx])?\b"),
-    re.compile(r"\b\d{16,19}\b"),
+    re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"),
+    re.compile(r"(?<!\d)\d{15}(?:\d{2}[0-9Xx])?(?!\d)"),
+    re.compile(r"(?<!\d)\d{16,19}(?!\d)"),
     re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}"),
     re.compile(r"(?:password|passwd|secret|token|api.?key|密码|口令|密钥)\s*[:：=]", re.I),
 )
@@ -357,6 +357,12 @@ def _safe_memory(key: str, value: Any) -> bool:
     if not key.strip() or not text.strip() or SENSITIVE_KEY_RE.search(key) or SENSITIVE_KEY_RE.search(text):
         return False
     return not any(pattern.search(text) for pattern in SENSITIVE_VALUE_RES)
+
+
+def safe_non_sensitive_text(value: Any, *, max_chars: int = 4000) -> bool:
+    """Conservative reusable guard for automatically surfaced text."""
+    text = str(value or "")[:max(1, min(20_000, int(max_chars)))]
+    return bool(text.strip()) and _safe_memory("content", text)
 
 
 def prune_automatic_memories(state: dict[str, Any], now: int | None = None) -> int:

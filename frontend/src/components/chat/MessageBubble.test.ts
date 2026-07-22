@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkspaceAction } from '../../types';
-import { nextWholeHourRange, usableMapPlaces } from './workspaceUi';
+import { generatedImageOpportunitySignal, nextWholeHourRange, usableMapPlaces } from './workspaceUi';
 
 function mapAction(places: WorkspaceAction['payload']['places']): WorkspaceAction {
   return {
@@ -34,5 +34,42 @@ describe('map Action snapshot', () => {
     ]);
 
     expect(usableMapPlaces(action).map((place) => place.place_id)).toEqual(['verified']);
+  });
+});
+
+describe('generated image opportunity signal', () => {
+  it('contains only prompt metadata and deduplicates by Action id', () => {
+    const action = {
+      schema_version: 1,
+      id: 'image-action-1',
+      kind: 'image_generate',
+      status: 'succeeded',
+      version: 2,
+      payload: { prompt: '活动页首屏，主体靠左', parent_action_id: 'image-v1' },
+      result: { image_url: '/files?key=secret-image-key', storage_key: 'secret-image-key' },
+    } as WorkspaceAction;
+
+    expect(generatedImageOpportunitySignal(action)).toEqual({
+      signal_type: 'image_generated',
+      dedup_key: 'image-action-1',
+      payload: {
+        action_id: 'image-action-1',
+        prompt: '活动页首屏，主体靠左',
+        has_reference_image: true,
+        has_previous_version: true,
+      },
+    });
+  });
+
+  it('does not emit before the image succeeds', () => {
+    const action = {
+      schema_version: 1,
+      id: 'image-action-2',
+      kind: 'image_generate',
+      status: 'awaiting_confirmation',
+      version: 1,
+      payload: { prompt: '一只橘猫' },
+    } as WorkspaceAction;
+    expect(generatedImageOpportunitySignal(action)).toBeNull();
   });
 });

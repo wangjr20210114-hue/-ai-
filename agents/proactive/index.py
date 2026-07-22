@@ -21,7 +21,11 @@ from .._shared.proactive import (
     process_schedule_signals,
     ingest_workspace_signal,
 )
-from .._shared.opportunities import file_opportunity_signal
+from .._shared.opportunities import (
+    detect_generated_image_opportunity,
+    file_opportunity_signal,
+    opportunity_signal,
+)
 from .._shared.intelligence import load_intelligence_state, record_feedback, save_intelligence_state
 from .._shared.auth import require_user, scoped_conversation_id
 from .._shared.http import error
@@ -242,11 +246,22 @@ async def handler(ctx):
             dedup_key = str(body.get("dedup_key") or "").strip()
             payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
             now = int(time.time())
+            persisted_payload = payload
+            if signal_type == "image_generated":
+                # The prompt is needed only for this semantic judgment. Keep
+                # URLs, Blob keys and the full prompt out of durable proactive
+                # events; the original user request already belongs to the
+                # Makers conversation history.
+                persisted_payload = {
+                    "action_id": str(payload.get("action_id") or "")[:120],
+                    "has_reference_image": bool(payload.get("has_reference_image")),
+                    "has_previous_version": bool(payload.get("has_previous_version")),
+                }
             _event, created = ingest_workspace_signal(
                 state,
                 signal_type=signal_type,
                 dedup_key=dedup_key,
-                payload=payload,
+                payload=persisted_payload,
                 now=now,
             )
             stats = {"signals": 0, "events_created": 0, "runs_created": 0, "notifications_created": 0, "skipped": 0}
@@ -256,6 +271,25 @@ async def handler(ctx):
                     [file_opportunity_signal(payload, dedup_key=dedup_key, now=now)],
                     now,
                 )
+            elif created and signal_type == "image_generated":
+                try:
+                    opportunity = await detect_generated_image_opportunity(
+                        get_model(ctx.env),
+                        payload,
+                        timeout_seconds=float(ctx.env.get("OPPORTUNITY_PLAN_TIMEOUT_SECONDS") or 6),
+                    )
+                except Exception:
+                    opportunity = None
+                if opportunity:
+                    stats = process_schedule_signals(
+                        state,
+                        [opportunity_signal(
+                            opportunity,
+                            source_id=str(payload.get("action_id") or dedup_key),
+                            now=now,
+                        )],
+                        now,
+                    )
             saved = await save_proactive_state(store, state, user_id)
             return {**public_proactive_state(saved), "signal_created": created, "tick_stats": stats}
         if operation in {"confirm_workflow", "reject_workflow"}:

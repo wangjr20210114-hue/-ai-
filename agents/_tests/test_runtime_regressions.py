@@ -151,6 +151,47 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(second["signal_created"])
         self.assertEqual(len(second["notifications"]), 1)
 
+    async def test_generated_image_signal_runs_semantic_judgment_once(self):
+        stores = FakeProactiveStores()
+        ctx = SimpleNamespace(
+            env={}, store=stores, conversation_id="image-conversation",
+            request=SimpleNamespace(body={
+                "operation": "ingest_signal",
+                "signal_type": "image_generated",
+                "dedup_key": "image-action-1",
+                "payload": {
+                    "action_id": "image-action-1",
+                    "prompt": "活动页首屏插图，主体靠左并给右侧标题留白",
+                    "has_reference_image": False,
+                },
+            }, headers={}),
+        )
+        model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=(
+            '{"should_notify":true,"type":"image_iteration","title":"生成移动端适配版",'
+            '"body":"当前横幅还可以补一版竖屏构图。",'
+            '"action_prompt":"基于刚生成的图片制作9:16移动端版本并保留标题区域",'
+            '"priority":"low","confidence":0.9,"expires_in_hours":24,"reason":"已有明确活动页用途"}'
+        ))))
+        with patch("agents.proactive.index.get_model", return_value=model):
+            first = await proactive_handler(ctx)
+            second = await proactive_handler(ctx)
+        self.assertIn("signal_created", first, first)
+        self.assertTrue(first["signal_created"])
+        self.assertEqual(first["tick_stats"]["notifications_created"], 1)
+        self.assertEqual(first["notifications"][0]["type"], "opportunity_image_iteration")
+        self.assertFalse(second["signal_created"])
+        self.assertEqual(model.ainvoke.await_count, 1)
+        image_events = [
+            value for value in stores.langgraph_store.values.values()
+            if isinstance(value, dict) and isinstance(value.get("events"), dict)
+        ]
+        self.assertTrue(image_events)
+        persisted = next(
+            event for event in image_events[0]["events"].values()
+            if event.get("type") == "image_generated"
+        )
+        self.assertNotIn("prompt", persisted["payload"])
+
     async def test_chat_run_uses_native_conversation_metadata(self):
         store = FakeConversationStore()
         await write_chat_run(store, "conversation-1", run_id="run-1", status="running")

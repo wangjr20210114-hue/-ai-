@@ -740,7 +740,10 @@ def process_schedule_signals(state: dict[str, Any], signals: list[dict[str, Any]
 def ingest_workspace_signal(
     state: dict[str, Any], *, signal_type: str, dedup_key: str, payload: dict[str, Any], now: int,
 ) -> tuple[dict[str, Any], bool]:
-    allowed = {"file_uploaded", "calendar_changed", "route_changed", "preference_changed"}
+    allowed = {
+        "file_uploaded", "image_generated", "calendar_changed",
+        "route_changed", "preference_changed",
+    }
     normalized_type = str(signal_type or "")
     if normalized_type not in allowed:
         raise ValueError("不支持的工作区信号类型")

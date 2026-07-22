@@ -13,6 +13,8 @@ import json
 import re
 from typing import Any
 
+from .intelligence import safe_non_sensitive_text
+
 
 OPPORTUNITY_TYPES = {
     "search_update",
@@ -53,6 +55,8 @@ def parse_opportunity(content: Any) -> dict[str, Any] | None:
     body = str(raw.get("body") or "").strip()[:240]
     action_prompt = str(raw.get("action_prompt") or "").strip()[:500]
     if not title or not body or not action_prompt:
+        return None
+    if not safe_non_sensitive_text("\n".join((title, body, action_prompt, str(raw.get("reason") or "")))):
         return None
     try:
         confidence = float(raw.get("confidence") or 0)
@@ -122,6 +126,39 @@ type 只能是 search_update、writing_improvement、translation_review、image_
     except Exception:
         return None
     return parse_opportunity(getattr(response, "content", response))
+
+
+async def detect_generated_image_opportunity(
+    model: Any,
+    payload: dict[str, Any],
+    *,
+    timeout_seconds: float = 6.0,
+) -> dict[str, Any] | None:
+    """Judge a completed image action without delaying the image response.
+
+    The Workspace result is a trusted completion signal, but whether another
+    version would help is still semantic.  Only the prompt and non-sensitive
+    layout metadata are passed to the detector; image URLs and Blob keys stay
+    out of the model context.
+    """
+    prompt = str(payload.get("prompt") or "").strip()[:2000]
+    if not prompt:
+        return None
+    context = {
+        "generated": True,
+        "has_reference_image": bool(payload.get("has_reference_image")),
+        "group_has_previous_version": bool(payload.get("has_previous_version")),
+    }
+    opportunity = await detect_opportunity(
+        model,
+        user_message=f"用户刚完成图片生成，原始需求：{prompt}",
+        answer="图片已经生成成功，可以根据用途、版式和视觉重点判断是否值得主动提供一个具体迭代版本。",
+        capability_plan={"intent": "image", "image_result": context},
+        timeout_seconds=timeout_seconds,
+    )
+    if not opportunity or opportunity.get("type") != "image_iteration":
+        return None
+    return opportunity
 
 
 def opportunity_signal(

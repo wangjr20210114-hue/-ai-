@@ -19,3 +19,20 @@ export function usableMapPlaces(action: WorkspaceAction) {
     && Math.abs(place.longitude) <= 180
   ));
 }
+
+/** Build the minimal, non-sensitive signal used after a successful image Action. */
+export function generatedImageOpportunitySignal(action: WorkspaceAction) {
+  const prompt = String(action.payload.prompt || action.result?.prompt || '').trim();
+  if (action.kind !== 'image_generate' || action.status !== 'succeeded' || !prompt) return null;
+  const hasPreviousVersion = Boolean(action.payload.parent_action_id);
+  return {
+    signal_type: 'image_generated',
+    dedup_key: action.id,
+    payload: {
+      action_id: action.id,
+      prompt,
+      has_reference_image: hasPreviousVersion,
+      has_previous_version: hasPreviousVersion,
+    },
+  };
+}

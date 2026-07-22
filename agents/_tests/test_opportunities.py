@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 
 from agents._shared.opportunities import (
+    detect_generated_image_opportunity,
     detect_opportunity,
     file_opportunity_signal,
     opportunity_signal,
@@ -57,6 +58,20 @@ class OpportunityTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(low)
         self.assertIsNone(unknown)
 
+    def test_parser_rejects_sensitive_contact_or_secret_content(self):
+        phone = parse_opportunity(
+            '{"should_notify":true,"type":"task_next_step","title":"联系负责人",'
+            '"body":"请拨打13800138000确认。","action_prompt":"提醒我拨打13800138000",'
+            '"confidence":0.9,"expires_in_hours":24}'
+        )
+        secret = parse_opportunity(
+            '{"should_notify":true,"type":"task_next_step","title":"保存密钥",'
+            '"body":"API key需要归档。","action_prompt":"保存 API key: abc",'
+            '"confidence":0.9,"expires_in_hours":24}'
+        )
+        self.assertIsNone(phone)
+        self.assertIsNone(secret)
+
     async def test_detector_skips_pending_side_effect_without_calling_model(self):
         model = FakeModel('{}')
         result = await detect_opportunity(
@@ -67,6 +82,29 @@ class OpportunityTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNone(result)
         self.assertEqual(model.calls, 0)
+
+    async def test_generated_image_uses_semantic_iteration_judgment(self):
+        model = FakeModel(
+            '{"should_notify":true,"type":"image_iteration","title":"补一版横幅构图",'
+            '"body":"当前活动页插图可以增加右侧标题留白。",'
+            '"action_prompt":"基于刚生成的图片制作16:9版本，主体靠左并给右侧标题留白",'
+            '"priority":"low","confidence":0.91,"expires_in_hours":24,"reason":"已有明确页面用途"}'
+        )
+        result = await detect_generated_image_opportunity(model, {
+            "prompt": "活动页首屏插图，橘猫位于左侧，右侧用于标题",
+            "has_reference_image": False,
+        })
+        self.assertEqual(result["type"], "image_iteration")
+        self.assertEqual(model.calls, 1)
+
+    async def test_generated_image_rejects_other_opportunity_types(self):
+        model = FakeModel(
+            '{"should_notify":true,"type":"writing_improvement","title":"改文案",'
+            '"body":"改一下文案。","action_prompt":"改写文案",'
+            '"confidence":0.9,"expires_in_hours":24}'
+        )
+        result = await detect_generated_image_opportunity(model, {"prompt": "一只橘猫"})
+        self.assertIsNone(result)
 
     def test_semantic_opportunities_have_cooldown_and_expire(self):
         now = 100_000

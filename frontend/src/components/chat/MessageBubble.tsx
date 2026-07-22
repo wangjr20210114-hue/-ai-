@@ -10,7 +10,7 @@ import PaperInlineReader from '../paper/PaperInlineReader';
 import ImageStudioCard from '../image/ImageStudioCard';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { followUpDraftAction } from './followUps';
-import { nextWholeHourRange, usableMapPlaces } from './workspaceUi';
+import { generatedImageOpportunitySignal, nextWholeHourRange, usableMapPlaces } from './workspaceUi';
 import { hasTextSelectionInside } from './scrollSelection';
 import { streamingMarkdownAnswer } from './streamingAnswer';
 import { loadProactiveDocumentContext } from '../../services/proactiveDocument';
@@ -295,6 +295,15 @@ export default function MessageBubble({ message }: Props) {
     return response.action;
   };
 
+  const ingestGeneratedImage = (action: WorkspaceAction) => {
+    const signal = generatedImageOpportunitySignal(action);
+    if (!signal) return;
+    void proactiveOperation(conversationId, 'ingest_signal', {
+      ...signal,
+    }).then((next) => dispatch({ type: 'HYDRATE_PROACTIVE', payload: next }))
+      .catch((error) => console.warn('image opportunity ingestion failed', error));
+  };
+
   const handleCreateMeeting = async () => {
     setMeetingCreating(true);
     setMeetingStatusText('已确认，等待后台 Executor...');
@@ -339,6 +348,7 @@ export default function MessageBubble({ message }: Props) {
           prompt: typeof data.prompt === 'string' ? data.prompt : undefined,
         };
         setImageResult(result);
+        ingestGeneratedImage(action);
         MessagePlugin.success('图片生成成功！');
       } else {
         const error = action.error || '生成失败';
@@ -425,7 +435,10 @@ export default function MessageBubble({ message }: Props) {
         else MessagePlugin.warning(String(response.action?.error || result.error || '会议创建失败'));
       }
       if (operation === 'confirm_action' && action.kind === 'image_generate') {
-        if (response.action?.status === 'succeeded') MessagePlugin.success('图片生成成功');
+        if (response.action?.status === 'succeeded') {
+          ingestGeneratedImage(response.action);
+          MessagePlugin.success('图片生成成功');
+        }
         else MessagePlugin.warning(String(response.action?.error || '图片生成失败'));
       }
       if (operation === 'cancel_action') MessagePlugin.success('已取消该操作');
