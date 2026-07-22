@@ -8,10 +8,11 @@
 - Project ID：`makers-0oeuhire655w`
 - GitHub：`wangjr20210114-hue/-ai-`
 - 生产分支：`agent/makers-native-persistence-fixes`
-- 业务发布基线：`90034b1b14d0800a8506d66d731ecd7dcfc57069`
+- 业务发布基线：`0242112cf196651f11fdc0f03cfb5e99fa75fa65`
 - Preview Deployment：`dpbkmy4qt93e`
 - Preview 构建：成功，71 秒，2026-07-22 18:50（Asia/Shanghai）
-- 生产 Deployment：以 EdgeOne Makers“构建部署”中该分支最新成功的 Production 行为准。
+- 已验证生产 Deployment：`dptvf8ss3dl9`，成功，69 秒，2026-07-22 19:31（Asia/Shanghai）
+- 后续生产 Deployment：以 EdgeOne Makers“构建部署”中该分支最新成功的 Production 行为准。
 
 生产分支已从旧的 `codex/edgeone-makers-refactor` 切换到当前分支。切换前的稳定生产 Deployment 为 `dp8p5j6dewo0`；它只用于回滚，不再代表当前功能基线。
 
@@ -41,6 +42,16 @@
 - PRO-09 在线标记为“通过”后保存为共享版本 157；新开独立页面重新读取仍为“通过”。
 - Preview 默认域名受 EdgeOne 访问保护；必须从 Deployment 的“预览”按钮取得 3 小时签名链接。直接访问裸域名返回 401 不代表应用鉴权失败。
 
+## Production 线上证据
+
+`dptvf8ss3dl9` 已完成以下非破坏性真实生产验收：
+
+- `PRO-10`：上传测试 PDF 后，真实产生 1 个 Signal、1 个 Event、1 个 Run 和 1 个 Notification，没有重复或跳过；文档提醒进入左栏与阅读库。
+- 采纳文档建议时，`/chat` 使用一次性 `document_context`，准确提炼原文数字、计划和两条行动项；SSE 没有 `tool_call` 或 `rich_search`，证明不会再把同名私有文件误搜成公网网页。
+- `PRO-11`：在两个新会话重复发送同一管理层周报请求，revision 和同语义机会数量均不增加；6 小时同类冷却生效。
+- “稍后 / 已读 / 忽略”的时间戳在独立请求重新读取后仍存在；测试文档、Blob 对象和测试提醒已清理。
+- 共享验收站已持久化到版本 159：69 条 Case 中，生产阻断项通过 43/44；剩余 `PRO-07` 只等待 EdgeOne 每日 Schedule 在真实触发时刻的日志证据，不用手动请求冒充通过。
+
 ## 测试站
 
 - 路径：生产主站 `/test-cases/`
@@ -51,7 +62,9 @@
 - Case 数：69
 - 新增主办方闭环用例：PRO-09、PRO-10、PRO-11
 
-任意主机访问同一生产网址都可读取和编辑同一份数据。详细启动、部署和恢复步骤见 [`ACCEPTANCE_SITE.md`](ACCEPTANCE_SITE.md)。
+绑定生产自定义域名后，任意主机访问同一网址都可读取和编辑同一份数据。详细启动、部署和恢复步骤见 [`ACCEPTANCE_SITE.md`](ACCEPTANCE_SITE.md)。
+
+Makers Blob 的共享编辑已经完成；但 EdgeOne 默认 `edgeone.cool` 域名只提供 3 小时受保护预览。要让“任意主机长期直接打开”成为稳定生产入口，仍需在项目“域名管理”绑定一个用户可控制 DNS 的自定义域名。
 
 ## 自动化证据
 
@@ -70,7 +83,8 @@
 
 - Cloudflare Workers AI 和腾讯会议个人 Token 仍只配置到 Preview，生产不继承测试 Token；生产优先使用已配置的混元能力。
 - 腾讯会议是可选 Skill，不属于比赛主动服务主链路；未授权时必须自然提示，不伪造成功。
-- Preview 的 EdgeOne Schedule 受默认域名访问保护影响，平台请求可能在进入 Function 前返回 404；生产发布后以真实 Schedule 日志继续观察。
+- EdgeOne Schedule 的代码、配置、原子锁和手动桥接测试已通过；真实每日触发尚未到下一次计划时刻，`PRO-07` 保持阻塞，必须以平台 Schedule 日志中的 2xx 和 `last_tick` 推进为准。
+- 默认 `edgeone.cool` 地址受 3 小时访问保护；长期公开生产访问仍缺自定义域名和 DNS 绑定。
 - DOC/DOCX、扫描 PDF OCR 和页码级引用不在本版完成范围。
 - 无法保证所有外部搜索都在 5–10 秒完成；目标是单轮一次 `rich_search`、并行事实/视觉查询、缓存命中时优先快速返回。
 

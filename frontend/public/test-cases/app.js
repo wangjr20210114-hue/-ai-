@@ -154,7 +154,7 @@ async function refreshRemote(showMessage=true) {
     remoteAvailable = true;
     applyRemote(state);
     setSyncStatus('online',`已同步 · 版本 ${saved.revision} · ${formatTime(saved.updatedAt)}`);
-    document.querySelector('#security-note').textContent = '同一生产站点的所有主机共享 Makers Blob 数据；采用单人编辑、最后保存生效。';
+    document.querySelector('#security-note').textContent = '同一生产自定义域名的所有主机共享 Makers Blob 数据；采用单人编辑、最后保存生效。默认 edgeone.cool 签名仅供 3 小时验收。';
     if (showMessage) toast('已取得其他主机的最新记录');
   } catch (error) {
     remoteAvailable = false;

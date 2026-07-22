@@ -24,8 +24,8 @@
 | 多模态理解、文生图、图生图、版本、Blob、ZIP | 已实现并测试 | 用户附图先经视觉 Provider 描述；混元为主，Cloudflare Workers AI 提供视觉/文生图/图生图降级，百炼与 Gemini 可作视觉后备；生成结果复制到 Makers Blob | `agents/_shared/vision.py`、`agents/_shared/side_effects.py`、`agents/image`、`InputBar.tsx` |
 | PDF、图片上传、阅读库、论文助读 | 已实现核心链路 | PDF 上传后直接打开内置助读；阅读库支持手动分类与删除反馈；无 DOCX/OCR | `cloud-functions/files`、`library`、`papers`、`agents/reader` |
 | 搜索/写作/翻译/生图/文档主动机会 | 已实现并测试 | 回答后由独立语义模型最多识别一条高价值下一步；文档上传直接形成可信机会；实时刷新提醒栏并在下一空白会话自然主动开场；包含置信度、冷却、过期和隐私过滤 | `agents/_shared/opportunities.py`、`agents/chat`、`agents/proactive`、`useSSEChat.ts` |
-| 主动日程/天气/路线提醒 | 已实现并测试 | 打开网页及相关日程变更时刷新；未读风险由模型在空白新对话中自然发起，策略设置位于统一设置；EdgeOne Schedule 触发 `/api/proactive-tick` Cloud Function，复用 Makers Blob 原子锁后转给 `/proactive` Agent；受保护 Preview 的平台请求当前在进入已部署 Function 前 404 | `cloud-functions/api/proactive-tick`、`agents/proactive`、`useSSEChat.ts` |
-| Notification、免打扰、每日上限、稍后提醒 | 已实现并测试 | 在线读取、即时刷新和业务去重通过；后台 Schedule 仍受 Preview 平台路由阻塞 | `agents/_shared/proactive.py` |
+| 主动日程/天气/路线提醒 | 已实现并测试 | 打开网页及相关日程变更时刷新；未读风险由模型在空白新对话中自然发起，策略设置位于统一设置；EdgeOne Schedule 触发 `/api/proactive-tick` Cloud Function，复用 Makers Blob 原子锁后转给 `/proactive` Agent；生产已部署，真实每日触发待下一计划时刻观察日志 | `cloud-functions/api/proactive-tick`、`agents/proactive`、`useSSEChat.ts` |
+| Notification、免打扰、每日上限、稍后提醒 | 已实现并测试 | 在线读取、即时刷新、业务去重及稍后/已读/忽略跨请求持久化均已在生产验证；只剩后台 Schedule 真实每日触发证据 | `agents/_shared/proactive.py` |
 | Memory、Feedback、Rule、Token 预算 | 已实现并测试 | 待预览复验 | `agents/intelligence` |
 | 持久工作流、失败阻断、重试与补偿 | 已实现并测试 | 待预览复验 | `agents/_shared/proactive.py` |
 | 个人所有者身份 | 已实现并测试 | 固定 `local-user`，无注册登录或应用数据库 | `auth/current-user.js`、`agents/_shared/auth.py` |
@@ -44,7 +44,7 @@
 ### P1：代码阻塞与核心线上验收已完成
 
 - 腾讯会议只使用官方个人 MCP Token/Skill；外部 Meeting Bridge、设备登录态和旧企业签名 API 均已删除。
-- 本分支已完成真实 EdgeOne Preview/Production、动态路由登记和个人工作区核心读取验收；Cron 业务链与云端路由已核验，受保护 Preview 的 Schedule 请求在进入 Function 运行时前 404，生产未发布。
+- 本分支已完成真实 EdgeOne Preview/Production、动态路由登记和个人工作区核心读取验收；生产 `dptvf8ss3dl9` 已成功。Cron 业务链、云端路由和手动桥接已核验，真实每日触发仍需在下一计划时刻用平台日志确认。
 - SQLite 迁移工具已完成，真实旧库迁移与 Preview 回读尚未执行。
 
 ### P2：产品增强但不阻塞核心迁移
@@ -69,13 +69,13 @@
 
 2026-07-22 当前工作树结果：
 
-- Makers Agent：136 项通过。
+- Makers Agent：138 项通过。
 - SQLite 导出工具：2 项通过。
 - Cloud Functions、Schedule 适配、验收持久化和平台约束：20 项通过。
-- 前端 Vitest：68 项通过。
+- 前端 Vitest：71 项通过（16 个测试文件）。
 - ESLint：通过。
 - EdgeOne 模式生产构建：通过。
-- EdgeOne Preview `dph2wvagts0x`：构建成功，应用已连接，核心只读数据加载通过。
-- 已知非阻塞项：主 JS chunk 约 1.52 MB，后续需要代码拆包优化。
+- EdgeOne Preview `dpbkmy4qt93e` 与 Production `dptvf8ss3dl9`：构建成功，应用已连接，核心读取及主动文档闭环通过。
+- 已知非阻塞项：Vite 仍有大于 500 KB 的分包提示，后续需要继续按功能动态拆包。
 
 这些结果不替代真实 Provider、平台 Cron 和预览部署验收。
