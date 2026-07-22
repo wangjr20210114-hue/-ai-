@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { hasTextSelectionInside } from './scrollSelection';
-import { visibleStreamingAnswer } from './streamingAnswer';
+import { streamingMarkdownAnswer } from './streamingAnswer';
 
 describe('message selection auto-follow guard', () => {
   it('recognizes a non-collapsed selection inside the chat container', () => {
@@ -18,9 +18,16 @@ describe('message selection auto-follow guard', () => {
   });
 });
 
-describe('stable streaming answer text', () => {
-  it('keeps Markdown text untouched while hiding complete and partial media markers', () => {
-    expect(visibleStreamingAnswer('**重点**\n\n[[YUANBAO_MEDIA: 1]]\n\n继续')).toBe('**重点**\n\n\n\n继续');
-    expect(visibleStreamingAnswer('正文\n[[YUANBAO_MED')).toBe('正文\n');
+describe('streaming Markdown answer', () => {
+  it('keeps renderable Markdown and complete media slots while hiding partial markers', () => {
+    expect(streamingMarkdownAnswer('**重点**\n\n[[YUANBAO_MEDIA: 1]]\n\n继续'))
+      .toBe('**重点**\n\n[[YUANBAO_MEDIA: 1]]\n\n继续');
+    expect(streamingMarkdownAnswer('正文\n[[YUANBAO_MED')).toBe('正文\n');
+  });
+
+  it('hides an incomplete Markdown image tail and restores it when complete', () => {
+    expect(streamingMarkdownAnswer('正文\n\n![新闻图片](https://img.example/part')).toBe('正文\n\n');
+    expect(streamingMarkdownAnswer('正文\n\n![新闻图片](https://img.example/full.jpg)'))
+      .toBe('正文\n\n![新闻图片](https://img.example/full.jpg)');
   });
 });

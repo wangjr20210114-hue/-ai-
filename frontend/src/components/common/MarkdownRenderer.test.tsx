@@ -92,6 +92,16 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('one.jpg');
   });
 
+  it('renders Markdown formatting while the answer is still streaming', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer streaming content={'### 实时标题\n\n这是 **重点内容**。'} />,
+    );
+    expect(html).toContain('<h3>实时标题</h3>');
+    expect(html).toContain('<strong>重点内容</strong>');
+    expect(html).not.toContain('### 实时标题');
+    expect(html).not.toContain('**重点内容**');
+  });
+
   it('keeps an explicit model media slot visible during streaming', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer
