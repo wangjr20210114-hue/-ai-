@@ -42,6 +42,7 @@ from agents._shared.vision import (
     vision_providers,
 )
 from agents._shared.auth import require_user, scoped_conversation_id
+from agents._shared.data_version import CONVERSATION_PREFIX
 from agents._shared.rich_search import (
     _filter_for_target_date,
     _parse_pages,
@@ -192,7 +193,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(require_user(ctx)["user_id"], USER_WORKSPACE_ID)
         self.assertEqual(require_user(ctx)["roles"], ["owner"])
         self.assertTrue(scoped_conversation_id(ctx, USER_WORKSPACE_ID).endswith("conversation-personal"))
-        self.assertIn("v5_20260722_clean", scoped_conversation_id(ctx, USER_WORKSPACE_ID))
+        self.assertTrue(scoped_conversation_id(ctx, USER_WORKSPACE_ID).startswith(CONVERSATION_PREFIX))
+        self.assertLessEqual(len(scoped_conversation_id(ctx, USER_WORKSPACE_ID)), 36)
 
     def test_long_history_is_trimmed_at_human_boundary(self):
         messages = [SimpleNamespace(type="human", content=f"q{index}") if index % 3 == 0

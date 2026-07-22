@@ -32,6 +32,7 @@ describe('getOrCreateConversationId', () => {
   it('creates collision-resistant ids for fresh conversations', () => {
     expect(createConversationId()).not.toBe(createConversationId());
     expect(createConversationId().startsWith(CONVERSATION_PREFIX)).toBe(true);
+    expect(createConversationId().length).toBeLessThanOrEqual(36);
     expect(isCurrentConversationId(createConversationId())).toBe(true);
     expect(isCurrentConversationId('legacy-conversation')).toBe(false);
   });

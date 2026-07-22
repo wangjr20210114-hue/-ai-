@@ -31,7 +31,11 @@ class SkillAndDataVersionTests(unittest.TestCase):
 
         scoped = scoped_conversation_id(Ctx(), "local-user")
         self.assertEqual(scoped, f"{CONVERSATION_PREFIX}conversation-1")
+        self.assertLessEqual(len(scoped), 36)
         self.assertEqual(scoped_conversation_id(Ctx(), "local-user", scoped), scoped)
+        long_scoped = scoped_conversation_id(Ctx(), "local-user", "legacy-" + "x" * 80)
+        self.assertTrue(long_scoped.startswith(CONVERSATION_PREFIX))
+        self.assertEqual(len(long_scoped), 36)
         self.assertIn(DATA_GENERATION, workspace_namespace("local-user")[0])
         self.assertIn(DATA_GENERATION, proactive_namespace("local-user")[0])
 

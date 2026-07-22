@@ -58,7 +58,7 @@
 
 本版采用逻辑代际 `v5_20260722_clean`，不是删除 Makers 托管数据：
 
-- Conversation ID 和浏览器会话键使用新前缀。
+- Conversation ID 使用 `yb5_` 短代际前缀与 24 位随机 ID，总长 28，满足 Makers 的 6–36 字符平台约束；浏览器会话键也使用新代际。
 - LangGraph workspace、intelligence、proactive、message metadata、route cache 和 search cache 使用新 namespace。
 - Blob 阅读索引、文件夹、设置、论文上传路径和新生成图片使用新代际路径。
 - 会话列表只返回当前代际的对话。
