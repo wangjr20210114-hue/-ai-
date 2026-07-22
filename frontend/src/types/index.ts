@@ -43,6 +43,12 @@ export interface ProactiveNotification {
   updated_at: number;
 }
 
+export interface DocumentContext {
+  fileId: string;
+  filename: string;
+  text: string;
+}
+
 export interface ProactiveRun {
   id: string;
   event_id: string;

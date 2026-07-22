@@ -909,6 +909,32 @@ html.is-resizing-workspace * {
 .chat-reference-image span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-reference-image small { display: block; color: var(--app-text-3); font-size: 10px; }
 .chat-reference-image button { border: 0; color: var(--app-text-3); background: transparent; font-size: 18px; cursor: pointer; }
+.chat-reference-document {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 8px;
+  padding: 7px;
+  border: 1px solid color-mix(in srgb, var(--td-brand-color) 28%, var(--app-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--td-brand-color) 7%, var(--app-panel-2));
+  font-size: 12px;
+}
+.chat-reference-document > b {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--td-brand-color);
+  font-size: 11px;
+  letter-spacing: .05em;
+}
+.chat-reference-document span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-reference-document small { display: block; color: var(--app-text-3); font-size: 10px; }
+.chat-reference-document button { border: 0; color: var(--app-text-3); background: transparent; font-size: 18px; cursor: pointer; }
 
 /* ============ 右侧洞察面板 ============ */
 .insight-card {

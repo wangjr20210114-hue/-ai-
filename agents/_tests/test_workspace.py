@@ -391,6 +391,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             capability_plan='{"needs_places": true}',
             calendar_context='[{"id":"cal-live"}]',
             reference_image_context="无",
+            document_context="无",
         )
         self.assertIn("2026-07-15", rendered)
 

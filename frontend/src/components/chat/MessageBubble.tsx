@@ -13,6 +13,8 @@ import { followUpDraftAction } from './followUps';
 import { nextWholeHourRange, usableMapPlaces } from './workspaceUi';
 import { hasTextSelectionInside } from './scrollSelection';
 import { streamingMarkdownAnswer } from './streamingAnswer';
+import { loadProactiveDocumentContext } from '../../services/proactiveDocument';
+import type { ProactiveNotification } from '../../types';
 
 interface Props {
   message: ChatMessage;
@@ -218,6 +220,21 @@ export default function MessageBubble({ message }: Props) {
     } catch (error) {
       MessagePlugin.error(error instanceof Error ? error.message : '主动服务操作失败');
     } finally { setProactiveBusy(''); }
+  };
+
+  const applyProactiveSuggestion = async (item: ProactiveNotification) => {
+    setProactiveBusy(`read:${item.id}`);
+    try {
+      const documentContext = await loadProactiveDocumentContext(item);
+      dispatch({ type: 'SET_DOCUMENT_CONTEXT', payload: documentContext });
+      dispatch({ type: 'SET_DRAFT', payload: item.action_prompt || `请帮我处理：${item.title}` });
+      const next = await proactiveOperation(conversationId, 'mark_read', { notification_id: item.id });
+      dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
+    } catch (error) {
+      MessagePlugin.error(error instanceof Error ? error.message : '无法准备主动建议');
+    } finally {
+      setProactiveBusy('');
+    }
   };
 
   // Tool actions arrive after the streaming message bubble has mounted. Keep
@@ -499,7 +516,7 @@ export default function MessageBubble({ message }: Props) {
                 {(proactive.notifications || []).filter((item) => item.status !== 'dismissed').slice(0, 3).map((item) => <div className="proactive-conversation-item" key={item.id}>
                   <span>{item.title}</span>
                   <div>
-                    <Button size="small" variant="text" onClick={() => dispatch({ type: 'SET_DRAFT', payload: item.action_prompt || `请帮我处理：${item.title}` })}>帮我处理</Button>
+                    <Button size="small" variant="text" loading={proactiveBusy === `read:${item.id}`} onClick={() => { void applyProactiveSuggestion(item); }}>帮我处理</Button>
                     <Button size="small" variant="text" loading={proactiveBusy === `snooze:${item.id}`} onClick={() => void mutateProactive(`snooze:${item.id}`, 'snooze', { notification_id: item.id, until: Math.floor(Date.now() / 1000) + 3600 })}>1 小时后提醒</Button>
                     <Button size="small" variant="text" loading={proactiveBusy === `dismiss:${item.id}`} onClick={() => void mutateProactive(`dismiss:${item.id}`, 'dismiss', { notification_id: item.id })}>忽略</Button>
                   </div>

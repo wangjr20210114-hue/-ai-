@@ -5,6 +5,7 @@ import { useAppDispatch, useAppState } from '../../store/appState';
 import { proactiveOperation } from '../../services/api';
 import type { ProactiveNotification } from '../../types';
 import { activeProactiveNotifications } from './proactiveNotifications';
+import { loadProactiveDocumentContext } from '../../services/proactiveDocument';
 
 function clock(timestamp?: number | null): string {
   if (!timestamp) return '';
@@ -73,8 +74,18 @@ export default function ProactiveBriefPanel() {
   };
 
   const applySuggestion = async (item: ProactiveNotification) => {
-    dispatch({ type: 'SET_DRAFT', payload: item.action_prompt });
-    await mutate(`read:${item.id}`, 'mark_read', { notification_id: item.id });
+    setMutating(`read:${item.id}`);
+    try {
+      const documentContext = await loadProactiveDocumentContext(item);
+      dispatch({ type: 'SET_DOCUMENT_CONTEXT', payload: documentContext });
+      dispatch({ type: 'SET_DRAFT', payload: item.action_prompt });
+      const next = await proactiveOperation(conversationId, 'mark_read', { notification_id: item.id });
+      dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
+    } catch (error) {
+      MessagePlugin.error(error instanceof Error ? error.message : '无法准备主动建议');
+    } finally {
+      setMutating('');
+    }
   };
 
   return (

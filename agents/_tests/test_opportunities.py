@@ -10,6 +10,7 @@ from agents._shared.opportunities import (
     parse_opportunity,
 )
 from agents._shared.proactive import empty_proactive_state, process_schedule_signals, public_proactive_state
+from agents.chat.index import _document_context
 
 
 class FakeModel:
@@ -23,6 +24,18 @@ class FakeModel:
 
 
 class OpportunityTests(unittest.IsolatedAsyncioTestCase):
+    def test_uploaded_document_context_is_bounded_and_explicitly_delimited(self):
+        context = _document_context({
+            "document_context": {
+                "filename": "周报.pdf",
+                "text": "搜索提速和主动服务闭环。\x00",
+            }
+        })
+        self.assertIn('filename="周报.pdf"', context)
+        self.assertIn("搜索提速和主动服务闭环。", context)
+        self.assertNotIn("\x00", context)
+        self.assertEqual(_document_context({"document_context": {"filename": "empty.pdf"}}), "")
+
     def test_parser_accepts_one_high_confidence_semantic_opportunity(self):
         value = parse_opportunity(
             '{"should_notify":true,"type":"writing_improvement","title":"适配正式汇报",'

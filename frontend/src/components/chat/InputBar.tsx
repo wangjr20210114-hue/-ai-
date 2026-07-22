@@ -37,7 +37,7 @@ async function imageReferenceDataUrl(file: File): Promise<string> {
 
 /** 底部输入栏：文本输入 + 文档上传 + 发送（场景由后端自动推断）。 */
 export default function InputBar({ client }: Props) {
-  const { draft, conversationId, conversations, messages } = useAppState();
+  const { draft, documentContext, conversationId, conversations, messages } = useAppState();
   const dispatch = useAppDispatch();
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -67,6 +67,10 @@ export default function InputBar({ client }: Props) {
         web_search: webSearch,
         client_message: message,
         reference_images: referenceImages,
+        document_context: documentContext ? {
+          filename: documentContext.filename,
+          text: documentContext.text,
+        } : undefined,
       },
     };
     client.current?.send(msg);
@@ -100,6 +104,7 @@ export default function InputBar({ client }: Props) {
     setText('');
     sendActivity(message, 'asked', referenceImage ? [referenceImage.dataUrl] : []);
     setReferenceImage(null);
+    dispatch({ type: 'SET_DOCUMENT_CONTEXT', payload: null });
     setSending(false);
   };
 
@@ -201,6 +206,11 @@ export default function InputBar({ client }: Props) {
         event.preventDefault();
         void handleUpload([{ raw: image, name: image.name || `粘贴图片-${Date.now()}.png` } as UploadFile]);
       }}>
+        {documentContext && <div className="chat-reference-document">
+          <b>PDF</b>
+          <span>{documentContext.filename}<small>已读取文档文字；发送时作为本轮上下文，不会公开搜索同名文件</small></span>
+          <button type="button" onClick={() => dispatch({ type: 'SET_DOCUMENT_CONTEXT', payload: null })} aria-label="移除文档上下文">×</button>
+        </div>}
         {referenceImage && <div className="chat-reference-image">
           <img src={referenceImage.dataUrl} alt="待发送参考图" />
           <span>{referenceImage.name}<small>发送时作为生图参考，不会显示数据内容</small></span>

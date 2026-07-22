@@ -8,6 +8,7 @@ import type {
   MakersMapPlace,
   ConversationSummary,
   ProactiveState,
+  DocumentContext,
 } from '../types';
 
 const THEME_KEY = 'travel-theme';
@@ -25,6 +26,7 @@ export interface AppState {
   theme: ThemeMode;
   thinking: boolean;
   draft: string;
+  documentContext: DocumentContext | null;
   messages: ChatMessage[];
   plans: TravelPlan[];
   schedules: ScheduleItem[];
@@ -51,6 +53,7 @@ export type Action =
   | { type: 'SET_THEME'; payload: ThemeMode }
   | { type: 'SET_THINKING'; payload: boolean }
   | { type: 'SET_DRAFT'; payload: string }
+  | { type: 'SET_DOCUMENT_CONTEXT'; payload: DocumentContext | null }
   | { type: 'ADD_MESSAGE'; payload: ChatMessage }
   | { type: 'HYDRATE_MESSAGES'; payload: ChatMessage[] }
   | { type: 'UPDATE_MESSAGE'; payload: { id: string; patch: Partial<ChatMessage>; delta?: string } }
@@ -80,6 +83,7 @@ export const initialState: AppState = {
   theme: initialTheme(),
   thinking: false,
   draft: '',
+  documentContext: null,
   messages: [],
   plans: [],
   schedules: [],
@@ -118,6 +122,7 @@ export function reducer(state: AppState, action: Action): AppState {
         connected: false,
         thinking: false,
         draft: '',
+        documentContext: null,
         messages: [],
         plans: [],
         travelContext: null,
@@ -134,6 +139,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'SET_THEME': return { ...state, theme: action.payload };
     case 'SET_THINKING': return { ...state, thinking: action.payload };
     case 'SET_DRAFT': return { ...state, draft: action.payload };
+    case 'SET_DOCUMENT_CONTEXT': return { ...state, documentContext: action.payload };
     case 'ADD_MESSAGE': return { ...state, messages: [...state.messages, action.payload] };
     case 'HYDRATE_MESSAGES': return { ...state, messages: action.payload };
     case 'UPDATE_MESSAGE':

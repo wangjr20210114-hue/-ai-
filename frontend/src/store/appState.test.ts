@@ -48,6 +48,7 @@ describe('app state reducer', () => {
       draft: 'unfinished',
       messages: [userMessage],
       mapPlaces: [{ place_id: 'old', name: '旧地点', address: '', latitude: 1, longitude: 1 }],
+      documentContext: { fileId: 'uploads/test.pdf', filename: 'test.pdf', text: 'test body' },
     };
 
     const next = reducer(previous, { type: 'SET_CONVERSATION_ID', payload: 'conv-fresh' });
@@ -57,7 +58,16 @@ describe('app state reducer', () => {
     expect(next.thinking).toBe(false);
     expect(next.draft).toBe('');
     expect(next.messages).toEqual([]);
+    expect(next.documentContext).toBeNull();
     expect(next.mapPlaces).toEqual(previous.mapPlaces);
+  });
+
+  it('holds a selected document only until the composer clears it', () => {
+    const context = { fileId: 'uploads/test.pdf', filename: 'test.pdf', text: 'test body' };
+    const selected = reducer(initialState, { type: 'SET_DOCUMENT_CONTEXT', payload: context });
+    const cleared = reducer(selected, { type: 'SET_DOCUMENT_CONTEXT', payload: null });
+    expect(selected.documentContext).toEqual(context);
+    expect(cleared.documentContext).toBeNull();
   });
 
   it('orders newly updated conversations before older history', () => {

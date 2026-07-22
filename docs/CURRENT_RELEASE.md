@@ -26,6 +26,7 @@
 5. 机会带置信度阈值、6 小时同类冷却和过期时间，避免重复打扰与无限堆积。
 6. 用户可“按建议处理 / 稍后 / 忽略”；状态持久化后同时影响左栏和下一次新对话主动开场。
 7. 文档上传信号通过 `/proactive` 的 `ingest_signal` 进入同一闭环，立即生成文档总结/下一步建议。
+8. 用户采纳文档建议时，前端从 Makers Blob 读取并解析该 PDF，把有界文本作为仅本轮可见的文档上下文交给模型；输入区显示文件名，Blob Key 不进入可见指令，模型不会误去公网搜索同名文件。
 
 完整设计见 [`CONTEST_SOLUTION.md`](CONTEST_SOLUTION.md)，系统边界见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 
@@ -54,9 +55,9 @@
 
 ## 自动化证据
 
-- Python Agent：137 项通过。
+- Python Agent：138 项通过。
 - Node Cloud Functions、平台约束和验收持久化：20 项通过。
-- 前端 Vitest：68 项通过，15 个测试文件。
+- 前端 Vitest：71 项通过，16 个测试文件。
 - SQLite 只读迁移工具：2 项通过。
 - ESLint：通过。
 - TypeScript / Vite EdgeOne 构建：通过。

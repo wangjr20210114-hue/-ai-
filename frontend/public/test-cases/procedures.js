@@ -413,7 +413,8 @@ window.CASE_PROCEDURES = {
     S('左栏提醒', '等待最多10秒，查找标题“文档已就绪”的新条目。', '只出现一条，正文包含 TEST-PRO-10.pdf，并明确建议摘要与行动项或论文结论。'),
     S('浏览器 Network', '筛选 proactive，点开 POST /proactive；在 Request Payload 查 operation=ingest_signal、signal_type=file_uploaded，在 Response 查 signal_created。', 'HTTP 200、signal_created=true、notifications_created=1；响应和日志不含文件正文或密钥。'),
     S('左栏“＋ 新建对话”', '创建一个全新空白对话，手离开键盘并等待最多20秒。', 'AI 主动提到刚上传的文档可继续处理并询问是否总结/提取行动项；不提扫描、Store、Collector。'),
-    S('主动消息操作', '点击“帮我处理/按建议处理”，核对输入框中的文件名和任务，手动发送。', '点击不会自动发送；手动发送后才开始文档总结，结果可由 PDF 原文核对。'),
+    S('主动消息操作', '点击“帮我处理/按建议处理”，等待输入框上方出现 TEST-PRO-10.pdf 的 PDF 上下文条，并核对输入框中的文件名和任务；不要手工再上传，随后点“发送”。', '点击不会自动发送；Blob Key 不显示在输入框；发送后才读取原文并开始总结。'),
+    S('回答与 Network', '等待回答结束；用 PDF 中“60秒下降到20秒”“Event/Run/Notification”“两条行动项”逐项核对；Network 搜索 rich_search。', '摘要覆盖原文事实且不编造负责人/日期；本轮不会为了查找同名文件调用 rich_search，也不会回答“公开网络找不到”。'),
     S('刷新/清理', '刷新页面确认会话和提醒状态，再从“我的阅读”移除 TEST-PRO-10.pdf。', '状态可恢复；相同上传信号不重复提醒；仅测试文件被移除。'),
   ],
   'PRO-11': [
