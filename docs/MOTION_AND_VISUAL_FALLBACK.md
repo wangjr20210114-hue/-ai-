@@ -16,7 +16,7 @@
 [Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility) 指导：反馈要短且有目的；当系统开启
 “减弱动态效果”时，页面通过 `prefers-reduced-motion` 关闭位移、模糊、平滑滚动和非必要动画。
 
-搜索图片由主模型在回答中插入媒体占位符，前端用审核通过的图片依次替换；不再固定追加在文末。AI 消息中的图片和正文容器同宽，当前实现边界见 [`BASELINE.md`](BASELINE.md)，验收步骤见 `/test-cases/` 的 SEARCH-04 与 UX-01。
+搜索图片由主模型在回答中插入媒体占位符；SearchPro 已返回且可追溯的文章主图可先以“图片核实中”状态随正文流式出现，视觉审核完成后在原位置替换或移除，不再固定追加在文末。AI 消息中的图片相对气泡边框保留 8px 内边距，说明文字随容器换行，当前实现边界见 [`BASELINE.md`](BASELINE.md)，验收步骤见 `/test-cases/` 的 SEARCH-04 与 UX-01。
 
 ## 混元主链路
 

@@ -75,7 +75,7 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
   const [failed, setFailed] = useState(false);
   if (failed) return null;
   return (
-    <figure className="rich-media-figure">
+    <figure className={`rich-media-figure${asset.preview ? ' is-preview' : ''}`}>
       <img
         src={asset.url}
         alt={asset.alt || asset.caption || '回答配图'}
@@ -87,6 +87,7 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
       {(asset.caption || asset.source_url) && (
         <figcaption>
           <span className="rich-media-caption-text">{asset.caption}</span>
+          {asset.preview && <span className="rich-media-reviewing">图片核实中</span>}
           {asset.generated && <span className="rich-media-generated">AI 生成示意图</span>}
           {asset.source_url && isSafeRemoteUrl(asset.source_url) && (
             <a href={asset.source_url} target="_blank" rel="noreferrer">
@@ -152,13 +153,18 @@ export default function MarkdownRenderer({
   streaming?: boolean;
 }) {
   const sources = searchMeta?.results || [];
+  const reviewedMedia = searchMeta?.media || [];
+  const visibleMedia = reviewedMedia.length
+    ? reviewedMedia
+    : (searchMeta?.media_pending ? searchMeta.preview_media || [] : []);
   // While tokens are still arriving, only honor stable model-authored slots.
   // Recomputing fallback placement from an incomplete paragraph tree makes an
   // image jump between paragraphs and destroys the user's text selection.
   const cleanedContent = replaceCitationMarkers(
-    placeReviewedMedia(content, searchMeta?.media || [], !streaming),
+    placeReviewedMedia(content, visibleMedia, !streaming),
     sources,
   );
+  const linkedSources = sources.filter((source) => isSafeRemoteUrl(source.url)).slice(0, 8);
 
   return (
     <div className={`markdown-body${streaming ? ' is-streaming' : ''}`}>
@@ -197,7 +203,7 @@ export default function MarkdownRenderer({
           img: ({ src, alt }) => {
             const url = typeof src === 'string' ? src : '';
             if (!isSafeRemoteUrl(url)) return null;
-            const reviewed = searchMeta?.media?.find((asset) => sameUrl(asset.url, url));
+            const reviewed = visibleMedia.find((asset) => sameUrl(asset.url, url));
             return <RichImage asset={reviewed || {
                 id: `md-${url.slice(-20)}`,
                 kind: 'image', url,
@@ -209,6 +215,22 @@ export default function MarkdownRenderer({
       >
         {cleanedContent}
       </ReactMarkdown>
+      {linkedSources.length > 0 && (
+        <nav className="search-source-links" aria-label="回答来源">
+          <span className="search-source-links-label">来源</span>
+          {linkedSources.map((source) => (
+            <a
+              key={source.id || source.url}
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={source.title}
+            >
+              {source.title || new URL(source.url).hostname}
+            </a>
+          ))}
+        </nav>
+      )}
     </div>
   );
 }

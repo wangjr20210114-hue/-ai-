@@ -77,6 +77,10 @@ class SSEChatClient {
     // SSE opens one request per message; no persistent socket is required.
   }
 
+  hasActiveTransport(): boolean {
+    return Boolean(this.controller || this.resumeController);
+  }
+
   async stop(): Promise<void> {
     this.controller?.abort();
     this.controller = null;
@@ -323,7 +327,10 @@ class SSEChatClient {
   }
 
   async resume(): Promise<void> {
-    this.resumeController?.abort();
+    // Switching conversations must not replace a still-live response with a
+    // polling snapshot. The original request keeps publishing into its
+    // conversation cache while it is in the background.
+    if (this.controller || this.resumeController) return;
     const controller = new AbortController();
     this.resumeController = controller;
     const streamId = `ai-resume-${Date.now()}`;
@@ -478,11 +485,14 @@ export function useSSEChat() {
           const data = event.payload.data as BootstrapData | undefined;
           if (!current || !data || !Array.isArray(data.messages)) break;
           const run = data.run as MakersChatRun | null | undefined;
-          const merged = mergeMessages(data.messages, cached(id));
+          const runActive = run?.status === 'running' || run?.status === 'cancel_requested';
+          const merged = mergeMessages(data.messages, cached(id), { preserveStreaming: runActive });
           const lastMessage = data.messages[data.messages.length - 1];
           const hasFinalAnswer = lastMessage?.role === 'ai' && Boolean(lastMessage.content.trim());
           const keepPlaceholder = !hasFinalAnswer && run?.status !== 'cancelled';
-          publish(id, keepPlaceholder ? [...merged, current] : merged);
+          publish(id, keepPlaceholder && !merged.some((item) => item.id === current.id)
+            ? [...merged, current]
+            : merged);
           if (activeConversationRef.current === id) {
             dispatch({ type: 'HYDRATE_WORKSPACE', payload: { schedules: data.schedules, mapPlaces: data.map_places, mapTitle: data.map_title } });
           }
@@ -622,7 +632,8 @@ export function useSSEChat() {
     dispatch({ type: 'HYDRATE_MESSAGES', payload: local });
     void bootstrapApp(conversationId).then((data) => {
       if (disposed) return;
-      const merged = mergeMessages(data.messages, cached(conversationId));
+      const runActive = data.run?.status === 'running' || data.run?.status === 'cancel_requested';
+      const merged = mergeMessages(data.messages, cached(conversationId), { preserveStreaming: runActive });
       publish(conversationId, merged);
       const summary = conversationsRef.current.find((item) => item.id === conversationId);
       if (summary && summary.messageCount !== merged.length) {
@@ -650,7 +661,8 @@ export function useSSEChat() {
       }
       const latestSummary = conversationsRef.current.find((item) => item.id === conversationId);
       const hasUnansweredUser = merged.length > 0 && merged[merged.length - 1]?.role === 'user';
-      if (latestSummary?.activityStatus === 'running' || hasUnansweredUser) {
+      if ((runActive || latestSummary?.activityStatus === 'running' || hasUnansweredUser)
+        && !client.hasActiveTransport()) {
         void client.resume();
       }
     }).catch((error) => console.warn('bootstrap failed', error));

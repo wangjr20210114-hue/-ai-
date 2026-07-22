@@ -45,6 +45,16 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('card.jpg');
   });
 
+  it('always exposes search sources as real clickable hyperlinks', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer content={'这里是综合后的结论。'} searchMeta={searchMeta} />,
+    );
+    expect(html).toContain('aria-label="回答来源"');
+    expect(html).toContain('href="https://news.example/ai"');
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('>AI 新闻</a>');
+  });
+
   it('replaces model-selected media slots in paragraph order instead of appending a gallery', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer
@@ -112,5 +122,30 @@ describe('MarkdownRenderer', () => {
     );
     expect(html).toContain('one.jpg');
     expect(html).not.toContain('YUANBAO_MEDIA');
+  });
+
+  it('fills a streaming media slot with a provider preview before vision review completes', () => {
+    const preview = { ...searchMeta.media[0], id: 'preview-one', preview: true };
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer
+        streaming
+        content={'第一段已经生成。\n\n[[YUANBAO_MEDIA]]\n\n继续生成'}
+        searchMeta={{ ...searchMeta, media: [], images: [], preview_media: [preview], media_pending: true }}
+      />,
+    );
+    expect(html).toContain('one.jpg');
+    expect(html).toContain('图片核实中');
+  });
+
+  it('does not retain a rejected preview after media review finishes', () => {
+    const preview = { ...searchMeta.media[0], id: 'preview-one', preview: true };
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer
+        content={'正文。\n\n[[YUANBAO_MEDIA]]'}
+        searchMeta={{ ...searchMeta, media: [], images: [], preview_media: [preview], media_pending: false }}
+      />,
+    );
+    expect(html).not.toContain('one.jpg');
+    expect(html).not.toContain('图片核实中');
   });
 });

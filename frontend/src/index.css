@@ -768,14 +768,17 @@ html.is-resizing-workspace * {
 /* 结构化富媒体：图片始终携带说明、来源和失败回退 */
 .rich-media-figure {
   display: block !important;
-  width: calc(100% + (2 * var(--bubble-inline-padding)));
-  max-width: none;
-  margin: 12px calc(-1 * var(--bubble-inline-padding));
+  width: calc(100% - 16px);
+  max-width: calc(100% - 16px);
+  margin: 12px 8px;
   border: 1px solid var(--app-border);
   box-sizing: border-box;
   border-radius: 12px;
   overflow: hidden;
   background: var(--app-panel-2);
+}
+.rich-media-figure.is-preview {
+  border-style: dashed;
 }
 .msg-bubble.ai .markdown-body .rich-media-figure img {
   width: 100%;
@@ -818,6 +821,44 @@ html.is-resizing-workspace * {
   background: rgba(124, 92, 255, 0.09);
   font-size: 10px;
   font-weight: 600;
+}
+.rich-media-reviewing {
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--td-brand-color);
+  background: color-mix(in srgb, var(--td-brand-color) 9%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Plain, clickable evidence links; deliberately not rendered as source cards. */
+.search-source-links {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--app-border);
+  font-size: 11px;
+  line-height: 1.55;
+}
+.search-source-links-label {
+  color: var(--app-text-3);
+  font-weight: 600;
+}
+.msg-bubble.ai .markdown-body .search-source-links a {
+  position: relative;
+  z-index: 1;
+  color: var(--td-brand-color);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--td-brand-color) 35%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.msg-bubble.ai .markdown-body .search-source-links a:hover {
+  text-decoration-color: currentColor;
 }
 .rich-image-fallback {
   display: flex;

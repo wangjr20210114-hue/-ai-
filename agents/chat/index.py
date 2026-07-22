@@ -439,6 +439,30 @@ async def handler(ctx):
                     pending_ai_content.append(content)
                 else:
                     await queue.put(ctx.utils.sse({"type": "ai_response", "content": content}))
+
+            async def persist_answer_extras(follow_ups: list[str] | None = None) -> None:
+                """Persist media independently from optional post-answer jobs.
+
+                Follow-up, memory, or opportunity generation may time out after
+                the answer and reviewed images are already complete. Media must
+                still survive a conversation switch or page reload in that case.
+                """
+                if (
+                    not final_answer
+                    or ctx.store.langgraph_store is None
+                    or not (follow_ups or latest_enriched_media)
+                ):
+                    return
+                await ctx.store.langgraph_store.aput(
+                    data_namespace("message_meta", conversation_id),
+                    "latest_extras",
+                    {
+                        "original_content": final_answer,
+                        "content": final_answer,
+                        "follow_ups": follow_ups or [],
+                        **({"search_results": latest_enriched_media} if latest_enriched_media else {}),
+                    },
+                )
             if capability_plan.get("needs_image_generation"):
                 await queue.put(ctx.utils.sse({"type": "tool_call", "name": "image_generation_planning"}))
             if tool_setup_error:
@@ -588,6 +612,14 @@ async def handler(ctx):
                         for task in background_tasks:
                             if not task.done():
                                 task.cancel()
+                # Reviewed media is already a complete user-visible result.
+                # Save it before slower optional post-processing so navigation
+                # cannot make the image disappear when one of those jobs fails.
+                if final_answer and latest_enriched_media:
+                    try:
+                        await persist_answer_extras()
+                    except Exception as exc:
+                        logging.warning("answer media persistence failed: %s", exc)
                 if final_answer:
                     try:
                         follow_up_task = asyncio.create_task(generate_followups(model, message, final_answer))
@@ -608,17 +640,7 @@ async def handler(ctx):
                         )
                         if follow_ups:
                             await queue.put(ctx.utils.sse({"type": "follow_ups", "payload": {"items": follow_ups}}))
-                        if ctx.store.langgraph_store is not None and (follow_ups or latest_enriched_media):
-                            await ctx.store.langgraph_store.aput(
-                                data_namespace("message_meta", conversation_id),
-                                "latest_extras",
-                                {
-                                    "original_content": final_answer,
-                                    "content": final_answer,
-                                    "follow_ups": follow_ups,
-                                    **({"search_results": latest_enriched_media} if latest_enriched_media else {}),
-                                },
-                            )
+                        await persist_answer_extras(follow_ups)
                         if memory_candidates:
                             latest_intelligence = await load_intelligence_state(ctx.store.langgraph_store, user_id)
                             if apply_automatic_memory_candidates(

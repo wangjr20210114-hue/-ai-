@@ -426,8 +426,27 @@ async def rich_search(
         # it here made visually rich provider results look text-only.
         "image": item.get("image", ""),
     } for index, item in enumerate(results, 1)]
+    # SearchPro's own article hero images are available with the factual
+    # results, several seconds before page extraction + pixel review finish.
+    # Expose them as explicitly provisional media so the frontend can fill a
+    # model-authored media slot during text streaming. They are never treated
+    # as final: a later search_media event replaces them with reviewed assets,
+    # or removes them when review rejects every candidate.
+    source_by_url = {item["url"]: item for item in sources}
+    preview_media = []
+    for index, candidate in enumerate(_provider_image_candidates(results)[:image_limit], 1):
+        source = source_by_url.get(candidate["source_url"], {})
+        source_title = candidate.get("source_title") or source.get("title") or "搜索结果文章配图"
+        preview_media.append({
+            "id": f"preview-media-{index}", "kind": "image", "url": candidate["url"],
+            "source_id": source.get("id", ""), "source_url": candidate["source_url"],
+            "source_title": source_title, "alt": source_title, "caption": source_title,
+            "attribution": source_title, "generated": False, "preview": True,
+            "vision_reviewed": False,
+        })
     base_metadata = {
         "schema_version": 2, "query": query, "results": sources, "media": [],
+        "preview_media": preview_media,
         "images": [], "sources_used": ["wsa"] if sources else [], "total": len(sources),
         "target_date": target_date, "strict_date": strict_date, "date_filter": date_filter,
         "media_pending": include_media and image_limit > 0 and media_callback is not None and background_tasks is not None,
@@ -448,7 +467,6 @@ async def rich_search(
     }
 
     async def enrich_media() -> dict[str, Any]:
-        source_by_url = {item["url"]: item for item in sources}
         page_fetch_limit = min(6, max(4, image_limit * 2))
         media_timeout = max(2, min(10, int(env.get("RICH_SEARCH_MEDIA_TIMEOUT_SECONDS") or 5)))
         try:

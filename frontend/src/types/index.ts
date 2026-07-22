@@ -218,6 +218,9 @@ export interface RichMediaAsset {
   caption: string;
   attribution?: string;
   generated: boolean;
+  /** Search-provider hero shown only while pixel review is still pending. */
+  preview?: boolean;
+  vision_reviewed?: boolean;
 }
 
 export interface SearchMeta {
@@ -226,6 +229,7 @@ export interface SearchMeta {
   results: SearchResultItem[];
   images: string[];
   media: RichMediaAsset[];
+  preview_media?: RichMediaAsset[];
   sources_used: string[];
   total: number;
   target_date?: string;

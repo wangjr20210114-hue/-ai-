@@ -278,9 +278,16 @@ function messageFingerprint(message: ChatMessage): string {
 }
 
 /** Reconcile sequence occurrences; checkpoint indexes and browser timestamps are incomparable. */
-export function mergeMessages(remote: ChatMessage[], local: ChatMessage[]): ChatMessage[] {
+export function mergeMessages(
+  remote: ChatMessage[],
+  local: ChatMessage[],
+  options: { preserveStreaming?: boolean } = {},
+): ChatMessage[] {
+  const preserveStreaming = Boolean(options.preserveStreaming);
   remote = remote.filter((message) => !message.failed && (message.role === 'user' || message.content.trim()));
-  local = local.filter((message) => !message.failed && (message.role === 'user' || message.content.trim()));
+  local = local.filter((message) => !message.failed && (
+    message.role === 'user' || message.content.trim() || (preserveStreaming && message.streaming)
+  ));
   const localByFingerprint = new Map<string, number[]>();
   local.forEach((message, index) => {
     const key = messageFingerprint(message);
@@ -315,10 +322,11 @@ export function mergeMessages(remote: ChatMessage[], local: ChatMessage[]): Chat
     // latest match are stale optimistic/error-era artifacts. A trailing
     // user-only suffix is also an interrupted/failed optimistic send; append
     // only locally completed turns that Makers has not synchronized yet.
+    const isLiveTail = preserveStreaming && Boolean(message.streaming) && index > lastRemoteMatch;
     if (!consumed.has(index)
       && index > lastRemoteMatch
-      && index <= lastRemoteMatch + 1 + lastCompletedLocalOffset) {
-      output.push({ ...message, streaming: false });
+      && (index <= lastRemoteMatch + 1 + lastCompletedLocalOffset || isLiveTail)) {
+      output.push({ ...message, streaming: isLiveTail });
     }
   });
   return normalizeMessages(output);

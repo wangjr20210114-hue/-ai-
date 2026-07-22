@@ -1579,6 +1579,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(result["images"], ["https://img.example.com/hero.jpg"])
         self.assertEqual(result["results"][0]["image"], "https://img.example.com/hero.jpg")
+        self.assertEqual(result["preview_media"][0]["url"], "https://img.example.com/hero.jpg")
+        self.assertTrue(result["preview_media"][0]["preview"])
         self.assertFalse(result["media"][0]["vision_reviewed"])
         self.assertEqual(result["vision_diagnostics"]["provider_image_fallback"], 1)
 

@@ -143,6 +143,37 @@ describe('mergeMessages', () => {
     expect(merged[0].searchResults?.images).toEqual(['https://example.com/ai.jpg']);
     expect(merged[0].searchResults?.media_pending).toBe(false);
   });
+
+  it('preserves the live stream and progressive image metadata while switching back to a running conversation', () => {
+    const remote: ChatMessage[] = [{
+      id: 'checkpoint-user', role: 'user', content: '最近 AI 有什么进展', ts: 1,
+    }];
+    const local: ChatMessage[] = [
+      { id: 'local-user', role: 'user', content: '最近 AI 有什么进展', ts: 10 },
+      {
+        id: 'live-ai', role: 'ai', content: '第一条进展正在输出', ts: 11, streaming: true,
+        searchResults: {
+          query: 'AI 进展', results: [], sources_used: ['wsa'], total: 0,
+          media: [{ id: 'hero', kind: 'image', url: 'https://example.com/live.jpg', alt: 'AI 新闻', caption: 'AI 新闻', generated: false }],
+          images: ['https://example.com/live.jpg'], media_pending: false,
+        },
+      },
+    ];
+    const merged = mergeMessages(remote, local, { preserveStreaming: true });
+    expect(merged).toHaveLength(2);
+    expect(merged[1]).toMatchObject({ id: 'live-ai', streaming: true, content: '第一条进展正在输出' });
+    expect(merged[1].searchResults?.images).toEqual(['https://example.com/live.jpg']);
+  });
+
+  it('preserves an empty thinking placeholder while the remote run is active', () => {
+    const remote: ChatMessage[] = [{ id: 'checkpoint-user', role: 'user', content: '问题', ts: 1 }];
+    const local: ChatMessage[] = [
+      { id: 'local-user', role: 'user', content: '问题', ts: 10 },
+      { id: 'live-ai', role: 'ai', content: '', ts: 11, streaming: true },
+    ];
+    expect(mergeMessages(remote, local, { preserveStreaming: true }).map((item) => item.id))
+      .toEqual(['checkpoint-user', 'live-ai']);
+  });
 });
 
 describe('coalesceDuplicateAssistantMessages', () => {
