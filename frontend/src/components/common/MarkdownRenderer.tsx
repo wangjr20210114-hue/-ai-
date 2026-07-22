@@ -71,6 +71,40 @@ function placeReviewedMedia(content: string, media: RichMediaAsset[] = [], allow
   return placedCount > 0 || !allowStructuralFallback ? cleaned : placeMediaByAnswerStructure(cleaned, media);
 }
 
+function placeStableStreamingMedia(content: string, media: RichMediaAsset[] = []): string {
+  const slotted = placeReviewedMedia(content, media, false);
+  if (slotted !== content.replace(/\[\[YUANBAO_MEDIA[^\]]*$/, '')) return slotted;
+
+  // When the model has not emitted a slot yet, show one useful image as soon
+  // as the first prose block is complete.  That anchor never changes while
+  // later tokens arrive, so selection and scroll position remain stable.
+  const asset = media.find((candidate) => isSafeRemoteUrl(candidate.url));
+  if (!asset) return slotted;
+  const parts = content.split(/(\n{2,})/);
+  for (let index = 0; index < parts.length - 1; index += 2) {
+    const block = parts[index].trim();
+    if (block && !/^(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|\|)/.test(block)) {
+      parts[index] += mediaMarkdown(asset);
+      return parts.join('');
+    }
+  }
+  return slotted;
+}
+
+function openExternalLink(event: React.MouseEvent<HTMLAnchorElement>, url: string) {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  const opened = window.open(url, '_blank');
+  if (opened) {
+    try { opened.opener = null; } catch { /* cross-origin window */ }
+    return;
+  }
+  // Some embedded browsers suppress new tabs even for a direct user click.
+  // Falling back to same-tab navigation is better than a link that appears
+  // inert; browser Back returns to the still-persisted conversation.
+  window.location.assign(url);
+}
+
 function RichImage({ asset }: { asset: RichMediaAsset }) {
   const [failed, setFailed] = useState(false);
   if (failed) return null;
@@ -90,7 +124,7 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
           {asset.preview && <span className="rich-media-reviewing">图片核实中</span>}
           {asset.generated && <span className="rich-media-generated">AI 生成示意图</span>}
           {asset.source_url && isSafeRemoteUrl(asset.source_url) && (
-            <a href={asset.source_url} target="_blank" rel="noreferrer">
+            <a href={asset.source_url} target="_blank" rel="noreferrer" onClick={(event) => openExternalLink(event, asset.source_url!)}>
               来源
             </a>
           )}
@@ -157,11 +191,13 @@ export default function MarkdownRenderer({
   const visibleMedia = reviewedMedia.length
     ? reviewedMedia
     : (searchMeta?.media_pending ? searchMeta.preview_media || [] : []);
-  // While tokens are still arriving, only honor stable model-authored slots.
-  // Recomputing fallback placement from an incomplete paragraph tree makes an
-  // image jump between paragraphs and destroys the user's text selection.
+  // During streaming, an explicit model slot wins. If none has arrived, a
+  // single image is anchored after the first completed prose block so it is
+  // visible early without jumping as subsequent paragraphs grow.
   const cleanedContent = replaceCitationMarkers(
-    placeReviewedMedia(content, visibleMedia, !streaming),
+    streaming
+      ? placeStableStreamingMedia(content, visibleMedia)
+      : placeReviewedMedia(content, visibleMedia, true),
     sources,
   );
   const linkedSources = sources.filter((source) => isSafeRemoteUrl(source.url)).slice(0, 8);
@@ -198,7 +234,7 @@ export default function MarkdownRenderer({
             // Chat answers keep web evidence compact and readable. Dedicated
             // paper/location surfaces can still use InfoCard, but a Markdown
             // citation inside prose should remain a normal inline link.
-            return isSafeRemoteUrl(url) ? <a href={url} target="_blank" rel="noreferrer">{children}</a> : <>{children}</>;
+            return isSafeRemoteUrl(url) ? <a href={url} target="_blank" rel="noreferrer" onClick={(event) => openExternalLink(event, url)}>{children}</a> : <>{children}</>;
           },
           img: ({ src, alt }) => {
             const url = typeof src === 'string' ? src : '';
@@ -225,6 +261,7 @@ export default function MarkdownRenderer({
               target="_blank"
               rel="noopener noreferrer"
               title={source.title}
+              onClick={(event) => openExternalLink(event, source.url)}
             >
               {source.title || new URL(source.url).hostname}
             </a>

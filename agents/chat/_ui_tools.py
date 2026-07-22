@@ -457,6 +457,9 @@ def build_production_tools(
             strict_date = bool(time_scope.get("strict_date"))
             cache_input = json.dumps(
                 {
+                    # Increment whenever cached search metadata semantics change
+                    # so an older text-only entry cannot mask new rich media.
+                    "pipeline_version": 3,
                     "identity": re.sub(r"\s+", " ", str(search_cache_identity or clean_query)).strip().casefold()[:4000],
                     "depth": clean_depth,
                     "target_date": target_date,

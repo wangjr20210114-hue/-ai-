@@ -90,7 +90,7 @@ describe('MarkdownRenderer', () => {
     expect(html.indexOf('one.jpg')).not.toBeGreaterThan(html.indexOf('最后给出建议'));
   });
 
-  it('does not move fallback media through an incomplete streaming answer', () => {
+  it('anchors one fallback image after the first completed streaming prose block', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer
         streaming
@@ -99,7 +99,10 @@ describe('MarkdownRenderer', () => {
       />,
     );
     expect(html).toContain('is-streaming');
-    expect(html).not.toContain('one.jpg');
+    expect(html).toContain('one.jpg');
+    expect(html.indexOf('第一段仍在流式生成')).toBeLessThan(html.indexOf('one.jpg'));
+    expect(html.indexOf('one.jpg')).toBeLessThan(html.indexOf('第二段尚未完成'));
+    expect((html.match(/one\.jpg/g) || [])).toHaveLength(1);
   });
 
   it('renders Markdown formatting while the answer is still streaming', () => {
