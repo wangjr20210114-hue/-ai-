@@ -1790,6 +1790,15 @@ html.is-resizing-workspace * {
 .makers-route-summary small { flex-basis: 100%; color: var(--app-text-3); line-height: 1.45; }
 
 .makers-schedule-form { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; padding: 10px; border: 1px solid var(--app-border); border-radius: 10px; background: var(--app-panel); }
+.schedule-inline-editor,
+.schedule-inline-delete { font-size: 12px; line-height: 1.5; }
+.schedule-inline-editor input,
+.schedule-inline-editor textarea,
+.schedule-inline-editor label,
+.schedule-inline-editor button,
+.schedule-inline-delete button,
+.schedule-inline-delete small { font-size: inherit; }
+.schedule-inline-editor label { line-height: 1.45; }
 .makers-day-item-shell { display: grid; gap: 0; }
 .makers-day-item-shell.is-editing .makers-day-item { border-color: color-mix(in srgb, var(--td-brand-color) 42%, var(--app-border)); border-radius: 9px 9px 5px 5px; background: color-mix(in srgb, var(--td-brand-color) 5%, var(--app-panel-2)); }
 .schedule-inline-editor { position: relative; margin: 0 4px 8px; border-top: 0; border-radius: 0 0 11px 11px; box-shadow: 0 14px 32px rgba(31, 46, 82, 0.12); transform-origin: top center; animation: scheduleEditorDrop 220ms var(--motion-ease-out) both; }
@@ -3357,40 +3366,14 @@ html.is-resizing-workspace * {
   padding: 16px;
 }
 
-.paper-saved-result {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--app-border);
-  border-radius: 9px;
-  color: var(--app-text-2);
-  background: var(--app-panel);
-  cursor: pointer;
-  text-align: left;
-  transition: transform 160ms var(--motion-ease-out), border-color 180ms ease, background-color 180ms ease;
-}
-.paper-saved-result:hover {
-  border-color: color-mix(in srgb, var(--td-brand-color) 42%, var(--app-border));
-  background: color-mix(in srgb, var(--td-brand-color) 6%, var(--app-panel));
-  transform: translateY(-1px);
-}
-.paper-saved-result:active { transform: scale(.98); }
-.paper-saved-result span {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 12px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.paper-saved-result small {
-  flex: 0 0 auto;
-  color: var(--app-text-3);
-  font-size: 10px;
-}
+.paper-translation-history { display: grid; gap: 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--app-border); }
+.paper-translation-history-title { color: var(--app-text-3); font-size: 11px; font-weight: 600; }
+.paper-translation-entry { padding: 10px 11px; border: 1px solid var(--app-border); border-radius: 10px; background: color-mix(in srgb, var(--app-panel) 88%, var(--td-brand-color) 12%); }
+.paper-translation-time { margin-bottom: 5px; color: var(--app-text-3); font-size: 10px; }
+.paper-translation-entry-title { margin-bottom: 6px; color: var(--td-brand-color); font-size: 12px; font-weight: 600; }
+.paper-translation-entry .markdown-body { font-size: 12px; line-height: 1.65; }
+.settings-language-select { width: 100%; max-width: 280px; padding: 8px 10px; border: 1px solid var(--app-border-strong); border-radius: 8px; color: var(--app-text); background: var(--app-panel); font: inherit; }
+.settings-language-hint { margin-top: 6px; color: var(--app-text-3); font-size: 11px; }
 
 .paper-upload-zone {
   background: var(--app-bg-2);

@@ -4,6 +4,7 @@ import { ChevronLeftIcon, ChevronRightIcon, ModeDarkIcon, ModeLightIcon, Notific
 import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
 import { activeProactiveNotifications, proactiveReminderLines } from '../profile/proactiveNotifications';
+import { useLanguage } from '../../i18n';
 
 const THEME_KEY = 'travel-theme';
 
@@ -18,6 +19,7 @@ export default function Header({
   onToggleRightPanel?: () => void;
 }) {
   const { theme, connected, proactive } = useAppState();
+  const { language } = useLanguage();
   const dispatch = useAppDispatch();
   const notifications = useMemo(
     () => activeProactiveNotifications(proactive?.notifications || []),
@@ -76,7 +78,7 @@ export default function Header({
       <div className="header-actions">
         <StatusIndicator />
         {onToggleRightPanel && (
-          <Tooltip content={rightPanelOpen ? '收起右栏' : '展开右栏'}>
+          <Tooltip content={rightPanelOpen ? (language === 'en' ? 'Collapse panel' : '收起右栏') : (language === 'en' ? 'Expand panel' : '展开右栏')}>
             <Button
               className="right-panel-toggle"
               shape="circle"
@@ -84,13 +86,13 @@ export default function Header({
               size="medium"
               disabled={!connected}
               onClick={onToggleRightPanel}
-              aria-label={rightPanelOpen ? '收起右栏' : '展开右栏'}
+              aria-label={rightPanelOpen ? (language === 'en' ? 'Collapse panel' : '收起右栏') : (language === 'en' ? 'Expand panel' : '展开右栏')}
               aria-pressed={rightPanelOpen}
               icon={rightPanelOpen ? <ChevronRightIcon /> : <ChevronLeftIcon />}
             />
           </Tooltip>
         )}
-        <Tooltip content={theme === 'dark' ? '切换到浅色' : '切换到深色'}>
+        <Tooltip content={theme === 'dark' ? (language === 'en' ? 'Switch to light' : '切换到浅色') : (language === 'en' ? 'Switch to dark' : '切换到深色')}>
           <Button
             className="theme-toggle"
             shape="circle"

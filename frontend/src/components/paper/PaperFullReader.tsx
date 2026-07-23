@@ -75,14 +75,6 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
         if (cancelled) return;
         const translations = items.filter((item) => item.action === 'translate');
         setSavedTranslations(translations);
-        if (translations[0]) {
-          setAiResult({
-            action: 'translate',
-            title: translations[0].title,
-            content: translations[0].content,
-            streaming: false,
-          });
-        }
       })
       .catch(() => {
         if (!cancelled) setSavedTranslations([]);
@@ -298,7 +290,8 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
           source_text: text,
           content: full,
         }).then((saved) => {
-          setSavedTranslations((current) => [saved, ...current.filter((item) => item.id !== saved.id)].slice(0, 50));
+          setSavedTranslations((current) => [...current.filter((item) => item.id !== saved.id), saved].slice(-50));
+          setAiResult(null);
         }).catch((saveError) => {
           MessagePlugin.warning(saveError instanceof Error ? saveError.message : '翻译结果暂未保存');
         });
@@ -466,29 +459,15 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
                   </div>
                 )}
                 {savedTranslations.length > 0 && (
-                  <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid var(--app-border)' }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--app-text-3)', marginBottom: 6 }}>
-                      已保存翻译 · {savedTranslations.length}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                      {savedTranslations.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          className="paper-saved-result"
-                          title={item.source_text || item.title}
-                          onClick={() => setAiResult({
-                            action: 'translate',
-                            title: item.title,
-                            content: item.content,
-                            streaming: false,
-                          })}
-                        >
-                          <span>{item.title}</span>
-                          <small>{new Date(item.created_at).toLocaleString('zh-CN')}</small>
-                        </button>
-                      ))}
-                    </div>
+                  <div className="paper-translation-history">
+                    <div className="paper-translation-history-title">已保存翻译 · {savedTranslations.length}</div>
+                    {savedTranslations.map((item) => (
+                      <article className="paper-translation-entry" key={item.id}>
+                        <div className="paper-translation-time">{new Date(item.created_at).toLocaleString('zh-CN')}</div>
+                        <div className="paper-translation-entry-title">{item.title}</div>
+                        <MarkdownRenderer content={item.content} />
+                      </article>
+                    ))}
                   </div>
                 )}
               </div>

@@ -1,5 +1,6 @@
 import { authorizedFetch, withEdgeOneAuth } from './auth';
 import { getOrCreateConversationId, makersConversationHeaders } from './conversation';
+import { getStoredLanguage } from '../i18n';
 /**
  * 论文助读 API：搜索 → 下载 → 流式 LLM 调用。
  */
@@ -123,7 +124,7 @@ export async function moveReadingItem(itemId: string, folderId: string) {
 export async function loadPaperAssistantResults(storageKey: string): Promise<PaperAssistantResult[]> {
   const library = await getReadingLibrary();
   const item = library.papers.find((paper) => paper.storage_key === storageKey || paper.file_id === storageKey);
-  return item?.assistant_results || [];
+  return [...(item?.assistant_results || [])].sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0));
 }
 
 export async function savePaperAssistantResult(
@@ -212,7 +213,7 @@ export function streamPaper(
       const resp = await authorizedFetch('/reader', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(getOrCreateConversationId()) },
-        body: JSON.stringify({ action: endpoint, ...params }),
+        body: JSON.stringify({ action: endpoint, ...params, response_language: getStoredLanguage() }),
         signal: ctrl.signal,
       });
       const data = await resp.json().catch(() => ({})) as { content?: string; error?: string };

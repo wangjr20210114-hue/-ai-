@@ -4,10 +4,11 @@ import { SettingIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import { proactiveOperation } from '../../services/api';
 import { getReadingLibrary, updateReadingSettings } from '../../services/paperApi';
-import AgentIntelligencePanel from './AgentIntelligencePanel';
+import { languageName, useLanguage, type Language } from '../../i18n';
 
 export default function AppSettingsButton() {
   const { conversationId, proactive } = useAppState();
+  const { language, setLanguage, t } = useLanguage();
   const dispatch = useAppDispatch();
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState('');
@@ -47,10 +48,10 @@ export default function AppSettingsButton() {
 
   const preferences = proactive?.preferences;
   return <>
-    <Button className="sidebar-settings-button" block variant="text" icon={<SettingIcon />} onClick={() => setVisible(true)}>设置</Button>
+    <Button className="sidebar-settings-button" block variant="text" icon={<SettingIcon />} onClick={() => setVisible(true)}>{t('settings')}</Button>
     <Dialog
       visible={visible}
-      header="Floris 设置"
+      header={t('settingsTitle')}
       width={720}
       footer={false}
       onClose={() => setVisible(false)}
@@ -58,21 +59,26 @@ export default function AppSettingsButton() {
     >
       <div className="app-settings-dialog">
         <section className="app-settings-section">
-          <h3>主动式服务</h3>
-          <p>在页面打开、日程或路线发生变化时重新检查；有重要事项时在顶部循环提醒，不打断当前对话。</p>
+          <h3>{t('language')}</h3>
+          <select className="settings-language-select" value={language} onChange={(event) => setLanguage(event.target.value as Language)}>
+            {(['zh-CN', 'zh-TW', 'en', 'cat-cute', 'cat-cold'] as Language[]).map((item) => <option key={item} value={item}>{languageName(item)}</option>)}
+          </select>
+          <p className="settings-language-hint">界面标签和下一次模型回答会使用所选语言。</p>
+        </section>
+        <section className="app-settings-section">
+          <h3>{t('proactive')}</h3>
+          <p>{t('proactiveHint')}</p>
           {preferences && <div className="app-settings-grid">
-            <label><span>启用主动服务</span><input type="checkbox" checked={preferences.enabled !== false} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ enabled: event.target.checked })} /></label>
-            <label><span>主动权限</span><select value={preferences.autonomy_mode} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ autonomy_mode: event.target.value })}><option value="observe">仅观察</option><option value="remind">可提醒</option><option value="propose">可提案</option><option value="low_risk_auto">允许低风险自动执行</option></select></label>
-            <label><span>每日提醒上限</span><select value={preferences.daily_limit} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ daily_limit: Number(event.target.value) })}>{[1, 3, 5, 10].map((value) => <option key={value} value={value}>{value} 条</option>)}</select></label>
+            <label><span>{t('proactiveEnabled')}</span><input type="checkbox" checked={preferences.enabled !== false} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ enabled: event.target.checked })} /></label>
             <label><span>关注未来范围</span><select value={preferences.lookahead_hours} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ lookahead_hours: Number(event.target.value) })}><option value={12}>未来 12 小时</option><option value={24}>未来 24 小时</option><option value={48}>未来 48 小时</option><option value={72}>未来 3 天</option></select></label>
-            <label><span>22:00–08:00 免打扰</span><input type="checkbox" checked={preferences.quiet_hours.enabled} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ quiet_hours: { ...preferences.quiet_hours, enabled: event.target.checked } })} /></label>
+            <label><span>{t('quietHours')}</span><input type="checkbox" checked={preferences.quiet_hours.enabled} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ quiet_hours: { ...preferences.quiet_hours, enabled: event.target.checked } })} /></label>
             <Button size="small" variant="outline" loading={busy === 'scan'} onClick={() => {
               setBusy('scan');
               void proactiveOperation(conversationId, 'refresh').then((next) => {
                 dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
                 MessagePlugin.success('已检查最新日程、天气与路线');
               }).catch((error) => MessagePlugin.error(error instanceof Error ? error.message : '检查失败')).finally(() => setBusy(''));
-            }}>立即检查</Button>
+            }}>{t('checkNow')}</Button>
           </div>}
           <details className="proactive-settings-runs">
             <summary>运行记录与诊断</summary>
@@ -84,12 +90,10 @@ export default function AppSettingsButton() {
           </details>
         </section>
 
-        <AgentIntelligencePanel embedded />
-
         <section className="app-settings-section">
-          <h3>阅读库整理</h3>
-          <label className="app-settings-choice"><input type="radio" checked={automatic} disabled={busy === 'reading'} onChange={() => void saveReading(true)} /><span><strong>自动整理</strong><small>按论文、报告、手册等类型自动归档。</small></span></label>
-          <label className="app-settings-choice"><input type="radio" checked={!automatic} disabled={busy === 'reading'} onChange={() => void saveReading(false)} /><span><strong>手动整理</strong><small>新文档先进入未分类。</small></span></label>
+          <h3>{t('readingLibrary')}</h3>
+          <label className="app-settings-choice"><input type="radio" checked={automatic} disabled={busy === 'reading'} onChange={() => void saveReading(true)} /><span><strong>{t('autoOrganize')}</strong><small>按论文、报告、手册等类型自动归档。</small></span></label>
+          <label className="app-settings-choice"><input type="radio" checked={!automatic} disabled={busy === 'reading'} onChange={() => void saveReading(false)} /><span><strong>{t('manualOrganize')}</strong><small>新文档先进入未分类。</small></span></label>
         </section>
       </div>
     </Dialog>

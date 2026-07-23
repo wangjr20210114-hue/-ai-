@@ -18,6 +18,7 @@ import { streamingMarkdownAnswer } from './streamingAnswer';
 import { loadProactiveDocumentContext } from '../../services/proactiveDocument';
 import type { ProactiveNotification } from '../../types';
 import { markdownToPlainText } from '../common/richContent';
+import { useLanguage } from '../../i18n';
 
 interface Props {
   message: ChatMessage;
@@ -64,10 +65,23 @@ function triggerDownload(blob: Blob, filename: string) {
 
 async function saveElementAsImage(element: HTMLElement): Promise<void> {
   const unavailable = '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540"><rect width="100%" height="100%" rx="18" fill="#eef1f8"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#75809a" font-family="sans-serif" font-size="24">图片暂不可用</text></svg>';
+  const rect = element.getBoundingClientRect();
+  const backgroundColor = getComputedStyle(element).backgroundColor || '#ffffff';
   const png = await toBlob(element, {
     cacheBust: true,
+    width: Math.ceil(rect.width),
+    height: Math.ceil(rect.height),
     pixelRatio: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
-    backgroundColor: getComputedStyle(element).backgroundColor || '#ffffff',
+    backgroundColor,
+    // The bubble's border is a visual affordance, not answer content. Export
+    // without it so an anti-aliased border can never be a different size than
+    // the rendered content (and the saved image remains clean on all themes).
+    style: {
+      border: 'none',
+      boxShadow: 'none',
+      borderRadius: '0',
+      backgroundColor,
+    },
     imagePlaceholder: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(unavailable)}`,
     skipFonts: true,
     filter: (node) => !(node instanceof HTMLElement)
@@ -79,6 +93,7 @@ async function saveElementAsImage(element: HTMLElement): Promise<void> {
 
 function ClarificationCard({ clarification }: { clarification: ClarificationPrompt }) {
   const dispatch = useAppDispatch();
+  const { t } = useLanguage();
   const [values, setValues] = useState<Record<string, string | string[]>>({});
   const [submitted, setSubmitted] = useState(false);
   const setValue = (id: string, value: string | string[]) => setValues((current) => ({ ...current, [id]: value }));
@@ -94,7 +109,7 @@ function ClarificationCard({ clarification }: { clarification: ClarificationProm
     }).join('\n');
     dispatch({ type: 'SET_DRAFT', payload: `${clarification.prompt}\n${answer}` });
     setSubmitted(true);
-    MessagePlugin.success('已填入输入框，点击发送继续');
+    MessagePlugin.success(t('askContinue'));
   };
   return <div className="clarification-card">
     <strong>{clarification.title}</strong>
@@ -277,6 +292,7 @@ export default function MessageBubble({ message }: Props) {
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [followUpWidth, setFollowUpWidth] = useState<number>();
   const dispatch = useAppDispatch();
+  const { t } = useLanguage();
   const { conversationId, messages, proactive } = useAppState();
   // 追问只在最后一条 AI 消息显示
   const isLastAIMessage = !isUser && messages[messages.length - 1]?.id === message.id;
@@ -666,10 +682,10 @@ export default function MessageBubble({ message }: Props) {
           ) : (
             <>
               {!message.streaming && message.content.trim() && <div className="answer-action-group">
-                <button type="button" className="answer-action-button" title="保存为图片" aria-label="保存回答图片" disabled={answerSaving} onPointerDown={(event) => event.stopPropagation()} onClick={() => { void saveAnswerImage(); }}>
+                <button type="button" className="answer-action-button" title={t('saveImage')} aria-label={t('saveImage')} disabled={answerSaving} onPointerDown={(event) => event.stopPropagation()} onClick={() => { void saveAnswerImage(); }}>
                   <ImageIcon aria-hidden="true" />
                 </button>
-                <button type="button" className={`answer-action-button answer-copy-button${answerCopied ? ' is-copied' : ''}`} title="复制" aria-label="复制回答" onPointerDown={(event) => event.stopPropagation()} onClick={() => { void copyAnswerText(); }}>
+                <button type="button" className={`answer-action-button answer-copy-button${answerCopied ? ' is-copied' : ''}`} title={t('copy')} aria-label={t('copy')} onPointerDown={(event) => event.stopPropagation()} onClick={() => { void copyAnswerText(); }}>
                   {answerCopied ? <CheckIcon aria-hidden="true" /> : <CopyIcon aria-hidden="true" />}
                 </button>
               </div>}

@@ -131,7 +131,9 @@ export async function onRequest(context) {
         content,
         created_at: Date.now(),
       };
-      item.assistant_results = [result, ...(Array.isArray(item.assistant_results) ? item.assistant_results : [])].slice(0, 50);
+      // Keep a readable append-only timeline in the reader. The UI renders
+      // records in the same order the user created them.
+      item.assistant_results = [...(Array.isArray(item.assistant_results) ? item.assistant_results : []), result].slice(-50);
       item.last_opened_at = Date.now();
       await saveJson(store, keys.index, items);
       return json({ item, result });

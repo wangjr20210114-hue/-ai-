@@ -7,6 +7,7 @@ import type { ChatMessage, WSMessage } from '../../types';
 import type { ChatClient } from '../../services/chatClient';
 import { proactiveOperation, saveConversationMessage, uploadDocument } from '../../services/api';
 import { registerReadingItem } from '../../services/paperApi';
+import { getStoredLanguage, useLanguage } from '../../i18n';
 
 interface Props {
   client: React.RefObject<ChatClient | null>;
@@ -38,6 +39,7 @@ async function imageReferenceDataUrl(file: File): Promise<string> {
 /** 底部输入栏：文本输入 + 文档上传 + 发送（场景由后端自动推断）。 */
 export default function InputBar({ client }: Props) {
   const { draft, documentContext, conversationId, conversations, messages } = useAppState();
+  const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -71,6 +73,7 @@ export default function InputBar({ client }: Props) {
           filename: documentContext.filename,
           text: documentContext.text,
         } : undefined,
+        response_language: getStoredLanguage(),
       },
     };
     client.current?.send(msg);
@@ -250,11 +253,11 @@ export default function InputBar({ client }: Props) {
               onChange={(files) => { void handleUpload(files as UploadFile[]); }}
             >
               <Button variant="text" size="small" icon={<AttachIcon />} loading={uploading}>
-                上传文件
+                {t('upload')}
               </Button>
             </Upload>
             <Checkbox checked={webSearch} onChange={(v) => setWebSearch(v as boolean)}>
-              联网搜索
+              {t('webSearch')}
             </Checkbox>
           </div>
           {activeStreaming || stopping ? (
@@ -269,7 +272,7 @@ export default function InputBar({ client }: Props) {
               loading={sending}
               disabled={!text.trim() || sending}
             >
-              发送
+              {t('send')}
             </Button>
           )}
         </div>

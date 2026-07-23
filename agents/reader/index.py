@@ -31,6 +31,7 @@ async def handler(ctx):
     action = str(body.get("action") or "")
     text = str(body.get("text") or "").strip()
     question = str(body.get("question") or "").strip()
+    response_language = str(body.get("response_language") or "zh-CN")
     if action not in PROMPTS:
         return error("不支持的助读操作")
     if not text:
@@ -43,8 +44,15 @@ async def handler(ctx):
             return error("问题不能为空")
         user += f"\n\n问题：{question[:2000]}"
     try:
+        language_hint = {
+            "zh-CN": "请使用简体中文。",
+            "zh-TW": "請使用繁體中文。",
+            "en": "Respond in clear English.",
+            "cat-cute": "请使用简体中文，保持准确，语气像可爱的橘猫，适度加“喵”。",
+            "cat-cold": "请使用简体中文，保持准确，语气像冷静克制的橘猫，偶尔简短加“喵”。",
+        }.get(response_language, "请使用简体中文。")
         response = await get_model(ctx.env).ainvoke([
-            {"role": "system", "content": PROMPTS[action]},
+            {"role": "system", "content": f"{PROMPTS[action]}\n{language_hint}"},
             {"role": "user", "content": user},
         ])
         return {"content": _text(getattr(response, "content", ""))}
