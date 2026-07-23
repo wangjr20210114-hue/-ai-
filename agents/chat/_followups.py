@@ -36,9 +36,12 @@ def parse_followups(content: Any) -> list[str]:
     return result[:3]
 
 
-async def generate_followups(model, user_message: str, answer: str) -> list[str]:
-    """Return two or three natural next questions, or none when unhelpful."""
-    if len(answer.strip()) < 20:
+async def generate_followups(
+    model, user_message: str, answer: str = "", *, plan_context: str = "",
+) -> list[str]:
+    """Return useful next questions and allow planning beside answer synthesis."""
+    grounding = answer.strip() or plan_context.strip()
+    if len(user_message.strip()) + len(grounding) < 20:
         return []
     response = await model.ainvoke([
         {
@@ -50,6 +53,12 @@ async def generate_followups(model, user_message: str, answer: str) -> list[str]
                 "只返回JSON字符串数组。"
             ),
         },
-        {"role": "user", "content": f"原问题：{user_message[:1200]}\n\n回答：{answer[:6000]}"},
+        {
+            "role": "user",
+            "content": (
+                f"原问题：{user_message[:1200]}\n\n"
+                + (f"回答：{answer[:6000]}" if answer.strip() else f"已识别的任务方向：{plan_context[:2400]}")
+            ),
+        },
     ])
     return parse_followups(getattr(response, "content", response))

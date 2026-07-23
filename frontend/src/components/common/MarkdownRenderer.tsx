@@ -169,6 +169,26 @@ function sameUrl(left: string, right: string): boolean {
   } catch { return left === right; }
 }
 
+function uniqueMediaAssets(media: RichMediaAsset[]): RichMediaAsset[] {
+  const seenUrls = new Set<string>();
+  const seenCaptions = new Set<string>();
+  return media.filter((asset) => {
+    const url = asset.url.trim();
+    const caption = (asset.caption || asset.alt || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+    if (seenUrls.has(url) || (caption && seenCaptions.has(caption))) return false;
+    seenUrls.add(url);
+    if (caption) seenCaptions.add(caption);
+    return true;
+  });
+}
+
+function linkLabel(children: React.ReactNode): string {
+  return React.Children.toArray(children)
+    .filter((child): child is string | number => typeof child === 'string' || typeof child === 'number')
+    .join('')
+    .trim();
+}
+
 export default function MarkdownRenderer({
   content,
   searchMeta,
@@ -179,10 +199,10 @@ export default function MarkdownRenderer({
   streaming?: boolean;
 }) {
   const sources = searchMeta?.results || [];
-  const reviewedMedia = searchMeta?.media || [];
+  const reviewedMedia = uniqueMediaAssets(searchMeta?.media || []);
   const visibleMedia = reviewedMedia.length
     ? reviewedMedia
-    : (searchMeta?.media_pending ? searchMeta.preview_media || [] : []);
+    : uniqueMediaAssets(searchMeta?.media_pending ? searchMeta.preview_media || [] : []);
   // During streaming, an explicit model slot wins. If none has arrived, a
   // single image is anchored after the first completed prose block so it is
   // visible early without jumping as subsequent paragraphs grow.
@@ -192,10 +212,15 @@ export default function MarkdownRenderer({
       : placeReviewedMedia(content, visibleMedia, true),
     sources,
   );
-  const linkedSources = sources.filter((source) => isSafeRemoteUrl(source.url)).slice(0, 8);
+  const providerCalls = searchMeta?.search_config?.turn_provider_calls;
+  const toolInvocations = searchMeta?.search_config?.turn_tool_invocations;
 
   return (
-    <div className={`markdown-body${streaming ? ' is-streaming' : ''}`}>
+    <div
+      className={`markdown-body${streaming ? ' is-streaming' : ''}`}
+      data-search-provider-calls={typeof providerCalls === 'number' ? providerCalls : undefined}
+      data-search-tool-invocations={typeof toolInvocations === 'number' ? toolInvocations : undefined}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkMath, remarkGfm]}
         rehypePlugins={[rehypeKatex]}
@@ -226,7 +251,15 @@ export default function MarkdownRenderer({
             // Chat answers keep web evidence compact and readable. Dedicated
             // paper/location surfaces can still use InfoCard, but a Markdown
             // citation inside prose should remain a normal inline link.
-            return isSafeRemoteUrl(url) ? <a href={url} onClick={(event) => followExternalLink(event, url)}>{children}</a> : <>{children}</>;
+            if (!isSafeRemoteUrl(url)) return <>{children}</>;
+            const label = linkLabel(children);
+            const urlOnly = sameUrl(label.replace(/^<|>$/g, ''), url);
+            return <a
+              href={url}
+              className={urlOnly ? 'md-citation-link' : undefined}
+              title={urlOnly ? label : undefined}
+              onClick={(event) => followExternalLink(event, url)}
+            >{urlOnly ? '来源' : children}</a>;
           },
           img: ({ src, alt }) => {
             const url = typeof src === 'string' ? src : '';
@@ -243,21 +276,6 @@ export default function MarkdownRenderer({
       >
         {cleanedContent}
       </ReactMarkdown>
-      {linkedSources.length > 0 && (
-        <nav className="search-source-links" aria-label="回答来源">
-          <span className="search-source-links-label">来源</span>
-          {linkedSources.map((source) => (
-            <a
-              key={source.id || source.url}
-              href={source.url}
-              title={source.title}
-              onClick={(event) => followExternalLink(event, source.url)}
-            >
-              {source.title || new URL(source.url).hostname}
-            </a>
-          ))}
-        </nav>
-      )}
     </div>
   );
 }

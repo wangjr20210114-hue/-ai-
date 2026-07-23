@@ -35,6 +35,15 @@ def rich_search(query: str) -> str:
 
 
 class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_direct_answer_does_not_call_rich_search(self):
+        model = _RecordingModel()
+        graph = build_graph(model, [rich_search], "system")
+        result = await graph.ainvoke({"messages": [HumanMessage(content="一加一等于几")]})
+        self.assertEqual(result["messages"][-1].content, "bound answer")
+        self.assertFalse(any(isinstance(message, ToolMessage) for message in result["messages"]))
+        self.assertEqual(model.bound_calls, 1)
+        self.assertEqual(model.unbound_calls, 0)
+
     async def test_llm_planned_rich_search_skips_redundant_tool_call_model_round(self):
         model = _RecordingModel()
         graph = build_graph(model, [rich_search], "system", required_tools=["rich_search"])

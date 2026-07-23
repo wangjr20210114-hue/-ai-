@@ -1126,7 +1126,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             tool = next(item for item in tools if item.name == "rich_search")
             first = json.loads(await tool.ainvoke({"query": "第一次改写"}))
             second = json.loads(await tool.ainvoke({"query": "第二次改写"}))
-            self.assertEqual(first, second)
+            self.assertEqual(first["search_results"]["search_config"]["turn_tool_invocations"], 1)
+            self.assertEqual(first["search_results"]["search_config"]["turn_provider_calls"], 1)
+            self.assertEqual(second["search_results"]["search_config"]["turn_tool_invocations"], 2)
+            self.assertEqual(second["search_results"]["search_config"]["turn_provider_calls"], 1)
             self.assertEqual(provider.await_count, 1)
             self.assertEqual(provider.await_args.args[1], "合并后的 AI 新闻查询")
             self.assertFalse(provider.await_args.kwargs["include_media"])
@@ -1142,6 +1145,33 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             cached = json.loads(await next_tool.ainvoke({"query": "任意改写"}))
             self.assertEqual(provider.await_count, 1)
             self.assertTrue(cached["search_results"]["cache_hit"])
+            self.assertEqual(cached["search_results"]["search_config"]["turn_tool_invocations"], 1)
+            self.assertEqual(cached["search_results"]["search_config"]["turn_provider_calls"], 0)
+
+    async def test_rich_search_audit_matrix_never_duplicates_provider_calls(self):
+        scenarios = [
+            ("最近 AI 有什么新进展", "AI 行业最近进展；多个独立事件、日期、来源", "AI 新闻现场"),
+            ("找三篇智能体论文", "智能体系统近期论文、作者、发表时间", "论文架构图"),
+            ("推荐三里屯附近餐厅", "北京三里屯附近餐厅评价和营业信息", "三里屯餐厅"),
+        ]
+        for index, (_question, planned_query, image_query) in enumerate(scenarios):
+            with self.subTest(question=_question):
+                provider = AsyncMock(return_value={
+                    "query": planned_query, "results": [], "media": [], "images": [],
+                    "total": 0, "media_pending": False,
+                })
+                with patch("agents.chat._ui_tools.provider_rich_search", new=provider):
+                    tools = build_production_tools(
+                        None, store=FakeStore(), conversation_id=f"audit-{index}", env={},
+                        planned_search_query=planned_query, planned_image_query=image_query,
+                    )
+                    tool = next(item for item in tools if item.name == "rich_search")
+                    await tool.ainvoke({"query": "模型第一次调用", "image_query": image_query})
+                    audited = json.loads(await tool.ainvoke({"query": "模型重复调用", "image_query": image_query}))
+                    config = audited["search_results"]["search_config"]
+                    self.assertEqual(provider.await_count, 1)
+                    self.assertEqual(config["turn_tool_invocations"], 2)
+                    self.assertEqual(config["turn_provider_calls"], 1)
 
     async def test_progressive_rich_search_publishes_and_caches_enriched_media(self):
         store = FakeStore()

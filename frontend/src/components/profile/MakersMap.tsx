@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from 'tdesign-react';
 import { planMakersRoute } from '../../services/api';
 import type { MakersMapPlace, MakersRoutePlan } from '../../types';
+import { LOCATION_OPTIONS, locationErrorMessage } from './makersMapLocation';
 
 interface Props {
   conversationId: string;
@@ -74,21 +75,29 @@ export default function MakersMap({ conversationId, title, places, revision, opt
   const [permission, setPermission] = useState<PermissionState>('checking');
   const [userLocation, setUserLocation] = useState<MakersMapPlace | null>(null);
   const [renderAttempt, setRenderAttempt] = useState(0);
+  const [locationError, setLocationError] = useState('');
+  const locationRequestRef = useRef(0);
 
   const displayPlaces = useMemo(
     () => places.length ? places : userLocation ? [userLocation] : [],
     [places, userLocation],
   );
 
-  const readCurrentLocation = (interactive: boolean) => {
+  const readCurrentLocation = () => {
     if (!navigator.geolocation) {
       setPermission('unavailable');
+      setLocationError('当前浏览器不支持定位。');
       return;
     }
-    if (interactive) setPermission('checking');
+    const requestId = ++locationRequestRef.current;
+    setPermission('checking');
+    setLocationError('');
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        if (requestId !== locationRequestRef.current) return;
         setPermission('granted');
+        setLocationError('');
+        setMapUnavailable(false);
         setUserLocation({
           place_id: 'browser-current-location',
           provider: 'browser',
@@ -97,9 +106,14 @@ export default function MakersMap({ conversationId, title, places, revision, opt
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
         });
+        setRenderAttempt((value) => value + 1);
       },
-      (error) => setPermission(error.code === error.PERMISSION_DENIED ? 'denied' : 'prompt'),
-      { enableHighAccuracy: true, timeout: 12_000, maximumAge: 60_000 },
+      (error) => {
+        if (requestId !== locationRequestRef.current) return;
+        setPermission(error.code === 1 ? 'denied' : 'prompt');
+        setLocationError(locationErrorMessage(error));
+      },
+      LOCATION_OPTIONS,
     );
   };
 
@@ -115,7 +129,7 @@ export default function MakersMap({ conversationId, title, places, revision, opt
       const update = () => {
         const next = status.state === 'granted' ? 'granted' : status.state === 'denied' ? 'denied' : 'prompt';
         setPermission(next);
-        if (next === 'granted') readCurrentLocation(false);
+        if (next === 'granted') readCurrentLocation();
       };
       update();
       status.onchange = update;
@@ -156,6 +170,8 @@ export default function MakersMap({ conversationId, title, places, revision, opt
     let cancelled = false;
     let map: TencentMapInstance | null = null;
     let fitBoundsTimer: number | null = null;
+    let resizeTimer: number | null = null;
+    let resizeObserver: ResizeObserver | null = null;
     setMapLoading(true);
     void loadTencentMap(key).then((TMap) => {
       if (cancelled || !containerRef.current) return;
@@ -167,6 +183,12 @@ export default function MakersMap({ conversationId, title, places, revision, opt
         center: new TMap.LatLng(first.latitude, first.longitude),
         zoom: renderedPlaces.length === 1 ? 16 : 12,
       });
+      const resizeMap = () => map?.resize?.();
+      if (typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver(resizeMap);
+        resizeObserver.observe(containerRef.current);
+      }
+      resizeTimer = window.setTimeout(resizeMap, 180);
       new TMap.MultiMarker({
         map,
         geometries: renderedPlaces.map((place, index) => ({
@@ -216,6 +238,8 @@ export default function MakersMap({ conversationId, title, places, revision, opt
     return () => {
       cancelled = true;
       if (fitBoundsTimer !== null) window.clearTimeout(fitBoundsTimer);
+      if (resizeTimer !== null) window.clearTimeout(resizeTimer);
+      resizeObserver?.disconnect();
       map?.destroy?.();
     };
   }, [displayPlaces, places.length, route, routeError, revision, renderAttempt]);
@@ -223,11 +247,11 @@ export default function MakersMap({ conversationId, title, places, revision, opt
   if (!displayPlaces.length) {
     return (
       <div className="makers-map-empty makers-location-state">
-        {permission === 'checking' && '正在检查位置权限…'}
-        {permission === 'prompt' && <><div>今天还没有可连成路线的日程</div><Button size="small" theme="primary" onClick={() => readCurrentLocation(true)}>显示我的位置</Button></>}
-        {permission === 'denied' && <div>位置权限已关闭。可在浏览器的网站设置中允许定位，或先添加至少两个有效日程地点。</div>}
+        {permission === 'checking' && <><div>正在取得当前位置…</div><Button size="small" variant="outline" disabled>定位中</Button></>}
+        {permission === 'prompt' && <><div>{locationError || '今天还没有可连成路线的日程'}</div><Button size="small" theme="primary" onClick={readCurrentLocation}>显示我的位置</Button></>}
+        {permission === 'denied' && <><div>{locationError || '位置权限已关闭。请在浏览器的网站设置中允许定位后重试。'}</div><Button size="small" variant="outline" onClick={readCurrentLocation}>重新检查位置</Button></>}
         {permission === 'unavailable' && <div>当前浏览器不支持定位；添加至少两个有效日程地点后仍可显示路线。</div>}
-        {permission === 'granted' && '正在获取当前位置…'}
+        {permission === 'granted' && <><div>位置权限已开启，正在读取位置…</div><Button size="small" variant="outline" onClick={readCurrentLocation}>重新定位</Button></>}
       </div>
     );
   }

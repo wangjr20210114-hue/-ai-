@@ -11,6 +11,27 @@ import type { ChatMessage, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, 
 
 type ClientEvent = { type: string; payload: Record<string, unknown> };
 
+const TOOL_PROGRESS: Record<string, { active: string; complete: string }> = {
+  web_search: { active: '正在查找可核验的信息…', complete: '已找到相关资料，正在核对时间和出处…' },
+  rich_search: { active: '正在查找最新且可靠的资料与图片…', complete: '资料已经找到，正在核对重点、日期和出处…' },
+  search_places: { active: '正在查找并确认真实地点…', complete: '地点已经找到，正在确认名称和位置…' },
+  prepare_map_recommendation: { active: '正在把核实过的地点整理到地图…', complete: '地图地点已准备好，正在组织推荐理由…' },
+  recommend_places_on_map: { active: '正在逐个核实地点并准备地图…', complete: '可用地点已核实，正在整理成推荐…' },
+  propose_calendar_changes: { active: '正在检查时间、地点和日程冲突…', complete: '日程条件已检查，正在准备确认内容…' },
+  propose_meeting: { active: '正在检查会议时间和必要信息…', complete: '会议信息已检查，正在准备确认内容…' },
+  propose_image: { active: '正在理解画面并开始绘制…', complete: '画面已生成，正在整理展示结果…' },
+  image_generation_planning: { active: '正在理解画面主体、风格和构图…', complete: '画面要求已整理，正在开始绘制…' },
+  search_arxiv: { active: '正在查找论文并核对作者与年份…', complete: '论文已找到，正在核对摘要和下载信息…' },
+  collect_page_images: { active: '正在查看网页里真正有用的图片…', complete: '网页图片已提取，正在筛选与问题相关的内容…' },
+  search_rich_images: { active: '正在查找与问题相关的图片…', complete: '候选图片已找到，正在确认是否真的相关…' },
+  analyze_images_parallel: { active: '正在逐张确认图片内容和相关性…', complete: '图片内容已确认，正在放到合适的位置…' },
+};
+
+export function progressTextForTool(toolName: string, phase: 'active' | 'complete'): string {
+  return TOOL_PROGRESS[toolName]?.[phase]
+    || (phase === 'active' ? '正在处理这一步需要的信息…' : '这一步已完成，正在整理结果…');
+}
+
 export function mergeSearchMeta(previous: SearchMeta | undefined, incoming: Partial<SearchMeta>): SearchMeta {
   const previousMedia = previous?.media || [];
   const incomingMedia = Array.isArray(incoming.media) ? incoming.media : [];
@@ -204,27 +225,12 @@ class SSEChatClient {
                   // Some provider streams include a companion tool-call chunk
                   // without a name. It is transport noise, not a new search.
                   if (!toolName) break;
-                  const labels: Record<string, string> = {
-                    web_search: '正在查找相关信息…',
-                    search_places: '正在核实真实地点…',
-                    prepare_map_recommendation: '正在准备可查看的地图地点…',
-                    recommend_places_on_map: '正在并行核实真实地点并生成地图…',
-                    propose_calendar_changes: '正在整理待确认的日程变更…',
-                    propose_meeting: '正在准备会议创建信息…',
-                    propose_image: '正在直接生成图片…',
-                    image_generation_planning: '正在准备绘制画面…',
-                    rich_search: '正在查找可靠的事实与视觉参考…',
-                    search_arxiv: '正在搜索 arXiv 论文…',
-                    collect_page_images: '正在提取网页图片…',
-                    search_rich_images: '正在查找相关图片…',
-                    analyze_images_parallel: '正在并行识别图片…',
-                  };
                 this.emit({
                   type: 'search_status',
                   payload: {
                     id: streamId,
                     status: 'searching',
-                    statusText: labels[toolName] || '正在处理…',
+                    statusText: progressTextForTool(toolName, 'active'),
                     intent: ['image_generation_planning', 'propose_image'].includes(toolName) ? 'image' : '',
                   },
                 });
@@ -234,7 +240,11 @@ class SSEChatClient {
                 if (!String(event.name || '')) break;
                 this.emit({
                   type: 'search_status',
-                  payload: { id: streamId, status: 'analyzing', statusText: '工具已返回，正在整理…' },
+                  payload: {
+                    id: streamId,
+                    status: 'analyzing',
+                    statusText: progressTextForTool(String(event.name || ''), 'complete'),
+                  },
                 });
                 break;
               case 'map_action':
@@ -259,12 +269,19 @@ class SSEChatClient {
                 break;
               case 'search_media':
                 this.emit({
+                  type: 'search_status',
+                  payload: { id: streamId, status: 'arranging', statusText: '相关图片已经核对，正在放到合适的段落…' },
+                });
+                this.emit({
                   type: 'search_media',
                   payload: {
                     ...((event.payload && typeof event.payload === 'object') ? event.payload as Record<string, unknown> : {}),
                     id: streamId,
                   },
                 });
+                break;
+              case 'answer_complete':
+                this.emit({ type: 'answer_complete', payload: { id: streamId } });
                 break;
               case 'paper_results':
                 this.emit({
@@ -467,7 +484,7 @@ export function useSSEChat() {
         case 'stream_start': {
           const streamMessage: ChatMessage = {
             id: streamId || `ai-stream-${Date.now()}`, role: 'ai', content: '', ts: Date.now(), streaming: true,
-            skill: { intent: 'chat', mode: 'immediate', content: '', icon: '✨', action_label: '', params: {}, data: { status: 'thinking', statusText: '思考中…' } },
+            skill: { intent: 'chat', mode: 'immediate', content: '', icon: '✨', action_label: '', params: {}, data: { status: 'thinking', statusText: '正在理解你想解决的问题…' } },
           };
           streams.set(streamMessage.id, streamMessage);
           const current = cached(id).filter((item) => item.id !== streamMessage.id && !item.failed);
@@ -526,6 +543,15 @@ export function useSSEChat() {
           }
           break;
         }
+        case 'answer_complete': {
+          const current = streams.get(streamId);
+          if (current) {
+            const next = { ...current, streaming: false };
+            streams.set(streamId, next);
+            patch(id, streamId, { streaming: false });
+          }
+          break;
+        }
         case 'stop_requested': {
           streams.clear();
           publish(id, settleStoppedMessages(cached(id)));
@@ -535,7 +561,7 @@ export function useSSEChat() {
         case 'search_status': {
           const current = streams.get(streamId); if (!current) break;
           const intent = event.payload.intent === 'image' || current.skill?.intent === 'image' ? 'image' : 'search';
-          const skill = { intent, mode: 'immediate', content: '', icon: intent === 'image' ? '🎨' : '🔍', action_label: '', params: {}, data: { status: String(event.payload.status || 'searching'), statusText: String(event.payload.statusText || '正在搜索…') } } as ChatMessage['skill'];
+          const skill = { intent, mode: 'immediate', content: '', icon: intent === 'image' ? '🎨' : '🔍', action_label: '', params: {}, data: { status: String(event.payload.status || 'searching'), statusText: String(event.payload.statusText || '正在处理需要的信息…') } } as ChatMessage['skill'];
           streams.set(streamId, { ...current, skill }); patch(id, streamId, { skill }); break;
         }
         case 'search_results': {

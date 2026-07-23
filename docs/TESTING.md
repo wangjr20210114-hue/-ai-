@@ -37,9 +37,11 @@ python -m unittest discover -s tools/tests -v
 git diff --check
 ```
 
-当前分支 2026-07-22 的已验证结果：Cloud Functions/Schedule/验收持久化 21 项、前端 Vitest 78 项（16 个测试文件）、Python Agent 142 项、迁移工具 2 项均通过；ESLint、TypeScript/Vite 构建和 `git diff --check` 通过。Python 覆盖语义机会校验、低置信拒绝、敏感联系方式/密钥拒绝、待确认副作用抑制、6 小时同类冷却、过期过滤、文档上传机会和生图完成后的语义迭代判断；前端覆盖 Makers Blob PDF 解析、一次性文档上下文、图片 Action 去重信号和主动建议采纳。地图、腾讯会议、搜索媒体、流式 Markdown 和历史消息回归仍全部保留。Provider 脱敏实测见 [`PROVIDER_HEALTH_2026-07-22.md`](PROVIDER_HEALTH_2026-07-22.md)。运行 Python 测试前必须激活 `.venv`；系统 Python 缺依赖属于本地环境错误。主包体积警告是已知非阻断优化项。
+当前分支 2026-07-23 的已验证结果：Cloud Functions/Schedule/验收持久化 21 项、前端 Vitest 84 项（17 个测试文件）、Python Agent 144 项、迁移工具 2 项均通过；ESLint、TypeScript/Vite 构建和 `git diff --check` 通过。Python 新增直接回答零搜索、新闻/论文/地点三类查询调用审计和同轮 Provider 去重；前端新增行内来源、进度文案、媒体去重与刷新后定位恢复测试。原有地图、腾讯会议、搜索媒体、流式 Markdown、主动机会和历史消息回归仍全部保留。Provider 脱敏实测见 [`PROVIDER_HEALTH_2026-07-22.md`](PROVIDER_HEALTH_2026-07-22.md)。运行 Python 测试前必须激活 `.venv`；系统 Python 缺依赖属于本地环境错误。主包体积警告是已知非阻断优化项。
 
-搜索调用次数要在 Makers 控制台日志中验证：按本次请求时间范围搜索 `rich_search provider_call`，同一轮应恰好 1 条；第二个相同查询命中缓存时会出现 `rich_search cache_hit`。浏览器 Network 只看到外层 `POST /chat`，不能据此推断内部工具次数。
+搜索调用次数要在 Makers 控制台日志中验证：按本次请求时间范围搜索 `rich_search turn_audit`，正常冷查询应为 `invocations=1 provider_calls=1`；即使模型误发重复工具调用，`provider_calls` 仍必须保持 1；相同查询命中缓存时为 0。再用 `rich_search provider_call` 交叉核对。浏览器 Network 只看到外层 `POST /chat`，不能据此推断内部工具次数。
+
+本轮重点人工回归位于测试站 CORE-04、SEARCH-01、SEARCH-05 和 TRAVEL-04：分别检查流式划词复制不抖、行内来源不抢跑、追问与回答并行且同宽，以及首次授权位置后刷新仍能显示地图。定位使用浏览器 5 分钟位置缓存并监听地图容器尺寸变化；失败时页面必须提供可点击的重试，而不是静默无响应。
 
 ## 3. 启动完整测试站（推荐）
 

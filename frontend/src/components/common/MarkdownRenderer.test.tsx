@@ -45,14 +45,23 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('card.jpg');
   });
 
-  it('always exposes search sources as real clickable hyperlinks', () => {
+  it('does not append a source directory before or after the streamed answer', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer content={'这里是综合后的结论。'} searchMeta={searchMeta} />,
     );
-    expect(html).toContain('aria-label="回答来源"');
+    expect(html).not.toContain('aria-label="回答来源"');
+    expect(html).not.toContain('search-source-links');
+    expect(html).not.toContain('https://news.example/ai');
+  });
+
+  it('turns a URL-only Markdown link into a small clickable inline citation', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer content={'结论（[https://news.example/ai](https://news.example/ai)）。'} searchMeta={searchMeta} />,
+    );
     expect(html).toContain('href="https://news.example/ai"');
-    expect(html).not.toContain('target="_blank"');
-    expect(html).toContain('>AI 新闻</a>');
+    expect(html).toContain('class="md-citation-link"');
+    expect(html).toContain('>来源</a>');
+    expect(html).not.toContain('>https://news.example/ai</a>');
   });
 
   it('replaces model-selected media slots in paragraph order instead of appending a gallery', () => {
@@ -150,5 +159,14 @@ describe('MarkdownRenderer', () => {
     );
     expect(html).not.toContain('one.jpg');
     expect(html).not.toContain('图片核实中');
+  });
+
+  it('does not repeat visually identical reviewed images with the same caption', () => {
+    const duplicate = { ...searchMeta.media[0], id: 'duplicate', url: 'https://img.example/duplicate.jpg' };
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer content={'第一段。\n\n第二段。'} searchMeta={{ ...searchMeta, media: [searchMeta.media[0], duplicate] }} />,
+    );
+    expect(html).toContain('one.jpg');
+    expect(html).not.toContain('duplicate.jpg');
   });
 });

@@ -1,0 +1,16 @@
+import { describe, expect, it } from 'vitest';
+import { LOCATION_OPTIONS, locationErrorMessage } from './makersMapLocation';
+
+describe('MakersMap geolocation recovery', () => {
+  it('reuses a recent authorized location after a page refresh', () => {
+    expect(LOCATION_OPTIONS.enableHighAccuracy).toBe(false);
+    expect(LOCATION_OPTIONS.maximumAge).toBeGreaterThanOrEqual(5 * 60_000);
+    expect(LOCATION_OPTIONS.timeout).toBeLessThanOrEqual(8_000);
+  });
+
+  it('gives a concrete retry instruction for every browser failure', () => {
+    expect(locationErrorMessage({ code: 1 } as GeolocationPositionError)).toContain('网站设置');
+    expect(locationErrorMessage({ code: 3 } as GeolocationPositionError)).toContain('重试');
+    expect(locationErrorMessage({ code: 2 } as GeolocationPositionError)).toContain('重试');
+  });
+});

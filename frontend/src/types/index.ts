@@ -244,6 +244,8 @@ export interface SearchMeta {
     parallel_image_search: boolean;
     provider_request_count: number;
     page_fetch_limit: number;
+    turn_provider_calls?: number;
+    turn_tool_invocations?: number;
   };
 }
 

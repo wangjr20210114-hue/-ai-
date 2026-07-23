@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ChatMessage, TravelPlan, SkillInfo, MeetingResult, ScheduleItem, WorkspaceAction } from '../../types';
@@ -187,6 +187,13 @@ export default function MessageBubble({ message }: Props) {
   const isUser = message.role === 'user';
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [keepStreamingLayout, setKeepStreamingLayout] = useState(Boolean(message.streaming));
+  const latestMarkdownRenderRef = useRef({
+    content: message.content,
+    searchMeta: message.searchResults,
+    streaming: Boolean(message.streaming),
+  });
+  const [selectionRender, setSelectionRender] = useState<typeof latestMarkdownRenderRef.current | null>(null);
+  const [followUpWidth, setFollowUpWidth] = useState<number>();
   const dispatch = useAppDispatch();
   const { conversationId, messages, proactive } = useAppState();
   // 追问只在最后一条 AI 消息显示
@@ -262,6 +269,32 @@ export default function MessageBubble({ message }: Props) {
     setKeepStreamingLayout(false);
   }, [message.streaming]);
 
+  useEffect(() => {
+    if (isUser) return;
+    const preserveSelectedDom = () => {
+      const selected = hasTextSelectionInside(bubbleRef.current, window.getSelection());
+      setSelectionRender((current) => {
+        if (selected) return current || latestMarkdownRenderRef.current;
+        return current ? null : current;
+      });
+    };
+    document.addEventListener('selectionchange', preserveSelectedDom);
+    return () => document.removeEventListener('selectionchange', preserveSelectedDom);
+  }, [isUser]);
+
+  useLayoutEffect(() => {
+    if (isUser || message.streaming || !message.followUps?.length || !bubbleRef.current) {
+      setFollowUpWidth(undefined);
+      return;
+    }
+    const bubble = bubbleRef.current;
+    const update = () => setFollowUpWidth(Math.round(bubble.getBoundingClientRect().width));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(bubble);
+    return () => observer.disconnect();
+  }, [isUser, message.streaming, message.followUps]);
+
   // 兼容：从 skill 或旧字段获取意图
   const skill: SkillInfo | undefined = message.skill;
   const intent = skill?.intent
@@ -272,6 +305,16 @@ export default function MessageBubble({ message }: Props) {
     // Suggestions are editable prompts, not commands. The user must still
     // explicitly press Send before any message is persisted or reaches Agent.
     dispatch(followUpDraftAction(question));
+  };
+
+  const beginTextSelection = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (isUser || event.button !== 0 || !(event.target as HTMLElement).closest('.markdown-body')) return;
+    // Freeze before the first drag movement. Waiting for selectionchange lets
+    // one more streaming token replace the DOM underneath the pointer.
+    setSelectionRender((current) => current || latestMarkdownRenderRef.current);
+    window.addEventListener('pointerup', () => window.requestAnimationFrame(() => {
+      if (!hasTextSelectionInside(bubbleRef.current, window.getSelection())) setSelectionRender(null);
+    }), { once: true });
   };
 
   type ImageActionResult = { ok: boolean; image_url?: string; prompt?: string; error?: string };
@@ -499,13 +542,28 @@ export default function MessageBubble({ message }: Props) {
 
   const searchStatus = typeof message.skill?.data?.statusText === 'string'
     ? message.skill.data.statusText
-    : '正在搜索';
-  const progressStatus = message.content ? '正在流式生成回答…' : searchStatus;
+    : '正在理解你想解决的问题…';
+  const progressStatus = message.content
+    ? (message.skill?.intent === 'search'
+      ? (message.searchResults?.media_pending
+        ? '正在边写边核对图片和出处…'
+        : '正在把核实后的信息整理成回答…')
+      : '正在逐步组织回答…')
+    : searchStatus;
+  const liveMarkdownRender = {
+    content: message.streaming || keepStreamingLayout
+      ? streamingMarkdownAnswer(message.content)
+      : message.content,
+    searchMeta: message.searchResults,
+    streaming: Boolean(message.streaming || keepStreamingLayout),
+  };
+  if (!selectionRender) latestMarkdownRenderRef.current = liveMarkdownRender;
+  const markdownRender = selectionRender || liveMarkdownRender;
   return (
     <div className={`msg-row ${isUser ? 'user' : 'ai'}`}>
       <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>{isUser ? '我' : 'AI'}</div>
       <div className="msg-content-wrap">
-        <div ref={bubbleRef} className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''}`}>
+        <div ref={bubbleRef} onPointerDown={beginTextSelection} className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''}`}>
           {isUser ? (
             message.content
           ) : (
@@ -519,11 +577,9 @@ export default function MessageBubble({ message }: Props) {
                 </div>
               )}
               {message.content && <MarkdownRenderer
-                content={message.streaming || keepStreamingLayout
-                  ? streamingMarkdownAnswer(message.content)
-                  : message.content}
-                searchMeta={message.searchResults}
-                streaming={message.streaming || keepStreamingLayout}
+                content={markdownRender.content}
+                searchMeta={markdownRender.searchMeta}
+                streaming={markdownRender.streaming}
               />}
               {message.proactive && proactive && <div className="proactive-conversation-actions">
                 {(proactive.notifications || []).filter((item) => item.status !== 'dismissed').slice(0, 3).map((item) => <div className="proactive-conversation-item" key={item.id}>
@@ -777,8 +833,8 @@ export default function MessageBubble({ message }: Props) {
         {/* 搜索结果不再单独展示卡片，已由 AI 自然穿插在 Markdown 回答中 */}
 
         {/* === 追问建议（只在最后一条 AI 消息显示） === */}
-        {!isUser && isLastAIMessage && message.followUps && message.followUps.length > 0 && (
-          <div className="followup-section">
+        {!isUser && !message.streaming && isLastAIMessage && message.followUps && message.followUps.length > 0 && (
+          <div className="followup-section answer-followups" style={followUpWidth ? { width: followUpWidth } : undefined}>
             <div className="followup-label">猜你想继续问</div>
             <div className="followup-list">
               {message.followUps.map((q, i) => (

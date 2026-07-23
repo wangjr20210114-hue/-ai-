@@ -831,27 +831,15 @@ html.is-resizing-workspace * {
   font-weight: 600;
 }
 
-/* Plain, clickable evidence links; deliberately not rendered as source cards. */
-.search-source-links {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--app-border);
-  font-size: 11px;
-  line-height: 1.55;
-}
-.search-source-links-label {
-  color: var(--app-text-3);
-  font-weight: 600;
-}
-.msg-bubble.ai .markdown-body .search-source-links a {
+/* URL-only Markdown evidence is rendered as a compact inline citation. */
+.msg-bubble.ai .markdown-body a.md-citation-link {
   display: inline-block;
-  max-width: 100%;
   position: relative;
   z-index: 1;
+  margin: 0 2px;
+  font-size: 0.76em;
+  line-height: 1.35;
+  vertical-align: 0.08em;
   color: var(--td-brand-color);
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--td-brand-color) 35%, transparent);
@@ -859,7 +847,7 @@ html.is-resizing-workspace * {
   cursor: pointer;
   pointer-events: auto;
 }
-.msg-bubble.ai .markdown-body .search-source-links a:hover {
+.msg-bubble.ai .markdown-body a.md-citation-link:hover {
   text-decoration-color: currentColor;
 }
 .rich-image-fallback {
@@ -2496,6 +2484,11 @@ html.is-resizing-workspace * {
 .followup-section {
   margin-top: 10px;
   padding-left: 2px;
+}
+.answer-followups {
+  width: 75%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .followup-label {
   font-size: 12px;

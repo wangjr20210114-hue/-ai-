@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actionOnlyFallback, mergeSearchMeta, shouldPublishProactiveOpening } from './useSSEChat';
+import { actionOnlyFallback, mergeSearchMeta, progressTextForTool, shouldPublishProactiveOpening } from './useSSEChat';
 import type { WorkspaceAction } from '../types';
 import type { ChatMessage, SearchMeta } from '../types';
 
@@ -52,5 +52,17 @@ describe('actionOnlyFallback', () => {
       id: 'map-1', kind: 'map_recommendation', status: 'ready', version: 1, payload: {},
     } as WorkspaceAction;
     expect(actionOnlyFallback([action])).toContain('点击');
+  });
+});
+
+describe('human-readable progress', () => {
+  it('explains search progress without exposing Agent implementation jargon', () => {
+    expect(progressTextForTool('rich_search', 'active')).toContain('可靠');
+    expect(progressTextForTool('rich_search', 'complete')).toContain('核对');
+    expect(progressTextForTool('rich_search', 'complete')).not.toContain('工具');
+  });
+
+  it('uses a plain-language fallback for an unfamiliar capability', () => {
+    expect(progressTextForTool('future_capability', 'complete')).toBe('这一步已完成，正在整理结果…');
   });
 });

@@ -118,6 +118,8 @@ def build_production_tools(
     ][:3]
     turn_image_group_id = ""
     rich_search_task: asyncio.Task | None = None
+    rich_search_invocations = 0
+    rich_search_provider_calls = 0
 
     async def _load_state() -> dict[str, Any]:
         return await load_user_workspace(store, conversation_id, user_id)
@@ -446,7 +448,8 @@ def build_production_tools(
 
     async def rich_search(query: str, image_query: str = "", depth: str = "standard") -> str:
         """Run one planner-shaped rich search per turn, with a persistent result cache."""
-        nonlocal rich_search_task
+        nonlocal rich_search_task, rich_search_invocations
+        rich_search_invocations += 1
         if rich_search_task is None:
             clean_query = str(planned_search_query or query or "").strip()[:500]
             clean_image_query = str(planned_image_query or image_query or "").strip()[:500] if media_enabled else ""
@@ -459,7 +462,7 @@ def build_production_tools(
                 {
                     # Increment whenever cached search metadata semantics change
                     # so an older text-only entry cannot mask new rich media.
-                    "pipeline_version": 3,
+                    "pipeline_version": 4,
                     "identity": re.sub(r"\s+", " ", str(search_cache_identity or clean_query)).strip().casefold()[:4000],
                     "depth": clean_depth,
                     "target_date": target_date,
@@ -476,7 +479,7 @@ def build_production_tools(
             cache_namespace = data_namespace("search_cache", str(user_id or "local-user"))
 
             async def run_once() -> str:
-                nonlocal turn_visual_references
+                nonlocal turn_visual_references, rich_search_provider_calls
                 metadata = None
                 stale_metadata = None
                 stale_age = 0
@@ -517,6 +520,7 @@ def build_production_tools(
                             if media_callback is not None:
                                 await media_callback(completed)
 
+                        rich_search_provider_calls += 1
                         metadata = await provider_rich_search(
                             runtime_env,
                             clean_query,
@@ -574,7 +578,26 @@ def build_production_tools(
                 }, ensure_ascii=False)
 
             rich_search_task = asyncio.create_task(run_once())
-        return await rich_search_task
+        serialized = await rich_search_task
+        result = json.loads(serialized)
+        metadata = result.get("search_results") if isinstance(result, dict) else None
+        if isinstance(metadata, dict):
+            search_config = metadata.get("search_config")
+            if not isinstance(search_config, dict):
+                search_config = {}
+            metadata["search_config"] = {
+                **search_config,
+                "turn_tool_invocations": rich_search_invocations,
+                "turn_provider_calls": rich_search_provider_calls,
+            }
+            logging.info(
+                "rich_search turn_audit conversation=%s invocations=%s provider_calls=%s cache_hit=%s",
+                conversation_id,
+                rich_search_invocations,
+                rich_search_provider_calls,
+                bool(metadata.get("cache_hit")),
+            )
+        return json.dumps(result, ensure_ascii=False)
 
     async def analyze_images_parallel(image_urls: list[str], goal: str) -> str:
         """Evaluate up to 30 images in small isolated concurrent batches."""

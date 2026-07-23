@@ -1,6 +1,7 @@
 interface TencentMapInstance {
   destroy?: () => void;
   fitBounds?: (bounds: unknown, options?: Record<string, unknown>) => void;
+  resize?: () => void;
 }
 
 interface TencentLatLngBounds {
