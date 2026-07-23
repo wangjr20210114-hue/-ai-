@@ -28,7 +28,7 @@
 - `DASHSCOPE_API_KEY`、`GEMINI_API_KEY`（可选的视觉理解后备，不承担当前免费生图）
 - 腾讯会议为最后阶段可选 Skill；个人部署只需从官方 AI Skill 页面取得 `TENCENT_MEETING_TOKEN` 并保存到 Preview 环境变量，不需要企业五项凭据。未配置时不暴露会议创建工具，不影响部署。
 
-默认搜索硬预算为 SearchPro 10 秒、页面媒体 5 秒、视觉审核 7 秒，可用 `RICH_SEARCH_PROVIDER_TIMEOUT_SECONDS`、`RICH_SEARCH_MEDIA_TIMEOUT_SECONDS`、`RICH_SEARCH_VISION_TIMEOUT_SECONDS` 在 Preview 调整。免费视觉 Provider 的额度与配置步骤见 [`VISUAL_PROVIDER_FALLBACK.md`](VISUAL_PROVIDER_FALLBACK.md)。
+默认搜索硬预算为 SearchPro 10 秒、页面媒体 5 秒、视觉审核 7 秒，可用 `RICH_SEARCH_PROVIDER_TIMEOUT_SECONDS`、`RICH_SEARCH_MEDIA_TIMEOUT_SECONDS`、`RICH_SEARCH_VISION_TIMEOUT_SECONDS` 在 Preview 调低；视觉审核服务端硬上限为 7 秒，环境变量不能继续放大。候选图片最多 4 张并发，仅做相关性和广告/二维码/Logo/UI 等轻量过滤。回答会等待本轮审核结束，再由大模型使用审核通过的真实 URL 直接编排标准 Markdown 图片；前端不会自行猜测图片位置。免费视觉 Provider 的额度与配置步骤见 [`VISUAL_PROVIDER_FALLBACK.md`](VISUAL_PROVIDER_FALLBACK.md)。
 
 一次性数据迁移可配置 `LEGACY_IMPORT_SECRET`，验收后必须删除。完整步骤见 [`DATA_MIGRATION.md`](DATA_MIGRATION.md)。
 

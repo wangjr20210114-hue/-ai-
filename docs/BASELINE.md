@@ -17,7 +17,7 @@
 | 能力 | 代码状态 | 部署状态 | 主要事实源 |
 | --- | --- | --- | --- |
 | 多会话聊天、SSE、停止、刷新恢复 | 已实现并测试 | Preview/Production 已连接并加载历史会话 | `agents/chat`、`agents/messages`、`cloud-functions/conversations` |
-| 联网图文回答 | 已实现并测试 | 搜索前保留 LLM 语义规划且默认 6 秒超时后交给主模型继续语义路由；Makers 网关/DeepSeek 降级单次无响应预算默认各 12 秒；单轮一次 rich_search/一次 SearchPro；事实与视觉意图合并，使用 Makers Store TTL/安全陈旧缓存；默认搜索/提图/视觉硬预算 10/5/7 秒 | `agents/chat/_capability_plan.py`、`agents/chat/_llm.py`、`agents/chat/_ui_tools.py`、`agents/_shared/rich_search.py` |
+| 联网图文回答 | 已实现并测试 | 搜索前保留 LLM 语义规划且默认 6 秒超时后交给主模型继续语义路由；Makers 网关/DeepSeek 降级单次无响应预算默认各 12 秒；单轮一次 rich_search/一次 SearchPro；事实与视觉意图合并，使用 Makers Store TTL/安全陈旧缓存；默认搜索/提图/视觉硬预算 10/5/7 秒；最多 4 张候选图并发完成轻量审核后，回答模型用真实 URL 自行编排标准 Markdown，不使用新媒体占位符 | `agents/chat/_capability_plan.py`、`agents/chat/_llm.py`、`agents/chat/_ui_tools.py`、`agents/_shared/rich_search.py` |
 | 地点、地图、道路路线、费用估算 | 已实现并测试 | 腾讯结果与查询不匹配时回退 OSM；路线按用户缓存 6 小时 | `agents/places`、`agents/routes`、`agents/_shared/tencent_location.py` |
 | 日程 CRUD 与确认式变更 | 已实现并测试 | 可用自然语言新增、改标题/描述/时间/地点、删除；地点修改必须来自地点库；不存在/不唯一目标会自然提示；变更后旧主动提醒同步刷新或失效 | `agents/workspace`、`agents/chat/_calendar_context.py`、LangGraph Store |
 | 腾讯会议创建 | 官方个人 MCP Skill 适配已实现 | Skills 广场引导个人用户取得 Token；未配置时不暴露工具；确认后才调用 `schedule_meeting` | `agents/_shared/side_effects.py`、`SkillsMarketplaceButton.tsx` |

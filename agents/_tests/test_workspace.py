@@ -48,6 +48,7 @@ from agents._shared.rich_search import (
     _parse_pages,
     _review_image,
     _vision_filter,
+    _vision_review_timeout,
     evidence_for_model,
     rich_search as run_rich_search,
 )
@@ -1229,9 +1230,23 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         prompt = evidence_for_model({
             "results": [], "media": [], "media_pending": True,
         })
-        self.assertIn("图片候选正在并行审核", prompt)
+        self.assertIn("图片尚未审核完成", prompt)
         self.assertIn("不要声称正在生成图片", prompt)
-        self.assertIn("[[YUANBAO_MEDIA]]", prompt)
+        self.assertIn("不要输出任何媒体占位符", prompt)
+        self.assertNotIn("[[YUANBAO_MEDIA]]", prompt)
+
+    def test_reviewed_search_media_is_given_to_model_as_direct_markdown(self):
+        prompt = evidence_for_model({
+            "results": [], "media_pending": False,
+            "media": [{
+                "id": "media-1", "caption": "大会现场",
+                "url": "https://img.example.com/conference.jpg",
+                "source_title": "AI 新闻", "source_url": "https://news.example.com/ai",
+            }],
+        })
+        self.assertIn("![大会现场](https://img.example.com/conference.jpg)", prompt)
+        self.assertIn("直接写成 ![准确说明](URL)", prompt)
+        self.assertNotIn("[[YUANBAO_MEDIA]]", prompt)
 
     def test_search_preferences_have_fast_balanced_defaults_and_public_state(self):
         state = empty_intelligence_state()
@@ -1594,7 +1609,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["search_config"]["visual_query_merged"])
         self.assertTrue(result["search_config"]["parallel_image_search"])
 
-    async def test_rich_search_uses_provider_article_image_when_vision_is_unavailable(self):
+    async def test_rich_search_does_not_publish_unreviewed_provider_image(self):
         page = {
             "url": "https://example.com/news",
             "title": "AI 发布会",
@@ -1607,12 +1622,18 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             result = await run_rich_search(
                 {"WSA_API_KEY": "test"}, "AI 新闻", "AI 发布会现场", "basic", image_limit=2,
             )
-        self.assertEqual(result["images"], ["https://img.example.com/hero.jpg"])
+        self.assertEqual(result["images"], [])
         self.assertEqual(result["results"][0]["image"], "https://img.example.com/hero.jpg")
         self.assertEqual(result["preview_media"][0]["url"], "https://img.example.com/hero.jpg")
         self.assertTrue(result["preview_media"][0]["preview"])
-        self.assertFalse(result["media"][0]["vision_reviewed"])
-        self.assertEqual(result["vision_diagnostics"]["provider_image_fallback"], 1)
+        self.assertEqual(result["media"], [])
+        self.assertEqual(result["vision_diagnostics"]["missing_api_key"], 1)
+
+    def test_rich_search_visual_review_timeout_is_hard_bounded(self):
+        self.assertEqual(_vision_review_timeout({}), 7.0)
+        self.assertEqual(_vision_review_timeout({"RICH_SEARCH_VISION_TIMEOUT_SECONDS": "999"}), 7.0)
+        self.assertEqual(_vision_review_timeout({"RICH_SEARCH_VISION_TIMEOUT_SECONDS": "1"}), 2.0)
+        self.assertEqual(_vision_review_timeout({"RICH_SEARCH_VISION_TIMEOUT_SECONDS": "4"}), 4.0)
 
     async def test_exact_repeat_reuses_persistent_rich_search_cache(self):
         store = FakeStore()

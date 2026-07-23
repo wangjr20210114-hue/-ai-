@@ -15,6 +15,7 @@ import { hasTextSelectionInside } from './scrollSelection';
 import { streamingMarkdownAnswer } from './streamingAnswer';
 import { loadProactiveDocumentContext } from '../../services/proactiveDocument';
 import type { ProactiveNotification } from '../../types';
+import { markdownToPlainText } from '../common/richContent';
 
 interface Props {
   message: ChatMessage;
@@ -218,6 +219,7 @@ export default function MessageBubble({ message }: Props) {
   const [workspaceActions, setWorkspaceActions] = useState<WorkspaceAction[]>(consolidateActions(message.workspaceActions || []));
   const [workspaceBusy, setWorkspaceBusy] = useState('');
   const [proactiveBusy, setProactiveBusy] = useState('');
+  const [answerCopied, setAnswerCopied] = useState(false);
 
   const mutateProactive = async (key: string, operation: string, input: Record<string, unknown>) => {
     setProactiveBusy(key);
@@ -316,6 +318,34 @@ export default function MessageBubble({ message }: Props) {
     // Suggestions are editable prompts, not commands. The user must still
     // explicitly press Send before any message is persisted or reaches Agent.
     dispatch(followUpDraftAction(question));
+  };
+
+  const copyAnswerText = async () => {
+    const plainText = markdownToPlainText(message.content, message.searchResults?.results || []);
+    if (!plainText) {
+      MessagePlugin.warning('当前回答没有可复制的纯文字内容');
+      return;
+    }
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(plainText);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = plainText;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        if (!document.execCommand('copy')) throw new Error('copy failed');
+        textarea.remove();
+      }
+      setAnswerCopied(true);
+      window.setTimeout(() => setAnswerCopied(false), 1600);
+      MessagePlugin.success('已复制纯文字回答');
+    } catch {
+      MessagePlugin.error('浏览器不允许自动复制，请手动选择文字复制');
+    }
   };
 
   const beginTextSelection = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -705,6 +735,14 @@ export default function MessageBubble({ message }: Props) {
             </>
           )}
         </div>
+
+        {!isUser && !message.streaming && message.content.trim() && (
+          <div className="message-action-bar">
+            <button type="button" className="answer-copy-button" onClick={() => { void copyAnswerText(); }}>
+              {answerCopied ? '已复制' : '复制'}
+            </button>
+          </div>
+        )}
 
         {/* === 旅游：计划卡片 === */}
         {travelPlan && (

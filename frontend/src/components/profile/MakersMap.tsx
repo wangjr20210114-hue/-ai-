@@ -3,12 +3,15 @@ import { Button } from 'tdesign-react';
 import { planMakersRoute } from '../../services/api';
 import type { MakersMapPlace, MakersRoutePlan } from '../../types';
 import { LOCATION_OPTIONS, locationErrorMessage } from './makersMapLocation';
+import { shouldPlanMakersRoute } from './makersMapRouting';
 
 interface Props {
   conversationId: string;
   title: string;
   places: MakersMapPlace[];
   revision: number;
+  /** Whether this map represents an ordered plan (for example a day's schedule). */
+  showRoute?: boolean;
   optimize?: boolean;
 }
 
@@ -65,7 +68,7 @@ function hoursMinutes(seconds: number): string {
   return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`;
 }
 
-export default function MakersMap({ conversationId, title, places, revision, optimize = false }: Props) {
+export default function MakersMap({ conversationId, title, places, revision, showRoute = false, optimize = false }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [animating, setAnimating] = useState(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
@@ -138,7 +141,7 @@ export default function MakersMap({ conversationId, title, places, revision, opt
   }, [places.length]);
 
   useEffect(() => {
-    if (places.length < 2) {
+    if (!shouldPlanMakersRoute(showRoute, places.length)) {
       setRoute(null);
       setRouteError('');
       return;
@@ -150,7 +153,7 @@ export default function MakersMap({ conversationId, title, places, revision, opt
       .then((next) => { if (!disposed) setRoute(next); })
       .catch((error) => { if (!disposed) setRouteError(error instanceof Error ? error.message : '路线规划失败'); });
     return () => { disposed = true; };
-  }, [conversationId, places, revision, optimize]);
+  }, [conversationId, places, revision, showRoute, optimize]);
 
   useEffect(() => {
     if (!displayPlaces.length) return;
@@ -277,9 +280,9 @@ export default function MakersMap({ conversationId, title, places, revision, opt
           }}>重试加载底图</Button>
         </div>
       )}
-      {routeError && <div className="makers-route-error">未能取得真实道路路线：{routeError}</div>}
-      {places.length >= 2 && !route && !routeError && <div className="makers-route-loading">正在计算真实道路路线…</div>}
-      {route && (
+      {showRoute && routeError && <div className="makers-route-error">未能取得真实道路路线：{routeError}</div>}
+      {shouldPlanMakersRoute(showRoute, places.length) && !route && !routeError && <div className="makers-route-loading">正在计算真实道路路线…</div>}
+      {showRoute && route && (
         <div className="makers-route-summary">
           <span>{(route.distance_meters / 1000).toFixed(1)} 公里</span>
           <span>{hoursMinutes(route.duration_seconds)}</span>

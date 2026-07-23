@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LOCATION_OPTIONS, locationErrorMessage } from './makersMapLocation';
+import { shouldPlanMakersRoute } from './makersMapRouting';
 
 describe('MakersMap geolocation recovery', () => {
   it('reuses a recent authorized location after a page refresh', () => {
@@ -12,5 +13,11 @@ describe('MakersMap geolocation recovery', () => {
     expect(locationErrorMessage({ code: 1 } as GeolocationPositionError)).toContain('网站设置');
     expect(locationErrorMessage({ code: 3 } as GeolocationPositionError)).toContain('重试');
     expect(locationErrorMessage({ code: 2 } as GeolocationPositionError)).toContain('重试');
+  });
+
+  it('plans routes only for ordered maps with at least two places', () => {
+    expect(shouldPlanMakersRoute(false, 3)).toBe(false);
+    expect(shouldPlanMakersRoute(true, 1)).toBe(false);
+    expect(shouldPlanMakersRoute(true, 2)).toBe(true);
   });
 });

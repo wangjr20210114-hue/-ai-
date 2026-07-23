@@ -60,7 +60,7 @@ describe('MarkdownRenderer', () => {
     );
     expect(html).toContain('href="https://news.example/ai"');
     expect(html).toContain('class="md-citation-link"');
-    expect(html).toContain('>来源</a>');
+    expect(html).toContain('>AI 新闻</a>');
     expect(html).not.toContain('>https://news.example/ai</a>');
   });
 
@@ -71,7 +71,16 @@ describe('MarkdownRenderer', () => {
     expect(html).toContain('href="https://news.example/ai"');
     expect(html).toContain('class="md-citation-link"');
     expect(html).toContain('title="https://news.example/ai"');
-    expect(html).toContain('>来源</a>');
+    expect(html).toContain('>AI 新闻</a>');
+  });
+
+  it('repairs a bare parenthesized provider URL into a titled clickable source', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer content={'事实说明。(https://news.example/ai)'} searchMeta={searchMeta} />,
+    );
+    expect(html).toContain('href="https://news.example/ai"');
+    expect(html).toContain('>AI 新闻</a>');
+    expect(html).toContain('target="_blank"');
   });
 
   it('replaces model-selected media slots in paragraph order instead of appending a gallery', () => {
@@ -97,23 +106,21 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('<img');
   });
 
-  it('uses AI-authored paragraph structure when async media arrives after an answer without slots', () => {
+  it('does not guess a media position when the model omitted Markdown images', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer
         content={'第一段解释 AI 进展。\n\n第二段补充影响。\n\n最后给出建议。'}
         searchMeta={{ ...searchMeta, media: [searchMeta.media[0]], images: [searchMeta.images[0]] }}
       />,
     );
-    expect(html.indexOf('第一段解释')).toBeLessThan(html.indexOf('one.jpg'));
-    expect(html.indexOf('one.jpg')).toBeLessThan(html.indexOf('第二段补充'));
-    expect(html.indexOf('one.jpg')).not.toBeGreaterThan(html.indexOf('最后给出建议'));
+    expect(html).not.toContain('one.jpg');
   });
 
-  it('anchors one fallback image after the first completed streaming prose block', () => {
+  it('renders a model-authored Markdown image at its exact streaming position', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer
         streaming
-        content={'第一段仍在流式生成。\n\n第二段尚未完成'}
+        content={'第一段仍在流式生成。\n\n![第一张](https://img.example/one.jpg)\n\n第二段尚未完成'}
         searchMeta={{ ...searchMeta, media: [searchMeta.media[0]], images: [searchMeta.images[0]] }}
       />,
     );
@@ -174,7 +181,10 @@ describe('MarkdownRenderer', () => {
   it('does not repeat visually identical reviewed images with the same caption', () => {
     const duplicate = { ...searchMeta.media[0], id: 'duplicate', url: 'https://img.example/duplicate.jpg' };
     const html = renderToStaticMarkup(
-      <MarkdownRenderer content={'第一段。\n\n第二段。'} searchMeta={{ ...searchMeta, media: [searchMeta.media[0], duplicate] }} />,
+      <MarkdownRenderer
+        content={'第一段。\n\n![第一张](https://img.example/one.jpg)\n\n![重复图片](https://img.example/duplicate.jpg)\n\n第二段。'}
+        searchMeta={{ ...searchMeta, media: [searchMeta.media[0], duplicate] }}
+      />,
     );
     expect(html).toContain('one.jpg');
     expect(html).not.toContain('duplicate.jpg');

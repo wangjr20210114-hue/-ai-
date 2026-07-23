@@ -24,6 +24,14 @@ from .web_media import collect_page_media
 from .vision import vision_completion, vision_providers
 
 
+def _vision_review_timeout(env: dict[str, Any]) -> float:
+    try:
+        configured = float(env.get("RICH_SEARCH_VISION_TIMEOUT_SECONDS") or 7)
+    except (TypeError, ValueError):
+        configured = 7.0
+    return max(2.0, min(7.0, configured))
+
+
 def _embedded_image_url(value: Any) -> str:
     """Read a provider-supplied article image embedded in an HTML passage."""
     text = unescape(str(value or ""))
@@ -307,14 +315,17 @@ async def _vision_filter(
     if not selected:
         return [], {"candidates": 0, "reviewed": 0}
 
-    timeout = float(env.get("RICH_SEARCH_VISION_TIMEOUT_SECONDS") or 7)
+    # Image review is a shallow relevance/safety gate, not an open-ended
+    # visual-analysis task. Keep one shared deadline for the whole provider
+    # chain and never allow an environment override to exceed seven seconds.
+    timeout = _vision_review_timeout(env)
 
     async def review(candidate: dict[str, str]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         context = str(candidate.get("context") or candidate.get("alt") or candidate.get("source_title") or "")[:240]
         prompt = (
-            '判断这张图片是否直接帮助理解用户问题。广告、二维码、Logo、图标、UI、占位图、纯文字截图或'
-            '无关内容必须判为 false。只返回 JSON：'
-            '{"description":"准确描述实际画面","relevant":true}；不确定时 relevant=false。\n'
+            '快速审核图片，不做背景推理或深度分析。只判断图片是否直接帮助回答用户问题，以及是否属于广告、'
+            '促销、二维码、Logo、图标、UI、占位图、纯文字截图或无关内容；这些情况必须判为 false。'
+            '只返回简短 JSON：{"description":"一句话描述可见主体","relevant":true}；不确定时 relevant=false。\n'
             f'用户问题：{query[:160]}\n网页上下文：{context}'
         )
         try:
@@ -324,7 +335,7 @@ async def _vision_filter(
                     {"type": "image_url", "image_url": {"url": candidate["url"]}},
                     {"type": "text", "text": prompt},
                 ],
-                max_tokens=320,
+                max_tokens=160,
                 timeout=timeout,
             )
             if not raw:
@@ -426,12 +437,10 @@ async def rich_search(
         # it here made visually rich provider results look text-only.
         "image": item.get("image", ""),
     } for index, item in enumerate(results, 1)]
-    # SearchPro's own article hero images are available with the factual
-    # results, several seconds before page extraction + pixel review finish.
-    # Expose them as explicitly provisional media so the frontend can fill a
-    # model-authored media slot during text streaming. They are never treated
-    # as final: a later search_media event replaces them with reviewed assets,
-    # or removes them when review rejects every candidate.
+    # Keep SearchPro's own article hero images as explicitly provisional
+    # diagnostics. Production waits for pixel review and never exposes these
+    # candidates as final answer media; the field remains compatible with
+    # older persisted runs and the optional progressive provider API.
     source_by_url = {item["url"]: item for item in sources}
     preview_media = []
     for index, candidate in enumerate(_provider_image_candidates(results)[:image_limit], 1):
@@ -480,7 +489,7 @@ async def rich_search(
             visual_candidates = _provider_image_candidates(visual_results)
         extracted_at = time.perf_counter()
         review_goal = image_query.strip() or query
-        vision_timeout = max(2, min(12, int(env.get("RICH_SEARCH_VISION_TIMEOUT_SECONDS") or 7)))
+        vision_timeout = _vision_review_timeout(env)
         try:
             reviewed, diagnostics = await asyncio.wait_for(
                 _vision_filter(env, review_goal, visual_candidates, image_limit),
@@ -489,22 +498,6 @@ async def rich_search(
         except asyncio.TimeoutError:
             reviewed, diagnostics = [], {"timeout": 1, "candidates": len(visual_candidates), "reviewed": 0}
         reviewed_at = time.perf_counter()
-        # A missing/failed vision provider must not make news answers permanently
-        # text-only. Fall back only to SearchPro's own article hero images; do
-        # not use page-scraped candidates and do not override an explicit vision
-        # rejection.
-        if not reviewed and not diagnostics.get("irrelevant"):
-            provider_fallback = _provider_image_candidates(visual_results)[:image_limit]
-            reviewed = [
-                {
-                    **candidate,
-                    "description": candidate.get("source_title") or "搜索结果文章配图",
-                    "vision_reviewed": False,
-                }
-                for candidate in provider_fallback
-            ]
-            if reviewed:
-                diagnostics = {**diagnostics, "provider_image_fallback": len(reviewed)}
         media = []
         for index, candidate in enumerate(reviewed, 1):
             source = source_by_url.get(candidate["source_url"], {})
@@ -554,17 +547,16 @@ def evidence_for_model(metadata: dict[str, Any]) -> str:
         for item in metadata.get("media", [])
     ) or "无通过视觉筛选的图片，不要插图。"
     media_status = (
-        "图片候选正在并行审核。你可以自行决定图片应该出现在回答的哪个相关段落："
-        "需要图片的位置单独写一行 [[YUANBAO_MEDIA]]，可写多次；前端只会用审核通过的真实图片按顺序替换，"
-        "数量不足时自动移除多余占位。不要把占位符统一堆在结尾，也不要声称正在生成图片。"
+        "图片尚未审核完成，本轮不要插图，也不要声称正在生成图片。"
         if metadata.get("media_pending") else
-        "没有列出的真实图片 URL 就表示本轮无合格配图；不要声称图片正在生成或可在图片工坊查看。"
+        "这里只列出审核通过的图片。没有列出的真实图片 URL 就表示本轮无合格配图。"
     )
     return (
         f"可选网页/视频素材：\n{sources or '无'}\n\n"
         f"经视觉模型审核的可选图片素材：\n{media}\n{media_status}\n\n"
         "这些只是素材，不是回答提纲。由你决定采用哪些、放在何处以及以什么顺序呈现，也可以全部不用。"
-        "若采用网页或视频，直接在相关段落使用上面给出的 Markdown 链接；若已有图片 URL，直接在相关段落使用 Markdown 图片。"
+        "若采用网页或视频，直接在相关段落使用上面给出的 Markdown 链接；若采用图片，必须把上面给出的完整 URL"
+        "直接写成 ![准确说明](URL)，由你决定它所在的段落和顺序。"
         "前端会就地渲染为网页卡片、视频卡片或带来源图片。不要把资源统一罗列或堆在回答末尾。"
-        "不要使用未提供的图片 URL，不要插入无关素材。"
+        "不要输出任何媒体占位符，不要使用未提供的图片 URL，不要插入无关素材。"
     )

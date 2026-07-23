@@ -2498,6 +2498,27 @@ html.is-resizing-workspace * {
 .msg-row.user .msg-content-wrap {
   align-items: flex-end;
 }
+.message-action-bar {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 2px 0;
+}
+.answer-copy-button {
+  border: 0;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--app-text-3);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 0.16s ease, background-color 0.16s ease, transform 0.16s ease;
+}
+.answer-copy-button:hover {
+  color: var(--td-brand-color);
+  background: color-mix(in srgb, var(--td-brand-color) 9%, transparent);
+}
+.answer-copy-button:active { transform: scale(0.96); }
 .followup-section {
   margin-top: 10px;
   padding-left: 2px;

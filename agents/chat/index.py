@@ -345,13 +345,11 @@ async def handler(ctx):
             "limit": capability_plan.get("paper_limit") or 0,
         },
         temporal_context=temporal_context,
-        # For ordinary web answers, media extraction and vision review run in
-        # parallel with the final LLM synthesis. Model-selected media slots are
-        # filled as soon as the callback arrives, so images no longer add their
-        # full latency to the text answer. Realistic image generation
-        # remains synchronous because the following image tool needs reviewed
-        # reference URLs in the same capability chain.
-        progressive_media=not bool(capability_plan.get("needs_image_generation")),
+        # Wait for the bounded, concurrent visual review before final answer
+        # synthesis. The answer model therefore receives verified image URLs
+        # and can place them directly with ordinary Markdown instead of relying
+        # on a frontend-guessed position or a late media patch.
+        progressive_media=False,
         media_callback=publish_media,
         background_tasks=background_tasks,
         user_id=user_id,

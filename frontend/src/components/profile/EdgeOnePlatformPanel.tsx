@@ -112,6 +112,8 @@ export default function EdgeOnePlatformPanel() {
   const effectiveTitle = showRecommendation && mapPlaces.length
     ? mapTitle
     : `${selectedDate.getMonth() + 1}月${selectedDate.getDate()}日日程路线`;
+  const showingRecommendation = showRecommendation && mapPlaces.length > 0;
+  const showingScheduleRoute = !showingRecommendation && schedulePlaces.length >= 2;
   const monthLabel = `${currentMonth.getFullYear()}年${currentMonth.getMonth() + 1}月`;
   const selectedDateIsPast = isPastCalendarDate(selectedDate);
   const todayKey = dateKey(new Date());
@@ -341,7 +343,14 @@ export default function EdgeOnePlatformPanel() {
     <aside className="my-panel makers-workspace">
       <div className="my-panel-card makers-map-card">
         {mapsEnabled
-          ? <MakersMap conversationId={conversationId} title={effectiveTitle} places={effectivePlaces} revision={mapRevision} optimize={showRecommendation && mapPlaces.length > 0} />
+          ? <MakersMap
+            conversationId={conversationId}
+            title={effectiveTitle}
+            places={effectivePlaces}
+            revision={mapRevision}
+            showRoute={showingScheduleRoute}
+            optimize={showingScheduleRoute}
+          />
           : <div className="workspace-skill-disabled"><span>⌖</span><strong>地图 Skill 已关闭</strong><small>日程仍可使用；开启地图后可核实真实地点和路线。</small><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('yuanbao:open-skills'))}>在 Skills 广场开启</button></div>}
       </div>
 

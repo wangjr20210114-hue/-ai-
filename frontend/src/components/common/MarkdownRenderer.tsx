@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import type { RichMediaAsset, SearchMeta } from '../../types';
-import { isSafeRemoteUrl, replaceCitationMarkers } from './richContent';
+import { isSafeRemoteUrl, linkBareCitations, replaceCitationMarkers, sourceLabel } from './richContent';
 
 const MEDIA_SLOT = /\[\[YUANBAO_MEDIA(?:\s*:\s*(\d+))?\]\]/g;
 
@@ -18,83 +18,15 @@ function mediaMarkdown(asset: RichMediaAsset): string {
   return `\n\n![${markdownAlt(asset.caption || asset.alt || '')}](${asset.url})\n\n`;
 }
 
-function placeMediaByAnswerStructure(content: string, media: RichMediaAsset[]): string {
-  const safeMedia = media.filter((asset) => isSafeRemoteUrl(asset.url));
-  if (!safeMedia.length) return content;
-
-  // The answer model owns layout through explicit media slots. If it omitted
-  // them while async vision review was still running, use the structure the
-  // model did produce: distribute images after prose blocks, never as a fixed
-  // gallery at the end.
-  const parts = content.split(/(\n{2,})/);
-  const prose = parts.reduce<number[]>((indices, part, index) => {
-    if (
-      index % 2 === 0
-      && part.trim()
-      && !/^(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|\|)/.test(part.trim())
-    ) indices.push(index);
-    return indices;
-  }, []);
-  const anchors = prose.length > 1 ? prose.slice(0, -1) : prose;
-  if (anchors.length) {
-    safeMedia.forEach((asset, index) => {
-      const anchor = anchors[Math.min(
-        anchors.length - 1,
-        Math.floor((index * anchors.length) / safeMedia.length),
-      )];
-      parts[anchor] += mediaMarkdown(asset);
-    });
-    return parts.join('');
-  }
-
-  // A rare single-block answer still receives the image after its first
-  // complete sentence, so the fallback is not hard-coded to the answer tail.
-  const sentenceEnd = content.search(/[。！？.!?](?:\s|$)/);
-  if (sentenceEnd >= 0) {
-    const splitAt = sentenceEnd + 1;
-    return `${content.slice(0, splitAt)}${safeMedia.map(mediaMarkdown).join('')}${content.slice(splitAt)}`;
-  }
-  return `${content}${safeMedia.map(mediaMarkdown).join('')}`;
-}
-
-function placeReviewedMedia(content: string, media: RichMediaAsset[] = [], allowStructuralFallback = true): string {
+function replaceLegacyMediaSlots(content: string, media: RichMediaAsset[] = []): string {
   let nextIndex = 0;
-  let placedCount = 0;
   const placed = content.replace(MEDIA_SLOT, (_slot, explicitIndex: string | undefined) => {
     const requested = explicitIndex ? Math.max(0, Number(explicitIndex) - 1) : nextIndex++;
     const asset = media[requested];
     if (!asset || !isSafeRemoteUrl(asset.url)) return '';
-    placedCount += 1;
     return mediaMarkdown(asset);
   });
-  const cleaned = placed.replace(/\[\[YUANBAO_MEDIA[^\]]*$/, '');
-  return placedCount > 0 || !allowStructuralFallback ? cleaned : placeMediaByAnswerStructure(cleaned, media);
-}
-
-function placeStableStreamingMedia(content: string, media: RichMediaAsset[] = []): string {
-  const slotted = placeReviewedMedia(content, media, false);
-  if (slotted !== content.replace(/\[\[YUANBAO_MEDIA[^\]]*$/, '')) return slotted;
-
-  // When the model has not emitted a slot yet, show one useful image as soon
-  // as the first prose block is complete.  That anchor never changes while
-  // later tokens arrive, so selection and scroll position remain stable.
-  const asset = media.find((candidate) => isSafeRemoteUrl(candidate.url));
-  if (!asset) return slotted;
-  const parts = content.split(/(\n{2,})/);
-  for (let index = 0; index < parts.length - 1; index += 2) {
-    const block = parts[index].trim();
-    if (block && !/^(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|\|)/.test(block)) {
-      parts[index] += mediaMarkdown(asset);
-      return parts.join('');
-    }
-  }
-  return slotted;
-}
-
-function followExternalLink(event: React.MouseEvent<HTMLAnchorElement>, url: string) {
-  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-  event.preventDefault();
-  window.location.assign(url);
+  return placed.replace(/\[\[YUANBAO_MEDIA[^\]]*$/, '');
 }
 
 function RichImage({ asset }: { asset: RichMediaAsset }) {
@@ -116,8 +48,8 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
           {asset.preview && <span className="rich-media-reviewing">图片核实中</span>}
           {asset.generated && <span className="rich-media-generated">AI 生成示意图</span>}
           {asset.source_url && isSafeRemoteUrl(asset.source_url) && (
-            <a href={asset.source_url} onClick={(event) => followExternalLink(event, asset.source_url!)}>
-              来源
+            <a href={asset.source_url} target="_blank" rel="noopener noreferrer">
+              {asset.source_title || sourceLabel(asset.source_url)}
             </a>
           )}
         </figcaption>
@@ -203,13 +135,12 @@ export default function MarkdownRenderer({
   const visibleMedia = reviewedMedia.length
     ? reviewedMedia
     : uniqueMediaAssets(searchMeta?.media_pending ? searchMeta.preview_media || [] : []);
-  // During streaming, an explicit model slot wins. If none has arrived, a
-  // single image is anchored after the first completed prose block so it is
-  // visible early without jumping as subsequent paragraphs grow.
+  // New answers contain ordinary model-authored Markdown images. Keep only a
+  // narrow compatibility transform for historical messages that still carry
+  // the former internal media marker; never guess a placement for new text.
+  const mediaPlacedContent = replaceLegacyMediaSlots(content, visibleMedia);
   const cleanedContent = replaceCitationMarkers(
-    streaming
-      ? placeStableStreamingMedia(content, visibleMedia)
-      : placeReviewedMedia(content, visibleMedia, true),
+    linkBareCitations(mediaPlacedContent, sources),
     sources,
   );
   const providerCalls = searchMeta?.search_config?.turn_provider_calls;
@@ -258,15 +189,20 @@ export default function MarkdownRenderer({
             const compactCitation = urlOnly || semanticCitation;
             return <a
               href={url}
+              target="_blank"
+              rel="noopener noreferrer"
               className={compactCitation ? 'md-citation-link' : undefined}
               title={compactCitation ? url : undefined}
-              onClick={(event) => followExternalLink(event, url)}
-            >{compactCitation ? '来源' : children}</a>;
+            >{compactCitation ? sourceLabel(url, sources) : children}</a>;
           },
           img: ({ src, alt }) => {
             const url = typeof src === 'string' ? src : '';
             if (!isSafeRemoteUrl(url)) return null;
             const reviewed = visibleMedia.find((asset) => sameUrl(asset.url, url));
+            // A searched answer may render only URLs that survived this turn's
+            // visual review. This also removes a provisional URL when review
+            // later rejects it. Non-search Markdown keeps normal image support.
+            if (searchMeta && !reviewed) return null;
             return <RichImage asset={reviewed || {
                 id: `md-${url.slice(-20)}`,
                 kind: 'image', url,
