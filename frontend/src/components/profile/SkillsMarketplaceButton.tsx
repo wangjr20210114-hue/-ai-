@@ -64,7 +64,7 @@ export default function SkillsMarketplaceButton() {
     <Button className="sidebar-settings-button" block variant="text" icon={<AppIcon />} onClick={() => setVisible(true)}>Skills 广场</Button>
     <Dialog visible={visible} header="Skills 广场" width={760} footer={false} onClose={() => setVisible(false)} onCancel={() => setVisible(false)}>
       <div className="skills-marketplace-head">
-        <div><strong>组合你的元宝能力</strong><span>现有能力默认开启，设置保存在 Makers 原生存储中。</span></div>
+        <div><strong>组合你的 Floris 能力</strong><span>现有能力默认开启，设置保存在 Makers 原生存储中。</span></div>
         <Tag theme="primary" variant="light">已开启 {enabledCount}/{SKILLS_CATALOG.length}</Tag>
       </div>
       <div className="skills-marketplace" aria-busy={loading}>

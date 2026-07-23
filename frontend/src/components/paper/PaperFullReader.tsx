@@ -1,10 +1,10 @@
 /**
- * PaperFullReader：全屏论文阅读器。
- * 使用 PDF.js TextLayer 实现原生文本选择 + 段落交互。
+ * PaperFullReader：单一高清兼容预览 + 论文助读。
+ * 画面按设备像素比渲染，TextLayer 仅负责原生选词与助读菜单。
  */
 import { useEffect, useRef, useState } from 'react';
 import { Button, Loading, MessagePlugin, Textarea, Tag } from 'tdesign-react';
-import { CloseIcon, DownloadIcon, FullscreenIcon } from 'tdesign-icons-react';
+import { CloseIcon, FullscreenExitIcon, FullscreenIcon } from 'tdesign-icons-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { fetchPaperFile } from '../../services/paperApi';
 import {
@@ -13,8 +13,7 @@ import {
 } from '../../services/pdf';
 import {
   translateParagraph, summarizeParagraph,
-  explainTerm, explainFormula,
-  analyzePaper, fullTranslate, extractTerms, paperQA,
+  analyzePaper, paperQA,
 } from '../../services/paperApi';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 
@@ -26,7 +25,7 @@ interface Props {
   onClose: () => void;
 }
 
-type AIAction = 'translate' | 'summarize' | 'explain' | 'formula' | 'analyze' | 'full-translate' | 'terms' | 'qa';
+type AIAction = 'translate' | 'summarize' | 'analyze' | 'qa';
 
 interface AIResult {
   action: AIAction;
@@ -52,13 +51,12 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
   const [pages, setPages] = useState<PageData[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [nativeMode, setNativeMode] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [hover, setHover] = useState<{ page: number; index: number } | null>(null);
   const [active, setActive] = useState<{ page: number; index: number } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; text: string } | null>(null);
   const [floatBar, setFloatBar] = useState<{ x: number; y: number; text: string } | null>(null);
-  const [scale, setScale] = useState(1.5);
-  const [objectUrl, setObjectUrl] = useState('');
+  const [scale, setScale] = useState(1.25);
 
   const [aiResult, setAiResult] = useState<AIResult | null>(null);
   const [aiTab, setAiTab] = useState<'result' | 'qa'>('result');
@@ -79,8 +77,6 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
         window.clearTimeout(fetchTimer);
         if (!resp.ok) throw new Error(`PDF 下载失败（${resp.status}）`);
         const blob = await resp.blob();
-        const nextObjectUrl = URL.createObjectURL(blob);
-        setObjectUrl((current) => { if (current) URL.revokeObjectURL(current); return nextObjectUrl; });
         const buffer = await blob.arrayBuffer();
         const d = await loadPdf(buffer);
         if (cancelled) return;
@@ -97,7 +93,11 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
     return () => { cancelled = true; window.clearTimeout(fetchTimer); fetchController.abort(); };
   }, [fileId]);
 
-  useEffect(() => () => { if (objectUrl) URL.revokeObjectURL(objectUrl); }, [objectUrl]);
+  useEffect(() => {
+    const onFullscreenChange = () => setIsFullscreen(document.fullscreenElement === readerRef.current);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
 
   // 渲染 canvas + text layer（scale 变化时重新渲染）
   // 用 ref 跟踪已渲染的 scale，避免 setPages 导致无限循环
@@ -120,15 +120,20 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
 
         const page = await doc.getPage(pg.pageNum);
         const viewport = page.getViewport({ scale });
+        const outputScale = Math.min(2.5, Math.max(1, window.devicePixelRatio || 1));
 
         // 1. 渲染 canvas
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
+        canvas.width = Math.floor(viewport.width * outputScale);
+        canvas.height = Math.floor(viewport.height * outputScale);
         canvas.style.width = `${viewport.width}px`;
         canvas.style.height = `${viewport.height}px`;
         const ctx = canvas.getContext('2d');
         if (!ctx) continue;
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        await page.render({
+          canvasContext: ctx,
+          viewport,
+          transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
+        }).promise;
 
         // 2. 渲染 text layer
         if (textLayerDiv) {
@@ -202,6 +207,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
 
   // 鼠标释放：如果选中了文字，显示浮动工具条（不自动翻译）
   const handleMouseUp = () => {
+    if (!assistantEnabled) return;
     const sel = getSelectedText();
     if (sel && sel.length > 1) {
       // 稍延迟获取选区位置（等浏览器更新）
@@ -226,6 +232,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
   };
 
   const handleDoubleClick = (e: React.MouseEvent, pageNum: number) => {
+    if (!assistantEnabled) return;
     const sel = getSelectedText();
     if (sel && sel.length > 2) {
       runAI('summarize', sel, '总结选中内容');
@@ -238,6 +245,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
   };
 
   const handleContextMenu = (e: React.MouseEvent, pageNum: number) => {
+    if (!assistantEnabled) return;
     e.preventDefault();
     const sel = getSelectedText();
     const para = findParagraphByPoint(e, pageNum);
@@ -257,11 +265,16 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
     switch (action) {
       case 'translate': streamRef.current = translateParagraph(text, onDelta, onDone); break;
       case 'summarize': streamRef.current = summarizeParagraph(text, onDelta, onDone); break;
-      case 'explain': streamRef.current = explainTerm(text, onDelta, onDone); break;
-      case 'formula': streamRef.current = explainFormula(text, onDelta, onDone); break;
       case 'analyze': streamRef.current = analyzePaper(fileId, onDelta, onDone, documentText); break;
-      case 'full-translate': streamRef.current = fullTranslate(fileId, onDelta, onDone, documentText); break;
-      case 'terms': streamRef.current = extractTerms(fileId, onDelta, onDone, documentText); break;
+    }
+  };
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement === readerRef.current) await document.exitFullscreen();
+      else await readerRef.current?.requestFullscreen?.();
+    } catch {
+      MessagePlugin.warning('浏览器不支持切换全屏显示');
     }
   };
 
@@ -305,26 +318,17 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
             <span style={{ fontSize: 16 }}>📄</span>
             <span style={{ fontWeight: 600, fontSize: 14 }}>{title}</span>
             {doc && <Tag size="small" variant="light">{doc.numPages} 页</Tag>}
+            <Tag size="small" variant="outline">兼容预览</Tag>
           </div>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            {/* 下载按钮 */}
-            <a
-              href={objectUrl || undefined}
-              download={`${title || 'paper'}.pdf`}
-              style={{ textDecoration: 'none' }}
-            >
-              <Button size="small" variant="outline" icon={<DownloadIcon />}>下载</Button>
-            </a>
+          <div className="paper-toolbar-actions">
             <Button
               size="small"
               variant="outline"
-              icon={<FullscreenIcon />}
-              onClick={() => void readerRef.current?.requestFullscreen?.().catch(() => MessagePlugin.warning('浏览器不支持全屏显示'))}
-            >全屏显示</Button>
-            <Button size="small" variant="text" onClick={() => setNativeMode((value) => !value)}>{nativeMode ? '助读视图' : '兼容预览'}</Button>
+              icon={isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+              onClick={() => void toggleFullscreen()}
+            >{isFullscreen ? '恢复窗口' : '全屏显示'}</Button>
             <span style={{ width: 1, height: 20, background: 'var(--app-border)', margin: '0 2px' }} />
             {assistantEnabled && <Button size="small" variant="outline" onClick={() => runAI('analyze', '', '全文分析')}>📚 全文分析</Button>}
-            {assistantEnabled && <Button size="small" variant="outline" onClick={() => runAI('full-translate', '', '全文翻译')}>🌍 全文翻译</Button>}
             <Button size="small" variant="text" onClick={() => setScale(s => Math.max(0.6, s - 0.3))}>−</Button>
             <span style={{ fontSize: 11, minWidth: 30, textAlign: 'center' }}>{Math.round(scale * 100)}%</span>
             <Button size="small" variant="text" onClick={() => setScale(s => Math.min(3.0, s + 0.3))}>+</Button>
@@ -334,10 +338,9 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
 
         <div className="paper-body" style={{ display: 'flex', overflow: 'hidden' }}>
           {/* PDF 侧 */}
-          <div style={{ flex: 1, overflow: 'auto', padding: 16, background: '#525659' }}>
-            {nativeMode ? <iframe className="paper-native-frame" src={objectUrl} title={title} /> : <>
-            {loading && <div className="paper-loading-state"><Loading /><span>正在载入 PDF 和渲染引擎…</span></div>}
-            {loadError && <div className="paper-load-error"><strong>PDF 打开失败</strong><span>{loadError}</span><Button size="small" onClick={() => setNativeMode(true)}>使用兼容预览</Button></div>}
+          <div className="paper-compatible-view">
+            {loading && <div className="paper-loading-state"><Loading /><span>正在打开高清兼容预览…</span></div>}
+            {loadError && <div className="paper-load-error"><strong>PDF 打开失败</strong><span>{loadError}</span></div>}
             {doc && pages.map(pg => (
               <div
                 key={pg.pageNum}
@@ -383,7 +386,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
                 })}
                 <div style={{ textAlign: 'center', fontSize: 10, color: 'rgba(255,255,255,0.4)', padding: '2px 0' }}>— {pg.pageNum} —</div>
               </div>
-            ))}</>}
+            ))}
           </div>
 
           {/* AI 侧 - 自适应宽度 */}
@@ -403,9 +406,9 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
                 {!aiResult && (
                   <div style={{ textAlign: 'center', color: 'var(--app-text-3)', fontSize: 12, paddingTop: 30, lineHeight: 2 }}>
                     在左侧 PDF 上：<br />
-                    · <strong>选中文字</strong> → 弹出工具条（翻译/总结/解释）<br />
+                    · <strong>选中文字</strong> → 弹出翻译/总结工具条<br />
                     · <strong>双击</strong>段落 → 总结<br />
-                    · <strong>右键</strong> → 翻译/总结/解释/公式<br /><br />
+                    · <strong>右键</strong> → 翻译或总结<br /><br />
                     或点击顶部按钮使用全文功能
                   </div>
                 )}
@@ -470,8 +473,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
             {[
               { label: '🌐 翻译', action: 'translate' as AIAction, title: '翻译选中内容' },
               { label: '📝 总结', action: 'summarize' as AIAction, title: '总结选中内容' },
-              { label: '💡 解释', action: 'explain' as AIAction, title: '解释选中内容' },
-            ].map((btn, i) => (
+            ].map((btn, i, buttons) => (
               <button
                 key={i}
                 style={{
@@ -481,7 +483,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
                   cursor: 'pointer',
                   fontSize: 12,
                   color: '#fff',
-                  borderRight: i < 2 ? '1px solid rgba(255,255,255,0.1)' : 'none',
+                  borderRight: i < buttons.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none',
                   whiteSpace: 'nowrap',
                 }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
@@ -508,15 +510,13 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
             {[
               { label: '🌐 翻译', action: 'translate' as AIAction },
               { label: '📝 总结', action: 'summarize' as AIAction },
-              { label: '💡 解释术语', action: 'explain' as AIAction },
-              { label: '🧮 解释公式', action: 'formula' as AIAction },
             ].map(item => (
               <button key={item.action} className="ctx-menu-item"
                 style={{ display: 'block', width: '100%', padding: '6px 10px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12, textAlign: 'left', borderRadius: 4, color: '#333' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = '#f0f4ff')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
                 onClick={() => {
-                  const titles: Record<string, string> = { translate: '翻译', summarize: '总结', explain: '解释术语', formula: '解释公式' };
+                  const titles: Record<string, string> = { translate: '翻译', summarize: '总结' };
                   runAI(item.action, ctxMenu.text, titles[item.action]);
                   setCtxMenu(null);
                 }}

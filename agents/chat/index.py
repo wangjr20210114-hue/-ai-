@@ -44,7 +44,7 @@ from .._shared.proactive import (
     save_proactive_state,
 )
 
-SYSTEM_PROMPT = """你是元宝，一个可靠、主动、自然的中文智能助手。使用 GitHub Flavored Markdown 回复；多行代码必须使用带语言标识的围栏代码块，不能用普通缩进或行内代码冒充代码块。
+SYSTEM_PROMPT = """你是 FLORIS:一只有温度的大橘，一个可靠、主动、自然的中文智能助手。使用 GitHub Flavored Markdown 回复；多行代码必须使用带语言标识的围栏代码块，不能用普通缩进或行内代码冒充代码块。
 当前北京时间是 {now}。
 当前用户日程（每轮从 Makers 用户 Workspace 实时读取；更新或删除只能使用这里仍存在的 id）：{calendar_context}
 本轮主动模块建议（由独立模型做语义判断，不是关键词规则）：{capability_plan}。它只提示可用能力，不规定你的措辞或回答结构；不要在回答中提及它。需要搜索时可优先采用其中的 search_query 和 image_query，也可以根据上下文自然调整。
@@ -124,6 +124,45 @@ def _field(value, name: str, default=None):
     if isinstance(value, dict):
         return value.get(name, default)
     return getattr(value, name, default)
+
+
+async def _recent_user_questions(store, conversation_id: str, current_message: str) -> list[str]:
+    """Read a small, non-sensitive recent-question window off the answer path.
+
+    This is only context for semantic proactive judgment. It is intentionally
+    bounded, de-duplicated, and never exposed as a user-facing memory list.
+    """
+    if not hasattr(store, "get_messages"):
+        return []
+    try:
+        result = await store.get_messages(
+            conversation_id=conversation_id,
+            limit=24,
+            order="desc",
+        )
+    except Exception:
+        return []
+    items = result if isinstance(result, list) else _field(result, "items", [])
+    if not isinstance(items, list):
+        return []
+    current = str(current_message or "").strip()
+    seen: set[str] = set()
+    questions: list[str] = []
+    for item in items:
+        role = str(_field(item, "role", "") or "").lower()
+        if role not in {"user", "human"}:
+            continue
+        content = _text_content(_field(item, "content", "")).replace("\x00", "").strip()
+        if not content or content == current:
+            continue
+        normalized = " ".join(content.split()).casefold()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        questions.append(content[:240])
+        if len(questions) >= 6:
+            break
+    return questions
 
 
 async def _imported_conversation_seed(ctx, conversation_id: str, current_message: str) -> list[dict]:
@@ -432,6 +471,9 @@ async def handler(ctx):
                 plan_context=json.dumps(capability_plan, ensure_ascii=False),
             ))
             memory_task = asyncio.create_task(extract_automatic_memory_candidates(model, message))
+            recent_questions_task = asyncio.create_task(
+                _recent_user_questions(ctx.store, conversation_id, message)
+            )
 
             async def reset_public_stream() -> None:
                 pending_ai_content.clear()
@@ -633,7 +675,7 @@ async def handler(ctx):
                     except Exception as exc:
                         logging.warning("answer follow-up persistence failed: %s", exc)
                 else:
-                    for task in (follow_up_task, memory_task):
+                    for task in (follow_up_task, memory_task, recent_questions_task):
                         if not task.done():
                             task.cancel()
                 if background_tasks:
@@ -660,11 +702,20 @@ async def handler(ctx):
                         logging.warning("answer media persistence failed: %s", exc)
                 if final_answer:
                     try:
+                        try:
+                            recent_questions = await asyncio.wait_for(
+                                asyncio.shield(recent_questions_task),
+                                timeout=1.5,
+                            )
+                        except Exception:
+                            recent_questions = []
                         opportunity_task = asyncio.create_task(detect_opportunity(
                             model,
                             user_message=message,
                             answer=final_answer,
                             capability_plan=capability_plan,
+                            memory_context=memory_context,
+                            recent_questions=recent_questions,
                             has_pending_action=any(
                                 action.get("action", {}).get("status") in {"awaiting_confirmation", "ready"}
                                 for action in pending_actions

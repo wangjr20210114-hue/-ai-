@@ -86,13 +86,15 @@ async def detect_opportunity(
     user_message: str,
     answer: str,
     capability_plan: dict[str, Any] | None = None,
+    memory_context: str = "",
+    recent_questions: list[str] | None = None,
     has_pending_action: bool = False,
     timeout_seconds: float = 6.0,
 ) -> dict[str, Any] | None:
     """Use semantic judgment to identify one proactive service opportunity."""
     if not str(user_message or "").strip() or not str(answer or "").strip() or has_pending_action:
         return None
-    system = """你是元宝的主动服务机会识别器。用户当前请求已经回答完毕；你只判断是否存在一个值得在稍后主动提供、且用户没有明确要求的下一步服务。不要回答用户。
+    system = """你是 FLORIS 的主动服务机会识别器。用户当前请求已经回答完毕；你只判断是否存在一个值得在稍后主动提供、且用户没有明确要求的下一步服务。不要回答用户。
 
 返回严格 JSON：should_notify(boolean)、type、title、body、action_prompt、priority、confidence、expires_in_hours、reason。
 type 只能是 search_update、writing_improvement、translation_review、image_iteration、document_next_step、task_next_step。
@@ -107,6 +109,7 @@ type 只能是 search_update、writing_improvement、translation_review、image_
 - 任务：用户陈述了目标、截止时间或连续步骤，且下一步清晰时才建议；不能制造焦虑。
 - 简单问答、闲聊、算术、脑筋急转弯、一次性事实、用户明确拒绝后续、已有待确认 Action，全部 should_notify=false。
 - 最多一条；title/body 要陈述用户能理解的事实和价值，action_prompt 必须能直接作为用户下一轮发给模型的自然指令。
+- 可以静默参考“安全长期偏好”和“近期问题”来判断用户是否有持续目标或重复需求，但不要提及这些上下文的来源，也不要把它们复述给用户；如果没有明确价值就不要提醒。
 - 不得包含或推断姓名、联系方式、精确地址、账号、证件、健康、财务、密钥等敏感信息，不得执行副作用，不得提内部模型、扫描、机会识别或数据库。
 - confidence 低于 0.72 必须 should_notify=false；有效期 1–168 小时；一般优化 priority=low，具有明确时限但无安全风险时 priority=normal。
 """
@@ -114,6 +117,12 @@ type 只能是 search_update、writing_improvement、translation_review、image_
         "user_message": str(user_message)[:3000],
         "answer": str(answer)[:6000],
         "capability_plan": capability_plan or {},
+        "safe_memory_context": str(memory_context or "")[:1800],
+        "recent_questions": [
+            str(item).strip()[:240]
+            for item in (recent_questions or [])[:6]
+            if str(item).strip()
+        ],
     }
     try:
         response = await asyncio.wait_for(

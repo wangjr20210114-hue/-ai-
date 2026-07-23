@@ -170,7 +170,7 @@ export default function InputBar({ client }: Props) {
         paperFileId: stored.id,
         paperFileName: stored.original_name,
         paperTitle: stored.original_name,
-        showPaperReader: true,
+        paperIsPaper: detectedPaper,
       } as const;
       dispatch({ type: 'ADD_MESSAGE', payload: userMessage });
       dispatch({ type: 'ADD_MESSAGE', payload: aiMessage });

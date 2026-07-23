@@ -65,9 +65,9 @@ export default function MessageList({ client }: Props) {
     return (
       <div className="chat-scroll" ref={scrollRef}>
         <div className="chat-empty">
-          <div className="chat-empty-logo">AI</div>
+          <div className="chat-empty-logo"><img src="/floris-avatar.png" alt="Floris" /></div>
           <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--app-text)' }}>
-            元宝 Agent
+            FLORIS:一只有温度的大橘
           </div>
           <div style={{ fontSize: 13.5, maxWidth: 420, lineHeight: 1.8 }}>
             和我对话即可。我可以主动理解任务，
@@ -116,7 +116,7 @@ export default function MessageList({ client }: Props) {
 
         {thinking && (
           <div className="msg-row ai">
-            <div className="msg-avatar ai">AI</div>
+            <div className="msg-avatar ai"><img src="/floris-avatar.png" alt="Floris" /></div>
             <div className="msg-bubble ai">
               <span className="typing-dots">
                 <span />

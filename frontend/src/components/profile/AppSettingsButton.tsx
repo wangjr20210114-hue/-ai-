@@ -50,7 +50,7 @@ export default function AppSettingsButton() {
     <Button className="sidebar-settings-button" block variant="text" icon={<SettingIcon />} onClick={() => setVisible(true)}>设置</Button>
     <Dialog
       visible={visible}
-      header="元宝设置"
+      header="Floris 设置"
       width={720}
       footer={false}
       onClose={() => setVisible(false)}
@@ -59,7 +59,7 @@ export default function AppSettingsButton() {
       <div className="app-settings-dialog">
         <section className="app-settings-section">
           <h3>主动式服务</h3>
-          <p>在打开空白新对话、日程或路线发生变化时重新检查；有重要事项时由大模型在新对话里自然提醒。</p>
+          <p>在页面打开、日程或路线发生变化时重新检查；有重要事项时在顶部循环提醒，不打断当前对话。</p>
           {preferences && <div className="app-settings-grid">
             <label><span>启用主动服务</span><input type="checkbox" checked={preferences.enabled !== false} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ enabled: event.target.checked })} /></label>
             <label><span>主动权限</span><select value={preferences.autonomy_mode} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ autonomy_mode: event.target.value })}><option value="observe">仅观察</option><option value="remind">可提醒</option><option value="propose">可提案</option><option value="low_risk_auto">允许低风险自动执行</option></select></label>

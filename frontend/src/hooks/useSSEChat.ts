@@ -690,16 +690,12 @@ export function useSSEChat() {
       }
       if (activeConversationRef.current === conversationId) {
         dispatch({ type: 'HYDRATE_WORKSPACE', payload: { schedules: data.schedules, mapPlaces: data.map_places, mapTitle: data.map_title } });
-        void proactiveOperation(conversationId, merged.length === 0 ? 'open_conversation' : 'refresh').then((proactive) => {
+        // Refresh the durable inbox without injecting a synthetic assistant
+        // message into a blank conversation. Header owns the non-blocking
+        // presentation so opening a chat cannot race the first user message.
+        void proactiveOperation(conversationId, 'refresh').then((proactive) => {
           if (!disposed && activeConversationRef.current === conversationId) {
             dispatch({ type: 'HYDRATE_PROACTIVE', payload: proactive });
-            const opening = proactive.proactive_message;
-            if (merged.length === 0 && opening?.content) {
-              const latest = cached(conversationId);
-              if (shouldPublishProactiveOpening(merged, latest)) {
-                publish(conversationId, [opening]);
-              }
-            }
           }
         }).catch((error) => console.warn('proactive bootstrap failed', error));
         dispatch({ type: 'SET_CONNECTED', payload: true });

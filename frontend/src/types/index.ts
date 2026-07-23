@@ -272,7 +272,7 @@ export interface ChatMessage {
   paperFileId?: string;
   paperFileName?: string;
   paperTitle?: string;
-  showPaperReader?: boolean;
+  paperIsPaper?: boolean;
 
   // 搜索结果数据
   searchResults?: SearchMeta;

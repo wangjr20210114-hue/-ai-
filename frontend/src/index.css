@@ -1,5 +1,5 @@
 /* ============================================================
-   元宝风格主题：干净、现代、双主题（浅色 / 深色）
+   Floris 风格主题：干净、现代、双主题（浅色 / 深色）
    - 通过 [theme-mode] 切换 TDesign 内置主题
    - 同时定义一套 --app-* 变量供自定义组件取色
    ============================================================ */
@@ -347,20 +347,66 @@ html.is-resizing-workspace * {
   background: var(--app-panel);
   border-bottom: 1px solid var(--app-border);
 }
+.header-brand-group,
+.header-actions {
+  display: flex;
+  align-items: center;
+}
+.header-brand-group { min-width: 0; gap: 10px; }
+.header-actions { flex: 0 0 auto; gap: 12px; }
 
 .brand-logo {
+  min-width: 0;
+  max-width: min(42vw, 360px);
+  overflow: hidden;
   font-size: 18px;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   background: linear-gradient(90deg, #2b5aed, #7c5cff, #22b8d6);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
+.header-proactive-ticker {
+  min-width: 0;
+  max-width: min(42vw, 430px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--td-brand-color) 18%, var(--app-border));
+  border-radius: 999px;
+  color: var(--app-text-2);
+  background: color-mix(in srgb, var(--td-brand-color) 6%, var(--app-panel));
+  cursor: pointer;
+  text-align: left;
+}
+.header-proactive-ticker > svg {
+  flex: 0 0 auto;
+  color: var(--td-brand-color);
+}
+.header-proactive-ticker-text {
+  display: block;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: headerReminderFade 420ms var(--motion-ease-out) both;
+}
+@keyframes headerReminderFade {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* ============ 对话区 ============ */
 .chat-scroll {
   flex: 1;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 24px 0;
 }
 
@@ -392,7 +438,14 @@ html.is-resizing-workspace * {
   color: #fff;
 }
 .msg-avatar.ai {
+  overflow: hidden;
   background: linear-gradient(135deg, #2b5aed, #7c5cff);
+}
+.msg-avatar.ai img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .msg-avatar.user {
   background: var(--app-panel-2);
@@ -938,6 +991,13 @@ html.is-resizing-workspace * {
   color: #fff;
   font-size: 30px;
   box-shadow: 0 8px 28px rgba(78, 124, 255, 0.35);
+  overflow: hidden;
+}
+.chat-empty-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .chip {
   padding: 8px 14px;
@@ -959,6 +1019,7 @@ html.is-resizing-workspace * {
   max-width: 820px;
   margin: 0 auto;
   width: 100%;
+  box-sizing: border-box;
   padding: 0 24px 18px;
 }
 .input-box {
@@ -1448,7 +1509,7 @@ html.is-resizing-workspace * {
 /* ============ 图片工作室 ============ */
 .image-studio-card {
   width: min(100%, 560px);
-  min-height: 410px;
+  box-sizing: border-box;
   margin-top: 10px;
   padding: 12px;
   border: 1px solid var(--app-border);
@@ -1480,7 +1541,8 @@ html.is-resizing-workspace * {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 260px;
+  width: 100%;
+  height: clamp(280px, 48vw, 420px);
   margin-top: 10px;
   overflow: hidden;
   border-radius: 11px;
@@ -1489,8 +1551,9 @@ html.is-resizing-workspace * {
 .image-studio-stage > img {
   display: block;
   width: 100%;
-  max-height: 520px;
+  height: 100%;
   object-fit: contain;
+  transition: filter .28s var(--motion-ease-out), transform .28s var(--motion-ease-out), opacity .2s ease;
 }
 .image-studio-nav {
   position: absolute;
@@ -1503,21 +1566,25 @@ html.is-resizing-workspace * {
   background: rgba(255,255,255,.9) !important;
   font-size: 21px !important;
   font-weight: 800;
+  transition: transform .18s var(--motion-ease-out), box-shadow .18s ease, opacity .18s ease !important;
 }
+.image-studio-nav:hover:not(:disabled) { transform: translateY(-50%) scale(1.06); }
+.image-studio-nav:active:not(:disabled) { transform: translateY(-50%) scale(.94); }
 .image-studio-nav.previous { left: 8px; }
 .image-studio-nav.next { right: 8px; }
 .image-studio-nav:disabled { opacity: 0.34; }
 .image-studio-stage.is-painting > img { filter: blur(2px) saturate(0.85); transform: scale(1.015); }
 .image-painting-overlay { position: absolute; z-index: 1; inset: 0; overflow: hidden; display: grid; place-items: center; background: linear-gradient(120deg, rgba(255,255,255,.2), rgba(81,110,255,.12)); pointer-events: none; }
 .image-painting-overlay span { position: absolute; inset: -30%; background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.72) 48%, rgba(110,91,255,.26) 54%, transparent 68%); animation: imagePaintSweep 1.8s ease-in-out infinite; }
-.image-painting-overlay em { z-index: 1; padding: 7px 12px; border-radius: 20px; color: #fff; background: rgba(20,25,48,.62); backdrop-filter: blur(8px); font-size: 12px; font-style: normal; }
+.image-painting-copy { z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; max-width: calc(100% - 24px); padding: 9px 14px; border-radius: 16px; color: #fff; background: rgba(20,25,48,.64); box-shadow: 0 8px 28px rgba(20,25,48,.18); backdrop-filter: blur(12px); text-align: center; animation: paperControlIn .26s var(--motion-ease-out) both; }
+.image-painting-copy strong { font-size: 13px; line-height: 1.45; }
+.image-painting-copy small { color: rgba(255,255,255,.78); font-size: 10.5px; }
 @keyframes imagePaintSweep { from { transform: translateX(-45%) rotate(-5deg); } to { transform: translateX(45%) rotate(5deg); } }
-.image-generation-canvas { width: min(100%, 560px); min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 10px; color: var(--app-text-2); }
-.image-generation-wash { position: relative; width: 100%; max-height: 260px; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 13px; background: radial-gradient(circle at 28% 34%, #f9c7a8, transparent 26%), radial-gradient(circle at 67% 60%, #879cff, transparent 34%), linear-gradient(135deg, #ececff, #d5e9f5); background-position: center; background-size: cover; filter: saturate(.8); }
+.image-generation-canvas { width: min(100%, 560px); box-sizing: border-box; display: flex; align-items: stretch; justify-content: stretch; padding: 8px; color: var(--app-text-2); }
+.image-generation-wash { position: relative; width: 100%; height: clamp(280px, 48vw, 420px); overflow: hidden; border-radius: 13px; background: radial-gradient(circle at 28% 34%, #f9c7a8, transparent 26%), radial-gradient(circle at 67% 60%, #879cff, transparent 34%), linear-gradient(135deg, #ececff, #d5e9f5); background-position: center; background-size: cover; filter: saturate(.8); }
 .image-generation-wash::after { content: ''; position: absolute; inset: 0; backdrop-filter: blur(16px); background: rgba(255,255,255,.12); }
 .image-generation-wash span { position: absolute; z-index: 1; inset: -35%; background: linear-gradient(110deg, transparent 38%, rgba(255,255,255,.8) 50%, transparent 62%); animation: imagePaintSweep 1.7s ease-in-out infinite; }
-.image-generation-canvas strong { margin-top: 4px; font-size: 13px; }
-.image-generation-canvas small { color: var(--app-text-3); }
+.image-studio-stage-placeholder { margin-top: 0; }
 .image-studio-prompt {
   margin: 8px 2px;
   overflow: hidden;
@@ -3088,6 +3155,7 @@ html.is-resizing-workspace * {
   display: flex;
   justify-content: center;
   align-items: center;
+  animation: paperBackdropIn 180ms ease-out both;
 }
 
 .paper-reader {
@@ -3099,6 +3167,12 @@ html.is-resizing-workspace * {
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  animation: paperReaderIn 300ms var(--motion-ease-out) both;
+}
+.paper-reader:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
 }
 
 .paper-toolbar {
@@ -3110,11 +3184,48 @@ html.is-resizing-workspace * {
   background: var(--app-bg-2);
   flex-shrink: 0;
 }
+.paper-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.paper-toolbar .t-button,
+.paper-inline-toolbar .t-button,
+.paper-ai-content .t-button,
+.paper-control {
+  transition:
+    transform 160ms var(--motion-ease-out),
+    box-shadow 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    opacity 180ms ease !important;
+}
+.paper-toolbar .t-button:hover,
+.paper-inline-toolbar .t-button:hover,
+.paper-ai-content .t-button:hover,
+.paper-control:hover {
+  transform: translateY(-1px) scale(1.015);
+  box-shadow: 0 6px 18px rgba(35, 49, 83, .12);
+}
+.paper-toolbar .t-button:active,
+.paper-inline-toolbar .t-button:active,
+.paper-ai-content .t-button:active,
+.paper-control:active {
+  transform: scale(.96);
+}
 
 .paper-body {
   flex: 1;
   display: flex;
   overflow: hidden;
+}
+.paper-compatible-view {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  background: #525659;
+  text-align: center;
+  scrollbar-gutter: stable;
 }
 
 .paper-pdf-side {
@@ -3148,8 +3259,10 @@ html.is-resizing-workspace * {
   font-size: 13px;
   color: var(--app-text-3);
   border-bottom: 2px solid transparent;
-  transition: all 0.2s;
+  transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease, transform 160ms var(--motion-ease-out);
 }
+.paper-ai-tab:hover { background: color-mix(in srgb, var(--td-brand-color) 7%, transparent); }
+.paper-ai-tab:active { transform: scale(.97); }
 
 .paper-ai-tab.active {
   color: #2b5aed;
@@ -3184,6 +3297,74 @@ html.is-resizing-workspace * {
 
 .ctx-menu-item:hover {
   background: rgba(43, 90, 237, 0.08) !important;
+  transform: translateX(2px);
+}
+.ctx-menu-item { transition: transform 150ms var(--motion-ease-out), background-color 150ms ease !important; }
+
+.paper-inline-reader {
+  width: min(100%, 680px);
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 13px;
+  background: #525659;
+  box-shadow: 0 10px 30px rgba(31, 46, 82, .08);
+  animation: paperControlIn 240ms var(--motion-ease-out) both;
+}
+.paper-inline-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--app-bg-2);
+  border-bottom: 1px solid var(--app-border);
+}
+.paper-inline-toolbar > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.paper-inline-toolbar > div { display: flex; flex-shrink: 0; gap: 6px; }
+.paper-inline-preview {
+  position: relative;
+  height: 420px;
+  overflow: hidden;
+  background: #525659;
+}
+.paper-inline-frame {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+.paper-loading-state,
+.paper-load-error {
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: rgba(255,255,255,.8);
+  font-size: 12px;
+}
+.paper-load-error span { color: rgba(255,255,255,.65); }
+
+@keyframes paperBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes paperReaderIn {
+  from { opacity: 0; transform: translateY(14px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes paperControlIn {
+  from { opacity: 0; transform: translateY(6px) scale(.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* ============================================================
@@ -3253,8 +3434,7 @@ html.is-resizing-workspace * {
 }
 
 .conversation-sidebar-close,
-.conversation-sidebar-backdrop,
-.conversation-menu-button {
+.conversation-sidebar-backdrop {
   display: none;
 }
 
@@ -3454,10 +3634,6 @@ html.is-resizing-workspace * {
 }
 
 @media (max-width: 1180px) {
-  .conversation-menu-button {
-    display: inline-flex;
-  }
-
   .conversation-sidebar {
     position: fixed;
     z-index: 1201;
@@ -3517,6 +3693,10 @@ html.is-resizing-workspace * {
   .app-header .status-indicator {
     display: none;
   }
+
+  .brand-logo { max-width: 44vw; font-size: 15px; }
+  .header-proactive-ticker { max-width: 38vw; padding-inline: 7px; }
+  .header-proactive-ticker-text { font-size: 10px; }
 
   .app-body {
     padding: 0;

@@ -71,7 +71,38 @@ function triggerDownload(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-async function saveElementAsImage(element: HTMLElement): Promise<'png' | 'svg'> {
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('image data unavailable'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function inlineCloneImages(source: HTMLElement, clone: HTMLElement) {
+  const sourceImages = Array.from(source.querySelectorAll<HTMLImageElement>('img'));
+  const cloneImages = Array.from(clone.querySelectorAll<HTMLImageElement>('img'));
+  await Promise.all(sourceImages.map(async (sourceImage, index) => {
+    const clonedImage = cloneImages[index];
+    if (!clonedImage) return;
+    clonedImage.loading = 'eager';
+    clonedImage.draggable = false;
+    clonedImage.removeAttribute('srcset');
+    const sourceUrl = sourceImage.currentSrc || sourceImage.src;
+    try {
+      if (!sourceUrl) throw new Error('empty image source');
+      const response = await fetch(sourceUrl, { credentials: 'same-origin' });
+      if (!response.ok) throw new Error(`image fetch failed: ${response.status}`);
+      clonedImage.src = await blobToDataUrl(await response.blob());
+    } catch {
+      const placeholder = '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540"><rect width="100%" height="100%" rx="18" fill="#eef1f8"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#75809a" font-family="sans-serif" font-size="24">Image unavailable in export</text></svg>';
+      clonedImage.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(placeholder)}`;
+    }
+  }));
+}
+
+async function saveElementAsImage(element: HTMLElement): Promise<void> {
   const rect = element.getBoundingClientRect();
   const width = Math.max(1, Math.ceil(element.scrollWidth || rect.width));
   const height = Math.max(1, Math.ceil(element.scrollHeight || rect.height));
@@ -82,49 +113,39 @@ async function saveElementAsImage(element: HTMLElement): Promise<'png' | 'svg'> 
     const target = cloneNodes[index];
     if (target) copyComputedStyles(source, target);
   });
+  await inlineCloneImages(element, clone);
   clone.querySelector('.answer-action-group')?.remove();
   clone.querySelectorAll('.typing-cursor').forEach((node) => node.remove());
   clone.style.width = `${width}px`;
   clone.style.height = `${height}px`;
   clone.style.maxWidth = 'none';
   clone.style.overflow = 'visible';
-  clone.querySelectorAll<HTMLImageElement>('img').forEach((image) => {
-    image.loading = 'eager';
-    image.crossOrigin = 'anonymous';
-    image.draggable = false;
-  });
   const serialized = new XMLSerializer().serializeToString(clone);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xhtml="http://www.w3.org/1999/xhtml" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml">${serialized}</div></foreignObject></svg>`;
   const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+  const svgUrl = URL.createObjectURL(svgBlob);
+  const image = new Image();
   try {
-    const svgUrl = URL.createObjectURL(svgBlob);
-    const image = new Image();
-    image.crossOrigin = 'anonymous';
     await new Promise<void>((resolve, reject) => {
       image.onload = () => resolve();
       image.onerror = () => reject(new Error('image render failed'));
       image.src = svgUrl;
     });
+  } finally {
     URL.revokeObjectURL(svgUrl);
-    const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
-    const canvas = document.createElement('canvas');
-    canvas.width = width * scale;
-    canvas.height = height * scale;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('canvas unavailable');
-    context.fillStyle = getComputedStyle(element).backgroundColor || '#ffffff';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
-    if (!png) throw new Error('png unavailable');
-    triggerDownload(png, `回答-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`);
-    return 'png';
-  } catch {
-    // A remote image without CORS can taint the canvas. The SVG remains a
-    // faithful, printable image and preserves all Markdown layout.
-    triggerDownload(svgBlob, `回答-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.svg`);
-    return 'svg';
   }
+  const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+  const canvas = document.createElement('canvas');
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('canvas unavailable');
+  context.fillStyle = getComputedStyle(element).backgroundColor || '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!png) throw new Error('png unavailable');
+  triggerDownload(png, `回答-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`);
 }
 
 function ClarificationCard({ clarification }: { clarification: ClarificationPrompt }) {
@@ -310,9 +331,14 @@ function ImageCreationProgress({ message }: { message: ChatMessage }) {
   }, [steps.length]);
   return <div className="image-generation-canvas">
     <div className="image-generation-wash" style={reference?.url ? { backgroundImage: `url(${reference.url})` } : undefined}>
-      <div className="image-painting-overlay"><span /></div>
+      <div className="image-painting-overlay">
+        <span />
+        <div className="image-painting-copy" aria-live="polite">
+          <strong>{steps[step]}</strong>
+          <small>图片工坊正在绘制，请稍候</small>
+        </div>
+      </div>
     </div>
-    <strong>{steps[step]}</strong><small>图片工坊正在绘制，请稍候</small>
   </div>;
 }
 
@@ -449,8 +475,8 @@ export default function MessageBubble({ message }: Props) {
     if (!bubbleRef.current || answerSaving) return;
     setAnswerSaving(true);
     try {
-      const format = await saveElementAsImage(bubbleRef.current);
-      MessagePlugin[format === 'png' ? 'success' : 'warning'](format === 'png' ? '回答图片已保存' : '部分图片存在跨域限制，已保存为 SVG 图片');
+      await saveElementAsImage(bubbleRef.current);
+      MessagePlugin.success('回答图片已保存');
     } catch {
       MessagePlugin.error('回答图片保存失败，请稍后重试');
     } finally {
@@ -698,7 +724,9 @@ export default function MessageBubble({ message }: Props) {
   };
   return (
     <div className={`msg-row ${isUser ? 'user' : 'ai'}`}>
-      <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>{isUser ? '我' : 'AI'}</div>
+      <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>
+        {isUser ? '我' : <img src="/floris-avatar.png" alt="Floris" />}
+      </div>
       <div className="msg-content-wrap">
         <div
           ref={bubbleRef}
@@ -975,7 +1003,7 @@ export default function MessageBubble({ message }: Props) {
             fileId={message.paperFileId}
             fileName={message.paperFileName || 'PDF 文档'}
             title={message.paperTitle || message.paperFileName || 'PDF 阅读'}
-            messageId={message.id}
+            assistantEnabled={message.paperIsPaper ?? message.content.includes('已识别为论文')}
           />
         )}
 

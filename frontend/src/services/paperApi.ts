@@ -212,65 +212,9 @@ export function summarizeParagraph(text: string, onDelta: (t: string) => void, o
   return streamPaper('summarize', { text }, onDelta, onDone);
 }
 
-/** 解释术语 */
-export function explainTerm(text: string, onDelta: (t: string) => void, onDone: (f: string, e?: string) => void) {
-  return streamPaper('explain', { text }, onDelta, onDone);
-}
-
-/** 解释公式 */
-export function explainFormula(text: string, onDelta: (t: string) => void, onDone: (f: string, e?: string) => void) {
-  return streamPaper('formula', { text }, onDelta, onDone);
-}
-
 /** 全文分析 */
 export function analyzePaper(fileId: string, onDelta: (t: string) => void, onDone: (f: string, e?: string) => void, text = '') {
   return streamPaper('analyze', { file_id: fileId, text }, onDelta, onDone);
-}
-
-function streamPaperChunks(
-  endpoint: string,
-  text: string,
-  onDelta: (text: string) => void,
-  onDone: (full: string, error?: string) => void,
-): { cancel: () => void } {
-  const controller = new AbortController();
-  let cancelled = false;
-  void (async () => {
-    let full = '';
-    const chunks: string[] = [];
-    for (let start = 0; start < text.length; start += 9000) chunks.push(text.slice(start, start + 9000));
-    try {
-      for (let index = 0; index < chunks.length; index += 1) {
-        if (cancelled) return;
-        const response = await authorizedFetch('/reader', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(getOrCreateConversationId()) },
-          body: JSON.stringify({ action: endpoint, text: chunks[index] }),
-          signal: controller.signal,
-        });
-        const data = await response.json().catch(() => ({})) as { content?: string; error?: string };
-        if (!response.ok || data.error) throw new Error(data.error || `第 ${index + 1} 段翻译失败`);
-        const translated = `\n\n## 第 ${index + 1}/${chunks.length} 部分\n\n${data.content || ''}`;
-        full += translated;
-        onDelta(translated);
-      }
-      onDone(full);
-    } catch (error) {
-      if (!cancelled) onDone(full, error instanceof Error ? error.message : '全文翻译失败');
-    }
-  })();
-  return { cancel: () => { cancelled = true; controller.abort(); } };
-}
-
-/** 全文翻译 */
-export function fullTranslate(fileId: string, onDelta: (t: string) => void, onDone: (f: string, e?: string) => void, text = '') {
-  if (text) return streamPaperChunks('full-translate', text, onDelta, onDone);
-  return streamPaper('full-translate', { file_id: fileId, text }, onDelta, onDone);
-}
-
-/** 提取术语 */
-export function extractTerms(fileId: string, onDelta: (t: string) => void, onDone: (f: string, e?: string) => void, text = '') {
-  return streamPaper('terms', { file_id: fileId, text }, onDelta, onDone);
 }
 
 /** 论文问答 */

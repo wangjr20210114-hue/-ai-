@@ -1,6 +1,6 @@
-# 元宝 Agent · EdgeOne Makers 版
+# FLORIS · EdgeOne Makers 版
 
-元宝是一个运行在腾讯云 EdgeOne Makers 上的多能力主动式 Agent。生产主链使用 Python LangGraph Agent、Makers AI Gateway、LangGraph checkpointer/store、Conversation Store、Cloud Functions、Blob 与平台 Cron；旧 FastAPI 已退役，不再作为生产 Transport 或发布回归门槛。
+FLORIS 是一个运行在腾讯云 EdgeOne Makers 上的多能力主动式 Agent。生产主链使用 Python LangGraph Agent、Makers AI Gateway、LangGraph checkpointer/store、Conversation Store、Cloud Functions、Blob 与平台 Cron；旧 FastAPI 已退役，不再作为生产 Transport 或发布回归门槛。
 
 Makers 项目：`ai-active-agent`（`makers-0oeuhire655w`）。项目使用 GitHub Provider，由 EdgeOne 控制台从目标分支创建 Preview/Production；不能对该项目执行本地目录直传。未绑定自定义域名时，默认 `edgeone.cool` 地址需要从控制台“预览”获取 3 小时访问链接。部署证据见 [CURRENT_RELEASE.md](docs/CURRENT_RELEASE.md)。
 
@@ -23,6 +23,19 @@ Makers 项目：`ai-active-agent`（`makers-0oeuhire655w`）。项目使用 GitH
 | 安全副作用 | Action 冻结快照、SHA-256、幂等键、Provider 调用账本、执行租约和未知结果人工核对 |
 
 当前产品固定为个人单所有者演示，不包含注册、登录、JWT、租户或用户数据库。线上业务状态完全使用 Makers Conversation Store、LangGraph Store 和 Blob；不需要 SQLite、Neon 或其他应用数据库。完整架构见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)，旧 SQLite 数据迁移见 [DATA_MIGRATION.md](docs/DATA_MIGRATION.md)。
+
+### Header 主动提醒
+
+提醒不会再写入新对话，避免和用户发送消息产生竞态。有效提醒会在标题右侧以一行文字轮播，淡入淡出并可点击展开左侧面板；左侧面板仍保留完整操作入口（按建议处理、稍后 1 小时、忽略）。
+
+- 日程在未来 24 小时内开始：提示即将开始。
+- 两个日程时间重叠：提示发现日程冲突。
+- 不同地点间隔不足 30 分钟：提示行程衔接较紧。
+- 已核实的日程地点遇到雨雪、雷暴、台风、大风、沙尘、雾、冰雹或严寒：提示关注天气。
+- 未来相邻日程的真实路线耗时加 15 分钟仍超过空档：提示通勤时间可能不足。
+- 回答、文档上传、生图完成后，只有独立语义模型判断确有价值时，才提示搜索更新、写作/翻译优化、图片迭代、文档下一步或任务下一步；低置信度、重复、敏感或一次性问题不会提醒。
+
+日程地点使用已核实的地点服务数据；浏览器精确定位不会静默上传。安全长期记忆和近期问题只作为后台语义判断上下文，不会在界面展示。
 
 ## 目录
 

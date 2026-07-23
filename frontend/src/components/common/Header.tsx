@@ -1,7 +1,9 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Button, Tooltip } from 'tdesign-react';
-import { ChatBubbleHistoryIcon, ChevronLeftIcon, ChevronRightIcon, ModeDarkIcon, ModeLightIcon } from 'tdesign-icons-react';
+import { ChevronLeftIcon, ChevronRightIcon, ModeDarkIcon, ModeLightIcon, NotificationIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
+import { activeProactiveNotifications } from '../profile/proactiveNotifications';
 
 const THEME_KEY = 'travel-theme';
 
@@ -15,8 +17,26 @@ export default function Header({
   rightPanelOpen?: boolean;
   onToggleRightPanel?: () => void;
 }) {
-  const { theme, connected } = useAppState();
+  const { theme, connected, proactive } = useAppState();
   const dispatch = useAppDispatch();
+  const notifications = useMemo(
+    () => activeProactiveNotifications(proactive?.notifications || []),
+    [proactive],
+  );
+  const notificationKey = notifications.map((item) => item.id).join('|');
+  const [reminderIndex, setReminderIndex] = useState(0);
+
+  useEffect(() => {
+    setReminderIndex(0);
+  }, [notificationKey]);
+
+  useEffect(() => {
+    if (notifications.length < 2) return;
+    const timer = window.setInterval(() => {
+      setReminderIndex((value) => (value + 1) % notifications.length);
+    }, 6500);
+    return () => window.clearInterval(timer);
+  }, [notifications.length]);
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -30,21 +50,23 @@ export default function Header({
 
   return (
     <header className="app-header">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <Button
-          className="conversation-menu-button"
-          shape="circle"
-          variant="text"
-          size="small"
-          disabled={!connected}
-          onClick={onToggleSidebar}
-          aria-label="打开历史对话"
-          icon={<ChatBubbleHistoryIcon />}
-        >
-        </Button>
-        <span className="brand-logo">元宝 Agent</span>
+      <div className="header-brand-group">
+        <span className="brand-logo">FLORIS:一只有温度的大橘</span>
+        {connected && notifications.length > 0 && (
+          <button
+            type="button"
+            className="header-proactive-ticker"
+            aria-label="查看主动提醒"
+            onClick={onToggleSidebar}
+          >
+            <NotificationIcon size="14px" aria-hidden="true" />
+            <span key={notifications[reminderIndex % notifications.length].id} className="header-proactive-ticker-text">
+              {notifications[reminderIndex % notifications.length].title} · {notifications[reminderIndex % notifications.length].body}
+            </span>
+          </button>
+        )}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div className="header-actions">
         <StatusIndicator />
         {onToggleRightPanel && (
           <Tooltip content={rightPanelOpen ? '收起右栏' : '展开右栏'}>
