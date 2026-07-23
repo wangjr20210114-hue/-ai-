@@ -235,6 +235,7 @@ async def handler(ctx):
     if not message:
         return error("'message' is required")
     previous_run = await read_chat_run(ctx.store, conversation_id)
+    allow_after_stop = bool(body.get("_allow_after_stop"))
     if is_stale(previous_run):
         await write_chat_run(
             ctx.store,
@@ -248,6 +249,22 @@ async def handler(ctx):
             # The Stop endpoint has already delegated cancellation to Maker's
             # abortActiveRun.  Its detached producer may still be flushing
             # cleanup work, but that must not keep the composer locked.
+            await write_chat_run(
+                ctx.store,
+                conversation_id,
+                run_id=str(previous_run.get("run_id") or ""),
+                status="cancelled",
+            )
+        elif allow_after_stop:
+            # The browser may have lost the first /stop response while the
+            # user was offline. Reuse Maker's cancellation primitive once
+            # more on the next deliberate send, then hand ownership to this
+            # new run instead of returning a misleading 409.
+            raw_target = str(getattr(ctx, "conversation_id", "") or conversation_id)
+            try:
+                ctx.utils.abortActiveRun(raw_target)
+            except Exception:
+                logging.exception("maker abort retry failed conversation=%s", conversation_id)
             await write_chat_run(
                 ctx.store,
                 conversation_id,

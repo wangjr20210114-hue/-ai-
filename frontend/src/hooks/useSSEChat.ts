@@ -221,6 +221,7 @@ class SSEChatClient {
 
     // A deliberate new message is the only action that clears a manual stop.
     // Do not call stop() here because that would persist a false user intent.
+    const allowAfterStop = this.manualStopIntent;
     this.setManualStopIntent(false);
     this.controller?.abort();
     this.controller = null;
@@ -263,7 +264,10 @@ class SSEChatClient {
           'Content-Type': 'application/json',
           ...makersConversationHeaders(this.conversationId),
         },
-        body: JSON.stringify(message.payload || {}),
+        body: JSON.stringify({
+          ...(message.payload || {}),
+          ...(allowAfterStop ? { _allow_after_stop: true } : {}),
+        }),
         signal,
         credentials: 'same-origin',
       });
