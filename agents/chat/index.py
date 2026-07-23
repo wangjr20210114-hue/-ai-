@@ -44,6 +44,15 @@ from .._shared.proactive import (
     save_proactive_state,
 )
 
+
+def run_cancelled(value: object) -> bool:
+    """Treat both the platform acknowledgement and terminal marker as stop."""
+    return bool(
+        isinstance(value, dict)
+        and value.get("status") in {"cancel_requested", "cancelled"}
+    )
+
+
 SYSTEM_PROMPT = """你是 FLORIS:一只有温度的大橘，一个可靠、主动、自然的中文智能助手。使用 GitHub Flavored Markdown 回复；多行代码必须使用带语言标识的围栏代码块，不能用普通缩进或行内代码冒充代码块。
 输出语言与语气要求：{response_language_instruction}
 当前北京时间是 {now}。
@@ -462,7 +471,7 @@ async def handler(ctx):
                 return False
             last_cancel_check[0] = now_mono
             latest = await read_chat_run(ctx.store, conversation_id)
-            return bool(isinstance(latest, dict) and latest.get("status") == "cancel_requested")
+            return run_cancelled(latest)
 
         async def produce():
             pending_actions: list[dict] = []
@@ -658,10 +667,7 @@ async def handler(ctx):
                 # abortActiveRun is the platform-owned cancellation path.  A
                 # browser disconnect does not cancel this detached producer.
                 latest_run = await read_chat_run(ctx.store, conversation_id)
-                cancelled = bool(
-                    isinstance(latest_run, dict)
-                    and latest_run.get("status") == "cancel_requested"
-                )
+                cancelled = run_cancelled(latest_run)
                 if not cancelled:
                     run_error = "运行已中断，请重试"
             finally:
@@ -778,10 +784,7 @@ async def handler(ctx):
                 if pending_papers is not None:
                     await queue.put(ctx.utils.sse({"type": "paper_results", "payload": pending_papers}))
                 latest_run = await read_chat_run(ctx.store, conversation_id)
-                cancelled = cancelled or bool(
-                    isinstance(latest_run, dict)
-                    and latest_run.get("status") == "cancel_requested"
-                )
+                cancelled = cancelled or run_cancelled(latest_run)
                 await write_chat_run(
                     ctx.store,
                     conversation_id,

@@ -18,6 +18,7 @@ from agents._shared.tencent_location import plan_driving_route
 from agents.proactive.index import handler as proactive_handler
 from agents.stop.index import handler as stop_handler
 from agents.system_internal.index import _expected_tick_after
+from agents.chat.index import run_cancelled
 
 
 class FakeStore:
@@ -220,6 +221,11 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(targets, ["conversation-1"])
         self.assertEqual(response["status"], "aborted")
         self.assertEqual((await read_chat_run(store, "conversation-1"))["status"], "cancelled")
+
+    def test_chat_producer_honors_both_makers_stop_states(self):
+        self.assertTrue(run_cancelled({"status": "cancel_requested"}))
+        self.assertTrue(run_cancelled({"status": "cancelled"}))
+        self.assertFalse(run_cancelled({"status": "running"}))
 
     def test_daily_health_grace_uses_scheduled_boundary(self):
         now = int(datetime.fromisoformat("2026-07-19T11:00:00+08:00").timestamp())

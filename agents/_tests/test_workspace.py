@@ -390,6 +390,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         prompt = ast.literal_eval(prompt_node)
         rendered = prompt.format(
             now="2026-07-15 12:00:00 UTC+08:00",
+            response_language_instruction="使用简体中文。",
             capability_plan='{"needs_places": true}',
             calendar_context='[{"id":"cal-live"}]',
             reference_image_context="无",
@@ -1768,7 +1769,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["search_config"]["visual_query_merged"])
         self.assertTrue(result["search_config"]["parallel_image_search"])
 
-    async def test_rich_search_does_not_publish_unreviewed_provider_image(self):
+    async def test_rich_search_falls_back_to_traceable_provider_image_when_vision_is_unavailable(self):
         page = {
             "url": "https://example.com/news",
             "title": "AI 发布会",
@@ -1781,12 +1782,15 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             result = await run_rich_search(
                 {"WSA_API_KEY": "test"}, "AI 新闻", "AI 发布会现场", "basic", image_limit=2,
             )
-        self.assertEqual(result["images"], [])
+        self.assertEqual(result["images"], ["https://img.example.com/hero.jpg"])
         self.assertEqual(result["results"][0]["image"], "https://img.example.com/hero.jpg")
         self.assertEqual(result["preview_media"][0]["url"], "https://img.example.com/hero.jpg")
         self.assertTrue(result["preview_media"][0]["preview"])
-        self.assertEqual(result["media"], [])
+        self.assertEqual(result["media"][0]["url"], "https://img.example.com/hero.jpg")
+        self.assertFalse(result["media"][0]["vision_reviewed"])
+        self.assertTrue(result["media"][0]["vision_fallback"])
         self.assertEqual(result["vision_diagnostics"]["missing_api_key"], 1)
+        self.assertEqual(result["vision_diagnostics"]["provider_fallback"], 1)
 
     def test_rich_search_visual_review_timeout_is_hard_bounded(self):
         self.assertEqual(_vision_review_timeout({}), 7.0)

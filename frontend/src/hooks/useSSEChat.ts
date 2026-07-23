@@ -51,6 +51,10 @@ export function shouldRecoverTransport(recoverable: boolean, manualStopIntent: b
   return recoverable && !manualStopIntent;
 }
 
+export function shouldAcceptStreamStart(autoResumeAllowed: boolean): boolean {
+  return autoResumeAllowed;
+}
+
 function waitWithAbort(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const timer = window.setTimeout(resolve, milliseconds);
@@ -615,6 +619,11 @@ export function useSSEChat() {
           break;
         }
         case 'stream_start': {
+          // A resume/bootstrap race can deliver a stale stream-start after
+          // the user has explicitly stopped generation. Ignore that event;
+          // a deliberate new send clears the intent before emitting its own
+          // stream-start.
+          if (!shouldAcceptStreamStart(client.shouldAutoResume())) break;
           const streamMessage: ChatMessage = {
             id: streamId || `ai-stream-${Date.now()}`, role: 'ai', content: '', ts: Date.now(), streaming: true,
             skill: { intent: 'chat', mode: 'immediate', content: '', icon: '✨', action_label: '', params: {}, data: { status: 'thinking', statusText: '正在理解你想解决的问题…' } },

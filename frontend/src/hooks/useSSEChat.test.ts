@@ -4,6 +4,7 @@ import {
   isRecoverableTransportError,
   mergeSearchMeta,
   progressTextForTool,
+  shouldAcceptStreamStart,
   shouldRecoverTransport,
   shouldPublishProactiveOpening,
 } from './useSSEChat';
@@ -84,5 +85,10 @@ describe('transport recovery', () => {
   it('never recovers a run after the user explicitly stops it', () => {
     expect(shouldRecoverTransport(true, true)).toBe(false);
     expect(shouldRecoverTransport(true, false)).toBe(true);
+  });
+
+  it('ignores a stale stream start after an explicit stop', () => {
+    expect(shouldAcceptStreamStart(false)).toBe(false);
+    expect(shouldAcceptStreamStart(true)).toBe(true);
   });
 });

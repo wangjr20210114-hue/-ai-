@@ -497,6 +497,28 @@ async def rich_search(
             )
         except asyncio.TimeoutError:
             reviewed, diagnostics = [], {"timeout": 1, "candidates": len(visual_candidates), "reviewed": 0}
+        # A vision outage should not turn a news answer into a permanently
+        # text-only response. SearchPro's own article hero image is traceable
+        # to a source URL, so retain it as an explicitly unreviewed fallback
+        # when the vision chain produced no relevance decision. If vision
+        # actively rejected candidates, keep the list empty instead.
+        explicit_rejection = bool(
+            diagnostics.get("approved", 0)
+            or diagnostics.get("irrelevant", 0)
+        )
+        if not reviewed and not explicit_rejection:
+            fallback_candidates = _provider_image_candidates(results)[:image_limit]
+            if fallback_candidates:
+                reviewed = [{
+                    **candidate,
+                    "description": str(candidate.get("source_title") or "搜索结果文章主图")[:240],
+                    "vision_reviewed": False,
+                    "vision_fallback": True,
+                } for candidate in fallback_candidates]
+                diagnostics = {
+                    **diagnostics,
+                    "provider_fallback": len(reviewed),
+                }
         reviewed_at = time.perf_counter()
         media = []
         for index, candidate in enumerate(reviewed, 1):
@@ -508,6 +530,7 @@ async def rich_search(
                 "source_title": candidate["source_title"], "alt": caption, "caption": caption,
                 "attribution": candidate["source_title"], "generated": False,
                 "vision_reviewed": candidate.get("vision_reviewed", True),
+                **({"vision_fallback": True} if candidate.get("vision_fallback") else {}),
             })
         enriched = {
             **base_metadata, "media": media, "images": [item["url"] for item in media],
@@ -544,12 +567,14 @@ def evidence_for_model(metadata: dict[str, Any]) -> str:
     )
     media = "\n".join(
         f"- {item.get('id') or 'media'} | ![{item['caption']}]({item['url']}) | 来源={item.get('source_title') or item.get('source_url') or '未知'}"
+        f"{' | 视觉审核暂不可用，仅作文章主图降级' if item.get('vision_fallback') or item.get('vision_reviewed') is False else ''}"
         for item in metadata.get("media", [])
     ) or "无通过视觉筛选的图片，不要插图。"
     media_status = (
         "图片尚未审核完成，本轮不要插图，也不要声称正在生成图片。"
         if metadata.get("media_pending") else
-        "这里只列出审核通过的图片。没有列出的真实图片 URL 就表示本轮无合格配图。"
+        "这里只列出审核通过的图片；若标记为“视觉审核暂不可用”，只能把它当作与来源绑定的文章主图谨慎使用。"
+        "没有列出的真实图片 URL 就表示本轮无合格配图。"
     )
     return (
         f"可选网页/视频素材：\n{sources or '无'}\n\n"
