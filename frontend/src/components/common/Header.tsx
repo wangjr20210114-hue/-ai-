@@ -15,7 +15,7 @@ export default function Header({
   rightPanelOpen?: boolean;
   onToggleRightPanel?: () => void;
 }) {
-  const { theme } = useAppState();
+  const { theme, connected } = useAppState();
   const dispatch = useAppDispatch();
 
   const toggleTheme = () => {
@@ -36,6 +36,7 @@ export default function Header({
           shape="circle"
           variant="text"
           size="small"
+          disabled={!connected}
           onClick={onToggleSidebar}
           aria-label="打开历史对话"
           icon={<ChatBubbleHistoryIcon />}
@@ -52,6 +53,7 @@ export default function Header({
               shape="circle"
               variant="text"
               size="medium"
+              disabled={!connected}
               onClick={onToggleRightPanel}
               aria-label={rightPanelOpen ? '收起右栏' : '展开右栏'}
               aria-pressed={rightPanelOpen}
@@ -65,6 +67,7 @@ export default function Header({
             shape="circle"
             variant="text"
             size="medium"
+            disabled={!connected}
             onClick={toggleTheme}
             icon={theme === 'dark' ? <ModeLightIcon /> : <ModeDarkIcon />}
           />

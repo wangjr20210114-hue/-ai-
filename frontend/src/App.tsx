@@ -28,7 +28,7 @@ function storedNumber(key: string, fallback: number) {
 }
 
 function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
-  const { theme } = useAppState();
+  const { theme, connected } = useAppState();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [leftPaneWidth, setLeftPaneWidth] = useState(() => storedNumber('yuanbao-left-pane-width', 252));
   const [rightPaneWidth, setRightPaneWidth] = useState(() => storedNumber('yuanbao-right-pane-width', 340));
@@ -44,6 +44,10 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
   useEffect(() => {
     document.documentElement.setAttribute('theme-mode', theme);
   }, [theme]);
+
+  useEffect(() => {
+    bodyRef.current?.toggleAttribute('inert', !connected);
+  }, [connected]);
 
   useEffect(() => {
     try {
@@ -102,13 +106,18 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
   } as CSSProperties;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${connected ? '' : ' is-connecting'}`} aria-busy={!connected}>
       <Header
         onToggleSidebar={() => setSidebarOpen((value) => !value)}
         rightPanelOpen={rightPanelOpen}
         onToggleRightPanel={() => setRightPanelOpen((value) => !value)}
       />
-      <div className="app-body" ref={bodyRef} style={workspaceStyle}>
+      <div
+        className="app-body"
+        ref={bodyRef}
+        style={workspaceStyle}
+        aria-hidden={!connected}
+      >
         <ConversationSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <div
           className="workspace-resizer workspace-resizer-left"
@@ -133,6 +142,12 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
           <EdgeOnePlatformPanel />
         </div>
       </div>
+      {!connected && (
+        <div className="connection-operation-lock" role="status" aria-live="polite">
+          <span className="connection-operation-spinner" aria-hidden="true" />
+          <span>正在连接，连接完成后即可操作</span>
+        </div>
+      )}
     </div>
   );
 }

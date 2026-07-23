@@ -194,7 +194,9 @@ export default function MessageBubble({ message }: Props) {
     searchMeta: message.searchResults,
     streaming: Boolean(message.streaming),
   });
-  const [selectionRender, setSelectionRender] = useState<typeof latestMarkdownRenderRef.current | null>(null);
+  const selectionActiveRef = useRef(false);
+  const selectionPointerDownRef = useRef(false);
+  const [, setSelectionRefresh] = useState(0);
   const [followUpWidth, setFollowUpWidth] = useState<number>();
   const dispatch = useAppDispatch();
   const { conversationId, messages, proactive } = useAppState();
@@ -276,20 +278,26 @@ export default function MessageBubble({ message }: Props) {
     if (isUser) return;
     const preserveSelectedDom = () => {
       const selected = hasTextSelectionInside(bubbleRef.current, window.getSelection());
-      setSelectionRender((current) => {
-        // A completed answer is stable already. Avoid replacing its DOM on
-        // every selectionchange, otherwise the browser can lose the exact
-        // range the user is trying to drag-copy. Only freeze a tree while
-        // tokens are still streaming underneath the pointer.
-        if (selected && (message.streaming || keepStreamingLayout)) {
-          return current || latestMarkdownRenderRef.current;
-        }
-        return current ? null : current;
-      });
+      if (selected) {
+        // Set only a ref while the pointer range is live. A state update here
+        // would reconcile the Markdown tree and can move the browser's anchor
+        // to the start of the paragraph, selecting text before the drag point.
+        selectionActiveRef.current = true;
+        return;
+      }
+      // Browsers briefly emit a collapsed selection at the drag origin. Do
+      // not unfreeze or render during that interval; doing so shifts the
+      // anchor to text before the user's actual starting point.
+      if (selectionPointerDownRef.current) return;
+      if (!selectionActiveRef.current) return;
+      selectionActiveRef.current = false;
+      // Selection has ended, so it is now safe to catch up with any content
+      // that arrived while the DOM was frozen.
+      setSelectionRefresh((value) => value + 1);
     };
     document.addEventListener('selectionchange', preserveSelectedDom);
     return () => document.removeEventListener('selectionchange', preserveSelectedDom);
-  }, [isUser, message.streaming, keepStreamingLayout]);
+  }, [isUser]);
 
   useLayoutEffect(() => {
     if (isUser || message.streaming || !message.followUps?.length || !bubbleRef.current) {
@@ -366,14 +374,23 @@ export default function MessageBubble({ message }: Props) {
       || event.button !== 0
       || !target.closest('.markdown-body')
       || target.closest('a,button,input,textarea,select,[role="button"]')
-      || (!message.streaming && !keepStreamingLayout)
     ) return;
-    // Freeze before the first drag movement. Waiting for selectionchange lets
-    // one more streaming token replace the DOM underneath the pointer.
-    setSelectionRender((current) => current || latestMarkdownRenderRef.current);
-    window.addEventListener('pointerup', () => window.requestAnimationFrame(() => {
-      if (!hasTextSelectionInside(bubbleRef.current, window.getSelection())) setSelectionRender(null);
-    }), { once: true });
+    // A ref freezes subsequent streamed renders without replacing the DOM on
+    // pointerdown. Native selection can therefore keep its exact start node.
+    selectionPointerDownRef.current = true;
+    selectionActiveRef.current = true;
+    const finishSelectionGesture = () => {
+      selectionPointerDownRef.current = false;
+      window.removeEventListener('pointerup', finishSelectionGesture);
+      window.removeEventListener('pointercancel', finishSelectionGesture);
+      window.requestAnimationFrame(() => {
+        if (hasTextSelectionInside(bubbleRef.current, window.getSelection())) return;
+        selectionActiveRef.current = false;
+        setSelectionRefresh((value) => value + 1);
+      });
+    };
+    window.addEventListener('pointerup', finishSelectionGesture);
+    window.addEventListener('pointercancel', finishSelectionGesture);
   };
 
   type ImageActionResult = { ok: boolean; image_url?: string; prompt?: string; error?: string };
@@ -616,8 +633,10 @@ export default function MessageBubble({ message }: Props) {
     searchMeta: message.searchResults,
     streaming: Boolean(message.streaming || keepStreamingLayout),
   };
-  if (!selectionRender) latestMarkdownRenderRef.current = liveMarkdownRender;
-  const markdownRender = selectionRender || liveMarkdownRender;
+  const markdownRender = selectionActiveRef.current
+    ? latestMarkdownRenderRef.current
+    : liveMarkdownRender;
+  if (!selectionActiveRef.current) latestMarkdownRenderRef.current = liveMarkdownRender;
   return (
     <div className={`msg-row ${isUser ? 'user' : 'ai'}`}>
       <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>{isUser ? '我' : 'AI'}</div>
