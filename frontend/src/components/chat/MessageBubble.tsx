@@ -288,11 +288,22 @@ export default function MessageBubble({ message }: Props) {
       return;
     }
     const bubble = bubbleRef.current;
-    const update = () => setFollowUpWidth(Math.round(bubble.getBoundingClientRect().width));
+    const update = () => {
+      // Preserve fractional CSS pixels so the follow-up border tracks the
+      // answer bubble exactly instead of introducing a one-pixel seam.
+      const width = bubble.getBoundingClientRect().width;
+      setFollowUpWidth(Number(width.toFixed(2)));
+    };
     update();
+    // The message row has a short reveal transform. Re-measure after it ends
+    // because ResizeObserver reports layout changes, not transform changes.
+    const settleTimer = window.setTimeout(update, 360);
     const observer = new ResizeObserver(update);
     observer.observe(bubble);
-    return () => observer.disconnect();
+    return () => {
+      window.clearTimeout(settleTimer);
+      observer.disconnect();
+    };
   }, [isUser, message.streaming, message.followUps]);
 
   // 兼容：从 skill 或旧字段获取意图
