@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import hljs from 'highlight.js/lib/common';
 import remarkMath from 'remark-math';
@@ -125,7 +125,7 @@ function linkLabel(children: React.ReactNode): string {
     .trim();
 }
 
-export default function MarkdownRenderer({
+function MarkdownRenderer({
   content,
   searchMeta,
   streaming = false,
@@ -134,21 +134,86 @@ export default function MarkdownRenderer({
   searchMeta?: SearchMeta;
   streaming?: boolean;
 }) {
-  const sources = searchMeta?.results || [];
-  const reviewedMedia = uniqueMediaAssets(searchMeta?.media || []);
-  const visibleMedia = reviewedMedia.length
-    ? reviewedMedia
-    : uniqueMediaAssets(searchMeta?.media_pending ? searchMeta.preview_media || [] : []);
+  const sources = useMemo(() => searchMeta?.results || [], [searchMeta?.results]);
+  const visibleMedia = useMemo(() => {
+    const reviewedMedia = uniqueMediaAssets(searchMeta?.media || []);
+    return reviewedMedia.length
+      ? reviewedMedia
+      : uniqueMediaAssets(searchMeta?.media_pending ? searchMeta.preview_media || [] : []);
+  }, [searchMeta?.media, searchMeta?.media_pending, searchMeta?.preview_media]);
   // New answers contain ordinary model-authored Markdown images. Keep only a
   // narrow compatibility transform for historical messages that still carry
   // the former internal media marker; never guess a placement for new text.
-  const mediaPlacedContent = replaceLegacyMediaSlots(content, visibleMedia);
-  const cleanedContent = replaceCitationMarkers(
-    linkBareCitations(mediaPlacedContent, sources),
-    sources,
-  );
+  const cleanedContent = useMemo(() => {
+    const mediaPlacedContent = replaceLegacyMediaSlots(content, visibleMedia);
+    return replaceCitationMarkers(
+      linkBareCitations(mediaPlacedContent, sources),
+      sources,
+    );
+  }, [content, sources, visibleMedia]);
   const providerCalls = searchMeta?.search_config?.turn_provider_calls;
   const toolInvocations = searchMeta?.search_config?.turn_tool_invocations;
+  const hasSearchMeta = Boolean(searchMeta);
+  // Keep the renderer component identities stable. Completed answers still
+  // re-render when header/proactive state changes; recreating these functions
+  // would make React replace every Markdown node, interrupting native link
+  // clicks and moving text selection between pointerdown and pointerup.
+  const markdownComponents = useMemo(() => ({
+    h1: ({ children }: { children?: React.ReactNode }) => <h1>{children}</h1>,
+    h2: ({ children }: { children?: React.ReactNode }) => <h2>{children}</h2>,
+    h3: ({ children }: { children?: React.ReactNode }) => <h3>{children}</h3>,
+    p: ({ children }: { children?: React.ReactNode }) => <p>{children}</p>,
+    ul: ({ children }: { children?: React.ReactNode }) => <ul>{children}</ul>,
+    ol: ({ children }: { children?: React.ReactNode }) => <ol>{children}</ol>,
+    li: ({ children }: { children?: React.ReactNode }) => <li>{children}</li>,
+    strong: ({ children }: { children?: React.ReactNode }) => <strong>{children}</strong>,
+    em: ({ children }: { children?: React.ReactNode }) => <em>{children}</em>,
+    blockquote: ({ children }: { children?: React.ReactNode }) => <blockquote>{children}</blockquote>,
+    hr: () => <hr />,
+    table: ({ children }: { children?: React.ReactNode }) => <div className="md-table-wrap"><table>{children}</table></div>,
+    thead: ({ children }: { children?: React.ReactNode }) => <thead>{children}</thead>,
+    tbody: ({ children }: { children?: React.ReactNode }) => <tbody>{children}</tbody>,
+    tr: ({ children }: { children?: React.ReactNode }) => <tr>{children}</tr>,
+    th: ({ children }: { children?: React.ReactNode }) => <th>{children}</th>,
+    td: ({ children }: { children?: React.ReactNode }) => <td>{children}</td>,
+    pre: ({ children }: { children?: React.ReactNode }) => <CodeBlock>{children}</CodeBlock>,
+    code: ({ className, children }: { className?: string; children?: React.ReactNode }) => (
+      <code className={className || undefined}>{children}</code>
+    ),
+    a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
+      const url = typeof href === 'string' ? href : '';
+      // Chat answers keep web evidence compact and readable. Dedicated
+      // paper/location surfaces can still use InfoCard, but a Markdown
+      // citation inside prose should remain a normal inline link.
+      if (!isSafeRemoteUrl(url)) return <>{children}</>;
+      const label = linkLabel(children);
+      const urlOnly = sameUrl(label.replace(/^<|>$/g, ''), url);
+      const semanticCitation = /^(来源|出处|参考|source)$/i.test(label);
+      const compactCitation = urlOnly || semanticCitation;
+      return <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={compactCitation ? 'md-citation-link' : undefined}
+        title={compactCitation ? url : undefined}
+      >{compactCitation ? sourceLabel(url, sources) : children}</a>;
+    },
+    img: ({ src, alt }: { src?: string; alt?: string }) => {
+      const url = typeof src === 'string' ? src : '';
+      if (!isSafeRemoteUrl(url)) return null;
+      const reviewed = visibleMedia.find((asset) => sameUrl(asset.url, url));
+      // A searched answer may render only URLs that survived this turn's
+      // visual review. This also removes a provisional URL when review
+      // later rejects it. Non-search Markdown keeps normal image support.
+      if (hasSearchMeta && !reviewed) return null;
+      return <RichImage asset={reviewed || {
+          id: `md-${url.slice(-20)}`,
+          kind: 'image', url,
+          alt: alt || '', caption: alt || '',
+          generated: false,
+        }} />;
+    },
+  }), [hasSearchMeta, sources, visibleMedia]);
 
   return (
     <div
@@ -159,65 +224,14 @@ export default function MarkdownRenderer({
       <ReactMarkdown
         remarkPlugins={[remarkMath, remarkGfm]}
         rehypePlugins={[rehypeKatex]}
-        components={{
-          h1: ({ children }) => <h1>{children}</h1>,
-          h2: ({ children }) => <h2>{children}</h2>,
-          h3: ({ children }) => <h3>{children}</h3>,
-          p: ({ children }) => <p>{children}</p>,
-          ul: ({ children }) => <ul>{children}</ul>,
-          ol: ({ children }) => <ol>{children}</ol>,
-          li: ({ children }) => <li>{children}</li>,
-          strong: ({ children }) => <strong>{children}</strong>,
-          em: ({ children }) => <em>{children}</em>,
-          blockquote: ({ children }) => <blockquote>{children}</blockquote>,
-          hr: () => <hr />,
-          table: ({ children }) => <div className="md-table-wrap"><table>{children}</table></div>,
-          thead: ({ children }) => <thead>{children}</thead>,
-          tbody: ({ children }) => <tbody>{children}</tbody>,
-          tr: ({ children }) => <tr>{children}</tr>,
-          th: ({ children }) => <th>{children}</th>,
-          td: ({ children }) => <td>{children}</td>,
-          pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
-          code: ({ className, children }) => (
-            <code className={className || undefined}>{children}</code>
-          ),
-          a: ({ href, children }) => {
-            const url = typeof href === 'string' ? href : '';
-            // Chat answers keep web evidence compact and readable. Dedicated
-            // paper/location surfaces can still use InfoCard, but a Markdown
-            // citation inside prose should remain a normal inline link.
-            if (!isSafeRemoteUrl(url)) return <>{children}</>;
-            const label = linkLabel(children);
-            const urlOnly = sameUrl(label.replace(/^<|>$/g, ''), url);
-            const semanticCitation = /^(来源|出处|参考|source)$/i.test(label);
-            const compactCitation = urlOnly || semanticCitation;
-            return <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={compactCitation ? 'md-citation-link' : undefined}
-              title={compactCitation ? url : undefined}
-            >{compactCitation ? sourceLabel(url, sources) : children}</a>;
-          },
-          img: ({ src, alt }) => {
-            const url = typeof src === 'string' ? src : '';
-            if (!isSafeRemoteUrl(url)) return null;
-            const reviewed = visibleMedia.find((asset) => sameUrl(asset.url, url));
-            // A searched answer may render only URLs that survived this turn's
-            // visual review. This also removes a provisional URL when review
-            // later rejects it. Non-search Markdown keeps normal image support.
-            if (searchMeta && !reviewed) return null;
-            return <RichImage asset={reviewed || {
-                id: `md-${url.slice(-20)}`,
-                kind: 'image', url,
-                alt: alt || '', caption: alt || '',
-                generated: false,
-              }} />;
-          },
-        }}
+        components={markdownComponents}
       >
         {cleanedContent}
       </ReactMarkdown>
     </div>
   );
 }
+
+// Header reminders, connection status, and other global state update more
+// often than a completed answer. Do not rebuild an unchanged Markdown tree.
+export default memo(MarkdownRenderer);
