@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
+import { CheckIcon, CopyIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ChatMessage, TravelPlan, SkillInfo, MeetingResult, ScheduleItem, WorkspaceAction } from '../../types';
 import type { ChatClient } from '../../services/chatClient';
@@ -276,13 +277,19 @@ export default function MessageBubble({ message }: Props) {
     const preserveSelectedDom = () => {
       const selected = hasTextSelectionInside(bubbleRef.current, window.getSelection());
       setSelectionRender((current) => {
-        if (selected) return current || latestMarkdownRenderRef.current;
+        // A completed answer is stable already. Avoid replacing its DOM on
+        // every selectionchange, otherwise the browser can lose the exact
+        // range the user is trying to drag-copy. Only freeze a tree while
+        // tokens are still streaming underneath the pointer.
+        if (selected && (message.streaming || keepStreamingLayout)) {
+          return current || latestMarkdownRenderRef.current;
+        }
         return current ? null : current;
       });
     };
     document.addEventListener('selectionchange', preserveSelectedDom);
     return () => document.removeEventListener('selectionchange', preserveSelectedDom);
-  }, [isUser]);
+  }, [isUser, message.streaming, keepStreamingLayout]);
 
   useLayoutEffect(() => {
     if (isUser || message.streaming || !message.followUps?.length || !bubbleRef.current) {
@@ -349,7 +356,18 @@ export default function MessageBubble({ message }: Props) {
   };
 
   const beginTextSelection = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (isUser || event.button !== 0 || !(event.target as HTMLElement).closest('.markdown-body')) return;
+    const target = event.target as HTMLElement;
+    // Links and controls must retain the browser's native click behaviour.
+    // The selection-preservation hook below intentionally freezes a streaming
+    // Markdown tree; running it for an anchor can replace the event target
+    // between pointerdown and click, which makes a normal click appear dead.
+    if (
+      isUser
+      || event.button !== 0
+      || !target.closest('.markdown-body')
+      || target.closest('a,button,input,textarea,select,[role="button"]')
+      || (!message.streaming && !keepStreamingLayout)
+    ) return;
     // Freeze before the first drag movement. Waiting for selectionchange lets
     // one more streaming token replace the DOM underneath the pointer.
     setSelectionRender((current) => current || latestMarkdownRenderRef.current);
@@ -604,11 +622,27 @@ export default function MessageBubble({ message }: Props) {
     <div className={`msg-row ${isUser ? 'user' : 'ai'}`}>
       <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>{isUser ? '我' : 'AI'}</div>
       <div className="msg-content-wrap">
-        <div ref={bubbleRef} onPointerDown={beginTextSelection} className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''}`}>
+        <div
+          ref={bubbleRef}
+          onPointerDown={beginTextSelection}
+          className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''} ${!isUser && !message.streaming && message.content.trim() ? 'has-copy-action' : ''}`}
+        >
           {isUser ? (
             message.content
           ) : (
             <>
+              {!message.streaming && message.content.trim() && (
+                <button
+                  type="button"
+                  className={`answer-copy-button${answerCopied ? ' is-copied' : ''}`}
+                  title="复制"
+                  aria-label="复制回答"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={() => { void copyAnswerText(); }}
+                >
+                  {answerCopied ? <CheckIcon aria-hidden="true" /> : <CopyIcon aria-hidden="true" />}
+                </button>
+              )}
               {/* 搜索动画 */}
               {!isUser && message.streaming && (
                 message.skill?.intent === 'image' || progressStatus.includes('生成图片') || progressStatus.includes('绘制') ? <ImageCreationProgress message={message} /> : <div className={`search-progress ${message.content ? 'has-content' : ''}`}>
@@ -735,14 +769,6 @@ export default function MessageBubble({ message }: Props) {
             </>
           )}
         </div>
-
-        {!isUser && !message.streaming && message.content.trim() && (
-          <div className="message-action-bar">
-            <button type="button" className="answer-copy-button" onClick={() => { void copyAnswerText(); }}>
-              {answerCopied ? '已复制' : '复制'}
-            </button>
-          </div>
-        )}
 
         {/* === 旅游：计划卡片 === */}
         {travelPlan && (

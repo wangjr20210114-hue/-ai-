@@ -391,11 +391,15 @@ html.is-resizing-workspace * {
   border-top-right-radius: 4px;
 }
 .msg-bubble.ai {
+  position: relative;
   background: var(--app-ai-bubble);
   color: var(--app-text);
   border: 1px solid var(--app-border);
   border-top-left-radius: 4px;
   box-shadow: var(--app-shadow);
+}
+.msg-bubble.ai.has-copy-action {
+  padding-top: 30px;
 }
 .msg-bubble.ai.is-error {
   border-color: rgba(213, 73, 65, 0.34);
@@ -2498,26 +2502,29 @@ html.is-resizing-workspace * {
 .msg-row.user .msg-content-wrap {
   align-items: flex-end;
 }
-.message-action-bar {
-  display: flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 3px 2px 0;
-}
 .answer-copy-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
   border: 0;
-  padding: 3px 7px;
-  border-radius: 5px;
+  padding: 0;
+  border-radius: 7px;
   background: transparent;
   color: var(--app-text-3);
-  font-size: 11px;
   cursor: pointer;
   transition: color 0.16s ease, background-color 0.16s ease, transform 0.16s ease;
 }
+.answer-copy-button svg { width: 15px; height: 15px; }
 .answer-copy-button:hover {
   color: var(--td-brand-color);
   background: color-mix(in srgb, var(--td-brand-color) 9%, transparent);
 }
+.answer-copy-button.is-copied { color: var(--td-success-color); }
 .answer-copy-button:active { transform: scale(0.96); }
 .followup-section {
   margin-top: 10px;

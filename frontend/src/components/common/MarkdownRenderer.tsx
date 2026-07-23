@@ -48,7 +48,13 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
           {asset.preview && <span className="rich-media-reviewing">图片核实中</span>}
           {asset.generated && <span className="rich-media-generated">AI 生成示意图</span>}
           {asset.source_url && isSafeRemoteUrl(asset.source_url) && (
-            <a href={asset.source_url} target="_blank" rel="noopener noreferrer">
+            <a
+              href={asset.source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+            >
               {asset.source_title || sourceLabel(asset.source_url)}
             </a>
           )}
@@ -193,6 +199,8 @@ export default function MarkdownRenderer({
               rel="noopener noreferrer"
               className={compactCitation ? 'md-citation-link' : undefined}
               title={compactCitation ? url : undefined}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
             >{compactCitation ? sourceLabel(url, sources) : children}</a>;
           },
           img: ({ src, alt }) => {
