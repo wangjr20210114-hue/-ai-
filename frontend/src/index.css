@@ -181,6 +181,12 @@ body {
   animation: content-reveal var(--motion-reveal) var(--motion-ease-smooth) both;
 }
 
+/* Follow-up suggestions must keep the exact answer width throughout reveal.
+   A scale transform briefly turned a 430px section into ~426px on restore. */
+.followup-section.answer-followups {
+  animation-name: followup-reveal;
+}
+
 @keyframes content-reveal {
   from {
     opacity: 0;
@@ -189,6 +195,17 @@ body {
   to {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes followup-reveal {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
   }
 }
 
