@@ -39,6 +39,28 @@
   --td-radius-medium: 12px;
 }
 
+/* TDesign's light selector is more specific than :root, so keep its full
+   component palette aligned with Floris instead of falling back to blue. */
+:root[theme-mode='light'] {
+  --td-brand-color-1: #fff4e8;
+  --td-brand-color-2: #ffe4cc;
+  --td-brand-color-3: #ffc89e;
+  --td-brand-color-4: #f9a96b;
+  --td-brand-color-5: #f28b42;
+  --td-brand-color-6: #e87832;
+  --td-brand-color-7: #df6b2d;
+  --td-brand-color-8: #bd4f1d;
+  --td-brand-color-9: #923a15;
+  --td-brand-color-10: #69280f;
+  --td-brand-color: #df6b2d;
+  --td-brand-color-hover: #f28b42;
+  --td-brand-color-focus: #ffe4cc;
+  --td-brand-color-active: #bd4f1d;
+  --td-brand-color-disabled: #ffc89e;
+  --td-brand-color-light: #fff4e8;
+  --td-brand-color-light-hover: #ffe4cc;
+}
+
 /* ---------- 深色：紫色夜空 ---------- */
 :root[theme-mode='dark'] {
   --app-bg: #100c1d;
@@ -63,6 +85,20 @@
   --td-brand-color: #a78bfa;
   --td-brand-color-hover: #c4b5fd;
   --td-brand-color-active: #8b5cf6;
+  --td-brand-color-1: #211739;
+  --td-brand-color-2: #352552;
+  --td-brand-color-3: #503975;
+  --td-brand-color-4: #7251a4;
+  --td-brand-color-5: #8b5cf6;
+  --td-brand-color-6: #9d78f5;
+  --td-brand-color-7: #a78bfa;
+  --td-brand-color-8: #c4b5fd;
+  --td-brand-color-9: #ddd6fe;
+  --td-brand-color-10: #ede9fe;
+  --td-brand-color-focus: #352552;
+  --td-brand-color-disabled: #7251a4;
+  --td-brand-color-light: #211739;
+  --td-brand-color-light-hover: #352552;
 }
 
 * {
