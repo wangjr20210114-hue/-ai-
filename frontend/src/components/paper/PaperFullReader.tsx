@@ -13,7 +13,8 @@ import {
 } from '../../services/pdf';
 import {
   translateParagraph, summarizeParagraph,
-  analyzePaper, paperQA,
+  analyzePaper, paperQA, loadPaperAssistantResults, savePaperAssistantResult,
+  type PaperAssistantResult,
 } from '../../services/paperApi';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 
@@ -62,7 +63,35 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
   const [aiTab, setAiTab] = useState<'result' | 'qa'>('result');
   const [qaInput, setQaInput] = useState('');
   const [qaHistory, setQaHistory] = useState<{ q: string; a: string }[]>([]);
+  const [savedTranslations, setSavedTranslations] = useState<PaperAssistantResult[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const streamRef = useRef<{ cancel: () => void } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHistoryLoading(true);
+    void loadPaperAssistantResults(fileId)
+      .then((items) => {
+        if (cancelled) return;
+        const translations = items.filter((item) => item.action === 'translate');
+        setSavedTranslations(translations);
+        if (translations[0]) {
+          setAiResult({
+            action: 'translate',
+            title: translations[0].title,
+            content: translations[0].content,
+            streaming: false,
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSavedTranslations([]);
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [fileId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -260,7 +289,21 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
     setAiResult({ action, title, content: '', streaming: true });
     setAiTab('result');
     const onDelta = (delta: string) => setAiResult(prev => prev ? { ...prev, content: prev.content + delta } : prev);
-    const onDone = (full: string, error?: string) => setAiResult(prev => prev ? { ...prev, content: error ? `❌ ${error}` : full, streaming: false } : prev);
+    const onDone = (full: string, error?: string) => {
+      setAiResult(prev => prev ? { ...prev, content: error ? `❌ ${error}` : full, streaming: false } : prev);
+      if (action === 'translate' && !error && full.trim()) {
+        void savePaperAssistantResult(fileId, {
+          action: 'translate',
+          title,
+          source_text: text,
+          content: full,
+        }).then((saved) => {
+          setSavedTranslations((current) => [saved, ...current.filter((item) => item.id !== saved.id)].slice(0, 50));
+        }).catch((saveError) => {
+          MessagePlugin.warning(saveError instanceof Error ? saveError.message : '翻译结果暂未保存');
+        });
+      }
+    };
     const documentText = pages.map((page) => `【第 ${page.pageNum} 页】\n${page.paragraphs.map((paragraph) => paragraph.text).join('\n')}`).join('\n\n');
     switch (action) {
       case 'translate': streamRef.current = translateParagraph(text, onDelta, onDone); break;
@@ -403,7 +446,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
 
             {aiTab === 'result' && (
               <div className="paper-ai-content">
-                {!aiResult && (
+                {!aiResult && !historyLoading && (
                   <div style={{ textAlign: 'center', color: 'var(--app-text-3)', fontSize: 12, paddingTop: 30, lineHeight: 2 }}>
                     在左侧 PDF 上：<br />
                     · <strong>选中文字</strong> → 弹出翻译/总结工具条<br />
@@ -419,6 +462,32 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
                     </div>
                     <div style={{ fontSize: 12.5, lineHeight: 1.7, overflowY: 'auto', maxHeight: 'calc(100vh - 200px)' }}>
                       <MarkdownRenderer content={aiResult.content || '...'} />
+                    </div>
+                  </div>
+                )}
+                {savedTranslations.length > 0 && (
+                  <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid var(--app-border)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--app-text-3)', marginBottom: 6 }}>
+                      已保存翻译 · {savedTranslations.length}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {savedTranslations.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="paper-saved-result"
+                          title={item.source_text || item.title}
+                          onClick={() => setAiResult({
+                            action: 'translate',
+                            title: item.title,
+                            content: item.content,
+                            streaming: false,
+                          })}
+                        >
+                          <span>{item.title}</span>
+                          <small>{new Date(item.created_at).toLocaleString('zh-CN')}</small>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}

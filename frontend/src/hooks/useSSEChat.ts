@@ -14,6 +14,28 @@ type ClientEvent = { type: string; payload: Record<string, unknown> };
 const STREAM_IDLE_TIMEOUT_MS = 20_000;
 const RECOVERY_DEADLINE_MS = 120_000;
 const STOP_TIMEOUT_MS = 4_000;
+const MANUAL_STOP_PREFIX = 'floris:manual-stop:';
+
+function manualStopKey(conversationId: string): string {
+  return `${MANUAL_STOP_PREFIX}${conversationId}`;
+}
+
+export function readManualStopIntent(conversationId: string): boolean {
+  try {
+    return window.sessionStorage.getItem(manualStopKey(conversationId)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeManualStopIntent(conversationId: string, stopped: boolean): void {
+  try {
+    if (stopped) window.sessionStorage.setItem(manualStopKey(conversationId), '1');
+    else window.sessionStorage.removeItem(manualStopKey(conversationId));
+  } catch {
+    // In-memory state below still protects this tab when storage is disabled.
+  }
+}
 
 export function isRecoverableTransportError(error: unknown): boolean {
   const value = error as { name?: unknown; message?: unknown };
@@ -23,6 +45,10 @@ export function isRecoverableTransportError(error: unknown): boolean {
     String(value?.name || '') === 'TypeError'
     || /failed to fetch|network|load failed|connection|fetch failed|network request failed/.test(message)
   );
+}
+
+export function shouldRecoverTransport(recoverable: boolean, manualStopIntent: boolean): boolean {
+  return recoverable && !manualStopIntent;
 }
 
 function waitWithAbort(milliseconds: number, signal: AbortSignal): Promise<void> {
@@ -106,8 +132,20 @@ class SSEChatClient {
   private controller: AbortController | null = null;
   private resumeController: AbortController | null = null;
   private listeners = new Set<(message: ClientEvent) => void>();
+  private manualStopIntent: boolean;
 
-  constructor(private readonly conversationId: string) {}
+  constructor(private readonly conversationId: string) {
+    this.manualStopIntent = readManualStopIntent(conversationId);
+  }
+
+  private setManualStopIntent(stopped: boolean) {
+    this.manualStopIntent = stopped;
+    writeManualStopIntent(this.conversationId, stopped);
+  }
+
+  shouldAutoResume(): boolean {
+    return !this.manualStopIntent;
+  }
 
   private emit(message: ClientEvent) {
     for (const listener of this.listeners) listener(message);
@@ -127,6 +165,10 @@ class SSEChatClient {
   }
 
   async stop(): Promise<'confirmed' | 'local'> {
+    // Record intent before aborting either transport. Otherwise the AbortError
+    // can race into send()'s recovery branch and restart a run the user
+    // explicitly stopped.
+    this.setManualStopIntent(true);
     this.controller?.abort();
     this.controller = null;
     this.resumeController?.abort();
@@ -173,7 +215,13 @@ class SSEChatClient {
     const message = rawMessage as { type?: string; payload?: Record<string, unknown> };
     if (message.type === 'ping') return;
 
-    if (this.controller) await this.stop();
+    // A deliberate new message is the only action that clears a manual stop.
+    // Do not call stop() here because that would persist a false user intent.
+    this.setManualStopIntent(false);
+    this.controller?.abort();
+    this.controller = null;
+    this.resumeController?.abort();
+    this.resumeController = null;
     this.controller = new AbortController();
     const signal = this.controller.signal;
     const streamId = `ai-stream-${Date.now()}`;
@@ -397,7 +445,7 @@ class SSEChatClient {
       if (idleWatchdog) window.clearTimeout(idleWatchdog);
       if (this.controller?.signal === signal) this.controller = null;
     }
-    if (recoverTransport) {
+    if (shouldRecoverTransport(recoverTransport, this.manualStopIntent)) {
       this.emit({
         type: 'transport_recovering',
         payload: { id: streamId, message: '网络有波动，正在从 Makers 已保存的进度恢复…' },
@@ -410,7 +458,7 @@ class SSEChatClient {
     // Switching conversations must not replace a still-live response with a
     // polling snapshot. The original request keeps publishing into its
     // conversation cache while it is in the background.
-    if (this.controller || this.resumeController) return;
+    if (!this.shouldAutoResume() || this.controller || this.resumeController) return;
     const controller = new AbortController();
     this.resumeController = controller;
     const streamId = existingStreamId || `ai-resume-${Date.now()}`;
@@ -821,6 +869,7 @@ export function useSSEChat() {
       const latestSummary = conversationsRef.current.find((item) => item.id === conversationId);
       const hasUnansweredUser = merged.length > 0 && merged[merged.length - 1]?.role === 'user';
       if ((runActive || latestSummary?.activityStatus === 'running' || hasUnansweredUser)
+        && client.shouldAutoResume()
         && !client.hasActiveTransport()) {
         void client.resume();
       }

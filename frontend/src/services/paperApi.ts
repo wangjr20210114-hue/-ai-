@@ -76,6 +76,16 @@ export interface SavedPaper {
   page_count?: number;
   preview?: string;
   folder_id?: string;
+  assistant_results?: PaperAssistantResult[];
+}
+
+export interface PaperAssistantResult {
+  id: string;
+  action: 'translate' | 'summarize' | 'analyze';
+  title: string;
+  source_text: string;
+  content: string;
+  created_at: number;
 }
 
 export interface ReadingFolder { id: string; name: string; automatic?: boolean; created_at?: number; }
@@ -108,6 +118,24 @@ export async function renameReadingFolder(folderId: string, name: string) {
 }
 export async function moveReadingItem(itemId: string, folderId: string) {
   return libraryOperation<{ item: SavedPaper }>({ operation: 'move_item', item_id: itemId, folder_id: folderId });
+}
+
+export async function loadPaperAssistantResults(storageKey: string): Promise<PaperAssistantResult[]> {
+  const library = await getReadingLibrary();
+  const item = library.papers.find((paper) => paper.storage_key === storageKey || paper.file_id === storageKey);
+  return item?.assistant_results || [];
+}
+
+export async function savePaperAssistantResult(
+  storageKey: string,
+  result: Pick<PaperAssistantResult, 'action' | 'title' | 'source_text' | 'content'>,
+): Promise<PaperAssistantResult> {
+  const data = await libraryOperation<{ result: PaperAssistantResult }>({
+    operation: 'save_assistant_result',
+    storage_key: storageKey,
+    ...result,
+  });
+  return data.result;
 }
 
 export async function registerReadingItem(item: {

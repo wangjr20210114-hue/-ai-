@@ -954,6 +954,51 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(removed["deleted"])
         self.assertFalse(state["schedules"])
 
+    def test_calendar_delete_does_not_duplicate_untouched_schedules(self):
+        state = empty_workspace()
+        palace, restaurant, lake = apply_calendar_changes(state, [
+            {"operation": "create", "event": {"title": "故宫", "start_time": 1_900_000_000}},
+            {"operation": "create", "event": {"title": "四季民福", "start_time": 1_900_007_200}},
+            {"operation": "create", "event": {"title": "什刹海", "start_time": 1_900_014_400}},
+        ])
+        changed = apply_calendar_changes(state, [
+            {"operation": "delete", "schedule_id": palace["id"]},
+            {"operation": "create", "event": {
+                "title": restaurant["title"],
+                "start_time": restaurant["start_time"],
+                "duration_minutes": restaurant["duration_minutes"],
+            }},
+            {"operation": "create", "event": {
+                "title": lake["title"],
+                "start_time": lake["start_time"],
+                "duration_minutes": lake["duration_minutes"],
+            }},
+        ])
+        self.assertEqual([item["title"] for item in changed], ["故宫"])
+        self.assertEqual(
+            sorted(item["title"] for item in state["schedules"].values()),
+            ["什刹海", "四季民福"],
+        )
+
+    def test_calendar_mutation_repairs_exact_legacy_duplicates(self):
+        state = empty_workspace()
+        lake = apply_calendar_changes(state, [{
+            "operation": "create",
+            "event": {"title": "什刹海", "start_time": 1_900_014_400},
+        }])[0]
+        duplicate = dict(lake)
+        duplicate["id"] = "legacy-duplicate"
+        duplicate["created_at"] = lake["created_at"] + 1
+        state["schedules"][duplicate["id"]] = duplicate
+        apply_calendar_changes(state, [{
+            "operation": "create",
+            "event": {"title": "午餐", "start_time": 1_900_021_600},
+        }])
+        self.assertEqual(
+            [item["title"] for item in state["schedules"].values()].count("什刹海"),
+            1,
+        )
+
     def test_calendar_mutations_before_beijing_today_are_rejected(self):
         state = empty_workspace()
         past = apply_calendar_changes(state, [{

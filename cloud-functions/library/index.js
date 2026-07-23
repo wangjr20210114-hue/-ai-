@@ -115,6 +115,27 @@ export async function onRequest(context) {
       await saveJson(store, keys.index, items);
       return json({ item });
     }
+    if (operation === 'save_assistant_result') {
+      const storageKey = String(body.storage_key || '');
+      const item = items.find((candidate) => candidate.storage_key === storageKey || candidate.file_id === storageKey);
+      if (!item) return json({ error: '阅读项目不存在，请先保存到“我的阅读”' }, 404);
+      const action = String(body.action || '');
+      if (!['translate', 'summarize', 'analyze'].includes(action)) return json({ error: '不支持的助读结果类型' }, 400);
+      const content = String(body.content || '').trim().slice(0, 30000);
+      if (!content) return json({ error: '助读结果不能为空' }, 400);
+      const result = {
+        id: crypto.randomUUID(),
+        action,
+        title: String(body.title || '助读结果').trim().slice(0, 120),
+        source_text: String(body.source_text || '').trim().slice(0, 4000),
+        content,
+        created_at: Date.now(),
+      };
+      item.assistant_results = [result, ...(Array.isArray(item.assistant_results) ? item.assistant_results : [])].slice(0, 50);
+      item.last_opened_at = Date.now();
+      await saveJson(store, keys.index, items);
+      return json({ item, result });
+    }
 
     const storageKey = String(body.storage_key || '');
     if (!storageKey.startsWith(`${prefix}uploads/`)) return json({ error: '无效文档标识' }, 400);
@@ -130,6 +151,7 @@ export async function onRequest(context) {
       content_url: `/files?key=${encodeURIComponent(storageKey)}`,
       folder_id: String(body.folder_id || existing?.folder_id || ''),
       manual_folder: Boolean(body.manual_folder || existing?.manual_folder),
+      assistant_results: Array.isArray(existing?.assistant_results) ? existing.assistant_results : [],
       created_at: existing?.created_at || now, last_opened_at: now,
     };
     if (!item.folder_id && settings.auto_organize) item.folder_id = ensureFolder(folders, inferredFolderName(item)).id;

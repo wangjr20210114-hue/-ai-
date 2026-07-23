@@ -394,7 +394,7 @@ html.is-resizing-workspace * {
 /* ============ 顶栏 ============ */
 .app-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 520px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 760px) minmax(0, 1fr);
   align-items: center;
   gap: 16px;
   padding: 12px 22px;
@@ -441,9 +441,9 @@ html.is-resizing-workspace * {
 }
 
 .header-proactive-ticker {
-  width: 100%;
+  width: fit-content;
   min-width: 0;
-  max-width: 520px;
+  max-width: min(70vw, 760px);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -3357,6 +3357,41 @@ html.is-resizing-workspace * {
   padding: 16px;
 }
 
+.paper-saved-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 9px;
+  color: var(--app-text-2);
+  background: var(--app-panel);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 160ms var(--motion-ease-out), border-color 180ms ease, background-color 180ms ease;
+}
+.paper-saved-result:hover {
+  border-color: color-mix(in srgb, var(--td-brand-color) 42%, var(--app-border));
+  background: color-mix(in srgb, var(--td-brand-color) 6%, var(--app-panel));
+  transform: translateY(-1px);
+}
+.paper-saved-result:active { transform: scale(.98); }
+.paper-saved-result span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.paper-saved-result small {
+  flex: 0 0 auto;
+  color: var(--app-text-3);
+  font-size: 10px;
+}
+
 .paper-upload-zone {
   background: var(--app-bg-2);
 }
@@ -3780,7 +3815,7 @@ html.is-resizing-workspace * {
   .header-brand-group { gap: 6px; }
   .header-brand-avatar { width: 27px; height: 27px; flex-basis: 27px; border-radius: 9px; }
   .brand-logo { max-width: 28vw; font-size: 15px; }
-  .header-proactive-ticker { max-width: 100%; padding: 4px 7px; }
+  .header-proactive-ticker { width: fit-content; max-width: 100%; padding: 4px 7px; }
   .header-proactive-ticker-text { font-size: 11.5px; }
 
   .app-body {

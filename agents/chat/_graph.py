@@ -30,6 +30,8 @@ def tool_completion_fallback(tool_names: Iterable[str]) -> str:
         return "日程变更确认卡已准备好，请核对后再确认。"
     if "propose_image" in names:
         return "图片任务已准备好，可在下方图片工坊查看结果。"
+    if "ask_user_clarification" in names:
+        return ""
     return ""
 
 
@@ -63,6 +65,11 @@ def build_graph(
             if getattr(message, "type", "") == "tool":
                 tools_this_turn += 1
                 used_tool_names.append(getattr(message, "name", ""))
+        # The structured card is the complete response for a clarification
+        # turn. Do not run a second prose pass that repeats the questions after
+        # the card and makes the interaction feel like an afterthought.
+        if "ask_user_clarification" in used_tool_names:
+            return {"messages": [AIMessage(content="")]}
         # A model can occasionally keep reformulating the same search. Preserve
         # multi-tool reasoning, but after a generous turn-local budget force a
         # normal answer from the evidence already collected instead of exposing

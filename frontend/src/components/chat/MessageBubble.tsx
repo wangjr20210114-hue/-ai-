@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { CheckIcon, CopyIcon, ImageIcon } from 'tdesign-icons-react';
+import { toBlob } from 'html-to-image';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ChatMessage, ClarificationPrompt, TravelPlan, SkillInfo, MeetingResult, ScheduleItem, WorkspaceAction } from '../../types';
 import type { ChatClient } from '../../services/chatClient';
@@ -50,16 +51,6 @@ function meetingInputValue(value?: string): string {
   return new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
-function copyComputedStyles(source: HTMLElement, target: HTMLElement) {
-  const computed = window.getComputedStyle(source);
-  for (let index = 0; index < computed.length; index += 1) {
-    const property = computed.item(index);
-    if (property) target.style.setProperty(property, computed.getPropertyValue(property), computed.getPropertyPriority(property));
-  }
-  target.style.animation = 'none';
-  target.style.transition = 'none';
-}
-
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -71,79 +62,17 @@ function triggerDownload(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error || new Error('image data unavailable'));
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function inlineCloneImages(source: HTMLElement, clone: HTMLElement) {
-  const sourceImages = Array.from(source.querySelectorAll<HTMLImageElement>('img'));
-  const cloneImages = Array.from(clone.querySelectorAll<HTMLImageElement>('img'));
-  await Promise.all(sourceImages.map(async (sourceImage, index) => {
-    const clonedImage = cloneImages[index];
-    if (!clonedImage) return;
-    clonedImage.loading = 'eager';
-    clonedImage.draggable = false;
-    clonedImage.removeAttribute('srcset');
-    const sourceUrl = sourceImage.currentSrc || sourceImage.src;
-    try {
-      if (!sourceUrl) throw new Error('empty image source');
-      const response = await fetch(sourceUrl, { credentials: 'same-origin' });
-      if (!response.ok) throw new Error(`image fetch failed: ${response.status}`);
-      clonedImage.src = await blobToDataUrl(await response.blob());
-    } catch {
-      const placeholder = '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540"><rect width="100%" height="100%" rx="18" fill="#eef1f8"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#75809a" font-family="sans-serif" font-size="24">Image unavailable in export</text></svg>';
-      clonedImage.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(placeholder)}`;
-    }
-  }));
-}
-
 async function saveElementAsImage(element: HTMLElement): Promise<void> {
-  const rect = element.getBoundingClientRect();
-  const width = Math.max(1, Math.ceil(element.scrollWidth || rect.width));
-  const height = Math.max(1, Math.ceil(element.scrollHeight || rect.height));
-  const clone = element.cloneNode(true) as HTMLElement;
-  const sourceNodes = [element, ...Array.from(element.querySelectorAll<HTMLElement>('*'))];
-  const cloneNodes = [clone, ...Array.from(clone.querySelectorAll<HTMLElement>('*'))];
-  sourceNodes.forEach((source, index) => {
-    const target = cloneNodes[index];
-    if (target) copyComputedStyles(source, target);
+  const unavailable = '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540"><rect width="100%" height="100%" rx="18" fill="#eef1f8"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#75809a" font-family="sans-serif" font-size="24">图片暂不可用</text></svg>';
+  const png = await toBlob(element, {
+    cacheBust: true,
+    pixelRatio: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
+    backgroundColor: getComputedStyle(element).backgroundColor || '#ffffff',
+    imagePlaceholder: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(unavailable)}`,
+    skipFonts: true,
+    filter: (node) => !(node instanceof HTMLElement)
+      || (!node.classList.contains('answer-action-group') && !node.classList.contains('typing-cursor')),
   });
-  await inlineCloneImages(element, clone);
-  clone.querySelector('.answer-action-group')?.remove();
-  clone.querySelectorAll('.typing-cursor').forEach((node) => node.remove());
-  clone.style.width = `${width}px`;
-  clone.style.height = `${height}px`;
-  clone.style.maxWidth = 'none';
-  clone.style.overflow = 'visible';
-  const serialized = new XMLSerializer().serializeToString(clone);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xhtml="http://www.w3.org/1999/xhtml" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml">${serialized}</div></foreignObject></svg>`;
-  const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-  const svgUrl = URL.createObjectURL(svgBlob);
-  const image = new Image();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error('image render failed'));
-      image.src = svgUrl;
-    });
-  } finally {
-    URL.revokeObjectURL(svgUrl);
-  }
-  const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
-  const canvas = document.createElement('canvas');
-  canvas.width = width * scale;
-  canvas.height = height * scale;
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('canvas unavailable');
-  context.fillStyle = getComputedStyle(element).backgroundColor || '#ffffff';
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.drawImage(image, 0, 0, canvas.width, canvas.height);
-  const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
   if (!png) throw new Error('png unavailable');
   triggerDownload(png, `回答-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`);
 }

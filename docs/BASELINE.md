@@ -1,7 +1,7 @@
 # EdgeOne Makers 能力基线
 
 > 当前业务分支：`agent/makers-native-persistence-fixes`
-> 更新日期：2026-07-22
+> 更新日期：2026-07-23
 > 生产目标：EdgeOne Makers 是唯一线上运行时；FastAPI 运行时代码已删除，SQLite 只作为一次性只读迁移来源。
 
 ## 1. 基线原则
@@ -16,13 +16,13 @@
 
 | 能力 | 代码状态 | 部署状态 | 主要事实源 |
 | --- | --- | --- | --- |
-| 多会话聊天、SSE、停止、刷新恢复 | 已实现并测试 | Preview/Production 已连接并加载历史会话 | `agents/chat`、`agents/messages`、`cloud-functions/conversations` |
+| 多会话聊天、SSE、停止、刷新恢复 | 已实现并测试 | 断网可从 Makers Checkpointer 恢复；用户主动停止会写入会话级取消意图，刷新或网络恢复均不得自动重启该轮 | `agents/chat`、`agents/messages`、`cloud-functions/conversations` |
 | 联网图文回答 | 已实现并测试 | 搜索前保留 LLM 语义规划且默认 6 秒超时后交给主模型继续语义路由；Makers 网关/DeepSeek 降级单次无响应预算默认各 12 秒；单轮一次 rich_search/一次 SearchPro；事实与视觉意图合并，使用 Makers Store TTL/安全陈旧缓存；默认搜索/提图/视觉硬预算 10/5/7 秒；最多 4 张候选图并发完成轻量审核后，回答模型用真实 URL 自行编排标准 Markdown，不使用新媒体占位符 | `agents/chat/_capability_plan.py`、`agents/chat/_llm.py`、`agents/chat/_ui_tools.py`、`agents/_shared/rich_search.py` |
 | 地点、地图、道路路线、费用估算 | 已实现并测试 | 腾讯结果与查询不匹配时回退 OSM；路线按用户缓存 6 小时 | `agents/places`、`agents/routes`、`agents/_shared/tencent_location.py` |
-| 日程 CRUD 与确认式变更 | 已实现并测试 | 可用自然语言新增、改标题/描述/时间/地点、删除；地点修改必须来自地点库；不存在/不唯一目标会自然提示；变更后旧主动提醒同步刷新或失效 | `agents/workspace`、`agents/chat/_calendar_context.py`、LangGraph Store |
+| 日程 CRUD 与确认式变更 | 已实现并测试 | 可用自然语言新增、改标题/描述/时间/地点、删除；删除只操作匹配的 ID，未变日程不会被重建；服务端幂等忽略完全相同的创建并在下一次变更清理旧重复项；地点修改必须来自地点库；不存在/不唯一目标用结构化卡片澄清；变更后旧主动提醒同步刷新或失效 | `agents/workspace`、`agents/chat/_calendar_context.py`、LangGraph Store |
 | 腾讯会议创建 | 官方个人 MCP Skill 适配已实现 | Skills 广场引导个人用户取得 Token；未配置时不暴露工具；确认后才调用 `schedule_meeting` | `agents/_shared/side_effects.py`、`SkillsMarketplaceButton.tsx` |
 | 多模态理解、文生图、图生图、版本、Blob、ZIP | 已实现并测试 | 用户附图先经视觉 Provider 描述；混元为主，Cloudflare Workers AI 提供视觉/文生图/图生图降级，百炼与 Gemini 可作视觉后备；生成结果复制到 Makers Blob | `agents/_shared/vision.py`、`agents/_shared/side_effects.py`、`agents/image`、`InputBar.tsx` |
-| PDF、图片上传、阅读库、论文助读 | 已实现核心链路 | PDF 上传后直接打开内置助读；阅读库支持手动分类与删除反馈；无 DOCX/OCR | `cloud-functions/files`、`library`、`papers`、`agents/reader` |
+| PDF、图片上传、阅读库、论文助读 | 已实现核心链路 | PDF 上传后直接打开内置助读；阅读库支持手动分类与删除反馈；划词/右键翻译结果写入 Makers Blob，重新打开或跨主机可恢复最近 50 条；无 DOCX/OCR | `cloud-functions/files`、`library`、`papers`、`agents/reader` |
 | 搜索/写作/翻译/生图/文档主动机会 | 已实现并测试 | 回答后由独立语义模型最多识别一条高价值下一步；文档上传和图片 Action 成功形成可信事件，生图结果返回后再异步做语义迭代判断；实时刷新 Header 轮播和左栏，不向新对话注入消息；包含置信度、冷却、过期、Action 去重和隐私过滤 | `agents/_shared/opportunities.py`、`agents/chat`、`agents/proactive`、`MessageBubble.tsx` |
 | 主动日程/天气/路线提醒 | 已实现并测试 | 记忆优先、操作辅助；Makers Store 持久化 4 条有界提醒窗口。窗口满时普通操作随机替换一条，10 分钟在线检查只允许记忆提醒替换操作提醒；无足够安全记忆则留空。位置仅保存城市/区县级天气，不保存坐标。Header 居中轮播、左栏同步展示；EdgeOne Schedule 负责每日兜底 | `cloud-functions/proactive-tick`、`agents/proactive`、`agents/_shared/proactive_memory.py`、`useSSEChat.ts` |
 | Notification、免打扰、每日上限、稍后提醒 | 已实现并测试 | 在线读取、即时刷新、业务去重及稍后/已读/忽略跨请求持久化均已在生产验证；记忆窗口检查由在线网页每 10 分钟触发。EdgeOne 官方 Schedule 当前最小间隔为一天，因此关闭网页时只保留每日平台兜底，不伪造 10 分钟 Cron | `agents/_shared/proactive.py` |

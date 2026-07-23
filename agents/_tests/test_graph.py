@@ -34,6 +34,12 @@ def rich_search(query: str) -> str:
     return query
 
 
+@tool
+def ask_user_clarification(title: str) -> str:
+    """Return one structured clarification."""
+    return title
+
+
 class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
     async def test_direct_answer_does_not_call_rich_search(self):
         model = _RecordingModel()
@@ -69,6 +75,22 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["messages"][-1].content, "final answer")
         self.assertEqual(model.unbound_calls, 1)
         self.assertEqual(model.bound_calls, 0)
+
+    async def test_clarification_card_ends_turn_without_prose_epilogue(self):
+        model = _RecordingModel()
+        graph = build_graph(model, [ask_user_clarification], "system")
+        result = await graph.ainvoke({"messages": [
+            HumanMessage(content="帮我安排一个计划"),
+            AIMessage(content="", tool_calls=[{
+                "name": "ask_user_clarification",
+                "args": {"title": "需要补充时间"},
+                "id": "clarify-1",
+            }]),
+            ToolMessage(content='{"ui_action":"clarification_action"}', name="ask_user_clarification", tool_call_id="clarify-1"),
+        ]})
+        self.assertEqual(result["messages"][-1].content, "")
+        self.assertEqual(model.bound_calls, 0)
+        self.assertEqual(model.unbound_calls, 0)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import {
   isRecoverableTransportError,
   mergeSearchMeta,
   progressTextForTool,
+  shouldRecoverTransport,
   shouldPublishProactiveOpening,
 } from './useSSEChat';
 import type { WorkspaceAction } from '../types';
@@ -78,5 +79,10 @@ describe('transport recovery', () => {
     expect(isRecoverableTransportError(new TypeError('Failed to fetch'))).toBe(true);
     expect(isRecoverableTransportError(new Error('network connection lost'))).toBe(true);
     expect(isRecoverableTransportError(new DOMException('Aborted', 'AbortError'))).toBe(false);
+  });
+
+  it('never recovers a run after the user explicitly stops it', () => {
+    expect(shouldRecoverTransport(true, true)).toBe(false);
+    expect(shouldRecoverTransport(true, false)).toBe(true);
   });
 });

@@ -421,10 +421,26 @@ def meeting_action_payload(
 def apply_calendar_changes(state: dict[str, Any], changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     schedules = state.setdefault("schedules", {})
     changed: list[dict[str, Any]] = []
+
+    def identity(event: dict[str, Any]) -> tuple:
+        place = (event.get("extra") or {}).get("place") if isinstance(event.get("extra"), dict) else {}
+        return (
+            str(event.get("title") or "").strip().casefold(),
+            int(event.get("start_time") or 0),
+            int(event.get("duration_minutes") or 0),
+            str(event.get("location") or "").strip().casefold(),
+            str((place or {}).get("place_id") or ""),
+        )
+
     for change in changes:
         operation = str(change.get("operation") or "create")
         if operation == "create":
             event = normalize_schedule(change.get("event") or {})
+            # LLM deletion/edit proposals occasionally echoed untouched
+            # schedules as creates. Idempotently ignore an exact existing event
+            # instead of assigning a fresh id and multiplying it in the UI.
+            if any(identity(existing) == identity(event) for existing in schedules.values() if isinstance(existing, dict)):
+                continue
             schedules[event["id"]] = event
             changed.append(event)
         elif operation == "update":
@@ -445,6 +461,20 @@ def apply_calendar_changes(state: dict[str, Any], changes: list[dict[str, Any]])
             changed.append({**removed, "deleted": True})
         else:
             raise ValueError(f"不支持的日程操作：{operation}")
+    # Repair exact legacy duplicates on the next confirmed mutation. Keep the
+    # oldest stable id so references and proactive reminders remain valid.
+    seen: set[tuple] = set()
+    for schedule_id, event in sorted(
+        list(schedules.items()),
+        key=lambda item: (int((item[1] or {}).get("created_at") or 0), str(item[0])),
+    ):
+        if not isinstance(event, dict):
+            continue
+        key = identity(event)
+        if key in seen:
+            schedules.pop(schedule_id, None)
+            continue
+        seen.add(key)
     return changed
 
 
