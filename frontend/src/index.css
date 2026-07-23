@@ -456,22 +456,17 @@ html.is-resizing-workspace * {
   min-width: 0;
   max-width: 100%;
   overflow: visible;
-  cursor: text;
-  -webkit-user-select: text;
-  user-select: text;
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
 }
-.msg-bubble.ai .markdown-body *:not(button) {
-  -webkit-user-select: text;
-  user-select: text;
-}
-.msg-bubble.ai .markdown-body.is-streaming,
-.msg-bubble.ai .markdown-body.is-streaming * {
+.msg-bubble.ai .markdown-body * {
   -webkit-user-select: none;
   user-select: none;
 }
 .msg-bubble.ai .markdown-body ::selection,
 .rich-media-figure figcaption ::selection {
-  background: rgba(43, 90, 237, 0.24);
+  background: transparent;
 }
 .msg-bubble.ai .markdown-body > *:last-child {
   display: inline;
@@ -2538,11 +2533,15 @@ html.is-resizing-workspace * {
 .msg-row.user .msg-content-wrap {
   align-items: flex-end;
 }
-.answer-copy-button {
+.answer-action-group {
   position: absolute;
   top: 8px;
   right: 8px;
   z-index: 2;
+  display: inline-flex;
+  gap: 3px;
+}
+.answer-action-button {
   display: inline-grid;
   place-items: center;
   width: 26px;
@@ -2555,13 +2554,33 @@ html.is-resizing-workspace * {
   cursor: pointer;
   transition: color 0.16s ease, background-color 0.16s ease, transform 0.16s ease;
 }
-.answer-copy-button svg { width: 15px; height: 15px; }
-.answer-copy-button:hover {
+.answer-action-button svg { width: 15px; height: 15px; }
+.answer-action-button:hover {
   color: var(--td-brand-color);
   background: color-mix(in srgb, var(--td-brand-color) 9%, transparent);
 }
 .answer-copy-button.is-copied { color: var(--td-success-color); }
-.answer-copy-button:active { transform: scale(0.96); }
+.answer-action-button:active { transform: scale(0.96); }
+.answer-action-button:disabled { opacity: 0.55; cursor: wait; }
+
+.clarification-card {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--td-brand-color) 24%, var(--app-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--td-brand-color) 4%, var(--app-ai-bubble));
+}
+.clarification-card > strong { display: block; font-size: 14px; }
+.clarification-card > p { margin: 5px 0 12px; color: var(--app-text-2); font-size: 13px; }
+.clarification-field { display: grid; gap: 7px; margin: 10px 0; border: 0; padding: 0; min-width: 0; }
+.clarification-field > span, .clarification-field legend { color: var(--app-text-2); font-size: 12px; font-weight: 600; }
+.clarification-field input[type='text'], .clarification-field input[type='date'], .clarification-field input[type='datetime-local'] {
+  width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--app-border); border-radius: 8px; background: var(--app-panel); color: var(--app-text);
+}
+.clarification-option-list { display: flex; flex-wrap: wrap; gap: 7px; }
+.clarification-option { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border: 1px solid var(--app-border); border-radius: 8px; color: var(--app-text); font-size: 12px; cursor: pointer; }
+.clarification-option:has(input:checked) { border-color: var(--td-brand-color); background: color-mix(in srgb, var(--td-brand-color) 9%, transparent); }
+.clarification-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
 .followup-section {
   margin-top: 10px;
   padding-left: 2px;

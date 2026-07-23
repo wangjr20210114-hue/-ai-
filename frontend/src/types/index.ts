@@ -282,6 +282,26 @@ export interface ChatMessage {
   meetingIntent?: { type: string; message: string; prompt: string };
   autoShowTravelAssistant?: boolean;
   workspaceActions?: WorkspaceAction[];
+  /** 当用户目标或关键参数不明确时，由模型生成的结构化选择/填空卡。 */
+  clarification?: ClarificationPrompt;
+}
+
+export type ClarificationFieldType = 'single' | 'multi' | 'boolean' | 'text' | 'date' | 'datetime';
+
+export interface ClarificationField {
+  id: string;
+  label: string;
+  type: ClarificationFieldType;
+  options?: string[];
+  required?: boolean;
+  placeholder?: string;
+}
+
+export interface ClarificationPrompt {
+  id: string;
+  title: string;
+  prompt: string;
+  fields: ClarificationField[];
 }
 
 export interface StoredFileInfo {

@@ -7,7 +7,7 @@ import { presentableChatError } from '../services/chatError';
 import { durableMessageCount, makersConversationHeaders, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../services/conversation';
 import { splitSseFrames } from '../services/sse';
 import { useAppDispatch, useAppState } from '../store/appState';
-import type { ChatMessage, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
+import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
 
 type ClientEvent = { type: string; payload: Record<string, unknown> };
 
@@ -252,6 +252,15 @@ class SSEChatClient {
               case 'side_effect_action':
                 this.emit({
                   type: String(event.type),
+                  payload: {
+                    ...((event.payload && typeof event.payload === 'object') ? event.payload as Record<string, unknown> : {}),
+                    id: streamId,
+                  },
+                });
+                break;
+              case 'clarification_action':
+                this.emit({
+                  type: 'clarification_action',
                   payload: {
                     ...((event.payload && typeof event.payload === 'object') ? event.payload as Record<string, unknown> : {}),
                     id: streamId,
@@ -528,7 +537,7 @@ export function useSSEChat() {
           if (current) {
             streams.delete(streamId);
             if (current.failed) break;
-            if (!current.content.trim() && !current.workspaceActions?.length) {
+            if (!current.content.trim() && !current.workspaceActions?.length && !current.clarification) {
               publish(id, cached(id).filter((item) => item.id !== streamId));
               setConversationActivity(id, 'idle');
               break;
@@ -612,6 +621,16 @@ export function useSSEChat() {
           if (current && action?.id) {
             const workspaceActions = [...(current.workspaceActions || []).filter((item) => item.id !== action.id), action];
             streams.set(streamId, { ...current, workspaceActions }); patch(id, streamId, { workspaceActions });
+          }
+          break;
+        }
+        case 'clarification_action': {
+          const current = streams.get(streamId);
+          const clarification = event.payload.clarification as ClarificationPrompt | undefined;
+          if (current && clarification?.id && Array.isArray(clarification.fields) && clarification.fields.length) {
+            const next = { ...current, clarification };
+            streams.set(streamId, next);
+            patch(id, streamId, { clarification });
           }
           break;
         }

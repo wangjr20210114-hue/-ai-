@@ -661,6 +661,51 @@ def build_production_tools(
             "message": "工作流提案已加入主动提醒中心，只有用户确认后才会激活",
         }, ensure_ascii=False)
 
+    async def ask_user_clarification(
+        title: str,
+        prompt: str,
+        fields: list[dict[str, Any]],
+    ) -> str:
+        """Present one compact, structured clarification card instead of prose interrogation."""
+        allowed = {"single", "multi", "boolean", "text", "date", "datetime"}
+        normalized: list[dict[str, Any]] = []
+        for index, raw in enumerate(fields or []):
+            if not isinstance(raw, dict):
+                continue
+            field_type = str(raw.get("type") or "text").strip().lower()
+            if field_type not in allowed:
+                field_type = "text"
+            field_id = re.sub(r"[^a-zA-Z0-9_-]", "-", str(raw.get("id") or f"field-{index + 1}"))[:48] or f"field-{index + 1}"
+            label = str(raw.get("label") or "请补充").strip()[:80]
+            item: dict[str, Any] = {
+                "id": field_id,
+                "label": label,
+                "type": field_type,
+                "required": bool(raw.get("required", True)),
+            }
+            if field_type in {"single", "multi"}:
+                options = list(dict.fromkeys(str(option).strip()[:120] for option in (raw.get("options") or []) if str(option).strip()))[:8]
+                if len(options) < 2:
+                    continue
+                item["options"] = options
+            elif field_type == "text":
+                item["placeholder"] = str(raw.get("placeholder") or "请填写").strip()[:120]
+            normalized.append(item)
+            if len(normalized) >= 8:
+                break
+        if not normalized:
+            raise ValueError("至少需要一个有效的澄清字段")
+        prompt_id = hashlib.sha256(f"{conversation_id}:{time.time_ns()}".encode()).hexdigest()[:16]
+        return json.dumps({
+            "ui_action": "clarification_action",
+            "clarification": {
+                "id": f"clarify-{prompt_id}",
+                "title": str(title or "请补充几个信息").strip()[:120],
+                "prompt": str(prompt or "为了更准确地帮你处理，请选择或补充以下信息。").strip()[:300],
+                "fields": normalized,
+            },
+        }, ensure_ascii=False)
+
     definitions = [
         (search_places, "search_places", "使用腾讯地点服务搜索真实地点，返回可安全用于地图和日程的 place_id。推荐地点、景点、餐馆或含地点日程前必须调用。"),
         (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
@@ -674,6 +719,7 @@ def build_production_tools(
         (analyze_images_parallel, "analyze_images_parallel", "并行视觉评估最多 30 张图片；单张失败不影响其他图片。"),
         (search_arxiv, "search_arxiv", "补充获取 arXiv 可下载结果。富搜索已找到论文时，把准确标题列表一次性传给 titles；按作者和年份查找时分别传 author（英文署名）与 year，不要把作者年份混在宽泛 topic 中。工具会严格过滤作者/年份与标题，每轮最多调用一次。"),
         (propose_workflow, "propose_workflow", "用户明确要求建立跨时间、多步骤的持续提醒或计划时创建工作流提案。steps 每项包含 offset_minutes、title、body、action_prompt，可用 depends_on=['step_1'] 建立 DAG 依赖；失败时需要回退提示的步骤可增加 compensation={title,body,action_prompt}。默认按顺序依赖。必须由用户确认后才会激活，依赖步骤需用户标记完成后才推进。"),
+        (ask_user_clarification, "ask_user_clarification", "用户目标、偏好或关键参数不足且需要做选择时调用。一次集中收集相关字段：single 单选、multi 多选、boolean 是/否判断、text 短文本填空、date/datetime 日期/时间选择器。不要用它处理普通事实问答，也不要把多个问题拆成连续的自然语言追问。"),
     ]
     meeting_ready = bool(str(runtime_env.get("TENCENT_MEETING_TOKEN") or "").strip())
     if not meeting_ready:
@@ -698,6 +744,7 @@ def build_production_tools(
         "analyze_images_parallel": "vision",
         "search_arxiv": "paper-reading",
         "propose_workflow": "proactive-agent",
+        "ask_user_clarification": "core",
     }
-    definitions = [definition for definition in definitions if tool_skills.get(definition[1]) in active]
+    definitions = [definition for definition in definitions if tool_skills.get(definition[1]) == "core" or tool_skills.get(definition[1]) in active]
     return [StructuredTool.from_function(coroutine=fn, name=name, description=description) for fn, name, description in definitions]

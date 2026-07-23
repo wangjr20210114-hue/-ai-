@@ -52,7 +52,7 @@ export function makersConversationHeaders(conversationId: string): Record<string
 
 export function durableMessageCount(messages: ChatMessage[]): number {
   return messages.filter((message) => (
-    !message.failed && (message.role === 'user' || (message.role === 'ai' && Boolean(message.content.trim())))
+    !message.failed && (message.role === 'user' || (message.role === 'ai' && (Boolean(message.content.trim()) || Boolean(message.clarification))))
   )).length;
 }
 

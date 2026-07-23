@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
-import { CheckIcon, CopyIcon } from 'tdesign-icons-react';
+import { CheckIcon, CopyIcon, ImageIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
-import type { ChatMessage, TravelPlan, SkillInfo, MeetingResult, ScheduleItem, WorkspaceAction } from '../../types';
+import type { ChatMessage, ClarificationPrompt, TravelPlan, SkillInfo, MeetingResult, ScheduleItem, WorkspaceAction } from '../../types';
 import type { ChatClient } from '../../services/chatClient';
 import { proactiveOperation, workspaceOperation } from '../../services/api';
 import TravelPlanCard from '../travel/TravelPlanCard';
@@ -48,6 +48,138 @@ function meetingInputValue(value?: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return '';
   return new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+function copyComputedStyles(source: HTMLElement, target: HTMLElement) {
+  const computed = window.getComputedStyle(source);
+  for (let index = 0; index < computed.length; index += 1) {
+    const property = computed.item(index);
+    if (property) target.style.setProperty(property, computed.getPropertyValue(property), computed.getPropertyPriority(property));
+  }
+  target.style.animation = 'none';
+  target.style.transition = 'none';
+}
+
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function saveElementAsImage(element: HTMLElement): Promise<'png' | 'svg'> {
+  const rect = element.getBoundingClientRect();
+  const width = Math.max(1, Math.ceil(element.scrollWidth || rect.width));
+  const height = Math.max(1, Math.ceil(element.scrollHeight || rect.height));
+  const clone = element.cloneNode(true) as HTMLElement;
+  const sourceNodes = [element, ...Array.from(element.querySelectorAll<HTMLElement>('*'))];
+  const cloneNodes = [clone, ...Array.from(clone.querySelectorAll<HTMLElement>('*'))];
+  sourceNodes.forEach((source, index) => {
+    const target = cloneNodes[index];
+    if (target) copyComputedStyles(source, target);
+  });
+  clone.querySelector('.answer-action-group')?.remove();
+  clone.querySelectorAll('.typing-cursor').forEach((node) => node.remove());
+  clone.style.width = `${width}px`;
+  clone.style.height = `${height}px`;
+  clone.style.maxWidth = 'none';
+  clone.style.overflow = 'visible';
+  clone.querySelectorAll<HTMLImageElement>('img').forEach((image) => {
+    image.loading = 'eager';
+    image.crossOrigin = 'anonymous';
+    image.draggable = false;
+  });
+  const serialized = new XMLSerializer().serializeToString(clone);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xhtml="http://www.w3.org/1999/xhtml" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml">${serialized}</div></foreignObject></svg>`;
+  const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+  try {
+    const svgUrl = URL.createObjectURL(svgBlob);
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('image render failed'));
+      image.src = svgUrl;
+    });
+    URL.revokeObjectURL(svgUrl);
+    const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+    const canvas = document.createElement('canvas');
+    canvas.width = width * scale;
+    canvas.height = height * scale;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('canvas unavailable');
+    context.fillStyle = getComputedStyle(element).backgroundColor || '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!png) throw new Error('png unavailable');
+    triggerDownload(png, `回答-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`);
+    return 'png';
+  } catch {
+    // A remote image without CORS can taint the canvas. The SVG remains a
+    // faithful, printable image and preserves all Markdown layout.
+    triggerDownload(svgBlob, `回答-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.svg`);
+    return 'svg';
+  }
+}
+
+function ClarificationCard({ clarification }: { clarification: ClarificationPrompt }) {
+  const dispatch = useAppDispatch();
+  const [values, setValues] = useState<Record<string, string | string[]>>({});
+  const [submitted, setSubmitted] = useState(false);
+  const setValue = (id: string, value: string | string[]) => setValues((current) => ({ ...current, [id]: value }));
+  const complete = clarification.fields.every((field) => {
+    if (!field.required) return true;
+    const value = values[field.id];
+    return Array.isArray(value) ? value.length > 0 : Boolean(String(value || '').trim());
+  });
+  const submit = () => {
+    const answer = clarification.fields.map((field) => {
+      const value = values[field.id];
+      return `${field.label}：${Array.isArray(value) ? value.join('、') : String(value || '').trim()}`;
+    }).join('\n');
+    dispatch({ type: 'SET_DRAFT', payload: `${clarification.prompt}\n${answer}` });
+    setSubmitted(true);
+    MessagePlugin.success('已填入输入框，点击发送继续');
+  };
+  return <div className="clarification-card">
+    <strong>{clarification.title}</strong>
+    <p>{clarification.prompt}</p>
+    {clarification.fields.map((field) => {
+      const value = values[field.id];
+      if (field.type === 'single' || field.type === 'boolean') {
+        const options = field.type === 'boolean' ? ['是', '否'] : (field.options || []);
+        return <fieldset className="clarification-field" key={field.id} disabled={submitted}>
+          <legend>{field.label}{field.required ? '（必选）' : ''}</legend>
+          <div className="clarification-option-list">{options.map((option) => <label key={option} className="clarification-option">
+            <input type="radio" name={`${clarification.id}-${field.id}`} checked={value === option} onChange={() => setValue(field.id, option)} />{option}
+          </label>)}</div>
+        </fieldset>;
+      }
+      if (field.type === 'multi') return <fieldset className="clarification-field" key={field.id} disabled={submitted}>
+        <legend>{field.label}{field.required ? '（至少选一项）' : ''}</legend>
+        <div className="clarification-option-list">{(field.options || []).map((option) => {
+          const selected = Array.isArray(value) && value.includes(option);
+          return <label key={option} className="clarification-option"><input type="checkbox" checked={selected} onChange={(event) => {
+            const current = Array.isArray(value) ? value : [];
+            setValue(field.id, event.target.checked ? [...current, option] : current.filter((item) => item !== option));
+          }} />{option}</label>;
+        })}</div>
+      </fieldset>;
+      return <label className="clarification-field" key={field.id}><span>{field.label}{field.required ? '（必填）' : ''}</span><input
+        type={field.type === 'date' ? 'date' : field.type === 'datetime' ? 'datetime-local' : 'text'}
+        value={typeof value === 'string' ? value : ''}
+        placeholder={field.placeholder}
+        disabled={submitted}
+        onChange={(event) => setValue(field.id, event.target.value)}
+      /></label>;
+    })}
+    <div className="clarification-actions"><Button size="small" theme="primary" disabled={!complete || submitted} onClick={submit}>{submitted ? '已填入输入框' : '填好并继续'}</Button></div>
+  </div>;
 }
 
 function MeetingConfirmationCard({
@@ -214,6 +346,7 @@ export default function MessageBubble({ message }: Props) {
   const [workspaceBusy, setWorkspaceBusy] = useState('');
   const [proactiveBusy, setProactiveBusy] = useState('');
   const [answerCopied, setAnswerCopied] = useState(false);
+  const [answerSaving, setAnswerSaving] = useState(false);
 
   const mutateProactive = async (key: string, operation: string, input: Record<string, unknown>) => {
     setProactiveBusy(key);
@@ -309,6 +442,19 @@ export default function MessageBubble({ message }: Props) {
       MessagePlugin.success('已复制纯文字回答');
     } catch {
       MessagePlugin.error('浏览器不允许自动复制，请手动选择文字复制');
+    }
+  };
+
+  const saveAnswerImage = async () => {
+    if (!bubbleRef.current || answerSaving) return;
+    setAnswerSaving(true);
+    try {
+      const format = await saveElementAsImage(bubbleRef.current);
+      MessagePlugin[format === 'png' ? 'success' : 'warning'](format === 'png' ? '回答图片已保存' : '部分图片存在跨域限制，已保存为 SVG 图片');
+    } catch {
+      MessagePlugin.error('回答图片保存失败，请稍后重试');
+    } finally {
+      setAnswerSaving(false);
     }
   };
 
@@ -562,18 +708,14 @@ export default function MessageBubble({ message }: Props) {
             message.content
           ) : (
             <>
-              {!message.streaming && message.content.trim() && (
-                <button
-                  type="button"
-                  className={`answer-copy-button${answerCopied ? ' is-copied' : ''}`}
-                  title="复制"
-                  aria-label="复制回答"
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={() => { void copyAnswerText(); }}
-                >
+              {!message.streaming && message.content.trim() && <div className="answer-action-group">
+                <button type="button" className="answer-action-button" title="保存为图片" aria-label="保存回答图片" disabled={answerSaving} onPointerDown={(event) => event.stopPropagation()} onClick={() => { void saveAnswerImage(); }}>
+                  <ImageIcon aria-hidden="true" />
+                </button>
+                <button type="button" className={`answer-action-button answer-copy-button${answerCopied ? ' is-copied' : ''}`} title="复制" aria-label="复制回答" onPointerDown={(event) => event.stopPropagation()} onClick={() => { void copyAnswerText(); }}>
                   {answerCopied ? <CheckIcon aria-hidden="true" /> : <CopyIcon aria-hidden="true" />}
                 </button>
-              )}
+              </div>}
               {/* 搜索动画 */}
               {!isUser && message.streaming && (
                 message.skill?.intent === 'image' || progressStatus.includes('生成图片') || progressStatus.includes('绘制') ? <ImageCreationProgress message={message} /> : <div className={`search-progress ${message.content ? 'has-content' : ''}`}>
@@ -587,6 +729,7 @@ export default function MessageBubble({ message }: Props) {
                 searchMeta={markdownRender.searchMeta}
                 streaming={markdownRender.streaming}
               />}
+              {message.clarification && <ClarificationCard clarification={message.clarification} />}
               {message.proactive && proactive && <div className="proactive-conversation-actions">
                 {(proactive.notifications || []).filter((item) => item.status !== 'dismissed').slice(0, 3).map((item) => <div className="proactive-conversation-item" key={item.id}>
                   <span>{item.title}</span>
