@@ -46,12 +46,32 @@ export default function Header({
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
-    dispatch({ type: 'SET_THEME', payload: next });
-    try {
-      localStorage.setItem(THEME_KEY, next);
-    } catch {
-      // ignore
+    const applyTheme = () => {
+      document.documentElement.setAttribute('theme-mode', next);
+      dispatch({ type: 'SET_THEME', payload: next });
+      try {
+        localStorage.setItem(THEME_KEY, next);
+      } catch {
+        // Theme persistence is optional.
+      }
+    };
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const startViewTransition = (
+      document as Document & {
+        startViewTransition?: (update: () => void) => { finished: Promise<void> };
+      }
+    ).startViewTransition;
+
+    if (!startViewTransition || reducedMotion) {
+      applyTheme();
+      return;
     }
+
+    document.documentElement.classList.add('theme-transitioning');
+    const transition = startViewTransition.call(document, applyTheme);
+    void transition.finished.finally(() => {
+      document.documentElement.classList.remove('theme-transitioning');
+    });
   };
 
   return (
@@ -104,17 +124,16 @@ export default function Header({
             />
           </Tooltip>
         )}
-        <Tooltip content={theme === 'dark' ? (language === 'en' ? 'Switch to light' : '切换到浅色') : (language === 'en' ? 'Switch to dark' : '切换到深色')}>
-          <Button
-            className="theme-toggle"
-            shape="circle"
-            variant="text"
-            size="medium"
-            disabled={!connected}
-            onClick={toggleTheme}
-            icon={theme === 'dark' ? <ModeLightIcon /> : <ModeDarkIcon />}
-          />
-        </Tooltip>
+        <Button
+          className="theme-toggle"
+          shape="circle"
+          variant="text"
+          size="medium"
+          disabled={!connected}
+          onClick={toggleTheme}
+          aria-label={theme === 'dark' ? (language === 'en' ? 'Use light theme' : '使用浅色主题') : (language === 'en' ? 'Use dark theme' : '使用深色主题')}
+          icon={theme === 'dark' ? <ModeLightIcon /> : <ModeDarkIcon />}
+        />
       </div>
     </header>
   );

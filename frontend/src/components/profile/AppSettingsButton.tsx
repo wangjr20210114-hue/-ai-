@@ -53,6 +53,8 @@ export default function AppSettingsButton() {
       visible={visible}
       header={t('settingsTitle')}
       width={720}
+      placement="center"
+      dialogClassName="secondary-dialog app-settings-modal"
       footer={false}
       onClose={() => setVisible(false)}
       onCancel={() => setVisible(false)}

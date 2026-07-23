@@ -348,11 +348,11 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
 
   return (
     <div className="paper-reader-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="paper-reader" ref={readerRef}>
+      <div className="paper-reader" ref={readerRef} role="dialog" aria-modal="true" aria-label={`论文助读：${title}`}>
         <div className="paper-toolbar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="paper-toolbar-title">
             <span style={{ fontSize: 16 }}>📄</span>
-            <span style={{ fontWeight: 600, fontSize: 14 }}>{title}</span>
+            <span className="paper-toolbar-title-text">{title}</span>
             {doc && <Tag size="small" variant="light">{doc.numPages} 页</Tag>}
             <Tag size="small" variant="outline">兼容预览</Tag>
           </div>
@@ -363,12 +363,12 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
               icon={isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
               onClick={() => void toggleFullscreen()}
             >{isFullscreen ? '恢复窗口' : '全屏显示'}</Button>
-            <span style={{ width: 1, height: 20, background: 'var(--app-border)', margin: '0 2px' }} />
+            <span className="paper-toolbar-divider" />
             {assistantEnabled && <Button size="small" variant="outline" onClick={() => runAI('analyze', '', '全文分析')}>📚 全文分析</Button>}
             <Button size="small" variant="text" onClick={() => setScale(s => Math.max(0.6, s - 0.3))}>−</Button>
-            <span style={{ fontSize: 11, minWidth: 30, textAlign: 'center' }}>{Math.round(scale * 100)}%</span>
+            <span className="paper-zoom-value">{Math.round(scale * 100)}%</span>
             <Button size="small" variant="text" onClick={() => setScale(s => Math.min(3.0, s + 0.3))}>+</Button>
-            <Button shape="circle" variant="text" size="small" onClick={onClose} icon={<CloseIcon />} />
+            <Button shape="circle" variant="text" size="small" onClick={onClose} aria-label="关闭论文助读" icon={<CloseIcon />} />
           </div>
         </div>
 
@@ -426,12 +426,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
           </div>
 
           {/* AI 侧 - 自适应宽度 */}
-          {assistantEnabled && <div style={{
-            width: '35%', minWidth: 300, maxWidth: 500, flexShrink: 0,
-            borderLeft: '1px solid var(--app-border)',
-            display: 'flex', flexDirection: 'column',
-            background: 'var(--app-bg-2)',
-          }}>
+          {assistantEnabled && <div className="paper-ai-side">
             <div className="paper-ai-tabs">
               <button className={`paper-ai-tab ${aiTab === 'result' ? 'active' : ''}`} onClick={() => setAiTab('result')}>📑 结果</button>
               <button className={`paper-ai-tab ${aiTab === 'qa' ? 'active' : ''}`} onClick={() => setAiTab('qa')}>💬 问答</button>
@@ -440,7 +435,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
             {aiTab === 'result' && (
               <div className="paper-ai-content">
                 {!aiResult && !historyLoading && (
-                  <div style={{ textAlign: 'center', color: 'var(--app-text-3)', fontSize: 12, paddingTop: 30, lineHeight: 2 }}>
+                  <div className="paper-ai-empty">
                     在左侧 PDF 上：<br />
                     · <strong>选中文字</strong> → 弹出翻译/总结工具条<br />
                     · <strong>双击</strong>段落 → 总结<br />
@@ -453,7 +448,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
                     <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6, color: '#2b5aed' }}>
                       {aiResult.title}{aiResult.streaming && <Loading size="small" style={{ marginLeft: 6 }} />}
                     </div>
-                    <div style={{ fontSize: 12.5, lineHeight: 1.7, overflowY: 'auto', maxHeight: 'calc(100vh - 200px)' }}>
+                    <div className="paper-ai-result">
                       <MarkdownRenderer content={aiResult.content || '...'} />
                     </div>
                   </div>
@@ -490,7 +485,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
                     </div>
                   )}
                 </div>
-                <div style={{ display: 'flex', gap: 6, paddingBottom: 8 }}>
+                <div className="paper-qa-input">
                   <Textarea value={qaInput} onChange={(v) => setQaInput(v as string)} placeholder="提问..." autosize={{ minRows: 1, maxRows: 3 }} style={{ flex: 1 }}
                     onKeydown={(_, ctx) => { const e = ctx.e as React.KeyboardEvent; if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleQA(); } }} />
                   <Button theme="primary" size="small" onClick={handleQA} disabled={!qaInput.trim()}>发送</Button>
