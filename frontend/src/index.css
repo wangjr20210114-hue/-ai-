@@ -6,6 +6,8 @@
 
 /* ---------- 浅色（默认）：橙色暖调 ---------- */
 :root {
+  --app-font-family: 'Songti SC', 'STSong', 'SimSun', 'Noto Serif CJK SC', serif;
+  --td-font-family: var(--app-font-family);
   --app-bg: #fff8f0;
   --app-bg-grad-1: rgba(242, 139, 66, 0.13);
   --app-bg-grad-2: rgba(255, 194, 112, 0.12);
@@ -115,8 +117,7 @@ body,
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei',
-    'Segoe UI', sans-serif;
+  font-family: var(--app-font-family);
   color: var(--app-text);
   background: var(--app-bg);
   background-image:
@@ -133,18 +134,46 @@ html.theme-transitioning::view-transition-new(root) {
   mix-blend-mode: normal;
 }
 
+:where(button, input, textarea, select, option) {
+  font-family: inherit;
+}
+
 html.theme-transitioning::view-transition-new(root) {
   z-index: 99999;
-  animation: themeDiagonalReveal 560ms cubic-bezier(.2, .8, .2, 1) both;
+  animation: themeDiagonalReveal 1100ms cubic-bezier(.2, .72, .18, 1) both;
 }
 
 html.theme-transitioning::view-transition-old(root) {
   z-index: 99998;
+  animation: themeDiagonalFadeOld 1100ms cubic-bezier(.2, .72, .18, 1) both;
 }
 
 @keyframes themeDiagonalReveal {
-  from { clip-path: circle(0 at 100% 0); }
-  to { clip-path: circle(150vmax at 100% 0); }
+  0% {
+    clip-path: circle(0 at 100% 0);
+    filter: blur(18px) saturate(.86);
+    opacity: .46;
+  }
+  48% {
+    filter: blur(8px) saturate(.94);
+    opacity: .86;
+  }
+  100% {
+    clip-path: circle(150vmax at 100% 0);
+    filter: blur(0) saturate(1);
+    opacity: 1;
+  }
+}
+
+@keyframes themeDiagonalFadeOld {
+  from {
+    filter: blur(0);
+    opacity: 1;
+  }
+  to {
+    filter: blur(3px);
+    opacity: .78;
+  }
 }
 
 :root[theme-mode='dark'] body {
@@ -3264,6 +3293,12 @@ html.is-resizing-workspace * {
   flex-direction: column;
   overflow: hidden;
   border-radius: 16px;
+}
+
+.header-proactive-ticker.is-idle {
+  border-color: color-mix(in srgb, var(--app-border) 78%, var(--app-brand) 22%);
+  background: color-mix(in srgb, var(--app-panel) 94%, var(--app-brand) 6%);
+  color: var(--app-text-3);
 }
 
 .t-dialog__wrap:has(.secondary-dialog) .t-dialog__position.t-dialog--center {

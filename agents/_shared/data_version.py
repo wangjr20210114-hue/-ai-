@@ -10,11 +10,11 @@ import hashlib
 import re
 
 
-DATA_GENERATION = "v5_20260722_clean"
+DATA_GENERATION = "v6_20260724_reset"
 # Makers requires every makers-conversation-id to be 6-36 characters. Keep the
 # generation marker short and hash unexpected legacy IDs so all direct Agent
 # calls satisfy the platform contract.
-CONVERSATION_PREFIX = "yb5_"
+CONVERSATION_PREFIX = "yb6_"
 BLOB_GENERATION_PATH = f"{DATA_GENERATION}/"
 
 

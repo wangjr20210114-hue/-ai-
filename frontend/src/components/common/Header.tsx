@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Tooltip } from 'tdesign-react';
+import { Button } from 'tdesign-react';
 import { ChevronLeftIcon, ChevronRightIcon, MenuIcon, ModeDarkIcon, ModeLightIcon, NotificationIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
@@ -93,16 +93,23 @@ export default function Header({
         <span className="brand-logo">FLORIS:一只有温度的大橘</span>
       </div>
       <div className="header-proactive-slot">
-        {connected && reminderLines.length > 0 && (
+        {connected && (
           <button
             type="button"
-            className="header-proactive-ticker"
-            aria-label={`查看主动提醒：${reminderLines[reminderIndex % reminderLines.length].text}`}
+            className={`header-proactive-ticker${reminderLines.length ? '' : ' is-idle'}`}
+            aria-label={reminderLines.length
+              ? `查看主动提醒：${reminderLines[reminderIndex % reminderLines.length].text}`
+              : '主动服务已开启，暂无新提醒'}
             onClick={onToggleSidebar}
           >
             <NotificationIcon size="14px" aria-hidden="true" />
-            <span key={reminderLines[reminderIndex % reminderLines.length].id} className="header-proactive-ticker-text">
-              {reminderLines[reminderIndex % reminderLines.length].text}
+            <span
+              key={reminderLines.length ? reminderLines[reminderIndex % reminderLines.length].id : 'idle'}
+              className="header-proactive-ticker-text"
+            >
+              {reminderLines.length
+                ? reminderLines[reminderIndex % reminderLines.length].text
+                : (language === 'en' ? 'Proactive service is watching · No new alerts' : '主动服务已开启 · 暂无新提醒')}
             </span>
           </button>
         )}
@@ -110,19 +117,17 @@ export default function Header({
       <div className="header-actions">
         <StatusIndicator />
         {onToggleRightPanel && (
-          <Tooltip content={rightPanelOpen ? (language === 'en' ? 'Collapse panel' : '收起右栏') : (language === 'en' ? 'Expand panel' : '展开右栏')}>
-            <Button
-              className="right-panel-toggle"
-              shape="circle"
-              variant="text"
-              size="medium"
-              disabled={!connected}
-              onClick={onToggleRightPanel}
-              aria-label={rightPanelOpen ? (language === 'en' ? 'Collapse panel' : '收起右栏') : (language === 'en' ? 'Expand panel' : '展开右栏')}
-              aria-pressed={rightPanelOpen}
-              icon={rightPanelOpen ? <ChevronRightIcon /> : <ChevronLeftIcon />}
-            />
-          </Tooltip>
+          <Button
+            className="right-panel-toggle"
+            shape="circle"
+            variant="text"
+            size="medium"
+            disabled={!connected}
+            onClick={onToggleRightPanel}
+            aria-label={rightPanelOpen ? (language === 'en' ? 'Collapse panel' : '收起右栏') : (language === 'en' ? 'Expand panel' : '展开右栏')}
+            aria-pressed={rightPanelOpen}
+            icon={rightPanelOpen ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+          />
         )}
         <Button
           className="theme-toggle"

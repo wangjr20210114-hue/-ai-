@@ -1,8 +1,8 @@
 import type { ChatMessage, ConversationSummary } from '../types';
 import { CONVERSATION_PREFIX } from './dataVersion';
 
-const CONVERSATION_KEY = 'yuanbao.v5b.conversationId';
-const CONVERSATION_LIST_KEY = 'yuanbao.v5b.conversations';
+const CONVERSATION_KEY = 'yuanbao.v6.conversationId';
+const CONVERSATION_LIST_KEY = 'yuanbao.v6.conversations';
 
 export function loadLocalConversations(): ConversationSummary[] {
   try {
