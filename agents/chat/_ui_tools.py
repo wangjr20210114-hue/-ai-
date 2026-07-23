@@ -462,7 +462,11 @@ def build_production_tools(
                 {
                     # Increment whenever cached search metadata semantics change
                     # so an older text-only entry cannot mask new rich media.
-                    "pipeline_version": 4,
+                    # Invalidate pre-vision-review entries that can only
+                    # restore text/source metadata and therefore make a
+                    # previously rich news answer appear permanently
+                    # text-only after the media fallback change.
+                    "pipeline_version": 5,
                     "identity": re.sub(r"\s+", " ", str(search_cache_identity or clean_query)).strip().casefold()[:4000],
                     "depth": clean_depth,
                     "target_date": target_date,
