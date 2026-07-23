@@ -188,15 +188,6 @@ function ImageCreationProgress({ message }: { message: ChatMessage }) {
 export default function MessageBubble({ message }: Props) {
   const isUser = message.role === 'user';
   const bubbleRef = useRef<HTMLDivElement>(null);
-  const [keepStreamingLayout, setKeepStreamingLayout] = useState(Boolean(message.streaming));
-  const latestMarkdownRenderRef = useRef({
-    content: message.content,
-    searchMeta: message.searchResults,
-    streaming: Boolean(message.streaming),
-  });
-  const selectionActiveRef = useRef(false);
-  const selectionPointerDownRef = useRef(false);
-  const [, setSelectionRefresh] = useState(0);
   const [followUpWidth, setFollowUpWidth] = useState<number>();
   const dispatch = useAppDispatch();
   const { conversationId, messages, proactive } = useAppState();
@@ -256,49 +247,6 @@ export default function MessageBubble({ message }: Props) {
     setWorkspaceActions(consolidateActions(message.workspaceActions || []));
   }, [message.workspaceActions]);
 
-  useEffect(() => {
-    if (message.streaming) {
-      setKeepStreamingLayout(true);
-      return;
-    }
-
-    const finishFormatting = () => {
-      if (hasTextSelectionInside(bubbleRef.current, window.getSelection())) return;
-      setKeepStreamingLayout(false);
-      document.removeEventListener('selectionchange', finishFormatting);
-    };
-    if (hasTextSelectionInside(bubbleRef.current, window.getSelection())) {
-      document.addEventListener('selectionchange', finishFormatting);
-      return () => document.removeEventListener('selectionchange', finishFormatting);
-    }
-    setKeepStreamingLayout(false);
-  }, [message.streaming]);
-
-  useEffect(() => {
-    if (isUser) return;
-    const preserveSelectedDom = () => {
-      const selected = hasTextSelectionInside(bubbleRef.current, window.getSelection());
-      if (selected) {
-        // Set only a ref while the pointer range is live. A state update here
-        // would reconcile the Markdown tree and can move the browser's anchor
-        // to the start of the paragraph, selecting text before the drag point.
-        selectionActiveRef.current = true;
-        return;
-      }
-      // Browsers briefly emit a collapsed selection at the drag origin. Do
-      // not unfreeze or render during that interval; doing so shifts the
-      // anchor to text before the user's actual starting point.
-      if (selectionPointerDownRef.current) return;
-      if (!selectionActiveRef.current) return;
-      selectionActiveRef.current = false;
-      // Selection has ended, so it is now safe to catch up with any content
-      // that arrived while the DOM was frozen.
-      setSelectionRefresh((value) => value + 1);
-    };
-    document.addEventListener('selectionchange', preserveSelectedDom);
-    return () => document.removeEventListener('selectionchange', preserveSelectedDom);
-  }, [isUser]);
-
   useLayoutEffect(() => {
     if (isUser || message.streaming || !message.followUps?.length || !bubbleRef.current) {
       setFollowUpWidth(undefined);
@@ -306,6 +254,7 @@ export default function MessageBubble({ message }: Props) {
     }
     const bubble = bubbleRef.current;
     const update = () => {
+      if (hasTextSelectionInside(bubble, window.getSelection())) return;
       // Preserve fractional CSS pixels so the follow-up border tracks the
       // answer bubble exactly instead of introducing a one-pixel seam.
       const width = bubble.getBoundingClientRect().width;
@@ -361,36 +310,6 @@ export default function MessageBubble({ message }: Props) {
     } catch {
       MessagePlugin.error('浏览器不允许自动复制，请手动选择文字复制');
     }
-  };
-
-  const beginTextSelection = (event: React.PointerEvent<HTMLDivElement>) => {
-    const target = event.target as HTMLElement;
-    // Links and controls must retain the browser's native click behaviour.
-    // The selection-preservation hook below intentionally freezes a streaming
-    // Markdown tree; running it for an anchor can replace the event target
-    // between pointerdown and click, which makes a normal click appear dead.
-    if (
-      isUser
-      || event.button !== 0
-      || !target.closest('.markdown-body')
-      || target.closest('a,button,input,textarea,select,[role="button"]')
-    ) return;
-    // A ref freezes subsequent streamed renders without replacing the DOM on
-    // pointerdown. Native selection can therefore keep its exact start node.
-    selectionPointerDownRef.current = true;
-    selectionActiveRef.current = true;
-    const finishSelectionGesture = () => {
-      selectionPointerDownRef.current = false;
-      window.removeEventListener('pointerup', finishSelectionGesture);
-      window.removeEventListener('pointercancel', finishSelectionGesture);
-      window.requestAnimationFrame(() => {
-        if (hasTextSelectionInside(bubbleRef.current, window.getSelection())) return;
-        selectionActiveRef.current = false;
-        setSelectionRefresh((value) => value + 1);
-      });
-    };
-    window.addEventListener('pointerup', finishSelectionGesture);
-    window.addEventListener('pointercancel', finishSelectionGesture);
   };
 
   type ImageActionResult = { ok: boolean; image_url?: string; prompt?: string; error?: string };
@@ -626,24 +545,17 @@ export default function MessageBubble({ message }: Props) {
         : '正在把核实后的信息整理成回答…')
       : '正在逐步组织回答…')
     : searchStatus;
-  const liveMarkdownRender = {
-    content: message.streaming || keepStreamingLayout
-      ? streamingMarkdownAnswer(message.content)
-      : message.content,
+  const markdownRender = {
+    content: message.streaming ? streamingMarkdownAnswer(message.content) : message.content,
     searchMeta: message.searchResults,
-    streaming: Boolean(message.streaming || keepStreamingLayout),
+    streaming: Boolean(message.streaming),
   };
-  const markdownRender = selectionActiveRef.current
-    ? latestMarkdownRenderRef.current
-    : liveMarkdownRender;
-  if (!selectionActiveRef.current) latestMarkdownRenderRef.current = liveMarkdownRender;
   return (
     <div className={`msg-row ${isUser ? 'user' : 'ai'}`}>
       <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>{isUser ? '我' : 'AI'}</div>
       <div className="msg-content-wrap">
         <div
           ref={bubbleRef}
-          onPointerDown={beginTextSelection}
           className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''} ${!isUser && !message.streaming && message.content.trim() ? 'has-copy-action' : ''}`}
         >
           {isUser ? (

@@ -464,6 +464,11 @@ html.is-resizing-workspace * {
   -webkit-user-select: text;
   user-select: text;
 }
+.msg-bubble.ai .markdown-body.is-streaming,
+.msg-bubble.ai .markdown-body.is-streaming * {
+  -webkit-user-select: none;
+  user-select: none;
+}
 .msg-bubble.ai .markdown-body ::selection,
 .rich-media-figure figcaption ::selection {
   background: rgba(43, 90, 237, 0.24);
