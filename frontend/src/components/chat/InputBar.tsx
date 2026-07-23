@@ -236,15 +236,8 @@ export default function InputBar({ client }: Props) {
             }
           }}
         />
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginTop: 8,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="input-toolbar">
+          <div className="input-options">
             <Upload
               theme="custom"
               accept=".pdf,application/pdf,.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
@@ -252,7 +245,7 @@ export default function InputBar({ client }: Props) {
               requestMethod={() => Promise.resolve({ status: 'success', response: {} })}
               onChange={(files) => { void handleUpload(files as UploadFile[]); }}
             >
-              <Button variant="text" size="small" icon={<AttachIcon />} loading={uploading}>
+              <Button className="input-attachment-button" variant="text" size="small" icon={<AttachIcon />} loading={uploading}>
                 {t('upload')}
               </Button>
             </Upload>
@@ -261,11 +254,12 @@ export default function InputBar({ client }: Props) {
             </Checkbox>
           </div>
           {activeStreaming || stopping ? (
-            <Button theme="danger" variant="outline" loading={stopping} disabled={stopping} onClick={() => { void handleStop(); }} aria-label={stopping ? '正在停止生成' : '停止生成'}>
+            <Button className="input-submit-button" theme="danger" variant="outline" loading={stopping} disabled={stopping} onClick={() => { void handleStop(); }} aria-label={stopping ? '正在停止生成' : '停止生成'}>
               {stopping ? '正在停止…' : '■ 停止生成'}
             </Button>
           ) : (
             <Button
+              className="input-submit-button"
               theme="primary"
               icon={<SendIcon />}
               onClick={() => { void handleSend(); }}

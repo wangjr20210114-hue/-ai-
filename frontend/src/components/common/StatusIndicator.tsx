@@ -5,6 +5,7 @@ export default function StatusIndicator() {
   const { connected } = useAppState();
   return (
     <span
+      className="connection-status"
       style={{
         fontSize: 12,
         color: 'var(--app-text-2)',

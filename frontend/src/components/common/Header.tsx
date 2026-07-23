@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Tooltip } from 'tdesign-react';
-import { ChevronLeftIcon, ChevronRightIcon, ModeDarkIcon, ModeLightIcon, NotificationIcon } from 'tdesign-icons-react';
+import { ChevronLeftIcon, ChevronRightIcon, MenuIcon, ModeDarkIcon, ModeLightIcon, NotificationIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
 import { activeProactiveNotifications, proactiveReminderLines } from '../profile/proactiveNotifications';
@@ -57,6 +57,18 @@ export default function Header({
   return (
     <header className="app-header">
       <div className="header-brand-group">
+        {onToggleSidebar && (
+          <Button
+            className="sidebar-toggle"
+            shape="circle"
+            variant="text"
+            size="medium"
+            disabled={!connected}
+            onClick={onToggleSidebar}
+            aria-label={language === 'en' ? 'Open conversations' : '打开对话历史'}
+            icon={<MenuIcon />}
+          />
+        )}
         <img className="header-brand-avatar" src="/floris-avatar.png" alt="" aria-hidden="true" />
         <span className="brand-logo">FLORIS:一只有温度的大橘</span>
       </div>

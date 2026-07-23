@@ -3853,3 +3853,498 @@ html.is-resizing-workspace * {
   :where(.t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell):hover,
   :where(.t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell):active { transform: none !important; }
 }
+
+/* ============ Responsive device adaptation ============ */
+html {
+  min-width: 320px;
+  min-height: 100%;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100%;
+  overscroll-behavior: none;
+}
+
+.app-shell {
+  width: 100%;
+  max-width: 100%;
+  height: 100vh;
+  min-height: 0;
+}
+
+@supports (height: 100dvh) {
+  .app-shell {
+    height: 100dvh;
+  }
+}
+
+.app-header {
+  position: relative;
+  z-index: 1300;
+  flex: 0 0 auto;
+  padding-top: max(12px, env(safe-area-inset-top));
+  padding-right: max(22px, env(safe-area-inset-right));
+  padding-left: max(22px, env(safe-area-inset-left));
+}
+
+.sidebar-toggle {
+  display: none !important;
+}
+
+.input-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.input-options {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.input-submit-button {
+  flex: 0 0 auto;
+}
+
+.markdown-body,
+.travel-plan-card,
+.travel-form,
+.travel-chat-assistant,
+.image-studio-card,
+.paper-inline-reader {
+  min-width: 0;
+}
+
+.markdown-body :where(pre, code, table),
+.travel-plan-markdown :where(pre, code, table) {
+  max-width: 100%;
+}
+
+@media (max-width: 1180px) {
+  .app-header {
+    grid-template-columns: minmax(240px, auto) minmax(0, 1fr) auto;
+    gap: 10px;
+    padding-right: max(14px, env(safe-area-inset-right));
+    padding-left: max(14px, env(safe-area-inset-left));
+  }
+
+  .app-header .connection-status {
+    display: none !important;
+  }
+
+  .sidebar-toggle {
+    display: inline-flex !important;
+    flex: 0 0 38px;
+    width: 38px !important;
+    height: 38px !important;
+  }
+
+  .conversation-sidebar {
+    top: max(72px, calc(60px + env(safe-area-inset-top)));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    left: max(8px, env(safe-area-inset-left));
+    max-width: calc(100vw - 16px - env(safe-area-inset-left) - env(safe-area-inset-right));
+  }
+
+  .right-workspace-shell {
+    --right-pane-width: clamp(300px, 33vw, 380px);
+  }
+}
+
+@media (max-width: 860px) {
+  .app-header {
+    grid-template-columns: minmax(0, 1fr) minmax(80px, 1.4fr) auto;
+    padding-top: max(10px, env(safe-area-inset-top));
+    padding-right: max(10px, env(safe-area-inset-right));
+    padding-bottom: 10px;
+    padding-left: max(10px, env(safe-area-inset-left));
+  }
+
+  .app-header .connection-status {
+    display: none !important;
+  }
+
+  .right-panel-toggle {
+    display: inline-flex !important;
+  }
+
+  .header-actions {
+    gap: 2px;
+  }
+
+  .right-workspace-shell,
+  .right-workspace-shell.is-closed,
+  .right-workspace-shell.is-open {
+    position: fixed;
+    z-index: 1250;
+    top: calc(58px + env(safe-area-inset-top));
+    right: 0;
+    bottom: 0;
+    display: block;
+    width: min(100vw, 430px);
+    max-width: 100%;
+    height: auto;
+    flex: none;
+    background: var(--app-panel);
+    box-shadow: -18px 0 42px rgba(20, 28, 48, 0.18);
+    transition: transform 220ms var(--motion-ease-out), visibility 220ms linear;
+  }
+
+  .right-workspace-shell.is-closed {
+    opacity: 1;
+    visibility: hidden;
+    transform: translateX(100%);
+    pointer-events: none;
+  }
+
+  .right-workspace-shell.is-open {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0);
+    pointer-events: auto;
+  }
+
+  .right-workspace-shell .my-panel {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .chat-scroll {
+    scrollbar-gutter: auto;
+    padding-top: 16px;
+    overscroll-behavior-y: contain;
+  }
+
+  .chat-inner {
+    width: 100%;
+    max-width: 100%;
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-left: max(12px, env(safe-area-inset-left));
+  }
+
+  .input-wrap {
+    max-width: 100%;
+    padding-right: max(10px, env(safe-area-inset-right));
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    padding-left: max(10px, env(safe-area-inset-left));
+  }
+
+  .input-box {
+    border-radius: 14px;
+  }
+
+  .input-box textarea,
+  .input-box input,
+  .clarification-field input,
+  .meeting-confirm-card input {
+    font-size: 16px !important;
+  }
+
+  .msg-row {
+    margin: 14px 0;
+    gap: 8px;
+  }
+
+  .msg-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+  }
+
+  .msg-content-wrap {
+    max-width: calc(100% - 38px);
+  }
+
+  .msg-bubble {
+    max-width: 92%;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+
+  .msg-bubble.ai.has-copy-action {
+    padding-top: 32px;
+  }
+
+  .answer-followups {
+    width: 92%;
+  }
+
+  .paper-reader {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+  }
+
+  @supports (height: 100dvh) {
+    .paper-reader {
+      height: 100dvh;
+    }
+  }
+
+  .paper-toolbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-right: max(10px, env(safe-area-inset-right));
+    padding-left: max(10px, env(safe-area-inset-left));
+  }
+
+  .paper-body {
+    min-height: 0;
+    flex-direction: column;
+  }
+
+  .paper-pdf-side,
+  .paper-compatible-view {
+    min-height: 48%;
+    padding: 10px;
+  }
+
+  .paper-ai-side {
+    width: 100%;
+    min-height: 42%;
+    border-top: 1px solid var(--app-border);
+    border-left: 0;
+  }
+
+  .paper-inline-preview {
+    height: min(56vh, 420px);
+  }
+}
+
+@media (max-width: 600px) {
+  .app-header {
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+
+  .header-brand-group {
+    gap: 4px;
+  }
+
+  .header-brand-avatar {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+  }
+
+  .brand-logo {
+    display: none;
+  }
+
+  .header-proactive-slot {
+    justify-content: stretch;
+  }
+
+  .header-proactive-ticker {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .theme-toggle,
+  .right-panel-toggle,
+  .sidebar-toggle {
+    width: 40px !important;
+    height: 40px !important;
+  }
+
+  .conversation-sidebar {
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(88vw, 320px);
+    max-width: calc(100vw - 36px);
+    padding-top: max(14px, env(safe-area-inset-top));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    padding-left: max(12px, env(safe-area-inset-left));
+    border-radius: 0 14px 14px 0;
+  }
+
+  .chat-empty {
+    justify-content: flex-start;
+    gap: 11px;
+    padding: clamp(20px, 7vh, 54px) 14px 16px;
+  }
+
+  .chat-empty-logo {
+    width: 58px;
+    height: 58px;
+    border-radius: 17px;
+  }
+
+  .chat-empty .chip {
+    flex: 1 1 145px;
+    min-height: 42px;
+    padding: 7px 10px;
+    line-height: 1.35;
+  }
+
+  .input-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .input-options {
+    flex: 1 1 auto;
+    gap: 4px;
+  }
+
+  .input-submit-button {
+    min-width: 72px;
+  }
+
+  .chat-reference-image,
+  .chat-reference-document {
+    grid-template-columns: 38px minmax(0, 1fr) 32px;
+    gap: 7px;
+  }
+
+  .chat-reference-image img,
+  .chat-reference-document > b {
+    width: 38px;
+    height: 38px;
+  }
+
+  .workspace-confirm-actions,
+  .travel-plan-actions,
+  .travel-chat-custom,
+  .skills-marketplace-footer {
+    flex-wrap: wrap;
+  }
+
+  .travel-plan-card,
+  .travel-plan-markdown,
+  .image-studio-card {
+    padding: 10px;
+  }
+
+  .travel-chat-option,
+  .followup-chip,
+  .clarification-option {
+    min-height: 42px;
+  }
+
+  .paper-inline-toolbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .paper-inline-toolbar > div {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .t-dialog {
+    width: calc(100vw - 20px) !important;
+    max-width: calc(100vw - 20px) !important;
+    max-height: calc(100dvh - 20px);
+    margin: 10px !important;
+  }
+
+  .t-dialog__body {
+    max-height: calc(100dvh - 150px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-settings-dialog,
+  .skills-marketplace {
+    max-height: calc(100dvh - 190px);
+  }
+
+  .skill-market-card {
+    padding: 12px 54px 12px 12px;
+  }
+
+  .auth-card {
+    width: calc(100vw - 24px);
+    padding: 22px 18px;
+  }
+}
+
+@media (max-width: 380px) {
+  .app-header {
+    padding-right: max(6px, env(safe-area-inset-right));
+    padding-left: max(6px, env(safe-area-inset-left));
+  }
+
+  .header-brand-avatar {
+    display: none;
+  }
+
+  .chat-inner {
+    padding-right: max(8px, env(safe-area-inset-right));
+    padding-left: max(8px, env(safe-area-inset-left));
+  }
+
+  .msg-bubble {
+    max-width: 95%;
+  }
+
+  .input-wrap {
+    padding-right: max(6px, env(safe-area-inset-right));
+    padding-left: max(6px, env(safe-area-inset-left));
+  }
+
+  .input-box {
+    padding: 8px;
+  }
+
+  .input-options .t-checkbox__label,
+  .input-attachment-button .t-button__text {
+    font-size: 12px;
+  }
+}
+
+@media (max-height: 560px) and (orientation: landscape) {
+  .app-header {
+    padding-top: max(6px, env(safe-area-inset-top));
+    padding-bottom: 6px;
+  }
+
+  .right-workspace-shell {
+    top: calc(46px + env(safe-area-inset-top));
+  }
+
+  .chat-empty {
+    justify-content: flex-start;
+    gap: 7px;
+    padding-top: 10px;
+    overflow-y: auto;
+  }
+
+  .chat-empty-logo {
+    display: none;
+  }
+
+  .input-wrap {
+    padding-bottom: max(5px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (pointer: coarse) {
+  :where(
+    .sidebar-toggle,
+    .right-panel-toggle,
+    .theme-toggle,
+    .conversation-sidebar-close,
+    .conversation-item,
+    .chip,
+    .followup-chip,
+    .travel-chat-option,
+    .travel-chat-city-item,
+    .input-submit-button
+  ) {
+    min-height: 44px;
+  }
+}

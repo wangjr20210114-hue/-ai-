@@ -13,6 +13,7 @@ const LEFT_PANE_MAX = 420;
 const RIGHT_PANE_MIN = 280;
 const RIGHT_PANE_MAX = 520;
 const CENTER_PANE_MIN = 440;
+const COMPACT_WORKSPACE_QUERY = '(max-width: 860px)';
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max));
@@ -33,6 +34,7 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
   const [leftPaneWidth, setLeftPaneWidth] = useState(() => storedNumber('yuanbao-left-pane-width', 252));
   const [rightPaneWidth, setRightPaneWidth] = useState(() => storedNumber('yuanbao-right-pane-width', 340));
   const [rightPanelOpen, setRightPanelOpen] = useState(() => {
+    if (window.matchMedia(COMPACT_WORKSPACE_QUERY).matches) return false;
     try {
       return localStorage.getItem('yuanbao-right-panel-open') !== 'false';
     } catch {
@@ -46,6 +48,15 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
   }, [theme]);
 
   useEffect(() => {
+    const compactWorkspace = window.matchMedia(COMPACT_WORKSPACE_QUERY);
+    const closePanelForCompactLayout = (event: MediaQueryListEvent) => {
+      if (event.matches) setRightPanelOpen(false);
+    };
+    compactWorkspace.addEventListener('change', closePanelForCompactLayout);
+    return () => compactWorkspace.removeEventListener('change', closePanelForCompactLayout);
+  }, []);
+
+  useEffect(() => {
     bodyRef.current?.toggleAttribute('inert', !connected);
   }, [connected]);
 
@@ -53,7 +64,9 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
     try {
       localStorage.setItem('yuanbao-left-pane-width', String(leftPaneWidth));
       localStorage.setItem('yuanbao-right-pane-width', String(rightPaneWidth));
-      localStorage.setItem('yuanbao-right-panel-open', String(rightPanelOpen));
+      if (!window.matchMedia(COMPACT_WORKSPACE_QUERY).matches) {
+        localStorage.setItem('yuanbao-right-panel-open', String(rightPanelOpen));
+      }
     } catch {
       // Local preferences are optional.
     }
