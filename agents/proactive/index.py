@@ -29,6 +29,7 @@ from .._shared.opportunities import (
 from .._shared.intelligence import load_intelligence_state, record_feedback, save_intelligence_state
 from .._shared.auth import require_user, scoped_conversation_id
 from .._shared.http import error
+from .._shared.tencent_location import get_current_weather
 from ..chat._llm import get_model
 
 
@@ -257,6 +258,14 @@ async def handler(ctx):
                     "has_reference_image": bool(payload.get("has_reference_image")),
                     "has_previous_version": bool(payload.get("has_previous_version")),
                 }
+            elif signal_type == "browser_location_weather":
+                # The browser calls this only after the user has granted
+                # geolocation permission. Coordinates are used transiently to
+                # resolve city-level weather and are never stored in the event.
+                persisted_payload = {
+                    "source": "browser_permission",
+                    "precision": "city",
+                }
             _event, created = ingest_workspace_signal(
                 state,
                 signal_type=signal_type,
@@ -290,6 +299,58 @@ async def handler(ctx):
                         )],
                         now,
                     )
+            elif created and signal_type == "browser_location_weather":
+                try:
+                    latitude = float(payload.get("latitude"))
+                    longitude = float(payload.get("longitude"))
+                    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+                        raise ValueError("定位坐标超出有效范围")
+                    key = str(
+                        ctx.env.get("TENCENT_MAP_SERVER_KEY")
+                        or ctx.env.get("TENCENT_MAP_KEY")
+                        or ctx.env.get("VITE_TENCENT_MAP_KEY")
+                        or ""
+                    )
+                    weather = await get_current_weather(
+                        key,
+                        {"latitude": latitude, "longitude": longitude},
+                    )
+                    condition = str(weather.get("weather") or "")
+                    weather_keywords = ("雨", "雪", "雷", "暴", "台风", "大风", "沙尘", "雾", "冰雹", "冻")
+                    if condition and any(keyword in condition for keyword in weather_keywords):
+                        place_name = "".join(
+                            part for part in (
+                                str(weather.get("city") or ""),
+                                str(weather.get("district") or ""),
+                            ) if part
+                        ) or "当前位置"
+                        signal = {
+                            "type": "weather_risk",
+                            "dedup_key": f"browser_weather_risk:{weather.get('adcode')}:{dedup_key}:{condition}",
+                            "priority": "normal",
+                            "subject_ids": [],
+                            "title": "当前位置天气需要关注",
+                            "detail": f"{place_name}当前天气为{condition}，出门前可以提前准备",
+                            "action": "请结合当前位置天气和我今天的日程，给出简洁的出行准备建议",
+                            "evidence": {
+                                "weather": {
+                                    key: weather.get(key)
+                                    for key in (
+                                        "provider", "adcode", "city", "district", "weather",
+                                        "temperature", "wind_direction", "wind_power", "humidity",
+                                        "precipitation", "observed_at",
+                                    )
+                                },
+                                "location_precision": "city",
+                            },
+                            "occurred_at": now,
+                            "expires_at": now + 12 * 3600,
+                        }
+                        stats = process_schedule_signals(state, [signal], now)
+                except Exception:
+                    # A location/weather provider failure must not interrupt
+                    # map rendering or the normal proactive refresh path.
+                    pass
             saved = await save_proactive_state(store, state, user_id)
             return {**public_proactive_state(saved), "signal_created": created, "tick_stats": stats}
         if operation in {"confirm_workflow", "reject_workflow"}:

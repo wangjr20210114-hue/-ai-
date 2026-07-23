@@ -598,6 +598,18 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(route_created)
         self.assertEqual(route["type"], "route_changed")
 
+        location, location_created = ingest_workspace_signal(
+            state,
+            signal_type="browser_location_weather",
+            dedup_key="2026-07-23:39.90:116.40",
+            payload={"source": "browser_permission", "precision": "city"},
+            now=103,
+        )
+        self.assertTrue(location_created)
+        self.assertEqual(location["type"], "browser_location_weather")
+        self.assertNotIn("latitude", location["payload"])
+        self.assertNotIn("longitude", location["payload"])
+
     def test_workflow_requires_confirmation_and_emits_due_steps_once(self):
         state = empty_proactive_state()
         workflow = propose_workflow(

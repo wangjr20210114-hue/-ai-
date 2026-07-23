@@ -742,7 +742,7 @@ def ingest_workspace_signal(
 ) -> tuple[dict[str, Any], bool]:
     allowed = {
         "file_uploaded", "image_generated", "calendar_changed",
-        "route_changed", "preference_changed",
+        "route_changed", "preference_changed", "browser_location_weather",
     }
     normalized_type = str(signal_type or "")
     if normalized_type not in allowed:

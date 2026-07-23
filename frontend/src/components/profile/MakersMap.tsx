@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from 'tdesign-react';
-import { planMakersRoute } from '../../services/api';
+import { planMakersRoute, proactiveOperation } from '../../services/api';
+import { useAppDispatch } from '../../store/appState';
 import type { MakersMapPlace, MakersRoutePlan } from '../../types';
 import { LOCATION_OPTIONS, locationErrorMessage } from './makersMapLocation';
 import { shouldPlanMakersRoute } from './makersMapRouting';
@@ -69,6 +70,7 @@ function hoursMinutes(seconds: number): string {
 }
 
 export default function MakersMap({ conversationId, title, places, revision, showRoute = false, optimize = false }: Props) {
+  const dispatch = useAppDispatch();
   const containerRef = useRef<HTMLDivElement>(null);
   const [animating, setAnimating] = useState(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
@@ -86,7 +88,7 @@ export default function MakersMap({ conversationId, title, places, revision, sho
     [places, userLocation],
   );
 
-  const readCurrentLocation = () => {
+  const readCurrentLocation = useCallback(() => {
     if (!navigator.geolocation) {
       setPermission('unavailable');
       setLocationError('当前浏览器不支持定位。');
@@ -98,6 +100,8 @@ export default function MakersMap({ conversationId, title, places, revision, sho
     navigator.geolocation.getCurrentPosition(
       (position) => {
         if (requestId !== locationRequestRef.current) return;
+        const latitude = Number(position.coords.latitude.toFixed(2));
+        const longitude = Number(position.coords.longitude.toFixed(2));
         setPermission('granted');
         setLocationError('');
         setMapUnavailable(false);
@@ -109,6 +113,16 @@ export default function MakersMap({ conversationId, title, places, revision, sho
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
         });
+        const localDay = new Date().toLocaleDateString('en-CA');
+        void proactiveOperation(conversationId, 'ingest_signal', {
+          signal_type: 'browser_location_weather',
+          dedup_key: `${localDay}:${latitude.toFixed(2)}:${longitude.toFixed(2)}`,
+          payload: { latitude, longitude },
+        }).then((next) => {
+          dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
+        }).catch(() => {
+          // Weather enrichment is optional and must never block the map.
+        });
         setRenderAttempt((value) => value + 1);
       },
       (error) => {
@@ -118,10 +132,9 @@ export default function MakersMap({ conversationId, title, places, revision, sho
       },
       LOCATION_OPTIONS,
     );
-  };
+  }, [conversationId, dispatch]);
 
   useEffect(() => {
-    if (places.length) return;
     if (!navigator.permissions) {
       setPermission('prompt');
       return;
@@ -138,7 +151,7 @@ export default function MakersMap({ conversationId, title, places, revision, sho
       status.onchange = update;
     }).catch(() => setPermission('prompt'));
     return () => { disposed = true; };
-  }, [places.length]);
+  }, [readCurrentLocation]);
 
   useEffect(() => {
     if (!shouldPlanMakersRoute(showRoute, places.length)) {
