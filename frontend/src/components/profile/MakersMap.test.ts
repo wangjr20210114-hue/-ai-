@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LOCATION_OPTIONS, locationErrorMessage } from './makersMapLocation';
+import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
 import { shouldPlanMakersRoute } from './makersMapRouting';
 
 describe('MakersMap geolocation recovery', () => {
@@ -13,6 +13,13 @@ describe('MakersMap geolocation recovery', () => {
     expect(locationErrorMessage({ code: 1 } as GeolocationPositionError)).toContain('网站设置');
     expect(locationErrorMessage({ code: 3 } as GeolocationPositionError)).toContain('重试');
     expect(locationErrorMessage({ code: 2 } as GeolocationPositionError)).toContain('重试');
+  });
+
+  it('keeps granted permission after a transient timeout or unavailable fix', () => {
+    expect(permissionAfterLocationFailure(3, 'granted')).toBe('granted');
+    expect(permissionAfterLocationFailure(2, 'granted')).toBe('granted');
+    expect(permissionAfterLocationFailure(1, 'granted')).toBe('denied');
+    expect(permissionAfterLocationFailure(3, 'prompt')).toBe('prompt');
   });
 
   it('plans routes only for ordered maps with at least two places', () => {

@@ -11,3 +11,11 @@ export function locationErrorMessage(error: GeolocationPositionError): string {
   if (error.code === 3) return '定位暂时超时，请确认系统定位服务已开启后重试。';
   return '暂时无法取得位置，请确认网络和系统定位服务后重试。';
 }
+
+export function permissionAfterLocationFailure(
+  errorCode: number,
+  browserPermission?: PermissionState,
+): 'prompt' | 'granted' | 'denied' {
+  if (errorCode === 1 || browserPermission === 'denied') return 'denied';
+  return browserPermission === 'granted' ? 'granted' : 'prompt';
+}

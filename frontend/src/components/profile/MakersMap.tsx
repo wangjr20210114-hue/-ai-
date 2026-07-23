@@ -3,7 +3,7 @@ import { Button } from 'tdesign-react';
 import { planMakersRoute, proactiveOperation } from '../../services/api';
 import { useAppDispatch } from '../../store/appState';
 import type { MakersMapPlace, MakersRoutePlan } from '../../types';
-import { LOCATION_OPTIONS, locationErrorMessage } from './makersMapLocation';
+import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
 import { shouldPlanMakersRoute } from './makersMapRouting';
 
 interface Props {
@@ -127,12 +127,47 @@ export default function MakersMap({ conversationId, title, places, revision, sho
       },
       (error) => {
         if (requestId !== locationRequestRef.current) return;
-        setPermission(error.code === 1 ? 'denied' : 'prompt');
         setLocationError(locationErrorMessage(error));
+        if (!navigator.permissions) {
+          setPermission(permissionAfterLocationFailure(error.code));
+          return;
+        }
+        void navigator.permissions.query({ name: 'geolocation' })
+          .then((status) => {
+            if (requestId !== locationRequestRef.current) return;
+            setPermission(permissionAfterLocationFailure(error.code, status.state));
+          })
+          .catch(() => setPermission(permissionAfterLocationFailure(error.code)));
       },
       LOCATION_OPTIONS,
     );
   }, [conversationId, dispatch]);
+
+  const checkPermissionAndRead = useCallback(() => {
+    if (!navigator.geolocation) {
+      setPermission('unavailable');
+      setLocationError('当前浏览器不支持定位。');
+      return;
+    }
+    if (!navigator.permissions) {
+      readCurrentLocation();
+      return;
+    }
+    setPermission('checking');
+    setLocationError('');
+    void navigator.permissions.query({ name: 'geolocation' })
+      .then((status) => {
+        if (status.state === 'denied') {
+          setPermission('denied');
+          setLocationError('位置权限已关闭。请在浏览器的网站设置中允许定位后重试。');
+          return;
+        }
+        // Both "granted" and "prompt" must go through the browser's native
+        // geolocation request. The latter may show the permission prompt.
+        readCurrentLocation();
+      })
+      .catch(readCurrentLocation);
+  }, [readCurrentLocation]);
 
   useEffect(() => {
     if (!navigator.permissions) {
@@ -152,6 +187,25 @@ export default function MakersMap({ conversationId, title, places, revision, sho
     }).catch(() => setPermission('prompt'));
     return () => { disposed = true; };
   }, [readCurrentLocation]);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'visible') {
+        if (!navigator.permissions) return;
+        void navigator.permissions.query({ name: 'geolocation' }).then((status) => {
+          const next = status.state === 'granted' ? 'granted' : status.state === 'denied' ? 'denied' : 'prompt';
+          setPermission(next);
+          if (next === 'granted' && !userLocation) readCurrentLocation();
+        }).catch(() => {});
+      }
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [readCurrentLocation, userLocation]);
 
   useEffect(() => {
     if (!shouldPlanMakersRoute(showRoute, places.length)) {
@@ -264,10 +318,10 @@ export default function MakersMap({ conversationId, title, places, revision, sho
     return (
       <div className="makers-map-empty makers-location-state">
         {permission === 'checking' && <><div>正在取得当前位置…</div><Button size="small" variant="outline" disabled>定位中</Button></>}
-        {permission === 'prompt' && <><div>{locationError || '今天还没有可连成路线的日程'}</div><Button size="small" theme="primary" onClick={readCurrentLocation}>显示我的位置</Button></>}
-        {permission === 'denied' && <><div>{locationError || '位置权限已关闭。请在浏览器的网站设置中允许定位后重试。'}</div><Button size="small" variant="outline" onClick={readCurrentLocation}>重新检查位置</Button></>}
+        {permission === 'prompt' && <><div>{locationError || '今天还没有可连成路线的日程'}</div><Button size="small" theme="primary" onClick={checkPermissionAndRead}>显示我的位置</Button></>}
+        {permission === 'denied' && <><div>{locationError || '位置权限已关闭。请在浏览器的网站设置中允许定位后重试。'}</div><Button size="small" variant="outline" onClick={checkPermissionAndRead}>重新检查位置</Button></>}
         {permission === 'unavailable' && <div>当前浏览器不支持定位；添加至少两个有效日程地点后仍可显示路线。</div>}
-        {permission === 'granted' && <><div>位置权限已开启，正在读取位置…</div><Button size="small" variant="outline" onClick={readCurrentLocation}>重新定位</Button></>}
+        {permission === 'granted' && <><div>{locationError || '位置权限已开启，正在读取位置…'}</div><Button size="small" variant="outline" onClick={checkPermissionAndRead}>重新定位</Button></>}
       </div>
     );
   }

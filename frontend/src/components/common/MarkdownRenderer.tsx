@@ -52,8 +52,6 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
               href={asset.source_url}
               target="_blank"
               rel="noopener noreferrer"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => event.stopPropagation()}
             >
               {asset.source_title || sourceLabel(asset.source_url)}
             </a>
@@ -199,8 +197,6 @@ export default function MarkdownRenderer({
               rel="noopener noreferrer"
               className={compactCitation ? 'md-citation-link' : undefined}
               title={compactCitation ? url : undefined}
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => event.stopPropagation()}
             >{compactCitation ? sourceLabel(url, sources) : children}</a>;
           },
           img: ({ src, alt }) => {
