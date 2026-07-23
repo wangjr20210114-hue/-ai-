@@ -3,7 +3,7 @@ import { Button, Tooltip } from 'tdesign-react';
 import { ChevronLeftIcon, ChevronRightIcon, ModeDarkIcon, ModeLightIcon, NotificationIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
-import { activeProactiveNotifications } from '../profile/proactiveNotifications';
+import { activeProactiveNotifications, proactiveReminderLines } from '../profile/proactiveNotifications';
 
 const THEME_KEY = 'travel-theme';
 
@@ -23,7 +23,11 @@ export default function Header({
     () => activeProactiveNotifications(proactive?.notifications || []),
     [proactive],
   );
-  const notificationKey = notifications.map((item) => item.id).join('|');
+  const reminderLines = useMemo(
+    () => proactiveReminderLines(notifications),
+    [notifications],
+  );
+  const notificationKey = reminderLines.map((item) => item.id).join('|');
   const [reminderIndex, setReminderIndex] = useState(0);
 
   useEffect(() => {
@@ -31,12 +35,12 @@ export default function Header({
   }, [notificationKey]);
 
   useEffect(() => {
-    if (notifications.length < 2) return;
+    if (reminderLines.length < 2) return;
     const timer = window.setInterval(() => {
-      setReminderIndex((value) => (value + 1) % notifications.length);
-    }, 6500);
+      setReminderIndex((value) => (value + 1) % reminderLines.length);
+    }, 6000);
     return () => window.clearInterval(timer);
-  }, [notifications.length]);
+  }, [reminderLines.length]);
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -51,17 +55,18 @@ export default function Header({
   return (
     <header className="app-header">
       <div className="header-brand-group">
+        <img className="header-brand-avatar" src="/floris-avatar.png" alt="" aria-hidden="true" />
         <span className="brand-logo">FLORIS:一只有温度的大橘</span>
-        {connected && notifications.length > 0 && (
+        {connected && reminderLines.length > 0 && (
           <button
             type="button"
             className="header-proactive-ticker"
-            aria-label="查看主动提醒"
+            aria-label={`查看主动提醒：${reminderLines[reminderIndex % reminderLines.length].text}`}
             onClick={onToggleSidebar}
           >
             <NotificationIcon size="14px" aria-hidden="true" />
-            <span key={notifications[reminderIndex % notifications.length].id} className="header-proactive-ticker-text">
-              {notifications[reminderIndex % notifications.length].title} · {notifications[reminderIndex % notifications.length].body}
+            <span key={reminderLines[reminderIndex % reminderLines.length].id} className="header-proactive-ticker-text">
+              {reminderLines[reminderIndex % reminderLines.length].text}
             </span>
           </button>
         )}
