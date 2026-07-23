@@ -254,12 +254,14 @@ export default function MarkdownRenderer({
             if (!isSafeRemoteUrl(url)) return <>{children}</>;
             const label = linkLabel(children);
             const urlOnly = sameUrl(label.replace(/^<|>$/g, ''), url);
+            const semanticCitation = /^(来源|出处|参考|source)$/i.test(label);
+            const compactCitation = urlOnly || semanticCitation;
             return <a
               href={url}
-              className={urlOnly ? 'md-citation-link' : undefined}
-              title={urlOnly ? label : undefined}
+              className={compactCitation ? 'md-citation-link' : undefined}
+              title={compactCitation ? url : undefined}
               onClick={(event) => followExternalLink(event, url)}
-            >{urlOnly ? '来源' : children}</a>;
+            >{compactCitation ? '来源' : children}</a>;
           },
           img: ({ src, alt }) => {
             const url = typeof src === 'string' ? src : '';

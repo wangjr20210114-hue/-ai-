@@ -64,6 +64,16 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('>https://news.example/ai</a>');
   });
 
+  it('turns an explicit source label into the same small inline citation', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer content={'结论[来源](https://news.example/ai)。'} searchMeta={searchMeta} />,
+    );
+    expect(html).toContain('href="https://news.example/ai"');
+    expect(html).toContain('class="md-citation-link"');
+    expect(html).toContain('title="https://news.example/ai"');
+    expect(html).toContain('>来源</a>');
+  });
+
   it('replaces model-selected media slots in paragraph order instead of appending a gallery', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer
