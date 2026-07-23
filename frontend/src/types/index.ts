@@ -19,6 +19,7 @@ export interface ProactivePreferences {
   quiet_hours: { enabled: boolean; start: string; end: string };
   daily_limit: number;
   lookahead_hours: number;
+  window_limit: number;
   types: Record<string, boolean>;
 }
 
@@ -41,6 +42,7 @@ export interface ProactiveNotification {
   expires_at?: number | null;
   created_at: number;
   updated_at: number;
+  window_origin?: 'memory' | 'operation';
 }
 
 export interface DocumentContext {

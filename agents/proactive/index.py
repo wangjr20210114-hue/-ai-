@@ -26,7 +26,13 @@ from .._shared.opportunities import (
     file_opportunity_signal,
     opportunity_signal,
 )
-from .._shared.intelligence import load_intelligence_state, record_feedback, save_intelligence_state
+from .._shared.intelligence import (
+    confirmed_memory_context,
+    load_intelligence_state,
+    record_feedback,
+    save_intelligence_state,
+)
+from .._shared.proactive_memory import infer_memory_reminder
 from .._shared.auth import require_user, scoped_conversation_id
 from .._shared.http import error
 from .._shared.tencent_location import get_current_weather
@@ -111,6 +117,49 @@ async def _compose_opening(env, notifications: list[dict]) -> str:
     return f"{fallback}\n\n需要我帮你调整时间、地点或提醒方式吗？"[:600]
 
 
+async def _run_tick_with_memory(
+    ctx,
+    store,
+    user_id: str,
+    intelligence_state: dict,
+    *,
+    memory_only: bool = False,
+):
+    """Use Makers state as the source of truth for the 10-minute memory scan."""
+    now = int(time.time())
+    current = await load_proactive_state(store, user_id)
+    checkpoint = (current.get("checkpoints") or {}).get("memory_window_scan") or {}
+    memory_due = now - int(checkpoint.get("checked_at") or 0) >= 10 * 60
+    memory_signals: list[dict] = []
+    if memory_due and confirmed_memory_context(intelligence_state, limit=1):
+        location = (current.get("checkpoints") or {}).get("location_context") or {}
+        if int(location.get("expires_at") or 0) <= now:
+            location = {}
+        public = public_proactive_state(current, now)
+        existing = [
+            f"{item.get('title') or ''}：{item.get('body') or ''}"
+            for item in public.get("notifications", [])
+        ]
+        candidate = await infer_memory_reminder(
+            get_model(ctx.env),
+            intelligence_state,
+            location_context=location,
+            existing_reminders=existing,
+            now=now,
+            timeout_seconds=float(ctx.env.get("PROACTIVE_MEMORY_TIMEOUT_SECONDS") or 6),
+        )
+        if candidate:
+            memory_signals.append(candidate)
+    return await run_proactive_tick(
+        store,
+        env=ctx.env,
+        user_id=user_id,
+        memory_signals=memory_signals,
+        memory_checked=memory_due,
+        collect_scheduled=not memory_only,
+    )
+
+
 async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
@@ -122,7 +171,7 @@ async def handler(ctx):
         proactive_skill_enabled = bool(
             (intelligence_state.get("skill_preferences") or {}).get("proactive-agent", True)
         )
-        if not proactive_skill_enabled and operation in {"refresh", "open_conversation", "tick"}:
+        if not proactive_skill_enabled and operation in {"refresh", "memory_refresh", "open_conversation", "tick"}:
             disabled_state = await load_proactive_state(store, user_id)
             if (disabled_state.get("preferences") or {}).get("enabled", True):
                 update_preferences(disabled_state, {"enabled": False})
@@ -133,7 +182,9 @@ async def handler(ctx):
                 **({"proactive_message": None} if operation == "open_conversation" else {}),
             }
         if operation in {"refresh", "open_conversation"}:
-            state, stats = await run_proactive_tick(store, env=ctx.env, user_id=user_id)
+            state, stats = await _run_tick_with_memory(
+                ctx, store, user_id, intelligence_state,
+            )
             public = public_proactive_state(state)
             if operation == "refresh":
                 return {**public, "tick_stats": stats}
@@ -202,7 +253,14 @@ async def handler(ctx):
             }
 
         if operation == "tick":
-            state, stats = await run_proactive_tick(store, env=ctx.env, user_id=user_id)
+            state, stats = await _run_tick_with_memory(
+                ctx, store, user_id, intelligence_state,
+            )
+            return {**public_proactive_state(state), "tick_stats": stats}
+        if operation == "memory_refresh":
+            state, stats = await _run_tick_with_memory(
+                ctx, store, user_id, intelligence_state, memory_only=True,
+            )
             return {**public_proactive_state(state), "tick_stats": stats}
 
         state = await load_proactive_state(store, user_id)
@@ -220,8 +278,8 @@ async def handler(ctx):
                 "fields": sorted(str(key) for key in changes if key in preferences),
             }
             await save_proactive_state(store, state, user_id)
-            refreshed, stats = await run_proactive_tick(
-                store, env=ctx.env, user_id=user_id
+            refreshed, stats = await _run_tick_with_memory(
+                ctx, store, user_id, intelligence_state,
             )
             return {
                 **public_proactive_state(refreshed),
@@ -299,7 +357,7 @@ async def handler(ctx):
                         )],
                         now,
                     )
-            elif created and signal_type == "browser_location_weather":
+            elif signal_type == "browser_location_weather":
                 try:
                     latitude = float(payload.get("latitude"))
                     longitude = float(payload.get("longitude"))
@@ -315,6 +373,20 @@ async def handler(ctx):
                         key,
                         {"latitude": latitude, "longitude": longitude},
                     )
+                    state.setdefault("checkpoints", {})["location_context"] = {
+                        key: weather.get(key)
+                        for key in (
+                            "city", "district", "weather", "temperature",
+                            "wind_direction", "wind_power", "humidity",
+                            "precipitation", "observed_at",
+                        )
+                        if weather.get(key) not in (None, "")
+                    }
+                    state["checkpoints"]["location_context"].update({
+                        "precision": "city",
+                        "observed_at": now,
+                        "expires_at": now + 6 * 3600,
+                    })
                     condition = str(weather.get("weather") or "")
                     weather_keywords = ("雨", "雪", "雷", "暴", "台风", "大风", "沙尘", "雾", "冰雹", "冻")
                     if condition and any(keyword in condition for keyword in weather_keywords):

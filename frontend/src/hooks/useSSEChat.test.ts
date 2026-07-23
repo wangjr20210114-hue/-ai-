@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { actionOnlyFallback, mergeSearchMeta, progressTextForTool, shouldPublishProactiveOpening } from './useSSEChat';
+import {
+  actionOnlyFallback,
+  isRecoverableTransportError,
+  mergeSearchMeta,
+  progressTextForTool,
+  shouldPublishProactiveOpening,
+} from './useSSEChat';
 import type { WorkspaceAction } from '../types';
 import type { ChatMessage, SearchMeta } from '../types';
 
@@ -64,5 +70,13 @@ describe('human-readable progress', () => {
 
   it('uses a plain-language fallback for an unfamiliar capability', () => {
     expect(progressTextForTool('future_capability', 'complete')).toBe('这一步已完成，正在整理结果…');
+  });
+});
+
+describe('transport recovery', () => {
+  it('recovers network failures but not an explicit user abort', () => {
+    expect(isRecoverableTransportError(new TypeError('Failed to fetch'))).toBe(true);
+    expect(isRecoverableTransportError(new Error('network connection lost'))).toBe(true);
+    expect(isRecoverableTransportError(new DOMException('Aborted', 'AbortError'))).toBe(false);
   });
 });

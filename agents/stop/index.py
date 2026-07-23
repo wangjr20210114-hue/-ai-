@@ -21,6 +21,16 @@ async def handler(ctx):
         )
     # Active Makers runs are keyed by the incoming, public conversation id.
     result = ctx.utils.abortActiveRun(raw_target)
+    if active or result.aborted:
+        # abortActiveRun is the platform-level cancellation wheel. Publish a
+        # terminal marker immediately so /messages can unlock every browser
+        # without polling a detached producer for another acknowledgement.
+        await write_chat_run(
+            ctx.store,
+            target,
+            run_id=str(result.run_id or (stored.get("run_id") if isinstance(stored, dict) else "")),
+            status="cancelled",
+        )
     return {
         "status": "aborted" if result.aborted or active else "idle",
         "conversation_id": raw_target,

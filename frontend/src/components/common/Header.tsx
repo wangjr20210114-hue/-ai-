@@ -57,6 +57,8 @@ export default function Header({
       <div className="header-brand-group">
         <img className="header-brand-avatar" src="/floris-avatar.png" alt="" aria-hidden="true" />
         <span className="brand-logo">FLORIS:一只有温度的大橘</span>
+      </div>
+      <div className="header-proactive-slot">
         {connected && reminderLines.length > 0 && (
           <button
             type="button"

@@ -393,9 +393,10 @@ html.is-resizing-workspace * {
 
 /* ============ 顶栏 ============ */
 .app-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 520px) minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
+  gap: 16px;
   padding: 12px 22px;
   background: var(--app-panel);
   border-bottom: 1px solid var(--app-border);
@@ -406,7 +407,14 @@ html.is-resizing-workspace * {
   align-items: center;
 }
 .header-brand-group { min-width: 0; gap: 9px; }
-.header-actions { flex: 0 0 auto; gap: 12px; }
+.header-brand-group { justify-self: start; }
+.header-actions { justify-self: end; flex: 0 0 auto; gap: 12px; }
+.header-proactive-slot {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
 
 .header-brand-avatar {
   width: 32px;
@@ -433,8 +441,9 @@ html.is-resizing-workspace * {
 }
 
 .header-proactive-ticker {
+  width: 100%;
   min-width: 0;
-  max-width: min(42vw, 520px);
+  max-width: 520px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -3758,6 +3767,8 @@ html.is-resizing-workspace * {
 
 @media (max-width: 860px) {
   .app-header {
+    grid-template-columns: minmax(0, auto) minmax(100px, 1fr) minmax(0, auto);
+    gap: 8px;
     padding: 10px 12px;
   }
 
@@ -3768,8 +3779,8 @@ html.is-resizing-workspace * {
 
   .header-brand-group { gap: 6px; }
   .header-brand-avatar { width: 27px; height: 27px; flex-basis: 27px; border-radius: 9px; }
-  .brand-logo { max-width: 34vw; font-size: 15px; }
-  .header-proactive-ticker { max-width: 37vw; padding: 4px 7px; }
+  .brand-logo { max-width: 28vw; font-size: 15px; }
+  .header-proactive-ticker { max-width: 100%; padding: 4px 7px; }
   .header-proactive-ticker-text { font-size: 11.5px; }
 
   .app-body {

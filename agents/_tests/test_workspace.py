@@ -103,6 +103,7 @@ from agents._shared.intelligence import (
     rollback_memory,
     usage_summary,
 )
+from agents._shared.proactive_memory import infer_memory_reminder
 from agents.workspace.index import handler
 
 
@@ -546,6 +547,107 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats["events_created"], 1)
         self.assertEqual(stats["notifications_created"], 0)
         self.assertEqual(next(iter(state["runs"].values()))["reason"], "observe_only")
+
+    def test_proactive_window_appends_then_replaces_one_operation_reminder(self):
+        now = 1_800_000_000
+        state = empty_proactive_state()
+        update_preferences(state, {
+            "daily_limit": 50,
+            "window_limit": 4,
+            "quiet_hours": {"enabled": False},
+        })
+        for index in range(5):
+            stats = process_schedule_signals(state, [{
+                "type": "schedule_upcoming",
+                "dedup_key": f"operation:{index}",
+                "title": f"操作提醒{index}",
+                "detail": "来自用户操作",
+                "action": "继续处理",
+                "occurred_at": now + index,
+            }], now + index)
+        public = public_proactive_state(state, now + 10)
+        self.assertEqual(len(public["notifications"]), 4)
+        self.assertEqual(stats["window_replaced"], 1)
+        self.assertIn("操作提醒4", [item["title"] for item in public["notifications"]])
+
+    def test_memory_refresh_replaces_only_operation_and_stops_when_window_is_memory_only(self):
+        now = 1_800_000_000
+        state = empty_proactive_state()
+        update_preferences(state, {
+            "daily_limit": 50,
+            "window_limit": 4,
+            "quiet_hours": {"enabled": False},
+        })
+        operation_signals = [{
+            "type": "schedule_upcoming",
+            "dedup_key": f"operation:{index}",
+            "title": f"操作{index}",
+            "detail": "操作提醒",
+            "action": "处理",
+            "occurred_at": now,
+        } for index in range(4)]
+        process_schedule_signals(state, operation_signals, now)
+        for index in range(5):
+            stats = process_schedule_signals(state, [{
+                "type": "memory_context_reminder",
+                "source": "memory_window",
+                "window_policy": "memory_refresh",
+                "dedup_key": f"memory:{index}",
+                "title": f"记忆{index}",
+                "detail": "记忆推导",
+                "action": "继续",
+                "occurred_at": now + index + 1,
+            }], now + index + 1)
+        public = public_proactive_state(state, now + 20)
+        self.assertEqual(len(public["notifications"]), 4)
+        self.assertTrue(all(item["window_origin"] == "memory" for item in public["notifications"]))
+        self.assertEqual(stats["notifications_created"], 0)
+        self.assertEqual(stats["skipped"], 1)
+
+    def test_read_notification_leaves_the_display_window(self):
+        now = 1_800_000_000
+        state = empty_proactive_state()
+        update_preferences(state, {"quiet_hours": {"enabled": False}})
+        process_schedule_signals(state, [{
+            "type": "schedule_upcoming",
+            "dedup_key": "read-me",
+            "title": "待读提醒",
+            "detail": "测试",
+            "action": "测试",
+            "occurred_at": now,
+        }], now)
+        notification_id = public_proactive_state(state, now)["notifications"][0]["id"]
+        mutate_notification(state, notification_id, "mark_read", now + 1)
+        self.assertEqual(public_proactive_state(state, now + 1)["notifications"], [])
+
+    async def test_memory_reminder_requires_safe_memory_and_returns_one_bounded_signal(self):
+        model = AsyncMock()
+        model.ainvoke.return_value = SimpleNamespace(content=json.dumps({
+            "should_remind": True,
+            "title": "带上雨具",
+            "detail": "你常在下班后散步，海淀今天有雷阵雨，出门记得带伞。",
+            "action": "需要我结合今天的日程看看什么时候出门更合适吗？",
+            "priority": "normal",
+        }, ensure_ascii=False))
+        intelligence = empty_intelligence_state()
+        self.assertIsNone(await infer_memory_reminder(
+            model, intelligence, location_context={}, existing_reminders=[], now=1_800_000_000,
+        ))
+        apply_automatic_memory_candidates(
+            intelligence,
+            [{"key": "habit.walk", "value": "经常下班后散步", "confidence": 0.9, "ttl_days": 90}],
+            now=1_800_000_000,
+        )
+        signal = await infer_memory_reminder(
+            model,
+            intelligence,
+            location_context={"district": "海淀区", "weather": "雷阵雨", "expires_at": 1_900_000_000},
+            existing_reminders=[],
+            now=1_800_000_000,
+        )
+        self.assertEqual(signal["window_policy"], "memory_refresh")
+        self.assertEqual(signal["title"], "带上雨具")
+        self.assertEqual(signal["evidence"], {"basis": "safe_memory", "location_used": True})
 
     async def test_scheduled_tick_runs_without_chat_and_persists_inbox(self):
         store = FakeStore()

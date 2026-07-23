@@ -38,6 +38,7 @@ def default_preferences() -> dict[str, Any]:
         "quiet_hours": {"enabled": True, "start": "22:00", "end": "08:00"},
         "daily_limit": 5,
         "lookahead_hours": 24,
+        "window_limit": 4,
         "types": {
             "schedule_conflict": True,
             "tight_transfer": True,
@@ -51,6 +52,7 @@ def default_preferences() -> dict[str, Any]:
             "opportunity_image_iteration": True,
             "opportunity_document_next_step": True,
             "opportunity_task_next_step": True,
+            "memory_context_reminder": True,
         },
     }
 
@@ -64,6 +66,7 @@ def empty_proactive_state() -> dict[str, Any]:
         "runs": {},
         "observations": [],
         "notifications": {},
+        "reminder_window": [],
         "workflows": {},
         "checkpoints": {},
         "last_tick": None,
@@ -82,7 +85,7 @@ def _merge_preferences(value: Any) -> dict[str, Any]:
     base = default_preferences()
     if not isinstance(value, dict):
         return base
-    for key in ("enabled", "autonomy_mode", "timezone", "daily_limit", "lookahead_hours"):
+    for key in ("enabled", "autonomy_mode", "timezone", "daily_limit", "lookahead_hours", "window_limit"):
         if key in value:
             base[key] = copy.deepcopy(value[key])
     if isinstance(value.get("quiet_hours"), dict):
@@ -94,6 +97,7 @@ def _merge_preferences(value: Any) -> dict[str, Any]:
         base["autonomy_mode"] = "propose"
     base["daily_limit"] = max(0, min(50, int(base["daily_limit"] or 0)))
     base["lookahead_hours"] = max(1, min(168, int(base["lookahead_hours"] or 24)))
+    base["window_limit"] = max(1, min(8, int(base["window_limit"] or 4)))
     return base
 
 
@@ -109,6 +113,11 @@ async def load_proactive_state(store: Any, user_id: str = USER_WORKSPACE_ID) -> 
     if not value:
         return state
     state.update(copy.deepcopy(value))
+    if "reminder_window" not in value:
+        # A missing field means this is a pre-window state and should be
+        # migrated from its newest active notifications. An explicit empty
+        # list is meaningful and must remain empty.
+        state["reminder_window"] = None
     state["preferences"] = _merge_preferences(state.get("preferences"))
     for key in ("events", "runs", "notifications", "workflows", "checkpoints"):
         if not isinstance(state.get(key), dict):
@@ -116,6 +125,81 @@ async def load_proactive_state(store: Any, user_id: str = USER_WORKSPACE_ID) -> 
     if not isinstance(state.get("observations"), list):
         state["observations"] = []
     return state
+
+
+def _active_notification(item: Any, now: int) -> bool:
+    if not isinstance(item, dict) or item.get("dismissed_at"):
+        return False
+    if str(item.get("status") or "unread") not in {"unread", "snoozed"}:
+        return False
+    expires_at = int(item.get("expires_at") or 0)
+    return not expires_at or expires_at > now
+
+
+def _normalize_reminder_window(state: dict[str, Any], now: int) -> list[str]:
+    """Keep one bounded, durable display window over notification history."""
+    notifications = state.setdefault("notifications", {})
+    limit = int(_merge_preferences(state.get("preferences")).get("window_limit") or 4)
+    raw_window = state.get("reminder_window")
+    if not isinstance(raw_window, list):
+        candidates = sorted(
+            (
+                item for item in notifications.values()
+                if _active_notification(item, now)
+            ),
+            key=lambda item: int(item.get("created_at") or 0),
+            reverse=True,
+        )[:limit]
+        raw_window = [str(item.get("id") or "") for item in reversed(candidates)]
+    normalized: list[str] = []
+    for raw_id in raw_window:
+        notification_id = str(raw_id or "")
+        if (
+            notification_id
+            and notification_id not in normalized
+            and _active_notification(notifications.get(notification_id), now)
+        ):
+            normalized.append(notification_id)
+    state["reminder_window"] = normalized[-limit:]
+    return state["reminder_window"]
+
+
+def _window_choice(candidates: list[str], notification_id: str, now: int) -> str:
+    digest = hashlib.sha256(f"{notification_id}:{now // 600}".encode("utf-8")).digest()
+    return candidates[int.from_bytes(digest[:4], "big") % len(candidates)]
+
+
+def _place_in_reminder_window(
+    state: dict[str, Any], notification: dict[str, Any], now: int, *, memory_refresh: bool,
+) -> tuple[bool, bool]:
+    """Append or replace according to the memory-first bounded-window policy."""
+    window = _normalize_reminder_window(state, now)
+    limit = int(_merge_preferences(state.get("preferences")).get("window_limit") or 4)
+    notification_id = str(notification["id"])
+    notification["window_origin"] = "memory" if memory_refresh else "operation"
+    if notification_id in window:
+        return True, False
+    if len(window) < limit:
+        window.append(notification_id)
+        return True, False
+    notifications = state.setdefault("notifications", {})
+    candidates = (
+        [
+            item_id for item_id in window
+            if str((notifications.get(item_id) or {}).get("window_origin") or "operation") == "operation"
+        ]
+        if memory_refresh else list(window)
+    )
+    if not candidates:
+        return False, False
+    replaced_id = _window_choice(candidates, notification_id, now)
+    replaced_index = window.index(replaced_id)
+    window[replaced_index] = notification_id
+    replaced = notifications.get(replaced_id)
+    if isinstance(replaced, dict):
+        replaced["window_replaced_at"] = now
+        replaced["updated_at"] = now
+    return True, True
 
 
 def _prune(state: dict[str, Any]) -> None:
@@ -644,9 +728,17 @@ def reconcile_schedule_notifications(
 def process_schedule_signals(state: dict[str, Any], signals: list[dict[str, Any]], now: int) -> dict[str, int]:
     preferences = _merge_preferences(state.get("preferences"))
     state["preferences"] = preferences
-    stats = {"signals": len(signals), "events_created": 0, "runs_created": 0, "notifications_created": 0, "skipped": 0}
+    stats = {
+        "signals": len(signals),
+        "events_created": 0,
+        "runs_created": 0,
+        "notifications_created": 0,
+        "window_replaced": 0,
+        "skipped": 0,
+    }
     daily_count = sum(1 for item in state.get("notifications", {}).values() if _created_today(item, now))
     for signal in signals:
+        memory_refresh = str(signal.get("window_policy") or "") == "memory_refresh"
         cooldown_seconds = max(0, int(signal.get("cooldown_seconds") or 0))
         if cooldown_seconds and any(
             item.get("type") == signal.get("type")
@@ -698,7 +790,7 @@ def process_schedule_signals(state: dict[str, Any], signals: list[dict[str, Any]
             reason = "observe_only"
         elif not allowed_type:
             reason = "notification_type_disabled"
-        elif daily_count >= int(preferences.get("daily_limit") or 0):
+        elif not memory_refresh and daily_count >= int(preferences.get("daily_limit") or 0):
             allowed = False
             reason = "daily_limit_reached"
         _observation(state, run_id, "policy_checked", "notification_policy", now, allowed=allowed, reason=reason)
@@ -730,8 +822,23 @@ def process_schedule_signals(state: dict[str, Any], signals: list[dict[str, Any]
             "updated_at": now,
         }
         state.setdefault("notifications", {})[notification_id] = notification
-        daily_count += 1
+        placed, replaced = _place_in_reminder_window(
+            state, notification, now, memory_refresh=memory_refresh,
+        )
+        if not placed:
+            state["notifications"].pop(notification_id, None)
+            run.update({"status": "skipped", "reason": "memory_window_saturated", "updated_at": now})
+            stats["skipped"] += 1
+            _observation(
+                state, run_id, "skipped", "memory_window_saturated", now,
+                notification_id=notification_id,
+            )
+            continue
+        if not memory_refresh:
+            daily_count += 1
         stats["notifications_created"] += 1
+        if replaced:
+            stats["window_replaced"] += 1
         run.update({"status": "succeeded", "reason": "notification_created", "updated_at": now})
         _observation(state, run_id, "succeeded", "notification_created", now, notification_id=notification_id)
     return stats
@@ -782,32 +889,61 @@ def ingest_workspace_signal(
 
 
 async def run_proactive_tick(
-    store: Any, now: int | None = None, env: dict[str, Any] | None = None, user_id: str = USER_WORKSPACE_ID,
+    store: Any,
+    now: int | None = None,
+    env: dict[str, Any] | None = None,
+    user_id: str = USER_WORKSPACE_ID,
+    memory_signals: list[dict[str, Any]] | None = None,
+    memory_checked: bool = False,
+    collect_scheduled: bool = True,
 ) -> tuple[dict[str, Any], dict[str, int]]:
     timestamp = int(now or time.time())
     state = await load_proactive_state(store, user_id)
     last_tick = state.get("last_tick") or {}
     if timestamp - int(last_tick.get("started_at") or 0) < 60:
-        return state, {"throttled": 1, "signals": 0, "events_created": 0, "runs_created": 0, "notifications_created": 0, "skipped": 0}
+        return state, {
+            "throttled": 1, "signals": 0, "events_created": 0,
+            "runs_created": 0, "notifications_created": 0,
+            "window_replaced": 0, "skipped": 0,
+        }
     lease = state.get("tick_lease") or {}
     if int(lease.get("until") or 0) > timestamp:
-        return state, {"locked": 1, "signals": 0, "events_created": 0, "runs_created": 0, "notifications_created": 0, "skipped": 0}
+        return state, {
+            "locked": 1, "signals": 0, "events_created": 0,
+            "runs_created": 0, "notifications_created": 0,
+            "window_replaced": 0, "skipped": 0,
+        }
     lease_owner = f"tick_{uuid.uuid4().hex}"
     state["tick_lease"] = {"owner": lease_owner, "until": timestamp + 120, "acquired_at": timestamp}
     state = await save_proactive_state(store, state, user_id)
-    workspace = await load_user_workspace(store, user_id=user_id)
-    recovered_actions = recover_stale_actions(workspace, timestamp)
-    if recovered_actions:
-        await save_user_workspace(store, workspace, user_id)
-    preferences = _merge_preferences(state.get("preferences"))
-    schedules = list((workspace.get("schedules") or {}).values())
-    signals = collect_schedule_signals(schedules, timestamp, int(preferences["lookahead_hours"]))
-    signals.extend(collect_workflow_signals(state, timestamp))
-    provider_signals, provider_diagnostics = await collect_provider_signals(
-        env or {}, schedules, timestamp, int(preferences["lookahead_hours"]),
-    )
-    signals.extend(provider_signals)
+    recovered_actions: list[dict[str, Any]] = []
+    schedules: list[dict[str, Any]] = []
+    signals: list[dict[str, Any]] = []
+    provider_diagnostics: dict[str, Any] = {
+        "weather_checked": 0,
+        "routes_checked": 0,
+        "weather_facts": [],
+        "route_facts": [],
+        "errors": [],
+    }
+    if collect_scheduled:
+        workspace = await load_user_workspace(store, user_id=user_id)
+        recovered_actions = recover_stale_actions(workspace, timestamp)
+        if recovered_actions:
+            await save_user_workspace(store, workspace, user_id)
+        preferences = _merge_preferences(state.get("preferences"))
+        schedules = list((workspace.get("schedules") or {}).values())
+        signals = collect_schedule_signals(schedules, timestamp, int(preferences["lookahead_hours"]))
+        signals.extend(collect_workflow_signals(state, timestamp))
+        provider_signals, provider_diagnostics = await collect_provider_signals(
+            env or {}, schedules, timestamp, int(preferences["lookahead_hours"]),
+        )
+        signals.extend(provider_signals)
     stats = process_schedule_signals(state, signals, timestamp)
+    if memory_signals:
+        memory_stats = process_schedule_signals(state, memory_signals, timestamp)
+        for key, value in memory_stats.items():
+            stats[key] = int(stats.get(key) or 0) + int(value or 0)
     for fact in provider_diagnostics.get("weather_facts", []):
         _observation(
             state,
@@ -830,12 +966,19 @@ async def run_proactive_tick(
             **copy.deepcopy(fact),
         )
     stats["actions_reconciliation_required"] = len(recovered_actions)
-    state["checkpoints"]["schedule_collector"] = {
-        "last_scan_at": timestamp,
-        "schedule_count": len(schedules),
-        "signal_count": len(signals),
-        "provider": provider_diagnostics,
-    }
+    if collect_scheduled:
+        state["checkpoints"]["schedule_collector"] = {
+            "last_scan_at": timestamp,
+            "schedule_count": len(schedules),
+            "signal_count": len(signals),
+            "provider": provider_diagnostics,
+        }
+    if memory_checked:
+        state["checkpoints"]["memory_window_scan"] = {
+            "checked_at": timestamp,
+            "candidate_created": bool(memory_signals),
+            "window_size": len(_normalize_reminder_window(state, timestamp)),
+        }
     state["last_tick"] = {"started_at": timestamp, "finished_at": int(time.time()), "stats": stats}
     state["tick_lease"] = None
     saved = await save_proactive_state(store, state, user_id)
@@ -844,15 +987,12 @@ async def run_proactive_tick(
 
 def public_proactive_state(state: dict[str, Any], now: int | None = None) -> dict[str, Any]:
     timestamp = int(now or time.time())
-    notifications = sorted(
-        [
-            copy.deepcopy(item)
-            for item in state.get("notifications", {}).values()
-            if not item.get("dismissed_at")
-            and (not int(item.get("expires_at") or 0) or int(item.get("expires_at") or 0) > timestamp)
-        ],
-        key=lambda item: (0 if item.get("priority") == "high" else 1, -int(item.get("created_at") or 0)),
-    )
+    window = _normalize_reminder_window(state, timestamp)
+    notifications = [
+        copy.deepcopy(state.get("notifications", {}).get(notification_id))
+        for notification_id in window
+        if isinstance(state.get("notifications", {}).get(notification_id), dict)
+    ]
     for item in notifications:
         snoozed_until = int(item.get("snoozed_until") or 0)
         if item.get("status") == "snoozed" and snoozed_until <= timestamp:
@@ -863,7 +1003,7 @@ def public_proactive_state(state: dict[str, Any], now: int | None = None) -> dic
         "schema_version": SCHEMA_VERSION,
         "revision": int(state.get("revision") or 0),
         "preferences": copy.deepcopy(state.get("preferences") or default_preferences()),
-        "notifications": notifications[:100],
+        "notifications": notifications,
         "workflows": copy.deepcopy(sorted(
             state.get("workflows", {}).values(),
             key=lambda item: int(item.get("updated_at") or 0),
@@ -878,7 +1018,10 @@ def public_proactive_state(state: dict[str, Any], now: int | None = None) -> dic
 def update_preferences(state: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
     allowed = {
         key: changes[key]
-        for key in ("enabled", "autonomy_mode", "timezone", "daily_limit", "lookahead_hours", "quiet_hours", "types")
+        for key in (
+            "enabled", "autonomy_mode", "timezone", "daily_limit",
+            "lookahead_hours", "window_limit", "quiet_hours", "types",
+        )
         if key in changes
     }
     merged = copy.deepcopy(state.get("preferences") or {})
@@ -905,6 +1048,11 @@ def mutate_notification(state: dict[str, Any], notification_id: str, operation: 
         notification["snoozed_until"] = target
     else:
         raise ValueError("不支持的提醒操作")
+    if operation in {"mark_read", "dismiss"}:
+        state["reminder_window"] = [
+            item_id for item_id in _normalize_reminder_window(state, now)
+            if item_id != notification_id
+        ]
     notification["version"] = int(notification.get("version") or 1) + 1
     notification["updated_at"] = now
     return copy.deepcopy(notification)

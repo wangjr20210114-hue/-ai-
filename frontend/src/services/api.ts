@@ -180,15 +180,39 @@ export async function planMakersRoute(
   return data.route;
 }
 
-export async function bootstrapApp(conversationId: string): Promise<BootstrapData> {
+export interface BootstrapOptions {
+  signal?: AbortSignal;
+  strict?: boolean;
+  timeoutMs?: number;
+}
+
+export async function bootstrapApp(
+  conversationId: string,
+  options: BootstrapOptions = {},
+): Promise<BootstrapData> {
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  options.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    Math.max(1000, options.timeoutMs ?? 8000),
+  );
   try {
     const res = await authorizedFetch('/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
       body: JSON.stringify({ conversation_id: conversationId }),
+      signal: controller.signal,
     });
     if (res.ok) return res.json();
-  } catch { /* a new conversation has no checkpoint yet */ }
+    if (options.strict) throw new Error(`读取 Makers 运行状态失败（HTTP ${res.status}）`);
+  } catch (error) {
+    if (options.strict) throw error;
+    /* a new conversation has no checkpoint yet */
+  } finally {
+    window.clearTimeout(timeout);
+    options.signal?.removeEventListener('abort', abortFromCaller);
+  }
   return { messages: [] };
 }
 

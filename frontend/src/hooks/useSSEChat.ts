@@ -11,6 +11,30 @@ import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, Sched
 
 type ClientEvent = { type: string; payload: Record<string, unknown> };
 
+const STREAM_IDLE_TIMEOUT_MS = 20_000;
+const RECOVERY_DEADLINE_MS = 120_000;
+const STOP_TIMEOUT_MS = 4_000;
+
+export function isRecoverableTransportError(error: unknown): boolean {
+  const value = error as { name?: unknown; message?: unknown };
+  if (String(value?.name || '') === 'AbortError') return false;
+  const message = String(value?.message || error || '').toLowerCase();
+  return (
+    String(value?.name || '') === 'TypeError'
+    || /failed to fetch|network|load failed|connection|fetch failed|network request failed/.test(message)
+  );
+}
+
+function waitWithAbort(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(resolve, milliseconds);
+    signal.addEventListener('abort', () => {
+      window.clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    }, { once: true });
+  });
+}
+
 const TOOL_PROGRESS: Record<string, { active: string; complete: string }> = {
   web_search: { active: '正在查找可核验的信息…', complete: '已找到相关资料，正在核对时间和出处…' },
   rich_search: { active: '正在查找最新且可靠的资料与图片…', complete: '资料已经找到，正在核对重点、日期和出处…' },
@@ -102,7 +126,7 @@ class SSEChatClient {
     return Boolean(this.controller || this.resumeController);
   }
 
-  async stop(): Promise<void> {
+  async stop(): Promise<'confirmed' | 'local'> {
     this.controller?.abort();
     this.controller = null;
     this.resumeController?.abort();
@@ -112,33 +136,36 @@ class SSEChatClient {
     // backend operation, but it must not leave the composer locked while the
     // platform propagates the abort.
     this.emit({ type: 'stop_requested', payload: {} });
+    const stopController = new AbortController();
+    const stopTimer = window.setTimeout(() => stopController.abort(), STOP_TIMEOUT_MS);
+    const requestStop = () => fetch(withEdgeOneAuth('/stop'), {
+      method: 'POST',
+      // Makers documents that stop must not carry the target conversation
+      // header, otherwise this request can replace the active run signal.
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversation_id: this.conversationId }),
+      credentials: 'same-origin',
+      signal: stopController.signal,
+    });
     try {
-      const response = await fetch(withEdgeOneAuth('/stop'), {
-        method: 'POST',
-        // Makers documents that stop must not carry the target conversation
-        // header, otherwise this request can replace the active run signal.
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversation_id: this.conversationId }),
-        credentials: 'same-origin',
-      });
+      const response = await requestStop();
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const stopResult = await response.json() as { run_id?: string | null };
-      const stoppedRunId = String(stopResult.run_id || '');
-      // The platform acknowledges cancel_requested before the detached
-      // producer necessarily reaches its next cancellation checkpoint. Keep
-      // the composer gated until Makers publishes a terminal run state, so a
-      // quick follow-up is never rejected as "still processing".
-      for (let attempt = 0; attempt < 30; attempt += 1) {
-        const run = (await bootstrapApp(this.conversationId)).run;
-        const sameRun = !stoppedRunId || String(run?.run_id || '') === stoppedRunId;
-        if (run && sameRun && ['cancelled', 'completed', 'failed'].includes(String(run.status || ''))) return;
-        await new Promise((resolve) => window.setTimeout(resolve, 500));
-      }
-      throw new Error('取消已提交，但运行尚未结束');
+      return 'confirmed';
     } catch {
-      // Best-effort cancellation; the aborted request signal and Makers
-      // cancel_requested marker remain the first lines of defence.
-      throw new Error('停止请求未确认，请稍后重试');
+      // The browser must be usable immediately even while offline. Retry the
+      // same Makers cancellation once the network comes back; no local queue
+      // or duplicate Agent run is created.
+      window.addEventListener('online', () => {
+        void fetch(withEdgeOneAuth('/stop'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversation_id: this.conversationId }),
+          credentials: 'same-origin',
+        }).catch(() => {});
+      }, { once: true });
+      return 'local';
+    } finally {
+      window.clearTimeout(stopTimer);
     }
   }
 
@@ -151,6 +178,17 @@ class SSEChatClient {
     const signal = this.controller.signal;
     const streamId = `ai-stream-${Date.now()}`;
     let streamFinished = false;
+    let recoverTransport = false;
+    let protocolDone = false;
+    let idleWatchdog: number | undefined;
+    let watchdogTriggered = false;
+    const armWatchdog = () => {
+      if (idleWatchdog) window.clearTimeout(idleWatchdog);
+      idleWatchdog = window.setTimeout(() => {
+        watchdogTriggered = true;
+        this.controller?.abort();
+      }, STREAM_IDLE_TIMEOUT_MS);
+    };
 
     const clientMessage = message.payload?.client_message;
     if (clientMessage && typeof clientMessage === 'object') {
@@ -166,6 +204,7 @@ class SSEChatClient {
     this.emit({ type: 'stream_start', payload: { id: streamId, intent: 'chat' } });
 
     try {
+      armWatchdog();
       const response = await fetch(withEdgeOneAuth('/chat'), {
         method: 'POST',
         headers: {
@@ -186,6 +225,7 @@ class SSEChatClient {
         }
         throw new Error(detail);
       }
+      armWatchdog();
 
       const reader = response.body?.getReader();
       if (!reader) throw new Error('无法读取响应流');
@@ -195,12 +235,14 @@ class SSEChatClient {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        armWatchdog();
         buffer += decoder.decode(value, { stream: true });
         const parsed = splitSseFrames(buffer);
         buffer = parsed.rest;
 
         for (const frame of parsed.frames) {
           if (frame === '[DONE]') {
+            protocolDone = true;
             finish();
             return;
           }
@@ -338,59 +380,93 @@ class SSEChatClient {
           }
         }
       }
-      finish();
+      // The Agent protocol always closes with [DONE]. A bare EOF usually
+      // means the network path disappeared without surfacing a fetch error.
+      if (!protocolDone) recoverTransport = true;
+      else finish();
     } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
+      recoverTransport = watchdogTriggered || isRecoverableTransportError(error);
+      if (!recoverTransport && (error as Error).name !== 'AbortError') {
         this.emit({
           type: 'error',
           payload: { id: streamId, message: (error as Error).message || '请求失败' },
         });
       }
-      finish();
+      if (!recoverTransport) finish();
     } finally {
+      if (idleWatchdog) window.clearTimeout(idleWatchdog);
       if (this.controller?.signal === signal) this.controller = null;
+    }
+    if (recoverTransport) {
+      this.emit({
+        type: 'transport_recovering',
+        payload: { id: streamId, message: '网络有波动，正在从 Makers 已保存的进度恢复…' },
+      });
+      await this.resume(streamId, true);
     }
   }
 
-  async resume(): Promise<void> {
+  async resume(existingStreamId?: string, recovering = false): Promise<void> {
     // Switching conversations must not replace a still-live response with a
     // polling snapshot. The original request keeps publishing into its
     // conversation cache while it is in the background.
     if (this.controller || this.resumeController) return;
     const controller = new AbortController();
     this.resumeController = controller;
-    const streamId = `ai-resume-${Date.now()}`;
-    this.emit({ type: 'stream_start', payload: { id: streamId, intent: 'chat', resumed: true } });
+    const streamId = existingStreamId || `ai-resume-${Date.now()}`;
+    if (!recovering) {
+      this.emit({ type: 'stream_start', payload: { id: streamId, intent: 'chat', resumed: true } });
+    }
+    const deadline = Date.now() + RECOVERY_DEADLINE_MS;
+    let lastError: unknown;
     try {
-      for (let attempt = 0; attempt < 240 && !controller.signal.aborted; attempt += 1) {
-        const data = await bootstrapApp(this.conversationId);
+      while (Date.now() < deadline && !controller.signal.aborted) {
+        let data: BootstrapData;
+        try {
+          data = await bootstrapApp(this.conversationId, {
+            signal: controller.signal,
+            strict: true,
+            timeoutMs: 4000,
+          });
+          lastError = undefined;
+        } catch (error) {
+          if ((error as Error).name === 'AbortError' && controller.signal.aborted) throw error;
+          lastError = error;
+          await waitWithAbort(1500, controller.signal);
+          continue;
+        }
         if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
         const run = data.run;
         this.emit({ type: 'checkpoint_snapshot', payload: { id: streamId, data } });
         const lastMessage = data.messages[data.messages.length - 1];
         const hasFinalAnswer = lastMessage?.role === 'ai' && Boolean(lastMessage.content.trim());
         if (run?.status === 'cancelled') {
-          this.emit({ type: 'stream_end', payload: { id: streamId } });
+          this.emit({ type: 'checkpoint_complete', payload: { id: streamId } });
           return;
         }
         if (run?.status === 'completed' && hasFinalAnswer) {
-          this.emit({ type: 'stream_end', payload: { id: streamId } });
+          this.emit({ type: 'checkpoint_complete', payload: { id: streamId } });
           return;
         }
         if (!run?.status && hasFinalAnswer) {
-          this.emit({ type: 'stream_end', payload: { id: streamId } });
+          this.emit({ type: 'checkpoint_complete', payload: { id: streamId } });
           return;
         }
         if (run?.status === 'failed') {
           this.emit({ type: 'error', payload: { id: streamId, message: run.error || '处理失败，请重试' } });
           return;
         }
-        await new Promise<void>((resolve, reject) => {
-          const timer = window.setTimeout(resolve, 1500);
-          controller.signal.addEventListener('abort', () => {
-            window.clearTimeout(timer);
-            reject(new DOMException('Aborted', 'AbortError'));
-          }, { once: true });
+        await waitWithAbort(1500, controller.signal);
+      }
+      if (!controller.signal.aborted) {
+        this.emit({
+          type: 'transport_failed',
+          payload: {
+            id: streamId,
+            message: lastError
+              ? '网络中断后暂时无法读取 Makers 进度，本轮已结束等待。网络恢复后可重新进入对话核对结果。'
+              : '两分钟内仍未取得最终结果，本轮已结束等待。你可以重新发送，稍后也可回到对话核对结果。',
+          },
         });
       }
     } catch (error) {
@@ -524,6 +600,14 @@ export function useSSEChat() {
           }
           break;
         }
+        case 'checkpoint_complete': {
+          streams.delete(streamId);
+          publish(id, cached(id).map((item) => (
+            item.streaming ? { ...item, streaming: false } : item
+          )));
+          setConversationActivity(id, 'idle');
+          break;
+        }
         case 'stream_reset': {
           const current = streams.get(streamId);
           if (current) {
@@ -565,6 +649,40 @@ export function useSSEChat() {
           streams.clear();
           publish(id, settleStoppedMessages(cached(id)));
           setConversationActivity(id, 'idle');
+          break;
+        }
+        case 'transport_recovering': {
+          const current = streams.get(streamId);
+          if (!current) break;
+          const skill = {
+            ...(current.skill || {
+              intent: 'chat', mode: 'immediate', content: '', icon: '✨',
+              action_label: '', params: {}, data: {},
+            }),
+            data: {
+              ...(current.skill?.data || {}),
+              status: 'recovering',
+              statusText: String(event.payload.message || '网络有波动，正在从已保存进度恢复…'),
+            },
+          } as ChatMessage['skill'];
+          streams.set(streamId, { ...current, skill });
+          patch(id, streamId, { skill });
+          break;
+        }
+        case 'transport_failed': {
+          const message = String(event.payload.message || '网络恢复超时，本轮已结束等待。');
+          const current = streams.get(streamId);
+          if (current) {
+            const content = current.content.trim() || message;
+            const skill = current.skill ? {
+              ...current.skill,
+              data: { ...current.skill.data, status: 'error', statusText: '连接恢复超时' },
+            } : current.skill;
+            streams.delete(streamId);
+            patch(id, streamId, { content, streaming: false, failed: true, skill });
+          }
+          setConversationActivity(id, 'failed');
+          if (activeConversationRef.current === id) MessagePlugin.warning(message);
           break;
         }
         case 'search_status': {
@@ -734,6 +852,35 @@ export function useSSEChat() {
     return () => {
       window.removeEventListener('yuanbao:workspace-changed', refreshWorkspace);
       window.removeEventListener('yuanbao:calendar-changed', refreshProactive);
+    };
+  }, [dispatch]);
+
+  useEffect(() => {
+    // Makers Schedule currently supports a minimum interval of one day.
+    // While the product is open, this bounded browser wake-up asks the
+    // Makers Agent to perform the memory-first window check every 10 minutes;
+    // all state and policy decisions remain in Makers Store.
+    let lastCheckedAt = Date.now();
+    let refreshing = false;
+    const refreshMemoryWindow = () => {
+      if (refreshing || document.visibilityState !== 'visible') return;
+      refreshing = true;
+      lastCheckedAt = Date.now();
+      void proactiveOperation(activeConversationRef.current, 'memory_refresh')
+        .then((proactive) => dispatch({ type: 'HYDRATE_PROACTIVE', payload: proactive }))
+        .catch((error) => console.warn('proactive memory-window refresh failed', error))
+        .finally(() => { refreshing = false; });
+    };
+    const timer = window.setInterval(refreshMemoryWindow, 10 * 60 * 1000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastCheckedAt >= 10 * 60 * 1000) {
+        refreshMemoryWindow();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [dispatch]);
 

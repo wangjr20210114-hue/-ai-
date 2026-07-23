@@ -112,10 +112,12 @@ export default function InputBar({ client }: Props) {
     if (!activeStreaming || stopping || !client.current?.stop) return;
     setStopping(true);
     try {
-      await client.current.stop();
-      MessagePlugin.info('已停止生成');
-    } catch {
-      MessagePlugin.warning('停止请求未确认，请稍后重试');
+      const status = await client.current.stop();
+      if (status === 'confirmed') {
+        MessagePlugin.info('已停止生成');
+      } else {
+        MessagePlugin.warning('已结束本地等待；网络恢复后会自动核对并停止后台运行');
+      }
     } finally { setStopping(false); }
   };
 

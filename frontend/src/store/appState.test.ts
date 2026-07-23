@@ -174,6 +174,7 @@ describe('app state reducer', () => {
         quiet_hours: { enabled: true, start: '22:00', end: '08:00' },
         daily_limit: 5,
         lookahead_hours: 24,
+        window_limit: 4,
         types: { schedule_upcoming: true },
       },
       notifications: [],

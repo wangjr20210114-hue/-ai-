@@ -26,12 +26,13 @@
 1. 对话回答完成后，后台并行执行语义机会判断，不阻塞主回答。
 2. 由 LLM 判断写作优化、翻译复核、搜索更新、生图迭代、文档下一步和任务下一步，不用关键词硬编码替代语义判断。
 3. 每轮最多生成一条机会；简单问答、算术、脑筋急转弯、待确认副作用和敏感内容不触发。
-4. 机会写入 Makers 原生 `Event → Run → Notification`，通过 SSE `proactive_update` 实时刷新 Header 轮播和左栏提醒。
+4. 机会写入 Makers 原生 `Event → Run → Notification`，通过 SSE `proactive_update` 实时刷新 Header 轮播和左栏提醒；提醒使用 4 条 Makers Store 有界窗口，记忆推导优先于操作提醒。
 5. 机会带置信度阈值、6 小时同类冷却和过期时间，避免重复打扰与无限堆积。
 6. 用户可“按建议处理 / 稍后 / 忽略”；状态持久化后同时影响 Header 轮播和左栏，不向新对话注入消息。
 7. 文档上传信号通过 `/proactive` 的 `ingest_signal` 进入同一闭环，立即生成文档总结/下一步建议。
 8. 用户采纳文档建议时，前端从 Makers Blob 读取并解析该 PDF，把有界文本作为仅本轮可见的文档上下文交给模型；输入区显示文件名，Blob Key 不进入可见指令，模型不会误去公网搜索同名文件。
 9. 图片 Action 成功后，前端异步发送一次去重的 `image_generated` 事件；独立 LLM 判断比例、构图或版本适配价值，图片结果不会等待这次判断。图片 URL、Blob Key、二进制和完整提示词不写入主动事件；联系方式、证件号、账号和密钥类文本由程序化安全门再次拒绝。
+10. 在线网页每 10 分钟调用一次仅记忆检查的 `/proactive` 操作；Makers Schedule 受平台最小一天间隔限制，作为关闭网页时的每日兜底。断网时聊天流由前端检测空闲并使用同一会话从 Makers Checkpointer 恢复，不重复发起模型请求。
 
 完整设计见 [`CONTEST_SOLUTION.md`](CONTEST_SOLUTION.md)，系统边界见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 

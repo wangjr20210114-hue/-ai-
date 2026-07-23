@@ -79,7 +79,8 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response["proactive_message"]["proactive"])
         self.assertEqual(len(stores.messages), 1)
         self.assertEqual(stores.messages[0]["metadata"]["source"], "yuanbao-proactive")
-        self.assertEqual(response["notifications"][0]["status"], "read")
+        self.assertEqual(response["notifications"], [])
+        self.assertEqual(next(iter(state["notifications"].values()))["status"], "read")
 
     async def test_user_message_wins_race_with_proactive_opening(self):
         state = empty_proactive_state()
@@ -218,7 +219,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         response = await stop_handler(ctx)
         self.assertEqual(targets, ["conversation-1"])
         self.assertEqual(response["status"], "aborted")
-        self.assertEqual((await read_chat_run(store, "conversation-1"))["status"], "cancel_requested")
+        self.assertEqual((await read_chat_run(store, "conversation-1"))["status"], "cancelled")
 
     def test_daily_health_grace_uses_scheduled_boundary(self):
         now = int(datetime.fromisoformat("2026-07-19T11:00:00+08:00").timestamp())
