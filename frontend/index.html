@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>元宝 · 主动式 AI 助手</title>
     <script>
+      // The dedicated acceptance hostname opens the static test station at its root.
+      // The main application hostname keeps its normal chat entry point.
+      (function () {
+        if (window.location.hostname === 'floris-test.jlutx.com' && window.location.pathname === '/') {
+          window.location.replace('/test-cases/');
+        }
+      })();
       // 首屏即应用已保存的主题，避免闪烁
       (function () {
         try {
