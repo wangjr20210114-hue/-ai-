@@ -244,7 +244,18 @@ async def handler(ctx):
             error="上一次运行已超时，请重新发送",
         )
     elif isinstance(previous_run, dict) and previous_run.get("status") in RUNNING_STATES:
-        return error("该对话仍在处理中；刷新后会自动恢复，请稍候或先停止当前运行", 409)
+        if previous_run.get("status") == "cancel_requested":
+            # The Stop endpoint has already delegated cancellation to Maker's
+            # abortActiveRun.  Its detached producer may still be flushing
+            # cleanup work, but that must not keep the composer locked.
+            await write_chat_run(
+                ctx.store,
+                conversation_id,
+                run_id=str(previous_run.get("run_id") or ""),
+                status="cancelled",
+            )
+        else:
+            return error("该对话仍在处理中；刷新后会自动恢复，请稍候或先停止当前运行", 409)
     try:
         await ctx.store.append_message(
             conversation_id=conversation_id,
@@ -472,6 +483,14 @@ async def handler(ctx):
                 return False
             last_cancel_check[0] = now_mono
             latest = await read_chat_run(ctx.store, conversation_id)
+            if (
+                isinstance(latest, dict)
+                and latest.get("run_id")
+                and str(latest.get("run_id")) != run_id
+            ):
+                # A newer send owns this conversation. The detached producer
+                # for the old run must stop without touching its state.
+                return True
             return run_cancelled(latest)
 
         async def produce():
@@ -549,18 +568,27 @@ async def handler(ctx):
                 # Retry the marker after LangGraph has had a chance to create
                 # the native conversation; the frontend appends the user row
                 # concurrently and may have raced the first metadata update.
-                await write_chat_run(
-                    ctx.store,
-                    conversation_id,
-                    run_id=run_id,
-                    status="running",
-                )
-                imported_seed = await _imported_conversation_seed(ctx, conversation_id, message)
-                async for event in graph.astream(
-                    {"messages": [*imported_seed, {"role": "user", "content": message}]},
-                    config=config,
-                    stream_mode="messages",
+                latest_before_graph = await read_chat_run(ctx.store, conversation_id)
+                if (
+                    isinstance(latest_before_graph, dict)
+                    and latest_before_graph.get("run_id")
+                    and str(latest_before_graph.get("run_id")) != run_id
                 ):
+                    cancelled = True
+                else:
+                    await write_chat_run(
+                        ctx.store,
+                        conversation_id,
+                        run_id=run_id,
+                        status="running",
+                    )
+                imported_seed = await _imported_conversation_seed(ctx, conversation_id, message)
+                if not cancelled:
+                    async for event in graph.astream(
+                        {"messages": [*imported_seed, {"role": "user", "content": message}]},
+                        config=config,
+                        stream_mode="messages",
+                    ):
                         if await cancellation_requested():
                             cancelled = True
                             break
@@ -785,14 +813,20 @@ async def handler(ctx):
                 if pending_papers is not None:
                     await queue.put(ctx.utils.sse({"type": "paper_results", "payload": pending_papers}))
                 latest_run = await read_chat_run(ctx.store, conversation_id)
-                cancelled = cancelled or run_cancelled(latest_run)
-                await write_chat_run(
-                    ctx.store,
-                    conversation_id,
-                    run_id=run_id,
-                    status="cancelled" if cancelled else ("failed" if run_error else "completed"),
-                    error=run_error,
+                owns_run = not (
+                    isinstance(latest_run, dict)
+                    and latest_run.get("run_id")
+                    and str(latest_run.get("run_id")) != run_id
                 )
+                if owns_run:
+                    cancelled = cancelled or run_cancelled(latest_run)
+                    await write_chat_run(
+                        ctx.store,
+                        conversation_id,
+                        run_id=run_id,
+                        status="cancelled" if cancelled else ("failed" if run_error else "completed"),
+                        error=run_error,
+                    )
                 if any(usage):
                     try:
                         latest_intelligence = await load_intelligence_state(ctx.store.langgraph_store, user_id)
