@@ -59,28 +59,32 @@ export async function resetApplicationData(
   conversationId: string,
   password: string,
 ): Promise<{ conversations_deleted: number; state_items_deleted: number; files_deleted: number }> {
-  const resetState = await authorizedFetch('/reset', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
-    body: JSON.stringify({ password }),
-  });
-  const stateData = await resetState.json().catch(() => ({})) as {
-    code?: string;
-    conversations_deleted?: number;
-    state_items_deleted?: number;
-  };
-  if (!resetState.ok) throw new DataResetError(dataResetErrorCode(stateData.code));
-
-  const resetFiles = await authorizedFetch('/reset-files', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
-  });
-  const fileData = await resetFiles.json().catch(() => ({})) as {
-    code?: string;
-    deleted?: Record<string, number>;
-  };
-  if (!resetFiles.ok) throw new DataResetError(dataResetErrorCode(fileData.code));
+  const [resetState, resetFiles] = await Promise.all([
+    authorizedFetch('/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
+      body: JSON.stringify({ password }),
+    }),
+    authorizedFetch('/reset-files', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    }),
+  ]);
+  const [stateData, fileData] = await Promise.all([
+    resetState.json().catch(() => ({})) as Promise<{
+      code?: string;
+      conversations_deleted?: number;
+      state_items_deleted?: number;
+    }>,
+    resetFiles.json().catch(() => ({})) as Promise<{
+      code?: string;
+      deleted?: Record<string, number>;
+    }>,
+  ]);
+  if (!resetState.ok || !resetFiles.ok) {
+    throw new DataResetError(dataResetErrorCode(stateData.code || fileData.code));
+  }
   return {
     conversations_deleted: Number(stateData.conversations_deleted || 0),
     state_items_deleted: Number(stateData.state_items_deleted || 0),

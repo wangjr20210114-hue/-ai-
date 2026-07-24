@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from types import SimpleNamespace
 
@@ -60,6 +61,8 @@ class FakeConversationStore:
         self.langgraph_store = langgraph_store
         self.langgraph_checkpointer = FakeCheckpointer()
         self.conversations = ["yb7_first", "yb7_second"]
+        self.active_deletes = 0
+        self.max_active_deletes = 0
 
     async def list_conversations(self, **_kwargs):
         return SimpleNamespace(items=[
@@ -68,7 +71,11 @@ class FakeConversationStore:
         ])
 
     async def delete_conversation(self, conversation_id):
+        self.active_deletes += 1
+        self.max_active_deletes = max(self.max_active_deletes, self.active_deletes)
+        await asyncio.sleep(0)
         self.conversations.remove(conversation_id)
+        self.active_deletes -= 1
 
 
 def context(password):
@@ -95,7 +102,8 @@ class ResetTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response["ok"])
         self.assertEqual(response["conversations_deleted"], 2)
         self.assertEqual(ctx.store.conversations, [])
-        self.assertEqual(ctx.store.langgraph_checkpointer.deleted, ["yb7_first", "yb7_second"])
+        self.assertEqual(set(ctx.store.langgraph_checkpointer.deleted), {"yb7_first", "yb7_second"})
+        self.assertGreater(ctx.store.max_active_deletes, 1)
 
         intelligence_item = await ctx.store.langgraph_store.aget(
             namespace("intelligence", "local-user"), "state",
@@ -110,6 +118,15 @@ class ResetTests(unittest.IsolatedAsyncioTestCase):
             1,
             "only the rebuilt intelligence state should remain",
         )
+
+    async def test_reset_deletes_large_history_in_bounded_parallel_batches(self):
+        ctx = context("configured-secret")
+        ctx.store.conversations = [f"yb7_conversation_{index}" for index in range(20)]
+        response = await handler(ctx)
+        self.assertEqual(response["conversations_deleted"], 20)
+        self.assertEqual(ctx.store.conversations, [])
+        self.assertGreater(ctx.store.max_active_deletes, 1)
+        self.assertLessEqual(ctx.store.max_active_deletes, 8)
 
 
 if __name__ == "__main__":

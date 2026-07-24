@@ -64,6 +64,31 @@ describe('resetApplicationData', () => {
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ password: 'secret' });
   });
 
+  it('starts state and file cleanup together so large histories stay within the request window', async () => {
+    let finishState!: (response: Response) => void;
+    const stateResponse = new Promise<Response>((resolve) => { finishState = resolve; });
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => stateResponse)
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ok: true,
+        deleted: { 'yuanbao-files': 0, 'yuanbao-acceptance-shared': 0, 'yuanbao-auth': 0 },
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const reset = resetApplicationData('yb7_reset-test', 'secret');
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    finishState(new Response(JSON.stringify({
+      ok: true,
+      conversations_deleted: 100,
+      state_items_deleted: 20,
+    }), { status: 200 }));
+
+    await expect(reset).resolves.toMatchObject({
+      conversations_deleted: 100,
+      state_items_deleted: 20,
+    });
+  });
+
   it('exposes a stable error code instead of a server message', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
       error: 'internal wording',

@@ -39,8 +39,8 @@ async def _delete_application_namespaces(store) -> int:
             break
         offset += len(page)
 
-    deleted = 0
-    for namespace in namespaces:
+    async def delete_namespace(namespace: tuple[str, ...]) -> int:
+        deleted = 0
         while True:
             items = await store.asearch(namespace, limit=100)
             if not items:
@@ -51,7 +51,17 @@ async def _delete_application_namespaces(store) -> int:
                 if str(_value(item, "key", ""))
             ))
             deleted += len(items)
-    return deleted
+        return deleted
+
+    counts = await asyncio.gather(*(delete_namespace(namespace) for namespace in namespaces))
+    return sum(counts)
+
+
+async def _delete_conversation(ctx, conversation_id: str) -> None:
+    operations = [ctx.store.delete_conversation(conversation_id)]
+    if getattr(ctx.store, "langgraph_checkpointer", None) is not None:
+        operations.append(ctx.store.langgraph_checkpointer.adelete_thread(conversation_id))
+    await asyncio.gather(*operations)
 
 
 async def _delete_conversations(ctx, user_id: str) -> int:
@@ -65,14 +75,18 @@ async def _delete_conversations(ctx, user_id: str) -> int:
         items = list(_value(result, "items", []) or [])
         if not items:
             break
-        for item in items:
-            conversation_id = str(_value(item, "conversation_id", "") or _value(item, "conversationId", ""))
-            if not conversation_id:
-                continue
-            if getattr(ctx.store, "langgraph_checkpointer", None) is not None:
-                await ctx.store.langgraph_checkpointer.adelete_thread(conversation_id)
-            await ctx.store.delete_conversation(conversation_id)
-            deleted += 1
+        conversation_ids = [
+            str(_value(item, "conversation_id", "") or _value(item, "conversationId", ""))
+            for item in items
+        ]
+        conversation_ids = [conversation_id for conversation_id in conversation_ids if conversation_id]
+        for offset in range(0, len(conversation_ids), 8):
+            batch = conversation_ids[offset:offset + 8]
+            await asyncio.gather(*(
+                _delete_conversation(ctx, conversation_id)
+                for conversation_id in batch
+            ))
+            deleted += len(batch)
     return deleted
 
 
@@ -96,8 +110,10 @@ async def handler(ctx):
         for skill_id, enabled in DEFAULT_SKILL_PREFERENCES.items()
     }
 
-    conversations_deleted = await _delete_conversations(ctx, user_id)
-    state_items_deleted = await _delete_application_namespaces(langgraph_store)
+    conversations_deleted, state_items_deleted = await asyncio.gather(
+        _delete_conversations(ctx, user_id),
+        _delete_application_namespaces(langgraph_store),
+    )
 
     clean_intelligence = empty_intelligence_state()
     clean_intelligence["skill_preferences"] = skills
