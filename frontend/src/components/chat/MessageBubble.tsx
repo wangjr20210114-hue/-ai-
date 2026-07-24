@@ -15,6 +15,7 @@ import { followUpDraftAction } from './followUps';
 import { generatedImageOpportunitySignal, nextWholeHourRange, usableMapPlaces } from './workspaceUi';
 import { hasTextSelectionInside } from './scrollSelection';
 import { streamingMarkdownAnswer } from './streamingAnswer';
+import { clarificationSubmissionText } from './clarificationSubmission';
 import { loadProactiveDocumentContext } from '../../services/proactiveDocument';
 import type { ProactiveNotification } from '../../types';
 import { markdownToPlainText } from '../common/richContent';
@@ -91,25 +92,62 @@ async function saveElementAsImage(element: HTMLElement): Promise<void> {
   triggerDownload(png, translate('answerFileName', { time: new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') }));
 }
 
-function ClarificationCard({ clarification }: { clarification: ClarificationPrompt }) {
-  const dispatch = useAppDispatch();
+function ClarificationCard({
+  clarification,
+  client,
+  answered,
+}: {
+  clarification: ClarificationPrompt;
+  client: React.RefObject<ChatClient | null>;
+  answered: boolean;
+}) {
+  const { messages } = useAppState();
   const { t } = useLanguage();
   const [values, setValues] = useState<Record<string, string | string[]>>({});
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const isSubmitted = submitted || answered;
   const setValue = (id: string, value: string | string[]) => setValues((current) => ({ ...current, [id]: value }));
+  const generationActive = messages.some((item) => item.streaming);
   const complete = clarification.fields.every((field) => {
     if (!field.required) return true;
     const value = values[field.id];
     return Array.isArray(value) ? value.length > 0 : Boolean(String(value || '').trim());
   });
-  const submit = () => {
-    const answer = clarification.fields.map((field) => {
-      const value = values[field.id];
-      return `${field.label}：${Array.isArray(value) ? value.join('、') : String(value || '').trim()}`;
-    }).join('\n');
-    dispatch({ type: 'SET_DRAFT', payload: `${clarification.prompt}\n${answer}` });
+  const submit = async () => {
+    if (!client.current || !complete || isSubmitted || submitting || generationActive) {
+      if (!client.current) MessagePlugin.warning(t('connectionNotReady'));
+      return;
+    }
+    const content = clarificationSubmissionText(clarification, values, t('clarificationAnswerIntro'));
+    const userMessage: ChatMessage = {
+      id: `clarification-${clarification.id}-${Date.now()}`,
+      role: 'user',
+      content,
+      ts: Date.now(),
+    };
     setSubmitted(true);
+    setSubmitting(true);
     MessagePlugin.success(t('askContinue'));
+    try {
+      await Promise.resolve(client.current.send({
+        type: 'user_activity',
+        payload: {
+          activity: 'clarification_answered',
+          text: content,
+          message_id: userMessage.id,
+          client_message_id: userMessage.id,
+          client_message: userMessage,
+          reference_images: [],
+          response_language: getStoredLanguage(),
+        },
+      }));
+    } catch {
+      setSubmitted(false);
+      MessagePlugin.error(t('serviceError'));
+    } finally {
+      setSubmitting(false);
+    }
   };
   return <div className="clarification-card">
     <strong>{clarification.title}</strong>
@@ -118,14 +156,14 @@ function ClarificationCard({ clarification }: { clarification: ClarificationProm
       const value = values[field.id];
       if (field.type === 'single' || field.type === 'boolean') {
         const options = field.type === 'boolean' ? [t('yes'), t('no')] : (field.options || []);
-        return <fieldset className="clarification-field" key={field.id} disabled={submitted}>
+        return <fieldset className="clarification-field" key={field.id} disabled={isSubmitted}>
           <legend>{field.label}{field.required ? t('requiredSingle') : ''}</legend>
           <div className="clarification-option-list">{options.map((option) => <label key={option} className="clarification-option">
             <input type="radio" name={`${clarification.id}-${field.id}`} checked={value === option} onChange={() => setValue(field.id, option)} />{option}
           </label>)}</div>
         </fieldset>;
       }
-      if (field.type === 'multi') return <fieldset className="clarification-field" key={field.id} disabled={submitted}>
+      if (field.type === 'multi') return <fieldset className="clarification-field" key={field.id} disabled={isSubmitted}>
         <legend>{field.label}{field.required ? t('requiredMulti') : ''}</legend>
         <div className="clarification-option-list">{(field.options || []).map((option) => {
           const selected = Array.isArray(value) && value.includes(option);
@@ -139,11 +177,11 @@ function ClarificationCard({ clarification }: { clarification: ClarificationProm
         type={field.type === 'date' ? 'date' : field.type === 'datetime' ? 'datetime-local' : 'text'}
         value={typeof value === 'string' ? value : ''}
         placeholder={field.placeholder}
-        disabled={submitted}
+        disabled={isSubmitted}
         onChange={(event) => setValue(field.id, event.target.value)}
       /></label>;
     })}
-    <div className="clarification-actions"><Button size="small" theme="primary" disabled={!complete || submitted} onClick={submit}>{submitted ? t('filledInput') : t('completeAndContinue')}</Button></div>
+    <div className="clarification-actions"><Button size="small" theme="primary" loading={submitting} disabled={!complete || isSubmitted || generationActive} onClick={() => { void submit(); }}>{isSubmitted ? t('filledInput') : t('completeAndContinue')}</Button></div>
   </div>;
 }
 
@@ -299,6 +337,8 @@ export default function MessageBubble({ message, client }: Props) {
   // 追问只在最后一条 AI 消息显示
   const isLastAIMessage = !isUser && messages[messages.length - 1]?.id === message.id;
   const messageIndex = messages.findIndex((item) => item.id === message.id);
+  const clarificationAnswered = Boolean(message.clarification)
+    && messages.slice(messageIndex + 1).some((item) => item.role === 'user');
   const previousUserMessage = messageIndex > 0
     ? [...messages.slice(0, messageIndex)].reverse().find((item) => item.role === 'user')
     : undefined;
@@ -737,7 +777,7 @@ export default function MessageBubble({ message, client }: Props) {
                 searchMeta={markdownRender.searchMeta}
                 streaming={markdownRender.streaming}
               />}
-              {message.clarification && <ClarificationCard clarification={message.clarification} />}
+              {message.clarification && <ClarificationCard clarification={message.clarification} client={client} answered={clarificationAnswered} />}
               {message.proactive && proactive && <div className="proactive-conversation-actions">
                 {(proactive.notifications || []).filter((item) => item.status !== 'dismissed').slice(0, 3).map((item) => <div className="proactive-conversation-item" key={item.id}>
                   <span>{item.title}</span>

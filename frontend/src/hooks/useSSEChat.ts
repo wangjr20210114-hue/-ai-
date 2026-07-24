@@ -449,13 +449,13 @@ function readMessageCache(conversationId: string): ChatMessage[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(`${MESSAGE_CACHE_PREFIX}${conversationId}`) || '[]') as ChatMessage[];
     return Array.isArray(parsed)
-      ? parsed.filter((item) => !item.failed && (item.role === 'user' || item.content.trim())).map((item) => ({ ...item, streaming: false }))
+      ? parsed.filter((item) => !item.failed && (item.role === 'user' || item.content.trim() || Boolean(item.clarification))).map((item) => ({ ...item, streaming: false }))
       : [];
   } catch { return []; }
 }
 
 function writeMessageCache(conversationId: string, messages: ChatMessage[]) {
-  const durable = messages.filter((item) => !item.failed && (item.role === 'user' || item.content.trim()));
+  const durable = messages.filter((item) => !item.failed && (item.role === 'user' || item.content.trim() || Boolean(item.clarification)));
   try { localStorage.setItem(`${MESSAGE_CACHE_PREFIX}${conversationId}`, JSON.stringify(durable.slice(-60))); }
   catch { /* Remote checkpoints remain the durable fallback. */ }
 }

@@ -140,6 +140,7 @@ async def handler(ctx):
     pending_actions = []
     pending_search_meta = None
     pending_papers = None
+    pending_clarification = None
     for index, message in enumerate(stored_messages):
         message_type = str(_value(message, "type", _value(message, "role", "")))
         content = _text(_value(message, "content", ""))
@@ -192,6 +193,10 @@ async def handler(ctx):
                 papers = action.get("papers")
                 if isinstance(papers, list):
                     pending_papers = papers
+            elif isinstance(action, dict) and action.get("ui_action") == "clarification_action":
+                clarification = action.get("clarification")
+                if isinstance(clarification, dict):
+                    pending_clarification = clarification
             continue
         role = {
             "human": "user",
@@ -205,7 +210,7 @@ async def handler(ctx):
             if _value(message, "tool_calls", None):
                 continue
             content = public_content(content)
-        if not role or not content:
+        if not role or (not content and not (role == "ai" and pending_clarification)):
             continue
         restored = {
                 "id": str(_value(message, "id", "") or f"checkpoint-{index}"),
@@ -222,6 +227,9 @@ async def handler(ctx):
         if role == "ai" and pending_papers:
             restored["papers"] = pending_papers
             pending_papers = None
+        if role == "ai" and pending_clarification:
+            restored["clarification"] = pending_clarification
+            pending_clarification = None
         result.append(restored)
 
     if pending_actions:
@@ -231,6 +239,14 @@ async def handler(ctx):
             "content": action_fallback_content(pending_actions),
             "ts": len(result),
             "workspaceActions": pending_actions,
+        })
+    if pending_clarification:
+        result.append({
+            "id": f"checkpoint-clarification-{len(result)}",
+            "role": "ai",
+            "content": "",
+            "ts": len(result),
+            "clarification": pending_clarification,
         })
 
     # Older builds persisted the user prompt before the Agent call, so several

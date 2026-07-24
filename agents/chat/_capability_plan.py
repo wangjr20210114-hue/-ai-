@@ -118,6 +118,19 @@ def required_tool_for_plan(plan: dict[str, Any]) -> str:
     return required[0] if required else ""
 
 
+def clarification_tool_available(
+    plan: dict[str, Any], *, planner_timed_out: bool = False,
+) -> bool:
+    """Expose clarification only after the semantic planner proves it is necessary.
+
+    This deliberately does not inspect keywords, task categories, or particular
+    preferences.  An undecided but non-blocking preference remains answerable
+    through scenarios, while a planner timeout leaves the main semantic model
+    free to recover.
+    """
+    return bool(planner_timed_out or plan.get("needs_clarification"))
+
+
 def media_enabled_for_plan(
     plan: dict[str, Any], image_limit: int, planner_timed_out: bool = False,
 ) -> bool:
@@ -154,7 +167,7 @@ async def plan_capabilities(model, user_message: str, memory_context: str = "") 
 返回严格 JSON：needs_clarification、needs_web_search、strict_today_only、needs_rich_answer、needs_images、needs_places、needs_route、needs_map_action、needs_calendar_action、needs_meeting_action、needs_image_generation、needs_papers 为布尔值；search_query、image_query、paper_author 为字符串；paper_year、paper_limit 为整数。
 判断原则：
 - 这些字段只是给主模型的能力建议，绝不是工具开关；主模型始终可以自主决定是否搜索、使用多少素材以及怎样组织回答。
-- 只有缺失信息会阻断所有安全且有用的回答，或无法唯一确定将要执行的真实副作用对象时，needs_clarification=true，而且本轮其他能力全部设为 false。“不同偏好会改变结果”“知道后会更好”或用户尚未决定，都不足以触发澄清；只要能够基于不同合理假设给出至少两套不误导的方案，就应设为 false，并让主模型直接给出 2–3 套带假设与取舍的方案。普通事实问答、存在低风险默认值时也不要澄清。澄清字段只能来自用户本轮明确目标、当前对话里尚未解决的条件、与本任务直接相关的安全长期记忆或当前可核验状态；不得套用某类任务常见的画像问卷，也不得因为“可能有帮助”就追加问题。已有上下文或可靠记忆已经回答的内容不要再问；记忆与本轮表达冲突或仍不确定时，以本轮表达为准。澄清卡只收齐继续执行所不可缺少的最少字段：有限候选优先单选/多选，能用是/否表达就用判断，日期时间用选择器，只有答案无法枚举时才用短文本；不要在长回答末尾再追问。
+- 只有缺失信息会阻断所有安全且有用的回答，或无法唯一确定将要执行的真实副作用对象时，needs_clarification=true，而且本轮其他能力全部设为 false。“不同偏好会改变结果”“知道后会更好”或用户尚未决定，都不足以触发澄清；只要能够基于不同合理假设给出至少两套不误导的方案，needs_clarification 必须为 false，并让主模型直接给出 2–3 套带假设与取舍的方案。这个判断必须泛化到任何主题和偏好，不能按某个任务类别套用固定问题。普通事实问答、存在低风险默认值时也不要澄清。澄清字段只能来自用户本轮明确目标、当前对话里尚未解决的条件、与本任务直接相关的安全长期记忆或当前可核验状态；不得套用某类任务常见的画像问卷，也不得因为“可能有帮助”就追加问题。已有上下文或可靠记忆已经回答的内容不要再问；记忆与本轮表达冲突或仍不确定时，以本轮表达为准。澄清卡只收齐继续执行所不可缺少的最少字段：有限候选优先单选/多选，能用是/否表达就用判断，日期时间用选择器，只有答案无法枚举时才用短文本；不要在长回答末尾再追问。
 - 先语义判断是否需要外部事实。简单计算、脑筋急转弯、闲聊或模型可直接可靠回答的请求不搜索；时效事实、用户明确要求查证、需要来源或现实世界信息时搜索。
 - 独立判断图片是否能明显加快理解。现实事件的新闻/近期进展综述，如果现场、人物、产品或实物图片能帮助用户区分各条进展，通常设置 needs_images=true；只有用户明确要极简文字、主题高度抽象或确实没有有意义视觉对象时才设为 false。地点、产品、动植物、历史实物等同理。不能机械地按“用户有没有说图片”判断。
 - search_query 必须把完成目标所需的事实约束合并成一次高质量查询；不要拆成多个近义查询，也不要预留“第二次再搜”。近期进展综述要在同一查询中要求多个独立事件、可核验日期和可靠来源，避免只命中一条宽泛报道。image_query 只表达最能代表这些事实的视觉对象，可与事实搜索并发。

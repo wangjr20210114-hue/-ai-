@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from agents.chat._capability_plan import (
+    clarification_tool_available,
     media_enabled_for_plan,
     parse_capability_plan,
     plan_capabilities,
@@ -287,6 +288,34 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             [("user", "最近AI有什么新进展"), ("ai", "这是恢复后的回答")],
         )
 
+    async def test_message_restore_keeps_clarification_between_original_and_answer(self):
+        clarification = {
+            "id": "trip-date",
+            "title": "还需要出发日期",
+            "prompt": "请选择日期后继续。",
+            "fields": [{"id": "date", "label": "出发日期", "type": "date", "required": True}],
+        }
+        messages = [
+            {"type": "human", "content": "帮我安排旅行", "id": "u-trip"},
+            {"type": "tool", "content": json.dumps({
+                "ui_action": "clarification_action",
+                "clarification": clarification,
+            })},
+            {"type": "ai", "content": "", "id": "a-question"},
+            {"type": "human", "content": "补充信息：\\n- 出发日期：2026-08-01", "id": "u-date"},
+            {"type": "ai", "content": "我会按这个日期安排。", "id": "a-plan"},
+        ]
+        store = SimpleNamespace(
+            langgraph_checkpointer=FakeCheckpointer(messages),
+            langgraph_store=FakeStore(),
+        )
+        response = await messages_handler(SimpleNamespace(conversation_id="restore-clarification", store=store))
+        restored = response["messages"]
+        self.assertEqual([item["role"] for item in restored], ["user", "ai", "user", "ai"])
+        self.assertEqual(restored[0]["content"], "帮我安排旅行")
+        self.assertEqual(restored[1]["clarification"], clarification)
+        self.assertEqual(restored[2]["content"], "补充信息：\\n- 出发日期：2026-08-01")
+
     async def test_message_restore_keeps_action_when_final_model_prose_is_empty(self):
         action = new_action(
             "map_recommendation", {"title": "故宫", "places": [PLACE]},
@@ -436,7 +465,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("阻断所有安全且有用的回答", SYSTEM_PROMPT)
         self.assertIn("2–3 套可独立采用的方案", SYSTEM_PROMPT)
         self.assertIn("没决定、都可以、先看看", SYSTEM_PROMPT)
+        self.assertIn("用户不需要再点发送", SYSTEM_PROMPT)
         self.assertNotIn("不同选择会明显改变后续结果时，应先用 ask_user_clarification", SYSTEM_PROMPT)
+        self.assertFalse(clarification_tool_available({"needs_clarification": False}))
+        self.assertTrue(clarification_tool_available({"needs_clarification": True}))
+        self.assertTrue(clarification_tool_available(
+            {"needs_clarification": False}, planner_timed_out=True,
+        ))
 
     def test_semantic_web_search_makes_media_available_without_keyword_rules(self):
         self.assertTrue(media_enabled_for_plan({

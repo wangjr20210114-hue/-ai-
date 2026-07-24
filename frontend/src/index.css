@@ -140,23 +140,23 @@ html.theme-transitioning::view-transition-new(root) {
 
 html.theme-transitioning::view-transition-new(root) {
   z-index: 99999;
-  animation: themeDiagonalReveal 1100ms cubic-bezier(.2, .72, .18, 1) both;
+  animation: themeDiagonalReveal 280ms cubic-bezier(.2, .72, .18, 1) both;
 }
 
 html.theme-transitioning::view-transition-old(root) {
   z-index: 99998;
-  animation: themeDiagonalFadeOld 1100ms cubic-bezier(.2, .72, .18, 1) both;
+  animation: themeDiagonalFadeOld 280ms cubic-bezier(.2, .72, .18, 1) both;
 }
 
 @keyframes themeDiagonalReveal {
   0% {
     clip-path: circle(0 at 100% 0);
-    filter: blur(18px) saturate(.86);
-    opacity: .46;
+    filter: blur(6px) saturate(.9);
+    opacity: .62;
   }
   48% {
-    filter: blur(8px) saturate(.94);
-    opacity: .86;
+    filter: blur(2px) saturate(.96);
+    opacity: .9;
   }
   100% {
     clip-path: circle(150vmax at 100% 0);

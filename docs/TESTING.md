@@ -37,7 +37,7 @@ python -m unittest discover -s tools/tests -v
 git diff --check
 ```
 
-当前分支 2026-07-24 的已验证结果：Node Cloud Functions/架构门禁 22 项、前端 Vitest 101 项（18 个测试文件）、Python Agent 167 项；ESLint、TypeScript/Vite 构建和 `git diff --check` 通过。本轮新增纯图形按钮悬浮说明、流式回答上滑脱离与回到底部恢复、打开网页强制进行一次记忆优先提醒检查，以及简短搜索进度文案回归；原有全局选择/判断、真实语义路线、定位、来源单击、地图、腾讯会议、搜索媒体、流式 Markdown、主动机会和历史消息回归仍全部保留。Provider 脱敏实测见 [`PROVIDER_HEALTH_2026-07-22.md`](PROVIDER_HEALTH_2026-07-22.md)。运行完整 Python 测试前必须激活 `.venv`；系统 Python 缺依赖属于本地环境错误。主包体积警告是已知非阻断优化项。
+当前分支 2026-07-24 的已验证结果：Node Cloud Functions/架构门禁 22 项、前端 Vitest 103 项（19 个测试文件）、Python Agent 168 项；ESLint、TypeScript/Vite 构建和 `git diff --check` 通过。本轮新增语义规划驱动的澄清工具门禁、必要信息卡一次提交自动续答、未决非阻断偏好多方案约束，以及 280 毫秒深浅主题切换回归；纯图形按钮悬浮说明、流式回答上滑、打开网页记忆提醒、定位、来源单击、地图、腾讯会议、搜索媒体、主动机会和历史消息回归仍全部保留。Provider 脱敏实测见 [`PROVIDER_HEALTH_2026-07-22.md`](PROVIDER_HEALTH_2026-07-22.md)。运行完整 Python 测试前必须激活 `.venv`；系统 Python 缺依赖属于本地环境错误。主包体积警告是已知非阻断优化项。
 
 搜索调用次数要在 Makers 控制台日志中验证：按本次请求时间范围搜索 `rich_search turn_audit`，正常冷查询应为 `invocations=1 provider_calls=1`；即使模型误发重复工具调用，`provider_calls` 仍必须保持 1；相同查询命中缓存时为 0。再用 `rich_search provider_call` 交叉核对。浏览器 Network 只看到外层 `POST /chat`，不能据此推断内部工具次数。
 

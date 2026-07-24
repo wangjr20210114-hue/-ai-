@@ -100,7 +100,7 @@ test('static acceptance site covers every release capability with executable det
 });
 
 test('reported acceptance regressions keep explicit implementation guards', async () => {
-  const [files, library, readerClient, chatError, chatTools, chatGraph, workspace] = await Promise.all([
+  const [files, library, readerClient, chatError, chatTools, chatGraph, workspace, messageBubble, capabilityPlan, chatAgent, styles] = await Promise.all([
     read('cloud-functions/files/index.js'),
     read('cloud-functions/library/index.js'),
     read('frontend/src/services/paperApi.ts'),
@@ -108,6 +108,10 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
     read('agents/chat/_ui_tools.py'),
     read('agents/chat/_graph.py'),
     read('agents/workspace/index.py'),
+    read('frontend/src/components/chat/MessageBubble.tsx'),
+    read('agents/chat/_capability_plan.py'),
+    read('agents/chat/index.py'),
+    read('frontend/src/index.css'),
   ]);
   assert.match(files, /image\/png/);
   assert.match(library, /manual_folder/);
@@ -118,6 +122,17 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.match(chatGraph, /工具暂时没有完成/);
   assert.match(chatGraph, /isinstance\(exc, ValueError\)/);
   assert.match(workspace, /collect_schedule_signals/);
+  const clarificationCard = messageBubble.slice(
+    messageBubble.indexOf('function ClarificationCard'),
+    messageBubble.indexOf('function MeetingConfirmationCard'),
+  );
+  assert.match(clarificationCard, /activity: 'clarification_answered'/);
+  assert.match(clarificationCard, /client\.current\.send/);
+  assert.doesNotMatch(clarificationCard, /SET_DRAFT/);
+  assert.match(capabilityPlan, /def clarification_tool_available/);
+  assert.match(chatAgent, /if not clarification_tool_available/);
+  assert.match(styles, /themeDiagonalReveal 280ms/);
+  assert.doesNotMatch(styles, /themeDiagonalReveal 1100ms/);
 });
 
 test('Tencent Meeting uses only the optional personal official MCP Skill', async () => {
