@@ -9,10 +9,11 @@ import logging
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Literal
 from urllib.parse import urlparse
 
 from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
 
 from .._shared.tencent_location import (
     plan_verified_route as provider_plan_route,
@@ -41,6 +42,28 @@ from .._shared.workspace import (
     start_provider_call,
     validate_calendar_change_window,
 )
+
+
+class ClarificationFieldInput(BaseModel):
+    """Strong schema shown to the model for every clarification field."""
+
+    id: str = Field(description="Stable semantic field id, for example destination or travel_date")
+    label: str = Field(description="Short user-visible question label, for example 目的地 or 是否带孩子")
+    type: Literal["single", "multi", "boolean", "text", "date", "datetime"] = Field(
+        description=(
+            "Interaction type. Prefer single/multi for finite choices, boolean for yes/no, "
+            "date/datetime for time, and text only when the answer cannot be enumerated."
+        ),
+    )
+    required: bool = Field(default=True, description="Whether the user must answer this field")
+    options: list[str] = Field(
+        default_factory=list,
+        description="Two to eight natural-language options for single or multi; empty for other types",
+    )
+    placeholder: str = Field(
+        default="",
+        description="Short example only for a text field; do not use it for choices or dates",
+    )
 
 
 def _parse_datetime(value: str) -> datetime:
@@ -857,12 +880,14 @@ def build_production_tools(
     async def ask_user_clarification(
         title: str,
         prompt: str,
-        fields: list[dict[str, Any]],
+        fields: list[ClarificationFieldInput],
     ) -> str:
         """Present one compact, structured clarification card instead of prose interrogation."""
         allowed = {"single", "multi", "boolean", "text", "date", "datetime"}
         normalized: list[dict[str, Any]] = []
         for index, raw in enumerate(fields or []):
+            if isinstance(raw, BaseModel):
+                raw = raw.model_dump()
             if not isinstance(raw, dict):
                 continue
             field_type = str(raw.get("type") or "text").strip().lower()
