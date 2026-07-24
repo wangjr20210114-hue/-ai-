@@ -207,13 +207,12 @@ test('owner data reset reuses Makers storage and never embeds the reset password
     read('frontend/src/components/profile/AppSettingsButton.tsx'),
     read('.env.example'),
   ]);
-  assert.match(agentReset, /ctx\.store\.list_conversations/);
-  assert.match(agentReset, /ctx\.store\.delete_conversation/);
   assert.match(agentReset, /ctx\.store\.langgraph_store/);
-  assert.match(agentReset, /langgraph_checkpointer\.adelete_thread/);
-  assert.match(agentReset, /async def _gather[\s\S]*import asyncio as asyncio_runtime/);
-  assert.doesNotMatch(agentReset, /^import asyncio$/m);
+  assert.match(agentReset, /checkpointer\.adelete_thread/);
   assert.match(fileReset, /@edgeone\/pages-blob/);
+  assert.match(fileReset, /context\.agent\?\.store/);
+  assert.match(fileReset, /listConversations/);
+  assert.match(fileReset, /deleteConversation/);
   assert.match(agentReset + fileReset + envExample, /DATA_CLEAR_PASSWORD/);
   assert.match(settings, /resetApplicationData/);
   assert.doesNotMatch(agentReset + fileReset + settings + envExample, /wangjryyds/);

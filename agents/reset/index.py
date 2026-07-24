@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import re
 
 from .._shared.auth import require_user
 from .._shared.http import error
@@ -18,13 +19,6 @@ def _value(item, name, default=None):
     if isinstance(item, dict):
         return item.get(name, default)
     return getattr(item, name, default)
-
-
-async def _gather(*operations):
-    # Import inside the callable so the Makers route packager keeps the stdlib
-    # dependency in the generated route module.
-    import asyncio as asyncio_runtime
-    return await asyncio_runtime.gather(*operations)
 
 
 async def _delete_application_namespaces(store) -> int:
@@ -45,54 +39,44 @@ async def _delete_application_namespaces(store) -> int:
             break
         offset += len(page)
 
-    async def delete_namespace(namespace: tuple[str, ...]) -> int:
-        deleted = 0
+    deleted = 0
+    for namespace in namespaces:
         while True:
             items = await store.asearch(namespace, limit=100)
             if not items:
                 break
-            await _gather(*(
-                store.adelete(tuple(_value(item, "namespace", namespace)), str(_value(item, "key", "")))
-                for item in items
-                if str(_value(item, "key", ""))
-            ))
+            for item in items:
+                key = str(_value(item, "key", ""))
+                if key:
+                    await store.adelete(tuple(_value(item, "namespace", namespace)), key)
             deleted += len(items)
-        return deleted
-
-    counts = await _gather(*(delete_namespace(namespace) for namespace in namespaces))
-    return sum(counts)
+    return deleted
 
 
-async def _delete_conversation(ctx, conversation_id: str) -> None:
-    operations = [ctx.store.delete_conversation(conversation_id)]
-    if getattr(ctx.store, "langgraph_checkpointer", None) is not None:
-        operations.append(ctx.store.langgraph_checkpointer.adelete_thread(conversation_id))
-    await _gather(*operations)
+def _conversation_ids(body) -> list[str]:
+    values = body.get("conversation_ids") or []
+    if not isinstance(values, list):
+        return []
+    output: list[str] = []
+    for value in values[:1000]:
+        conversation_id = str(value or "").strip()
+        if (
+            6 <= len(conversation_id) <= 36
+            and re.fullmatch(r"[0-9A-Za-z._-]+", conversation_id)
+            and conversation_id not in output
+        ):
+            output.append(conversation_id)
+    return output
 
 
-async def _delete_conversations(ctx, user_id: str) -> int:
+async def _delete_checkpoints(ctx, conversation_ids: list[str]) -> int:
+    checkpointer = getattr(ctx.store, "langgraph_checkpointer", None)
+    if checkpointer is None:
+        return 0
     deleted = 0
-    for _ in range(100):
-        result = await ctx.store.list_conversations(
-            user_id=user_id,
-            limit=100,
-            order="desc",
-        )
-        items = list(_value(result, "items", []) or [])
-        if not items:
-            break
-        conversation_ids = [
-            str(_value(item, "conversation_id", "") or _value(item, "conversationId", ""))
-            for item in items
-        ]
-        conversation_ids = [conversation_id for conversation_id in conversation_ids if conversation_id]
-        for offset in range(0, len(conversation_ids), 8):
-            batch = conversation_ids[offset:offset + 8]
-            await _gather(*(
-                _delete_conversation(ctx, conversation_id)
-                for conversation_id in batch
-            ))
-            deleted += len(batch)
+    for conversation_id in conversation_ids:
+        await checkpointer.adelete_thread(conversation_id)
+        deleted += 1
     return deleted
 
 
@@ -116,10 +100,8 @@ async def handler(ctx):
         for skill_id, enabled in DEFAULT_SKILL_PREFERENCES.items()
     }
 
-    conversations_deleted, state_items_deleted = await _gather(
-        _delete_conversations(ctx, user_id),
-        _delete_application_namespaces(langgraph_store),
-    )
+    checkpoints_deleted = await _delete_checkpoints(ctx, _conversation_ids(body))
+    state_items_deleted = await _delete_application_namespaces(langgraph_store)
 
     clean_intelligence = empty_intelligence_state()
     clean_intelligence["skill_preferences"] = skills
@@ -127,6 +109,6 @@ async def handler(ctx):
     return {
         "ok": True,
         "skills_preserved": skills,
-        "conversations_deleted": conversations_deleted,
+        "checkpoints_deleted": checkpoints_deleted,
         "state_items_deleted": state_items_deleted,
     }
