@@ -947,7 +947,7 @@ def build_production_tools(
         (analyze_images_parallel, "analyze_images_parallel", "并行视觉评估最多 30 张图片；单张失败不影响其他图片。"),
         (search_arxiv, "search_arxiv", "补充获取 arXiv 可下载结果。富搜索已找到论文时，把准确标题列表一次性传给 titles；按作者和年份查找时分别传 author（英文署名）与 year，不要把作者年份混在宽泛 topic 中。工具会严格过滤作者/年份与标题，每轮最多调用一次。"),
         (propose_workflow, "propose_workflow", "用户明确要求建立跨时间、多步骤的持续提醒或计划时创建工作流提案。steps 每项包含 offset_minutes、title、body、action_prompt，可用 depends_on=['step_1'] 建立 DAG 依赖；失败时需要回退提示的步骤可增加 compensation={title,body,action_prompt}。默认按顺序依赖。必须由用户确认后才会激活，依赖步骤需用户标记完成后才推进。"),
-        (ask_user_clarification, "ask_user_clarification", "全项目统一的必要信息收集入口。缺少关键信息时，本轮只调用一次并集中收集：有限候选优先 single 单选或 multi 多选；能用是/否表达就用 boolean 判断；日期时间必须用 date/datetime 选择器；仅当答案确实无法枚举时才用 text 短填空。不要用自然语言连续追问，也不要在长回答末尾才提问。"),
+        (ask_user_clarification, "ask_user_clarification", "全项目统一的必要信息收集入口。只有缺少该字段会阻断所有安全有用的回答，或无法唯一确定真实副作用对象时才能调用；“知道后更好”、可选偏好和用户尚未决定都不得调用，应直接在正文给出 2–3 套带假设与取舍的方案。本轮最多调用一次并只收最少必要字段：有限候选优先 single/multi，能用是/否表达就用 boolean，日期时间必须用 date/datetime，仅答案无法枚举时用 text。不要连续追问，也不要在长回答末尾才提问。"),
     ]
     meeting_ready = bool(str(runtime_env.get("TENCENT_MEETING_TOKEN") or "").strip())
     if not meeting_ready:

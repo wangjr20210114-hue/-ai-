@@ -454,7 +454,6 @@ export default function MessageBubble({ message, client }: Props) {
           text: retryMessage.content,
           message_id: retryMessage.id,
           client_message_id: retryMessage.id,
-          web_search: true,
           client_message: retryMessage,
           reference_images: [],
           response_language: getStoredLanguage(),

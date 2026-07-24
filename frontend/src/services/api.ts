@@ -95,23 +95,14 @@ export async function skillsOperation(
   conversationId: string,
   preferences?: Record<string, boolean>,
 ): Promise<{ preferences: Record<string, boolean>; providers: { meeting: boolean } }> {
-  const headers = { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) };
-  const [intelligenceRes, systemRes] = await Promise.all([
-    authorizedFetch('/intelligence', {
-      method: 'POST', headers,
-      body: JSON.stringify(preferences ? { operation: 'update_skill_preferences', preferences } : { operation: 'get' }),
-    }),
-    authorizedFetch('/system_internal', {
-      method: 'POST', headers, body: JSON.stringify({ operation: 'get' }),
-    }),
-  ]);
-  const intelligence = await intelligenceRes.json().catch(() => ({})) as MakersIntelligenceState & { error?: string };
-  const system = await systemRes.json().catch(() => ({})) as { providers?: { meeting?: boolean }; error?: string };
-  if (!intelligenceRes.ok) throw new Error(intelligence.error || translate('skillsSaveFailed'));
-  if (!systemRes.ok) throw new Error(system.error || translate('skillsStatusReadFailed'));
+  const intelligence = await intelligenceOperation(
+    conversationId,
+    preferences ? 'update_skill_preferences' : 'get',
+    preferences ? { preferences } : {},
+  );
   return {
     preferences: intelligence.skill_preferences || {},
-    providers: { meeting: Boolean(system.providers?.meeting) },
+    providers: { meeting: Boolean(intelligence.providers?.meeting) },
   };
 }
 

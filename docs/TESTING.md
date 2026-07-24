@@ -37,7 +37,7 @@ python -m unittest discover -s tools/tests -v
 git diff --check
 ```
 
-当前分支 2026-07-24 的已验证结果：Node Cloud Functions/架构门禁 21 项、前端 Vitest 98 项（18 个测试文件）、Python Agent 164 项；ESLint、TypeScript/Vite 构建和 `git diff --check` 通过。本轮新增全局必要信息“选择/判断优先”、真实语义路线、周边品牌物理半径核验、多个分店单选，以及工具协议被收回后空回答必须进入失败态的回归。原有定位、来源单击、地图、腾讯会议、搜索媒体、流式 Markdown、主动机会和历史消息回归仍全部保留。Provider 脱敏实测见 [`PROVIDER_HEALTH_2026-07-22.md`](PROVIDER_HEALTH_2026-07-22.md)。运行完整 Python 测试前必须激活 `.venv`；系统 Python 缺依赖属于本地环境错误。主包体积警告是已知非阻断优化项。
+当前分支 2026-07-24 的已验证结果：Node Cloud Functions/架构门禁 22 项、前端 Vitest 99 项（18 个测试文件）、Python Agent 166 项；ESLint、TypeScript/Vite 构建和 `git diff --check` 通过。本轮新增“只有真正阻断任务的信息才发问卷、未决偏好直接给 2–3 套方案”、Skills 唯一搜索开关、设置/Skills 轻量读取，以及原有全局选择/判断、真实语义路线、周边品牌物理半径核验、多个分店单选和空回答失败态回归。定位、来源单击、地图、腾讯会议、搜索媒体、流式 Markdown、主动机会和历史消息回归仍全部保留。Provider 脱敏实测见 [`PROVIDER_HEALTH_2026-07-22.md`](PROVIDER_HEALTH_2026-07-22.md)。运行完整 Python 测试前必须激活 `.venv`；系统 Python 缺依赖属于本地环境错误。主包体积警告是已知非阻断优化项。
 
 搜索调用次数要在 Makers 控制台日志中验证：按本次请求时间范围搜索 `rich_search turn_audit`，正常冷查询应为 `invocations=1 provider_calls=1`；即使模型误发重复工具调用，`provider_calls` 仍必须保持 1；相同查询命中缓存时为 0。再用 `rich_search provider_call` 交叉核对。浏览器 Network 只看到外层 `POST /chat`，不能据此推断内部工具次数。
 

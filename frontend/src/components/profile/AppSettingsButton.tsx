@@ -3,7 +3,7 @@ import { Button, Dialog, MessagePlugin } from 'tdesign-react';
 import { SettingIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import { intelligenceOperation, proactiveOperation } from '../../services/api';
-import { getReadingLibrary, updateReadingSettings } from '../../services/paperApi';
+import { getReadingSettings, updateReadingSettings } from '../../services/paperApi';
 import { languageName, useLanguage, type Language } from '../../i18n';
 import type { MakersIntelligenceState } from '../../types';
 
@@ -21,7 +21,6 @@ export default function AppSettingsButton() {
   const [busy, setBusy] = useState('');
   const [automatic, setAutomatic] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [settingsReady, setSettingsReady] = useState(false);
   const [searchPreferences, setSearchPreferences] = useState(DEFAULT_SEARCH_PREFERENCES);
   const [skillPreferences, setSkillPreferences] = useState<Record<string, boolean>>({});
 
@@ -29,42 +28,40 @@ export default function AppSettingsButton() {
     if (!visible) return;
     let disposed = false;
     setLoading(true);
-    setSettingsReady(false);
     void (async () => {
-      try {
-        const state = await intelligenceOperation(conversationId);
-        if (disposed) return;
-        setSearchPreferences(state.search_preferences || DEFAULT_SEARCH_PREFERENCES);
-        const skills = state.skill_preferences || {};
-        setSkillPreferences(skills);
-        const skillTasks: Array<Promise<unknown>> = [];
-        if (skills['proactive-agent'] !== false) {
-          skillTasks.push(proactiveOperation(conversationId, 'refresh').then((next) => {
-            if (!disposed) dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
-          }));
-        }
-        if (skills['paper-reading'] !== false) {
-          skillTasks.push(getReadingLibrary().then((data) => {
-            if (!disposed) setAutomatic(data.settings.auto_organize);
-          }));
-        }
-        const results = await Promise.allSettled(skillTasks);
-        results.forEach((result) => {
-          if (result.status === 'rejected') console.warn('settings refresh failed', result.reason);
-        });
-      } catch (error) {
-        console.warn('settings refresh failed', error);
-      } finally {
-        if (!disposed) {
-          setSettingsReady(true);
-          setLoading(false);
-        }
+      const tasks = [
+        intelligenceOperation(conversationId).then((state) => {
+          if (disposed) return;
+          setSearchPreferences(state.search_preferences || DEFAULT_SEARCH_PREFERENCES);
+          setSkillPreferences(state.skill_preferences || {});
+        }),
+        getReadingSettings().then((settings) => {
+          if (!disposed) setAutomatic(settings.auto_organize);
+        }),
+      ];
+      const results = await Promise.allSettled(tasks);
+      results.forEach((result) => {
+        if (result.status === 'rejected') console.warn('settings refresh failed', result.reason);
+      });
+      if (!disposed) {
+        setLoading(false);
       }
     })();
     return () => {
       disposed = true;
     };
-  }, [conversationId, dispatch, visible]);
+  }, [conversationId, visible]);
+
+  useEffect(() => {
+    if (!visible || proactive) return;
+    let disposed = false;
+    void proactiveOperation(conversationId, 'get').then((next) => {
+      if (!disposed) dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
+    }).catch((error) => console.warn('proactive settings read failed', error));
+    return () => {
+      disposed = true;
+    };
+  }, [conversationId, dispatch, proactive, visible]);
 
   useEffect(() => {
     const changed = (event: Event) => {
@@ -117,8 +114,6 @@ export default function AppSettingsButton() {
   const preferences = proactive?.preferences;
   const skillEnabled = (id: string) => skillPreferences[id] !== false;
   const openSettings = () => {
-    setLoading(true);
-    setSettingsReady(false);
     setVisible(true);
   };
   return <>
@@ -134,13 +129,6 @@ export default function AppSettingsButton() {
       onCancel={() => setVisible(false)}
     >
       <div className={`app-settings-dialog ${loading ? 'is-loading' : ''}`} aria-busy={loading}>
-        {!settingsReady && (
-          <div className="settings-loading-state" role="status">
-            <span className="settings-loading-spinner" aria-hidden="true" />
-            <span>{t('loadingSettings')}</span>
-          </div>
-        )}
-        {settingsReady && <>
         <section className="app-settings-section">
           <h3>{t('language')}</h3>
           <select className="settings-language-select" value={language} onChange={(event) => setLanguage(event.target.value as Language)}>
@@ -199,7 +187,6 @@ export default function AppSettingsButton() {
           <label className="app-settings-choice"><input type="radio" checked={automatic} disabled={busy === 'reading'} onChange={() => void saveReading(true)} /><span><strong>{t('autoOrganize')}</strong><small>{t('autoFilingDescription')}</small></span></label>
           <label className="app-settings-choice"><input type="radio" checked={!automatic} disabled={busy === 'reading'} onChange={() => void saveReading(false)} /><span><strong>{t('manualOrganize')}</strong><small>{t('manualFilingDescription')}</small></span></label>
         </section>}
-        </>}
       </div>
     </Dialog>
   </>;

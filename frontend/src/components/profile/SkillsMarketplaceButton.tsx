@@ -89,11 +89,7 @@ export default function SkillsMarketplaceButton() {
         <Tag theme="primary" variant="light">{loading ? t('loading') : t('enabledCount', { enabled: enabledCount, total: SKILLS_CATALOG.length })}</Tag>
       </div>
       <div className="skills-marketplace" aria-busy={loading}>
-        {loading ? Array.from({ length: 6 }, (_, index) => (
-          <div className="skill-market-skeleton" key={`skill-loading-${index}`} aria-hidden="true">
-            <span /><div><i /><i /></div>
-          </div>
-        )) : SKILLS_CATALOG.map((skill) => {
+        {SKILLS_CATALOG.map((skill) => {
           const enabled = skill.locked || preferences[skill.id] !== false;
           const missingRecommended = (skill.recommends || []).filter((id) => preferences[id] === false);
           const missingRequired = (skill.requires || []).filter((id) => preferences[id] === false);
@@ -125,7 +121,7 @@ export default function SkillsMarketplaceButton() {
               aria-checked={enabled}
               aria-label={t('toggleSkill', { action: enabled ? t('disableAction') : t('enableAction'), name: t(skill.nameKey) })}
               className={`skill-toggle ${enabled ? 'is-on' : ''}`}
-              disabled={skill.locked || savingId === skill.id}
+              disabled={skill.locked || loading || savingId === skill.id}
               onClick={() => void save(skill.id, !enabled)}
             ><span /></button>
           </article>;

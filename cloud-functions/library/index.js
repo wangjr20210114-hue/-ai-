@@ -67,6 +67,11 @@ export async function onRequest(context) {
   const store = getStore({ name: 'yuanbao-files', consistency: 'strong' });
 
   if (request.method === 'GET') {
+    const url = new URL(request.url);
+    if (url.searchParams.get('view') === 'settings') {
+      const settings = { auto_organize: true, ...await loadJson(store, keys.settings, {}) };
+      return json({ settings });
+    }
     const state = await loadState(store, keys);
     state.items.sort((a, b) => Number(b.last_opened_at || b.created_at) - Number(a.last_opened_at || a.created_at));
     return json(state);

@@ -46,7 +46,6 @@ export function terminalGenerationError(error: unknown, timedOut = false): strin
 }
 
 const TOOL_PROGRESS: Record<string, { active: TranslationKey; complete: TranslationKey }> = {
-  web_search: { active: 'toolWebSearchActive', complete: 'toolWebSearchComplete' },
   rich_search: { active: 'toolRichSearchActive', complete: 'toolRichSearchComplete' },
   search_places: { active: 'toolPlacesActive', complete: 'toolPlacesComplete' },
   plan_route_between_places: { active: 'toolRouteActive', complete: 'toolRouteComplete' },

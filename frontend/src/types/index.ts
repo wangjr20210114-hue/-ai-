@@ -143,6 +143,7 @@ export interface MakersIntelligenceState {
   memory_preferences?: { enabled: boolean };
   search_preferences?: { result_limit: number; image_limit: number; parallel_image_search: boolean };
   skill_preferences?: Record<string, boolean>;
+  providers?: { meeting?: boolean };
   rule_proposals: ProactiveRuleProposal[];
   feedback_count: number;
   usage: {

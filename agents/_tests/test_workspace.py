@@ -25,7 +25,7 @@ from agents.chat._llm import _model_timeout
 from agents.chat._history import bounded_history
 from agents.chat._calendar_context import calendar_context
 from agents.chat._graph import tool_completion_fallback
-from agents.chat.index import empty_generation_error
+from agents.chat.index import SYSTEM_PROMPT, empty_generation_error
 from agents.chat._ui_tools import build_production_tools, verify_place_queries_parallel
 from agents.chat._protocol import PublicStreamFilter, action_fallback_content, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
@@ -431,6 +431,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "needs_calendar_action": True,
         }
         self.assertEqual(required_tools_for_plan(plan), ("ask_user_clarification",))
+
+    def test_optional_or_undecided_preferences_produce_scenarios_not_questionnaires(self):
+        self.assertIn("阻断所有安全且有用的回答", SYSTEM_PROMPT)
+        self.assertIn("2–3 套可独立采用的方案", SYSTEM_PROMPT)
+        self.assertIn("没决定、都可以、先看看", SYSTEM_PROMPT)
+        self.assertNotIn("不同选择会明显改变后续结果时，应先用 ask_user_clarification", SYSTEM_PROMPT)
 
     def test_semantic_web_search_makes_media_available_without_keyword_rules(self):
         self.assertTrue(media_enabled_for_plan({
@@ -1337,6 +1343,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             None, store=FakeStore(), conversation_id="clarification-policy", env={},
         )
         clarification = next(item for item in tools if item.name == "ask_user_clarification")
+        self.assertIn("阻断所有安全有用的回答", clarification.description)
+        self.assertIn("2–3 套带假设与取舍的方案", clarification.description)
         schema = clarification.args_schema.model_json_schema()
         field_schema = schema["$defs"]["ClarificationFieldInput"]
         self.assertEqual(field_schema["required"], ["id", "label", "type"])

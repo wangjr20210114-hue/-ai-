@@ -132,10 +132,35 @@ test('Tencent Meeting uses only the optional personal official MCP Skill', async
   assert.match(envExample, /TENCENT_MEETING_TOKEN/);
   assert.doesNotMatch(provider + envExample, /TENCENT_MEETING_SECRET_ID|X-TC-Signature/);
   assert.match(tools, /if not meeting_ready/);
-  assert.match(skillsApi, /authorizedFetch\('\/system_internal'/);
+  assert.match(skillsApi, /intelligenceOperation/);
   assert.match(skillsApi, /makersConversationHeaders\(conversationId\)/);
-  assert.doesNotMatch(skillsApi, /skillsOperation[\s\S]{0,500}authorizedFetch\('\/system'/);
+  assert.doesNotMatch(skillsApi, /skillsOperation[\s\S]{0,800}authorizedFetch\('\/system(?:_internal)?'/);
   assert.doesNotMatch(provider + envExample, /MEETING_BRIDGE|shutil\.which\("tmeet"\)|create_subprocess_exec/);
+});
+
+test('settings and Skills open on lightweight configuration reads', async () => {
+  const [settings, skills, api, intelligence, library, paperApi, input, catalog] = await Promise.all([
+    read('frontend/src/components/profile/AppSettingsButton.tsx'),
+    read('frontend/src/components/profile/SkillsMarketplaceButton.tsx'),
+    read('frontend/src/services/api.ts'),
+    read('agents/intelligence/index.py'),
+    read('cloud-functions/library/index.js'),
+    read('frontend/src/services/paperApi.ts'),
+    read('frontend/src/components/chat/InputBar.tsx'),
+    read('frontend/src/components/profile/skillsCatalog.ts'),
+  ]);
+  const settingsOpenEffects = settings.slice(0, settings.indexOf('const setPreferences'));
+  assert.doesNotMatch(settingsOpenEffects, /proactiveOperation\(conversationId,\s*['"]refresh['"]/);
+  assert.match(settings, /proactiveOperation\(conversationId,\s*['"]refresh['"]/);
+  assert.match(settings, /getReadingSettings\(\)/);
+  assert.doesNotMatch(settings, /settingsReady|settings-loading-state/);
+  assert.match(paperApi, /\/library\?view=settings/);
+  assert.match(library, /searchParams\.get\('view'\) === 'settings'/);
+  assert.doesNotMatch(skills, /skill-market-skeleton/);
+  assert.doesNotMatch(api, /skillsOperation[\s\S]{0,800}system_internal/);
+  assert.match(intelligence, /"providers"[\s\S]{0,120}"meeting"/);
+  assert.doesNotMatch(input, /web_search|webSearch|Checkbox/);
+  assert.match(catalog, /id:\s*'web-search'/);
 });
 
 test('legacy data migration terminates in Makers-managed stores', async () => {

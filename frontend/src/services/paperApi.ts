@@ -101,6 +101,13 @@ export async function getReadingLibrary(): Promise<ReadingLibrary> {
   return { papers: data.items || [], folders: data.folders || [], settings: { auto_organize: data.settings?.auto_organize !== false } };
 }
 
+export async function getReadingSettings(): Promise<ReadingSettings> {
+  const resp = await authorizedFetch('/library?view=settings');
+  const data = await resp.json().catch(() => ({})) as { settings?: ReadingSettings; error?: string };
+  if (!resp.ok) throw new Error(data.error || translate('readingLoadFailed'));
+  return { auto_organize: data.settings?.auto_organize !== false };
+}
+
 async function libraryOperation<T>(body: Record<string, unknown>): Promise<T> {
   const resp = await authorizedFetch('/library', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const data = await resp.json().catch(() => ({})) as T & { error?: string };

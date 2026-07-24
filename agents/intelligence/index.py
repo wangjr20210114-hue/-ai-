@@ -18,6 +18,14 @@ from .._shared.auth import require_user
 from .._shared.http import error
 
 
+def _public_state(state, env):
+    public = public_intelligence_state(state)
+    public["providers"] = {
+        "meeting": bool(env.get("TENCENT_MEETING_TOKEN")),
+    }
+    return public
+
+
 async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
@@ -27,7 +35,7 @@ async def handler(ctx):
     try:
         state = await load_intelligence_state(store, user_id)
         if operation == "get" or operation == "export":
-            return public_intelligence_state(state)
+            return _public_state(state, getattr(ctx, "env", {}) or {})
         if operation == "confirm_memory":
             confirm_memory(state, str(body.get("proposal_id") or ""), int(body.get("version") or 0))
         elif operation == "reject_memory":
@@ -92,6 +100,6 @@ async def handler(ctx):
         else:
             raise ValueError("不支持的记忆与反馈操作")
         saved = await save_intelligence_state(store, state, user_id)
-        return public_intelligence_state(saved)
+        return _public_state(saved, getattr(ctx, "env", {}) or {})
     except Exception as exc:
         return error(str(exc))

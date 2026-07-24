@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Checkbox, MessagePlugin, Textarea, Upload } from 'tdesign-react';
+import { Button, MessagePlugin, Textarea, Upload } from 'tdesign-react';
 import { SendIcon, AttachIcon } from 'tdesign-icons-react';
 import type { UploadFile } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
@@ -45,7 +45,6 @@ export default function InputBar({ client }: Props) {
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const [webSearch, setWebSearch] = useState(true);
   const [referenceImage, setReferenceImage] = useState<{ name: string; dataUrl: string } | null>(null);
   const activeStreaming = messages.some((message) => message.streaming);
 
@@ -66,7 +65,6 @@ export default function InputBar({ client }: Props) {
         text: message.content,
         message_id: message.id,
         client_message_id: message.id,
-        web_search: webSearch,
         client_message: message,
         reference_images: referenceImages,
         document_context: documentContext ? {
@@ -253,9 +251,6 @@ export default function InputBar({ client }: Props) {
                 {t('upload')}
               </Button>
             </Upload>
-            <Checkbox checked={webSearch} onChange={(v) => setWebSearch(v as boolean)}>
-              {t('webSearch')}
-            </Checkbox>
           </div>
           {activeStreaming || stopping ? (
             <Button className="input-submit-button" theme="danger" variant="outline" loading={stopping} disabled={stopping} onClick={() => { void handleStop(); }} aria-label={stopping ? t('stoppingGeneration') : t('stopGeneration')}>
