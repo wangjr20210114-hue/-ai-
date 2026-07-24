@@ -11,7 +11,7 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from ._history import bounded_history
-from ._protocol import dsml_tool_calls, public_content
+from ._protocol import action_fallback_content, dsml_tool_calls, public_content
 from ._capability_plan import next_required_tool
 
 
@@ -40,22 +40,62 @@ TURN_SINGLE_USE_TOOLS = {
 }
 
 
-def tool_completion_fallback(tool_names: Iterable[str]) -> str:
-    """Return safe prose when a successful action tool is followed by an empty model turn."""
-    names = set(tool_names)
-    if names & {
-        "prepare_map_recommendation",
-        "recommend_places_on_map",
-    }:
-        return "地点已经过真实地点服务核实。请点击下方按钮显示地点；未核实的地点不会进入地图。"
-    if "propose_meeting" in names:
-        return "腾讯会议确认卡已准备好，请在卡片中补齐并核对条件后继续。"
-    if "propose_calendar_changes" in names:
-        return "日程变更确认卡已准备好，请核对后再确认。"
-    if "propose_image" in names:
-        return "图片任务已准备好，可在下方图片工坊查看结果。"
-    if "ask_user_clarification" in names:
-        return ""
+def _logical_turn_messages(messages: Iterable) -> list:
+    """Return messages belonging to the current user goal.
+
+    A hidden structured-card answer continues its original goal, so it may
+    cross one human boundary. Normal user messages always start a new turn.
+    """
+    logical_turn_messages: list = []
+    crossed_clarification_answer = False
+    for message in reversed(list(messages)):
+        if getattr(message, "type", "") in {"human", "user"}:
+            if not crossed_clarification_answer and _hidden_clarification_answer(message):
+                crossed_clarification_answer = True
+                continue
+            break
+        logical_turn_messages.append(message)
+    return logical_turn_messages
+
+
+def action_completion_fallback(messages: Iterable) -> str:
+    """Return prose only for an Action that was actually created this turn.
+
+    Looking only at the called tool name is unsafe: ToolNode records a
+    ToolMessage even when argument validation or a provider call failed. That
+    previously let a failed calendar proposal claim that a confirmation card
+    was ready although no durable Action existed.
+    """
+    actions: list[dict] = []
+    for message in reversed(_logical_turn_messages(messages)):
+        if getattr(message, "type", "") != "tool":
+            continue
+        try:
+            payload = json.loads(str(getattr(message, "content", "") or ""))
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(payload, dict)
+            and payload.get("ui_action") in {
+                "map_action", "calendar_action", "side_effect_action",
+            }
+            and isinstance(payload.get("action"), dict)
+        ):
+            actions.append(payload)
+    return action_fallback_content(actions) if actions else ""
+
+
+def tool_failure_fallback(messages: Iterable) -> str:
+    """Expose the real validation failure if both model synthesis passes are empty."""
+    for message in _logical_turn_messages(messages):
+        if getattr(message, "type", "") != "tool":
+            continue
+        content = str(getattr(message, "content", "") or "").strip()
+        if not content.startswith("操作未完成："):
+            continue
+        detail = content[len("操作未完成："):].split("。请自然说明", 1)[0].strip("。 ")
+        if detail:
+            return f"这次没有生成确认卡：{detail}。请检查后重试。"
     return ""
 
 
@@ -66,18 +106,7 @@ def tool_result_fallback(messages: Iterable) -> str:
     tool-free retry return no public prose. It prevents a completed provider
     lookup from collapsing into the generic empty-answer error.
     """
-    logical_turn_messages: list = []
-    crossed_clarification_answer = False
-    for message in reversed(list(messages)):
-        if getattr(message, "type", "") in {"human", "user"}:
-            if (
-                not crossed_clarification_answer
-                and _hidden_clarification_answer(message)
-            ):
-                crossed_clarification_answer = True
-                continue
-            break
-        logical_turn_messages.append(message)
+    logical_turn_messages = _logical_turn_messages(messages)
 
     places: list[dict] = []
     seen: set[str] = set()
@@ -377,7 +406,11 @@ def build_graph(
                 )),
             ])
         if not getattr(response, "tool_calls", None) and not public_content(getattr(response, "content", "")).strip():
-            fallback = tool_completion_fallback(used_tool_names) or tool_result_fallback(state["messages"])
+            fallback = (
+                action_completion_fallback(state["messages"])
+                or tool_failure_fallback(state["messages"])
+                or tool_result_fallback(state["messages"])
+            )
             if fallback:
                 response = AIMessage(content=fallback)
         return {"messages": [response]}

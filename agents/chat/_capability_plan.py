@@ -192,6 +192,7 @@ async def plan_capabilities(
 - 用户要找某个已知地点、当前位置或日程地点“附近/周边”的餐馆、早餐店、酒店、商店、景点等真实地点时，needs_nearby_places=true；该组合能力会复用工作区内已核实的参照地点并调用真实附近检索，同时生成仅含核实结果的地图。不要仅为了发现附近地点设置 needs_web_search；只有用户还要求点评、营业时间、新闻等地图服务之外的时效事实时才同时设置 web_search。needs_nearby_places 已包含地点核验和地图 Action，不必再设置 needs_places 或 needs_map_action。
 - 用户询问两个地点之间“多远、多久、怎么走、打车多少钱”或明确要求道路路线时，needs_route=true。真实距离由地点与路线服务核验，不要为了距离本身设置 needs_web_search，也不要用网页结果估算；只有用户还要求沿途新闻、实时政策等额外事实时才同时设置 web_search。needs_route 已包含两个端点的地点核验，不必为了同一端点再额外设置 needs_places 或 map_action。
 - 用户要求新增/修改/删除行程日程才需要 calendar_action；仅说计划去某地不等于写日程。
+- 新增或修改日程时，只要用户给出了现实地点且本轮没有可唯一复用的已核实地点，就同时设置 needs_places=true，让地点核实先于 calendar_action；不得直接把自由文本地点或猜测的地点 ID 交给日程工具。
 - 创建会议需要 meeting_action；生成新图片需要 image_generation。若图片主体是现实中的具体人物、地点、产品、动物品种或其他需要外观准确的对象，同时设置 web_search 和 images，并用 image_query 描述该真实主体；纯幻想、抽象画面或用户已给参考图则不搜索。
 - 搜索论文、文献、arXiv 或某研究方向的学术成果需要 papers；search_query 写论文主题。用户指定作者时 paper_author 使用其常见英文学术署名（如能确定），指定年份和数量时分别填写 paper_year、paper_limit；没有则为 0 或空字符串。
 - 需要搜索时，search_query 改写成适合搜索引擎的简洁事实查询，不要保留“能不能、给我讲讲”等对话措辞；否则为空字符串。

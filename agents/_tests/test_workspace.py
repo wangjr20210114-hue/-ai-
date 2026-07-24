@@ -11,6 +11,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
 from agents.chat._capability_plan import (
     media_enabled_for_plan,
     parse_capability_plan,
@@ -24,7 +26,7 @@ from agents.chat._followups import parse_followups
 from agents.chat._llm import _model_timeout
 from agents.chat._history import bounded_history, valid_model_history
 from agents.chat._calendar_context import calendar_context
-from agents.chat._graph import tool_completion_fallback
+from agents.chat._graph import action_completion_fallback, tool_failure_fallback
 from agents.chat.index import (
     SYSTEM_PROMPT,
     capability_planning_message,
@@ -1764,6 +1766,43 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         event = result["action"]["payload"]["changes"][0]["event"]
         self.assertEqual(event["place"]["place_id"], PLACE["place_id"])
 
+    async def test_calendar_tool_resolves_explicit_location_when_planner_omits_place_step(self):
+        store = FakeStore()
+        await save_workspace(store, USER_WORKSPACE_ID, empty_workspace())
+        tools = build_production_tools(
+            None,
+            store=store,
+            conversation_id="calendar-location-fallback",
+            env={"TENCENT_MAP_SERVER_KEY": "test-key"},
+            enabled_skills={"calendar", "maps"},
+        )
+        calendar_tool = next(tool for tool in tools if tool.name == "propose_calendar_changes")
+        verified_place = {
+            **PLACE,
+            "place_id": "tiananmen-1",
+            "name": "天安门",
+            "address": "北京市东城区东长安街",
+        }
+        with patch(
+            "agents.chat._ui_tools.provider_search_places",
+            AsyncMock(return_value=[verified_place]),
+        ) as provider:
+            result = json.loads(await calendar_tool.ainvoke({
+                "summary": "7月26日早8点去天安门",
+                "changes": [{
+                    "operation": "create",
+                    "event": {
+                        "title": "前往天安门",
+                        "start_time": "2099-07-26T08:00:00+08:00",
+                        "location": "北京天安门",
+                    },
+                }],
+            }))
+        self.assertEqual(result["ui_action"], "calendar_action")
+        event = result["action"]["payload"]["changes"][0]["event"]
+        self.assertEqual(event["place"]["place_id"], "tiananmen-1")
+        provider.assert_awaited_once()
+
     async def test_calendar_tool_updates_end_time_without_requiring_start_time_again(self):
         store = FakeStore()
         state = empty_workspace()
@@ -2125,12 +2164,61 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(public_content("这是最终回答。"), "这是最终回答。")
 
     def test_action_tools_have_safe_empty_prose_fallbacks(self):
-        self.assertIn("点击", tool_completion_fallback(["prepare_map_recommendation"]))
-        self.assertIn("补齐", tool_completion_fallback(["propose_meeting"]))
+        map_action = {
+            "ui_action": "map_action",
+            "action": {"kind": "map_recommendation"},
+        }
+        meeting_action = {
+            "ui_action": "side_effect_action",
+            "action": {"kind": "meeting_create"},
+        }
+        self.assertIn("点击", action_completion_fallback([
+            ToolMessage(
+                content=json.dumps(map_action),
+                name="prepare_map_recommendation",
+                tool_call_id="map-fallback",
+            ),
+        ]))
+        self.assertIn("补齐", action_completion_fallback([
+            ToolMessage(
+                content=json.dumps(meeting_action),
+                name="propose_meeting",
+                tool_call_id="meeting-fallback",
+            ),
+        ]))
         self.assertIn("点击", action_fallback_content([{
             "ui_action": "map_action",
             "action": {"kind": "map_recommendation"},
         }]))
+
+    def test_failed_calendar_tool_never_claims_confirmation_card_exists(self):
+        failed = ToolMessage(
+            content=(
+                "操作未完成：地点 ID 未通过本轮地点搜索验证。"
+                "请自然说明原因和下一步，不要声称已经成功。"
+            ),
+            name="propose_calendar_changes",
+            tool_call_id="calendar-failed",
+        )
+        self.assertEqual(action_completion_fallback([failed]), "")
+        self.assertIn("没有生成确认卡", tool_failure_fallback([failed]))
+
+    def test_action_fallback_does_not_reuse_an_old_turn_card(self):
+        old_action = ToolMessage(
+            content=json.dumps({
+                "ui_action": "calendar_action",
+                "action": {"kind": "calendar_changes"},
+            }),
+            name="propose_calendar_changes",
+            tool_call_id="calendar-old",
+        )
+        messages = [
+            HumanMessage(content="旧请求"),
+            old_action,
+            AIMessage(content="旧回答"),
+            HumanMessage(content="新请求"),
+        ]
+        self.assertEqual(action_completion_fallback(messages), "")
 
     def test_public_stream_filter_streams_prose_and_retracts_late_protocol(self):
         guard = PublicStreamFilter(hold_chars=16)

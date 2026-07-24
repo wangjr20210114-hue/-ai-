@@ -744,9 +744,60 @@ def build_production_tools(
                     elif len(matched) > 1:
                         raise ValueError(f"“{location_text}”对应多个已核实地点，请先选择具体地点")
                     else:
-                        raise ValueError(f"“{location_text}”必须先通过 search_places 选择真实地点")
+                        # A semantic planner normally schedules search_places
+                        # before this tool. Keep the Action reliable when that
+                        # optional hint omits needs_places: the calendar tool
+                        # safely reuses the same Tencent/OSM adapter once,
+                        # rather than failing and leaving a phantom card.
+                        maps_enabled = enabled_skills is None or "maps" in enabled_skills
+                        if not maps_enabled:
+                            raise ValueError(
+                                f"“{location_text}”需要地图 Skill 核实，请先到 Skills 广场开启地图"
+                            )
+                        verified = await provider_search_places(
+                            str(
+                                runtime_env.get("TENCENT_MAP_SERVER_KEY")
+                                or runtime_env.get("TENCENT_MAP_KEY")
+                                or runtime_env.get("VITE_TENCENT_MAP_KEY")
+                                or ""
+                            ),
+                            location_text,
+                            city="全国",
+                            limit=6,
+                        )
+                        if not verified:
+                            raise ValueError(f"没有核实到地点“{location_text}”")
+                        for candidate in verified:
+                            candidate_id = str(candidate.get("place_id") or "").strip()
+                            if candidate_id:
+                                candidates[candidate_id] = candidate
+                        place_id = str(verified[0].get("place_id") or "")
                 if place_id:
                     place = candidates.get(place_id)
+                    if not isinstance(place, dict) and location_text:
+                        # Tool-calling models occasionally copy a display id
+                        # incorrectly. Resolve the explicit user-visible
+                        # location instead of accepting or persisting that id.
+                        maps_enabled = enabled_skills is None or "maps" in enabled_skills
+                        if maps_enabled:
+                            verified = await provider_search_places(
+                                str(
+                                    runtime_env.get("TENCENT_MAP_SERVER_KEY")
+                                    or runtime_env.get("TENCENT_MAP_KEY")
+                                    or runtime_env.get("VITE_TENCENT_MAP_KEY")
+                                    or ""
+                                ),
+                                location_text,
+                                city="全国",
+                                limit=6,
+                            )
+                            for candidate in verified:
+                                candidate_id = str(candidate.get("place_id") or "").strip()
+                                if candidate_id:
+                                    candidates[candidate_id] = candidate
+                            if verified:
+                                place_id = str(verified[0].get("place_id") or "")
+                                place = candidates.get(place_id)
                     if not isinstance(place, dict):
                         raise ValueError(f"地点 ID 未通过本轮地点搜索验证：{place_id}")
                     normalized_event["place"] = place
