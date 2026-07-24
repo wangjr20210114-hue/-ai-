@@ -3,7 +3,7 @@ import unittest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 
-from agents.chat._graph import build_graph
+from agents.chat._graph import build_graph, tool_result_fallback
 
 
 class _BoundModel:
@@ -81,6 +81,12 @@ def propose_calendar_changes(summary: str) -> str:
     return summary
 
 
+@tool
+def search_places(query: str) -> str:
+    """Return verified places."""
+    return '{"places":[{"place_id":"breakfast-1","name":"早餐店","address":"酒店东侧"}],"count":1}'
+
+
 class _ClarificationChoiceBoundModel:
     def __init__(self, owner, tools, tool_choice):
         self.owner = owner
@@ -154,6 +160,57 @@ class _BlankAfterToolModel:
     async def ainvoke(self, _messages, **_kwargs):
         self.recovery_calls += 1
         return AIMessage(content="已根据核实路线整理好结果。")
+
+
+class _RepeatingPlaceBoundModel:
+    def __init__(self, owner):
+        self.owner = owner
+
+    async def ainvoke(self, _messages, **_kwargs):
+        self.owner.bound_calls += 1
+        return AIMessage(content="", tool_calls=[{
+            "name": "search_places",
+            "args": {"query": "桔子酒店附近早餐店"},
+            "id": f"place-{self.owner.bound_calls}",
+        }])
+
+
+class _RepeatingPlaceModel:
+    def __init__(self, final_content="附近有已核实的早餐店。"):
+        self.bound_calls = 0
+        self.unbound_calls = 0
+        self.final_content = final_content
+
+    def bind_tools(self, _tools, **_kwargs):
+        return _RepeatingPlaceBoundModel(self)
+
+    async def ainvoke(self, _messages, **_kwargs):
+        self.unbound_calls += 1
+        return AIMessage(content=self.final_content)
+
+
+class _BurstPlaceBoundModel:
+    def __init__(self, owner):
+        self.owner = owner
+
+    async def ainvoke(self, _messages, **_kwargs):
+        self.owner.bound_calls += 1
+        return AIMessage(content="", tool_calls=[
+            {
+                "name": "search_places",
+                "args": {"query": query},
+                "id": f"place-burst-{index}",
+            }
+            for index, query in enumerate(
+                ["桔子酒店附近早餐店", "中关村软件园早餐店", "西北旺早餐店"],
+                start=1,
+            )
+        ])
+
+
+class _BurstPlaceModel(_RepeatingPlaceModel):
+    def bind_tools(self, _tools, **_kwargs):
+        return _BurstPlaceBoundModel(self)
 
 
 class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
@@ -314,6 +371,81 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         ]})
         self.assertEqual(result["messages"][-1].content, "已根据核实路线整理好结果。")
         self.assertEqual(model.recovery_calls, 1)
+
+    async def test_planned_place_lookup_closes_tools_before_answer_synthesis(self):
+        model = _RepeatingPlaceModel()
+        graph = build_graph(
+            model,
+            [search_places],
+            "system",
+            required_tools=["search_places"],
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="桔子酒店附近有早餐店吗？")],
+        })
+        tool_messages = [
+            message for message in result["messages"] if isinstance(message, ToolMessage)
+        ]
+        self.assertEqual(len(tool_messages), 1)
+        self.assertEqual(model.bound_calls, 1)
+        self.assertEqual(model.unbound_calls, 1)
+        self.assertEqual(result["messages"][-1].content, "附近有已核实的早餐店。")
+
+    async def test_unplanned_duplicate_place_lookup_is_suppressed(self):
+        model = _RepeatingPlaceModel()
+        graph = build_graph(model, [search_places], "system")
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="桔子酒店附近有早餐店吗？")],
+        })
+        tool_messages = [
+            message for message in result["messages"] if isinstance(message, ToolMessage)
+        ]
+        self.assertEqual(len(tool_messages), 1)
+        self.assertEqual(model.bound_calls, 2)
+        self.assertEqual(model.unbound_calls, 1)
+        self.assertEqual(result["messages"][-1].content, "附近有已核实的早餐店。")
+
+    async def test_parallel_single_place_lookups_are_reduced_to_one_provider_call(self):
+        model = _BurstPlaceModel()
+        graph = build_graph(model, [search_places], "system")
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="桔子酒店附近有早餐店吗？")],
+        })
+        tool_messages = [
+            message for message in result["messages"] if isinstance(message, ToolMessage)
+        ]
+        self.assertEqual(len(tool_messages), 1)
+        self.assertEqual(model.bound_calls, 2)
+        self.assertEqual(model.unbound_calls, 1)
+
+    async def test_empty_place_synthesis_uses_verified_result_instead_of_terminal_error(self):
+        model = _RepeatingPlaceModel(final_content="")
+        graph = build_graph(
+            model,
+            [search_places],
+            "system",
+            required_tools=["search_places"],
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="桔子酒店附近有早餐店吗？")],
+        })
+        tool_messages = [
+            message for message in result["messages"] if isinstance(message, ToolMessage)
+        ]
+        self.assertEqual(len(tool_messages), 1)
+        self.assertIn("早餐店", result["messages"][-1].content)
+        self.assertIn("酒店东侧", result["messages"][-1].content)
+
+    def test_place_result_has_truthful_terminal_fallback(self):
+        content = tool_result_fallback([
+            ToolMessage(
+                content='{"places":[{"place_id":"p1","name":"麦香早餐","address":"酒店东侧100米"}],"count":1}',
+                name="search_places",
+                tool_call_id="places-fallback",
+            ),
+        ])
+        self.assertIn("麦香早餐", content)
+        self.assertIn("酒店东侧100米", content)
 
 
 if __name__ == "__main__":
