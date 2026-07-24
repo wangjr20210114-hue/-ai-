@@ -458,6 +458,24 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("没有核实到", content)
         self.assertIn("扩大查找范围", content)
 
+    def test_place_fallback_never_reuses_a_previous_turn_result(self):
+        content = tool_result_fallback([
+            HumanMessage(content="酒店附近有早餐店吗？"),
+            AIMessage(content="", tool_calls=[{
+                "name": "search_places",
+                "args": {"query": "早餐店"},
+                "id": "old-place-call",
+            }]),
+            ToolMessage(
+                content='{"places":[{"place_id":"old","name":"小二包子铺","address":"茉莉园"}],"count":1}',
+                name="search_places",
+                tool_call_id="old-place-call",
+            ),
+            AIMessage(content=""),
+            HumanMessage(content="26号早8点安排北京天安门日程"),
+        ])
+        self.assertEqual(content, "")
+
 
 if __name__ == "__main__":
     unittest.main()

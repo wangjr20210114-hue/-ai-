@@ -305,6 +305,31 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("喜欢安静的博物馆", system_prompt)
         self.assertIn("不得把姓名、联系方式", system_prompt)
 
+    async def test_capability_planner_receives_runtime_skill_state(self):
+        model = AsyncMock()
+        model.ainvoke.return_value = SimpleNamespace(content=json.dumps({
+            "blocked_skill": "calendar",
+            "needs_places": False,
+            "needs_calendar_action": False,
+        }))
+        plan = await plan_capabilities(
+            model,
+            "26号早8点安排北京天安门日程",
+            skill_state='{"enabled":["maps"],"disabled":["calendar"]}',
+        )
+        system_prompt = model.ainvoke.await_args.args[0][0]["content"]
+        self.assertIn('"disabled":["calendar"]', system_prompt)
+        self.assertEqual(plan["blocked_skill"], "calendar")
+        self.assertEqual(required_tools_for_plan(plan), ())
+
+    def test_capability_plan_rejects_unknown_blocked_skill(self):
+        plan = parse_capability_plan(json.dumps({
+            "blocked_skill": "fake-business-rule",
+            "needs_calendar_action": True,
+        }))
+        self.assertEqual(plan["blocked_skill"], "")
+        self.assertEqual(required_tools_for_plan(plan), ("propose_calendar_changes",))
+
     async def test_capability_planner_timeout_keeps_main_semantic_routing_available(self):
         model = AsyncMock()
         async def slow_plan(*_args, **_kwargs):

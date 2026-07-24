@@ -66,10 +66,23 @@ def tool_result_fallback(messages: Iterable) -> str:
     tool-free retry return no public prose. It prevents a completed provider
     lookup from collapsing into the generic empty-answer error.
     """
+    logical_turn_messages: list = []
+    crossed_clarification_answer = False
+    for message in reversed(list(messages)):
+        if getattr(message, "type", "") in {"human", "user"}:
+            if (
+                not crossed_clarification_answer
+                and _hidden_clarification_answer(message)
+            ):
+                crossed_clarification_answer = True
+                continue
+            break
+        logical_turn_messages.append(message)
+
     places: list[dict] = []
     seen: set[str] = set()
     nearby_failure = False
-    for message in reversed(list(messages)):
+    for message in logical_turn_messages:
         if getattr(message, "type", "") != "tool":
             continue
         tool_name = getattr(message, "name", "")

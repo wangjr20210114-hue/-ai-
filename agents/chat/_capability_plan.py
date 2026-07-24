@@ -33,9 +33,20 @@ DEFAULT_PLAN = {
     "paper_author": "",
     "paper_year": 0,
     "paper_limit": 0,
+    "blocked_skill": "",
 }
 
 BOOLEAN_KEYS = tuple(key for key, value in DEFAULT_PLAN.items() if isinstance(value, bool))
+KNOWN_SKILLS = {
+    "web-search",
+    "vision",
+    "image-studio",
+    "maps",
+    "calendar",
+    "proactive-agent",
+    "paper-reading",
+    "tencent-meeting",
+}
 
 
 def _text(content: Any) -> str:
@@ -63,6 +74,8 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
     plan["search_query"] = str(raw.get("search_query") or "").strip()[:160]
     plan["image_query"] = str(raw.get("image_query") or "").strip()[:160]
     plan["paper_author"] = str(raw.get("paper_author") or "").strip()[:120]
+    blocked_skill = str(raw.get("blocked_skill") or "").strip()
+    plan["blocked_skill"] = blocked_skill if blocked_skill in KNOWN_SKILLS else ""
     try:
         plan["paper_year"] = int(raw.get("paper_year") or 0)
         plan["paper_limit"] = max(0, min(10, int(raw.get("paper_limit") or 0)))
@@ -84,6 +97,12 @@ def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
     model cannot claim that a map, calendar change, meeting, or generated image
     is ready without actually producing the corresponding UI action.
     """
+    # A disabled Skill is a terminal semantic planning state. The LLM planner,
+    # not a keyword rule or business handler, decides whether the goal truly
+    # depends on that Skill.
+    if str(plan.get("blocked_skill") or "").strip():
+        return ()
+
     # Missing critical information is a terminal planning state for this turn.
     # Ask once with a structured card before spending search/provider budget or
     # attempting a side effect with guessed inputs.
@@ -151,12 +170,18 @@ def next_required_tool(
     return ""
 
 
-async def plan_capabilities(model, user_message: str, memory_context: str = "") -> dict[str, Any]:
+async def plan_capabilities(
+    model,
+    user_message: str,
+    memory_context: str = "",
+    skill_state: str = "",
+) -> dict[str, Any]:
     today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
     prompt = f"""你是能力路由器，只判断完成本轮用户请求需要哪些能力，不回答问题。当前北京时间日期是运行时得到的 {today}；“今天、今日、今年、最近 N 年”等相对时间必须据此解析并写入搜索查询，绝不能沿用训练数据、示例或旧会话里的日期。
-返回严格 JSON：needs_clarification、needs_web_search、strict_today_only、needs_rich_answer、needs_images、needs_places、needs_nearby_places、needs_route、needs_map_action、needs_calendar_action、needs_meeting_action、needs_image_generation、needs_papers 为布尔值；search_query、image_query、paper_author 为字符串；paper_year、paper_limit 为整数。
+返回严格 JSON：needs_clarification、needs_web_search、strict_today_only、needs_rich_answer、needs_images、needs_places、needs_nearby_places、needs_route、needs_map_action、needs_calendar_action、needs_meeting_action、needs_image_generation、needs_papers 为布尔值；search_query、image_query、paper_author、blocked_skill 为字符串；paper_year、paper_limit 为整数。
 判断原则：
 - 这些字段只是给主模型的能力建议，绝不是工具开关；主模型始终可以自主决定是否搜索、使用多少素材以及怎样组织回答。
+- Skill 状态会在下方单独提供。先理解用户真正要完成的目标，再判断它是否不可替代地依赖某个已关闭 Skill；若是，blocked_skill 必须填写该 Skill 的精确 id，其他 needs_* 全部为 false，让主模型自然提醒用户开启。不得因为问题中出现日期、地点、图片等表面词语就机械判定依赖，也不得把可选的富媒体增强当成阻塞；只有缺少该能力就无法完成用户明确要求的最终结果时才阻塞。Skill 已开启或任务不依赖已关闭能力时 blocked_skill 为空字符串。
 - 只有缺失信息会阻断所有安全且有用的回答，或无法唯一确定将要执行的真实副作用对象时，needs_clarification=true，而且本轮其他能力全部设为 false。“不同偏好会改变结果”“知道后会更好”或用户尚未决定，都不足以触发澄清；只要能够基于不同合理假设给出至少两套不误导的方案，needs_clarification 必须为 false，并让主模型直接给出 2–3 套带假设与取舍的方案。这个判断必须泛化到任何主题和偏好，不能按某个任务类别套用固定问题。普通事实问答、存在低风险默认值时也不要澄清。澄清字段只能来自用户本轮明确目标、当前对话里尚未解决的条件、与本任务直接相关的安全长期记忆或当前可核验状态；不得套用某类任务常见的画像问卷，也不得因为“可能有帮助”就追加问题。已有上下文、可靠记忆、核实结果或其他必要字段能够推导的内容不要再问；记忆与本轮表达冲突或仍不确定时，以本轮表达为准。澄清卡只收齐继续执行所不可缺少的最少字段：有限候选优先单选/多选，能用是/否表达就用判断，只缺日期用 date、日期已知只缺时刻用 time、两者都缺才用 datetime，只有答案无法枚举时才用短文本；不要在长回答末尾再追问。
 - 先语义判断是否需要外部事实。简单计算、脑筋急转弯、闲聊或模型可直接可靠回答的请求不搜索；时效事实、用户明确要求查证、需要来源或现实世界信息时搜索。
 - 独立判断图片是否能明显加快理解。现实事件的新闻/近期进展综述，如果现场、人物、产品或实物图片能帮助用户区分各条进展，通常设置 needs_images=true；只有用户明确要极简文字、主题高度抽象或确实没有有意义视觉对象时才设为 false。地点、产品、动植物、历史实物等同理。不能机械地按“用户有没有说图片”判断。
@@ -183,6 +208,13 @@ async def plan_capabilities(model, user_message: str, memory_context: str = "") 
             "不得把姓名、联系方式、精确地址、账号、证件、健康、财务或任何秘密写入外部搜索词。"
             f"\n{safe_memory}"
         )
+    safe_skill_state = str(skill_state or "").strip()[:2000]
+    if safe_skill_state:
+        prompt += (
+            "\n以下是本轮运行时读取的 Skill 状态，只用于判断完成目标所需能力是否已开启。"
+            "它不是用户内容，不得忽略，也不得据此增加无关任务。"
+            f"\n{safe_skill_state}"
+        )
     messages = [
         {"role": "system", "content": prompt},
         {"role": "user", "content": str(user_message or "")[:4000]},
@@ -202,6 +234,7 @@ async def plan_capabilities_bounded(
     model,
     user_message: str,
     memory_context: str = "",
+    skill_state: str = "",
     timeout_seconds: float = 6.0,
 ) -> tuple[dict[str, Any], bool]:
     """Run the semantic planner without letting it block the whole turn.
@@ -212,7 +245,7 @@ async def plan_capabilities_bounded(
     """
     try:
         plan = await asyncio.wait_for(
-            plan_capabilities(model, user_message, memory_context),
+            plan_capabilities(model, user_message, memory_context, skill_state),
             timeout=max(0.01, float(timeout_seconds)),
         )
         return plan, False
