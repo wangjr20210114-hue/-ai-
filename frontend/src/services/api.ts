@@ -38,6 +38,56 @@ export interface WorkspaceResponse {
   deleted_plan_id?: string;
 }
 
+export type DataResetErrorCode = 'INVALID_PASSWORD' | 'RESET_NOT_CONFIGURED' | 'RESET_FAILED';
+
+export class DataResetError extends Error {
+  code: DataResetErrorCode;
+
+  constructor(code: DataResetErrorCode) {
+    super(code);
+    this.name = 'DataResetError';
+    this.code = code;
+  }
+}
+
+function dataResetErrorCode(value: unknown): DataResetErrorCode {
+  if (value === 'INVALID_PASSWORD' || value === 'RESET_NOT_CONFIGURED') return value;
+  return 'RESET_FAILED';
+}
+
+export async function resetApplicationData(
+  conversationId: string,
+  password: string,
+): Promise<{ conversations_deleted: number; state_items_deleted: number; files_deleted: number }> {
+  const resetState = await authorizedFetch('/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
+    body: JSON.stringify({ password }),
+  });
+  const stateData = await resetState.json().catch(() => ({})) as {
+    code?: string;
+    conversations_deleted?: number;
+    state_items_deleted?: number;
+  };
+  if (!resetState.ok) throw new DataResetError(dataResetErrorCode(stateData.code));
+
+  const resetFiles = await authorizedFetch('/reset-files', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  const fileData = await resetFiles.json().catch(() => ({})) as {
+    code?: string;
+    deleted?: Record<string, number>;
+  };
+  if (!resetFiles.ok) throw new DataResetError(dataResetErrorCode(fileData.code));
+  return {
+    conversations_deleted: Number(stateData.conversations_deleted || 0),
+    state_items_deleted: Number(stateData.state_items_deleted || 0),
+    files_deleted: Object.values(fileData.deleted || {}).reduce((sum, value) => sum + Number(value || 0), 0),
+  };
+}
+
 export async function workspaceOperation(
   conversationId: string,
   operation: string,

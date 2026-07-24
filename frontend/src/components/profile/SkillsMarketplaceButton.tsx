@@ -21,8 +21,8 @@ export default function SkillsMarketplaceButton() {
       const result = await skillsOperation(conversationId);
       setPreferences(result.preferences);
       setMeetingConfigured(result.providers.meeting);
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('skillsReadFailed'));
+    } catch {
+      MessagePlugin.error(t('skillsReadFailed'));
     } finally { setLoading(false); }
   }, [conversationId, t]);
 
@@ -67,8 +67,8 @@ export default function SkillsMarketplaceButton() {
       } else {
         MessagePlugin.success(t('skillStateChanged', { name: t(skill.nameKey), state: enabled ? t('enabled') : t('disabled') }));
       }
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('skillsSaveFailed'));
+    } catch {
+      MessagePlugin.error(t('skillsSaveFailed'));
     } finally { setSavingId(''); }
   };
 

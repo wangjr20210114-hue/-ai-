@@ -2,8 +2,14 @@ import { useEffect, useState } from 'react';
 import { Button, Dialog, MessagePlugin } from 'tdesign-react';
 import { AddIcon, DeleteIcon, SettingIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
-import { intelligenceOperation, proactiveOperation } from '../../services/api';
+import {
+  DataResetError,
+  intelligenceOperation,
+  proactiveOperation,
+  resetApplicationData,
+} from '../../services/api';
 import { getReadingSettings, updateReadingSettings } from '../../services/paperApi';
+import { clearLocalApplicationData } from '../../services/conversation';
 import { languageName, useLanguage, type Language } from '../../i18n';
 import type { MakersIntelligenceState } from '../../types';
 
@@ -24,6 +30,9 @@ export default function AppSettingsButton() {
   const [searchPreferences, setSearchPreferences] = useState(DEFAULT_SEARCH_PREFERENCES);
   const [skillPreferences, setSkillPreferences] = useState<Record<string, boolean>>({});
   const [mottoDrafts, setMottoDrafts] = useState<string[]>([]);
+  const [resetVisible, setResetVisible] = useState(false);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetError, setResetError] = useState('');
 
   useEffect(() => {
     if (!visible) return;
@@ -87,8 +96,8 @@ export default function AppSettingsButton() {
       });
       dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
       MessagePlugin.success(t('proactiveSettingsSaved'));
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('proactiveSettingsSaveFailed'));
+    } catch {
+      MessagePlugin.error(t('proactiveSettingsSaveFailed'));
     } finally { setBusy(''); }
   };
 
@@ -98,8 +107,8 @@ export default function AppSettingsButton() {
     try {
       await updateReadingSettings(value);
       MessagePlugin.success(value ? t('readingAutoEnabled') : t('readingManualEnabled'));
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('readingSettingsSaveFailed'));
+    } catch {
+      MessagePlugin.error(t('readingSettingsSaveFailed'));
     } finally { setBusy(''); }
   };
 
@@ -113,8 +122,8 @@ export default function AppSettingsButton() {
       });
       setSearchPreferences(next.search_preferences || nextPreferences);
       MessagePlugin.success(t('searchSettingsSaved'));
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('searchSettingsSaveFailed'));
+    } catch {
+      MessagePlugin.error(t('searchSettingsSaveFailed'));
     } finally { setBusy(''); }
   };
 
@@ -129,6 +138,34 @@ export default function AppSettingsButton() {
       .filter(Boolean)
       .slice(0, 5),
   });
+  const clearAllData = async () => {
+    if (!resetPassword) {
+      setResetError(t('dataClearPasswordRequired'));
+      return;
+    }
+    setBusy('reset');
+    setResetError('');
+    try {
+      await resetApplicationData(conversationId, resetPassword);
+      setResetVisible(false);
+      setVisible(false);
+      MessagePlugin.success(t('dataClearSucceeded'));
+      window.setTimeout(() => {
+        clearLocalApplicationData();
+        window.location.reload();
+      }, 500);
+    } catch (error) {
+      const key = error instanceof DataResetError && error.code === 'INVALID_PASSWORD'
+        ? 'dataClearPasswordIncorrect'
+        : error instanceof DataResetError && error.code === 'RESET_NOT_CONFIGURED'
+          ? 'dataClearUnavailable'
+          : 'dataClearFailed';
+      setResetError(t(key));
+      MessagePlugin.error(t(key));
+    } finally {
+      setBusy('');
+    }
+  };
   return <>
     <Button className="sidebar-settings-button" block variant="text" icon={<SettingIcon />} onClick={openSettings}>{t('settings')}</Button>
     <Dialog
@@ -182,7 +219,7 @@ export default function AppSettingsButton() {
               void proactiveOperation(conversationId, 'refresh').then((next) => {
                 dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
                 MessagePlugin.success(t('proactiveChecked'));
-              }).catch((error) => MessagePlugin.error(error instanceof Error ? error.message : t('checkFailed'))).finally(() => setBusy(''));
+              }).catch(() => MessagePlugin.error(t('checkFailed'))).finally(() => setBusy(''));
             }}>{t('checkNow')}</Button>
           </div>}
           {preferences && <div className="proactive-motto-editor">
@@ -250,6 +287,65 @@ export default function AppSettingsButton() {
           <label className="app-settings-choice"><input type="radio" checked={automatic} disabled={busy === 'reading'} onChange={() => void saveReading(true)} /><span><strong>{t('autoOrganize')}</strong><small>{t('autoFilingDescription')}</small></span></label>
           <label className="app-settings-choice"><input type="radio" checked={!automatic} disabled={busy === 'reading'} onChange={() => void saveReading(false)} /><span><strong>{t('manualOrganize')}</strong><small>{t('manualFilingDescription')}</small></span></label>
         </section>}
+
+        <section className="app-settings-section app-settings-danger-section">
+          <div>
+            <h3>{t('dataManagement')}</h3>
+            <p>{t('dataClearHint')}</p>
+          </div>
+          <Button
+            theme="danger"
+            variant="outline"
+            icon={<DeleteIcon />}
+            onClick={() => {
+              setResetPassword('');
+              setResetError('');
+              setResetVisible(true);
+            }}
+          >{t('clearDatabase')}</Button>
+        </section>
+      </div>
+    </Dialog>
+    <Dialog
+      visible={resetVisible}
+      header={t('clearDatabase')}
+      width={480}
+      placement="center"
+      dialogClassName="secondary-dialog data-clear-dialog"
+      footer={false}
+      onClose={() => !busy && setResetVisible(false)}
+      onCancel={() => !busy && setResetVisible(false)}
+    >
+      <div className="data-clear-content">
+        <div className="data-clear-warning">
+          <DeleteIcon />
+          <div>
+            <strong>{t('dataClearWarningTitle')}</strong>
+            <p>{t('dataClearWarningBody')}</p>
+          </div>
+        </div>
+        <label className="data-clear-password">
+          <span>{t('dataClearPassword')}</span>
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={resetPassword}
+            disabled={busy === 'reset'}
+            placeholder={t('dataClearPasswordPlaceholder')}
+            onChange={(event) => {
+              setResetPassword(event.target.value);
+              setResetError('');
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && busy !== 'reset') void clearAllData();
+            }}
+          />
+          {resetError && <small role="alert">{resetError}</small>}
+        </label>
+        <div className="data-clear-actions">
+          <Button variant="outline" disabled={busy === 'reset'} onClick={() => setResetVisible(false)}>{t('cancel')}</Button>
+          <Button theme="danger" loading={busy === 'reset'} onClick={() => void clearAllData()}>{t('confirmClearDatabase')}</Button>
+        </div>
       </div>
     </Dialog>
   </>;

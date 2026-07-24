@@ -683,7 +683,7 @@ export function useSSEChat() {
             patch(id, streamId, { content: message, streaming: false, failed: true, skill: next.skill });
           }
           setConversationActivity(id, 'failed');
-          if (activeConversationRef.current === id) MessagePlugin.error(message);
+          if (activeConversationRef.current === id) MessagePlugin.error(translate('answerGenerationFailedToast'));
           break;
         }
       }

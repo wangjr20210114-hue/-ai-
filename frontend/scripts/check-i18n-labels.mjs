@@ -69,6 +69,28 @@ function isDirectUserFacingLiteral(node) {
   return false;
 }
 
+function isToastCall(node) {
+  if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return false;
+  return node.expression.expression.getText() === 'MessagePlugin'
+    && ['success', 'error', 'warning', 'info'].includes(node.expression.name.text);
+}
+
+function usesTranslation(node) {
+  let translated = false;
+  const inspect = (child) => {
+    if (
+      ts.isCallExpression(child)
+      && (
+        child.expression.getText() === 't'
+        || child.expression.getText() === 'translate'
+      )
+    ) translated = true;
+    if (!translated) ts.forEachChild(child, inspect);
+  };
+  inspect(node);
+  return translated;
+}
+
 const failures = [];
 for (const absolute of sourceFiles(sourceRoot)) {
   const relative = path.relative(sourceRoot, absolute).split(path.sep).join('/');
@@ -83,6 +105,10 @@ for (const absolute of sourceFiles(sourceRoot)) {
   );
   const allowed = allowedRuntimeLiterals.get(relative) || [];
   const visit = (node) => {
+    if (isToastCall(node) && (!node.arguments[0] || !usesTranslation(node.arguments[0]))) {
+      const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+      failures.push(`${relative}:${line + 1}:${character + 1} Toast must use t(...) or translate(...)`);
+    }
     const text = literalText(node, sourceFile);
     const trimmed = text.trim();
     const untranslatedChinese = text && han.test(text) && !allowed.some((fragment) => text.includes(fragment));

@@ -150,8 +150,8 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
       setInstruction('');
       if (action.status === 'failed') throw new Error(action.error || t('imageEditFailed'));
       waitingForImage = true;
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('imageEditFailed'));
+    } catch {
+      MessagePlugin.error(t('imageEditFailed'));
     } finally {
       if (!waitingForImage) setGenerating(false);
     }
@@ -161,8 +161,8 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
     if (!selected) return;
     try {
       saveBlob(await fetchVersionBlob(selected), `Floris-image-${index + 1}.png`);
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('imageDownloadFailed'));
+    } catch {
+      MessagePlugin.error(t('imageDownloadFailed'));
     }
   };
 
@@ -178,8 +178,8 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
         }
       }));
       saveBlob(createZip(entries), `Floris-images-${Date.now()}.zip`);
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('batchDownloadFailed'));
+    } catch {
+      MessagePlugin.error(t('batchDownloadFailed'));
     } finally {
       setDownloading(false);
     }

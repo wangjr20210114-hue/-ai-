@@ -198,8 +198,8 @@ export default function InputBar({ client }: Props) {
       }).then((proactive) => dispatch({ type: 'HYDRATE_PROACTIVE', payload: proactive }))
         .catch((error) => console.warn('file signal ingestion failed', error));
       MessagePlugin.success(stored.storage_key ? (detectedPaper ? t('paperAdded') : t('pdfAdded')) : t('pdfIndexed'));
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('uploadFailed'));
+    } catch {
+      MessagePlugin.error(t('uploadFailed'));
     } finally {
       setUploading(false);
     }

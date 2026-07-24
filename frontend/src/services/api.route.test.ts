@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { planMakersRoute } from './api';
+import { planMakersRoute, resetApplicationData } from './api';
 import type { MakersMapPlace, MakersRoutePlan } from '../types';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -38,5 +38,39 @@ describe('planMakersRoute', () => {
     const body = JSON.parse(String(init.body)) as { places: MakersMapPlace[]; optimize: boolean };
     expect(body.places.map((item) => item.name)).toEqual(['早餐店', '北京站', '锦江之星']);
     expect(body.optimize).toBe(false);
+  });
+});
+
+describe('resetApplicationData', () => {
+  it('requires both Makers state and Blob data to be cleared', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ok: true,
+        conversations_deleted: 3,
+        state_items_deleted: 9,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ok: true,
+        deleted: { 'yuanbao-files': 4, 'yuanbao-acceptance-shared': 2, 'yuanbao-auth': 1 },
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(resetApplicationData('yb7_reset-test', 'secret')).resolves.toEqual({
+      conversations_deleted: 3,
+      state_items_deleted: 9,
+      files_deleted: 7,
+    });
+    expect(fetchMock.mock.calls.map((item) => item[0])).toEqual(['/reset', '/reset-files']);
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ password: 'secret' });
+  });
+
+  it('exposes a stable error code instead of a server message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: 'internal wording',
+      code: 'INVALID_PASSWORD',
+    }), { status: 403 })));
+    await expect(resetApplicationData('yb7_reset-test', 'wrong')).rejects.toMatchObject({
+      code: 'INVALID_PASSWORD',
+    });
   });
 });

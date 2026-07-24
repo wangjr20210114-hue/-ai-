@@ -1,16 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../types';
-import { canReusePendingConversation, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
+import { canReusePendingConversation, clearLocalApplicationData, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
 import { CONVERSATION_PREFIX, isCurrentConversationId } from './dataVersion';
 
 describe('getOrCreateConversationId', () => {
   beforeEach(() => {
     const values = new Map<string, string>();
+    const sessionValues = new Map<string, string>();
     vi.stubGlobal('localStorage', {
       getItem: (key: string) => values.get(key) ?? null,
       setItem: (key: string, value: string) => values.set(key, value),
       removeItem: (key: string) => values.delete(key),
       clear: () => values.clear(),
+    });
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => sessionValues.get(key) ?? null,
+      setItem: (key: string, value: string) => sessionValues.set(key, value),
+      removeItem: (key: string) => sessionValues.delete(key),
+      clear: () => sessionValues.clear(),
     });
     vi.stubGlobal('window', globalThis);
   });
@@ -52,6 +59,14 @@ describe('getOrCreateConversationId', () => {
   it('keeps a running marker across reload so the page can reconnect', () => {
     saveLocalConversations([{ id: 'conv-running', title: '进行中', createdAt: 1, updatedAt: 2, messageCount: 1, activityStatus: 'running' }]);
     expect(loadLocalConversations()[0].activityStatus).toBe('running');
+  });
+
+  it('clears browser-side application state after a server reset', () => {
+    localStorage.setItem('floris-language', 'en');
+    sessionStorage.setItem('floris.manual-stop.yb7_test', '1');
+    clearLocalApplicationData();
+    expect(localStorage.getItem('floris-language')).toBeNull();
+    expect(sessionStorage.getItem('floris.manual-stop.yb7_test')).toBeNull();
   });
 });
 

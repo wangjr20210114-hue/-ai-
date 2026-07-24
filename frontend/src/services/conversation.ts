@@ -30,6 +30,11 @@ export function setActiveConversationId(conversationId: string): void {
   localStorage.setItem(CONVERSATION_KEY, conversationId);
 }
 
+export function clearLocalApplicationData(): void {
+  try { localStorage.clear(); } catch { /* Server reset remains authoritative. */ }
+  try { sessionStorage.clear(); } catch { /* Ignore restricted storage modes. */ }
+}
+
 export function getOrCreateConversationId(): string {
   if (typeof window === 'undefined') return createConversationId();
   try {

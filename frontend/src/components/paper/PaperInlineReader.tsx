@@ -47,7 +47,7 @@ export default function PaperInlineReader({
         if (!cancelled && !(error instanceof DOMException && error.name === 'AbortError')) {
           const text = error instanceof Error ? error.message : t('pdfLoadFailed');
           setLoadError(text);
-          MessagePlugin.error(text);
+          MessagePlugin.error(t('pdfLoadFailed'));
         }
       } finally {
         if (!cancelled) setLoading(false);

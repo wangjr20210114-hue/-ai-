@@ -32,7 +32,7 @@ export default function ReadingLibraryPanel() {
       const data = await getReadingLibrary();
       setItems(data.papers); setFolders(data.folders); setSettings(data.settings);
       setExpanded((current) => data.folders.reduce((next, folder) => ({ ...next, [folder.id]: current[folder.id] ?? true }), current));
-    } catch (error) { MessagePlugin.error(error instanceof Error ? error.message : t('readingLoadFailed')); }
+    } catch { MessagePlugin.error(t('readingLoadFailed')); }
     finally { setLoading(false); }
   }, [t]);
 
@@ -56,8 +56,8 @@ export default function ReadingLibraryPanel() {
       if (!result.ok) throw new Error(t('deleteNotConfirmed'));
       setItems((current) => current.filter((candidate) => candidate.id !== item.id));
       MessagePlugin.success(t('readingRemoved'));
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('removeFailed'));
+    } catch {
+      MessagePlugin.error(t('removeFailed'));
     }
   };
   const createFolder = async () => {
@@ -79,7 +79,7 @@ export default function ReadingLibraryPanel() {
         return { name: `${safe}.pdf`, data: new Uint8Array(await response.arrayBuffer()) };
       }));
       saveBlob(createZip(entries), `${folder.name}-${Date.now()}.zip`);
-    } catch (error) { MessagePlugin.error(error instanceof Error ? error.message : t('folderDownloadFailed')); }
+    } catch { MessagePlugin.error(t('folderDownloadFailed')); }
     finally { setBusyFolder(''); }
   };
 
@@ -106,7 +106,7 @@ export default function ReadingLibraryPanel() {
                 <span>{item.is_paper || item.kind === 'paper' ? '📄' : '📑'}</span>
                 <span><strong>{item.title || item.filename}</strong><small>{item.is_paper || item.kind === 'paper' ? t('paperAssistant') : t('pdfReading')}{item.page_count ? t('pageCount', { count: item.page_count }) : ''}</small></span>
               </button>
-              <select aria-label={t('moveToFolder')} title={settings.auto_organize ? t('manualMoveHint') : t('moveToFolder')} value={item.folder_id || ''} onChange={(event) => void moveReadingItem(item.id, event.target.value).then(load).then(() => MessagePlugin.success(t('fileMoved'))).catch((error) => MessagePlugin.error(error instanceof Error ? error.message : t('moveFailed')))}>
+              <select aria-label={t('moveToFolder')} title={settings.auto_organize ? t('manualMoveHint') : t('moveToFolder')} value={item.folder_id || ''} onChange={(event) => void moveReadingItem(item.id, event.target.value).then(load).then(() => MessagePlugin.success(t('fileMoved'))).catch(() => MessagePlugin.error(t('moveFailed')))}>
                 <option value="">{t('unfiled')}</option>{folders.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}
               </select>
               <Button shape="circle" variant="text" size="small" icon={<DeleteIcon />} aria-label={t('remove')} title={t('remove')} onClick={() => void remove(item)} />

@@ -200,6 +200,23 @@ test('runtime does not reimplement generic tracing, queue or cron services', asy
   assert.doesNotMatch(system + tick, /OPS_ALERT_WEBHOOK|PROACTIVE_OPS_WEBHOOK|Sentry|OpenTelemetry/);
 });
 
+test('owner data reset reuses Makers storage and never embeds the reset password', async () => {
+  const [agentReset, fileReset, settings, envExample] = await Promise.all([
+    read('agents/reset/index.py'),
+    read('cloud-functions/reset-files/index.js'),
+    read('frontend/src/components/profile/AppSettingsButton.tsx'),
+    read('.env.example'),
+  ]);
+  assert.match(agentReset, /ctx\.store\.list_conversations/);
+  assert.match(agentReset, /ctx\.store\.delete_conversation/);
+  assert.match(agentReset, /ctx\.store\.langgraph_store/);
+  assert.match(agentReset, /langgraph_checkpointer\.adelete_thread/);
+  assert.match(fileReset, /@edgeone\/pages-blob/);
+  assert.match(agentReset + fileReset + envExample, /DATA_CLEAR_PASSWORD/);
+  assert.match(settings, /resetApplicationData/);
+  assert.doesNotMatch(agentReset + fileReset + settings + envExample, /wangjryyds/);
+});
+
 test('production frontend has no active FastAPI or WebSocket transport fallback', async () => {
   const sources = await Promise.all([
     read('frontend/src/App.tsx'),

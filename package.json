@@ -4,7 +4,7 @@
   "version": "5.1.0",
   "type": "module",
   "scripts": {
-    "test": "node --test cloud-functions/platform-reuse.test.js cloud-functions/acceptance/index.test.js cloud-functions/files/index.test.js cloud-functions/proactive-tick/index.test.js"
+    "test": "node --test cloud-functions/platform-reuse.test.js cloud-functions/acceptance/index.test.js cloud-functions/files/index.test.js cloud-functions/proactive-tick/index.test.js cloud-functions/reset-files/index.test.js"
   },
   "dependencies": {
     "@edgeone/pages-blob": "^0.0.14"

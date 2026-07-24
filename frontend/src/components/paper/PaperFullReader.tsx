@@ -295,8 +295,8 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
         }).then((saved) => {
           setSavedTranslations((current) => [...current.filter((item) => item.id !== saved.id), saved].slice(-50));
           setAiResult(null);
-        }).catch((saveError) => {
-          MessagePlugin.warning(saveError instanceof Error ? saveError.message : t('translationNotSaved'));
+        }).catch(() => {
+          MessagePlugin.warning(t('translationNotSaved'));
         });
       }
     };

@@ -68,8 +68,8 @@ export default function ProactiveBriefPanel() {
     try {
       const next = await proactiveOperation(conversationId, operation, input);
       dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('reminderOperationFailed'));
+    } catch {
+      MessagePlugin.error(t('reminderOperationFailed'));
     } finally {
       setMutating('');
     }
@@ -83,8 +83,8 @@ export default function ProactiveBriefPanel() {
       dispatch({ type: 'SET_DRAFT', payload: item.action_prompt });
       const next = await proactiveOperation(conversationId, 'mark_read', { notification_id: item.id });
       dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('proactiveSuggestionFailed'));
+    } catch {
+      MessagePlugin.error(t('proactiveSuggestionFailed'));
     } finally {
       setMutating('');
     }

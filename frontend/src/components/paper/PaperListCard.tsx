@@ -36,7 +36,7 @@ export default function PaperListCard({ message }: Props) {
     try {
       const result = await downloadPaper(paper.arxiv_id, paper.title, paper.pdf_url);
       if (result.error) {
-        MessagePlugin.warning(result.error);
+        MessagePlugin.warning(t('downloadFailed'));
         return null;
       }
       const stored = {
@@ -68,7 +68,7 @@ export default function PaperListCard({ message }: Props) {
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement('a'); link.href = url; link.download = stored.fileName || `${paper.title}.pdf`; link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (error) { MessagePlugin.error(error instanceof Error ? error.message : t('fileDownloadFailed')); }
+    } catch { MessagePlugin.error(t('fileDownloadFailed')); }
   };
 
   if (papers.length === 0) return null;

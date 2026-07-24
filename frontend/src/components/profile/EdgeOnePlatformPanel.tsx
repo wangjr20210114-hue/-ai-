@@ -191,8 +191,8 @@ export default function EdgeOnePlatformPanel() {
             setPlaceOptionsOpen(places.length > 0);
           }
         })
-        .catch((error) => {
-          if (!disposed) MessagePlugin.error(error instanceof Error ? error.message : t('placeSearchFailed'));
+        .catch(() => {
+          if (!disposed) MessagePlugin.error(t('placeSearchFailed'));
         })
         .finally(() => { if (!disposed) setPlaceSearchBusy(false); });
     }, 350);
@@ -260,8 +260,8 @@ export default function EdgeOnePlatformPanel() {
       setPlaceOptionsOpen(false);
       setShowRecommendation(false);
       MessagePlugin.success(editingId ? t('scheduleUpdated') : t('scheduleAdded'));
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('saveFailed'));
+    } catch {
+      MessagePlugin.error(t('saveFailed'));
     } finally {
       setFormBusy(false);
     }
@@ -282,8 +282,8 @@ export default function EdgeOnePlatformPanel() {
       setDeleteConfirmId('');
       setShowRecommendation(false);
       MessagePlugin.success(t('scheduleDeleted'));
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('deleteFailed'));
+    } catch {
+      MessagePlugin.error(t('deleteFailed'));
     }
   };
 

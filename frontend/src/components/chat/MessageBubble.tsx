@@ -369,8 +369,8 @@ export default function MessageBubble({ message, client, assistantChainPosition 
     try {
       const next = await proactiveOperation(conversationId, operation, input);
       dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('proactiveOperationFailed'));
+    } catch {
+      MessagePlugin.error(t('proactiveOperationFailed'));
     } finally { setProactiveBusy(''); }
   };
 
@@ -382,8 +382,8 @@ export default function MessageBubble({ message, client, assistantChainPosition 
       dispatch({ type: 'SET_DRAFT', payload: item.action_prompt || t('helpMeHandle', { title: item.title }) });
       const next = await proactiveOperation(conversationId, 'mark_read', { notification_id: item.id });
       dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('proactiveSuggestionFailed'));
+    } catch {
+      MessagePlugin.error(t('proactiveSuggestionFailed'));
     } finally {
       setProactiveBusy('');
     }
@@ -553,12 +553,12 @@ export default function MessageBubble({ message, client, assistantChainPosition 
       } else {
         const error = action.error || t('creationFailed');
         setMeetingResult({ ok: false, error });
-        MessagePlugin.warning(error);
+        MessagePlugin.warning(t('createMeetingFailed'));
       }
     } catch (error) {
       const text = error instanceof Error ? error.message : t('createMeetingFailed');
       setMeetingResult({ ok: false, error: text });
-      MessagePlugin.error(text);
+      MessagePlugin.error(t('createMeetingFailed'));
     } finally {
       setMeetingCreating(false);
       setMeetingStatusText('');
@@ -582,12 +582,12 @@ export default function MessageBubble({ message, client, assistantChainPosition 
       } else {
         const error = action.error || t('generationFailedShort');
         setImageResult({ ok: false, error });
-        MessagePlugin.warning(error);
+        MessagePlugin.warning(t('imageGenerationFailedShort'));
       }
     } catch (error) {
       const text = error instanceof Error ? error.message : t('imageGenerationFailedShort');
       setImageResult({ ok: false, error: text });
-      MessagePlugin.error(text);
+      MessagePlugin.error(t('imageGenerationFailedShort'));
     } finally {
       setImageGenerating(false);
     }
@@ -602,8 +602,8 @@ export default function MessageBubble({ message, client, assistantChainPosition 
       });
       setSkillActioned(true);
       MessagePlugin.success(t('actionCancelled'));
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('cancelFailed'));
+    } catch {
+      MessagePlugin.error(t('cancelFailed'));
     }
   };
 
@@ -659,24 +659,22 @@ export default function MessageBubble({ message, client, assistantChainPosition 
         MessagePlugin.success(t('calendarChangesApplied'));
       }
       if (operation === 'confirm_action' && action.kind === 'meeting_create') {
-        const result = response.action?.result || {};
         if (response.action?.status === 'succeeded') MessagePlugin.success(t('meetingCreatedSuccess'));
-        else MessagePlugin.warning(String(response.action?.error || result.error || t('createMeetingFailed')));
+        else MessagePlugin.warning(t('createMeetingFailed'));
       }
       if (operation === 'confirm_action' && action.kind === 'image_generate') {
         if (response.action?.status === 'succeeded') {
           ingestGeneratedImage(response.action);
           MessagePlugin.success(t('imageCreatedSuccess'));
         }
-        else MessagePlugin.warning(String(response.action?.error || t('imageGenerationFailedShort')));
+        else MessagePlugin.warning(t('imageGenerationFailedShort'));
       }
       if (operation === 'cancel_action') MessagePlugin.success(t('actionCancelled'));
-    } catch (error) {
-      const text = error instanceof Error ? error.message : t('operationFailed');
+    } catch {
       if (operation === 'activate_map' && mapSnapshot.length) {
-        MessagePlugin.warning(t('activatedSnapshotNotSaved', { error: text }));
+        MessagePlugin.warning(t('activatedSnapshotNotSaved'));
       } else {
-        MessagePlugin.error(text);
+        MessagePlugin.error(t('operationRetry'));
       }
     } finally {
       setWorkspaceBusy('');

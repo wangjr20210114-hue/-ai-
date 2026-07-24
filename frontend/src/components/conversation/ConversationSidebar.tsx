@@ -114,8 +114,8 @@ export default function ConversationSidebar({ open, onClose }: Props) {
       setActiveConversationId(conversation.id);
       dispatch({ type: 'SET_CONVERSATION_ID', payload: conversation.id });
       onClose();
-    } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : t('createConversationFailed'));
+    } catch {
+      MessagePlugin.error(t('createConversationFailed'));
     } finally { setCreating(false); }
   };
 
