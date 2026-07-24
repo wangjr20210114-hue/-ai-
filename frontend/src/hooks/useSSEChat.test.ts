@@ -3,11 +3,10 @@ import {
   actionOnlyFallback,
   mergeSearchMeta,
   progressTextForTool,
-  shouldPublishProactiveOpening,
   terminalGenerationError,
 } from './useSSEChat';
 import type { WorkspaceAction } from '../types';
-import type { ChatMessage, SearchMeta } from '../types';
+import type { SearchMeta } from '../types';
 
 const media = [{
   id: 'media-1', kind: 'image' as const, url: 'https://example.com/news.jpg',
@@ -36,19 +35,6 @@ describe('mergeSearchMeta', () => {
     });
     expect(merged.media).toEqual(media);
     expect(merged.media_pending).toBe(false);
-  });
-});
-
-describe('shouldPublishProactiveOpening', () => {
-  it('allows an opening only while the conversation is still empty', () => {
-    expect(shouldPublishProactiveOpening([], [])).toBe(true);
-  });
-
-  it('never replaces a user message sent while the opening was composed', () => {
-    const latest: ChatMessage[] = [{
-      id: 'user-race', role: 'user', content: '我先问一个问题', ts: Date.now(),
-    }];
-    expect(shouldPublishProactiveOpening([], latest)).toBe(false);
   });
 });
 

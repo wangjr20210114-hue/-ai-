@@ -419,11 +419,8 @@ export default function MessageBubble({ message, client }: Props) {
     };
   }, [isUser, message.streaming, message.followUps]);
 
-  // 兼容：从 skill 或旧字段获取意图
   const skill: SkillInfo | undefined = message.skill;
-  const intent = skill?.intent
-    || (message.travelIntent ? 'travel' : undefined)
-    || (message.meetingIntent ? 'meeting' : undefined);
+  const intent = skill?.intent;
 
   const handleFollowUp = (question: string) => {
     // Suggestions are editable prompts, not commands. The user must still
@@ -692,7 +689,7 @@ export default function MessageBubble({ message, client }: Props) {
 
     switch (intent) {
       case 'travel':
-        handleFollowUp(compatSkill?.content || t('continueTravelPlanning'));
+        handleFollowUp(skill?.content || t('continueTravelPlanning'));
         MessagePlugin.info(t('travelDraftReady'));
         break;
       case 'meeting':
@@ -711,21 +708,6 @@ export default function MessageBubble({ message, client }: Props) {
         break;
     }
   };
-
-  // 兼容旧消息（有 travelIntent/meetingIntent 但没有 skill）
-  const compatSkill: SkillInfo | undefined = skill || (intent ? {
-    intent,
-    mode: intent === 'travel' ? 'auto' : 'suggest',
-    content: message.travelIntent?.prompt || message.meetingIntent?.prompt || message.content,
-    icon: intent === 'travel' ? '✈️' : intent === 'meeting' ? '📅' : '✨',
-    action_label: intent === 'travel' ? t('planTrip') : intent === 'meeting' ? t('createTencentMeeting') : t('execute'),
-    params: {
-      user_message: message.travelIntent?.user_message,
-      message: message.meetingIntent?.message,
-      destination: message.travelIntent?.destination,
-    },
-    data: {},
-  } : undefined);
 
   const searchStatus = typeof message.skill?.data?.statusText === 'string'
     ? message.skill.data.statusText
@@ -959,12 +941,12 @@ export default function MessageBubble({ message, client }: Props) {
         )}
 
         {/* === 通用技能建议卡片（suggest 模式 + 未执行） === */}
-        {!isUser && compatSkill && compatSkill.mode !== 'immediate' && !travelPlan && !meetingResult && !imageResult && !skillActioned && (
+        {!isUser && skill && skill.mode !== 'immediate' && !travelPlan && !meetingResult && !imageResult && !skillActioned && (
           <div className="followup-section">
             <div className="travel-intent-card">
               <div className="travel-intent-text">
-                <span className="travel-intent-icon">{compatSkill.icon}</span>
-                {compatSkill.content}
+                <span className="travel-intent-icon">{skill.icon}</span>
+                {skill.content}
               </div>
               <Button
                 theme="primary"
@@ -976,7 +958,7 @@ export default function MessageBubble({ message, client }: Props) {
                   ? (meetingStatusText || t('processing'))
                   : (imageGenerating && intent === 'image')
                   ? t('generatingEllipsis')
-                  : compatSkill.action_label}
+                  : skill.action_label}
               </Button>
               {actionId && (intent === 'meeting' || intent === 'image') && (
                 <Button variant="outline" size="small" onClick={() => { void handleCancelAction(); }}>

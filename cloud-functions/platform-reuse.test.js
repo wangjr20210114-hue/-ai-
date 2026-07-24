@@ -180,22 +180,6 @@ test('settings and Skills open on lightweight configuration reads', async () => 
   assert.match(catalog, /id:\s*'web-search'/);
 });
 
-test('legacy data migration terminates in Makers-managed stores', async () => {
-  const [exporter, importer, endpoint] = await Promise.all([
-    read('tools/export_sqlite.py'),
-    read('agents/_shared/legacy_migration.py'),
-    read('agents/migration/index.py'),
-  ]);
-  assert.match(exporter, /mode=ro/);
-  assert.match(importer, /append_message/);
-  assert.match(importer, /load_user_workspace/);
-  assert.match(importer, /load_proactive_state/);
-  assert.match(importer, /load_intelligence_state/);
-  assert.match(endpoint, /LEGACY_IMPORT_SECRET/);
-  assert.match(endpoint, /require_user/);
-  assert.doesNotMatch(importer, /import sqlite|from fastapi|import aiosqlite/i);
-});
-
 test('runtime does not reimplement generic tracing, queue or cron services', async () => {
   const [system, tick, proactive] = await Promise.all([
     read('agents/system_internal/index.py'),

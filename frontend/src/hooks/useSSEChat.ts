@@ -89,10 +89,6 @@ export function mergeSearchMeta(previous: SearchMeta | undefined, incoming: Part
   };
 }
 
-export function shouldPublishProactiveOpening(restored: ChatMessage[], latest: ChatMessage[]): boolean {
-  return durableMessageCount(restored) === 0 && durableMessageCount(latest) === 0;
-}
-
 export function actionOnlyFallback(actions: WorkspaceAction[] | undefined): string {
   const kinds = new Set((actions || []).map((action) => action.kind));
   if (kinds.has('map_recommendation')) return translate('actionMapReady');

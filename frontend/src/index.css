@@ -469,6 +469,22 @@ html.is-resizing-workspace * {
 .header-brand-group { min-width: 0; gap: 9px; }
 .header-brand-group { justify-self: start; }
 .header-actions { justify-self: end; flex: 0 0 auto; gap: 12px; }
+.header-icon-link {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--app-text-2);
+  transition: color 180ms ease, background-color 180ms ease, transform 180ms ease;
+}
+.header-icon-link:hover {
+  color: var(--td-brand-color);
+  background: var(--app-hover);
+  transform: translateY(-1px) scale(1.04);
+}
+.header-icon-link:active { transform: scale(0.94); }
 .header-proactive-slot {
   width: 100%;
   min-width: 0;
@@ -3311,11 +3327,13 @@ html.is-resizing-workspace * {
   border-radius: 16px;
 }
 
-.header-proactive-ticker.is-idle {
+.header-proactive-ticker.is-idle,
+.header-proactive-ticker.is-fallback {
   border-color: color-mix(in srgb, var(--app-border) 78%, var(--app-brand) 22%);
   background: color-mix(in srgb, var(--app-panel) 94%, var(--app-brand) 6%);
   color: var(--app-text-3);
 }
+.header-proactive-ticker.is-fallback { cursor: default; }
 
 .t-dialog__wrap:has(.secondary-dialog) .t-dialog__position.t-dialog--center {
   width: 100%;
@@ -3781,6 +3799,31 @@ html.is-resizing-workspace * {
 .proactive-settings-runs > div { display: grid; gap: 5px; max-height: 180px; overflow: auto; }
 .proactive-settings-runs > div > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; padding: 6px 8px; border-radius: 7px; background: var(--app-panel); font-size: 11px; }
 .proactive-settings-runs > div small { grid-column: 1 / -1; color: var(--app-text-3); }
+.proactive-motto-editor { display: grid; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--app-border); }
+.proactive-motto-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.proactive-motto-heading > div { display: grid; gap: 3px; }
+.proactive-motto-heading strong { font-size: 12px; }
+.proactive-motto-heading small,
+.proactive-motto-heading > span { color: var(--app-text-3); font-size: 11px; line-height: 1.5; }
+.proactive-motto-list { display: grid; gap: 7px; }
+.proactive-motto-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; }
+.proactive-motto-row input {
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  color: var(--app-text);
+  background: var(--app-panel);
+  font: inherit;
+  font-size: 12px;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.proactive-motto-row input:focus {
+  outline: none;
+  border-color: var(--td-brand-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--td-brand-color) 12%, transparent);
+}
+.proactive-motto-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .skills-marketplace-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
 .skills-marketplace-head > div { display: grid; gap: 3px; }
 .skills-marketplace-head span { color: var(--app-text-3); font-size: 12px; }

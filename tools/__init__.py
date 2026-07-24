@@ -1,1 +1,1 @@
-"""Offline migration and verification utilities; never imported by Makers runtime."""
+"""Offline verification utilities; never imported by the Makers runtime."""

@@ -47,71 +47,9 @@ class FakeConversationStore:
 class FakeProactiveStores:
     def __init__(self):
         self.langgraph_store = FakeStore()
-        self.messages = []
-
-    async def append_message(self, **value):
-        self.messages.append(value)
-        return "proactive-message-1"
-
-    async def get_messages(self, **_value):
-        return list(reversed(self.messages))
 
 
 class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_empty_conversation_receives_one_model_written_proactive_opening(self):
-        state = empty_proactive_state()
-        now = int(datetime.fromisoformat("2026-07-21T12:00:00+08:00").timestamp())
-        process_schedule_signals(state, [{
-            "type": "schedule_upcoming", "dedup_key": "upcoming:test", "priority": "normal",
-            "subject_ids": ["schedule-1"], "title": "即将开始", "detail": "产品评审将在一小时后开始",
-            "action": "检查地点和材料", "evidence": {}, "occurred_at": now,
-        }], now)
-        stores = FakeProactiveStores()
-        ctx = SimpleNamespace(
-            env={}, store=stores, conversation_id="new-conversation",
-            request=SimpleNamespace(body={"operation": "open_conversation"}, headers={}),
-        )
-        model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content="产品评审一小时后开始。要我帮你检查地点或准备材料吗？")))
-        with (
-            patch("agents.proactive.index.run_proactive_tick", AsyncMock(return_value=(state, {"signals": 1}))),
-            patch("agents.proactive.index.get_model", return_value=model),
-        ):
-            response = await proactive_handler(ctx)
-        self.assertTrue(response["proactive_message"]["proactive"])
-        self.assertEqual(len(stores.messages), 1)
-        self.assertEqual(stores.messages[0]["metadata"]["source"], "yuanbao-proactive")
-        self.assertEqual(response["notifications"], [])
-        self.assertEqual(next(iter(state["notifications"].values()))["status"], "read")
-
-    async def test_user_message_wins_race_with_proactive_opening(self):
-        state = empty_proactive_state()
-        now = int(datetime.fromisoformat("2026-07-21T12:00:00+08:00").timestamp())
-        process_schedule_signals(state, [{
-            "type": "schedule_upcoming", "dedup_key": "upcoming:race", "priority": "normal",
-            "subject_ids": ["schedule-race"], "title": "即将开始", "detail": "会议即将开始",
-            "action": "检查材料", "evidence": {}, "occurred_at": now,
-        }], now)
-        stores = FakeProactiveStores()
-
-        async def compose_after_user_sent(_messages):
-            stores.messages.append({"role": "user", "content": "我先问一个问题"})
-            return SimpleNamespace(content="会议即将开始。要我帮你准备材料吗？")
-
-        ctx = SimpleNamespace(
-            env={}, store=stores, conversation_id="race-conversation",
-            request=SimpleNamespace(body={"operation": "open_conversation"}, headers={}),
-        )
-        model = SimpleNamespace(ainvoke=AsyncMock(side_effect=compose_after_user_sent))
-        with (
-            patch("agents.proactive.index.run_proactive_tick", AsyncMock(return_value=(state, {"signals": 1}))),
-            patch("agents.proactive.index.get_model", return_value=model),
-        ):
-            response = await proactive_handler(ctx)
-        self.assertIsNone(response["proactive_message"])
-        self.assertEqual(response["opening_suppressed"], "conversation_became_active")
-        self.assertEqual(len(stores.messages), 1)
-        self.assertEqual(response["notifications"][0]["status"], "unread")
-
     async def test_proactive_preference_change_triggers_one_refresh(self):
         stores = FakeProactiveStores()
         refreshed = empty_proactive_state()

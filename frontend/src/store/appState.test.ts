@@ -175,6 +175,7 @@ describe('app state reducer', () => {
         daily_limit: 5,
         lookahead_hours: 24,
         window_limit: 4,
+        fallback_mottos: [],
         types: { schedule_upcoming: true },
       },
       notifications: [],

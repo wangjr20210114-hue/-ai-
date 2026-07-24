@@ -7,6 +7,21 @@ export interface ProactiveReminderLine {
   text: string;
 }
 
+/** Build presentation-only fallbacks without creating fake notifications. */
+export function proactiveFallbackLines(items: string[]): ProactiveReminderLine[] {
+  const seen = new Set<string>();
+  return items.flatMap((item, index) => {
+    const text = String(item || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!text || seen.has(text)) return [];
+    seen.add(text);
+    return [{
+      id: `fallback:${index}:${text}`,
+      notificationId: '',
+      text,
+    }];
+  }).slice(0, 5);
+}
+
 export function activeProactiveNotifications(
   items: ProactiveNotification[],
   now = Math.floor(Date.now() / 1000),

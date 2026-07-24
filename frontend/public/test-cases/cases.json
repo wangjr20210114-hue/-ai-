@@ -2871,60 +2871,6 @@
     ]
   },
   {
-    "id": "MIG-01",
-    "module": "数据迁移",
-    "title": "SQLite 只读导出与 Makers 导入",
-    "scope": "验证真实旧库数量、哈希、幂等和抽样回读。",
-    "implementation": "requires-config",
-    "releaseBlocker": false,
-    "preconditions": [
-      "已在 Makers 控制台确认目标 Deployment 为 Preview，并记录 Deployment ID。",
-      "测试站显示“已同步”，当前主机名称和测试人已填写。",
-      "提供真实旧 SQLite 备份副本",
-      "设置一次性 LEGACY_IMPORT_SECRET",
-      "保留原备份"
-    ],
-    "data": [
-      "真实 .db/.sqlite/.sqlite3 备份"
-    ],
-    "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
-      "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
-      "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
-      "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
-      "【目标网页】对副本执行只读导出。",
-      "【目标网页】记录各表数量和哈希。",
-      "【目标网页】导入 Conversation Store、LangGraph Store 与 Blob。",
-      "【目标网页】重复导入验证幂等。",
-      "【目标网页】抽样打开会话、日程、文件。",
-      "【目标网页】删除导入 Secret 并重新部署。",
-      "【验收站】回到 MIG-01，按实际结果选择“通过/失败/阻塞/不适用”；备注写明实际现象、关键请求状态和复现条件，不要填写密钥。",
-      "【验收站】在“证据”上传页面截图、Network/Console 截图或短录屏；等待提示已保存到 Makers Blob，再刷新测试站确认附件仍可打开。"
-    ],
-    "expected": [
-      "源库未被修改",
-      "数量/哈希匹配或差异有清单",
-      "重复导入不重复数据",
-      "未知/冲突进入人工核对",
-      "验收前不删除旧数据",
-      "除用例明确要求的受控失败外，相关请求无意外 4xx/5xx，Console 无新增未捕获异常。",
-      "结果、备注、最后编辑主机/时间和上传证据在刷新后仍存在，并可从另一台主机同步看到。"
-    ],
-    "evidence": [
-      "导出清单、哈希、导入报告、抽样记录"
-    ],
-    "detailVersion": 2,
-    "safety": {
-      "environment": "仅本地或专用 Preview；Production 禁止故障注入、无效 Key、断网副作用和破坏性操作。",
-      "impact": "使用 TEST- 前缀会话/日程/账号和临时 Preview 配置；不读取、不复制、不在备注中记录真实密钥。",
-      "rollback": "先恢复临时配置并重新部署 Preview，再通过 /system 和一轮普通对话确认服务恢复；无法隔离时标“阻塞”。"
-    },
-    "cleanup": [
-      "如果本用例使用过 Request conditions/请求条件，删除创建的规则并关闭 Enable blocking and throttling；如果调整过 Network throttling，则恢复为 No throttling/不限速，确认浏览器网络正常。",
-      "刷新目标网页做一次冒烟检查：应用仍可连接、新建普通会话可用；异常时立即标记失败。"
-    ]
-  },
-  {
     "id": "OPS-01",
     "module": "运维与健康",
     "title": "/system 公共健康与应用运行记录",
@@ -2947,7 +2893,7 @@
       "【Preview 地址栏】在域名后输入 /system，并保留控制台生成的 eo_token/eo_time 参数；回车。若浏览器插件拦截该 JSON 路由，可在终端使用 curl -L 并启用临时 Cookie jar 做同一只读 GET，不要把签名写进验收备注。",
       "【/system JSON】确认 HTTP 200、status=ok、scope=public、scheduler.schedule=0 8 * * *、timezone=Asia/Shanghai、identity.mode=single_user；details 应明确详细状态位于 /system_internal 且需要 Makers 会话请求头。",
       "【目标应用左栏】点击设置→主动式服务→立即检查，在 Network 查看 /proactive 响应中的 Run 状态；不要在地址栏手工添加内部请求头。",
-      "【目标网页】刷新后再次打开 /system 并新建空白对话；有未读风险时应自然开场，无风险时保持普通欢迎页。",
+      "【目标网页】刷新后再次打开 /system；有未读风险时 Header 应显示自然短句，无真实提醒时仅轮播用户设置的诗意短句，不向空白对话注入消息。",
       "【验收站】回到 OPS-01，按实际结果选择“通过/失败/阻塞/不适用”；备注写明实际现象、关键请求状态和复现条件，不要填写密钥。",
       "【验收站】在“证据”上传页面截图、Network/Console 截图或短录屏；等待提示已保存到 Makers Blob，再刷新测试站确认附件仍可打开。"
     ],
@@ -3002,8 +2948,8 @@
       "【验收站】在“证据”上传页面截图、Network/Console 截图或短录屏；等待提示已保存到 Makers Blob，再刷新测试站确认附件仍可打开。"
     ],
     "expected": [
-      "12 条 Node Cloud Functions",
-      "13 条 Python Agents",
+      "7 条 Node Cloud Functions",
+      "12 条 Python Agents",
       "1 条每日 Schedule",
       "动态路由返回真实 JSON/SSE 而非 index.html",
       "无 Uvicorn/FastAPI/WebSocket 生产依赖",

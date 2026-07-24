@@ -4,7 +4,6 @@ import type {
   ThemeMode,
   TravelPlan,
   ScheduleItem,
-  TravelCollected,
   MakersMapPlace,
   ConversationSummary,
   ProactiveState,
@@ -36,12 +35,6 @@ export interface AppState {
   mapRevision: number;
   calendarPulse: { date: string; count: number; token: number } | null;
   conversations: ConversationSummary[];
-  travelContext: {
-    collected: TravelCollected;
-    missing: string[];
-    reasoning: string;
-    context: Record<string, unknown>;
-  } | null;
   scheduleViewDate: Date | null;
   proactive: ProactiveState | null;
 }
@@ -71,7 +64,6 @@ export type Action =
   | { type: 'ADD_SCHEDULE'; payload: ScheduleItem }
   | { type: 'UPDATE_SCHEDULE'; payload: ScheduleItem }
   | { type: 'DELETE_SCHEDULE'; payload: string }
-  | { type: 'SET_TRAVEL_CONTEXT'; payload: AppState['travelContext'] }
   | { type: 'SHOW_SCHEDULE_VIEW'; payload: Date | null }
   | { type: 'HYDRATE_PROACTIVE'; payload: ProactiveState }
   | { type: 'CLEAR_ALL_STREAMING'; payload: Record<string, never> };
@@ -93,7 +85,6 @@ export const initialState: AppState = {
   mapRevision: 0,
   calendarPulse: null,
   conversations: [],
-  travelContext: null,
   scheduleViewDate: null,
   proactive: null,
 };
@@ -126,7 +117,6 @@ export function reducer(state: AppState, action: Action): AppState {
         documentContext: null,
         messages: [],
         plans: [],
-        travelContext: null,
         scheduleViewDate: null,
       };
     case 'SET_CONVERSATIONS': return { ...state, conversations: action.payload };
@@ -195,7 +185,6 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'UPDATE_SCHEDULE':
       return { ...state, schedules: state.schedules.map((item) => item.id === action.payload.id ? action.payload : item) };
     case 'DELETE_SCHEDULE': return { ...state, schedules: state.schedules.filter((item) => item.id !== action.payload) };
-    case 'SET_TRAVEL_CONTEXT': return { ...state, travelContext: action.payload };
     case 'SHOW_SCHEDULE_VIEW': return { ...state, scheduleViewDate: action.payload };
     case 'HYDRATE_PROACTIVE': return { ...state, proactive: action.payload };
     case 'CLEAR_ALL_STREAMING':

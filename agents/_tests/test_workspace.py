@@ -611,6 +611,19 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second["notifications_created"], 0)
         self.assertTrue(any(run["reason"] == "daily_limit_reached" for run in state["runs"].values()))
 
+    def test_proactive_fallback_mottos_are_sanitized_and_bounded(self):
+        state = empty_proactive_state()
+        update_preferences(state, {
+            "fallback_mottos": [
+                "  星光会找到夜路。  ", "", "星光会找到夜路。",
+                "二", "三", "四", "五", "六",
+            ],
+        })
+        self.assertEqual(
+            state["preferences"]["fallback_mottos"],
+            ["星光会找到夜路。", "二", "三", "四", "五"],
+        )
+
     def test_observe_only_persists_event_and_run_without_notification(self):
         state = empty_proactive_state()
         update_preferences(state, {"autonomy_mode": "observe", "quiet_hours": {"enabled": False}})

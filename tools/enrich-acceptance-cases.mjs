@@ -6,7 +6,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const target = path.join(root, 'frontend/public/test-cases/cases.json');
 const cases = JSON.parse(fs.readFileSync(target, 'utf8'));
 
-const faultCases = new Set(['CORE-08', 'SEARCH-03', 'PRO-05', 'PRO-08', 'SEC-02', 'MEET-02', 'MIG-01']);
+const faultCases = new Set(['CORE-08', 'SEARCH-03', 'PRO-05', 'PRO-08', 'SEC-02', 'MEET-02']);
 const readOnlyCases = new Set(['CORE-01', 'CORE-04', 'CORE-06', 'SEARCH-02', 'OPS-01', 'OPS-02', 'OPS-03', 'LIMIT-01', 'LIMIT-02', 'LIMIT-03', 'LIMIT-04']);
 
 const specialSteps = {

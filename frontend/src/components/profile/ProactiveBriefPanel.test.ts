@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeProactiveNotifications, proactiveReminderLines } from './proactiveNotifications';
+import { activeProactiveNotifications, proactiveFallbackLines, proactiveReminderLines } from './proactiveNotifications';
 import type { ProactiveNotification } from '../../types';
 
 function notification(id: string, patch: Partial<ProactiveNotification> = {}): ProactiveNotification {
@@ -53,5 +53,13 @@ describe('proactiveReminderLines', () => {
     expect(lines).toHaveLength(2);
     expect(lines.map((item) => item.notificationId)).toEqual(['schedule', 'memory']);
     expect(lines.every((item) => item.text.endsWith('。'))).toBe(true);
+  });
+});
+
+describe('proactiveFallbackLines', () => {
+  it('keeps at most five unique, non-empty presentation fallbacks', () => {
+    const lines = proactiveFallbackLines([' 星光会找到夜路。 ', '', '星光会找到夜路。', '二', '三', '四', '五', '六']);
+    expect(lines.map((item) => item.text)).toEqual(['星光会找到夜路。', '二', '三', '四', '五']);
+    expect(lines.every((item) => item.notificationId === '')).toBe(true);
   });
 });

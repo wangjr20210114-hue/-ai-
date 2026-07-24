@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, Dialog, MessagePlugin } from 'tdesign-react';
-import { SettingIcon } from 'tdesign-icons-react';
+import { AddIcon, DeleteIcon, SettingIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import { intelligenceOperation, proactiveOperation } from '../../services/api';
 import { getReadingSettings, updateReadingSettings } from '../../services/paperApi';
@@ -23,6 +23,7 @@ export default function AppSettingsButton() {
   const [loading, setLoading] = useState(false);
   const [searchPreferences, setSearchPreferences] = useState(DEFAULT_SEARCH_PREFERENCES);
   const [skillPreferences, setSkillPreferences] = useState<Record<string, boolean>>({});
+  const [mottoDrafts, setMottoDrafts] = useState<string[]>([]);
 
   useEffect(() => {
     if (!visible) return;
@@ -62,6 +63,12 @@ export default function AppSettingsButton() {
       disposed = true;
     };
   }, [conversationId, dispatch, proactive, visible]);
+
+  useEffect(() => {
+    if (visible && proactive?.preferences) {
+      setMottoDrafts([...(proactive.preferences.fallback_mottos || [])]);
+    }
+  }, [proactive?.preferences, visible]);
 
   useEffect(() => {
     const changed = (event: Event) => {
@@ -116,6 +123,12 @@ export default function AppSettingsButton() {
   const openSettings = () => {
     setVisible(true);
   };
+  const saveMottos = () => void setPreferences({
+    fallback_mottos: mottoDrafts
+      .map((item) => item.replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .slice(0, 5),
+  });
   return <>
     <Button className="sidebar-settings-button" block variant="text" icon={<SettingIcon />} onClick={openSettings}>{t('settings')}</Button>
     <Dialog
@@ -171,6 +184,56 @@ export default function AppSettingsButton() {
                 MessagePlugin.success(t('proactiveChecked'));
               }).catch((error) => MessagePlugin.error(error instanceof Error ? error.message : t('checkFailed'))).finally(() => setBusy(''));
             }}>{t('checkNow')}</Button>
+          </div>}
+          {preferences && <div className="proactive-motto-editor">
+            <div className="proactive-motto-heading">
+              <div>
+                <strong>{t('fallbackMottos')}</strong>
+                <small>{t('fallbackMottosHint')}</small>
+              </div>
+              <span>{t('mottoCount', { count: mottoDrafts.length })}</span>
+            </div>
+            <div className="proactive-motto-list">
+              {mottoDrafts.map((motto, index) => (
+                <div key={index} className="proactive-motto-row">
+                  <input
+                    value={motto}
+                    maxLength={80}
+                    disabled={busy === 'proactive'}
+                    aria-label={t('mottoNumber', { number: index + 1 })}
+                    placeholder={t('mottoPlaceholder')}
+                    onChange={(event) => setMottoDrafts((items) => items.map((item, itemIndex) => (
+                      itemIndex === index ? event.target.value : item
+                    )))}
+                  />
+                  <Button
+                    shape="circle"
+                    variant="text"
+                    size="small"
+                    disabled={busy === 'proactive'}
+                    aria-label={t('removeMottoNumber', { number: index + 1 })}
+                    title={t('remove')}
+                    icon={<DeleteIcon />}
+                    onClick={() => setMottoDrafts((items) => items.filter((_, itemIndex) => itemIndex !== index))}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="proactive-motto-actions">
+              <Button
+                size="small"
+                variant="outline"
+                disabled={busy === 'proactive' || mottoDrafts.length >= 5}
+                icon={<AddIcon />}
+                onClick={() => setMottoDrafts((items) => [...items, ''])}
+              >{t('addMotto')}</Button>
+              <Button
+                size="small"
+                theme="primary"
+                loading={busy === 'proactive'}
+                onClick={saveMottos}
+              >{t('saveMottos')}</Button>
+            </div>
           </div>}
           <details className="proactive-settings-runs">
             <summary>{t('runDiagnostics')}</summary>

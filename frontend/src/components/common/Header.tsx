@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from 'tdesign-react';
-import { ChevronLeftIcon, ChevronRightIcon, MenuIcon, ModeDarkIcon, ModeLightIcon, NotificationIcon } from 'tdesign-icons-react';
+import { ChevronLeftIcon, ChevronRightIcon, LogoGithubIcon, MenuIcon, ModeDarkIcon, ModeLightIcon, NotificationIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
-import { activeProactiveNotifications, proactiveReminderLines } from '../profile/proactiveNotifications';
+import { activeProactiveNotifications, proactiveFallbackLines, proactiveReminderLines } from '../profile/proactiveNotifications';
 import { useLanguage } from '../../i18n';
 
 const THEME_KEY = 'travel-theme';
+const FEATURE_DOCUMENT_URL = 'https://github.com/wangjr20210114-hue/-ai-/blob/main/README.md';
 
 /** 顶部导航栏。 */
 export default function Header({
@@ -29,7 +30,12 @@ export default function Header({
     () => proactiveReminderLines(notifications),
     [notifications],
   );
-  const notificationKey = reminderLines.map((item) => item.id).join('|');
+  const fallbackLines = useMemo(
+    () => proactiveFallbackLines(proactive?.preferences.fallback_mottos || []),
+    [proactive?.preferences.fallback_mottos],
+  );
+  const displayLines = reminderLines.length ? reminderLines : fallbackLines;
+  const notificationKey = displayLines.map((item) => item.id).join('|');
   const [reminderIndex, setReminderIndex] = useState(0);
 
   useEffect(() => {
@@ -37,12 +43,12 @@ export default function Header({
   }, [notificationKey]);
 
   useEffect(() => {
-    if (reminderLines.length < 2) return;
+    if (displayLines.length < 2) return;
     const timer = window.setInterval(() => {
-      setReminderIndex((value) => (value + 1) % reminderLines.length);
+      setReminderIndex((value) => (value + 1) % displayLines.length);
     }, 6000);
     return () => window.clearInterval(timer);
-  }, [reminderLines.length]);
+  }, [displayLines.length]);
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -94,28 +100,40 @@ export default function Header({
         <span className="brand-logo">{t('appTitle')}</span>
       </div>
       <div className="header-proactive-slot">
-        {connected && (
+        {connected && proactive?.preferences.enabled !== false && (
           <button
             type="button"
-            className={`header-proactive-ticker${reminderLines.length ? '' : ' is-idle'}`}
-            aria-label={reminderLines.length
-              ? t('viewReminder', { text: reminderLines[reminderIndex % reminderLines.length].text })
+            className={`header-proactive-ticker${reminderLines.length ? '' : ' is-fallback'}`}
+            aria-label={displayLines.length
+              ? (reminderLines.length
+                ? t('viewReminder', { text: displayLines[reminderIndex % displayLines.length].text })
+                : displayLines[reminderIndex % displayLines.length].text)
               : t('proactiveNoNew')}
-            onClick={onToggleSidebar}
+            onClick={reminderLines.length ? onToggleSidebar : undefined}
           >
             <NotificationIcon size="14px" aria-hidden="true" />
             <span
-              key={reminderLines.length ? reminderLines[reminderIndex % reminderLines.length].id : 'idle'}
+              key={displayLines.length ? displayLines[reminderIndex % displayLines.length].id : 'idle'}
               className="header-proactive-ticker-text"
             >
-              {reminderLines.length
-                ? reminderLines[reminderIndex % reminderLines.length].text
+              {displayLines.length
+                ? displayLines[reminderIndex % displayLines.length].text
                 : t('proactiveNoNew')}
             </span>
           </button>
         )}
       </div>
       <div className="header-actions">
+        <a
+          className="header-icon-link"
+          href={FEATURE_DOCUMENT_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+          aria-label={t('featureDocs')}
+          title={t('featureDocs')}
+        >
+          <LogoGithubIcon />
+        </a>
         <StatusIndicator />
         {onToggleRightPanel && (
           <Button

@@ -39,6 +39,13 @@ def default_preferences() -> dict[str, Any]:
         "daily_limit": 5,
         "lookahead_hours": 24,
         "window_limit": 4,
+        # These are presentation-only fallbacks. They never enter the
+        # notification window or compete with a real proactive reminder.
+        "fallback_mottos": [
+            "鱼儿水中游，永远不会回首～",
+            "风会记得每一片认真生长的叶子。",
+            "慢一点也没关系，星光总会找到夜路。",
+        ],
         "types": {
             "schedule_conflict": True,
             "tight_transfer": True,
@@ -92,6 +99,15 @@ def _merge_preferences(value: Any) -> dict[str, Any]:
         base["quiet_hours"].update(copy.deepcopy(value["quiet_hours"]))
     if isinstance(value.get("types"), dict):
         base["types"].update({str(k): bool(v) for k, v in value["types"].items()})
+    if isinstance(value.get("fallback_mottos"), list):
+        mottos: list[str] = []
+        for item in value["fallback_mottos"]:
+            text = " ".join(str(item or "").replace("\x00", "").split()).strip()[:80]
+            if text and text not in mottos:
+                mottos.append(text)
+            if len(mottos) >= 5:
+                break
+        base["fallback_mottos"] = mottos
     base["enabled"] = bool(base["enabled"])
     if base["autonomy_mode"] not in {"observe", "remind", "propose", "low_risk_auto"}:
         base["autonomy_mode"] = "propose"
@@ -1021,6 +1037,7 @@ def update_preferences(state: dict[str, Any], changes: dict[str, Any]) -> dict[s
         for key in (
             "enabled", "autonomy_mode", "timezone", "daily_limit",
             "lookahead_hours", "window_limit", "quiet_hours", "types",
+            "fallback_mottos",
         )
         if key in changes
     }

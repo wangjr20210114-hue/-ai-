@@ -1,160 +1,237 @@
-# FLORIS · EdgeOne Makers 版
+# FLORIS 功能文档
 
-FLORIS 是一个运行在腾讯云 EdgeOne Makers 上的多能力主动式 Agent。生产主链使用 Python LangGraph Agent、Makers AI Gateway、LangGraph checkpointer/store、Conversation Store、Cloud Functions、Blob 与平台 Cron；旧 FastAPI 已退役，不再作为生产 Transport 或发布回归门槛。
+> 产品名：**FLORIS：一只有温度的大橘**
+>
+> 生产地址：<https://floris.jlutx.com>
+>
+> 在线验收站：<https://floris.jlutx.com/test-cases/>
+>
+> 运行平台：腾讯云 EdgeOne Makers
+>
+> 产品边界：个人单所有者演示，不提供注册、多用户、租户或用户数据库
+>
+> 文档原则：根目录 `README.md` 是仓库唯一的功能、环境、部署和测试事实源
 
-Makers 项目：`ai-active-agent`（`makers-0oeuhire655w`）。项目使用 GitHub Provider，由 EdgeOne 控制台从目标分支创建 Preview/Production；不能对该项目执行本地目录直传。未绑定自定义域名时，默认 `edgeone.cool` 地址需要从控制台“预览”获取 3 小时访问链接。部署证据见 [CURRENT_RELEASE.md](docs/CURRENT_RELEASE.md)。
+本文先说明运行环境，再按“一项功能说明 + 一张建议截图”的方式描述产品。所有“截图位”均是留给维护者的拍摄提示；截图完成后可将图片放进 `docs/images/` 并替换对应提示。
 
-## 当前生产能力
+## 1. 环境与运行前提
 
-| 能力 | 实现与边界 |
+### 1.1 平台结构
+
+FLORIS 不运行 FastAPI、Uvicorn、WebSocket 服务、SQLite、外置用户数据库、自建对象存储、自建 Cron 或自建模型服务。React/Vite 负责界面；12 个 Python Agent 路由承担 LangGraph 对话和业务工具；7 个 Node Cloud Functions 承担文件、阅读库、论文、会话索引、验收站、健康页和定时桥接；EdgeOne Makers 提供 AI Gateway、Agent Runtime、Conversation Store、LangGraph Checkpointer/Store、Pages Blob、Schedule、Trace 和 GitHub Provider 部署。
+
+| 数据或能力 | 事实源 |
 | --- | --- |
-| 对话与会话恢复 | Makers LangGraph checkpointer；每个对话独立上下文 |
-| 联网图文回答 | WSA SearchPro + 网页媒体抽取 + HY-Vision 视觉相关性筛选 |
-| 地点与地图 | 腾讯位置服务优先，OSM 降级；真实地点 ID 才能进入地图 |
-| 道路路线 | 腾讯路线优先，OSRM 降级；支持多点顺序与费用估算 |
-| 日程 | 跨对话用户工作区；Agent 提案确认后写入，右栏支持直接 CRUD；删除只提交目标项，服务端拒绝完全相同的重复创建 |
-| 腾讯会议 | 可选的官方个人 MCP Skill；只配置个人 Token 后才暴露工具，不需要企业开发者凭据 |
-| AI 生图 | 混元 `hy-image-v3.0` 直接生成；现实主体可复用富搜索 + HY-Vision 审核图，支持版本轮播、绘制动画、Blob 归档与 ZIP 下载 |
-| 论文与 PDF | 普通富搜索后桥接公开 PDF/arXiv 下载；PDF 自动分类、文件夹化“我的阅读”，论文支持选词、翻译、总结、全文助读和问答；翻译记录随阅读项目持久化并可跨主机恢复 |
-| 界面与回答语言 | 设置中可切换简体中文、繁体中文、English、可爱喵喵语、冷酷喵喵语；固定界面文案、聊天回答和论文助读遵循同一语言偏好 |
-| 主动运行时 | 回答完成后语义识别搜索/写作/翻译/生图/任务机会；外文 PDF 仅上传、不提问时也可主动建议当前界面语言版本，采纳后自动挂载原文档；EdgeOne cron 继续扫描日程/天气/路线/工作流；统一使用持久 Event/Run/Notification、冷却、过期、免打扰和每日上限 |
-| 长期记忆与反馈 | 后台自动提取、过滤和清理非敏感稳定记忆；提醒接受/忽略/稍后反馈；连续忽略生成可确认规则提案；Token 日/月预算 |
-| Skills 广场 | 现有能力默认全部开启；开关同时约束 Agent 工具与直接业务入口，支持硬依赖自动补齐和推荐依赖的上下文引导 |
-| 持久工作流 | 主模型可创建多步骤工作流提案；用户确认后后台按依赖和到期时间推进，步骤需显式完成/跳过 |
-| 安全副作用 | Action 冻结快照、SHA-256、幂等键、Provider 调用账本、执行租约和未知结果人工核对 |
+| 会话列表、标题、消息 | Makers Conversation Store |
+| 单会话执行状态 | Makers LangGraph Checkpointer |
+| 日程、地图快照、Action、记忆、主动提醒、工作流、偏好 | Makers LangGraph Store |
+| PDF、论文、生成图片、阅读库索引、测试证据 | Makers Pages Blob |
+| 每日离线检查 | `edgeone.json` 的 Makers Schedule |
+| 在线 10 分钟记忆检查 | 页面可见时的前端定时触发 |
+| 构建与生产发布 | Makers GitHub Provider |
 
-当前产品固定为个人单所有者演示，不包含注册、登录、JWT、租户或用户数据库。线上业务状态完全使用 Makers Conversation Store、LangGraph Store 和 Blob；不需要 SQLite、Neon 或其他应用数据库。完整架构见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)，旧 SQLite 数据迁移见 [DATA_MIGRATION.md](docs/DATA_MIGRATION.md)。
+> 🖼️ 截图位 01：EdgeOne Makers 项目总览，同时露出 Functions、Agents、Schedules 三个页签。
 
-### Header 主动提醒
+### 1.2 本地环境
 
-提醒不会再写入新对话，避免和用户发送消息产生竞态。有效提醒会在标题右侧以一行文字轮播，淡入淡出并可点击展开左侧面板；左侧面板仍保留完整操作入口（按建议处理、稍后 1 小时、忽略）。
-
-- 日程在未来 24 小时内开始：提示即将开始。
-- 两个日程时间重叠：提示发现日程冲突。
-- 不同地点间隔不足 30 分钟：提示行程衔接较紧。
-- 已核实的日程地点遇到雨雪、雷暴、台风、大风、沙尘、雾、冰雹或严寒：提示关注天气。
-- 用户已经明确授予浏览器定位权限后：只用约 1 公里的临时粗粒度坐标查询城市级天气；遇到上述风险时提示当前所在地天气，原始坐标不写入 Event/Notification。
-- 未来相邻日程的真实路线耗时加 15 分钟仍超过空档：提示通勤时间可能不足。
-- 回答、文档上传、生图完成后，只有独立语义模型判断确有价值时，才提示搜索更新、写作/翻译优化、图片迭代、文档下一步或任务下一步；低置信度、重复、敏感或一次性问题不会提醒。
-
-日程地点使用已核实的地点服务数据；浏览器定位只在用户已授权后触发，后端不保存坐标。安全长期记忆和近期问题只作为后台语义判断上下文，不会在界面展示。
-
-## 目录
-
-```text
-agents/
-├── chat/                 # LangGraph 主对话、能力规划和生产工具
-├── proactive/            # 定时 Collector、Event/Run、通知和持久工作流
-├── intelligence/         # 记忆提案、反馈、规则和预算
-├── system/               # 主动运行时健康与可观测性
-├── messages/             # 从检查点恢复消息与工作区
-├── reader/               # 论文翻译、总结、全文助读与问答
-├── places/               # 真实地点查询
-├── routes/               # 道路路线查询
-├── workspace/            # 地图、日程、会议和生图操作
-└── stop/                 # 停止当前 Agent 运行
-cloud-functions/
-├── files/                # Makers Blob 签名、读取和删除
-├── library/              # 跨会话“我的阅读”资产索引
-├── papers/               # arXiv 搜索、下载和论文归档
-└── conversations/        # Makers 会话列表、标题和消息追加
-frontend/                 # React + Vite 双模式前端
-tools/                    # SQLite 只读导出和 Makers 一次性导入工具；不进入运行时
-docs/                     # Makers 当前事实、迁移计划和部署验收
-frontend/public/test-cases/ # 静态全功能验收站（访问 /test-cases/）
-edgeone.json              # Makers 构建与 Agent 配置
-```
-
-## 状态所有权
-
-- 对话历史与短期记忆：按 `conversation_id` 存在 LangGraph checkpointer。
-- 会话列表与标题：Makers conversation store。
-- 日程、地图、Action、Event/Run/Notification、工作流、记忆、反馈和预算：单用户 LangGraph store，跨对话共享。
-- PDF、论文和生成图片字节：Makers Blob；阅读索引同样持久化在 Blob。
-- 旧 SQLite 数据：只读迁移来源；不属于生产状态所有权。
-
-## 环境变量
-
-将 `.env.example` 中需要的变量配置到 Makers 项目环境，不要提交真实值。
-
-| 变量 | 用途 |
-| --- | --- |
-| `AI_GATEWAY_API_KEY` / `AI_GATEWAY_BASE_URL` | Makers AI Gateway，CLI 通常自动注入 |
-| `AI_GATEWAY_MODEL` | 主对话模型，默认 `@makers/deepseek-v4-flash` |
-| `WSA_API_KEY` / `WSA_BASE_URL` | 联网富搜索 |
-| `HUNYUAN_IMAGE_API_KEY` | TokenHub 多模态图片筛选与混元生图（Hy3 是纯文本模型，不用于看图） |
-| `HUNYUAN_VISION_API_KEY` / `HUNYUAN_VISION_MODEL` | 可选的独立视觉密钥与模型覆盖，默认复用上项并调用 `hy-vision-2.0-instruct` |
-| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_WORKERS_AI_TOKEN` | 可选的每日免费额度视觉理解、文生图和图生图降级 |
-| `DASHSCOPE_API_KEY` / `GEMINI_API_KEY` | 可选的视觉理解后备；不作为当前免费生图链 |
-| `RICH_SEARCH_*_TIMEOUT_SECONDS` | 搜索、媒体提取和视觉审核硬预算；默认 10/5/7 秒 |
-| `TENCENT_MAP_SERVER_KEY` | 腾讯地点与路线服务 |
-| `TENCENT_MEETING_TOKEN` | 可选的腾讯会议个人 AI Skill Token；未配置时安全隐藏会议工具 |
-
-视觉免费额度、Provider 顺序和无破坏 Preview 验收见 [VISUAL_PROVIDER_FALLBACK.md](docs/VISUAL_PROVIDER_FALLBACK.md)；当前混元接口、Apple 风格微交互与 Cloudflare 最小配置见 [MOTION_AND_VISUAL_FALLBACK.md](docs/MOTION_AND_VISUAL_FALLBACK.md)。
-
-## Makers 本地开发
-
-要求 EdgeOne CLI `>= 1.6.7`：
+建议使用 Node.js 22、Python 3.11+、EdgeOne CLI 1.6.7+。首次拉取后在仓库根目录执行：
 
 ```bash
-npm install -g edgeone@latest
-edgeone -v
+npm ci
+npm --prefix frontend ci
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
 edgeone whoami
 edgeone makers link
 edgeone makers env pull
 edgeone makers dev
 ```
 
-使用 CLI 输出的 Makers 代理地址（通常为 `http://127.0.0.1:8088/`）；它同时提供静态前端、Agent 路由和 Cloud Functions。
+`edgeone makers dev` 的地址同时代理静态前端、Cloud Functions 和 Python Agents，通常是 `http://127.0.0.1:8088/`。不要单独启动旧后端。
 
-## 质量检查
+> 🖼️ 截图位 02：终端中 `edgeone makers dev` 启动成功并显示本地访问地址。
+
+### 1.3 环境变量
+
+真实值只保存在 Makers 环境变量中，不提交 `.env`。最小可用配置和可选 Provider 如下：
+
+| 级别 | 变量 | 用途 |
+| --- | --- | --- |
+| 必需 | `AI_GATEWAY_API_KEY`、`AI_GATEWAY_BASE_URL` | Makers AI Gateway |
+| 默认即可 | `AI_GATEWAY_MODEL` | 主模型，默认 `@makers/deepseek-v4-flash` |
+| 推荐 | `WSA_API_KEY` | 实时网页与新闻富搜索 |
+| 推荐 | `TENCENT_MAP_SERVER_KEY`、`VITE_TENCENT_MAP_KEY` | 服务端地点/路线与浏览器地图 |
+| 推荐 | `HUNYUAN_IMAGE_API_KEY` | 混元文生图、图生图 |
+| 推荐 | `HUNYUAN_VISION_API_KEY` | 搜索图片与参考图的轻量审核；缺省可复用生图 Key |
+| 可选降级 | `DEEPSEEK_API_KEY` | AI Gateway 配额或瞬时故障时的文本模型降级 |
+| 可选降级 | `CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_WORKERS_AI_TOKEN` | Workers AI 视觉理解、文生图、图生图降级 |
+| 可选降级 | `DASHSCOPE_API_KEY`、`GEMINI_API_KEY` | 视觉理解后备 |
+| 可选 Skill | `TENCENT_MEETING_TOKEN` | 腾讯会议个人 AI Skill；未配置时不向模型暴露会议工具 |
+| 性能调节 | `CAPABILITY_PLAN_TIMEOUT_SECONDS` | 搜索/工具语义规划时限 |
+| 性能调节 | `RICH_SEARCH_PROVIDER_TIMEOUT_SECONDS` | SearchPro 调用时限 |
+| 性能调节 | `RICH_SEARCH_MEDIA_TIMEOUT_SECONDS` | 网页媒体提取时限 |
+| 性能调节 | `RICH_SEARCH_VISION_TIMEOUT_SECONDS` | 搜索图片审核时限 |
+| 性能调节 | `REFERENCE_VISION_TIMEOUT_SECONDS` | 用户参考图理解时限 |
+| 主动服务 | `PROACTIVE_MEMORY_TIMEOUT_SECONDS` | 记忆主动提醒语义判断时限 |
+
+完整变量名、默认模型与默认 URL 以仓库根目录 `.env.example` 为准。`VISION_PROVIDER_ORDER` 与 `IMAGE_PROVIDER_ORDER` 只应用于专用 Preview 的降级取证，生产通常使用代码默认的混元优先顺序。
+
+> 🖼️ 截图位 03：Makers 环境变量列表，只显示变量名和作用域，所有值必须打码。
+
+### 1.4 部署
+
+项目使用 GitHub Provider。推送 `main` 后，EdgeOne 会从 GitHub 构建；不要对该项目执行本地目录直传。
+
+```bash
+git push origin main
+```
+
+Preview 流程：EdgeOne 控制台 → Makers → 项目 → 构建部署 → 新建部署 → 选择 `main` 和目标提交 → 选择预览环境 → 等待成功 → 从“预览”按钮获取签名链接。Production 只有在自动化和 Preview 人工验收通过后才发布。自定义域名 `floris.jlutx.com` 指向生产 Deployment。
+
+> 🖼️ 截图位 04：成功的 Production Deployment，显示提交 SHA、main 分支和 floris.jlutx.com 域名状态。
+
+## 2. 对话、流式输出与会话恢复
+
+用户可以直接进行问答、写作、翻译、总结和代码生成。回答按 SSE 流式输出，Markdown、表格、代码、公式、行内来源和图片会在对应位置逐步渲染；“猜你想继续问”与正文并行生成。每个对话独立保存，切换对话后后台生成仍可继续；刷新或连接丢失不会偷偷重启旧请求。用户点击“停止生成”后立即结束本轮并恢复输入，只能由用户点击“重试”或发送新消息重新生成。
+
+回答右上角提供纯文字复制和回答图片保存；富文本来源、图片不进入纯文字复制。需要关键条件时，模型可在任何问答场景生成结构化选择、判断、多选、日期或必要填空卡；点击选项后直接把结果交给模型继续思考，不要求用户再次手工发送。非阻断偏好不会强迫必填，而是给出多套方案。
+
+> 🖼️ 截图位 05：一条正在流式输出的回答，同时显示进度短句、行内来源、图片和“猜你想继续问”。
+
+## 3. 自动记忆
+
+记忆由后台自动提取，不在前端向用户展示，也不要求逐条确认。系统只保存用户明确表达的稳定偏好、长期目标和项目背景，并二次过滤联系方式、凭证、证件、精确地址、财务、医疗等敏感信息；低置信度、一次性事实、过期或长期未使用内容会被清理。安全记忆会进入后续对话的模型上下文、搜索规划和主动提醒判断，从而形成跨会话连续体验。
+
+> 🖼️ 截图位 06：两个不同会话中，第二个会话自然复用了第一个会话明确表达的非敏感偏好。
+
+## 4. 主动式服务
+
+主动服务覆盖搜索问答、写作、翻译、生图、文档和日程场景。回答完成、文件上传、图片生成、日程变化、网页打开以及在线每 10 分钟检查都可能产生业务信号；独立语义模型只在确有价值时选出最多一个机会，再经过隐私、置信度、冷却、过期、免打扰和每日上限规则，写入持久 Event、Run、Notification。每日 Makers Schedule 在浏览器关闭时继续扫描日程、天气、路线与工作流。
+
+真实提醒在 Header 中以自然短句淡入淡出轮播，并同步出现在左侧简洁提醒面板，用户可以采纳、稍后一小时或忽略。提醒不会写入空白新对话，因此不会和用户首条消息竞态。提醒窗口以记忆为主、用户操作为辅，最多显示设置的窗口上限；日程或路线更新后旧提醒会被淘汰。
+
+当没有真实提醒时，Header 才显示用户在“设置 → 主动式服务”中维护的诗意短句。最多 5 条、每条最多 80 字，默认含“鱼儿水中游，永远不会回首～”等三条；这些短句仅是低权重界面兜底，不创建假通知、不进入提醒窗口。短句和真实提醒偏好都保存在 Makers LangGraph Store，刷新和跨主机继续有效；一旦出现真实提醒，短句立即让位。
+
+> 🖼️ 截图位 07：设置中编辑 3–5 条诗意短句，Header 正在轮播其中一条。
+
+> 🖼️ 截图位 08：创建临近日程后，Header 的诗意短句已被真实日程提醒替换，左侧面板显示处理按钮。
+
+## 5. 实时图文搜索
+
+搜索前保留独立 LLM 语义规划，它结合当前问题和已过滤的非敏感记忆，决定是否联网、合并查询和是否需要图片，不使用关键词硬编码替代规划。一轮对话最多执行一次 `rich_search`；同轮重复调用复用同一任务，跨轮按时效 TTL 使用 LangGraph Store 缓存。默认向答案提供 8 条去重网页结果和最多 2 张候选图，用户可在设置中选择 4/8/12/18 条网页结果、0/1/2/4 张图片以及是否并行查图。
+
+SearchPro 事实搜索只调用一次，网页媒体并发抽取，候选图并发做轻量相关性、广告、二维码、Logo、UI 和占位图审核。审核通过的真实 URL 交给主模型直接用标准 Markdown 排版；来源以对应事实旁的可点击标题链接出现，不在回答底部重复堆一份来源目录。Provider 失败或超时只影响图片，不阻断文字回答。
+
+> 🖼️ 截图位 09：询问“最近 AI 有什么新进展”，回答中图片位于相关段落、来源标题可单击打开。
+
+## 6. 视觉理解与图片工坊
+
+用户可以上传图片让模型理解，也可以文生图、参考图生图和基于已有版本继续修改。混元为主 Provider，Cloudflare Workers AI 可作为视觉和生图降级；视觉审核只判断相关性与明显广告等必要条件，并受硬超时约束。生成结果保存到 Makers Blob，图片工坊支持版本轮播、统一切换按钮、单图下载、批量 ZIP 下载和“基于此图修改”。绘制期间使用稳定的全宽画布和阶段提示，避免输入区尺寸跳动。
+
+搜索回答中的图片排版由答案模型通过标准 Markdown 决定；前端只负责安全渲染、加载状态和持久恢复，不使用 `[[YUANBAO_MEDIA...]]` 一类占位符猜位置。
+
+> 🖼️ 截图位 10：一组橘猫图片的生成过程与完成后的版本轮播、下载、继续修改入口。
+
+## 7. 真实地点、定位、地图与路线
+
+地点推荐必须先通过腾讯位置服务核实真实名称、地址、place_id 和坐标；有部分地点核实成功时只显示成功项，全部失败时才拒绝生成地图。普通地点推荐只展示点位，不把地点强行连线；旅游规划、日程规划或用户明确询问两地路线时才绘制道路路径。道路路线优先使用腾讯路线服务，必要时使用 OSRM 降级，并返回距离、时间和费用估算。
+
+“显示我的位置”先检查浏览器权限，已授权时可复用短时位置缓存并在刷新后重新定位；坐标只用于当前地图和城市级天气，不写入提醒事件。地图容器在模型思考时保持持久，不因回答状态反复刷新。
+
+> 🖼️ 截图位 11：推荐三里屯附近餐馆，只显示真实点位且没有无意义连线；“我的位置”同时可见。
+
+## 8. 日程管理与冲突闭环
+
+日程可以从右侧日历直接新增、就地编辑、删除，也可以完全通过自然语言新增、改时间、改描述、改地点和删除。模型先生成冻结的 Calendar Action，用户确认后服务端按当前 `schedule_id` 执行并使用幂等键阻止重复写入；删除不会把剩余日程重复复制。今日以前的日程在界面和模型工具层都禁止修改。
+
+地点必须来自地点库。系统检查日程重叠、前后地点真实道路时间和至少 15 分钟缓冲；时间不合理或通勤不足时给出可理解警告。确认修改后立即重算主动提醒，旧提醒不再保留。用户先规划路线、后说“写入日程”时，系统复用上一轮已核实地点，并通过日期/时间选择卡收集真正必要的信息。
+
+> 🖼️ 截图位 12：右侧未来日历的行内编辑框，以及一张含时间冲突与通勤提醒的确认卡。
+
+## 9. 腾讯会议
+
+个人用户从腾讯会议官方 AI Skill 页面取得 `TENCENT_MEETING_TOKEN`，保存到 Makers 环境变量即可，不需要企业 SecretId、SecretKey、AppId、SDK ID 或回调服务。只有 Token 存活且“腾讯会议”与“日程管理”Skill 都开启时，模型才获得会议工具。
+
+会议缺少必要时间时使用同一张可编辑卡收集主题、开始和结束时间；卡片可快捷填充，也能逐条处理日程冲突。用户最终确认后只调用一次官方 MCP，成功返回会议号和入会链接，并自动写入一条关联 `meeting_id` 的日程。未知结果进入人工核对，不会盲目重试创建。
+
+> 🖼️ 截图位 13：腾讯会议确认卡、创建成功的会议号，以及右侧日历中自动新增的同主题日程。
+
+## 10. PDF、论文与“我的阅读”
+
+用户上传 PDF 后，文件直传 Makers Blob；论文会自动加入“我的阅读”并打开兼容模式助读器，普通 PDF 打开阅读器。系统也能检索 arXiv/公开论文并下载 PDF。大文件使用分片读取，避免 Cloud Function 响应大小限制。
+
+论文助读保留全文分析、问答、选词翻译和总结。选中文本后的结果按时间追加在旧记录后，翻译与分析历史写回阅读项目，关闭、刷新或换主机后仍可恢复；全屏按钮可进入和退出全屏。外文文档上传成功后，即使用户还没提问，主动服务也可在有价值时建议当前界面语言版本；采纳后从原 Makers Blob 重新载入，不搜索同名网页。
+
+> 🖼️ 截图位 14：论文兼容阅读器，顶部“论文助读”、全文分析、全屏按钮和右侧按时间排列的翻译记录。
+
+## 11. Skills 广场与设置
+
+Skills 广场把通用问答、实时搜索、视觉理解、图片工坊、真实地点与地图、日程、主动式 Agent、论文助读和腾讯会议组织为能力开关。现有功能默认开启，核心问答不可关闭；硬依赖会自动补齐，推荐依赖会自然引导。例如只开日程而关地图时，无地点日程仍可使用，涉及真实地点时会建议开启地图而不是编造地址。
+
+设置只展示已启用 Skill 的相关配置，包括五种语言、搜索结果/图片数量、阅读库整理、主动服务开关、关注范围、免打扰、立即检查和最多 5 条诗意短句。固定标签和模型回答同时支持简体中文、繁体中文、English、可爱喵喵语、冷酷喵喵语。浅色主题为橙色暖调，深色主题为紫色夜空风格，主题切换控制在数百毫秒内。
+
+右上角 GitHub 图标单击打开本功能文档，鼠标悬浮提示“功能文档”。
+
+> 🖼️ 截图位 15：Skills 广场与设置并排展示，包含语言、搜索和诗意短句设置；右上角 GitHub 图标可见。
+
+## 12. 视觉风格与交互
+
+浅色对话背景是与 Floris Logo 同风格的橘猫在草地与人撒娇，深色背景是橘猫在房顶看星空；背景覆盖完整中间栏，包括消息和发送区，但不覆盖左右工作区。按钮、卡片、弹窗、抽屉、消息气泡、主题切换、图片切换和论文助读操作都使用短促的 Apple 风格缓动，并遵循 `prefers-reduced-motion`。图形按钮均提供悬浮说明。
+
+回答列表采用稳定滚动锚点：用户主动向上浏览或选择文字时不会被自动滚动抢走位置；回答正文目前通过右上角复制按钮复制纯文字，不依赖不稳定的气泡内划词复制。
+
+> 🖼️ 截图位 16：同一对话的浅色与深色主题对比，显示完整中间栏背景和 Floris 头像。
+
+## 13. 安全副作用与故障处理
+
+地图展示、日程变更、腾讯会议和生图使用服务端冻结 Action：包含版本、SHA-256 快照、幂等键、执行租约和 Provider 账本。用户确认前不发生高风险副作用；确认时只提交 Action ID 与版本，不由浏览器重传整份参数。超时导致结果未知时标为 `reconciliation_required`，避免重复创建。
+
+网络断开时，本轮在 20 秒无进展后进入明确恢复/失败状态；用户主动停止拥有最高优先级，网络恢复只允许补发取消指令，绝不自动重新生成。模型主链可在 Makers Gateway 配额或瞬时故障时使用配置的 DeepSeek 降级；搜索图片、视觉、生图和地图的降级互相隔离，不把单个 Provider 故障扩大为整轮失败。
+
+> 🖼️ 截图位 17：断网或生成失败后的终止卡片，显示“重试”按钮且输入框已经恢复可用。
+
+## 14. 验收测试站
+
+`/test-cases/` 是随主应用部署的静态测试站。每个 Case 包含真实入口、逐步点击位置、输入数据、每一步预期、最终结果、安全边界和清理步骤；测试人员可以记录通过、失败、阻塞、不适用、备注和编辑主机。图片/视频证据上传到 Makers Blob，状态、备注、最后编辑主机和时间跨刷新、跨主机共享。产品按个人单编辑者设计，最后一次保存生效，不实现多人同时编辑锁。
+
+完整 Makers 本地环境访问 `http://127.0.0.1:8088/test-cases/`。只检查静态布局时执行 `npm --prefix frontend run dev`，再访问 `http://127.0.0.1:5173/test-cases/index.html`；此模式仅使用当前浏览器 localStorage，不能验证跨主机持久化和证据上传。
+
+> 🖼️ 截图位 18：测试站表格的一条完整 Case，展开操作步骤、预期结果、备注、证据与最后编辑记录。
+
+## 15. 质量检查与发布门槛
+
+提交前在仓库根目录执行：
 
 ```bash
 . .venv/bin/activate
-python3 -m compileall agents
-python3 -m unittest discover -s agents/_tests -v
-python3 -m unittest discover -s tools/tests -v
+python -m compileall -q agents
+python -m unittest discover -s agents/_tests -v
 npm test
+npm --prefix frontend test -- --run
+npm --prefix frontend run lint
+npm --prefix frontend run build -- --mode edgeone
+git diff --check
+```
 
+还应执行严格 TypeScript 未使用检查：
+
+```bash
 cd frontend
-npm ci
-npm test -- --run
-npm run lint
-npm run build -- --mode edgeone
+npx tsc -p tsconfig.app.json --noEmit --noUnusedLocals --noUnusedParameters
 ```
 
-完整测试命令、测试站的两种本地启动方式和跨主机共享说明见 [TESTING.md](docs/TESTING.md)。比赛主动服务闭环见 [CONTEST_SOLUTION.md](docs/CONTEST_SOLUTION.md)。
+Preview 必须确认首页、`/system`、`/test-cases/`、`/messages`、`/chat`、`/workspace`、文件上传和至少一轮真实对话均可用。生产环境只做非破坏冒烟，不进行无效 Key、网络阻断、付费批量调用或真实会议故障注入。
 
-## 测试 Case 启动
+> 🖼️ 截图位 19：终端中 Python、Node、前端测试和生产构建全部通过。
 
-需要测试结果、备注、编辑记录和图片/视频证据跨主机持久化时，必须启动完整 Makers 本地代理：
+## 16. 当前明确不提供的能力
 
-```bash
-npm ci
-npm --prefix frontend ci
-edgeone makers link
-edgeone makers env pull
-edgeone makers dev
-```
+- 注册、登录、JWT、多用户、租户隔离和团队协同。
+- FastAPI、Uvicorn、WebSocket、SQLite、Neon 或外部业务数据库。
+- 一次性旧 SQLite 数据导入入口；当前版本从干净的 Makers 数据代际运行。
+- 本地 `tmeet` CLI、腾讯会议企业五项凭据或自建会议桥。
+- 用户可见的记忆列表和逐条记忆确认。
+- 浏览器关闭状态下每 10 分钟运行；Makers Schedule 的平台最小间隔为每天，在线页面负责 10 分钟补充检查。
 
-访问 CLI 输出地址下的 `/test-cases/`，通常是 `http://127.0.0.1:8088/test-cases/`。只检查静态页面时可执行 `npm --prefix frontend run dev` 并访问 `http://127.0.0.1:5173/test-cases/index.html`；Vite 不应用 EdgeOne rewrite，不能省略 `index.html`。此模式没有 `/acceptance` Cloud Function，只使用当前浏览器 `localStorage`，不能验证跨主机持久化或证据上传。
-
-线上验收时，从 EdgeOne 控制台为目标 Git 分支创建 Preview，再打开其 3 小时签名链接的 `/test-cases/`。具体步骤见 [ACCEPTANCE_SITE.md](docs/ACCEPTANCE_SITE.md)。
-
-当前数据代际、AI 自主富媒体排版、全局微交互、日程就地编辑和 Skills 依赖均已纳入 [`BASELINE.md`](docs/BASELINE.md) 与 [`ARCHITECTURE.md`](docs/ARCHITECTURE.md)，不再维护单次版本改造日志。
-
-## GitHub Provider 发布
-
-```bash
-git push -u origin <当前分支>
-```
-
-随后进入 EdgeOne 控制台 → Makers → `ai-active-agent` → 构建部署 → 新建部署，选择刚推送的分支并创建 Preview。该项目不是 Upload Provider，`edgeone makers deploy` 会被平台拒绝；生产发布必须在 Preview 自动化与人工验收通过后单独授权。
-
-不要提交 `.env`、`.edgeone/`、`frontend/dist/`、本地数据库和上传文件。
-
-## 旧代码边界
-
-旧 FastAPI/SQLite 运行时代码已从仓库删除。历史数据迁移只保留独立的只读导出器和 Makers 导入器；FastAPI `/api`、`/ws`、SQLite Scheduler、Supervisor 与本地 `tmeet` 不再存在，也不能作为 Makers 故障回退。
-
-部署步骤见 [DEPLOYMENT.md](docs/DEPLOYMENT.md)，测试与测试站启动见 [TESTING.md](docs/TESTING.md)，最近发布记录见 [CURRENT_RELEASE.md](docs/CURRENT_RELEASE.md)。
+这些边界是当前个人比赛演示的有意取舍，不是隐藏在旧代码中的待恢复功能。

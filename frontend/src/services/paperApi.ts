@@ -6,24 +6,6 @@ import { getStoredLanguage } from '../i18n';
  * 论文助读 API：搜索 → 下载 → 流式 LLM 调用。
  */
 
-export interface PaperInfo {
-  title: string;
-  arxiv_id: string;
-  authors: string;
-  year: number;
-  abstract_zh: string;
-  key_contribution: string;
-  citations: string;
-  arxiv_url: string;
-  pdf_url: string;
-}
-
-/** 搜索论文 */
-export async function searchPapers(topic: string): Promise<{ papers: PaperInfo[]; topic: string; error?: string }> {
-  const resp = await authorizedFetch(`/papers?topic=${encodeURIComponent(topic)}`);
-  return resp.json();
-}
-
 /** 下载论文 PDF（后端自动从 arXiv 下载） */
 export async function downloadPaper(arxivId: string, title: string, pdfUrl = ''): Promise<{
   file_id: string;
@@ -40,21 +22,6 @@ export async function downloadPaper(arxivId: string, title: string, pdfUrl = '')
   const data = await resp.json();
   if (resp.ok) window.dispatchEvent(new CustomEvent('yuanbao:library-changed'));
   return data;
-}
-
-/** 保存论文到「我的阅读」 */
-export async function savePaper(fileId: string, title: string, arxivId: string, sessionId: string): Promise<{ ok: boolean; error?: string }> {
-  void sessionId;
-  const item = await registerReadingItem({ storage_key: fileId, filename: title, title, mime_type: 'application/pdf', is_paper: true, arxiv_id: arxivId });
-  return { ok: Boolean(item.id) };
-}
-
-/** 列出「我的阅读」中的论文 */
-export async function listSavedPapers(sessionId: string): Promise<{ papers: SavedPaper[] }> {
-  void sessionId;
-  const resp = await authorizedFetch('/library');
-  const data = await resp.json() as { items?: SavedPaper[] };
-  return { papers: data.items || [] };
 }
 
 /** 删除「我的阅读」中的论文 */

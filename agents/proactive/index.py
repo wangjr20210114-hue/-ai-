@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import time
 
-from langchain_core.messages import HumanMessage, SystemMessage
-
 from .._shared.proactive import (
     cancel_workflow,
     collect_workflow_signals,
@@ -34,88 +32,10 @@ from .._shared.intelligence import (
     save_intelligence_state,
 )
 from .._shared.proactive_memory import infer_memory_reminder
-from .._shared.auth import require_user, scoped_conversation_id
+from .._shared.auth import require_user
 from .._shared.http import error
 from .._shared.tencent_location import get_current_weather
 from ..chat._llm import get_model
-
-
-def _message_text(value) -> str:
-    content = getattr(value, "content", value)
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        return "".join(
-            str(item.get("text") or "") for item in content if isinstance(item, dict)
-        ).strip()
-    return ""
-
-
-def _field(value, name: str, default=None):
-    if isinstance(value, dict):
-        return value.get(name, default)
-    try:
-        return getattr(value, name)
-    except (AttributeError, KeyError):
-        return default
-
-
-async def _conversation_has_durable_messages(store, conversation_id: str) -> bool:
-    """Recheck an empty conversation after the opening LLM call.
-
-    A user can send their first message while the proactive opening is being
-    composed.  In that case the user turn wins: do not append an unsolicited
-    assistant message behind it or mark the reminder as delivered.
-    """
-    if not hasattr(store, "get_messages"):
-        return False
-    try:
-        result = await store.get_messages(
-            conversation_id=conversation_id, limit=5, order="desc"
-        )
-    except Exception:
-        return False
-    if isinstance(result, list):
-        items = result
-    elif isinstance(result, dict):
-        items = result.get("items") or []
-    else:
-        items = _field(result, "items", [])
-    if not isinstance(items, list):
-        return False
-    for item in items or []:
-        role = str(_field(item, "role", _field(item, "type", ""))).lower()
-        content = _field(item, "content", "")
-        if role in {"user", "human", "assistant", "ai"} and _message_text(content):
-            return True
-    return False
-
-
-async def _compose_opening(env, notifications: list[dict]) -> str:
-    facts = "\n".join(
-        f"- {item.get('title') or '提醒'}：{item.get('body') or ''}；可建议：{item.get('action_prompt') or ''}"
-        for item in notifications[:3]
-    )
-    fallback = "\n".join(
-        f"{item.get('title') or '有一项提醒'}：{item.get('body') or ''}"
-        for item in notifications[:2]
-    )
-    try:
-        model = get_model(env)
-        response = await model.ainvoke([
-            SystemMessage(content=(
-                "你是元宝的主动服务。把结构化提醒写成一条自然、克制的中文开场消息。"
-                "先说最重要的事实，再给一项具体帮助，并询问用户是否希望调整日程、地点、提醒方式或继续处理。"
-                "不要提主动模块、扫描、后台、数据库、策略、通知中心或内部实现；不要编造事实；控制在180字内。"
-            )),
-            HumanMessage(content=f"待提醒事实：\n{facts}"),
-        ])
-        text = _message_text(response)
-        if text:
-            return text[:600]
-    except Exception:
-        pass
-    return f"{fallback}\n\n需要我帮你调整时间、地点或提醒方式吗？"[:600]
 
 
 async def _run_tick_with_memory(
@@ -173,7 +93,7 @@ async def handler(ctx):
         proactive_skill_enabled = bool(
             (intelligence_state.get("skill_preferences") or {}).get("proactive-agent", True)
         )
-        if not proactive_skill_enabled and operation in {"refresh", "memory_refresh", "page_open", "open_conversation", "tick"}:
+        if not proactive_skill_enabled and operation in {"refresh", "memory_refresh", "page_open", "tick"}:
             disabled_state = await load_proactive_state(store, user_id)
             if (disabled_state.get("preferences") or {}).get("enabled", True):
                 update_preferences(disabled_state, {"enabled": False})
@@ -181,79 +101,13 @@ async def handler(ctx):
             return {
                 **public_proactive_state(disabled_state),
                 "tick_stats": {"disabled_by_skill": True},
-                **({"proactive_message": None} if operation == "open_conversation" else {}),
             }
-        if operation in {"refresh", "page_open", "open_conversation"}:
+        if operation in {"refresh", "page_open"}:
             state, stats = await _run_tick_with_memory(
                 ctx, store, user_id, intelligence_state,
                 force_memory=operation == "page_open",
             )
-            public = public_proactive_state(state)
-            if operation in {"refresh", "page_open"}:
-                return {**public, "tick_stats": stats}
-
-            raw_conversation_id = getattr(ctx, "conversation_id", "")
-            if not raw_conversation_id:
-                return error("makers-conversation-id header is required")
-            conversation_id = scoped_conversation_id(ctx, user_id, raw_conversation_id)
-            unread = [
-                item for item in public.get("notifications", [])
-                if item.get("status") == "unread"
-            ]
-            delivered = state.setdefault("checkpoints", {}).setdefault("conversation_deliveries", {})
-            delivered_ids = set(delivered.get(conversation_id) or [])
-            selected = [item for item in unread if item.get("id") not in delivered_ids][:3]
-            workflows = [
-                item for item in public.get("workflows", [])
-                if item.get("status") == "awaiting_confirmation" and item.get("id") not in delivered_ids
-            ][:2]
-            prompts = [*selected, *[{
-                "id": item.get("id"),
-                "title": f"持续任务建议：{item.get('title') or '未命名任务'}",
-                "body": item.get("reason") or "这项持续任务等待你确认",
-                "action_prompt": "询问我是否启用、调整步骤或暂不启用",
-            } for item in workflows]]
-            if not prompts:
-                return {**public, "tick_stats": stats, "proactive_message": None}
-
-            content = await _compose_opening(ctx.env, prompts)
-            if await _conversation_has_durable_messages(ctx.store, conversation_id):
-                return {
-                    **public_proactive_state(state),
-                    "tick_stats": stats,
-                    "proactive_message": None,
-                    "opening_suppressed": "conversation_became_active",
-                }
-            now = int(time.time())
-            message_id = await ctx.store.append_message(
-                conversation_id=conversation_id,
-                role="assistant",
-                content=content,
-                user_id=user_id,
-                metadata={
-                    "source": "yuanbao-proactive",
-                    "owner_user_id": user_id,
-                    "notification_ids": [str(item.get("id") or "") for item in selected],
-                    "workflow_ids": [str(item.get("id") or "") for item in workflows],
-                },
-            )
-            delivered[conversation_id] = [str(item.get("id") or "") for item in prompts]
-            for item in selected:
-                stored = state.get("notifications", {}).get(str(item.get("id") or ""))
-                if isinstance(stored, dict):
-                    stored.update({"status": "read", "read_at": now, "updated_at": now})
-            state = await save_proactive_state(store, state, user_id)
-            return {
-                **public_proactive_state(state),
-                "tick_stats": stats,
-                "proactive_message": {
-                    "id": str(message_id or f"proactive-{now}"),
-                    "role": "ai",
-                    "content": content,
-                    "ts": now * 1000,
-                    "proactive": True,
-                },
-            }
+            return {**public_proactive_state(state), "tick_stats": stats}
 
         if operation == "tick":
             state, stats = await _run_tick_with_memory(

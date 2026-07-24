@@ -202,46 +202,6 @@ async def _recent_user_questions(store, conversation_id: str, current_message: s
     return questions
 
 
-async def _imported_conversation_seed(ctx, conversation_id: str, current_message: str) -> list[dict]:
-    """Seed the first checkpoint only from an explicitly migrated Makers conversation."""
-    checkpoint = await ctx.store.langgraph_checkpointer.aget_tuple(
-        {"configurable": {"thread_id": conversation_id}}
-    )
-    if checkpoint is not None or not hasattr(ctx.store, "get_messages"):
-        return []
-    try:
-        result = await ctx.store.get_messages(conversation_id=conversation_id, limit=100, order="asc")
-    except KeyError as exc:
-        # Older Node-side generic-store writes used an envelope that is not a
-        # native Conversation Store message. It cannot seed a checkpoint, but
-        # must never block the current user turn.
-        logging.warning(
-            "ignored incompatible conversation message conversation=%s field=%s",
-            conversation_id,
-            exc,
-        )
-        return []
-    items = result if isinstance(result, list) else _field(result, "items", [])
-    if not isinstance(items, list) or not any(
-        isinstance(_field(item, "metadata", {}), dict)
-        and (
-            _field(item, "metadata", {}).get("migration_export_id")
-            or _field(item, "metadata", {}).get("source") == "yuanbao-proactive"
-        )
-        for item in items
-    ):
-        return []
-    seed = []
-    for item in items[-60:]:
-        role = "assistant" if str(_field(item, "role", "")) == "ai" else str(_field(item, "role", ""))
-        content = _field(item, "content", "")
-        if role in {"user", "assistant", "system"} and isinstance(content, str) and content:
-            seed.append({"role": role, "content": content})
-    if seed and seed[-1]["role"] == "user" and seed[-1]["content"].strip() == current_message.strip():
-        seed.pop()
-    return seed
-
-
 async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
@@ -630,10 +590,9 @@ async def handler(ctx):
                         run_id=run_id,
                         status="running",
                     )
-                imported_seed = await _imported_conversation_seed(ctx, conversation_id, message)
                 if not cancelled:
                     async for event in graph.astream(
-                        {"messages": [*imported_seed, {"role": "user", "content": message}]},
+                        {"messages": [{"role": "user", "content": message}]},
                         config=config,
                         stream_mode="messages",
                     ):
