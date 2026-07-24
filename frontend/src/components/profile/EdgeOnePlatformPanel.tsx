@@ -7,6 +7,7 @@ import type { MakersMapPlace, ScheduleItem } from '../../types';
 import MakersMap from './MakersMap';
 import ReadingLibraryPanel from './ReadingLibraryPanel';
 import { useLanguage } from '../../i18n';
+import { chronologicalSchedulePlaces } from './makersMapRouting';
 const EMPTY_SCHEDULES: ScheduleItem[] = [];
 
 function dateKey(date: Date): string {
@@ -101,9 +102,7 @@ export default function EdgeOnePlatformPanel() {
 
   const selectedItems = schedulesByDate.get(dateKey(selectedDate)) || EMPTY_SCHEDULES;
   const schedulePlaces = useMemo(
-    () => selectedItems
-      .map((item) => item.extra?.place)
-      .filter((place): place is NonNullable<typeof place> => Boolean(place)),
+    () => chronologicalSchedulePlaces(selectedItems),
     [selectedItems],
   );
   const effectivePlaces = useMemo(
@@ -357,7 +356,6 @@ export default function EdgeOnePlatformPanel() {
             places={effectivePlaces}
             revision={mapRevision}
             showRoute={showingScheduleRoute}
-            optimize={showingScheduleRoute}
           />
           : <div className="workspace-skill-disabled"><span>⌖</span><strong>{t('mapSkillDisabled')}</strong><small>{t('mapSkillDisabledDetail')}</small><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('yuanbao:open-skills'))}>{t('enableInSkills')}</button></div>}
       </div>

@@ -14,7 +14,6 @@ interface Props {
   revision: number;
   /** Whether this map represents an ordered plan (for example a day's schedule). */
   showRoute?: boolean;
-  optimize?: boolean;
 }
 
 type PermissionState = 'checking' | 'prompt' | 'granted' | 'denied' | 'unavailable';
@@ -70,7 +69,7 @@ function hoursMinutes(seconds: number): string {
   return translate('hoursMinutes', { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }
 
-export default function MakersMap({ conversationId, title, places, revision, showRoute = false, optimize = false }: Props) {
+export default function MakersMap({ conversationId, title, places, revision, showRoute = false }: Props) {
   const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -218,11 +217,11 @@ export default function MakersMap({ conversationId, title, places, revision, sho
     let disposed = false;
     setRoute(null);
     setRouteError('');
-    void planMakersRoute(conversationId, places, optimize)
+    void planMakersRoute(conversationId, places)
       .then((next) => { if (!disposed) setRoute(next); })
       .catch((error) => { if (!disposed) setRouteError(error instanceof Error ? error.message : t('routePlanningFailed')); });
     return () => { disposed = true; };
-  }, [conversationId, places, revision, showRoute, optimize, t]);
+  }, [conversationId, places, revision, showRoute, t]);
 
   useEffect(() => {
     if (!displayPlaces.length) return;

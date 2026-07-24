@@ -45,6 +45,8 @@ class RouteCacheTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(first["route"]["cache"]["hit"])
         self.assertTrue(second["route"]["cache"]["hit"])
         planner.assert_awaited_once()
+        self.assertEqual(planner.await_args.args[1], PLACES)
+        self.assertEqual(planner.await_args.kwargs, {"optimize": False})
 
 
 if __name__ == "__main__":

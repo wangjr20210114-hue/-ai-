@@ -158,12 +158,13 @@ export async function searchMakersPlaces(
 export async function planMakersRoute(
   conversationId: string,
   places: MakersMapPlace[],
-  optimize = false,
 ): Promise<MakersRoutePlan> {
   const res = await authorizedFetch('/routes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
-    body: JSON.stringify({ places, mode: 'driving', optimize }),
+    // Callers supply an intentional itinerary order. Keep it unchanged so a
+    // shortest-path optimization cannot contradict the calendar chronology.
+    body: JSON.stringify({ places, mode: 'driving', optimize: false }),
   });
   const data = await res.json().catch(() => ({})) as { route?: MakersRoutePlan; error?: string };
   if (!res.ok || !data.route) throw new Error(data.error || translate('realRoutePlanningFailed'));
