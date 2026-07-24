@@ -681,6 +681,22 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             ("search_places", "propose_calendar_changes"),
         )
 
+    def test_paper_plan_uses_arxiv_without_requiring_web_search(self):
+        self.assertEqual(
+            required_tools_for_plan({"needs_papers": True}),
+            ("search_arxiv",),
+        )
+        self.assertEqual(
+            required_tools_for_plan({"needs_papers": True, "needs_web_search": True}),
+            ("rich_search", "search_arxiv"),
+        )
+
+    def test_persistent_active_workflow_has_its_own_capability_route(self):
+        self.assertEqual(
+            required_tools_for_plan({"needs_workflow_action": True}),
+            ("propose_workflow",),
+        )
+
     def test_route_plan_uses_verified_route_tool_without_web_estimate(self):
         self.assertEqual(
             required_tools_for_plan({"needs_route": True}),

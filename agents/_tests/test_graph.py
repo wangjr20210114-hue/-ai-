@@ -162,6 +162,22 @@ class _BlankAfterToolModel:
         return AIMessage(content="已根据核实路线整理好结果。")
 
 
+class _UnavailableRequiredModel:
+    def __init__(self):
+        self.bound_calls = 0
+        self.unbound_calls = 0
+        self.last_messages = []
+
+    def bind_tools(self, _tools, **_kwargs):
+        self.bound_calls += 1
+        return self
+
+    async def ainvoke(self, messages, **_kwargs):
+        self.unbound_calls += 1
+        self.last_messages = messages
+        return AIMessage(content="对应能力当前不可用，请先开启 Skill 或完成连接。")
+
+
 class _RepeatingPlaceBoundModel:
     def __init__(self, owner):
         self.owner = owner
@@ -280,6 +296,26 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(model.tool_choice, "required")
         self.assertEqual(result["messages"][-1].content, "")
+
+    async def test_unavailable_required_tool_is_not_treated_as_completed(self):
+        model = _UnavailableRequiredModel()
+        graph = build_graph(
+            model,
+            [ask_user_clarification],
+            "system",
+            required_tools=["propose_meeting"],
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="创建腾讯会议")],
+        })
+        self.assertEqual(
+            result["messages"][-1].content,
+            "对应能力当前不可用，请先开启 Skill 或完成连接。",
+        )
+        self.assertTrue(any(
+            "必需的能力当前不可用" in str(getattr(message, "content", ""))
+            for message in model.last_messages
+        ))
 
     async def test_rich_search_keeps_required_route_tool_available(self):
         model = _RouteChainModel()

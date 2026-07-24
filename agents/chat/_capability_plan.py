@@ -26,6 +26,7 @@ DEFAULT_PLAN = {
     "needs_map_action": False,
     "needs_calendar_action": False,
     "needs_meeting_action": False,
+    "needs_workflow_action": False,
     "needs_image_generation": False,
     "needs_papers": False,
     "search_query": "",
@@ -110,7 +111,7 @@ def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
         return ("ask_user_clarification",)
 
     required: list[str] = []
-    if bool(plan.get("needs_web_search")) or bool(plan.get("needs_papers")):
+    if bool(plan.get("needs_web_search")):
         required.append("rich_search")
 
     # The composite map tool verifies every model-selected place and prepares
@@ -129,8 +130,12 @@ def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
         required.append("propose_calendar_changes")
     if bool(plan.get("needs_meeting_action")):
         required.append("propose_meeting")
+    if bool(plan.get("needs_workflow_action")):
+        required.append("propose_workflow")
     if bool(plan.get("needs_image_generation")):
         required.append("propose_image")
+    if bool(plan.get("needs_papers")):
+        required.append("search_arxiv")
     return tuple(dict.fromkeys(required))
 
 
@@ -178,7 +183,7 @@ async def plan_capabilities(
 ) -> dict[str, Any]:
     today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
     prompt = f"""你是能力路由器，只判断完成本轮用户请求需要哪些能力，不回答问题。当前北京时间日期是运行时得到的 {today}；“今天、今日、今年、最近 N 年”等相对时间必须据此解析并写入搜索查询，绝不能沿用训练数据、示例或旧会话里的日期。
-返回严格 JSON：needs_clarification、needs_web_search、strict_today_only、needs_rich_answer、needs_images、needs_places、needs_nearby_places、needs_route、needs_map_action、needs_calendar_action、needs_meeting_action、needs_image_generation、needs_papers 为布尔值；search_query、image_query、paper_author、blocked_skill 为字符串；paper_year、paper_limit 为整数。
+返回严格 JSON：needs_clarification、needs_web_search、strict_today_only、needs_rich_answer、needs_images、needs_places、needs_nearby_places、needs_route、needs_map_action、needs_calendar_action、needs_meeting_action、needs_workflow_action、needs_image_generation、needs_papers 为布尔值；search_query、image_query、paper_author、blocked_skill 为字符串；paper_year、paper_limit 为整数。
 判断原则：
 - 这些字段只是给主模型的能力建议，绝不是工具开关；主模型始终可以自主决定是否搜索、使用多少素材以及怎样组织回答。
 - Skill 状态会在下方单独提供。先理解用户真正要完成的目标，再判断它是否不可替代地依赖某个已关闭 Skill；若是，blocked_skill 必须填写该 Skill 的精确 id，其他 needs_* 全部为 false，让主模型自然提醒用户开启。不得因为问题中出现日期、地点、图片等表面词语就机械判定依赖，也不得把可选的富媒体增强当成阻塞；只有缺少该能力就无法完成用户明确要求的最终结果时才阻塞。Skill 已开启或任务不依赖已关闭能力时 blocked_skill 为空字符串。
@@ -194,7 +199,8 @@ async def plan_capabilities(
 - 用户要求新增/修改/删除行程日程才需要 calendar_action；仅说计划去某地不等于写日程。
 - 新增或修改日程时，只要用户给出了现实地点且本轮没有可唯一复用的已核实地点，就同时设置 needs_places=true，让地点核实先于 calendar_action；不得直接把自由文本地点或猜测的地点 ID 交给日程工具。
 - 创建会议需要 meeting_action；生成新图片需要 image_generation。若图片主体是现实中的具体人物、地点、产品、动物品种或其他需要外观准确的对象，同时设置 web_search 和 images，并用 image_query 描述该真实主体；纯幻想、抽象画面或用户已给参考图则不搜索。
-- 搜索论文、文献、arXiv 或某研究方向的学术成果需要 papers；search_query 写论文主题。用户指定作者时 paper_author 使用其常见英文学术署名（如能确定），指定年份和数量时分别填写 paper_year、paper_limit；没有则为 0 或空字符串。
+- 用户明确要求建立跨时间、多步骤、会持续推进或定时主动触达的提醒流程时需要 workflow_action；单次提醒或普通日程仍使用 calendar_action，不能用多条日程冒充主动工作流。
+- 搜索论文、文献、arXiv 或某研究方向的学术成果需要 papers；papers 会调用独立 arXiv 能力，不要求同时开启 web-search。只有用户还要求查网页、新闻、官方资料或跨来源综述时才额外设置 needs_web_search。search_query 写论文主题。用户指定作者时 paper_author 使用其常见英文学术署名（如能确定），指定年份和数量时分别填写 paper_year、paper_limit；没有则为 0 或空字符串。
 - 需要搜索时，search_query 改写成适合搜索引擎的简洁事实查询，不要保留“能不能、给我讲讲”等对话措辞；否则为空字符串。
 - 只有用户明确要求“今天/今日发生或发布的新闻、公告、进展”时，strict_today_only=true，search_query 必须包含上面的当前完整日期，并强调只要发布日期可核验为该日的内容；不能用“过去一周”或其他日期代替。
 - “截至今天/截至目前的最新能力、现状、价格或对比”表示查询截止时间，不表示资料必须在今天发布；这类请求 strict_today_only=false，应检索截至当前日期可核验的最新官方资料并保留各自真实发布日期。

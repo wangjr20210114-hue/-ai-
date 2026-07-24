@@ -67,6 +67,7 @@ def action_completion_fallback(messages: Iterable) -> str:
     was ready although no durable Action existed.
     """
     actions: list[dict] = []
+    workflow_ready = False
     for message in reversed(_logical_turn_messages(messages)):
         if getattr(message, "type", "") != "tool":
             continue
@@ -82,7 +83,15 @@ def action_completion_fallback(messages: Iterable) -> str:
             and isinstance(payload.get("action"), dict)
         ):
             actions.append(payload)
-    return action_fallback_content(actions) if actions else ""
+        workflow_ready = workflow_ready or (
+            isinstance(payload, dict)
+            and isinstance(payload.get("workflow_proposal"), dict)
+        )
+    if actions:
+        return action_fallback_content(actions)
+    if workflow_ready:
+        return "主动工作流提案已加入主动提醒中心，请核对后再决定是否启用。"
+    return ""
 
 
 def tool_failure_fallback(messages: Iterable) -> str:
@@ -249,10 +258,18 @@ def build_graph(
         # LangGraph's recursion error to the user.
         force_finalize = tools_this_turn >= 4
         rich_search_used = "rich_search" in used_tool_names
-        required_name = "" if force_finalize else next_required_tool(
+        unavailable_required_tools = [
+            name for name in required_sequence
+            if name not in allowed_tool_names and name not in used_tool_names
+        ]
+        required_name = "" if force_finalize or unavailable_required_tools else next_required_tool(
             required_sequence, used_tool_names, allowed_tool_names,
         )
-        planned_sequence_complete = bool(required_sequence) and not required_name
+        planned_sequence_complete = (
+            bool(required_sequence)
+            and not required_name
+            and not unavailable_required_tools
+        )
         # The semantic LLM planner has already decided that rich_search is
         # required and the tool adapter already owns its merged search query.
         # Asking a second tool-bound LLM to merely echo that decision adds a
@@ -277,10 +294,11 @@ def build_graph(
         ]
         tools_closed = (
             force_finalize
+            or bool(unavailable_required_tools)
             or planned_sequence_complete
             or (finalize_after_rich_search and not remaining_tools)
         )
-        if force_finalize:
+        if force_finalize or unavailable_required_tools:
             active_model = model
         elif planned_sequence_complete:
             # The semantic planner's shortest capability chain has completed.
@@ -309,7 +327,16 @@ def build_graph(
             )
         history = bounded_history(state["messages"])
         messages = [SystemMessage(content=system_prompt), *history]
-        if force_finalize:
+        if unavailable_required_tools:
+            messages.append(SystemMessage(content=(
+                "能力规划确认完成本轮目标所必需的能力当前不可用。"
+                f"不可用的内部能力标识为：{', '.join(unavailable_required_tools)}。"
+                "不要向用户暴露这些内部标识，不要调用其他工具拼凑半成品，"
+                "也不要声称已生成卡片、提案、链接、图片、路线或结果。"
+                "请结合系统中给出的 Skill 状态，自然说明本次尚未执行、应开启哪个 Skill，"
+                "或说明对应外部连接器尚未配置。用户明确要求核实的数据不得改用模型估算。"
+            )))
+        elif force_finalize:
             messages.append(SystemMessage(content=(
                 "本轮工具阶段已经结束。不要再描述搜索过程，不要再输出或模拟任何工具调用。"
                 "请直接基于已有工具结果回答用户；结果不足时明确说明缺少多少和检索边界。"
@@ -371,7 +398,10 @@ def build_graph(
                             "不要再次调用、模拟或描述任何工具协议。"
                         )),
                     ])
-        if force_finalize and not public_content(getattr(response, "content", "")).strip():
+        if (
+            (force_finalize or unavailable_required_tools)
+            and not public_content(getattr(response, "content", "")).strip()
+        ):
             # Some provider models keep imitating their previous DSML transport
             # after tools are unbound. One clean retry yields prose without
             # exposing a placeholder or inventing results.
