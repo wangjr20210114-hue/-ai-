@@ -71,6 +71,11 @@ describe('human-readable progress', () => {
   it('uses a plain-language fallback for an unfamiliar capability', () => {
     expect(progressTextForTool('future_capability', 'complete')).toBe('这一步已完成，正在整理结果…');
   });
+
+  it('describes verified route calculation in user language', () => {
+    expect(progressTextForTool('plan_route_between_places', 'active')).toContain('真实道路路线');
+    expect(progressTextForTool('plan_route_between_places', 'complete')).toContain('预计时间');
+  });
 });
 
 describe('terminal generation failure', () => {

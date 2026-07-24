@@ -15,11 +15,13 @@ from typing import Any, Iterable
 
 
 DEFAULT_PLAN = {
+    "needs_clarification": False,
     "needs_web_search": False,
     "strict_today_only": False,
     "needs_rich_answer": False,
     "needs_images": False,
     "needs_places": False,
+    "needs_route": False,
     "needs_map_action": False,
     "needs_calendar_action": False,
     "needs_meeting_action": False,
@@ -81,6 +83,12 @@ def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
     model cannot claim that a map, calendar change, meeting, or generated image
     is ready without actually producing the corresponding UI action.
     """
+    # Missing critical information is a terminal planning state for this turn.
+    # Ask once with a structured card before spending search/provider budget or
+    # attempting a side effect with guessed inputs.
+    if bool(plan.get("needs_clarification")):
+        return ("ask_user_clarification",)
+
     required: list[str] = []
     if bool(plan.get("needs_web_search")) or bool(plan.get("needs_papers")):
         required.append("rich_search")
@@ -88,7 +96,9 @@ def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
     # The composite map tool verifies every model-selected place and prepares
     # the terminal map Action in one call.  For a single non-map location (most
     # commonly a calendar destination), retain the focused place lookup.
-    if bool(plan.get("needs_map_action")):
+    if bool(plan.get("needs_route")):
+        required.append("plan_route_between_places")
+    elif bool(plan.get("needs_map_action")):
         required.append("recommend_places_on_map")
     elif bool(plan.get("needs_places")):
         required.append("search_places")
@@ -141,15 +151,17 @@ def next_required_tool(
 async def plan_capabilities(model, user_message: str, memory_context: str = "") -> dict[str, Any]:
     today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
     prompt = f"""你是能力路由器，只判断完成本轮用户请求需要哪些能力，不回答问题。当前北京时间日期是运行时得到的 {today}；“今天、今日、今年、最近 N 年”等相对时间必须据此解析并写入搜索查询，绝不能沿用训练数据、示例或旧会话里的日期。
-返回严格 JSON：needs_web_search、strict_today_only、needs_rich_answer、needs_images、needs_places、needs_map_action、needs_calendar_action、needs_meeting_action、needs_image_generation、needs_papers 为布尔值；search_query、image_query、paper_author 为字符串；paper_year、paper_limit 为整数。
+返回严格 JSON：needs_clarification、needs_web_search、strict_today_only、needs_rich_answer、needs_images、needs_places、needs_route、needs_map_action、needs_calendar_action、needs_meeting_action、needs_image_generation、needs_papers 为布尔值；search_query、image_query、paper_author 为字符串；paper_year、paper_limit 为整数。
 判断原则：
 - 这些字段只是给主模型的能力建议，绝不是工具开关；主模型始终可以自主决定是否搜索、使用多少素材以及怎样组织回答。
+- 如果缺少一个或多个关键信息就无法可靠完成请求，needs_clarification=true，而且本轮其他能力全部设为 false。普通事实问答、存在明显低风险默认值、或可以先给出不误导的通用答案时不要澄清。澄清卡应一次集中收齐真正必要的信息：有限候选优先单选/多选，能用是/否表达就用判断，日期时间用选择器，只有答案无法枚举时才用短文本；不要在长回答末尾再追问。
 - 先语义判断是否需要外部事实。简单计算、脑筋急转弯、闲聊或模型可直接可靠回答的请求不搜索；时效事实、用户明确要求查证、需要来源或现实世界信息时搜索。
 - 独立判断图片是否能明显加快理解。现实事件的新闻/近期进展综述，如果现场、人物、产品或实物图片能帮助用户区分各条进展，通常设置 needs_images=true；只有用户明确要极简文字、主题高度抽象或确实没有有意义视觉对象时才设为 false。地点、产品、动植物、历史实物等同理。不能机械地按“用户有没有说图片”判断。
 - search_query 必须把完成目标所需的事实约束合并成一次高质量查询；不要拆成多个近义查询，也不要预留“第二次再搜”。近期进展综述要在同一查询中要求多个独立事件、可核验日期和可靠来源，避免只命中一条宽泛报道。image_query 只表达最能代表这些事实的视觉对象，可与事实搜索并发。
 - rich_answer/images 表示富媒体素材可能有帮助，不规定最终版式；模型可以采用、穿插、重排或完全舍弃素材。
 - 旅行目的地介绍、第一次去某城市、请介绍当地有什么好玩/好吃/值得去，回答天然会包含多个可到访点，所以 needs_places 和 needs_map_action 都必须为 true；不能因为用户没说“地图”就关掉地图能力。
 - 单一地点的历史、文化或原理解说不需要 map_action，除非用户同时要求周边或路线。
+- 用户询问两个地点之间“多远、多久、怎么走、打车多少钱”或明确要求道路路线时，needs_route=true。真实距离由地点与路线服务核验，不要为了距离本身设置 needs_web_search，也不要用网页结果估算；只有用户还要求沿途新闻、实时政策等额外事实时才同时设置 web_search。needs_route 已包含两个端点的地点核验，不必为了同一端点再额外设置 needs_places 或 map_action。
 - 用户要求新增/修改/删除行程日程才需要 calendar_action；仅说计划去某地不等于写日程。
 - 创建会议需要 meeting_action；生成新图片需要 image_generation。若图片主体是现实中的具体人物、地点、产品、动物品种或其他需要外观准确的对象，同时设置 web_search 和 images，并用 image_query 描述该真实主体；纯幻想、抽象画面或用户已给参考图则不搜索。
 - 搜索论文、文献、arXiv 或某研究方向的学术成果需要 papers；search_query 写论文主题。用户指定作者时 paper_author 使用其常见英文学术署名（如能确定），指定年份和数量时分别填写 paper_year、paper_limit；没有则为 0 或空字符串。

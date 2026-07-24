@@ -124,6 +124,17 @@ def _normalized_lookup_text(value: Any) -> str:
     return "".join(re.findall(r"[\w\u4e00-\u9fff]+", str(value or "").lower()))
 
 
+def _nearby_brand_keyword(value: str) -> str:
+    """Drop a generic category suffix only when a substantial brand remains."""
+    clean = str(value or "").strip()
+    for suffix in ("酒店", "宾馆", "餐厅", "餐馆"):
+        if clean.endswith(suffix):
+            brand = clean[:-len(suffix)].strip()
+            if len(_normalized_lookup_text(brand)) >= 4:
+                return brand
+    return clean
+
+
 def _primary_place_match_score(item: dict[str, Any], normalized_query: str) -> float:
     normalized_name = _normalized_lookup_text(item.get("name"))
     normalized_record = _normalized_lookup_text(f"{item.get('name', '')}{item.get('address', '')}")
@@ -136,6 +147,19 @@ def _primary_place_match_score(item: dict[str, Any], normalized_query: str) -> f
         if coverage > 0.25:
             return 2.0 + coverage
     return 0.0
+
+
+def place_distance_meters(origin: dict[str, Any], destination: dict[str, Any]) -> float:
+    """Return a bounded straight-line distance for nearby-result validation."""
+    lat1 = math.radians(float(origin["latitude"]))
+    lat2 = math.radians(float(destination["latitude"]))
+    delta_lat = lat2 - lat1
+    delta_lng = math.radians(float(destination["longitude"]) - float(origin["longitude"]))
+    value = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lng / 2) ** 2
+    )
+    return 6_371_000 * 2 * math.atan2(math.sqrt(value), math.sqrt(max(0.0, 1 - value)))
 
 
 async def search_verified_places(key: str, query: str, *, city: str = "全国", limit: int = 10) -> list[dict[str, Any]]:
@@ -172,6 +196,77 @@ async def search_verified_places(key: str, query: str, *, city: str = "全国", 
         if len(output) >= max(1, min(20, int(limit))):
             break
     return output
+
+
+async def search_verified_places_nearby(
+    key: str,
+    query: str,
+    anchor: dict[str, Any],
+    *,
+    radius_meters: int = 5_000,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Resolve a named POI only when it is physically near a verified anchor."""
+    query = str(query or "").strip()
+    if not query:
+        raise ValueError("周边地点搜索词不能为空")
+    try:
+        latitude = float(anchor["latitude"])
+        longitude = float(anchor["longitude"])
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("周边搜索锚点缺少已验证坐标") from None
+    radius = max(200, min(50_000, int(radius_meters or 5_000)))
+    bounded_limit = max(1, min(20, int(limit)))
+    search_keyword = _nearby_brand_keyword(query)
+    normalized_query = _normalized_lookup_text(search_keyword)
+
+    if key:
+        try:
+            data = await _get(
+                f"{API_ROOT}/place/v1/search",
+                {
+                    "key": key,
+                    "keyword": search_keyword[:120],
+                    "boundary": f"nearby({latitude},{longitude},{radius},1)",
+                    "orderby": "_distance",
+                    "page_size": bounded_limit,
+                    "page_index": 1,
+                },
+            )
+            candidates = [
+                place for place in (_place(item) for item in data.get("data", []) if isinstance(item, dict))
+                if place is not None
+            ]
+            ranked = sorted((
+                (
+                    _primary_place_match_score(item, normalized_query),
+                    place_distance_meters(anchor, item),
+                    index,
+                    item,
+                )
+                for index, item in enumerate(candidates)
+            ), key=lambda candidate: (candidate[1], -candidate[0], candidate[2]))
+            matched = [
+                {**item, "distance_to_anchor_meters": round(distance, 1)}
+                for score, distance, _index, item in ranked
+                if score > 0 and distance <= radius
+            ]
+            if matched:
+                return matched[:bounded_limit]
+        except Exception:
+            pass
+
+    fallback = await search_osm_places(
+        search_keyword,
+        city=str(anchor.get("city") or ""),
+        limit=max(bounded_limit, 10),
+    )
+    nearby = []
+    for item in fallback:
+        distance = place_distance_meters(anchor, item)
+        if distance <= radius:
+            nearby.append({**item, "distance_to_anchor_meters": round(distance, 1)})
+    return sorted(nearby, key=lambda item: float(item["distance_to_anchor_meters"]))[:bounded_limit]
 
 
 async def optimize_place_order(key: str, places: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -239,17 +334,32 @@ def decode_polyline(values: list[Any]) -> list[dict[str, float]]:
     ]
 
 
-def _fare(distance_m: float, duration_s: float, toll_yuan: float) -> dict[str, Any]:
+def _fare(
+    distance_m: float,
+    duration_s: float,
+    toll_yuan: float,
+    taxi_estimate_yuan: float = 0,
+) -> dict[str, Any]:
     km = max(0.0, distance_m / 1000)
     hours = max(0.0, duration_s / 3600)
     fuel = round(km * 0.075 * 8.0 + max(0.0, toll_yuan), 2)
-    taxi_low = 14.0 + max(0.0, km - 3.0) * 2.3 + max(0.0, hours - 0.15) * 18.0
-    taxi_high = taxi_low * 1.25
+    if taxi_estimate_yuan > 0:
+        taxi_low = taxi_estimate_yuan * 0.9
+        taxi_high = taxi_estimate_yuan * 1.15
+        basis = "腾讯真实道路距离与出租车费用估算；区间用于覆盖动态加价和等候差异，不包含停车费"
+    else:
+        taxi_low = 14.0 + max(0.0, km - 3.0) * 2.3 + max(0.0, hours - 0.15) * 18.0
+        taxi_high = taxi_low * 1.25
+        basis = "真实道路距离；出租车为通用城市参数区间，未包含动态加价和停车费"
     return {
         "currency": "CNY",
-        "basis": "腾讯真实道路距离；出租车为通用城市参数区间，未包含动态加价和停车费",
+        "basis": basis,
         "self_driving": {"estimate": fuel, "toll": round(max(0.0, toll_yuan), 2)},
-        "taxi": {"low": round(taxi_low, 2), "high": round(taxi_high, 2)},
+        "taxi": {
+            "low": round(taxi_low, 2),
+            "high": round(taxi_high, 2),
+            **({"provider_estimate": round(taxi_estimate_yuan, 2)} if taxi_estimate_yuan > 0 else {}),
+        },
     }
 
 
@@ -287,7 +397,12 @@ async def plan_driving_route(key: str, places: list[dict[str, Any]], *, optimize
     # Tencent Direction WebService reports route duration in minutes.  The
     # public Yuanbao contract and the OSRM fallback both use seconds.
     duration = float(route.get("duration") or 0) * 60
-    toll = float(route.get("taxi_fare", {}).get("fare") or route.get("toll") or 0) if isinstance(route.get("taxi_fare"), dict) else float(route.get("toll") or 0)
+    toll = float(route.get("toll") or 0)
+    taxi_estimate = (
+        float(route.get("taxi_fare", {}).get("fare") or 0)
+        if isinstance(route.get("taxi_fare"), dict)
+        else 0
+    )
     return {
         "schema_version": 2,
         "provider": "tencent",
@@ -296,7 +411,7 @@ async def plan_driving_route(key: str, places: list[dict[str, Any]], *, optimize
         "path": decode_polyline(route.get("polyline") or []),
         "distance_meters": distance,
         "duration_seconds": duration,
-        "fare": _fare(distance, duration, toll),
+        "fare": _fare(distance, duration, toll, taxi_estimate),
     }
 
 

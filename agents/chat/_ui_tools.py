@@ -14,7 +14,12 @@ from urllib.parse import urlparse
 
 from langchain_core.tools import StructuredTool
 
-from .._shared.tencent_location import search_verified_places as provider_search_places
+from .._shared.tencent_location import (
+    plan_verified_route as provider_plan_route,
+    search_places as provider_search_place_candidates,
+    search_verified_places as provider_search_places,
+    search_verified_places_nearby as provider_search_places_nearby,
+)
 from .._shared.web_media import collect_page_images as provider_collect_page_images
 from .._shared.rich_search import evidence_for_model, rich_search as provider_rich_search
 from .._shared.data_version import namespace as data_namespace
@@ -52,6 +57,48 @@ def _message_text(content) -> str:
     if isinstance(content, list):
         return "".join(str(block.get("text", "")) for block in content if isinstance(block, dict))
     return str(content or "")
+
+
+def _clarification_action(
+    conversation_id: str,
+    *,
+    title: str,
+    prompt: str,
+    fields: list[dict[str, Any]],
+) -> str:
+    prompt_id = hashlib.sha256(
+        f"{conversation_id}:{time.time_ns()}:{title}".encode()
+    ).hexdigest()[:16]
+    return json.dumps({
+        "ui_action": "clarification_action",
+        "clarification": {
+            "id": f"clarify-{prompt_id}",
+            "title": str(title).strip()[:120],
+            "prompt": str(prompt).strip()[:300],
+            "fields": fields[:8],
+        },
+    }, ensure_ascii=False)
+
+
+def _normalized_place_name(value: Any) -> str:
+    return "".join(re.findall(r"[\w\u4e00-\u9fff]+", str(value or "").lower()))
+
+
+def _place_choice_field(field_id: str, label: str, places: list[dict[str, Any]]) -> dict[str, Any]:
+    options = []
+    for place in places[:6]:
+        distance = place.get("distance_to_anchor_meters")
+        distance_text = f" · 距参照地点约 {max(1, round(float(distance)))} 米" if isinstance(distance, (int, float)) else ""
+        option = f"{place.get('name') or '未命名地点'}｜{place.get('address') or '地址未提供'}{distance_text}"
+        if option not in options:
+            options.append(option[:240])
+    return {
+        "id": field_id,
+        "label": label,
+        "type": "single",
+        "required": True,
+        "options": options,
+    }
 
 
 async def verify_place_queries_parallel(
@@ -196,6 +243,148 @@ def build_production_tools(
             },
             ensure_ascii=False,
         )
+
+    async def plan_route_between_places(
+        origin_query: str,
+        destination_query: str,
+        city: str = "全国",
+        origin_near_query: str = "",
+        destination_near_query: str = "",
+        nearby_radius_meters: int = 5_000,
+    ) -> str:
+        """Resolve two real POIs and calculate a verified driving route.
+
+        When an endpoint is described relative to another place, pass the POI
+        name as *_query and its anchor as *_near_query. For example:
+        destination_query="锦江之星", destination_near_query="北京301医院".
+        """
+        map_key = str(
+            runtime_env.get("TENCENT_MAP_SERVER_KEY")
+            or runtime_env.get("TENCENT_MAP_KEY")
+            or runtime_env.get("VITE_TENCENT_MAP_KEY")
+            or ""
+        )
+        radius = max(500, min(20_000, int(nearby_radius_meters or 5_000)))
+
+        async def resolve(
+            endpoint: str,
+            query: str,
+            near_query: str,
+        ) -> tuple[dict[str, Any] | None, str | None]:
+            clean_query = str(query or "").strip()
+            clean_near = str(near_query or "").strip()
+            if not clean_query:
+                raise ValueError(f"{endpoint}地点不能为空")
+            if "附近" in clean_query and not clean_near:
+                raise ValueError(
+                    f"{endpoint}包含相对位置，请把要找的地点与参照地点分开传入；"
+                    "不要把“附近”复合条件当成一个普通地点名"
+                )
+            if clean_near:
+                try:
+                    anchors = await provider_search_place_candidates(
+                        map_key, clean_near, city=city or "全国", limit=5,
+                    )
+                except Exception:
+                    anchors = await provider_search_places(
+                        map_key, clean_near, city=city or "全国", limit=5,
+                    )
+                if not anchors:
+                    raise ValueError(f"没有核实到{endpoint}参照地点“{clean_near}”")
+                anchor_exact = [
+                    item for item in anchors
+                    if _normalized_place_name(item.get("name")) == _normalized_place_name(clean_near)
+                ]
+                anchor = anchor_exact[0] if len(anchor_exact) == 1 else anchors[0]
+                matches = await provider_search_places_nearby(
+                    map_key,
+                    clean_query,
+                    anchor,
+                    radius_meters=radius,
+                    limit=6,
+                )
+            else:
+                matches = await provider_search_places(
+                    map_key, clean_query, city=city or "全国", limit=6,
+                )
+            if not matches:
+                qualifier = f"（{clean_near}附近 {radius} 米内）" if clean_near else ""
+                raise ValueError(f"没有核实到{endpoint}“{clean_query}”{qualifier}")
+
+            # A brand near an anchor commonly has several legitimate branches.
+            # Even when one branch has the exact bare brand name, choosing it
+            # silently would be arbitrary; let the user pick from real nearby
+            # candidates instead.
+            if clean_near and len(matches) > 1:
+                field = _place_choice_field(
+                    f"route_{'origin' if endpoint == '起点' else 'destination'}",
+                    f"请选择具体{endpoint}",
+                    matches,
+                )
+                return None, _clarification_action(
+                    conversation_id,
+                    title="请选择具体地点",
+                    prompt=f"查到多个位于“{clean_near}”附近的“{clean_query}”。为避免算错距离，请先选择具体{endpoint}。",
+                    fields=[field],
+                )
+            exact = [
+                item for item in matches
+                if _normalized_place_name(item.get("name")) == _normalized_place_name(clean_query)
+            ]
+            if len(exact) == 1:
+                return exact[0], None
+            if len(matches) > 1:
+                field = _place_choice_field(
+                    f"route_{'origin' if endpoint == '起点' else 'destination'}",
+                    f"请选择具体{endpoint}",
+                    matches,
+                )
+                return None, _clarification_action(
+                    conversation_id,
+                    title="请选择具体地点",
+                    prompt=f"查到多个符合“{clean_query}”的地点。为避免算错距离，请先选择具体{endpoint}。",
+                    fields=[field],
+                )
+            return matches[0], None
+
+        origin, origin_clarification = await resolve("起点", origin_query, origin_near_query)
+        if origin_clarification:
+            return origin_clarification
+        destination, destination_clarification = await resolve(
+            "终点", destination_query, destination_near_query,
+        )
+        if destination_clarification:
+            return destination_clarification
+        if not origin or not destination:
+            raise ValueError("起点或终点没有完成核实")
+        if str(origin.get("place_id") or "") == str(destination.get("place_id") or ""):
+            raise ValueError("起点和终点解析成了同一个地点，请选择不同地点")
+
+        route = await provider_plan_route(map_key, [origin, destination], optimize=False)
+        state = await _load_state()
+        candidates = state.setdefault("place_candidates", {})
+        candidates[str(origin["place_id"])] = origin
+        candidates[str(destination["place_id"])] = destination
+        await _save_state(state)
+        distance_meters = float(route.get("distance_meters") or 0)
+        duration_seconds = float(route.get("duration_seconds") or 0)
+        return json.dumps({
+            "origin": origin,
+            "destination": destination,
+            "route": {
+                "provider": route.get("provider"),
+                "mode": route.get("mode") or "driving",
+                "distance_meters": round(distance_meters),
+                "distance_kilometers": round(distance_meters / 1000, 1),
+                "duration_seconds": round(duration_seconds),
+                "duration_minutes": max(1, round(duration_seconds / 60)),
+                "fare": route.get("fare") or {},
+            },
+            "response_constraint": (
+                "距离和耗时来自已核实地点之间的真实道路路线；"
+                "回答必须使用这里的数值，不得改用网页估算、直线距离或模型猜测。"
+            ),
+        }, ensure_ascii=False)
 
     async def prepare_map_recommendation(
         title: str,
@@ -677,8 +866,17 @@ def build_production_tools(
             if not isinstance(raw, dict):
                 continue
             field_type = str(raw.get("type") or "text").strip().lower()
+            options = list(dict.fromkeys(
+                str(option).strip()[:120]
+                for option in (raw.get("options") or [])
+                if str(option).strip()
+            ))[:8]
+            # Enforce the product-wide interaction hierarchy even if a model
+            # asks for a text box while already supplying finite choices.
+            if len(options) >= 2 and field_type not in {"single", "multi"}:
+                field_type = "single"
             if field_type not in allowed:
-                field_type = "text"
+                field_type = "single" if len(options) >= 2 else "text"
             field_id = re.sub(r"[^a-zA-Z0-9_-]", "-", str(raw.get("id") or f"field-{index + 1}"))[:48] or f"field-{index + 1}"
             label = str(raw.get("label") or "请补充").strip()[:80]
             item: dict[str, Any] = {
@@ -688,7 +886,6 @@ def build_production_tools(
                 "required": bool(raw.get("required", True)),
             }
             if field_type in {"single", "multi"}:
-                options = list(dict.fromkeys(str(option).strip()[:120] for option in (raw.get("options") or []) if str(option).strip()))[:8]
                 if len(options) < 2:
                     continue
                 item["options"] = options
@@ -699,20 +896,17 @@ def build_production_tools(
                 break
         if not normalized:
             raise ValueError("至少需要一个有效的澄清字段")
-        prompt_id = hashlib.sha256(f"{conversation_id}:{time.time_ns()}".encode()).hexdigest()[:16]
-        return json.dumps({
-            "ui_action": "clarification_action",
-            "clarification": {
-                "id": f"clarify-{prompt_id}",
-                "title": str(title or "请补充几个信息").strip()[:120],
-                "prompt": str(prompt or "为了更准确地帮你处理，请选择或补充以下信息。").strip()[:300],
-                "fields": normalized,
-            },
-        }, ensure_ascii=False)
+        return _clarification_action(
+            conversation_id,
+            title=str(title or "请补充几个信息"),
+            prompt=str(prompt or "为了更准确地帮你处理，请选择或补充以下信息。"),
+            fields=normalized,
+        )
 
     definitions = [
         (search_places, "search_places", "使用腾讯地点服务搜索真实地点，返回可安全用于地图和日程的 place_id。推荐地点、景点、餐馆或含地点日程前必须调用。"),
         (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
+        (plan_route_between_places, "plan_route_between_places", "查询两个真实地点之间的道路距离、驾车耗时或费用时必须使用。工具会自行核实起终点并调用真实路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 destination_query 传“锦江之星”、destination_near_query 传“北京301医院”；多个候选会自动生成单选卡让用户选择。"),
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
         (recommend_places_on_map, "recommend_places_on_map", "模型驱动的多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。"),
         (propose_calendar_changes, "propose_calendar_changes", "必须用此工具准备日程新增、更新或删除提案并生成确认卡；不要只在正文里口头询问。格式示例：changes=[{operation:'create',event:{title:'游览北海公园',start_time:'2026-07-16T09:00:00+08:00',end_time:'2026-07-16T10:00:00+08:00',place_id:'地点工具返回的ID'}}]。更新/删除还要传 schedule_id。用户点击确认前不会真正写入。"),
@@ -723,7 +917,7 @@ def build_production_tools(
         (analyze_images_parallel, "analyze_images_parallel", "并行视觉评估最多 30 张图片；单张失败不影响其他图片。"),
         (search_arxiv, "search_arxiv", "补充获取 arXiv 可下载结果。富搜索已找到论文时，把准确标题列表一次性传给 titles；按作者和年份查找时分别传 author（英文署名）与 year，不要把作者年份混在宽泛 topic 中。工具会严格过滤作者/年份与标题，每轮最多调用一次。"),
         (propose_workflow, "propose_workflow", "用户明确要求建立跨时间、多步骤的持续提醒或计划时创建工作流提案。steps 每项包含 offset_minutes、title、body、action_prompt，可用 depends_on=['step_1'] 建立 DAG 依赖；失败时需要回退提示的步骤可增加 compensation={title,body,action_prompt}。默认按顺序依赖。必须由用户确认后才会激活，依赖步骤需用户标记完成后才推进。"),
-        (ask_user_clarification, "ask_user_clarification", "用户目标、偏好或关键参数不足且需要做选择时调用。一次集中收集相关字段：single 单选、multi 多选、boolean 是/否判断、text 短文本填空、date/datetime 日期/时间选择器。不要用它处理普通事实问答，也不要把多个问题拆成连续的自然语言追问。"),
+        (ask_user_clarification, "ask_user_clarification", "全项目统一的必要信息收集入口。缺少关键信息时，本轮只调用一次并集中收集：有限候选优先 single 单选或 multi 多选；能用是/否表达就用 boolean 判断；日期时间必须用 date/datetime 选择器；仅当答案确实无法枚举时才用 text 短填空。不要用自然语言连续追问，也不要在长回答末尾才提问。"),
     ]
     meeting_ready = bool(str(runtime_env.get("TENCENT_MEETING_TOKEN") or "").strip())
     if not meeting_ready:
@@ -738,6 +932,7 @@ def build_production_tools(
     tool_skills = {
         "search_places": "maps",
         "search_places_batch": "maps",
+        "plan_route_between_places": "maps",
         "prepare_map_recommendation": "maps",
         "recommend_places_on_map": "maps",
         "propose_calendar_changes": "calendar",

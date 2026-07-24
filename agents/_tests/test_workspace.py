@@ -25,6 +25,7 @@ from agents.chat._llm import _model_timeout
 from agents.chat._history import bounded_history
 from agents.chat._calendar_context import calendar_context
 from agents.chat._graph import tool_completion_fallback
+from agents.chat.index import empty_generation_error
 from agents.chat._ui_tools import build_production_tools, verify_place_queries_parallel
 from agents.chat._protocol import PublicStreamFilter, action_fallback_content, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
@@ -53,7 +54,12 @@ from agents._shared.rich_search import (
     rich_search as run_rich_search,
 )
 from agents._shared.arxiv import _best_title_match
-from agents._shared.tencent_location import decode_polyline, search_verified_places
+from agents._shared.tencent_location import (
+    decode_polyline,
+    place_distance_meters,
+    search_verified_places,
+    search_verified_places_nearby,
+)
 from agents._shared.workspace import (
     USER_WORKSPACE_ID,
     apply_calendar_changes,
@@ -418,6 +424,14 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(required_tool_for_plan({"needs_web_search": True}), "rich_search")
         self.assertEqual(required_tool_for_plan({"needs_web_search": False}), "")
 
+    def test_missing_critical_information_requires_only_structured_clarification(self):
+        plan = {
+            "needs_clarification": True,
+            "needs_web_search": True,
+            "needs_calendar_action": True,
+        }
+        self.assertEqual(required_tools_for_plan(plan), ("ask_user_clarification",))
+
     def test_semantic_web_search_makes_media_available_without_keyword_rules(self):
         self.assertTrue(media_enabled_for_plan({
             "needs_web_search": True,
@@ -481,6 +495,23 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             required_tools_for_plan({"needs_places": True, "needs_calendar_action": True}),
             ("search_places", "propose_calendar_changes"),
         )
+
+    def test_route_plan_uses_verified_route_tool_without_web_estimate(self):
+        self.assertEqual(
+            required_tools_for_plan({"needs_route": True}),
+            ("plan_route_between_places",),
+        )
+
+    def test_empty_generation_is_terminal_unless_a_card_or_action_was_emitted(self):
+        self.assertIn("未返回有效回答", empty_generation_error(
+            "", has_actions=False, clarification_emitted=False, run_error="", cancelled=False,
+        ))
+        self.assertEqual(empty_generation_error(
+            "", has_actions=False, clarification_emitted=True, run_error="", cancelled=False,
+        ), "")
+        self.assertEqual(empty_generation_error(
+            "", has_actions=True, clarification_emitted=False, run_error="", cancelled=False,
+        ), "")
 
     def test_follow_up_parser_accepts_only_three_unique_questions(self):
         self.assertEqual(
@@ -1200,6 +1231,125 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                     "action_text": "在地图中查看",
                 })
 
+    async def test_route_tool_resolves_a_brand_near_a_verified_anchor(self):
+        station = {
+            **PLACE,
+            "place_id": "station",
+            "name": "北京站",
+            "address": "北京市东城区毛家湾胡同甲13号",
+        }
+        hospital = {
+            **PLACE,
+            "place_id": "hospital",
+            "name": "中国人民解放军总医院",
+            "address": "北京市海淀区复兴路28号",
+            "latitude": 39.902,
+            "longitude": 116.276,
+        }
+        hotel = {
+            **PLACE,
+            "place_id": "hotel",
+            "name": "锦江之星(北京五棵松店)",
+            "address": "北京市海淀区西四环中路",
+            "latitude": 39.906,
+            "longitude": 116.271,
+            "distance_to_anchor_meters": 620,
+        }
+
+        async def place_provider(_key, query, *, city, limit):
+            self.assertEqual(city, "北京")
+            return [station] if query == "北京站" else [hospital]
+
+        route = {
+            "provider": "tencent",
+            "mode": "driving",
+            "distance_meters": 13_800,
+            "duration_seconds": 2_100,
+            "fare": {"taxi_fare": 46},
+        }
+        with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
+             patch("agents.chat._ui_tools.provider_search_place_candidates", new=place_provider), \
+             patch("agents.chat._ui_tools.provider_search_places_nearby", new=AsyncMock(return_value=[hotel])) as nearby, \
+             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
+            tools = build_production_tools(
+                None,
+                store=FakeStore(),
+                conversation_id="verified-route",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+            )
+            route_tool = next(item for item in tools if item.name == "plan_route_between_places")
+            result = json.loads(await route_tool.ainvoke({
+                "origin_query": "北京站",
+                "destination_query": "锦江之星",
+                "city": "北京",
+                "destination_near_query": "北京301医院",
+            }))
+
+        self.assertEqual(result["origin"]["place_id"], "station")
+        self.assertEqual(result["destination"]["place_id"], "hotel")
+        self.assertEqual(result["route"]["distance_kilometers"], 13.8)
+        self.assertEqual(result["route"]["duration_minutes"], 35)
+        nearby.assert_awaited_once()
+        planner.assert_awaited_once()
+
+    async def test_route_tool_asks_user_to_choose_when_nearby_brand_has_multiple_branches(self):
+        station = {**PLACE, "place_id": "station", "name": "北京站"}
+        hospital = {**PLACE, "place_id": "hospital", "name": "北京301医院"}
+        hotels = [
+            {
+                **PLACE,
+                "place_id": f"hotel-{index}",
+                "name": f"锦江之星({name}店)",
+                "address": f"北京市海淀区{name}路",
+                "distance_to_anchor_meters": distance,
+            }
+            for index, (name, distance) in enumerate((("五棵松", 620), ("玉泉路", 1800)), 1)
+        ]
+
+        async def place_provider(_key, query, *, city, limit):
+            return [station] if query == "北京站" else [hospital]
+
+        with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
+             patch("agents.chat._ui_tools.provider_search_place_candidates", new=place_provider), \
+             patch("agents.chat._ui_tools.provider_search_places_nearby", new=AsyncMock(return_value=hotels)), \
+             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock()) as planner:
+            tools = build_production_tools(
+                None,
+                store=FakeStore(),
+                conversation_id="ambiguous-route",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+            )
+            route_tool = next(item for item in tools if item.name == "plan_route_between_places")
+            result = json.loads(await route_tool.ainvoke({
+                "origin_query": "北京站",
+                "destination_query": "锦江之星",
+                "city": "北京",
+                "destination_near_query": "北京301医院",
+            }))
+
+        self.assertEqual(result["ui_action"], "clarification_action")
+        self.assertEqual(result["clarification"]["fields"][0]["type"], "single")
+        self.assertEqual(len(result["clarification"]["fields"][0]["options"]), 2)
+        planner.assert_not_awaited()
+
+    async def test_clarification_tool_converts_finite_text_options_to_single_choice(self):
+        tools = build_production_tools(
+            None, store=FakeStore(), conversation_id="clarification-policy", env={},
+        )
+        clarification = next(item for item in tools if item.name == "ask_user_clarification")
+        result = json.loads(await clarification.ainvoke({
+            "title": "请选择输出风格",
+            "prompt": "选一种即可",
+            "fields": [{
+                "id": "style",
+                "label": "输出风格",
+                "type": "text",
+                "options": ["简洁", "详细"],
+            }],
+        }))
+        self.assertEqual(result["clarification"]["fields"][0]["type"], "single")
+        self.assertEqual(result["clarification"]["fields"][0]["options"], ["简洁", "详细"])
+
     async def test_route_change_retires_stale_route_risk_notification(self):
         store = FakeStore()
         now = int(time.time())
@@ -1447,6 +1597,50 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         path = decode_polyline([39.9, 116.3, 100000, 200000])
         self.assertAlmostEqual(path[1]["latitude"], 40.0)
         self.assertAlmostEqual(path[1]["longitude"], 116.5)
+
+    def test_place_distance_supports_nearby_boundary_validation(self):
+        origin = {"latitude": 39.9, "longitude": 116.3}
+        close = {"latitude": 39.901, "longitude": 116.301}
+        far = {"latitude": 40.1, "longitude": 116.5}
+        self.assertLess(place_distance_meters(origin, close), 500)
+        self.assertGreater(place_distance_meters(origin, far), 20_000)
+
+    async def test_nearby_place_search_uses_anchor_boundary_and_filters_outside_radius(self):
+        anchor = {
+            **PLACE,
+            "place_id": "hospital",
+            "name": "北京301医院",
+            "latitude": 39.902,
+            "longitude": 116.276,
+        }
+        response = {"data": [
+            {
+                "id": "near",
+                "title": "锦江之星(五棵松店)",
+                "address": "北京市海淀区",
+                "location": {"lat": 39.906, "lng": 116.271},
+                "ad_info": {"city": "北京市"},
+            },
+            {
+                "id": "far",
+                "title": "锦江之星(远郊店)",
+                "address": "北京市远郊区",
+                "location": {"lat": 40.2, "lng": 116.7},
+                "ad_info": {"city": "北京市"},
+            },
+        ]}
+        with patch(
+            "agents._shared.tencent_location._get",
+            new=AsyncMock(return_value=response),
+        ) as request:
+            places = await search_verified_places_nearby(
+                "map-key", "锦江之星酒店", anchor, radius_meters=5_000,
+            )
+        self.assertEqual([item["place_id"] for item in places], ["near"])
+        params = request.await_args.args[1]
+        self.assertEqual(params["keyword"], "锦江之星")
+        self.assertTrue(params["boundary"].startswith("nearby(39.902,116.276,5000"))
+        self.assertEqual(params["orderby"], "_distance")
 
     async def test_place_search_falls_back_when_primary_results_do_not_match_query(self):
         target = {**PLACE, "place_id": "osm:lake", "name": "查干湖", "provider": "openstreetmap"}

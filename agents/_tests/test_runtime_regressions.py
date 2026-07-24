@@ -254,6 +254,25 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(route["duration_seconds"], 24 * 60)
         self.assertEqual(route["schema_version"], 2)
 
+    async def test_tencent_taxi_fare_is_not_misreported_as_a_road_toll(self):
+        places = [
+            {"place_id": "a", "latitude": 39.9, "longitude": 116.3},
+            {"place_id": "b", "latitude": 39.8, "longitude": 116.4},
+        ]
+        response = {"result": {"routes": [{
+            "distance": 10_000,
+            "duration": 30,
+            "polyline": [],
+            "toll": 0,
+            "taxi_fare": {"fare": 50},
+        }]}}
+        with patch("agents._shared.tencent_location._get", AsyncMock(return_value=response)):
+            route = await plan_driving_route("key", places)
+        self.assertEqual(route["fare"]["self_driving"]["toll"], 0)
+        self.assertEqual(route["fare"]["taxi"]["provider_estimate"], 50)
+        self.assertLess(route["fare"]["taxi"]["low"], 50)
+        self.assertGreater(route["fare"]["taxi"]["high"], 50)
+
     async def test_provider_collectors_keep_safe_weather_and_route_facts(self):
         now = int(time.time())
         place_a = {"place_id": "a", "latitude": 39.9, "longitude": 116.3}

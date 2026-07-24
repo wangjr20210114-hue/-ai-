@@ -1,7 +1,7 @@
 # EdgeOne Makers 能力基线
 
-> 当前业务分支：`agent/makers-native-persistence-fixes`
-> 更新日期：2026-07-23
+> 当前业务分支：`main`
+> 更新日期：2026-07-24
 > 生产目标：EdgeOne Makers 是唯一线上运行时；FastAPI 运行时代码已删除，SQLite 只作为一次性只读迁移来源。
 
 ## 1. 基线原则
@@ -18,7 +18,8 @@
 | --- | --- | --- | --- |
 | 多会话聊天、SSE、停止、刷新恢复 | 已实现并测试 | 断网可从 Makers Checkpointer 恢复；用户主动停止会写入会话级取消意图，刷新或网络恢复均不得自动重启该轮 | `agents/chat`、`agents/messages`、`cloud-functions/conversations` |
 | 联网图文回答 | 已实现并测试 | 搜索前保留 LLM 语义规划且默认 6 秒超时后交给主模型继续语义路由；Makers 网关/DeepSeek 降级单次无响应预算默认各 12 秒；单轮一次 rich_search/一次 SearchPro；事实与视觉意图合并，使用 Makers Store TTL/安全陈旧缓存；默认搜索/提图/视觉硬预算 10/5/7 秒；最多 4 张候选图并发完成轻量审核后，回答模型用真实 URL 自行编排标准 Markdown，不使用新媒体占位符 | `agents/chat/_capability_plan.py`、`agents/chat/_llm.py`、`agents/chat/_ui_tools.py`、`agents/_shared/rich_search.py` |
-| 地点、地图、道路路线、费用估算 | 已实现并测试 | 腾讯结果与查询不匹配时回退 OSM；路线按用户缓存 6 小时 | `agents/places`、`agents/routes`、`agents/_shared/tencent_location.py` |
+| 地点、地图、道路路线、费用估算 | 已实现并测试 | Agent 的语义规划会把“两地多远/多久/怎么走”交给真实路线工具，不用网页或模型估算；“医院附近的连锁酒店”先核实参照地点，再按物理半径查周边门店，多个分店用单选卡让用户决定；右栏路线按用户缓存 6 小时 | `agents/chat/_capability_plan.py`、`agents/chat/_ui_tools.py`、`agents/places`、`agents/routes`、`agents/_shared/tencent_location.py` |
+| 全局必要信息收集 | 已实现并测试 | 搜索、路线、写作、翻译、生图、文档、日程、会议共用 `ask_user_clarification`；关键条件不足时，本轮只生成一张结构化卡。有限候选优先单选/多选，是非条件用判断，日期时间用选择器，仅不可枚举内容使用短文本 | `agents/chat/_capability_plan.py`、`agents/chat/_graph.py`、`agents/chat/_ui_tools.py`、`MessageBubble.tsx` |
 | 日程 CRUD 与确认式变更 | 已实现并测试 | 可用自然语言新增、改标题/描述/时间/地点、删除；删除只操作匹配的 ID，未变日程不会被重建；服务端幂等忽略完全相同的创建并在下一次变更清理旧重复项；地点修改必须来自地点库；不存在/不唯一目标用结构化卡片澄清；变更后旧主动提醒同步刷新或失效 | `agents/workspace`、`agents/chat/_calendar_context.py`、LangGraph Store |
 | 腾讯会议创建 | 官方个人 MCP Skill 适配已实现 | Skills 广场引导个人用户取得 Token；未配置时不暴露工具；确认后才调用 `schedule_meeting` | `agents/_shared/side_effects.py`、`SkillsMarketplaceButton.tsx` |
 | 多模态理解、文生图、图生图、版本、Blob、ZIP | 已实现并测试 | 用户附图先经视觉 Provider 描述；混元为主，Cloudflare Workers AI 提供视觉/文生图/图生图降级，百炼与 Gemini 可作视觉后备；生成结果复制到 Makers Blob | `agents/_shared/vision.py`、`agents/_shared/side_effects.py`、`agents/image`、`InputBar.tsx` |
@@ -67,12 +68,12 @@
 
 ## 5. 当前自动化基线
 
-2026-07-22 当前工作树结果：
+2026-07-24 当前工作树结果：
 
-- Makers Agent：142 项通过。
+- Makers Agent：164 项通过。
 - SQLite 导出工具：2 项通过。
-- Cloud Functions、Schedule 适配、验收持久化和平台约束：20 项通过。
-- 前端 Vitest：73 项通过（16 个测试文件）。
+- Cloud Functions、Schedule 适配、验收持久化和平台约束：21 项通过。
+- 前端 Vitest：98 项通过（18 个测试文件）。
 - ESLint：通过。
 - EdgeOne 模式生产构建：通过。
 - EdgeOne Preview `dpbkmy4qt93e`、Production `dptvf8ss3dl9` 和生图主动闭环 Production `dpgwmrcmmoz5`：构建成功；应用已连接，主动文档闭环、真实混元生图及生图后语义迭代机会通过。

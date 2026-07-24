@@ -1,6 +1,7 @@
 """LangGraph state graph backed by Makers checkpointer and store adapters."""
 
 from typing import Iterable, Literal
+import json
 import uuid
 
 from langchain_core.messages import AIMessage, SystemMessage
@@ -59,16 +60,25 @@ def build_graph(
     async def agent_node(state: MessagesState):
         tools_this_turn = 0
         used_tool_names = []
+        clarification_ready = False
         for message in reversed(state["messages"]):
             if getattr(message, "type", "") in {"human", "user"}:
                 break
             if getattr(message, "type", "") == "tool":
                 tools_this_turn += 1
                 used_tool_names.append(getattr(message, "name", ""))
+                try:
+                    payload = json.loads(str(getattr(message, "content", "") or ""))
+                    clarification_ready = clarification_ready or (
+                        isinstance(payload, dict)
+                        and payload.get("ui_action") == "clarification_action"
+                    )
+                except (TypeError, json.JSONDecodeError):
+                    pass
         # The structured card is the complete response for a clarification
         # turn. Do not run a second prose pass that repeats the questions after
         # the card and makes the interaction feel like an afterthought.
-        if "ask_user_clarification" in used_tool_names:
+        if "ask_user_clarification" in used_tool_names or clarification_ready:
             return {"messages": [AIMessage(content="")]}
         # A model can occasionally keep reformulating the same search. Preserve
         # multi-tool reasoning, but after a generous turn-local budget force a
@@ -97,9 +107,15 @@ def build_graph(
         # the request is safely suppressed below, but that costs a second LLM
         # round after the provider has already returned.
         finalize_after_rich_search = rich_search_used and not required_name
-        tools_closed = force_finalize or finalize_after_rich_search
-        if tools_closed:
+        remaining_tools = [
+            tool for tool in tools
+            if getattr(tool, "name", "") != "rich_search"
+        ]
+        tools_closed = force_finalize or (finalize_after_rich_search and not remaining_tools)
+        if force_finalize:
             active_model = model
+        elif finalize_after_rich_search:
+            active_model = model.bind_tools(remaining_tools) if remaining_tools else model
         else:
             active_model = (
                 model.bind_tools(tools, tool_choice=required_name)
@@ -114,8 +130,9 @@ def build_graph(
             )))
         elif finalize_after_rich_search:
             messages.append(SystemMessage(content=(
-                "本轮唯一一次富搜索已经完成，工具阶段现在结束。请直接基于已有证据回答，"
-                "不要再次调用或描述搜索过程；用户未指定长文时用 3–5 个重点简洁综合。"
+                "本轮唯一一次富搜索已经完成，不得再次调用 rich_search。"
+                "若请求仍需地点核验、真实路线、结构化澄清或其他非搜索能力，可以继续调用对应工具；"
+                "否则直接基于已有证据回答。不要描述内部搜索过程。"
             )))
         response = await active_model.ainvoke(messages)
         if not tools_closed and not getattr(response, "tool_calls", None):

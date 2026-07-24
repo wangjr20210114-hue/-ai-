@@ -37,7 +37,7 @@ python -m unittest discover -s tools/tests -v
 git diff --check
 ```
 
-当前分支 2026-07-23 的已验证结果：Node Cloud Functions/架构门禁 21 项、前端 Vitest 93 项（17 个测试文件）、Python Agent 语法检查通过；ESLint、TypeScript/Vite 构建和 `git diff --check` 通过。本轮新增定位超时不丢失已授权状态、定位按钮点击前重查权限、行内来源恢复浏览器原生单击且不触发对话自动跟随的回归。原有地图、腾讯会议、搜索媒体、流式 Markdown、主动机会和历史消息回归仍全部保留。Provider 脱敏实测见 [`PROVIDER_HEALTH_2026-07-22.md`](PROVIDER_HEALTH_2026-07-22.md)。运行完整 Python 测试前必须激活 `.venv`；系统 Python 缺依赖属于本地环境错误。主包体积警告是已知非阻断优化项。
+当前分支 2026-07-24 的已验证结果：Node Cloud Functions/架构门禁 21 项、前端 Vitest 98 项（18 个测试文件）、Python Agent 164 项；ESLint、TypeScript/Vite 构建和 `git diff --check` 通过。本轮新增全局必要信息“选择/判断优先”、真实语义路线、周边品牌物理半径核验、多个分店单选，以及工具协议被收回后空回答必须进入失败态的回归。原有定位、来源单击、地图、腾讯会议、搜索媒体、流式 Markdown、主动机会和历史消息回归仍全部保留。Provider 脱敏实测见 [`PROVIDER_HEALTH_2026-07-22.md`](PROVIDER_HEALTH_2026-07-22.md)。运行完整 Python 测试前必须激活 `.venv`；系统 Python 缺依赖属于本地环境错误。主包体积警告是已知非阻断优化项。
 
 搜索调用次数要在 Makers 控制台日志中验证：按本次请求时间范围搜索 `rich_search turn_audit`，正常冷查询应为 `invocations=1 provider_calls=1`；即使模型误发重复工具调用，`provider_calls` 仍必须保持 1；相同查询命中缓存时为 0。再用 `rich_search provider_call` 交叉核对。浏览器 Network 只看到外层 `POST /chat`，不能据此推断内部工具次数。
 
@@ -49,7 +49,7 @@ git diff --check
 - 打开已保存论文，选中一句话点“翻译”，结果结束后右侧会按时间追加到“已保存翻译”时间线；新的记录出现在旧记录后面，并以时间分隔。关闭助读器、刷新或在另一台主机登录同一演示环境后重新打开，历史译文仍会完整显示。
 - EdgeOne Schedule 当前官方最小间隔为一天，不能把 `edgeone.json` 写成每 10 分钟 Cron；10 分钟检查只在网页在线时执行，关闭网页由每日 Schedule 兜底。
 
-本轮重点人工回归位于测试站 CORE-04、SEARCH-01、SEARCH-05 和 TRAVEL-04：分别检查流式划词复制不抖、行内来源不抢跑、追问与回答并行且同宽，以及首次授权位置后刷新仍能显示地图。定位使用浏览器 5 分钟位置缓存并监听地图容器尺寸变化；失败时页面必须提供可点击的重试，而不是静默无响应。
+本轮重点人工回归位于测试站 CORE-04、CORE-09、SEARCH-01、SEARCH-05、TRAVEL-04 和 TRAVEL-05：分别检查流式划词复制、全局结构化澄清、行内来源、追问并行、定位恢复，以及“北京 301 医院附近的锦江之星到北京站”真实周边地点与道路路线。定位使用浏览器 5 分钟位置缓存并监听地图容器尺寸变化；失败时页面必须提供可点击的重试，而不是静默无响应。
 
 ## 3. 启动完整测试站（推荐）
 

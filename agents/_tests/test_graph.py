@@ -28,6 +28,36 @@ class _RecordingModel:
         return AIMessage(content="final answer")
 
 
+class _RouteChainBoundModel:
+    def __init__(self, owner, tool_choice=""):
+        self.owner = owner
+        self.tool_choice = tool_choice
+
+    async def ainvoke(self, _messages, **_kwargs):
+        if self.tool_choice == "plan_route_between_places":
+            self.owner.route_calls += 1
+            return AIMessage(content="", tool_calls=[{
+                "name": "plan_route_between_places",
+                "args": {"origin_query": "北京站", "destination_query": "北京301医院"},
+                "id": "route-1",
+            }])
+        self.owner.final_calls += 1
+        return AIMessage(content="真实道路距离为 13.8 公里。")
+
+
+class _RouteChainModel:
+    def __init__(self):
+        self.route_calls = 0
+        self.final_calls = 0
+
+    def bind_tools(self, _tools, **kwargs):
+        return _RouteChainBoundModel(self, kwargs.get("tool_choice", ""))
+
+    async def ainvoke(self, _messages, **_kwargs):
+        self.final_calls += 1
+        return AIMessage(content="真实道路距离为 13.8 公里。")
+
+
 @tool
 def rich_search(query: str) -> str:
     """Return search evidence."""
@@ -38,6 +68,12 @@ def rich_search(query: str) -> str:
 def ask_user_clarification(title: str) -> str:
     """Return one structured clarification."""
     return title
+
+
+@tool
+def plan_route_between_places(origin_query: str, destination_query: str) -> str:
+    """Return one verified route."""
+    return f"{origin_query}->{destination_query}:13.8km"
 
 
 class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
@@ -91,6 +127,26 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["messages"][-1].content, "")
         self.assertEqual(model.bound_calls, 0)
         self.assertEqual(model.unbound_calls, 0)
+
+    async def test_rich_search_keeps_required_route_tool_available(self):
+        model = _RouteChainModel()
+        graph = build_graph(
+            model,
+            [rich_search, plan_route_between_places],
+            "system",
+            required_tools=["rich_search", "plan_route_between_places"],
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="北京站到北京301医院多远")],
+        })
+        tool_names = [
+            message.name for message in result["messages"]
+            if isinstance(message, ToolMessage)
+        ]
+        self.assertEqual(tool_names, ["rich_search", "plan_route_between_places"])
+        self.assertEqual(result["messages"][-1].content, "真实道路距离为 13.8 公里。")
+        self.assertEqual(model.route_calls, 1)
+        self.assertEqual(model.final_calls, 1)
 
 
 if __name__ == "__main__":

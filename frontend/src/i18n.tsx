@@ -135,6 +135,8 @@ const catalog = {
   toolRichSearchComplete: ['资料已经找到，正在核对重点、日期和出处…', '資料已找到，正在核對重點、日期和出處…', 'Sources found. Checking key facts, dates, and attribution…', '资料找到啦，正在核对重点日期和出处喵…', '资料已找到。正在核对重点、日期和出处…'],
   toolPlacesActive: ['正在查找并确认真实地点…', '正在查找並確認真實地點…', 'Finding and verifying real places…', '正在查找并确认真实地点喵…', '正在查找并确认真实地点…'],
   toolPlacesComplete: ['地点已经找到，正在确认名称和位置…', '地點已找到，正在確認名稱和位置…', 'Places found. Confirming names and locations…', '地点找到啦，正在确认名称和位置喵…', '地点已找到。正在确认名称和位置…'],
+  toolRouteActive: ['正在核实起点、终点并计算真实道路路线…', '正在核實起點、終點並計算真實道路路線…', 'Verifying both places and calculating the road route…', '正在核实两边地点并算真实路线喵…', '正在核实起终点并计算道路路线…'],
+  toolRouteComplete: ['路线已算好，正在整理距离和预计时间…', '路線已算好，正在整理距離和預計時間…', 'Route calculated. Organizing distance and estimated time…', '路线算好啦，正在整理距离和时间喵…', '路线已计算。正在整理距离和预计时间…'],
   toolMapPrepareActive: ['正在把核实过的地点整理到地图…', '正在把核實過的地點整理到地圖…', 'Adding verified places to the map…', '正在把核实过的地点放到地图上喵…', '正在将核实地点整理到地图…'],
   toolMapPrepareComplete: ['地图地点已准备好，正在组织推荐理由…', '地圖地點已準備好，正在整理推薦理由…', 'Map places are ready. Organizing the recommendations…', '地图地点准备好啦，正在整理推荐理由喵…', '地图地点已准备。正在组织推荐理由…'],
   toolMapRecommendActive: ['正在逐个核实地点并准备地图…', '正在逐一核實地點並準備地圖…', 'Verifying each place and preparing the map…', '正在逐个核实地点并准备地图喵…', '正在逐个核实地点并准备地图…'],
