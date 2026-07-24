@@ -1,7 +1,7 @@
 import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
 
-const DATA_GENERATION = 'v6_20260724_reset';
+const DATA_GENERATION = 'v7_20260724_clear';
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });

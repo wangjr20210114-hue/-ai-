@@ -1,6 +1,6 @@
 import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
-const DATA_GENERATION = 'v6_20260724_reset';
+const DATA_GENERATION = 'v7_20260724_clear';
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
 const decodeXml = (value) => String(value || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, '&');
 const textOf = (xml, tag) => decodeXml((xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i')) || [])[1] || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();

@@ -1,6 +1,6 @@
 import { currentUser } from '../../auth/current-user.js';
 
-const CONVERSATION_PREFIX = 'yb6_';
+const CONVERSATION_PREFIX = 'yb7_';
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });

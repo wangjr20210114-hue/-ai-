@@ -11,11 +11,14 @@ import re
 
 
 DATA_GENERATION = "v6_20260724_reset"
+# Conversation and file generations can be advanced independently when the
+# owner wants a clean demo without erasing schedules, memories or preferences.
+FILE_DATA_GENERATION = "v7_20260724_clear"
 # Makers requires every makers-conversation-id to be 6-36 characters. Keep the
 # generation marker short and hash unexpected legacy IDs so all direct Agent
 # calls satisfy the platform contract.
-CONVERSATION_PREFIX = "yb6_"
-BLOB_GENERATION_PATH = f"{DATA_GENERATION}/"
+CONVERSATION_PREFIX = "yb7_"
+BLOB_GENERATION_PATH = f"{FILE_DATA_GENERATION}/"
 
 
 def namespace(name: str, *parts: str) -> tuple[str, ...]:
