@@ -28,6 +28,7 @@ from agents.chat._graph import tool_completion_fallback
 from agents.chat.index import (
     SYSTEM_PROMPT,
     capability_planning_message,
+    checkpoint_final_answer,
     clarification_response_id,
     empty_generation_error,
     graph_user_message,
@@ -679,6 +680,22 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(empty_generation_error(
             "", has_actions=True, clarification_emitted=False, run_error="", cancelled=False,
         ), "")
+
+    def test_manual_graph_fallback_is_recovered_from_final_checkpoint(self):
+        snapshot = SimpleNamespace(values={"messages": [
+            SimpleNamespace(type="human", content="附近有早餐店吗"),
+            SimpleNamespace(type="ai", content="地点服务没有核实到结果，请扩大范围。"),
+        ]})
+        self.assertEqual(
+            checkpoint_final_answer(snapshot),
+            "地点服务没有核实到结果，请扩大范围。",
+        )
+        no_current_answer = SimpleNamespace(values={"messages": [
+            SimpleNamespace(type="human", content="上一题"),
+            SimpleNamespace(type="ai", content="上一题回答"),
+            SimpleNamespace(type="human", content="这一题"),
+        ]})
+        self.assertEqual(checkpoint_final_answer(no_current_answer), "")
 
     def test_follow_up_parser_accepts_only_three_unique_questions(self):
         self.assertEqual(
@@ -1467,7 +1484,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 "anchor_query": "桔子酒店(北京中关村软件园店)",
                 "query": "早餐店",
                 "city": "北京",
-                "radius_meters": 1500,
                 "limit": 5,
                 "title": "酒店附近早餐",
                 "action_text": "在地图中查看",
@@ -1478,7 +1494,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "map-key",
             "早餐店",
             anchor,
-            radius_meters=1500,
+            radius_meters=2000,
             limit=5,
             accept_category_results=True,
         )
@@ -1489,6 +1505,36 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             [place["place_id"] for place in result["action"]["payload"]["places"]],
             ["breakfast-1", "breakfast-2"],
         )
+
+    async def test_nearby_recommendation_respects_user_explicit_strict_radius(self):
+        anchor = {
+            **PLACE,
+            "place_id": "hotel",
+            "name": "桔子酒店(北京中关村软件园店)",
+        }
+        store = FakeStore()
+        state = empty_workspace()
+        state["place_candidates"][anchor["place_id"]] = anchor
+        await save_user_workspace(store, state)
+        with patch(
+            "agents.chat._ui_tools.provider_search_places_nearby",
+            new=AsyncMock(return_value=[]),
+        ) as nearby_provider:
+            tools = build_production_tools(
+                None,
+                store=store,
+                conversation_id="strict-nearby",
+                env={"TENCENT_MAP_SERVER_KEY": "key"},
+            )
+            tool = next(item for item in tools if item.name == "recommend_nearby_places_on_map")
+            with self.assertRaisesRegex(ValueError, "500 米内"):
+                await tool.ainvoke({
+                    "anchor_query": anchor["name"],
+                    "query": "早餐店",
+                    "radius_meters": 500,
+                    "strict_radius": True,
+                })
+        self.assertEqual(nearby_provider.await_args.kwargs["radius_meters"], 500)
 
     async def test_route_tool_resolves_a_brand_near_a_verified_anchor(self):
         station = {

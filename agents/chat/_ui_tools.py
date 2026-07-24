@@ -278,6 +278,7 @@ def build_production_tools(
         query: str,
         city: str = "全国",
         radius_meters: int = 2_000,
+        strict_radius: bool = False,
         limit: int = 5,
         title: str = "",
         action_text: str = "",
@@ -365,7 +366,11 @@ def build_production_tools(
         if anchor is None:
             raise ValueError(f"没有核实到参照地点“{clean_anchor_query}”")
 
-        radius = max(300, min(20_000, int(radius_meters or 2_000)))
+        requested_radius = max(300, min(20_000, int(radius_meters or 2_000)))
+        # A model sometimes invents an overly narrow radius even though the
+        # user only said "nearby". Keep the product default stable unless the
+        # model marks a distance explicitly stated by the user as strict.
+        radius = requested_radius if strict_radius else max(2_000, requested_radius)
         bounded_limit = max(1, min(10, int(limit or 5)))
         places = await provider_search_places_nearby(
             map_key,
@@ -374,6 +379,14 @@ def build_production_tools(
             radius_meters=radius,
             limit=bounded_limit,
             accept_category_results=True,
+        )
+        logging.info(
+            "nearby place lookup anchor=%s query=%s radius=%s strict=%s results=%s",
+            str(anchor.get("name") or clean_anchor_query)[:120],
+            clean_query[:120],
+            radius,
+            bool(strict_radius),
+            len(places),
         )
         if not places:
             raise ValueError(
@@ -1101,7 +1114,7 @@ def build_production_tools(
     definitions = [
         (search_places, "search_places", "使用腾讯地点服务搜索真实地点，返回可安全用于地图和日程的 place_id。推荐地点、景点、餐馆或含地点日程前必须调用。"),
         (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
-        (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。传入完整明确的 anchor_query 与要找的类别 query；工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),
+        (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。传入完整明确的 anchor_query 与要找的类别 query；工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。用户没有明确距离时不要自行缩小 radius_meters，保持默认 2000 米且 strict_radius=false；只有用户明确说“X 米内”时才传该距离并设 strict_radius=true。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),
         (plan_route_between_places, "plan_route_between_places", "查询两个真实地点之间的道路距离、驾车耗时或费用时必须使用。工具会自行核实起终点并调用真实路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 destination_query 传“锦江之星”、destination_near_query 传“北京301医院”；多个候选会自动生成单选卡让用户选择。"),
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
         (recommend_places_on_map, "recommend_places_on_map", "模型驱动的多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。"),

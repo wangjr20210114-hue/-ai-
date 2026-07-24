@@ -17,7 +17,7 @@ from ._capability_plan import (
     required_tools_for_plan,
 )
 from ._followups import generate_followups
-from ._protocol import PublicStreamFilter, public_error
+from ._protocol import PublicStreamFilter, public_content, public_error
 from ._calendar_context import calendar_context
 from .._shared.intelligence import (
     apply_automatic_memory_candidates,
@@ -74,6 +74,29 @@ def empty_generation_error(
         and not cancelled
     ):
         return "模型未返回有效回答，请重试。"
+    return ""
+
+
+def checkpoint_final_answer(snapshot) -> str:
+    """Recover a manual graph fallback that message-token streaming omits.
+
+    LangGraph's ``stream_mode="messages"`` yields LLM tokens and tool messages,
+    but an ``AIMessage`` constructed by a graph node as a safe terminal fallback
+    is only visible in the final checkpoint. Returning it here keeps live SSE
+    and a later ``/messages`` reload consistent.
+    """
+    values = getattr(snapshot, "values", None)
+    if not isinstance(values, dict) and isinstance(snapshot, dict):
+        values = snapshot.get("values")
+    messages = values.get("messages") if isinstance(values, dict) else []
+    for message in reversed(messages if isinstance(messages, list) else []):
+        if getattr(message, "type", "") in {"human", "user"}:
+            break
+        if getattr(message, "type", "") not in {"ai", "assistant"}:
+            continue
+        content = public_content(_text_content(getattr(message, "content", ""))).strip()
+        if content:
+            return content
     return ""
 
 
@@ -741,6 +764,18 @@ async def handler(ctx):
                                 final_answer_parts.clear()
                                 await queue.put(ctx.utils.sse({"type": "ai_response_reset"}))
                             await emit_public(delta)
+                    # Manual AIMessage fallbacks are durable in the Makers
+                    # checkpoint but are not emitted as LLM token events. If
+                    # this run has no public text yet, recover exactly that
+                    # final user-safe prose before deciding the run failed.
+                    if not final_answer_parts:
+                        try:
+                            final_snapshot = await graph.aget_state(config)
+                            recovered_answer = checkpoint_final_answer(final_snapshot)
+                            if recovered_answer:
+                                await emit_public(recovered_answer)
+                        except Exception as exc:
+                            logging.warning("final checkpoint answer recovery failed: %s", exc)
                 tail, reset_required = public_stream.finish()
                 if reset_required:
                     pending_ai_content.clear()
