@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hmac
 
 from .._shared.auth import require_user
@@ -19,6 +18,13 @@ def _value(item, name, default=None):
     if isinstance(item, dict):
         return item.get(name, default)
     return getattr(item, name, default)
+
+
+async def _gather(*operations):
+    # Import inside the callable so the Makers route packager keeps the stdlib
+    # dependency in the generated route module.
+    import asyncio as asyncio_runtime
+    return await asyncio_runtime.gather(*operations)
 
 
 async def _delete_application_namespaces(store) -> int:
@@ -45,7 +51,7 @@ async def _delete_application_namespaces(store) -> int:
             items = await store.asearch(namespace, limit=100)
             if not items:
                 break
-            await asyncio.gather(*(
+            await _gather(*(
                 store.adelete(tuple(_value(item, "namespace", namespace)), str(_value(item, "key", "")))
                 for item in items
                 if str(_value(item, "key", ""))
@@ -53,7 +59,7 @@ async def _delete_application_namespaces(store) -> int:
             deleted += len(items)
         return deleted
 
-    counts = await asyncio.gather(*(delete_namespace(namespace) for namespace in namespaces))
+    counts = await _gather(*(delete_namespace(namespace) for namespace in namespaces))
     return sum(counts)
 
 
@@ -61,7 +67,7 @@ async def _delete_conversation(ctx, conversation_id: str) -> None:
     operations = [ctx.store.delete_conversation(conversation_id)]
     if getattr(ctx.store, "langgraph_checkpointer", None) is not None:
         operations.append(ctx.store.langgraph_checkpointer.adelete_thread(conversation_id))
-    await asyncio.gather(*operations)
+    await _gather(*operations)
 
 
 async def _delete_conversations(ctx, user_id: str) -> int:
@@ -82,7 +88,7 @@ async def _delete_conversations(ctx, user_id: str) -> int:
         conversation_ids = [conversation_id for conversation_id in conversation_ids if conversation_id]
         for offset in range(0, len(conversation_ids), 8):
             batch = conversation_ids[offset:offset + 8]
-            await asyncio.gather(*(
+            await _gather(*(
                 _delete_conversation(ctx, conversation_id)
                 for conversation_id in batch
             ))
@@ -110,7 +116,7 @@ async def handler(ctx):
         for skill_id, enabled in DEFAULT_SKILL_PREFERENCES.items()
     }
 
-    conversations_deleted, state_items_deleted = await asyncio.gather(
+    conversations_deleted, state_items_deleted = await _gather(
         _delete_conversations(ctx, user_id),
         _delete_application_namespaces(langgraph_store),
     )
