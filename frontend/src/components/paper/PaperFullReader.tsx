@@ -368,10 +368,10 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
             >{isFullscreen ? t('restoreWindow') : t('fullscreen')}</Button>
             <span className="paper-toolbar-divider" />
             {assistantEnabled && <Button size="small" variant="outline" onClick={() => runAI('analyze', '', t('fullPaperAnalysis'))}>📚 {t('fullPaperAnalysis')}</Button>}
-            <Button size="small" variant="text" onClick={() => setScale(s => Math.max(0.6, s - 0.3))}>−</Button>
+            <Button size="small" variant="text" aria-label={t('zoomOut')} title={t('zoomOut')} onClick={() => setScale(s => Math.max(0.6, s - 0.3))}>−</Button>
             <span className="paper-zoom-value">{Math.round(scale * 100)}%</span>
-            <Button size="small" variant="text" onClick={() => setScale(s => Math.min(3.0, s + 0.3))}>+</Button>
-            <Button shape="circle" variant="text" size="small" onClick={onClose} aria-label={t('closePaperAssistant')} icon={<CloseIcon />} />
+            <Button size="small" variant="text" aria-label={t('zoomIn')} title={t('zoomIn')} onClick={() => setScale(s => Math.min(3.0, s + 0.3))}>+</Button>
+            <Button shape="circle" variant="text" size="small" onClick={onClose} aria-label={t('closePaperAssistant')} title={t('closePaperAssistant')} icon={<CloseIcon />} />
           </div>
         </div>
 

@@ -120,6 +120,7 @@ export default function SkillsMarketplaceButton() {
               role="switch"
               aria-checked={enabled}
               aria-label={t('toggleSkill', { action: enabled ? t('disableAction') : t('enableAction'), name: t(skill.nameKey) })}
+              title={t('toggleSkill', { action: enabled ? t('disableAction') : t('enableAction'), name: t(skill.nameKey) })}
               className={`skill-toggle ${enabled ? 'is-on' : ''}`}
               disabled={skill.locked || loading || savingId === skill.id}
               onClick={() => void save(skill.id, !enabled)}

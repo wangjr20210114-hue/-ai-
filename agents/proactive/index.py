@@ -125,12 +125,13 @@ async def _run_tick_with_memory(
     intelligence_state: dict,
     *,
     memory_only: bool = False,
+    force_memory: bool = False,
 ):
     """Use Makers state as the source of truth for the 10-minute memory scan."""
     now = int(time.time())
     current = await load_proactive_state(store, user_id)
     checkpoint = (current.get("checkpoints") or {}).get("memory_window_scan") or {}
-    memory_due = now - int(checkpoint.get("checked_at") or 0) >= 10 * 60
+    memory_due = force_memory or now - int(checkpoint.get("checked_at") or 0) >= 10 * 60
     memory_signals: list[dict] = []
     if memory_due and confirmed_memory_context(intelligence_state, limit=1):
         location = (current.get("checkpoints") or {}).get("location_context") or {}
@@ -172,7 +173,7 @@ async def handler(ctx):
         proactive_skill_enabled = bool(
             (intelligence_state.get("skill_preferences") or {}).get("proactive-agent", True)
         )
-        if not proactive_skill_enabled and operation in {"refresh", "memory_refresh", "open_conversation", "tick"}:
+        if not proactive_skill_enabled and operation in {"refresh", "memory_refresh", "page_open", "open_conversation", "tick"}:
             disabled_state = await load_proactive_state(store, user_id)
             if (disabled_state.get("preferences") or {}).get("enabled", True):
                 update_preferences(disabled_state, {"enabled": False})
@@ -182,12 +183,13 @@ async def handler(ctx):
                 "tick_stats": {"disabled_by_skill": True},
                 **({"proactive_message": None} if operation == "open_conversation" else {}),
             }
-        if operation in {"refresh", "open_conversation"}:
+        if operation in {"refresh", "page_open", "open_conversation"}:
             state, stats = await _run_tick_with_memory(
                 ctx, store, user_id, intelligence_state,
+                force_memory=operation == "page_open",
             )
             public = public_proactive_state(state)
-            if operation == "refresh":
+            if operation in {"refresh", "page_open"}:
                 return {**public, "tick_stats": stats}
 
             raw_conversation_id = getattr(ctx, "conversation_id", "")

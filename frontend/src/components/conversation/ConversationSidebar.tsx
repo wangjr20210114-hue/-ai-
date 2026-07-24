@@ -130,7 +130,7 @@ export default function ConversationSidebar({ open, onClose }: Props) {
       <aside className={`conversation-sidebar panel ${open ? 'is-open' : ''}`} aria-label={t('conversationHistory')}>
         <div className="conversation-sidebar-header">
           <div className="conversation-sidebar-title">{t('conversations')}</div>
-          <button type="button" className="conversation-sidebar-close" onClick={onClose} aria-label={t('close')}>×</button>
+          <button type="button" className="conversation-sidebar-close" onClick={onClose} aria-label={t('close')} title={t('close')}>×</button>
         </div>
 
         <Button block theme="primary" loading={creating} onClick={() => { void create(); }}>

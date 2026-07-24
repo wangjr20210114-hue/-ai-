@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import MessageBubble from './MessageBubble';
 import type { ChatClient } from '../../services/chatClient';
-import { hasTextSelectionInside } from './scrollSelection';
+import { autoFollowAfterScroll, hasTextSelectionInside } from './scrollSelection';
 import { useLanguage, type TranslationKey } from '../../i18n';
 
 const STARTERS: TranslationKey[] = [
@@ -25,6 +25,7 @@ export default function MessageList({ client }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const previousCountRef = useRef(0);
   const shouldStickToBottomRef = useRef(true);
+  const previousScrollTopRef = useRef(0);
 
   useLayoutEffect(() => {
     const container = scrollRef.current;
@@ -33,8 +34,10 @@ export default function MessageList({ client }: Props) {
     if (isInitialRestore) {
       // Run before paint so a restored task opens at the bottom without a visible scroll.
       container.scrollTop = container.scrollHeight;
+      previousScrollTopRef.current = container.scrollTop;
       requestAnimationFrame(() => {
         container.scrollTop = container.scrollHeight;
+        previousScrollTopRef.current = container.scrollTop;
       });
     } else if (hasTextSelectionInside(container, window.getSelection())) {
       // Never move the viewport while the user is selecting/copying an answer.
@@ -43,6 +46,7 @@ export default function MessageList({ client }: Props) {
       // Status labels and streamed tokens update often. Keep the viewport anchored
       // without restarting a smooth-scroll animation on every text change.
       container.scrollTop = container.scrollHeight;
+      previousScrollTopRef.current = container.scrollTop;
     }
     previousCountRef.current = messages.length;
   }, [messages, thinking]);
@@ -50,7 +54,14 @@ export default function MessageList({ client }: Props) {
   const trackScrollPosition = () => {
     const container = scrollRef.current;
     if (!container) return;
-    shouldStickToBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    shouldStickToBottomRef.current = autoFollowAfterScroll(
+      shouldStickToBottomRef.current,
+      previousScrollTopRef.current,
+      container.scrollTop,
+      distanceFromBottom,
+    );
+    previousScrollTopRef.current = container.scrollTop;
   };
 
   const stopAutoFollow = () => {

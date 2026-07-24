@@ -469,6 +469,7 @@ export function useSSEChat() {
   const streamsRef = useRef(new Map<string, Map<string, ChatMessage>>());
   const activeConversationRef = useRef(conversationId);
   const conversationsRef = useRef(conversations);
+  const pageOpenProactiveRefreshStartedRef = useRef(false);
   activeConversationRef.current = conversationId;
   conversationsRef.current = conversations;
 
@@ -745,7 +746,9 @@ export function useSSEChat() {
         // Refresh the durable inbox without injecting a synthetic assistant
         // message into a blank conversation. Header owns the non-blocking
         // presentation so opening a chat cannot race the first user message.
-        void proactiveOperation(conversationId, 'refresh').then((proactive) => {
+        const proactiveOperationName = pageOpenProactiveRefreshStartedRef.current ? 'get' : 'page_open';
+        pageOpenProactiveRefreshStartedRef.current = true;
+        void proactiveOperation(conversationId, proactiveOperationName).then((proactive) => {
           if (!disposed && activeConversationRef.current === conversationId) {
             dispatch({ type: 'HYDRATE_PROACTIVE', payload: proactive });
           }

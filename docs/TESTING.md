@@ -37,12 +37,13 @@ python -m unittest discover -s tools/tests -v
 git diff --check
 ```
 
-当前分支 2026-07-24 的已验证结果：Node Cloud Functions/架构门禁 22 项、前端 Vitest 99 项（18 个测试文件）、Python Agent 166 项；ESLint、TypeScript/Vite 构建和 `git diff --check` 通过。本轮新增“只有真正阻断任务的信息才发问卷、未决偏好直接给 2–3 套方案”、Skills 唯一搜索开关、设置/Skills 轻量读取，以及原有全局选择/判断、真实语义路线、周边品牌物理半径核验、多个分店单选和空回答失败态回归。定位、来源单击、地图、腾讯会议、搜索媒体、流式 Markdown、主动机会和历史消息回归仍全部保留。Provider 脱敏实测见 [`PROVIDER_HEALTH_2026-07-22.md`](PROVIDER_HEALTH_2026-07-22.md)。运行完整 Python 测试前必须激活 `.venv`；系统 Python 缺依赖属于本地环境错误。主包体积警告是已知非阻断优化项。
+当前分支 2026-07-24 的已验证结果：Node Cloud Functions/架构门禁 22 项、前端 Vitest 101 项（18 个测试文件）、Python Agent 167 项；ESLint、TypeScript/Vite 构建和 `git diff --check` 通过。本轮新增纯图形按钮悬浮说明、流式回答上滑脱离与回到底部恢复、打开网页强制进行一次记忆优先提醒检查，以及简短搜索进度文案回归；原有全局选择/判断、真实语义路线、定位、来源单击、地图、腾讯会议、搜索媒体、流式 Markdown、主动机会和历史消息回归仍全部保留。Provider 脱敏实测见 [`PROVIDER_HEALTH_2026-07-22.md`](PROVIDER_HEALTH_2026-07-22.md)。运行完整 Python 测试前必须激活 `.venv`；系统 Python 缺依赖属于本地环境错误。主包体积警告是已知非阻断优化项。
 
 搜索调用次数要在 Makers 控制台日志中验证：按本次请求时间范围搜索 `rich_search turn_audit`，正常冷查询应为 `invocations=1 provider_calls=1`；即使模型误发重复工具调用，`provider_calls` 仍必须保持 1；相同查询命中缓存时为 0。再用 `rich_search provider_call` 交叉核对。浏览器 Network 只看到外层 `POST /chat`，不能据此推断内部工具次数。
 
 主动提醒窗口与断网恢复的验收要点：
 
+- 关闭并重新打开网页本身就是一次主动检查时机；只要主动 Skill 开启且存在可安全使用的记忆，Header 应在启动请求完成后刷新，不要求用户再点“立即检查”。页面打开检查与面板挂载不能重复发起两次。
 - 先通过聊天产生 4 条不同的操作提醒，左栏和顶栏最多显示 4 条；第 5 条操作提醒会替换其中一条，历史 Event/Run 仍保留在 Makers Store。
 - 让账户存在至少一条安全自动记忆，等待网页保持可见 10 分钟；控制台应看到一次 `memory_window` 检查。窗口有操作提醒时，记忆提醒可替换操作提醒；窗口全是记忆提醒时不新增；没有安全记忆时不新增。
 - 断网后等待 20 秒，回答框应显示“网络有波动，正在从 Makers 已保存的进度恢复…”，而不是永久停在思考；恢复最多等待 2 分钟。若用户点击停止，应立即解除输入框锁定并记录主动取消；之后即使网络恢复、刷新页面或切换回来也不能恢复生成，只允许向 Makers 补发取消请求。只有用户明确发送一条新消息才清除该取消意图。

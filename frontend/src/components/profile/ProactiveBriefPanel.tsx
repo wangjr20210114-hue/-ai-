@@ -50,7 +50,6 @@ export default function ProactiveBriefPanel() {
       timer = window.setTimeout(() => { void refresh(); }, 160);
     };
     const onVisibility = () => { if (document.visibilityState === 'visible') scheduleRefresh(); };
-    scheduleRefresh();
     window.addEventListener('yuanbao:calendar-changed', scheduleRefresh);
     window.addEventListener('yuanbao:workspace-changed', scheduleRefresh);
     window.addEventListener('focus', scheduleRefresh);
@@ -96,7 +95,7 @@ export default function ProactiveBriefPanel() {
       <div className="sidebar-reminders-heading">
         <span><NotificationIcon size="15px" /> {t('reminders')}</span>
         {notifications.length > 0 && <b>{notifications.length}</b>}
-        <button type="button" disabled={refreshing} onClick={() => { void refresh(); }} aria-label={t('refreshReminders')}>
+        <button type="button" disabled={refreshing} onClick={() => { void refresh(); }} aria-label={t('refreshReminders')} title={t('refreshReminders')}>
           {refreshing ? '…' : '↻'}
         </button>
       </div>

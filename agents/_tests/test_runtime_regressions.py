@@ -131,6 +131,22 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["preferences"]["daily_limit"], 3)
         self.assertEqual(response["tick_stats"], {"signals": 0})
 
+    async def test_page_open_forces_one_memory_first_refresh(self):
+        stores = FakeProactiveStores()
+        state = empty_proactive_state()
+        ctx = SimpleNamespace(
+            env={}, store=stores, conversation_id="page-open-conversation",
+            request=SimpleNamespace(body={"operation": "page_open"}, headers={}),
+        )
+        with patch(
+            "agents.proactive.index._run_tick_with_memory",
+            AsyncMock(return_value=(state, {"signals": 0})),
+        ) as refresh:
+            response = await proactive_handler(ctx)
+        refresh.assert_awaited_once()
+        self.assertTrue(refresh.await_args.kwargs["force_memory"])
+        self.assertEqual(response["tick_stats"], {"signals": 0})
+
     async def test_document_signal_immediately_creates_one_proactive_opportunity(self):
         stores = FakeProactiveStores()
         ctx = SimpleNamespace(

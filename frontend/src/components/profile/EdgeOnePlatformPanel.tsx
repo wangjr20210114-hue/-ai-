@@ -299,7 +299,7 @@ export default function EdgeOnePlatformPanel() {
     <div className={`makers-schedule-form schedule-inline-editor ${editingId ? 'is-editing' : 'is-creating'}`} aria-label={editingId ? t('editSchedule') : t('addSchedule')}>
       <div className="schedule-inline-heading">
         <strong>{editingId ? t('editThisSchedule') : t('addNewSchedule')}</strong>
-        <button type="button" aria-label={t('closeScheduleEditor')} onClick={closeScheduleForm}>×</button>
+        <button type="button" aria-label={t('closeScheduleEditor')} title={t('closeScheduleEditor')} onClick={closeScheduleForm}>×</button>
       </div>
       <input value={formTitle} onInput={(event) => setFormTitle(event.currentTarget.value)} placeholder={t('scheduleTitle')} maxLength={120} />
       <div className="makers-schedule-datetime">
@@ -323,7 +323,7 @@ export default function EdgeOnePlatformPanel() {
               placeholder={t('placeSearchPlaceholder')}
             />
             {placeSearchBusy && <span className="makers-place-searching">{t('searching')}</span>}
-            {placeOptionsOpen && <button type="button" className="makers-place-close" aria-label={t('closePlaceSuggestions')} onClick={() => setPlaceOptionsOpen(false)}>×</button>}
+            {placeOptionsOpen && <button type="button" className="makers-place-close" aria-label={t('closePlaceSuggestions')} title={t('closePlaceSuggestions')} onClick={() => setPlaceOptionsOpen(false)}>×</button>}
           </div>
           {placeOptionsOpen && placeOptions.length > 0 && (
             <div className="makers-place-options">
@@ -371,9 +371,9 @@ export default function EdgeOnePlatformPanel() {
         <div className="calendar-workspace-viewport">
           <section className="calendar-workspace-pane calendar-month-pane" aria-hidden={dayViewOpen}>
             <div className="calendar-header">
-              <Button variant="text" size="small" icon={<ChevronLeftIcon />} onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} />
+              <Button variant="text" size="small" icon={<ChevronLeftIcon />} aria-label={t('previousMonth')} title={t('previousMonth')} onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} />
               <span className="calendar-month-label">{monthLabel}</span>
-              <Button variant="text" size="small" icon={<ChevronRightIcon />} onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} />
+              <Button variant="text" size="small" icon={<ChevronRightIcon />} aria-label={t('nextMonth')} title={t('nextMonth')} onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} />
             </div>
             <div className="calendar-weekdays">
               {weekdays.map((weekday, index) => <div key={`${weekday}-${index}`} className="calendar-weekday">{weekday}</div>)}
@@ -404,7 +404,7 @@ export default function EdgeOnePlatformPanel() {
 
           <section className="calendar-workspace-pane calendar-day-pane" aria-hidden={!dayViewOpen}>
             <div className="calendar-day-toolbar">
-              <Button shape="circle" variant="text" size="small" icon={<ArrowLeftIcon />} aria-label={t('backToCalendar')} onClick={() => { setDayViewOpen(false); closeScheduleForm(); }} />
+              <Button shape="circle" variant="text" size="small" icon={<ArrowLeftIcon />} aria-label={t('backToCalendar')} title={t('backToCalendar')} onClick={() => { setDayViewOpen(false); closeScheduleForm(); }} />
               <div className="calendar-day-heading">
                 <strong>{t('daySchedule', { date: selectedDate.toLocaleDateString(locale, { month: 'long', day: 'numeric' }) })}</strong>
                 <span>{t('itemCount', { count: selectedItems.length })}</span>

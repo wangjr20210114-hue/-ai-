@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasTextSelectionInside } from './scrollSelection';
+import { autoFollowAfterScroll, hasTextSelectionInside } from './scrollSelection';
 import { streamingMarkdownAnswer } from './streamingAnswer';
 
 describe('message selection auto-follow guard', () => {
@@ -15,6 +15,16 @@ describe('message selection auto-follow guard', () => {
     const container = { contains: () => false } as unknown as HTMLElement;
     expect(hasTextSelectionInside(container, { isCollapsed: true, anchorNode: selectedNode } as unknown as Selection)).toBe(false);
     expect(hasTextSelectionInside(container, { isCollapsed: false, anchorNode: selectedNode } as unknown as Selection)).toBe(false);
+  });
+
+  it('detaches immediately when the user scrolls upward near the bottom', () => {
+    expect(autoFollowAfterScroll(true, 1000, 996, 4)).toBe(false);
+    expect(autoFollowAfterScroll(false, 996, 998, 2)).toBe(true);
+  });
+
+  it('stays detached until the user really reaches the bottom', () => {
+    expect(autoFollowAfterScroll(false, 800, 850, 24)).toBe(false);
+    expect(autoFollowAfterScroll(false, 850, 874, 0)).toBe(true);
   });
 });
 

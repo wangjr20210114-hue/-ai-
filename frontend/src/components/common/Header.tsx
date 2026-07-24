@@ -86,6 +86,7 @@ export default function Header({
             disabled={!connected}
             onClick={onToggleSidebar}
             aria-label={t('openConversations')}
+            title={t('openConversations')}
             icon={<MenuIcon />}
           />
         )}
@@ -125,6 +126,7 @@ export default function Header({
             disabled={!connected}
             onClick={onToggleRightPanel}
             aria-label={rightPanelOpen ? t('collapsePanel') : t('expandPanel')}
+            title={rightPanelOpen ? t('collapsePanel') : t('expandPanel')}
             aria-pressed={rightPanelOpen}
             icon={rightPanelOpen ? <ChevronRightIcon /> : <ChevronLeftIcon />}
           />
@@ -137,6 +139,7 @@ export default function Header({
           disabled={!connected}
           onClick={toggleTheme}
           aria-label={theme === 'dark' ? t('useLightTheme') : t('useDarkTheme')}
+          title={theme === 'dark' ? t('useLightTheme') : t('useDarkTheme')}
           icon={theme === 'dark' ? <ModeLightIcon /> : <ModeDarkIcon />}
         />
       </div>

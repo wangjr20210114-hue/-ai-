@@ -216,12 +216,12 @@ export default function InputBar({ client }: Props) {
         {documentContext && <div className="chat-reference-document">
           <b>PDF</b>
           <span>{documentContext.filename}<small>{t('documentContextHint')}</small></span>
-          <button type="button" onClick={() => dispatch({ type: 'SET_DOCUMENT_CONTEXT', payload: null })} aria-label={t('removeDocumentContext')}>×</button>
+          <button type="button" onClick={() => dispatch({ type: 'SET_DOCUMENT_CONTEXT', payload: null })} aria-label={t('removeDocumentContext')} title={t('removeDocumentContext')}>×</button>
         </div>}
         {referenceImage && <div className="chat-reference-image">
           <img src={referenceImage.dataUrl} alt={t('pendingReferenceImage')} />
           <span>{referenceImage.name}<small>{t('referenceImageHint')}</small></span>
-          <button type="button" onClick={() => setReferenceImage(null)} aria-label={t('removeReferenceImage')}>×</button>
+          <button type="button" onClick={() => setReferenceImage(null)} aria-label={t('removeReferenceImage')} title={t('removeReferenceImage')}>×</button>
         </div>}
         <Textarea
           value={text}

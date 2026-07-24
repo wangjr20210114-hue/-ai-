@@ -86,8 +86,8 @@ export default function ReadingLibraryPanel() {
   return <div className="my-panel-card reading-library-card">
     <div className="section-title">
       <FileIcon size="16px" /> {t('myReading')} <span className="reading-library-count">{items.length}</span>
-      <Button shape="circle" variant="text" size="small" icon={<AddIcon />} aria-label={t('newFolder')} onClick={() => void createFolder()} />
-      <Button shape="circle" variant="text" size="small" loading={loading} icon={<RefreshIcon />} aria-label={t('refresh')} onClick={() => void load()} />
+      <Button shape="circle" variant="text" size="small" icon={<AddIcon />} aria-label={t('newFolder')} title={t('newFolder')} onClick={() => void createFolder()} />
+      <Button shape="circle" variant="text" size="small" loading={loading} icon={<RefreshIcon />} aria-label={t('refresh')} title={t('refresh')} onClick={() => void load()} />
     </div>
     <div className="reading-library-mode">{settings.auto_organize ? t('autoOrganizing') : t('manualOrganize')}</div>
     {!items.length && !folders.length ? <div className="reading-library-empty">{t('libraryEmpty')}</div> : (
@@ -97,8 +97,8 @@ export default function ReadingLibraryPanel() {
             <button type="button" onClick={() => setExpanded((value) => ({ ...value, [folder.id]: !(value[folder.id] ?? true) }))}>
               <FolderIcon /><strong>{folder.name}</strong><span>{folderItems.length}</span>
             </button>
-            {folder.id && <Button shape="circle" variant="text" size="small" icon={<EditIcon />} aria-label={t('rename')} onClick={() => void rename(folder)} />}
-            <Button shape="circle" variant="text" size="small" loading={busyFolder === (folder.id || 'unfiled')} icon={<DownloadIcon />} aria-label={t('downloadFolder')} onClick={() => void downloadFolder(folder, folderItems)} />
+            {folder.id && <Button shape="circle" variant="text" size="small" icon={<EditIcon />} aria-label={t('rename')} title={t('rename')} onClick={() => void rename(folder)} />}
+            <Button shape="circle" variant="text" size="small" loading={busyFolder === (folder.id || 'unfiled')} icon={<DownloadIcon />} aria-label={t('downloadFolder')} title={t('downloadFolder')} onClick={() => void downloadFolder(folder, folderItems)} />
           </div>
           {(expanded[folder.id] ?? true) && <div className="reading-library-list">{folderItems.map((item) => (
             <div className="reading-library-item" key={item.id}>
@@ -109,7 +109,7 @@ export default function ReadingLibraryPanel() {
               <select aria-label={t('moveToFolder')} title={settings.auto_organize ? t('manualMoveHint') : t('moveToFolder')} value={item.folder_id || ''} onChange={(event) => void moveReadingItem(item.id, event.target.value).then(load).then(() => MessagePlugin.success(t('fileMoved'))).catch((error) => MessagePlugin.error(error instanceof Error ? error.message : t('moveFailed')))}>
                 <option value="">{t('unfiled')}</option>{folders.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}
               </select>
-              <Button shape="circle" variant="text" size="small" icon={<DeleteIcon />} aria-label={t('remove')} onClick={() => void remove(item)} />
+              <Button shape="circle" variant="text" size="small" icon={<DeleteIcon />} aria-label={t('remove')} title={t('remove')} onClick={() => void remove(item)} />
             </div>
           ))}</div>}
         </section>

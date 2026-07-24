@@ -63,8 +63,8 @@ describe('actionOnlyFallback', () => {
 
 describe('human-readable progress', () => {
   it('explains search progress without exposing Agent implementation jargon', () => {
-    expect(progressTextForTool('rich_search', 'active')).toContain('可靠');
-    expect(progressTextForTool('rich_search', 'complete')).toContain('核对');
+    expect(progressTextForTool('rich_search', 'active')).toBe('正在查找资料…');
+    expect(progressTextForTool('rich_search', 'complete')).toBe('资料找到了，正在整理…');
     expect(progressTextForTool('rich_search', 'complete')).not.toContain('工具');
   });
 

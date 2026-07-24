@@ -208,7 +208,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
         </div>
       </div>
       <div className={`image-studio-stage ${generating || !imageReady ? 'is-painting' : ''}`}>
-        <Button className="image-studio-nav previous" shape="circle" disabled={versions.length < 2} aria-label={t('previousImage')} icon={<ChevronLeftIcon />} onClick={() => setIndex((index - 1 + versions.length) % versions.length)} />
+        <Button className="image-studio-nav previous" shape="circle" disabled={versions.length < 2} aria-label={t('previousImage')} title={t('previousImage')} icon={<ChevronLeftIcon />} onClick={() => setIndex((index - 1 + versions.length) % versions.length)} />
         <img src={selectedSrc} alt={originalPrompt || t('generatedImage')} onLoad={() => {
           loadedUrlsRef.current.add(selected.image_url);
           setLoadedUrls((current) => new Set(current).add(selected.image_url));
@@ -216,7 +216,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
           setGenerating(false);
         }} onError={() => { setGenerating(false); MessagePlugin.error(t('imageLoadFailed')); }} />
         {(generating || !imageReady) && <div className="image-painting-overlay"><span /><PaintingStatus /></div>}
-        <Button className="image-studio-nav next" shape="circle" disabled={versions.length < 2} aria-label={t('nextImage')} icon={<ChevronRightIcon />} onClick={() => setIndex((index + 1) % versions.length)} />
+        <Button className="image-studio-nav next" shape="circle" disabled={versions.length < 2} aria-label={t('nextImage')} title={t('nextImage')} icon={<ChevronRightIcon />} onClick={() => setIndex((index + 1) % versions.length)} />
       </div>
       <div className="image-studio-prompt" title={originalPrompt}>{originalPrompt}</div>
       <div className="image-studio-editor">
@@ -226,7 +226,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
       {versions.length > 1 && (
         <div className="image-studio-thumbs">
           {versions.map((version, versionIndex) => (
-            <button key={version.id} type="button" className={versionIndex === index ? 'selected' : ''} onClick={() => setIndex(versionIndex)}>
+            <button key={version.id} type="button" className={versionIndex === index ? 'selected' : ''} aria-label={t('imageVersion', { number: versionIndex + 1 })} title={t('imageVersion', { number: versionIndex + 1 })} onClick={() => setIndex(versionIndex)}>
               <img src={downloadCacheRef.current.get(version.image_url)?.objectUrl || withEdgeOneAuth(version.image_url)} alt={t('imageVersion', { number: versionIndex + 1 })} />
             </button>
           ))}
