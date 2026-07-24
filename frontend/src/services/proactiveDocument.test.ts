@@ -18,6 +18,13 @@ describe('proactive document reference', () => {
     }))).toEqual({ fileId: 'uploads/conv/one.pdf', filename: '周报.pdf' });
   });
 
+  it('loads the same document context for a proactive translation opportunity', () => {
+    expect(proactiveDocumentReference(notification({
+      type: 'opportunity_translation_review',
+      evidence: { storage_key: 'uploads/conv/paper.pdf', filename: 'paper.pdf' },
+    }))).toEqual({ fileId: 'uploads/conv/paper.pdf', filename: 'paper.pdf' });
+  });
+
   it('ignores unrelated and incomplete notifications', () => {
     expect(proactiveDocumentReference(notification({ type: 'schedule_upcoming' }))).toBeNull();
     expect(proactiveDocumentReference(notification({ evidence: { filename: 'missing.pdf' } }))).toBeNull();

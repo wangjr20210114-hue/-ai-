@@ -47,8 +47,13 @@ from .._shared.workspace import (
 class ClarificationFieldInput(BaseModel):
     """Strong schema shown to the model for every clarification field."""
 
-    id: str = Field(description="Stable semantic field id, for example destination or travel_date")
-    label: str = Field(description="Short user-visible question label, for example 目的地 or 是否带孩子")
+    id: str = Field(description="Stable semantic field id derived from the unresolved part of the user's request")
+    label: str = Field(
+        description=(
+            "Short user-visible question grounded in the current request, recent dialogue, "
+            "or a directly relevant safe memory; never invent a generic profile question"
+        ),
+    )
     type: Literal["single", "multi", "boolean", "text", "date", "datetime"] = Field(
         description=(
             "Interaction type. Prefer single/multi for finite choices, boolean for yes/no, "

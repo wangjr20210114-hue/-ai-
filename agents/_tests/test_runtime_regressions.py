@@ -153,6 +153,36 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(second["signal_created"])
         self.assertEqual(len(second["notifications"]), 1)
 
+    async def test_foreign_document_can_proactively_offer_translation_without_persisting_preview(self):
+        stores = FakeProactiveStores()
+        ctx = SimpleNamespace(
+            env={}, store=stores, conversation_id="translation-opportunity",
+            request=SimpleNamespace(body={
+                "operation": "ingest_signal",
+                "signal_type": "file_uploaded",
+                "dedup_key": "blob-english-paper",
+                "payload": {
+                    "file_id": "file-en", "storage_key": "uploads/file-en",
+                    "filename": "research.pdf", "is_paper": True,
+                    "ui_language": "zh-CN",
+                    "preview": "Abstract. This paper presents a new evaluation method for language models.",
+                },
+            }, headers={}),
+        )
+        model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=(
+            '{"should_notify":true,"type":"translation_review","title":"先读中文版",'
+            '"body":"这份论文主要是英文，翻译后可以直接阅读。",'
+            '"action_prompt":"请把“research.pdf”翻译成简体中文，保留标题层级和术语一致性",'
+            '"priority":"normal","confidence":0.94,"expires_in_hours":72,"reason":"正文语言与界面语言不同"}'
+        ))))
+        with patch("agents.proactive.index.get_model", return_value=model):
+            response = await proactive_handler(ctx)
+        self.assertEqual(response["notifications"][0]["type"], "opportunity_translation_review")
+        self.assertEqual(response["notifications"][0]["evidence"]["storage_key"], "uploads/file-en")
+        self.assertEqual(model.ainvoke.await_count, 1)
+        serialized = repr(stores.langgraph_store.values)
+        self.assertNotIn("This paper presents", serialized)
+
     async def test_generated_image_signal_runs_semantic_judgment_once(self):
         stores = FakeProactiveStores()
         ctx = SimpleNamespace(

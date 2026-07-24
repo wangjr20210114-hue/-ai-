@@ -1340,7 +1340,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         schema = clarification.args_schema.model_json_schema()
         field_schema = schema["$defs"]["ClarificationFieldInput"]
         self.assertEqual(field_schema["required"], ["id", "label", "type"])
-        self.assertIn("user-visible question label", field_schema["properties"]["label"]["description"])
+        self.assertIn("user-visible question", field_schema["properties"]["label"]["description"])
+        self.assertIn("never invent a generic profile question", field_schema["properties"]["label"]["description"])
         result = json.loads(await clarification.ainvoke({
             "title": "请选择输出风格",
             "prompt": "选一种即可",

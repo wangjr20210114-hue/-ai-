@@ -22,6 +22,7 @@ from .._shared.proactive import (
     ingest_workspace_signal,
 )
 from .._shared.opportunities import (
+    detect_uploaded_file_opportunity,
     detect_generated_image_opportunity,
     file_opportunity_signal,
     opportunity_signal,
@@ -316,6 +317,17 @@ async def handler(ctx):
                     "has_reference_image": bool(payload.get("has_reference_image")),
                     "has_previous_version": bool(payload.get("has_previous_version")),
                 }
+            elif signal_type == "file_uploaded":
+                # A short extracted preview may be used transiently by the
+                # semantic opportunity model, but document content must not be
+                # duplicated into the persistent proactive event stream.
+                persisted_payload = {
+                    "file_id": str(payload.get("file_id") or "")[:180],
+                    "storage_key": str(payload.get("storage_key") or "")[:500],
+                    "filename": str(payload.get("filename") or "")[:180],
+                    "mime_type": str(payload.get("mime_type") or "")[:120],
+                    "is_paper": bool(payload.get("is_paper")),
+                }
             elif signal_type == "browser_location_weather":
                 # The browser calls this only after the user has granted
                 # geolocation permission. Coordinates are used transiently to
@@ -333,9 +345,33 @@ async def handler(ctx):
             )
             stats = {"signals": 0, "events_created": 0, "runs_created": 0, "notifications_created": 0, "skipped": 0}
             if created and signal_type == "file_uploaded":
+                opportunity = None
+                try:
+                    opportunity = await detect_uploaded_file_opportunity(
+                        get_model(ctx.env),
+                        payload,
+                        timeout_seconds=float(ctx.env.get("OPPORTUNITY_PLAN_TIMEOUT_SECONDS") or 6),
+                    )
+                except Exception:
+                    opportunity = None
+                signal = (
+                    opportunity_signal(
+                        opportunity,
+                        source_id=str(payload.get("file_id") or dedup_key),
+                        now=now,
+                    )
+                    if opportunity else
+                    file_opportunity_signal(payload, dedup_key=dedup_key, now=now)
+                )
+                signal.setdefault("evidence", {}).update({
+                    "file_id": str(payload.get("file_id") or ""),
+                    "storage_key": str(payload.get("storage_key") or ""),
+                    "filename": str(payload.get("filename") or ""),
+                    "is_paper": bool(payload.get("is_paper")),
+                })
                 stats = process_schedule_signals(
                     state,
-                    [file_opportunity_signal(payload, dedup_key=dedup_key, now=now)],
+                    [signal],
                     now,
                 )
             elif created and signal_type == "image_generated":

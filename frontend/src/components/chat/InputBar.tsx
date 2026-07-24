@@ -137,11 +137,13 @@ export default function InputBar({ client }: Props) {
         return;
       }
       let detectedPaper = false;
+      let documentPreview = '';
       if (stored.storage_key && (f.raw.type === 'application/pdf' || f.raw.name.toLowerCase().endsWith('.pdf'))) {
         try {
           const { inspectPdf } = await import('../../services/reading');
           const inspection = await inspectPdf(f.raw);
           detectedPaper = inspection.isPaper;
+          documentPreview = inspection.preview;
           await registerReadingItem({
             storage_key: stored.storage_key,
             filename: stored.original_name,
@@ -192,6 +194,8 @@ export default function InputBar({ client }: Props) {
           filename: stored.original_name,
           mime_type: stored.mime_type,
           is_paper: detectedPaper,
+          preview: documentPreview,
+          ui_language: getStoredLanguage(),
         },
       }).then((proactive) => dispatch({ type: 'HYDRATE_PROACTIVE', payload: proactive }))
         .catch((error) => console.warn('file signal ingestion failed', error));

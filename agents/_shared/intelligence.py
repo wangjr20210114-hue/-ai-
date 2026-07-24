@@ -471,7 +471,7 @@ async def extract_automatic_memory_candidates(model: Any, user_message: str) -> 
     """Use semantic extraction; deterministic filters remain the final privacy boundary."""
     prompt = """你是后台记忆筛选器，只从用户自己的话提取值得跨会话保留的非敏感稳定信息，不回答用户。
 可保留：长期偏好、长期目标、反复习惯、稳定项目背景、用户明确陈述且非敏感的事实。
-必须丢弃：一次性任务参数、临时时间地点、寒暄、普通问题、搜索词、模型推断、第三方信息，以及密码/令牌/密钥/账号/联系方式/证件/精确地址/财务/健康医疗等敏感信息。
+必须丢弃：一次性任务参数、临时时间地点、尚未决定的事项、否定或犹豫表达、仅供本轮选择的备选项、寒暄、普通问题、搜索词、模型推断、第三方信息，以及密码/令牌/密钥/账号/联系方式/证件/精确地址/财务/健康医疗等敏感信息。
 如果没有合格内容返回 {"memories":[]}。否则最多 3 项，每项为 {"key":"稳定的语义键","value":"简洁事实","confidence":0到1,"ttl_days":30到365}。只有置信度至少 0.7 的内容才输出。只输出 JSON。"""
     try:
         response = await model.ainvoke([

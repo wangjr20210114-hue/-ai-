@@ -28,7 +28,10 @@ export default function SkillsMarketplaceButton() {
 
   useEffect(() => { if (visible) void refresh(); }, [refresh, visible]);
   useEffect(() => {
-    const open = () => setVisible(true);
+    const open = () => {
+      setLoading(true);
+      setVisible(true);
+    };
     window.addEventListener('yuanbao:open-skills', open);
     return () => window.removeEventListener('yuanbao:open-skills', open);
   }, []);
@@ -37,6 +40,10 @@ export default function SkillsMarketplaceButton() {
     () => SKILLS_CATALOG.filter((skill) => skill.locked || preferences[skill.id] !== false).length,
     [preferences],
   );
+  const openMarketplace = () => {
+    setLoading(true);
+    setVisible(true);
+  };
 
   const save = async (skillId: string, enabled: boolean) => {
     const skill = SKILLS_CATALOG.find((item) => item.id === skillId);
@@ -66,7 +73,7 @@ export default function SkillsMarketplaceButton() {
   };
 
   return <>
-    <Button className="sidebar-settings-button" block variant="text" icon={<AppIcon />} onClick={() => setVisible(true)}>{t('skillsMarketplace')}</Button>
+    <Button className="sidebar-settings-button" block variant="text" icon={<AppIcon />} onClick={openMarketplace}>{t('skillsMarketplace')}</Button>
     <Dialog
       visible={visible}
       header={t('skillsMarketplace')}
@@ -79,10 +86,14 @@ export default function SkillsMarketplaceButton() {
     >
       <div className="skills-marketplace-head">
         <div><strong>{t('composeSkills')}</strong><span>{t('skillsStoredNatively')}</span></div>
-        <Tag theme="primary" variant="light">{t('enabledCount', { enabled: enabledCount, total: SKILLS_CATALOG.length })}</Tag>
+        <Tag theme="primary" variant="light">{loading ? t('loading') : t('enabledCount', { enabled: enabledCount, total: SKILLS_CATALOG.length })}</Tag>
       </div>
       <div className="skills-marketplace" aria-busy={loading}>
-        {SKILLS_CATALOG.map((skill) => {
+        {loading ? Array.from({ length: 6 }, (_, index) => (
+          <div className="skill-market-skeleton" key={`skill-loading-${index}`} aria-hidden="true">
+            <span /><div><i /><i /></div>
+          </div>
+        )) : SKILLS_CATALOG.map((skill) => {
           const enabled = skill.locked || preferences[skill.id] !== false;
           const missingRecommended = (skill.recommends || []).filter((id) => preferences[id] === false);
           const missingRequired = (skill.requires || []).filter((id) => preferences[id] === false);

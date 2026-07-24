@@ -170,6 +170,44 @@ async def detect_generated_image_opportunity(
     return opportunity
 
 
+async def detect_uploaded_file_opportunity(
+    model: Any,
+    payload: dict[str, Any],
+    *,
+    timeout_seconds: float = 6.0,
+) -> dict[str, Any] | None:
+    """Semantically choose the most useful unsolicited next step for a document.
+
+    The bounded preview is transient model context. It is never copied into the
+    proactive event; the durable notification keeps only the Blob reference.
+    """
+    preview = str(payload.get("preview") or "").strip()[:3000]
+    filename = str(payload.get("filename") or "这份文档").strip()[:120] or "这份文档"
+    if not preview:
+        return None
+    preferred_language = str(payload.get("ui_language") or "zh-CN").strip()[:24]
+    return await detect_opportunity(
+        model,
+        user_message=f"用户刚上传了“{filename}”，但没有主动要求翻译、总结或分析。",
+        answer=(
+            f"界面语言：{preferred_language}\n"
+            "以下只是用于判断下一步服务机会的文档短预览：\n"
+            f"{preview}"
+        ),
+        capability_plan={
+            "event": "file_uploaded",
+            "is_paper": bool(payload.get("is_paper")),
+            "preferred_response_language": preferred_language,
+            "selection_rule": (
+                "如果正文主要语言与界面语言不同，且翻译能让用户立即阅读，优先选择 "
+                "translation_review，并给出直接翻译该文档的 action_prompt；"
+                "否则只在摘要、行动项或研究提炼确有价值时选择 document_next_step。"
+            ),
+        },
+        timeout_seconds=timeout_seconds,
+    )
+
+
 def opportunity_signal(
     opportunity: dict[str, Any], *, source_id: str, now: int,
 ) -> dict[str, Any]:
