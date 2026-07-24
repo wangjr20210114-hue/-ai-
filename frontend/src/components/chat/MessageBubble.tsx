@@ -169,10 +169,11 @@ function ClarificationCard({
           }} />{option}</label>;
         })}</div>
       </fieldset>;
-      return <label className="clarification-field" key={field.id}><span>{field.label}{field.required ? t('requiredField') : ''}</span><input
+      return <label className={`clarification-field clarification-field-${field.type}`} key={field.id}><span>{field.label}{field.required ? t('requiredField') : ''}</span><input
         type={field.type === 'date' ? 'date' : field.type === 'time' ? 'time' : field.type === 'datetime' ? 'datetime-local' : 'text'}
         value={typeof value === 'string' ? value : ''}
         placeholder={field.placeholder}
+        step={field.type === 'time' ? 300 : undefined}
         disabled={isSubmitted}
         onChange={(event) => setValue(field.id, event.target.value)}
       /></label>;

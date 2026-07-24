@@ -44,6 +44,16 @@ def _tool_failure_message(exc: Exception) -> str:
     return TOOL_FAILURE_MESSAGE
 
 
+def _hidden_clarification_answer(message) -> bool:
+    if getattr(message, "type", "") not in {"human", "user"}:
+        return False
+    additional = getattr(message, "additional_kwargs", None) or {}
+    return (
+        isinstance(additional, dict)
+        and additional.get("floris_interaction") == "clarification"
+    )
+
+
 def build_graph(
     model: ChatOpenAI,
     tools: list,
@@ -61,16 +71,31 @@ def build_graph(
         tools_this_turn = 0
         used_tool_names = []
         clarification_ready = False
+        crossed_clarification_answer = False
         for message in reversed(state["messages"]):
             if getattr(message, "type", "") in {"human", "user"}:
+                # A structured-card answer is a continuation of the original
+                # logical turn, not a brand-new task. Reuse completed route,
+                # place and search tools from before the card so submitting one
+                # missing time does not repeat expensive work. The prior
+                # clarification tool itself is deliberately excluded below:
+                # its card was terminal only before the user answered it.
+                if not crossed_clarification_answer and _hidden_clarification_answer(message):
+                    crossed_clarification_answer = True
+                    continue
                 break
             if getattr(message, "type", "") == "tool":
-                tools_this_turn += 1
-                used_tool_names.append(getattr(message, "name", ""))
+                name = getattr(message, "name", "")
+                if crossed_clarification_answer and name == "ask_user_clarification":
+                    continue
+                if not crossed_clarification_answer:
+                    tools_this_turn += 1
+                used_tool_names.append(name)
                 try:
                     payload = json.loads(str(getattr(message, "content", "") or ""))
                     clarification_ready = clarification_ready or (
-                        isinstance(payload, dict)
+                        not crossed_clarification_answer
+                        and isinstance(payload, dict)
                         and payload.get("ui_action") == "clarification_action"
                     )
                 except (TypeError, json.JSONDecodeError):
@@ -190,6 +215,26 @@ def build_graph(
             ])
             if not public_content(getattr(response, "content", "")).strip():
                 response = AIMessage(content="没有获得足够且符合条件的可靠信息；我没有用不相关内容凑数。你可以缩小范围或补充约束后再试。")
+        if (
+            used_tool_names
+            and "ask_user_clarification" not in used_tool_names
+            and not getattr(response, "tool_calls", None)
+            and not public_content(getattr(response, "content", "")).strip()
+        ):
+            # Empty answer turns are not limited to the recursion-budget path.
+            # Some OpenAI-compatible providers emit an empty assistant message
+            # immediately after a successful tool result. Give that completed
+            # tool history one clean, tool-free synthesis pass so a valid route
+            # or calendar proposal cannot collapse into the generic
+            # “模型未返回有效回答” terminal error.
+            response = await model.ainvoke([
+                SystemMessage(content=system_prompt),
+                *history,
+                SystemMessage(content=(
+                    "工具阶段已经完成。现在只输出给用户看的最终回答，禁止调用、模拟或描述工具协议。"
+                    "若工具返回了确认卡，简短提示用户核对卡片；若某项操作失败，如实说明失败原因和可执行的下一步。"
+                )),
+            ])
         if not getattr(response, "tool_calls", None) and not public_content(getattr(response, "content", "")).strip():
             fallback = tool_completion_fallback(used_tool_names)
             if fallback:

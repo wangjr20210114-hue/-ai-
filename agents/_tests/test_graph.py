@@ -109,6 +109,53 @@ class _ClarificationChoiceModel:
         return AIMessage(content="unexpected")
 
 
+class _ContinuationBoundModel:
+    def __init__(self, owner, tools, tool_choice):
+        self.owner = owner
+        self.tools = tools
+        self.tool_choice = tool_choice
+
+    async def ainvoke(self, _messages, **_kwargs):
+        self.owner.calls += 1
+        if self.owner.calls == 1:
+            self.owner.first_tool_names = {tool.name for tool in self.tools}
+            return AIMessage(content="", tool_calls=[{
+                "name": "propose_calendar_changes",
+                "args": {"summary": "07:04 出发"},
+                "id": "calendar-1",
+            }])
+        return AIMessage(content="日程确认卡已经准备好。")
+
+
+class _ContinuationModel:
+    def __init__(self):
+        self.calls = 0
+        self.first_tool_names = set()
+
+    def bind_tools(self, tools, **kwargs):
+        return _ContinuationBoundModel(self, tools, kwargs.get("tool_choice", ""))
+
+    async def ainvoke(self, _messages, **_kwargs):
+        return AIMessage(content="日程确认卡已经准备好。")
+
+
+class _BlankAfterToolBoundModel:
+    async def ainvoke(self, _messages, **_kwargs):
+        return AIMessage(content="")
+
+
+class _BlankAfterToolModel:
+    def __init__(self):
+        self.recovery_calls = 0
+
+    def bind_tools(self, _tools, **_kwargs):
+        return _BlankAfterToolBoundModel()
+
+    async def ainvoke(self, _messages, **_kwargs):
+        self.recovery_calls += 1
+        return AIMessage(content="已根据核实路线整理好结果。")
+
+
 class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
     async def test_direct_answer_does_not_call_rich_search(self):
         model = _RecordingModel()
@@ -196,6 +243,77 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["messages"][-1].content, "真实道路距离为 13.8 公里。")
         self.assertEqual(model.route_calls, 1)
         self.assertEqual(model.final_calls, 1)
+
+    async def test_clarification_answer_continues_original_tool_chain_without_repeating_route(self):
+        model = _ContinuationModel()
+        graph = build_graph(
+            model,
+            [plan_route_between_places, propose_calendar_changes, ask_user_clarification],
+            "system",
+            required_tools=["plan_route_between_places", "propose_calendar_changes"],
+        )
+        result = await graph.ainvoke({"messages": [
+            HumanMessage(content="从酒店到北京站再去锦江，写入明天行程"),
+            AIMessage(content="", tool_calls=[{
+                "name": "plan_route_between_places",
+                "args": {"origin_query": "桔子酒店", "destination_query": "北京站"},
+                "id": "route-before-card",
+            }]),
+            ToolMessage(
+                content="桔子酒店->北京站:31km",
+                name="plan_route_between_places",
+                tool_call_id="route-before-card",
+            ),
+            AIMessage(content="", tool_calls=[{
+                "name": "ask_user_clarification",
+                "args": {"title": "确认出发时间"},
+                "id": "clarify-time",
+            }]),
+            ToolMessage(
+                content='{"ui_action":"clarification_action"}',
+                name="ask_user_clarification",
+                tool_call_id="clarify-time",
+            ),
+            AIMessage(content=""),
+            HumanMessage(
+                content="明天出发时间：07:04",
+                additional_kwargs={
+                    "floris_ui_hidden": True,
+                    "floris_interaction": "clarification",
+                    "clarification_id": "time-card",
+                },
+            ),
+        ]})
+        tool_names = [
+            message.name for message in result["messages"]
+            if isinstance(message, ToolMessage)
+        ]
+        self.assertEqual(tool_names.count("plan_route_between_places"), 1)
+        self.assertEqual(tool_names.count("propose_calendar_changes"), 1)
+        self.assertEqual(
+            model.first_tool_names,
+            {"propose_calendar_changes", "ask_user_clarification"},
+        )
+        self.assertEqual(result["messages"][-1].content, "日程确认卡已经准备好。")
+
+    async def test_empty_model_turn_after_tool_gets_one_tool_free_synthesis_retry(self):
+        model = _BlankAfterToolModel()
+        graph = build_graph(model, [plan_route_between_places], "system")
+        result = await graph.ainvoke({"messages": [
+            HumanMessage(content="北京站到北京301医院多远"),
+            AIMessage(content="", tool_calls=[{
+                "name": "plan_route_between_places",
+                "args": {"origin_query": "北京站", "destination_query": "北京301医院"},
+                "id": "route-blank",
+            }]),
+            ToolMessage(
+                content="北京站->北京301医院:13.8km",
+                name="plan_route_between_places",
+                tool_call_id="route-blank",
+            ),
+        ]})
+        self.assertEqual(result["messages"][-1].content, "已根据核实路线整理好结果。")
+        self.assertEqual(model.recovery_calls, 1)
 
 
 if __name__ == "__main__":

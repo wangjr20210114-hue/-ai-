@@ -27,6 +27,7 @@ from agents.chat._calendar_context import calendar_context
 from agents.chat._graph import tool_completion_fallback
 from agents.chat.index import (
     SYSTEM_PROMPT,
+    capability_planning_message,
     clarification_response_id,
     empty_generation_error,
     graph_user_message,
@@ -270,6 +271,21 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         }), "")
         self.assertFalse(should_persist_user_message(body))
         self.assertTrue(should_persist_user_message({"interaction_mode": "chat"}))
+
+    def test_clarification_capability_plan_keeps_original_user_goal(self):
+        self.assertEqual(
+            capability_planning_message(
+                "明天出发时间：07:04",
+                "trip-time",
+                ["从桔子酒店出发，先去北京站，再去锦江并写入日程"],
+            ),
+            (
+                "[这是用户对上一轮结构化问题的补充答案，请结合原始目标规划尚未完成的能力；"
+                "不要把答案误判为一个独立的新问题。]\n"
+                "上一轮原始目标：从桔子酒店出发，先去北京站，再去锦江并写入日程\n"
+                "本次补充答案：明天出发时间：07:04"
+            ),
+        )
 
     async def test_capability_planner_retries_invalid_json(self):
         model = FlakyPlannerModel()

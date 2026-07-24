@@ -224,6 +224,28 @@ def graph_user_message(content: str, clarification_id: str = "") -> dict:
     return message
 
 
+def capability_planning_message(
+    message: str,
+    clarification_id: str = "",
+    recent_user_messages: list[str] | None = None,
+) -> str:
+    """Keep a structured-card answer attached to the user's original goal."""
+    current = str(message or "").strip()
+    recent = [
+        str(item or "").strip()
+        for item in (recent_user_messages or [])
+        if str(item or "").strip()
+    ]
+    if not clarification_id or not recent:
+        return current
+    return (
+        "[这是用户对上一轮结构化问题的补充答案，请结合原始目标规划尚未完成的能力；"
+        "不要把答案误判为一个独立的新问题。]\n"
+        f"上一轮原始目标：{recent[0][:600]}\n"
+        f"本次补充答案：{current}"
+    )
+
+
 async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
@@ -378,7 +400,16 @@ async def handler(ctx):
                 "应自然说明暂时无法识别，并请用户重试或用文字补充。"
             )
     document_context = _document_context(body)
-    planning_message = message
+    clarification_context: list[str] = []
+    if silent_clarification:
+        clarification_context = await _recent_user_questions(
+            ctx.store, conversation_id, message,
+        )
+    planning_message = capability_planning_message(
+        message,
+        clarification_id,
+        clarification_context,
+    )
     if reference_images and "vision" not in enabled_skills:
         reference_image_context = "用户附带了图片，但视觉理解 Skill 已关闭；不要声称看见图片内容，应建议到 Skills 广场开启视觉理解。"
     if reference_image_context:
