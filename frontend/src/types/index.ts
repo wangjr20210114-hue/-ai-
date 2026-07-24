@@ -289,7 +289,7 @@ export interface ChatMessage {
   clarification?: ClarificationPrompt;
 }
 
-export type ClarificationFieldType = 'single' | 'multi' | 'boolean' | 'text' | 'date' | 'datetime';
+export type ClarificationFieldType = 'single' | 'multi' | 'boolean' | 'text' | 'date' | 'time' | 'datetime';
 
 export interface ClarificationField {
   id: string;

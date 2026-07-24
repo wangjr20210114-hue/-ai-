@@ -54,10 +54,11 @@ class ClarificationFieldInput(BaseModel):
             "or a directly relevant safe memory; never invent a generic profile question"
         ),
     )
-    type: Literal["single", "multi", "boolean", "text", "date", "datetime"] = Field(
+    type: Literal["single", "multi", "boolean", "text", "date", "time", "datetime"] = Field(
         description=(
             "Interaction type. Prefer single/multi for finite choices, boolean for yes/no, "
-            "date/datetime for time, and text only when the answer cannot be enumerated."
+            "date for a missing date, time when the date is already known, datetime when both "
+            "are missing, and text only when the answer cannot be enumerated."
         ),
     )
     required: bool = Field(default=True, description="Whether the user must answer this field")
@@ -566,7 +567,30 @@ def build_production_tools(
                 place_id = str(event.get("place_id") or event.get("location_place_id") or "").strip()
                 location_text = str(event.get("location") or "").strip()
                 if location_text and not place_id:
-                    raise ValueError(f"“{location_text}”必须先通过 search_places 选择真实地点")
+                    # A route or place tool in an earlier turn has already
+                    # persisted verified candidates.  Reuse an unambiguous
+                    # match instead of making the model transport a fragile
+                    # provider id across turns.  This remains provider-backed:
+                    # free-form locations that were never verified are refused.
+                    normalized_location = _normalized_place_name(location_text)
+                    matched = [
+                        (candidate_id, candidate)
+                        for candidate_id, candidate in candidates.items()
+                        if isinstance(candidate, dict)
+                        and normalized_location
+                        and _normalized_place_name(candidate.get("name"))
+                        and (
+                            normalized_location == _normalized_place_name(candidate.get("name"))
+                            or normalized_location == _normalized_place_name(candidate.get("address"))
+                            or _normalized_place_name(candidate.get("name")) in normalized_location
+                        )
+                    ]
+                    if len(matched) == 1:
+                        place_id = str(matched[0][0])
+                    elif len(matched) > 1:
+                        raise ValueError(f"“{location_text}”对应多个已核实地点，请先选择具体地点")
+                    else:
+                        raise ValueError(f"“{location_text}”必须先通过 search_places 选择真实地点")
                 if place_id:
                     place = candidates.get(place_id)
                     if not isinstance(place, dict):
@@ -888,7 +912,7 @@ def build_production_tools(
         fields: list[ClarificationFieldInput],
     ) -> str:
         """Present one compact, structured clarification card instead of prose interrogation."""
-        allowed = {"single", "multi", "boolean", "text", "date", "datetime"}
+        allowed = {"single", "multi", "boolean", "text", "date", "time", "datetime"}
         normalized: list[dict[str, Any]] = []
         for index, raw in enumerate(fields or []):
             if isinstance(raw, BaseModel):
@@ -947,7 +971,7 @@ def build_production_tools(
         (analyze_images_parallel, "analyze_images_parallel", "并行视觉评估最多 30 张图片；单张失败不影响其他图片。"),
         (search_arxiv, "search_arxiv", "补充获取 arXiv 可下载结果。富搜索已找到论文时，把准确标题列表一次性传给 titles；按作者和年份查找时分别传 author（英文署名）与 year，不要把作者年份混在宽泛 topic 中。工具会严格过滤作者/年份与标题，每轮最多调用一次。"),
         (propose_workflow, "propose_workflow", "用户明确要求建立跨时间、多步骤的持续提醒或计划时创建工作流提案。steps 每项包含 offset_minutes、title、body、action_prompt，可用 depends_on=['step_1'] 建立 DAG 依赖；失败时需要回退提示的步骤可增加 compensation={title,body,action_prompt}。默认按顺序依赖。必须由用户确认后才会激活，依赖步骤需用户标记完成后才推进。"),
-        (ask_user_clarification, "ask_user_clarification", "全项目统一的必要信息收集入口。只有缺少该字段会阻断所有安全有用的回答，或无法唯一确定真实副作用对象时才能调用；“知道后更好”、可选偏好和用户尚未决定都不得调用，应直接在正文给出 2–3 套带假设与取舍的方案。这条边界适用于所有主题，禁止套用固定画像问题。本轮最多调用一次并只收最少必要字段：有限候选优先 single/multi，能用是/否表达就用 boolean，日期时间必须用 date/datetime，仅答案无法枚举时用 text。卡片提交后由前端自动把答案作为对话补充信息继续推理，不要要求用户再次发送，也不要重复询问已提交字段。"),
+        (ask_user_clarification, "ask_user_clarification", "所有问答场景统一的必要信息收集入口。只有缺少该字段会阻断所有安全有用的回答，或无法唯一确定真实副作用对象时才能调用；“知道后更好”、可选偏好和用户尚未决定都不得调用，应直接在正文给出 2–3 套带假设与取舍的方案。这条边界适用于所有主题，禁止套用固定画像问题。本轮最多调用一次并只收最少必要字段；能由当前上下文、已核实结果、其他字段或安全默认值推导出的字段不得再问。有限候选优先 single/multi，能用是/否表达就用 boolean，只缺日期用 date、日期已知只缺时刻用 time、两者都缺才用 datetime，仅答案无法枚举时用 text。卡片提交后由前端自动把答案作为对话补充信息继续推理，不要要求用户再次发送，也不要重复询问已提交字段。"),
     ]
     meeting_ready = bool(str(runtime_env.get("TENCENT_MEETING_TOKEN") or "").strip())
     if not meeting_ready:

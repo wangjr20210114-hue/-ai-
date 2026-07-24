@@ -12,7 +12,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from agents.chat._capability_plan import (
-    clarification_tool_available,
     media_enabled_for_plan,
     parse_capability_plan,
     plan_capabilities,
@@ -467,11 +466,14 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("没决定、都可以、先看看", SYSTEM_PROMPT)
         self.assertIn("用户不需要再点发送", SYSTEM_PROMPT)
         self.assertNotIn("不同选择会明显改变后续结果时，应先用 ask_user_clarification", SYSTEM_PROMPT)
-        self.assertFalse(clarification_tool_available({"needs_clarification": False}))
-        self.assertTrue(clarification_tool_available({"needs_clarification": True}))
-        self.assertTrue(clarification_tool_available(
-            {"needs_clarification": False}, planner_timed_out=True,
-        ))
+
+    def test_every_qa_scene_keeps_full_history_clarification_available(self):
+        source = (Path(__file__).parents[1] / "chat" / "index.py").read_text(encoding="utf-8")
+        graph_source = (Path(__file__).parents[1] / "chat" / "_graph.py").read_text(encoding="utf-8")
+        self.assertNotIn("if not clarification_tool_available", source)
+        self.assertIn('required_name and "ask_user_clarification" in allowed_tool_names', graph_source)
+        self.assertIn("required_or_question_tools", graph_source)
+        self.assertIn("你在此前回答里自行建议、假设或补出的时间", SYSTEM_PROMPT)
 
     def test_semantic_web_search_makes_media_available_without_keyword_rules(self):
         self.assertTrue(media_enabled_for_plan({
@@ -1383,6 +1385,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         schema = clarification.args_schema.model_json_schema()
         field_schema = schema["$defs"]["ClarificationFieldInput"]
         self.assertEqual(field_schema["required"], ["id", "label", "type"])
+        self.assertIn("time", field_schema["properties"]["type"]["enum"])
         self.assertIn("user-visible question", field_schema["properties"]["label"]["description"])
         self.assertIn("never invent a generic profile question", field_schema["properties"]["label"]["description"])
         result = json.loads(await clarification.ainvoke({
@@ -1450,6 +1453,28 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["ui_action"], "calendar_action")
         event = result["action"]["payload"]["changes"][0]["event"]
         self.assertEqual(event["title"], "游览北海公园")
+        self.assertEqual(event["place"]["place_id"], PLACE["place_id"])
+
+    async def test_calendar_tool_reuses_unique_verified_location_from_prior_route(self):
+        store = FakeStore()
+        state = empty_workspace()
+        state["place_candidates"][PLACE["place_id"]] = PLACE
+        await save_workspace(store, USER_WORKSPACE_ID, state)
+        tools = build_production_tools(None, store=store, conversation_id="calendar-route", env={})
+        calendar_tool = next(tool for tool in tools if tool.name == "propose_calendar_changes")
+        result = json.loads(await calendar_tool.ainvoke({
+            "summary": "沿用上一轮核实地点",
+            "changes": [{
+                "operation": "create",
+                "event": {
+                    "title": "前往北海公园",
+                    "start_time": "2099-07-16T09:00:00+08:00",
+                    "end_time": "2099-07-16T10:00:00+08:00",
+                    "location": f"{PLACE['name']}（{PLACE['address']}）",
+                },
+            }],
+        }))
+        event = result["action"]["payload"]["changes"][0]["event"]
         self.assertEqual(event["place"]["place_id"], PLACE["place_id"])
 
     async def test_calendar_tool_updates_end_time_without_requiring_start_time_again(self):

@@ -129,8 +129,10 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.match(clarificationCard, /activity: 'clarification_answered'/);
   assert.match(clarificationCard, /client\.current\.send/);
   assert.doesNotMatch(clarificationCard, /SET_DRAFT/);
-  assert.match(capabilityPlan, /def clarification_tool_available/);
-  assert.match(chatAgent, /if not clarification_tool_available/);
+  assert.doesNotMatch(capabilityPlan, /def clarification_tool_available/);
+  assert.doesNotMatch(chatAgent, /if not clarification_tool_available/);
+  assert.match(chatAgent, /product-wide interaction capability/);
+  assert.match(chatGraph, /required_or_question_tools/);
   assert.match(styles, /themeDiagonalReveal 280ms/);
   assert.doesNotMatch(styles, /themeDiagonalReveal 1100ms/);
 });

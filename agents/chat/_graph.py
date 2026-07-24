@@ -116,6 +116,19 @@ def build_graph(
             active_model = model
         elif finalize_after_rich_search:
             active_model = model.bind_tools(remaining_tools) if remaining_tools else model
+        elif required_name and "ask_user_clarification" in allowed_tool_names:
+            # The planner guarantees that one capability is required, while
+            # the full-history model decides whether the dialogue has actually
+            # supplied every blocking parameter. This applies uniformly to
+            # writing, translation, image, place, route, calendar, meeting and
+            # other tool-backed Q&A—not to a hard-coded task category.
+            required_or_question_tools = [
+                tool for tool in tools
+                if getattr(tool, "name", "") in {
+                    required_name, "ask_user_clarification",
+                }
+            ]
+            active_model = model.bind_tools(required_or_question_tools, tool_choice="required")
         else:
             active_model = (
                 model.bind_tools(tools, tool_choice=required_name)

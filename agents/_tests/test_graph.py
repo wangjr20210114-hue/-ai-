@@ -75,6 +75,39 @@ def plan_route_between_places(origin_query: str, destination_query: str) -> str:
     """Return one verified route."""
     return f"{origin_query}->{destination_query}:13.8km"
 
+@tool
+def propose_calendar_changes(summary: str) -> str:
+    """Return one calendar proposal."""
+    return summary
+
+
+class _ClarificationChoiceBoundModel:
+    def __init__(self, owner, tools, tool_choice):
+        self.owner = owner
+        self.tools = tools
+        self.tool_choice = tool_choice
+
+    async def ainvoke(self, _messages, **_kwargs):
+        self.owner.tool_names = {tool.name for tool in self.tools}
+        self.owner.tool_choice = self.tool_choice
+        return AIMessage(content="", tool_calls=[{
+            "name": "ask_user_clarification",
+            "args": {"title": "只补充真正缺少的信息"},
+            "id": "clarify-global-1",
+        }])
+
+
+class _ClarificationChoiceModel:
+    def __init__(self):
+        self.tool_names = set()
+        self.tool_choice = ""
+
+    def bind_tools(self, tools, **kwargs):
+        return _ClarificationChoiceBoundModel(self, tools, kwargs.get("tool_choice", ""))
+
+    async def ainvoke(self, _messages, **_kwargs):
+        return AIMessage(content="unexpected")
+
 
 class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
     async def test_direct_answer_does_not_call_rich_search(self):
@@ -127,6 +160,22 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["messages"][-1].content, "")
         self.assertEqual(model.bound_calls, 0)
         self.assertEqual(model.unbound_calls, 0)
+
+    async def test_every_required_qa_tool_can_yield_to_structured_clarification(self):
+        model = _ClarificationChoiceModel()
+        graph = build_graph(
+            model,
+            [propose_calendar_changes, ask_user_clarification],
+            "system",
+            required_tools=["propose_calendar_changes"],
+        )
+        result = await graph.ainvoke({"messages": [HumanMessage(content="帮我写入日程")]})
+        self.assertEqual(
+            model.tool_names,
+            {"propose_calendar_changes", "ask_user_clarification"},
+        )
+        self.assertEqual(model.tool_choice, "required")
+        self.assertEqual(result["messages"][-1].content, "")
 
     async def test_rich_search_keeps_required_route_tool_available(self):
         model = _RouteChainModel()
