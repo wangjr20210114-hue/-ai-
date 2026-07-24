@@ -567,6 +567,8 @@ async def handler(ctx):
         # the assistant cannot merely describe a map or confirmation action
         # without producing it; rich_search keeps its turn-local dedupe guard.
         required_tools=required_tools_for_plan(capability_plan),
+        blocked_skill=blocked_skill,
+        response_language=response_language,
     )
 
     async def gen():

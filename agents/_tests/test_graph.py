@@ -3,7 +3,7 @@ import unittest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 
-from agents.chat._graph import build_graph, tool_result_fallback
+from agents.chat._graph import blocked_capability_response, build_graph, tool_result_fallback
 
 
 class _BoundModel:
@@ -308,14 +308,34 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         result = await graph.ainvoke({
             "messages": [HumanMessage(content="创建腾讯会议")],
         })
-        self.assertEqual(
-            result["messages"][-1].content,
-            "对应能力当前不可用，请先开启 Skill 或完成连接。",
+        self.assertIn("腾讯会议", result["messages"][-1].content)
+        self.assertIn("没有生成任何卡片", result["messages"][-1].content)
+        self.assertNotIn("propose_meeting", result["messages"][-1].content)
+        self.assertEqual(model.unbound_calls, 0)
+
+    async def test_planner_blocked_skill_cannot_simulate_a_result(self):
+        model = _UnavailableRequiredModel()
+        graph = build_graph(
+            model,
+            [search_places],
+            "system",
+            blocked_skill="maps",
+            response_language="zh-CN",
         )
-        self.assertTrue(any(
-            "必需的能力当前不可用" in str(getattr(message, "content", ""))
-            for message in model.last_messages
-        ))
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="核实北京站到天安门的距离")],
+        })
+        self.assertIn("地图", result["messages"][-1].content)
+        self.assertIn("没有生成任何卡片", result["messages"][-1].content)
+        self.assertEqual(model.unbound_calls, 0)
+
+    def test_blocked_capability_response_is_localized_and_hides_internal_ids(self):
+        english = blocked_capability_response(
+            ["propose_meeting"], "en", configured=True,
+        )
+        self.assertIn("Tencent Meeting", english)
+        self.assertIn("no card", english)
+        self.assertNotIn("propose_meeting", english)
 
     async def test_rich_search_keeps_required_route_tool_available(self):
         model = _RouteChainModel()

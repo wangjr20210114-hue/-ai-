@@ -39,6 +39,83 @@ TURN_SINGLE_USE_TOOLS = {
     "ask_user_clarification",
 }
 
+SKILL_DISPLAY_NAMES = {
+    "web-search": {"zh-CN": "联网搜索", "zh-TW": "聯網搜尋", "en": "Web Search"},
+    "vision": {"zh-CN": "视觉理解", "zh-TW": "視覺理解", "en": "Vision"},
+    "image-studio": {"zh-CN": "图片工坊", "zh-TW": "圖片工坊", "en": "Image Studio"},
+    "maps": {"zh-CN": "地图", "zh-TW": "地圖", "en": "Maps"},
+    "calendar": {"zh-CN": "日程管理", "zh-TW": "日程管理", "en": "Calendar"},
+    "proactive-agent": {"zh-CN": "主动式 Agent", "zh-TW": "主動式 Agent", "en": "Proactive Agent"},
+    "paper-reading": {"zh-CN": "论文阅读", "zh-TW": "論文閱讀", "en": "Paper Reading"},
+    "tencent-meeting": {"zh-CN": "腾讯会议", "zh-TW": "騰訊會議", "en": "Tencent Meeting"},
+}
+
+TOOL_CAPABILITIES = {
+    "rich_search": "web-search",
+    "collect_page_images": "web-search",
+    "analyze_images_parallel": "vision",
+    "search_places": "maps",
+    "search_places_batch": "maps",
+    "plan_route_between_places": "maps",
+    "prepare_map_recommendation": "maps",
+    "recommend_places_on_map": "maps",
+    "recommend_nearby_places_on_map": "maps",
+    "propose_calendar_changes": "calendar",
+    "propose_meeting": "tencent-meeting",
+    "propose_workflow": "proactive-agent",
+    "propose_image": "image-studio",
+    "search_arxiv": "paper-reading",
+}
+
+
+def _capability_names(capability_ids: Iterable[str], response_language: str) -> str:
+    language = response_language if response_language in {"zh-CN", "zh-TW", "en"} else "zh-CN"
+    names = []
+    for capability_id in capability_ids:
+        skill_id = TOOL_CAPABILITIES.get(capability_id, capability_id)
+        localized = SKILL_DISPLAY_NAMES.get(skill_id, {}).get(language)
+        name = localized or SKILL_DISPLAY_NAMES.get(skill_id, {}).get("zh-CN") or "对应"
+        if name not in names:
+            names.append(name)
+    separator = ", " if language == "en" else "、"
+    return separator.join(names) or ("the required" if language == "en" else "对应")
+
+
+def blocked_capability_response(
+    capability_ids: Iterable[str],
+    response_language: str = "zh-CN",
+    *,
+    configured: bool = False,
+) -> str:
+    """Return one truthful terminal response after the LLM planner finds a blocked capability."""
+    names = _capability_names(capability_ids, response_language)
+    if response_language == "en":
+        state = "is not enabled or configured" if configured else "is currently disabled"
+        next_step = (
+            "Enable the relevant Skill or finish connecting its external provider, then try again."
+            if configured
+            else "Enable it in the Skills marketplace, then try again."
+        )
+        return (
+            f"This request requires {names}, but that capability {state}. "
+            "Nothing was executed, and no card, proposal, or result was created. "
+            f"{next_step}"
+        )
+    if response_language == "zh-TW":
+        state = "尚未開啟或完成設定" if configured else "目前處於關閉狀態"
+        next_step = "請到 Skills 廣場開啟相應能力或完成外部連線後再試。" if configured else "請到 Skills 廣場開啟後再試。"
+        return (
+            f"這次請求需要「{names}」能力，但它{state}，所以我沒有執行，"
+            f"也沒有產生任何卡片、提案或結果。{next_step}"
+        )
+    state = "尚未开启或完成配置" if configured else "当前处于关闭状态"
+    next_step = "请到 Skills 广场开启相应能力或完成外部连接后再试。" if configured else "请到 Skills 广场开启后再试。"
+    suffix = "喵。" if response_language == "cat-cute" else "。"
+    return (
+        f"这次请求需要「{names}」能力，但它{state}，所以我没有执行，"
+        f"也没有生成任何卡片、提案或结果。{next_step.rstrip('。')}{suffix}"
+    )
+
 
 def _logical_turn_messages(messages: Iterable) -> list:
     """Return messages belonging to the current user goal.
@@ -204,12 +281,22 @@ def build_graph(
     store=None,
     required_tool: str = "",
     required_tools: Iterable[str] | None = None,
+    blocked_skill: str = "",
+    response_language: str = "zh-CN",
 ):
     model_with_tools = model.bind_tools(tools) if tools else model
     allowed_tool_names = {getattr(tool, "name", "") for tool in tools}
     required_sequence = tuple(required_tools or (() if not required_tool else (required_tool,)))
 
     async def agent_node(state: MessagesState):
+        # The semantic LLM planner—not a keyword rule—decides that a disabled
+        # Skill is indispensable. Once decided, the runtime enforces the UI
+        # truth contract: no model may simulate a card, search result or side
+        # effect that cannot exist.
+        if blocked_skill:
+            return {"messages": [AIMessage(content=blocked_capability_response(
+                [blocked_skill], response_language,
+            ))]}
         tools_this_turn = 0
         used_tool_names = []
         seen_tool_call_signatures: set[str] = set()
@@ -262,14 +349,16 @@ def build_graph(
             name for name in required_sequence
             if name not in allowed_tool_names and name not in used_tool_names
         ]
-        required_name = "" if force_finalize or unavailable_required_tools else next_required_tool(
+        if unavailable_required_tools:
+            return {"messages": [AIMessage(content=blocked_capability_response(
+                unavailable_required_tools,
+                response_language,
+                configured=True,
+            ))]}
+        required_name = "" if force_finalize else next_required_tool(
             required_sequence, used_tool_names, allowed_tool_names,
         )
-        planned_sequence_complete = (
-            bool(required_sequence)
-            and not required_name
-            and not unavailable_required_tools
-        )
+        planned_sequence_complete = bool(required_sequence) and not required_name
         # The semantic LLM planner has already decided that rich_search is
         # required and the tool adapter already owns its merged search query.
         # Asking a second tool-bound LLM to merely echo that decision adds a
@@ -294,11 +383,10 @@ def build_graph(
         ]
         tools_closed = (
             force_finalize
-            or bool(unavailable_required_tools)
             or planned_sequence_complete
             or (finalize_after_rich_search and not remaining_tools)
         )
-        if force_finalize or unavailable_required_tools:
+        if force_finalize:
             active_model = model
         elif planned_sequence_complete:
             # The semantic planner's shortest capability chain has completed.
@@ -327,16 +415,7 @@ def build_graph(
             )
         history = bounded_history(state["messages"])
         messages = [SystemMessage(content=system_prompt), *history]
-        if unavailable_required_tools:
-            messages.append(SystemMessage(content=(
-                "能力规划确认完成本轮目标所必需的能力当前不可用。"
-                f"不可用的内部能力标识为：{', '.join(unavailable_required_tools)}。"
-                "不要向用户暴露这些内部标识，不要调用其他工具拼凑半成品，"
-                "也不要声称已生成卡片、提案、链接、图片、路线或结果。"
-                "请结合系统中给出的 Skill 状态，自然说明本次尚未执行、应开启哪个 Skill，"
-                "或说明对应外部连接器尚未配置。用户明确要求核实的数据不得改用模型估算。"
-            )))
-        elif force_finalize:
+        if force_finalize:
             messages.append(SystemMessage(content=(
                 "本轮工具阶段已经结束。不要再描述搜索过程，不要再输出或模拟任何工具调用。"
                 "请直接基于已有工具结果回答用户；结果不足时明确说明缺少多少和检索边界。"
@@ -398,10 +477,7 @@ def build_graph(
                             "不要再次调用、模拟或描述任何工具协议。"
                         )),
                     ])
-        if (
-            (force_finalize or unavailable_required_tools)
-            and not public_content(getattr(response, "content", "")).strip()
-        ):
+        if force_finalize and not public_content(getattr(response, "content", "")).strip():
             # Some provider models keep imitating their previous DSML transport
             # after tools are unbound. One clean retry yields prose without
             # exposing a placeholder or inventing results.
