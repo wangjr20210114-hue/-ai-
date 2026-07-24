@@ -18,7 +18,7 @@ import { streamingMarkdownAnswer } from './streamingAnswer';
 import { loadProactiveDocumentContext } from '../../services/proactiveDocument';
 import type { ProactiveNotification } from '../../types';
 import { markdownToPlainText } from '../common/richContent';
-import { useLanguage } from '../../i18n';
+import { getStoredLanguage, useLanguage } from '../../i18n';
 
 interface Props {
   message: ChatMessage;
@@ -287,7 +287,7 @@ function ImageCreationProgress({ message }: { message: ChatMessage }) {
 }
 
 /** 单条消息气泡。AI 消息下方根据 skill.intent 渲染不同卡片。 */
-export default function MessageBubble({ message }: Props) {
+export default function MessageBubble({ message, client }: Props) {
   const isUser = message.role === 'user';
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [followUpWidth, setFollowUpWidth] = useState<number>();
@@ -318,6 +318,7 @@ export default function MessageBubble({ message }: Props) {
   const [proactiveBusy, setProactiveBusy] = useState('');
   const [answerCopied, setAnswerCopied] = useState(false);
   const [answerSaving, setAnswerSaving] = useState(false);
+  const [retryingAnswer, setRetryingAnswer] = useState(false);
 
   const mutateProactive = async (key: string, operation: string, input: Record<string, unknown>) => {
     setProactiveBusy(key);
@@ -426,6 +427,39 @@ export default function MessageBubble({ message }: Props) {
       MessagePlugin.error('回答图片保存失败，请稍后重试');
     } finally {
       setAnswerSaving(false);
+    }
+  };
+
+  const retryFailedAnswer = async () => {
+    if (!previousUserMessage || retryingAnswer || messages.some((item) => item.streaming)) return;
+    if (!client.current) {
+      dispatch({ type: 'SET_DRAFT', payload: previousUserMessage.content });
+      MessagePlugin.warning('连接尚未就绪，原问题已放回输入框');
+      return;
+    }
+    const retryMessage: ChatMessage = {
+      id: `retry-${Date.now()}`,
+      role: 'user',
+      content: previousUserMessage.content,
+      ts: Date.now(),
+    };
+    setRetryingAnswer(true);
+    try {
+      await Promise.resolve(client.current.send({
+        type: 'user_activity',
+        payload: {
+          activity: 'retried',
+          text: retryMessage.content,
+          message_id: retryMessage.id,
+          client_message_id: retryMessage.id,
+          web_search: true,
+          client_message: retryMessage,
+          reference_images: [],
+          response_language: getStoredLanguage(),
+        },
+      }));
+    } finally {
+      setRetryingAnswer(false);
     }
   };
 
@@ -741,12 +775,11 @@ export default function MessageBubble({ message }: Props) {
                 <button
                   type="button"
                   className="chat-retry-button"
-                  onClick={() => {
-                    dispatch({ type: 'SET_DRAFT', payload: previousUserMessage.content });
-                    MessagePlugin.info('原问题已放回输入框，确认后可重新发送');
-                  }}
+                  disabled={retryingAnswer || messages.some((item) => item.streaming)}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={() => { void retryFailedAnswer(); }}
                 >
-                  重新编辑原问题
+                  {retryingAnswer ? '正在重试…' : '重试生成'}
                 </button>
               )}
               {!message.streaming && workspaceActions.map((action) => {

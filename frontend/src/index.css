@@ -639,17 +639,27 @@ html.is-resizing-workspace * {
   min-width: 0;
   max-width: 100%;
   overflow: visible;
-  cursor: default;
-  -webkit-user-select: none;
-  user-select: none;
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
 }
 .msg-bubble.ai .markdown-body * {
-  -webkit-user-select: none;
-  user-select: none;
+  -webkit-user-select: text;
+  user-select: text;
 }
 .msg-bubble.ai .markdown-body ::selection,
 .rich-media-figure figcaption ::selection {
-  background: transparent;
+  color: inherit;
+  background: color-mix(in srgb, var(--td-brand-color) 24%, transparent);
+}
+/* Streaming Markdown is still changing its text nodes. Selecting it would
+   move the native range and reproduce the old "selection jumps backwards"
+   bug. Completed answers use normal browser text selection above. */
+.msg-bubble.ai .markdown-body.is-streaming,
+.msg-bubble.ai .markdown-body.is-streaming * {
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .msg-bubble.ai .markdown-body > *:last-child {
   display: inline;

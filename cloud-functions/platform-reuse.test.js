@@ -194,4 +194,11 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
   const stopRequest = chatClient.match(/fetch\(withEdgeOneAuth\('\/stop'\)[\s\S]*?body: JSON\.stringify/);
   assert.ok(stopRequest);
   assert.doesNotMatch(stopRequest[0], /makersConversationHeaders/);
+  assert.doesNotMatch(
+    chatClient,
+    /transport_recovering|RECOVERY_DEADLINE|shouldAutoResume|async resume\s*\(/,
+    'failed or stopped chat runs must never resume automatically',
+  );
+  assert.match(chatClient, /不会自动重试/);
+  assert.match(active, /重试生成/);
 });

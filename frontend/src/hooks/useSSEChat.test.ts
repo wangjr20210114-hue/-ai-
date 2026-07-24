@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   actionOnlyFallback,
-  isRecoverableTransportError,
   mergeSearchMeta,
   progressTextForTool,
-  shouldAcceptStreamStart,
-  shouldRecoverTransport,
   shouldPublishProactiveOpening,
+  terminalGenerationError,
 } from './useSSEChat';
 import type { WorkspaceAction } from '../types';
 import type { ChatMessage, SearchMeta } from '../types';
@@ -75,20 +73,20 @@ describe('human-readable progress', () => {
   });
 });
 
-describe('transport recovery', () => {
-  it('recovers network failures but not an explicit user abort', () => {
-    expect(isRecoverableTransportError(new TypeError('Failed to fetch'))).toBe(true);
-    expect(isRecoverableTransportError(new Error('network connection lost'))).toBe(true);
-    expect(isRecoverableTransportError(new DOMException('Aborted', 'AbortError'))).toBe(false);
+describe('terminal generation failure', () => {
+  it('turns network failure into a terminal error instead of an automatic retry', () => {
+    expect(terminalGenerationError(new TypeError('Failed to fetch'))).toBe('Failed to fetch');
   });
 
-  it('never recovers a run after the user explicitly stops it', () => {
-    expect(shouldRecoverTransport(true, true)).toBe(false);
-    expect(shouldRecoverTransport(true, false)).toBe(true);
+  it('marks watchdog timeout as stopped and explicitly requires a click', () => {
+    expect(terminalGenerationError(new DOMException('Aborted', 'AbortError'), true))
+      .toContain('不会自动重新生成');
+    expect(terminalGenerationError(new DOMException('Aborted', 'AbortError'), true))
+      .toContain('点击重试');
   });
 
-  it('ignores a stale stream start after an explicit stop', () => {
-    expect(shouldAcceptStreamStart(false)).toBe(false);
-    expect(shouldAcceptStreamStart(true)).toBe(true);
+  it('treats an explicit abort as a terminal stop', () => {
+    expect(terminalGenerationError(new DOMException('Aborted', 'AbortError')))
+      .toBe('生成已停止，不会自动重新生成。');
   });
 });

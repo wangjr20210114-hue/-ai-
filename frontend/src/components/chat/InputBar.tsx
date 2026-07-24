@@ -119,7 +119,7 @@ export default function InputBar({ client }: Props) {
       if (status === 'confirmed') {
         MessagePlugin.info('已停止生成');
       } else {
-        MessagePlugin.warning('已结束本地等待；网络恢复后会自动核对并停止后台运行');
+        MessagePlugin.warning('已停止本地生成且不会自动重试；网络恢复后仅补发后台取消指令');
       }
     } finally { setStopping(false); }
   };

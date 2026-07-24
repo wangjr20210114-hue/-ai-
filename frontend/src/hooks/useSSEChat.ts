@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { MessagePlugin } from 'tdesign-react';
 import { bootstrapApp, proactiveOperation } from '../services/api';
-import type { BootstrapData, MakersChatRun } from '../services/api';
 import { withEdgeOneAuth } from '../services/auth';
 import { presentableChatError } from '../services/chatError';
 import { durableMessageCount, makersConversationHeaders, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../services/conversation';
@@ -12,7 +11,6 @@ import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, Sched
 type ClientEvent = { type: string; payload: Record<string, unknown> };
 
 const STREAM_IDLE_TIMEOUT_MS = 20_000;
-const RECOVERY_DEADLINE_MS = 120_000;
 const STOP_TIMEOUT_MS = 4_000;
 const MANUAL_STOP_PREFIX = 'floris:manual-stop:';
 
@@ -37,32 +35,13 @@ function writeManualStopIntent(conversationId: string, stopped: boolean): void {
   }
 }
 
-export function isRecoverableTransportError(error: unknown): boolean {
+export function terminalGenerationError(error: unknown, timedOut = false): string {
+  if (timedOut) return '生成等待超时，本次已停止，不会自动重新生成。请点击重试。';
   const value = error as { name?: unknown; message?: unknown };
-  if (String(value?.name || '') === 'AbortError') return false;
-  const message = String(value?.message || error || '').toLowerCase();
-  return (
-    String(value?.name || '') === 'TypeError'
-    || /failed to fetch|network|load failed|connection|fetch failed|network request failed/.test(message)
-  );
-}
-
-export function shouldRecoverTransport(recoverable: boolean, manualStopIntent: boolean): boolean {
-  return recoverable && !manualStopIntent;
-}
-
-export function shouldAcceptStreamStart(autoResumeAllowed: boolean): boolean {
-  return autoResumeAllowed;
-}
-
-function waitWithAbort(milliseconds: number, signal: AbortSignal): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const timer = window.setTimeout(resolve, milliseconds);
-    signal.addEventListener('abort', () => {
-      window.clearTimeout(timer);
-      reject(new DOMException('Aborted', 'AbortError'));
-    }, { once: true });
-  });
+  if (String(value?.name || '') === 'AbortError') {
+    return '生成已停止，不会自动重新生成。';
+  }
+  return String(value?.message || error || '生成失败，请点击重试。');
 }
 
 const TOOL_PROGRESS: Record<string, { active: string; complete: string }> = {
@@ -134,7 +113,6 @@ function responseError(data: unknown, fallback: string): string {
 
 class SSEChatClient {
   private controller: AbortController | null = null;
-  private resumeController: AbortController | null = null;
   private listeners = new Set<(message: ClientEvent) => void>();
   private manualStopIntent: boolean;
 
@@ -145,10 +123,6 @@ class SSEChatClient {
   private setManualStopIntent(stopped: boolean) {
     this.manualStopIntent = stopped;
     writeManualStopIntent(this.conversationId, stopped);
-  }
-
-  shouldAutoResume(): boolean {
-    return !this.manualStopIntent;
   }
 
   private emit(message: ClientEvent) {
@@ -165,54 +139,48 @@ class SSEChatClient {
   }
 
   hasActiveTransport(): boolean {
-    return Boolean(this.controller || this.resumeController);
+    return Boolean(this.controller);
   }
 
-  async stop(): Promise<'confirmed' | 'local'> {
-    // Record intent before aborting either transport. Otherwise the AbortError
-    // can race into send()'s recovery branch and restart a run the user
-    // explicitly stopped.
-    this.setManualStopIntent(true);
-    this.controller?.abort();
-    this.controller = null;
-    this.resumeController?.abort();
-    this.resumeController = null;
-    // Settle the UI immediately for both a live response stream and a
-    // checkpoint-resume stream. Makers cancellation remains the durable
-    // backend operation, but it must not leave the composer locked while the
-    // platform propagates the abort.
-    this.emit({ type: 'stop_requested', payload: {} });
+  private async cancelMakerRun(): Promise<'confirmed' | 'local'> {
     const stopController = new AbortController();
     const stopTimer = window.setTimeout(() => stopController.abort(), STOP_TIMEOUT_MS);
-    const requestStop = () => fetch(withEdgeOneAuth('/stop'), {
+    const requestStop = (signal?: AbortSignal) => fetch(withEdgeOneAuth('/stop'), {
       method: 'POST',
       // Makers documents that stop must not carry the target conversation
       // header, otherwise this request can replace the active run signal.
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ conversation_id: this.conversationId }),
       credentials: 'same-origin',
-      signal: stopController.signal,
+      signal,
     });
     try {
-      const response = await requestStop();
+      const response = await requestStop(stopController.signal);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return 'confirmed';
     } catch {
-      // The browser must be usable immediately even while offline. Retry the
-      // same Makers cancellation once the network comes back; no local queue
-      // or duplicate Agent run is created.
+      // Retry only the cancellation when connectivity returns. This never
+      // creates a model request or resumes the failed answer.
       window.addEventListener('online', () => {
-        void fetch(withEdgeOneAuth('/stop'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ conversation_id: this.conversationId }),
-          credentials: 'same-origin',
-        }).catch(() => {});
+        void requestStop().catch(() => {});
       }, { once: true });
       return 'local';
     } finally {
       window.clearTimeout(stopTimer);
     }
+  }
+
+  async stop(): Promise<'confirmed' | 'local'> {
+    // Record intent before aborting the transport. A stopped run is terminal;
+    // only a later explicit user send may clear this marker.
+    this.setManualStopIntent(true);
+    this.controller?.abort();
+    this.controller = null;
+    // Settle the UI immediately. Makers cancellation remains the durable
+    // backend operation, but it must not leave the composer locked while the
+    // platform propagates the abort.
+    this.emit({ type: 'stop_requested', payload: {} });
+    return this.cancelMakerRun();
   }
 
   async send(rawMessage: unknown) {
@@ -225,13 +193,10 @@ class SSEChatClient {
     this.setManualStopIntent(false);
     this.controller?.abort();
     this.controller = null;
-    this.resumeController?.abort();
-    this.resumeController = null;
     this.controller = new AbortController();
     const signal = this.controller.signal;
     const streamId = `ai-stream-${Date.now()}`;
     let streamFinished = false;
-    let recoverTransport = false;
     let protocolDone = false;
     let idleWatchdog: number | undefined;
     let watchdogTriggered = false;
@@ -438,99 +403,33 @@ class SSEChatClient {
       }
       // The Agent protocol always closes with [DONE]. A bare EOF usually
       // means the network path disappeared without surfacing a fetch error.
-      if (!protocolDone) recoverTransport = true;
-      else finish();
-    } catch (error) {
-      recoverTransport = watchdogTriggered || isRecoverableTransportError(error);
-      if (!recoverTransport && (error as Error).name !== 'AbortError') {
+      // Never poll the checkpoint or start another generation automatically.
+      if (!protocolDone) {
         this.emit({
           type: 'error',
-          payload: { id: streamId, message: (error as Error).message || '请求失败' },
+          payload: {
+            id: streamId,
+            message: '网络连接中断，本次生成已结束且不会自动重试。请检查连接后点击重试。',
+          },
         });
+        this.setManualStopIntent(true);
+        void this.cancelMakerRun();
       }
-      if (!recoverTransport) finish();
+      finish();
+    } catch (error) {
+      const explicitlyStopped = this.manualStopIntent && (error as Error).name === 'AbortError';
+      if (!explicitlyStopped) {
+        this.emit({
+          type: 'error',
+          payload: { id: streamId, message: terminalGenerationError(error, watchdogTriggered) },
+        });
+        this.setManualStopIntent(true);
+        void this.cancelMakerRun();
+      }
+      finish();
     } finally {
       if (idleWatchdog) window.clearTimeout(idleWatchdog);
       if (this.controller?.signal === signal) this.controller = null;
-    }
-    if (shouldRecoverTransport(recoverTransport, this.manualStopIntent)) {
-      this.emit({
-        type: 'transport_recovering',
-        payload: { id: streamId, message: '网络有波动，正在从 Makers 已保存的进度恢复…' },
-      });
-      await this.resume(streamId, true);
-    }
-  }
-
-  async resume(existingStreamId?: string, recovering = false): Promise<void> {
-    // Switching conversations must not replace a still-live response with a
-    // polling snapshot. The original request keeps publishing into its
-    // conversation cache while it is in the background.
-    if (!this.shouldAutoResume() || this.controller || this.resumeController) return;
-    const controller = new AbortController();
-    this.resumeController = controller;
-    const streamId = existingStreamId || `ai-resume-${Date.now()}`;
-    if (!recovering) {
-      this.emit({ type: 'stream_start', payload: { id: streamId, intent: 'chat', resumed: true } });
-    }
-    const deadline = Date.now() + RECOVERY_DEADLINE_MS;
-    let lastError: unknown;
-    try {
-      while (Date.now() < deadline && !controller.signal.aborted) {
-        let data: BootstrapData;
-        try {
-          data = await bootstrapApp(this.conversationId, {
-            signal: controller.signal,
-            strict: true,
-            timeoutMs: 4000,
-          });
-          lastError = undefined;
-        } catch (error) {
-          if ((error as Error).name === 'AbortError' && controller.signal.aborted) throw error;
-          lastError = error;
-          await waitWithAbort(1500, controller.signal);
-          continue;
-        }
-        if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
-        const run = data.run;
-        this.emit({ type: 'checkpoint_snapshot', payload: { id: streamId, data } });
-        const lastMessage = data.messages[data.messages.length - 1];
-        const hasFinalAnswer = lastMessage?.role === 'ai' && Boolean(lastMessage.content.trim());
-        if (run?.status === 'cancelled') {
-          this.emit({ type: 'checkpoint_complete', payload: { id: streamId } });
-          return;
-        }
-        if (run?.status === 'completed' && hasFinalAnswer) {
-          this.emit({ type: 'checkpoint_complete', payload: { id: streamId } });
-          return;
-        }
-        if (!run?.status && hasFinalAnswer) {
-          this.emit({ type: 'checkpoint_complete', payload: { id: streamId } });
-          return;
-        }
-        if (run?.status === 'failed') {
-          this.emit({ type: 'error', payload: { id: streamId, message: run.error || '处理失败，请重试' } });
-          return;
-        }
-        await waitWithAbort(1500, controller.signal);
-      }
-      if (!controller.signal.aborted) {
-        this.emit({
-          type: 'transport_failed',
-          payload: {
-            id: streamId,
-            message: lastError
-              ? '网络中断后暂时无法读取 Makers 进度，本轮已结束等待。网络恢复后可重新进入对话核对结果。'
-              : '两分钟内仍未取得最终结果，本轮已结束等待。你可以重新发送，稍后也可回到对话核对结果。',
-          },
-        });
-      }
-    } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        this.emit({ type: 'error', payload: { id: streamId, message: (error as Error).message || '恢复运行失败' } });
-      }
-    } finally {
-      if (this.resumeController === controller) this.resumeController = null;
     }
   }
 
@@ -539,8 +438,6 @@ class SSEChatClient {
     // handled by stop(); never turn a browser refresh into a server-side stop.
     this.controller?.abort();
     this.controller = null;
-    this.resumeController?.abort();
-    this.resumeController = null;
   }
 }
 
@@ -623,11 +520,6 @@ export function useSSEChat() {
           break;
         }
         case 'stream_start': {
-          // A resume/bootstrap race can deliver a stale stream-start after
-          // the user has explicitly stopped generation. Ignore that event;
-          // a deliberate new send clears the intent before emitting its own
-          // stream-start.
-          if (!shouldAcceptStreamStart(client.shouldAutoResume())) break;
           const streamMessage: ChatMessage = {
             id: streamId || `ai-stream-${Date.now()}`, role: 'ai', content: '', ts: Date.now(), streaming: true,
             skill: { intent: 'chat', mode: 'immediate', content: '', icon: '✨', action_label: '', params: {}, data: { status: 'thinking', statusText: '正在理解你想解决的问题…' } },
@@ -641,32 +533,6 @@ export function useSSEChat() {
         case 'stream_delta': {
           const current = streams.get(streamId); const delta = String(event.payload.delta || '');
           if (current && delta) { const next = { ...current, content: current.content + delta }; streams.set(streamId, next); patch(id, streamId, {}, delta); }
-          break;
-        }
-        case 'checkpoint_snapshot': {
-          const current = streams.get(streamId);
-          const data = event.payload.data as BootstrapData | undefined;
-          if (!current || !data || !Array.isArray(data.messages)) break;
-          const run = data.run as MakersChatRun | null | undefined;
-          const runActive = run?.status === 'running' || run?.status === 'cancel_requested';
-          const merged = mergeMessages(data.messages, cached(id), { preserveStreaming: runActive });
-          const lastMessage = data.messages[data.messages.length - 1];
-          const hasFinalAnswer = lastMessage?.role === 'ai' && Boolean(lastMessage.content.trim());
-          const keepPlaceholder = !hasFinalAnswer && run?.status !== 'cancelled';
-          publish(id, keepPlaceholder && !merged.some((item) => item.id === current.id)
-            ? [...merged, current]
-            : merged);
-          if (activeConversationRef.current === id) {
-            dispatch({ type: 'HYDRATE_WORKSPACE', payload: { schedules: data.schedules, mapPlaces: data.map_places, mapTitle: data.map_title } });
-          }
-          break;
-        }
-        case 'checkpoint_complete': {
-          streams.delete(streamId);
-          publish(id, cached(id).map((item) => (
-            item.streaming ? { ...item, streaming: false } : item
-          )));
-          setConversationActivity(id, 'idle');
           break;
         }
         case 'stream_reset': {
@@ -710,40 +576,6 @@ export function useSSEChat() {
           streams.clear();
           publish(id, settleStoppedMessages(cached(id)));
           setConversationActivity(id, 'idle');
-          break;
-        }
-        case 'transport_recovering': {
-          const current = streams.get(streamId);
-          if (!current) break;
-          const skill = {
-            ...(current.skill || {
-              intent: 'chat', mode: 'immediate', content: '', icon: '✨',
-              action_label: '', params: {}, data: {},
-            }),
-            data: {
-              ...(current.skill?.data || {}),
-              status: 'recovering',
-              statusText: String(event.payload.message || '网络有波动，正在从已保存进度恢复…'),
-            },
-          } as ChatMessage['skill'];
-          streams.set(streamId, { ...current, skill });
-          patch(id, streamId, { skill });
-          break;
-        }
-        case 'transport_failed': {
-          const message = String(event.payload.message || '网络恢复超时，本轮已结束等待。');
-          const current = streams.get(streamId);
-          if (current) {
-            const content = current.content.trim() || message;
-            const skill = current.skill ? {
-              ...current.skill,
-              data: { ...current.skill.data, status: 'error', statusText: '连接恢复超时' },
-            } : current.skill;
-            streams.delete(streamId);
-            patch(id, streamId, { content, streaming: false, failed: true, skill });
-          }
-          setConversationActivity(id, 'failed');
-          if (activeConversationRef.current === id) MessagePlugin.warning(message);
           break;
         }
         case 'search_status': {
@@ -857,11 +689,50 @@ export function useSSEChat() {
     void bootstrapApp(conversationId).then((data) => {
       if (disposed) return;
       const runActive = data.run?.status === 'running' || data.run?.status === 'cancel_requested';
-      const merged = mergeMessages(data.messages, cached(conversationId), { preserveStreaming: runActive });
-      publish(conversationId, merged);
+      const liveTransport = client.hasActiveTransport();
+      const merged = mergeMessages(data.messages, cached(conversationId), {
+        preserveStreaming: runActive && liveTransport,
+      });
+      const hasFinalAnswer = merged[merged.length - 1]?.role === 'ai'
+        && Boolean(merged[merged.length - 1]?.content.trim());
+      const hasUnansweredUser = merged[merged.length - 1]?.role === 'user';
+      let visibleMessages = liveTransport ? merged : settleStoppedMessages(merged);
+      if (!liveTransport && (runActive || hasUnansweredUser)) {
+        // A reload or lost browser connection must never silently resume an
+        // earlier model run. Stop the orphaned Maker run and render one
+        // explicit failure row; only the user's Retry button can send again.
+        if (runActive) void client.stop();
+        if (!hasFinalAnswer) {
+          visibleMessages = [
+            ...visibleMessages,
+            {
+              id: `ai-interrupted-${data.run?.run_id || Date.now()}`,
+              role: 'ai',
+              content: '上一次生成已中止，不会自动重新生成。请点击重试。',
+              ts: Date.now(),
+              streaming: false,
+              failed: true,
+              skill: {
+                intent: 'chat',
+                mode: 'immediate',
+                content: '',
+                icon: '✨',
+                action_label: '',
+                params: {},
+                data: { status: 'error', statusText: '生成已中止' },
+              },
+            },
+          ];
+        }
+      }
+      publish(conversationId, visibleMessages);
       const summary = conversationsRef.current.find((item) => item.id === conversationId);
-      if (summary && summary.messageCount !== merged.length) {
-        const reconciled = { ...summary, messageCount: merged.length };
+      if (summary && summary.messageCount !== visibleMessages.length) {
+        const reconciled = {
+          ...summary,
+          messageCount: visibleMessages.length,
+          activityStatus: !liveTransport && (runActive || hasUnansweredUser) ? 'failed' as const : summary.activityStatus,
+        };
         conversationsRef.current = conversationsRef.current.map((item) => (
           item.id === conversationId ? reconciled : item
         ));
@@ -878,13 +749,6 @@ export function useSSEChat() {
           }
         }).catch((error) => console.warn('proactive bootstrap failed', error));
         dispatch({ type: 'SET_CONNECTED', payload: true });
-      }
-      const latestSummary = conversationsRef.current.find((item) => item.id === conversationId);
-      const hasUnansweredUser = merged.length > 0 && merged[merged.length - 1]?.role === 'user';
-      if ((runActive || latestSummary?.activityStatus === 'running' || hasUnansweredUser)
-        && client.shouldAutoResume()
-        && !client.hasActiveTransport()) {
-        void client.resume();
       }
     }).catch((error) => console.warn('bootstrap failed', error));
     return () => { disposed = true; };
