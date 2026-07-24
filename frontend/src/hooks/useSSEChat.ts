@@ -210,6 +210,18 @@ class SSEChatClient {
     if (clientMessage && typeof clientMessage === 'object') {
       this.emit({ type: 'optimistic_user', payload: { message: clientMessage } });
     }
+    const clarificationResponse = message.payload?.clarification_response;
+    if (clarificationResponse && typeof clarificationResponse === 'object') {
+      const sourceMessageId = String(
+        (clarificationResponse as Record<string, unknown>).source_message_id || '',
+      );
+      if (sourceMessageId) {
+        this.emit({
+          type: 'clarification_submitted',
+          payload: { message_id: sourceMessageId },
+        });
+      }
+    }
 
     const finish = () => {
       if (streamFinished) return;
@@ -516,6 +528,14 @@ export function useSSEChat() {
           if (!message?.id || message.role !== 'user') break;
           const current = cached(id);
           publish(id, current.some((item) => item.id === message.id) ? current : [...current, message]);
+          break;
+        }
+        case 'clarification_submitted': {
+          const messageId = String(event.payload.message_id || '');
+          if (!messageId) break;
+          publish(id, cached(id).map((item) => (
+            item.id === messageId ? { ...item, clarificationAnswered: true } : item
+          )));
           break;
         }
         case 'stream_start': {

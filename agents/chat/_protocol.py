@@ -10,7 +10,8 @@ from typing import Any
 
 
 _WIRE_PATTERN = re.compile(r"DSML|<[^>]*(?:tool_calls|invoke|parameter)[^>]*>", re.I)
-_PROVIDER_ERROR = re.compile(r"provider|model id|invalid_request|api[_ -]?key|gateway|status code:\s*[45]\d\d|error code:\s*[45]\d\d", re.I)
+_PROVIDER_ERROR = re.compile(r"provider|model id|api[_ -]?key|gateway", re.I)
+_REQUEST_ERROR = re.compile(r"invalid_request|status code:\s*[45]\d\d|error code:\s*[45]\d\d", re.I)
 _INTERNAL_ERROR = re.compile(r"\brole\b|keyerror|traceback|stack|agent_run_error|internal server error", re.I)
 _QUOTA_ERROR = re.compile(r"quota|rate[_ -]?limit|too many requests|\b429\b", re.I)
 
@@ -30,6 +31,8 @@ def public_error(error: Any) -> str:
         return "模型服务当前繁忙或配额不足，请稍后重试。"
     if _PROVIDER_ERROR.search(text):
         return "模型服务配置异常，本次失败不会保存为 AI 回答；请检查 Preview 的模型配置后重试。"
+    if _REQUEST_ERROR.search(text):
+        return "模型服务暂时未能处理本轮上下文，本次失败不会保存为 AI 回答；请点击重试。"
     if not text or _INTERNAL_ERROR.search(text):
         return "消息服务暂时异常，本次失败不会保存为 AI 回答，请稍后重试。"
     return text if len(text) <= 180 else f"{text[:180]}…"

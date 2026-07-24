@@ -202,12 +202,36 @@ async def _recent_user_questions(store, conversation_id: str, current_message: s
     return questions
 
 
+def clarification_response_id(body: dict) -> str:
+    response = body.get("clarification_response")
+    if body.get("interaction_mode") != "clarification" or not isinstance(response, dict):
+        return ""
+    return str(response.get("id") or "").strip()
+
+
+def should_persist_user_message(body: dict) -> bool:
+    return not clarification_response_id(body)
+
+
+def graph_user_message(content: str, clarification_id: str = "") -> dict:
+    message = {"role": "user", "content": content}
+    if clarification_id:
+        message["additional_kwargs"] = {
+            "floris_ui_hidden": True,
+            "floris_interaction": "clarification",
+            "clarification_id": clarification_id,
+        }
+    return message
+
+
 async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
     conversation_id = scoped_conversation_id(ctx, user_id)
     body = ctx.request.body or {}
     message = body.get("message") or body.get("text") or ""
+    clarification_id = clarification_response_id(body)
+    silent_clarification = bool(clarification_id)
     response_language = str(body.get("response_language") or "zh-CN")
     language_instructions = {
         "zh-CN": "使用自然、清晰的简体中文，保留 Markdown 结构与链接。",
@@ -258,23 +282,24 @@ async def handler(ctx):
             )
         else:
             return error("该对话仍在处理中；刷新后会自动恢复，请稍候或先停止当前运行", 409)
-    try:
-        await ctx.store.append_message(
-            conversation_id=conversation_id,
-            role="user",
-            content=message,
-            user_id=user_id,
-            metadata={
-                "client_message_id": str(body.get("client_message_id") or ""),
-                "source": "yuanbao-chat",
-                "owner_user_id": user_id,
-            },
-        )
-        await ensure_conversation_title(ctx.store, conversation_id, message, user_id)
-    except Exception:
-        # LangGraph checkpoints remain authoritative if generic conversation
-        # indexing is temporarily unavailable.
-        logging.exception("native conversation append failed conversation=%s", conversation_id)
+    if should_persist_user_message(body):
+        try:
+            await ctx.store.append_message(
+                conversation_id=conversation_id,
+                role="user",
+                content=message,
+                user_id=user_id,
+                metadata={
+                    "client_message_id": str(body.get("client_message_id") or ""),
+                    "source": "yuanbao-chat",
+                    "owner_user_id": user_id,
+                },
+            )
+            await ensure_conversation_title(ctx.store, conversation_id, message, user_id)
+        except Exception:
+            # LangGraph checkpoints remain authoritative if generic conversation
+            # indexing is temporarily unavailable.
+            logging.exception("native conversation append failed conversation=%s", conversation_id)
     run_id = str(getattr(ctx, "run_id", "") or f"chat-{int(time.time() * 1000)}")
     await write_chat_run(
         ctx.store,
@@ -591,8 +616,9 @@ async def handler(ctx):
                         status="running",
                     )
                 if not cancelled:
+                    current_user_message = graph_user_message(message, clarification_id)
                     async for event in graph.astream(
-                        {"messages": [{"role": "user", "content": message}]},
+                        {"messages": [current_user_message]},
                         config=config,
                         stream_mode="messages",
                     ):

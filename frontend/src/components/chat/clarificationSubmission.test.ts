@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { clarificationSubmissionText } from './clarificationSubmission';
+import type { ClarificationPrompt } from '../../types';
+import {
+  clarificationRequestPayload,
+  clarificationResponse,
+  clarificationSubmissionText,
+} from './clarificationSubmission';
 
 describe('clarification submission', () => {
   it('turns selected fields into a direct continuation message', () => {
@@ -31,5 +36,38 @@ describe('clarification submission', () => {
         { id: 'optional', label: '可选项', type: 'text' },
       ],
     }, { required: '方案 A', optional: '' }, '补充必要信息：')).not.toContain('可选项：');
+  });
+
+  it('builds a structured silent response tied to the original card', () => {
+    const clarification: ClarificationPrompt = {
+      id: 'clarify-3',
+      title: '补充必要信息',
+      prompt: '请选择',
+      fields: [
+        { id: 'route', label: '路线', type: 'single', required: true },
+        { id: 'notes', label: '备注', type: 'text' },
+      ],
+    };
+    const values = {
+      route: '地铁',
+      notes: '',
+    };
+    const response = clarificationResponse(clarification, values, 'ai-card-1');
+    expect(response).toEqual({
+      id: 'clarify-3',
+      source_message_id: 'ai-card-1',
+      answers: [{ id: 'route', label: '路线', value: '地铁' }],
+    });
+    const payload = clarificationRequestPayload(
+      clarification,
+      values,
+      'ai-card-1',
+      'response-1',
+      '补充必要信息：路线：地铁',
+      'zh-CN',
+    );
+    expect(payload.interaction_mode).toBe('clarification');
+    expect(payload.clarification_response).toEqual(response);
+    expect(payload).not.toHaveProperty('client_message');
   });
 });

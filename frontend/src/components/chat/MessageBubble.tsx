@@ -15,7 +15,7 @@ import { followUpDraftAction } from './followUps';
 import { generatedImageOpportunitySignal, nextWholeHourRange, usableMapPlaces } from './workspaceUi';
 import { hasTextSelectionInside } from './scrollSelection';
 import { streamingMarkdownAnswer } from './streamingAnswer';
-import { clarificationSubmissionText } from './clarificationSubmission';
+import { clarificationRequestPayload, clarificationSubmissionText } from './clarificationSubmission';
 import { loadProactiveDocumentContext } from '../../services/proactiveDocument';
 import type { ProactiveNotification } from '../../types';
 import { markdownToPlainText } from '../common/richContent';
@@ -94,10 +94,12 @@ async function saveElementAsImage(element: HTMLElement): Promise<void> {
 
 function ClarificationCard({
   clarification,
+  messageId,
   client,
   answered,
 }: {
   clarification: ClarificationPrompt;
+  messageId: string;
   client: React.RefObject<ChatClient | null>;
   answered: boolean;
 }) {
@@ -120,27 +122,21 @@ function ClarificationCard({
       return;
     }
     const content = clarificationSubmissionText(clarification, values, t('clarificationAnswerIntro'));
-    const userMessage: ChatMessage = {
-      id: `clarification-${clarification.id}-${Date.now()}`,
-      role: 'user',
-      content,
-      ts: Date.now(),
-    };
+    const responseId = `clarification-${clarification.id}-${Date.now()}`;
     setSubmitted(true);
     setSubmitting(true);
     MessagePlugin.success(t('askContinue'));
     try {
       await Promise.resolve(client.current.send({
         type: 'user_activity',
-        payload: {
-          activity: 'clarification_answered',
-          text: content,
-          message_id: userMessage.id,
-          client_message_id: userMessage.id,
-          client_message: userMessage,
-          reference_images: [],
-          response_language: getStoredLanguage(),
-        },
+        payload: clarificationRequestPayload(
+          clarification,
+          values,
+          messageId,
+          responseId,
+          content,
+          getStoredLanguage(),
+        ),
       }));
     } catch {
       setSubmitted(false);
@@ -338,7 +334,8 @@ export default function MessageBubble({ message, client }: Props) {
   const isLastAIMessage = !isUser && messages[messages.length - 1]?.id === message.id;
   const messageIndex = messages.findIndex((item) => item.id === message.id);
   const clarificationAnswered = Boolean(message.clarification)
-    && messages.slice(messageIndex + 1).some((item) => item.role === 'user');
+    && (Boolean(message.clarificationAnswered)
+      || messages.slice(messageIndex + 1).some((item) => item.role === 'user'));
   const previousUserMessage = messageIndex > 0
     ? [...messages.slice(0, messageIndex)].reverse().find((item) => item.role === 'user')
     : undefined;
@@ -759,7 +756,7 @@ export default function MessageBubble({ message, client }: Props) {
                 searchMeta={markdownRender.searchMeta}
                 streaming={markdownRender.streaming}
               />}
-              {message.clarification && <ClarificationCard clarification={message.clarification} client={client} answered={clarificationAnswered} />}
+              {message.clarification && <ClarificationCard clarification={message.clarification} messageId={message.id} client={client} answered={clarificationAnswered} />}
               {message.proactive && proactive && <div className="proactive-conversation-actions">
                 {(proactive.notifications || []).filter((item) => item.status !== 'dismissed').slice(0, 3).map((item) => <div className="proactive-conversation-item" key={item.id}>
                   <span>{item.title}</span>

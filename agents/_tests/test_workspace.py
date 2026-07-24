@@ -22,10 +22,16 @@ from agents.chat._capability_plan import (
 )
 from agents.chat._followups import parse_followups
 from agents.chat._llm import _model_timeout
-from agents.chat._history import bounded_history
+from agents.chat._history import bounded_history, valid_model_history
 from agents.chat._calendar_context import calendar_context
 from agents.chat._graph import tool_completion_fallback
-from agents.chat.index import SYSTEM_PROMPT, empty_generation_error
+from agents.chat.index import (
+    SYSTEM_PROMPT,
+    clarification_response_id,
+    empty_generation_error,
+    graph_user_message,
+    should_persist_user_message,
+)
 from agents.chat._ui_tools import build_production_tools, verify_place_queries_parallel
 from agents.chat._protocol import PublicStreamFilter, action_fallback_content, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
@@ -196,6 +202,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_model_timeout({"AI_GATEWAY_TIMEOUT_SECONDS": "999"}, "AI_GATEWAY_TIMEOUT_SECONDS", 12), 30)
         self.assertEqual(_model_timeout({"AI_GATEWAY_TIMEOUT_SECONDS": "1"}, "AI_GATEWAY_TIMEOUT_SECONDS", 12), 5)
 
+    def test_generic_provider_400_is_not_misreported_as_bad_configuration(self):
+        message = public_error("Error code: 400 - invalid_request: malformed conversation history")
+        self.assertIn("本轮上下文", message)
+        self.assertNotIn("配置异常", message)
+
     def test_personal_runtime_uses_one_fixed_owner_and_versioned_conversation_id(self):
         ctx = SimpleNamespace(request=FakeRequest({}), conversation_id="conversation-personal")
         self.assertEqual(require_user(ctx)["user_id"], USER_WORKSPACE_ID)
@@ -211,6 +222,54 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(len(trimmed), 20)
         self.assertEqual(trimmed[0].type, "human")
         self.assertEqual(trimmed[-1].content, "a59")
+
+    def test_interrupted_tool_protocol_is_removed_before_next_model_call(self):
+        messages = [
+            {"role": "user", "content": "规划路线"},
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "route-1", "name": "plan_route_between_places", "args": {}},
+            ]},
+            # The browser stopped before ToolNode wrote route-1.
+            {"role": "user", "content": "改成写入明天日程"},
+        ]
+        self.assertEqual(valid_model_history(messages), [
+            {"role": "user", "content": "规划路线"},
+            {"role": "user", "content": "改成写入明天日程"},
+        ])
+
+    def test_complete_tool_protocol_is_preserved_for_model_context(self):
+        messages = [
+            {"role": "user", "content": "规划路线"},
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "route-1", "name": "plan_route_between_places", "args": {}},
+            ]},
+            {"role": "tool", "content": "路线完成", "tool_call_id": "route-1"},
+            {"role": "assistant", "content": "路线如下"},
+        ]
+        self.assertEqual(valid_model_history(messages), messages)
+
+    def test_clarification_response_is_model_visible_but_marked_ui_hidden(self):
+        body = {
+            "interaction_mode": "clarification",
+            "clarification_response": {"id": "trip-date"},
+        }
+        clarification_id = clarification_response_id(body)
+        self.assertEqual(clarification_id, "trip-date")
+        self.assertEqual(graph_user_message("出发日期：2026-08-01", clarification_id), {
+            "role": "user",
+            "content": "出发日期：2026-08-01",
+            "additional_kwargs": {
+                "floris_ui_hidden": True,
+                "floris_interaction": "clarification",
+                "clarification_id": "trip-date",
+            },
+        })
+        self.assertEqual(clarification_response_id({
+            "interaction_mode": "chat",
+            "clarification_response": {"id": "trip-date"},
+        }), "")
+        self.assertFalse(should_persist_user_message(body))
+        self.assertTrue(should_persist_user_message({"interaction_mode": "chat"}))
 
     async def test_capability_planner_retries_invalid_json(self):
         model = FlakyPlannerModel()
@@ -314,6 +373,44 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(restored[0]["content"], "帮我安排旅行")
         self.assertEqual(restored[1]["clarification"], clarification)
         self.assertEqual(restored[2]["content"], "补充信息：\\n- 出发日期：2026-08-01")
+
+    async def test_message_restore_hides_submitted_clarification_answer(self):
+        clarification = {
+            "id": "trip-date",
+            "title": "还需要出发日期",
+            "prompt": "请选择日期后继续。",
+            "fields": [{"id": "date", "label": "出发日期", "type": "date", "required": True}],
+        }
+        messages = [
+            {"type": "human", "content": "帮我安排旅行", "id": "u-trip"},
+            {"type": "tool", "content": json.dumps({
+                "ui_action": "clarification_action",
+                "clarification": clarification,
+            })},
+            {"type": "ai", "content": "", "id": "a-question"},
+            {
+                "type": "human",
+                "content": "补充必要信息：\\n出发日期：2026-08-01",
+                "id": "u-date",
+                "additional_kwargs": {
+                    "floris_ui_hidden": True,
+                    "floris_interaction": "clarification",
+                    "clarification_id": "trip-date",
+                },
+            },
+            {"type": "ai", "content": "我会按这个日期安排。", "id": "a-plan"},
+        ]
+        store = SimpleNamespace(
+            langgraph_checkpointer=FakeCheckpointer(messages),
+            langgraph_store=FakeStore(),
+        )
+        response = await messages_handler(SimpleNamespace(conversation_id="restore-silent-clarification", store=store))
+        restored = response["messages"]
+        self.assertEqual([item["role"] for item in restored], ["user", "ai", "ai"])
+        self.assertEqual(restored[1]["clarification"], clarification)
+        self.assertTrue(restored[1]["clarificationAnswered"])
+        self.assertNotIn("补充必要信息", [item["content"] for item in restored])
+        self.assertEqual(restored[2]["content"], "我会按这个日期安排。")
 
     async def test_message_restore_keeps_action_when_final_model_prose_is_empty(self):
         action = new_action(

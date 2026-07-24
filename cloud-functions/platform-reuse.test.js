@@ -100,7 +100,7 @@ test('static acceptance site covers every release capability with executable det
 });
 
 test('reported acceptance regressions keep explicit implementation guards', async () => {
-  const [files, library, readerClient, chatError, chatTools, chatGraph, workspace, messageBubble, capabilityPlan, chatAgent, styles] = await Promise.all([
+  const [files, library, readerClient, chatError, chatTools, chatGraph, workspace, messageBubble, clarificationSubmission, capabilityPlan, chatAgent, styles] = await Promise.all([
     read('cloud-functions/files/index.js'),
     read('cloud-functions/library/index.js'),
     read('frontend/src/services/paperApi.ts'),
@@ -109,6 +109,7 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
     read('agents/chat/_graph.py'),
     read('agents/workspace/index.py'),
     read('frontend/src/components/chat/MessageBubble.tsx'),
+    read('frontend/src/components/chat/clarificationSubmission.ts'),
     read('agents/chat/_capability_plan.py'),
     read('agents/chat/index.py'),
     read('frontend/src/index.css'),
@@ -126,7 +127,9 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
     messageBubble.indexOf('function ClarificationCard'),
     messageBubble.indexOf('function MeetingConfirmationCard'),
   );
-  assert.match(clarificationCard, /activity: 'clarification_answered'/);
+  assert.match(clarificationSubmission, /activity: 'clarification_answered'/);
+  assert.match(clarificationSubmission, /interaction_mode: 'clarification'/);
+  assert.doesNotMatch(clarificationSubmission, /\bclient_message:/);
   assert.match(clarificationCard, /client\.current\.send/);
   assert.doesNotMatch(clarificationCard, /SET_DRAFT/);
   assert.doesNotMatch(capabilityPlan, /def clarification_tool_available/);

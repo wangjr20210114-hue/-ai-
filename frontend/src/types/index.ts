@@ -272,6 +272,8 @@ export interface ChatMessage {
   workspaceActions?: WorkspaceAction[];
   /** 当用户目标或关键参数不明确时，由模型生成的结构化选择/填空卡。 */
   clarification?: ClarificationPrompt;
+  /** 信息卡已经静默提交；用于跨会话切换和刷新后保持卡片不可重复提交。 */
+  clarificationAnswered?: boolean;
 }
 
 export type ClarificationFieldType = 'single' | 'multi' | 'boolean' | 'text' | 'date' | 'time' | 'datetime';

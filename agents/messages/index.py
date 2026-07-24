@@ -45,6 +45,28 @@ def _action_ids(message: dict) -> set[str]:
     }
 
 
+def _hidden_clarification_id(message) -> str:
+    """Return the card id for a model-visible but UI-hidden answer message."""
+    additional = _value(message, "additional_kwargs", {})
+    if not isinstance(additional, dict) or not additional.get("floris_ui_hidden"):
+        return ""
+    if str(additional.get("floris_interaction") or "") != "clarification":
+        return ""
+    return str(additional.get("clarification_id") or "").strip()
+
+
+def _mark_clarification_answered(messages: list[dict], clarification_id: str) -> None:
+    for message in reversed(messages):
+        clarification = message.get("clarification")
+        if (
+            message.get("role") == "ai"
+            and isinstance(clarification, dict)
+            and str(clarification.get("id") or "") == clarification_id
+        ):
+            message["clarificationAnswered"] = True
+            return
+
+
 def _coalesce_action_messages(messages: list[dict]) -> list[dict]:
     """Keep one user-visible row for one durable Workspace Action.
 
@@ -144,6 +166,10 @@ async def handler(ctx):
     for index, message in enumerate(stored_messages):
         message_type = str(_value(message, "type", _value(message, "role", "")))
         content = _text(_value(message, "content", ""))
+        hidden_clarification_id = _hidden_clarification_id(message)
+        if hidden_clarification_id:
+            _mark_clarification_answered(result, hidden_clarification_id)
+            continue
         if message_type == "tool" and content:
             try:
                 action = json.loads(content)
