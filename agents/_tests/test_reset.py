@@ -29,6 +29,9 @@ class FakeLangGraphStore:
         value = self.values.get((tuple(namespace_value), key))
         return {"value": value} if value is not None else None
 
+    async def abatch(self, _operations):
+        return []
+
     async def aput(self, namespace_value, key, value):
         self.values[(tuple(namespace_value), key)] = value
 
@@ -87,6 +90,7 @@ class ResetTests(unittest.IsolatedAsyncioTestCase):
         ctx = context("configured-secret")
         response = await handler(ctx)
         self.assertTrue(response["ok"])
+        self.assertIn("asyncio", FakeLangGraphStore.abatch.__globals__)
         self.assertEqual(response["checkpoints_deleted"], 2)
         self.assertEqual(set(ctx.store.langgraph_checkpointer.deleted), {"yb7_first", "yb7_second"})
 

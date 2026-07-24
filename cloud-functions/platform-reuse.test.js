@@ -209,6 +209,8 @@ test('owner data reset reuses Makers storage and never embeds the reset password
   ]);
   assert.match(agentReset, /ctx\.store\.langgraph_store/);
   assert.match(agentReset, /checkpointer\.adelete_thread/);
+  assert.match(agentReset, /getattr\(function, "__globals__"/);
+  assert.match(agentReset, /globals_map\.setdefault\("asyncio", asyncio\)/);
   assert.match(fileReset, /@edgeone\/pages-blob/);
   assert.match(fileReset, /context\.agent\?\.store/);
   assert.match(fileReset, /listConversations/);

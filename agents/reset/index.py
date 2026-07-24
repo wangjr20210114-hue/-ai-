@@ -21,9 +21,21 @@ def _value(item, name, default=None):
     return getattr(item, name, default)
 
 
+def _restore_makers_store_asyncio(store) -> None:
+    """Work around the current Makers adapter omitting asyncio in abatch globals."""
+    import asyncio
+
+    abatch = getattr(store, "abatch", None)
+    function = getattr(abatch, "__func__", abatch)
+    globals_map = getattr(function, "__globals__", None)
+    if isinstance(globals_map, dict):
+        globals_map.setdefault("asyncio", asyncio)
+
+
 async def _delete_application_namespaces(store) -> int:
     if store is None:
         return 0
+    _restore_makers_store_asyncio(store)
     namespaces: list[tuple[str, ...]] = []
     offset = 0
     while True:
