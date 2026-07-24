@@ -80,6 +80,7 @@ from agents._shared.workspace import (
     new_action,
     normalize_schedule,
     put_action,
+    save_user_workspace,
     save_workspace,
     finish_provider_call,
     recover_stale_actions,
@@ -656,6 +657,16 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             required_tools_for_plan({"needs_route": True}),
             ("plan_route_between_places",),
+        )
+
+    def test_nearby_plan_uses_one_native_location_composite(self):
+        self.assertEqual(
+            required_tools_for_plan({
+                "needs_nearby_places": True,
+                "needs_places": True,
+                "needs_map_action": True,
+            }),
+            ("recommend_nearby_places_on_map",),
         )
 
     def test_empty_generation_is_terminal_unless_a_card_or_action_was_emitted(self):
@@ -1400,6 +1411,85 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                     "action_text": "在地图中查看",
                 })
 
+    async def test_nearby_recommendation_reuses_schedule_anchor_and_prepares_map(self):
+        store = FakeStore()
+        anchor = {
+            **PLACE,
+            "place_id": "orange-hotel",
+            "name": "桔子酒店(北京中关村软件园店)",
+            "address": "北京市海淀区西北旺付家窑丁2号",
+            "latitude": 40.042246,
+            "longitude": 116.255289,
+        }
+        state = empty_workspace()
+        state["schedules"]["hotel-stay"] = {
+            "id": "hotel-stay",
+            "title": "入住桔子酒店",
+            "extra": {"place": anchor},
+        }
+        await save_user_workspace(store, state)
+        breakfast_places = [
+            {
+                **PLACE,
+                "place_id": "breakfast-1",
+                "name": "庆丰包子铺(软件园店)",
+                "address": "北京市海淀区软件园路",
+                "latitude": 40.0419,
+                "longitude": 116.257,
+                "distance_to_anchor_meters": 180.0,
+            },
+            {
+                **PLACE,
+                "place_id": "breakfast-2",
+                "name": "麦当劳(西北旺店)",
+                "address": "北京市海淀区西北旺路",
+                "latitude": 40.044,
+                "longitude": 116.258,
+                "distance_to_anchor_meters": 360.0,
+            },
+        ]
+
+        with patch(
+            "agents.chat._ui_tools.provider_search_place_candidates",
+            new=AsyncMock(),
+        ) as anchor_provider, patch(
+            "agents.chat._ui_tools.provider_search_places_nearby",
+            new=AsyncMock(return_value=breakfast_places),
+        ) as nearby_provider:
+            tools = build_production_tools(
+                None,
+                store=store,
+                conversation_id="nearby-breakfast",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+            )
+            tool = next(item for item in tools if item.name == "recommend_nearby_places_on_map")
+            result = json.loads(await tool.ainvoke({
+                "anchor_query": "桔子酒店(北京中关村软件园店)",
+                "query": "早餐店",
+                "city": "北京",
+                "radius_meters": 1500,
+                "limit": 5,
+                "title": "酒店附近早餐",
+                "action_text": "在地图中查看",
+            }))
+
+        anchor_provider.assert_not_awaited()
+        nearby_provider.assert_awaited_once_with(
+            "map-key",
+            "早餐店",
+            anchor,
+            radius_meters=1500,
+            limit=5,
+            accept_category_results=True,
+        )
+        self.assertEqual(result["ui_action"], "map_action")
+        self.assertEqual(result["anchor"]["place_id"], "orange-hotel")
+        self.assertEqual(result["verified_place_count"], 2)
+        self.assertEqual(
+            [place["place_id"] for place in result["action"]["payload"]["places"]],
+            ["breakfast-1", "breakfast-2"],
+        )
+
     async def test_route_tool_resolves_a_brand_near_a_verified_anchor(self):
         station = {
             **PLACE,
@@ -1840,6 +1930,35 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(params["keyword"], "锦江之星")
         self.assertTrue(params["boundary"].startswith("nearby(39.902,116.276,5000"))
         self.assertEqual(params["orderby"], "_distance")
+
+    async def test_nearby_category_search_accepts_provider_ranked_brand_names(self):
+        anchor = {
+            **PLACE,
+            "place_id": "hotel",
+            "name": "桔子酒店(北京中关村软件园店)",
+            "latitude": 40.042246,
+            "longitude": 116.255289,
+        }
+        response = {"data": [{
+            "id": "breakfast",
+            "title": "庆丰包子铺(软件园店)",
+            "address": "北京市海淀区软件园路",
+            "location": {"lat": 40.0419, "lng": 116.257},
+            "ad_info": {"city": "北京市"},
+        }]}
+        with patch(
+            "agents._shared.tencent_location._get",
+            new=AsyncMock(return_value=response),
+        ):
+            places = await search_verified_places_nearby(
+                "map-key",
+                "早餐店",
+                anchor,
+                radius_meters=2_000,
+                accept_category_results=True,
+            )
+        self.assertEqual([item["place_id"] for item in places], ["breakfast"])
+        self.assertGreater(places[0]["distance_to_anchor_meters"], 0)
 
     async def test_place_search_falls_back_when_primary_results_do_not_match_query(self):
         target = {**PLACE, "place_id": "osm:lake", "name": "查干湖", "provider": "openstreetmap"}

@@ -157,6 +157,8 @@ const catalog = {
   toolMapPrepareComplete: ['地图地点已准备好，正在组织推荐理由…', '地圖地點已準備好，正在整理推薦理由…', 'Map places are ready. Organizing the recommendations…', '地图地点准备好啦，正在整理推荐理由喵…', '地图地点已准备。正在组织推荐理由…'],
   toolMapRecommendActive: ['正在逐个核实地点并准备地图…', '正在逐一核實地點並準備地圖…', 'Verifying each place and preparing the map…', '正在逐个核实地点并准备地图喵…', '正在逐个核实地点并准备地图…'],
   toolMapRecommendComplete: ['可用地点已核实，正在整理成推荐…', '可用地點已核實，正在整理成推薦…', 'Available places verified. Organizing recommendations…', '可用地点核实好啦，正在整理推荐喵…', '可用地点已核实。正在整理推荐…'],
+  toolNearbyPlacesActive: ['正在查找附近地点…', '正在查找附近地點…', 'Finding nearby places…', '正在找附近地点喵…', '正在查找附近地点…'],
+  toolNearbyPlacesComplete: ['附近地点找到了，正在整理…', '附近地點找到了，正在整理…', 'Nearby places found. Organizing them…', '附近地点找到啦，正在整理喵…', '附近地点已找到。正在整理…'],
   toolCalendarActive: ['正在检查时间、地点和日程冲突…', '正在檢查時間、地點和日程衝突…', 'Checking times, locations, and schedule conflicts…', '正在检查时间地点和日程冲突喵…', '正在检查时间、地点和日程冲突…'],
   toolCalendarComplete: ['日程条件已检查，正在准备确认内容…', '日程條件已檢查，正在準備確認內容…', 'Schedule conditions checked. Preparing confirmation…', '日程条件检查好啦，正在准备确认内容喵…', '日程条件已检查。正在准备确认内容…'],
   toolMeetingActive: ['正在检查会议时间和必要信息…', '正在檢查會議時間和必要資訊…', 'Checking the meeting time and required details…', '正在检查会议时间和必要信息喵…', '正在检查会议时间和必要信息…'],

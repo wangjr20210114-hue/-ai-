@@ -273,6 +273,147 @@ def build_production_tools(
             ensure_ascii=False,
         )
 
+    async def recommend_nearby_places_on_map(
+        anchor_query: str,
+        query: str,
+        city: str = "全国",
+        radius_meters: int = 2_000,
+        limit: int = 5,
+        title: str = "",
+        action_text: str = "",
+    ) -> str:
+        """Find a category near one verified anchor and prepare a map Action.
+
+        The anchor is resolved from the Makers user workspace first, including
+        verified places attached to schedules. Only a missing anchor reaches
+        the location provider. Nearby discovery itself is one Tencent boundary
+        query rather than a web search plus repeated relative-name lookups.
+        """
+        clean_anchor_query = str(anchor_query or "").strip()
+        clean_query = str(query or "").strip()
+        if not clean_anchor_query:
+            raise ValueError("附近搜索缺少参照地点")
+        if not clean_query:
+            raise ValueError("附近搜索缺少要查找的地点类别")
+
+        state = await _load_state()
+        stored_places: list[dict[str, Any]] = []
+        seen_stored_ids: set[str] = set()
+
+        def remember_stored(place: Any) -> None:
+            if not isinstance(place, dict):
+                return
+            place_id = str(place.get("place_id") or "").strip()
+            if (
+                not place_id
+                or place_id in seen_stored_ids
+                or not isinstance(place.get("latitude"), (int, float))
+                or not isinstance(place.get("longitude"), (int, float))
+            ):
+                return
+            seen_stored_ids.add(place_id)
+            stored_places.append(place)
+
+        # Schedules are intentional user state, so their verified place is a
+        # stronger anchor than a stale search candidate from an older turn.
+        for event in (state.get("schedules") or {}).values():
+            if not isinstance(event, dict):
+                continue
+            extra = event.get("extra") if isinstance(event.get("extra"), dict) else {}
+            remember_stored(extra.get("place"))
+        for place in (state.get("place_candidates") or {}).values():
+            remember_stored(place)
+
+        normalized_anchor = _normalized_place_name(clean_anchor_query)
+
+        def anchor_score(place: dict[str, Any]) -> tuple[float, int]:
+            normalized_name = _normalized_place_name(place.get("name"))
+            if not normalized_anchor or not normalized_name:
+                return (0.0, 0)
+            if normalized_name == normalized_anchor:
+                return (4.0, len(normalized_name))
+            if normalized_anchor in normalized_name:
+                return (3.0 + len(normalized_anchor) / max(1, len(normalized_name)), len(normalized_name))
+            if normalized_name in normalized_anchor:
+                return (2.0 + len(normalized_name) / max(1, len(normalized_anchor)), len(normalized_name))
+            return (0.0, 0)
+
+        ranked_stored = sorted(
+            ((anchor_score(place), index, place) for index, place in enumerate(stored_places)),
+            key=lambda item: (-item[0][0], item[1]),
+        )
+        anchor = ranked_stored[0][2] if ranked_stored and ranked_stored[0][0][0] > 0 else None
+
+        map_key = str(
+            runtime_env.get("TENCENT_MAP_SERVER_KEY")
+            or runtime_env.get("TENCENT_MAP_KEY")
+            or runtime_env.get("VITE_TENCENT_MAP_KEY")
+            or ""
+        )
+        if anchor is None:
+            anchors = await provider_search_place_candidates(
+                map_key,
+                clean_anchor_query,
+                city=city or "全国",
+                limit=5,
+            )
+            exact = [
+                place for place in anchors
+                if _normalized_place_name(place.get("name")) == normalized_anchor
+            ]
+            anchor = exact[0] if len(exact) == 1 else (anchors[0] if anchors else None)
+        if anchor is None:
+            raise ValueError(f"没有核实到参照地点“{clean_anchor_query}”")
+
+        radius = max(300, min(20_000, int(radius_meters or 2_000)))
+        bounded_limit = max(1, min(10, int(limit or 5)))
+        places = await provider_search_places_nearby(
+            map_key,
+            clean_query,
+            anchor,
+            radius_meters=radius,
+            limit=bounded_limit,
+            accept_category_results=True,
+        )
+        if not places:
+            raise ValueError(
+                f"没有在“{anchor.get('name') or clean_anchor_query}”附近 {radius} 米内"
+                f"核实到“{clean_query}”"
+            )
+
+        candidates = state.setdefault("place_candidates", {})
+        candidates[str(anchor["place_id"])] = anchor
+        for place in places:
+            candidates[str(place["place_id"])] = place
+        if len(candidates) > 200:
+            state["place_candidates"] = dict(list(candidates.items())[-200:])
+
+        natural_title = str(title or f"{anchor.get('name') or clean_anchor_query}附近的{clean_query}")[:120]
+        action = new_action(
+            "map_recommendation",
+            {
+                "title": natural_title,
+                "action_text": str(action_text or "在地图中查看附近地点")[:80],
+                "places": places,
+            },
+            requires_confirmation=False,
+        )
+        put_action(state, action)
+        await _save_state(state)
+        return json.dumps({
+            "ui_action": "map_action",
+            "action": action,
+            "anchor": anchor,
+            "places": places,
+            "verified_place_count": len(places),
+            "radius_meters": radius,
+            "response_constraint": (
+                f"已基于“{anchor.get('name') or clean_anchor_query}”的核实坐标，"
+                f"在 {radius} 米范围内找到 {len(places)} 个真实地点。"
+                "正文只使用这些地点及其 distance_to_anchor_meters；不要补写未核实地点、评分或营业时间。"
+            ),
+        }, ensure_ascii=False)
+
     async def plan_route_between_places(
         origin_query: str,
         destination_query: str,
@@ -960,6 +1101,7 @@ def build_production_tools(
     definitions = [
         (search_places, "search_places", "使用腾讯地点服务搜索真实地点，返回可安全用于地图和日程的 place_id。推荐地点、景点、餐馆或含地点日程前必须调用。"),
         (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
+        (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。传入完整明确的 anchor_query 与要找的类别 query；工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),
         (plan_route_between_places, "plan_route_between_places", "查询两个真实地点之间的道路距离、驾车耗时或费用时必须使用。工具会自行核实起终点并调用真实路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 destination_query 传“锦江之星”、destination_near_query 传“北京301医院”；多个候选会自动生成单选卡让用户选择。"),
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
         (recommend_places_on_map, "recommend_places_on_map", "模型驱动的多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。"),
@@ -986,6 +1128,7 @@ def build_production_tools(
     tool_skills = {
         "search_places": "maps",
         "search_places_batch": "maps",
+        "recommend_nearby_places_on_map": "maps",
         "plan_route_between_places": "maps",
         "prepare_map_recommendation": "maps",
         "recommend_places_on_map": "maps",

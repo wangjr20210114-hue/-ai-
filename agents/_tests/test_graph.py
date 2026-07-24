@@ -447,6 +447,17 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("麦香早餐", content)
         self.assertIn("酒店东侧100米", content)
 
+    def test_failed_nearby_lookup_has_truthful_terminal_fallback(self):
+        content = tool_result_fallback([
+            ToolMessage(
+                content="操作未完成：没有在酒店附近核实到早餐店。请自然说明原因和下一步，不要声称已经成功。",
+                name="recommend_nearby_places_on_map",
+                tool_call_id="nearby-fallback",
+            ),
+        ])
+        self.assertIn("没有核实到", content)
+        self.assertIn("扩大查找范围", content)
+
 
 if __name__ == "__main__":
     unittest.main()

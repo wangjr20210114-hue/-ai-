@@ -205,8 +205,15 @@ async def search_verified_places_nearby(
     *,
     radius_meters: int = 5_000,
     limit: int = 10,
+    accept_category_results: bool = False,
 ) -> list[dict[str, Any]]:
-    """Resolve a named POI only when it is physically near a verified anchor."""
+    """Resolve POIs only when they are physically near a verified anchor.
+
+    Named POIs retain strict text matching. For a category discovery request,
+    Tencent's nearby boundary is itself the verification source, so callers may
+    accept the provider-ranked results even when a venue name does not repeat
+    the category word (for example, a breakfast shop named after its brand).
+    """
     query = str(query or "").strip()
     if not query:
         raise ValueError("周边地点搜索词不能为空")
@@ -253,6 +260,12 @@ async def search_verified_places_nearby(
             ]
             if matched:
                 return matched[:bounded_limit]
+            if accept_category_results:
+                return [
+                    {**item, "distance_to_anchor_meters": round(distance, 1)}
+                    for _score, distance, _index, item in ranked
+                    if distance <= radius
+                ][:bounded_limit]
         except Exception:
             pass
 

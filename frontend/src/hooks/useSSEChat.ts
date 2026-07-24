@@ -51,6 +51,7 @@ const TOOL_PROGRESS: Record<string, { active: TranslationKey; complete: Translat
   plan_route_between_places: { active: 'toolRouteActive', complete: 'toolRouteComplete' },
   prepare_map_recommendation: { active: 'toolMapPrepareActive', complete: 'toolMapPrepareComplete' },
   recommend_places_on_map: { active: 'toolMapRecommendActive', complete: 'toolMapRecommendComplete' },
+  recommend_nearby_places_on_map: { active: 'toolNearbyPlacesActive', complete: 'toolNearbyPlacesComplete' },
   propose_calendar_changes: { active: 'toolCalendarActive', complete: 'toolCalendarComplete' },
   propose_meeting: { active: 'toolMeetingActive', complete: 'toolMeetingComplete' },
   propose_image: { active: 'toolImageActive', complete: 'toolImageComplete' },

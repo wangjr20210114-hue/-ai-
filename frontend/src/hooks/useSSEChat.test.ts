@@ -52,6 +52,7 @@ describe('human-readable progress', () => {
     expect(progressTextForTool('rich_search', 'active')).toBe('正在查找资料…');
     expect(progressTextForTool('rich_search', 'complete')).toBe('资料找到了，正在整理…');
     expect(progressTextForTool('rich_search', 'complete')).not.toContain('工具');
+    expect(progressTextForTool('recommend_nearby_places_on_map', 'active')).toBe('正在查找附近地点…');
   });
 
   it('uses a plain-language fallback for an unfamiliar capability', () => {

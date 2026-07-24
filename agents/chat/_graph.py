@@ -31,6 +31,7 @@ TURN_SINGLE_USE_TOOLS = {
     "plan_route_between_places",
     "prepare_map_recommendation",
     "recommend_places_on_map",
+    "recommend_nearby_places_on_map",
     "propose_calendar_changes",
     "propose_meeting",
     "propose_image",
@@ -42,7 +43,10 @@ TURN_SINGLE_USE_TOOLS = {
 def tool_completion_fallback(tool_names: Iterable[str]) -> str:
     """Return safe prose when a successful action tool is followed by an empty model turn."""
     names = set(tool_names)
-    if names & {"prepare_map_recommendation", "recommend_places_on_map"}:
+    if names & {
+        "prepare_map_recommendation",
+        "recommend_places_on_map",
+    }:
         return "地点已经过真实地点服务核实。请点击下方按钮显示地点；未核实的地点不会进入地图。"
     if "propose_meeting" in names:
         return "腾讯会议确认卡已准备好，请在卡片中补齐并核对条件后继续。"
@@ -64,13 +68,24 @@ def tool_result_fallback(messages: Iterable) -> str:
     """
     places: list[dict] = []
     seen: set[str] = set()
+    nearby_failure = False
     for message in reversed(list(messages)):
         if getattr(message, "type", "") != "tool":
             continue
-        if getattr(message, "name", "") not in {"search_places", "search_places_batch"}:
+        tool_name = getattr(message, "name", "")
+        if tool_name not in {
+            "search_places",
+            "search_places_batch",
+            "recommend_nearby_places_on_map",
+        }:
             continue
+        raw_content = str(getattr(message, "content", "") or "")
+        if tool_name == "recommend_nearby_places_on_map" and raw_content.startswith(
+            ("操作未完成：", "工具暂时没有完成")
+        ):
+            nearby_failure = True
         try:
-            payload = json.loads(str(getattr(message, "content", "") or ""))
+            payload = json.loads(raw_content)
         except (TypeError, json.JSONDecodeError):
             continue
         candidates = payload.get("places") if isinstance(payload, dict) else []
@@ -90,6 +105,11 @@ def tool_result_fallback(messages: Iterable) -> str:
             places.append({"name": name, "address": address})
         if places:
             break
+    if not places and nearby_failure:
+        return (
+            "地点服务这次没有核实到符合条件的附近地点，我没有用不相关结果凑数。"
+            "你可以扩大查找范围，或稍后点击重试。"
+        )
     if not places:
         return ""
     visible = places[:5]

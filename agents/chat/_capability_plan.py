@@ -21,6 +21,7 @@ DEFAULT_PLAN = {
     "needs_rich_answer": False,
     "needs_images": False,
     "needs_places": False,
+    "needs_nearby_places": False,
     "needs_route": False,
     "needs_map_action": False,
     "needs_calendar_action": False,
@@ -98,6 +99,8 @@ def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
     # commonly a calendar destination), retain the focused place lookup.
     if bool(plan.get("needs_route")):
         required.append("plan_route_between_places")
+    elif bool(plan.get("needs_nearby_places")):
+        required.append("recommend_nearby_places_on_map")
     elif bool(plan.get("needs_map_action")):
         required.append("recommend_places_on_map")
     elif bool(plan.get("needs_places")):
@@ -151,7 +154,7 @@ def next_required_tool(
 async def plan_capabilities(model, user_message: str, memory_context: str = "") -> dict[str, Any]:
     today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
     prompt = f"""你是能力路由器，只判断完成本轮用户请求需要哪些能力，不回答问题。当前北京时间日期是运行时得到的 {today}；“今天、今日、今年、最近 N 年”等相对时间必须据此解析并写入搜索查询，绝不能沿用训练数据、示例或旧会话里的日期。
-返回严格 JSON：needs_clarification、needs_web_search、strict_today_only、needs_rich_answer、needs_images、needs_places、needs_route、needs_map_action、needs_calendar_action、needs_meeting_action、needs_image_generation、needs_papers 为布尔值；search_query、image_query、paper_author 为字符串；paper_year、paper_limit 为整数。
+返回严格 JSON：needs_clarification、needs_web_search、strict_today_only、needs_rich_answer、needs_images、needs_places、needs_nearby_places、needs_route、needs_map_action、needs_calendar_action、needs_meeting_action、needs_image_generation、needs_papers 为布尔值；search_query、image_query、paper_author 为字符串；paper_year、paper_limit 为整数。
 判断原则：
 - 这些字段只是给主模型的能力建议，绝不是工具开关；主模型始终可以自主决定是否搜索、使用多少素材以及怎样组织回答。
 - 只有缺失信息会阻断所有安全且有用的回答，或无法唯一确定将要执行的真实副作用对象时，needs_clarification=true，而且本轮其他能力全部设为 false。“不同偏好会改变结果”“知道后会更好”或用户尚未决定，都不足以触发澄清；只要能够基于不同合理假设给出至少两套不误导的方案，needs_clarification 必须为 false，并让主模型直接给出 2–3 套带假设与取舍的方案。这个判断必须泛化到任何主题和偏好，不能按某个任务类别套用固定问题。普通事实问答、存在低风险默认值时也不要澄清。澄清字段只能来自用户本轮明确目标、当前对话里尚未解决的条件、与本任务直接相关的安全长期记忆或当前可核验状态；不得套用某类任务常见的画像问卷，也不得因为“可能有帮助”就追加问题。已有上下文、可靠记忆、核实结果或其他必要字段能够推导的内容不要再问；记忆与本轮表达冲突或仍不确定时，以本轮表达为准。澄清卡只收齐继续执行所不可缺少的最少字段：有限候选优先单选/多选，能用是/否表达就用判断，只缺日期用 date、日期已知只缺时刻用 time、两者都缺才用 datetime，只有答案无法枚举时才用短文本；不要在长回答末尾再追问。
@@ -161,6 +164,7 @@ async def plan_capabilities(model, user_message: str, memory_context: str = "") 
 - rich_answer/images 表示富媒体素材可能有帮助，不规定最终版式；模型可以采用、穿插、重排或完全舍弃素材。
 - 旅行目的地介绍、第一次去某城市、请介绍当地有什么好玩/好吃/值得去，回答天然会包含多个可到访点，所以 needs_places 和 needs_map_action 都必须为 true；不能因为用户没说“地图”就关掉地图能力。
 - 单一地点的历史、文化或原理解说不需要 map_action，除非用户同时要求周边或路线。
+- 用户要找某个已知地点、当前位置或日程地点“附近/周边”的餐馆、早餐店、酒店、商店、景点等真实地点时，needs_nearby_places=true；该组合能力会复用工作区内已核实的参照地点并调用真实附近检索，同时生成仅含核实结果的地图。不要仅为了发现附近地点设置 needs_web_search；只有用户还要求点评、营业时间、新闻等地图服务之外的时效事实时才同时设置 web_search。needs_nearby_places 已包含地点核验和地图 Action，不必再设置 needs_places 或 needs_map_action。
 - 用户询问两个地点之间“多远、多久、怎么走、打车多少钱”或明确要求道路路线时，needs_route=true。真实距离由地点与路线服务核验，不要为了距离本身设置 needs_web_search，也不要用网页结果估算；只有用户还要求沿途新闻、实时政策等额外事实时才同时设置 web_search。needs_route 已包含两个端点的地点核验，不必为了同一端点再额外设置 needs_places 或 map_action。
 - 用户要求新增/修改/删除行程日程才需要 calendar_action；仅说计划去某地不等于写日程。
 - 创建会议需要 meeting_action；生成新图片需要 image_generation。若图片主体是现实中的具体人物、地点、产品、动物品种或其他需要外观准确的对象，同时设置 web_search 和 images，并用 image_query 描述该真实主体；纯幻想、抽象画面或用户已给参考图则不搜索。
