@@ -18,7 +18,7 @@ import { streamingMarkdownAnswer } from './streamingAnswer';
 import { loadProactiveDocumentContext } from '../../services/proactiveDocument';
 import type { ProactiveNotification } from '../../types';
 import { markdownToPlainText } from '../common/richContent';
-import { getStoredLanguage, useLanguage } from '../../i18n';
+import { getStoredLanguage, translate, useLanguage } from '../../i18n';
 
 interface Props {
   message: ChatMessage;
@@ -64,7 +64,7 @@ function triggerDownload(blob: Blob, filename: string) {
 }
 
 async function saveElementAsImage(element: HTMLElement): Promise<void> {
-  const unavailable = '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540"><rect width="100%" height="100%" rx="18" fill="#eef1f8"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#75809a" font-family="sans-serif" font-size="24">图片暂不可用</text></svg>';
+  const unavailable = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540"><rect width="100%" height="100%" rx="18" fill="#eef1f8"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#75809a" font-family="sans-serif" font-size="24">${translate('imageUnavailable')}</text></svg>`;
   const rect = element.getBoundingClientRect();
   const backgroundColor = getComputedStyle(element).backgroundColor || '#ffffff';
   const png = await toBlob(element, {
@@ -88,7 +88,7 @@ async function saveElementAsImage(element: HTMLElement): Promise<void> {
       || (!node.classList.contains('answer-action-group') && !node.classList.contains('typing-cursor')),
   });
   if (!png) throw new Error('png unavailable');
-  triggerDownload(png, `回答-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`);
+  triggerDownload(png, translate('answerFileName', { time: new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') }));
 }
 
 function ClarificationCard({ clarification }: { clarification: ClarificationPrompt }) {
@@ -117,16 +117,16 @@ function ClarificationCard({ clarification }: { clarification: ClarificationProm
     {clarification.fields.map((field) => {
       const value = values[field.id];
       if (field.type === 'single' || field.type === 'boolean') {
-        const options = field.type === 'boolean' ? ['是', '否'] : (field.options || []);
+        const options = field.type === 'boolean' ? [t('yes'), t('no')] : (field.options || []);
         return <fieldset className="clarification-field" key={field.id} disabled={submitted}>
-          <legend>{field.label}{field.required ? '（必选）' : ''}</legend>
+          <legend>{field.label}{field.required ? t('requiredSingle') : ''}</legend>
           <div className="clarification-option-list">{options.map((option) => <label key={option} className="clarification-option">
             <input type="radio" name={`${clarification.id}-${field.id}`} checked={value === option} onChange={() => setValue(field.id, option)} />{option}
           </label>)}</div>
         </fieldset>;
       }
       if (field.type === 'multi') return <fieldset className="clarification-field" key={field.id} disabled={submitted}>
-        <legend>{field.label}{field.required ? '（至少选一项）' : ''}</legend>
+        <legend>{field.label}{field.required ? t('requiredMulti') : ''}</legend>
         <div className="clarification-option-list">{(field.options || []).map((option) => {
           const selected = Array.isArray(value) && value.includes(option);
           return <label key={option} className="clarification-option"><input type="checkbox" checked={selected} onChange={(event) => {
@@ -135,7 +135,7 @@ function ClarificationCard({ clarification }: { clarification: ClarificationProm
           }} />{option}</label>;
         })}</div>
       </fieldset>;
-      return <label className="clarification-field" key={field.id}><span>{field.label}{field.required ? '（必填）' : ''}</span><input
+      return <label className="clarification-field" key={field.id}><span>{field.label}{field.required ? t('requiredField') : ''}</span><input
         type={field.type === 'date' ? 'date' : field.type === 'datetime' ? 'datetime-local' : 'text'}
         value={typeof value === 'string' ? value : ''}
         placeholder={field.placeholder}
@@ -143,7 +143,7 @@ function ClarificationCard({ clarification }: { clarification: ClarificationProm
         onChange={(event) => setValue(field.id, event.target.value)}
       /></label>;
     })}
-    <div className="clarification-actions"><Button size="small" theme="primary" disabled={!complete || submitted} onClick={submit}>{submitted ? '已填入输入框' : '填好并继续'}</Button></div>
+    <div className="clarification-actions"><Button size="small" theme="primary" disabled={!complete || submitted} onClick={submit}>{submitted ? t('filledInput') : t('completeAndContinue')}</Button></div>
   </div>;
 }
 
@@ -160,8 +160,9 @@ function MeetingConfirmationCard({
   onConfirm: () => Promise<void>;
   onCancel: () => Promise<void>;
 }) {
+  const { t } = useLanguage();
   const startInputRef = useRef<HTMLInputElement>(null);
-  const [subject, setSubject] = useState(String(action.payload.subject || '腾讯会议'));
+  const [subject, setSubject] = useState(String(action.payload.subject || t('tencentMeeting')));
   const [startTime, setStartTime] = useState(meetingInputValue(action.payload.start_time));
   const [endTime, setEndTime] = useState(meetingInputValue(action.payload.end_time));
   const [acknowledged, setAcknowledged] = useState<string[]>([]);
@@ -170,16 +171,16 @@ function MeetingConfirmationCard({
   const result = action.result || {};
 
   useEffect(() => {
-    setSubject(String(action.payload.subject || '腾讯会议'));
+    setSubject(String(action.payload.subject || t('tencentMeeting')));
     setStartTime(meetingInputValue(action.payload.start_time));
     setEndTime(meetingInputValue(action.payload.end_time));
     setAcknowledged([]);
-  }, [action.id, action.version, action.payload.subject, action.payload.start_time, action.payload.end_time]);
+  }, [action.id, action.version, action.payload.subject, action.payload.start_time, action.payload.end_time, t]);
 
-  const normalizedSubject = subject.trim() || '腾讯会议';
+  const normalizedSubject = subject.trim() || t('tencentMeeting');
   const currentStart = meetingInputValue(action.payload.start_time);
   const currentEnd = meetingInputValue(action.payload.end_time);
-  const dirty = normalizedSubject !== String(action.payload.subject || '腾讯会议')
+  const dirty = normalizedSubject !== String(action.payload.subject || t('tencentMeeting'))
     || startTime !== currentStart
     || endTime !== currentEnd;
   const timesComplete = Boolean(startTime && endTime && new Date(endTime).getTime() > new Date(startTime).getTime());
@@ -197,31 +198,31 @@ function MeetingConfirmationCard({
 
   if (action.status !== 'awaiting_confirmation') {
     return <div className="workspace-confirm-card meeting-confirm-card">
-      <div className="workspace-confirm-title">腾讯会议：{action.payload.subject || '未命名会议'}</div>
+      <div className="workspace-confirm-title">{t('meetingNamed', { subject: String(action.payload.subject || t('unnamedMeeting')) })}</div>
       <div className={`workspace-action-status status-${action.status}`}>
-        {action.status === 'succeeded' ? '✓ 已创建并写入日程' : action.status === 'cancelled' ? '已取消' : action.status === 'reconciliation_required' ? `需要人工核对：${action.error || '外部结果未知'}` : action.status === 'failed' ? `失败：${action.error || '执行失败'}` : '处理中…'}
+        {action.status === 'succeeded' ? t('meetingCreatedCalendar') : action.status === 'cancelled' ? t('cancelled') : action.status === 'reconciliation_required' ? t('needsReview', { error: action.error || t('externalResultUnknown') }) : action.status === 'failed' ? t('failedWithReason', { error: action.error || t('executionFailed') }) : t('processing')}
       </div>
-      {typeof result.join_url === 'string' && result.join_url && <a href={result.join_url} target="_blank" rel="noreferrer">加入腾讯会议</a>}
-      {typeof result.trace_id === 'string' && result.trace_id && <div className="workspace-confirm-meta">追踪号：{result.trace_id}</div>}
+      {typeof result.join_url === 'string' && result.join_url && <a href={result.join_url} target="_blank" rel="noreferrer">{t('joinTencentMeeting')}</a>}
+      {typeof result.trace_id === 'string' && result.trace_id && <div className="workspace-confirm-meta">{t('traceId', { id: result.trace_id })}</div>}
     </div>;
   }
 
   return <div className="workspace-confirm-card meeting-confirm-card">
-    <div className="workspace-confirm-title">创建腾讯会议</div>
-    <p className="meeting-confirm-help">请逐项检查或修改；信息不足时无需在聊天里反复回答。</p>
-    <label>会议主题<input value={subject} maxLength={120} onInput={(event) => setSubject(event.currentTarget.value)} /></label>
+    <div className="workspace-confirm-title">{t('createTencentMeeting')}</div>
+    <p className="meeting-confirm-help">{t('meetingConfirmHelp')}</p>
+    <label>{t('meetingSubject')}<input value={subject} maxLength={120} onInput={(event) => setSubject(event.currentTarget.value)} /></label>
     <div className="meeting-confirm-times">
-      <label>开始时间<input ref={startInputRef} type="datetime-local" value={startTime} onInput={(event) => setStartTime(event.currentTarget.value)} /></label>
-      <label>结束时间<input type="datetime-local" value={endTime} onInput={(event) => setEndTime(event.currentTarget.value)} /></label>
+      <label>{t('startTime')}<input ref={startInputRef} type="datetime-local" value={startTime} onInput={(event) => setStartTime(event.currentTarget.value)} /></label>
+      <label>{t('endTime')}<input type="datetime-local" value={endTime} onInput={(event) => setEndTime(event.currentTarget.value)} /></label>
     </div>
     {validationErrors.map((message) => <div key={message} className="meeting-confirm-error">{message}</div>)}
-    {!startTime && <div className="meeting-confirm-error">请选择开始时间</div>}
-    {!endTime && <div className="meeting-confirm-error">请选择结束时间</div>}
-    {startTime && endTime && !timesComplete && <div className="meeting-confirm-error">结束时间必须晚于开始时间</div>}
+    {!startTime && <div className="meeting-confirm-error">{t('chooseStartTime')}</div>}
+    {!endTime && <div className="meeting-confirm-error">{t('chooseEndTime')}</div>}
+    {startTime && endTime && !timesComplete && <div className="meeting-confirm-error">{t('endAfterStart')}</div>}
     {(!startTime || !endTime) && <div className="meeting-quick-actions">
-      <span>快捷补全：</span>
-      <Button size="small" variant="text" disabled={busy} onClick={useSuggestedTime}>下一个整点开始，时长 1 小时</Button>
-      {startTime && !endTime && <Button size="small" variant="text" disabled={busy} onClick={useOneHourDuration}>从开始时间起 1 小时</Button>}
+      <span>{t('quickFill')}</span>
+      <Button size="small" variant="text" disabled={busy} onClick={useSuggestedTime}>{t('nextHourOneHour')}</Button>
+      {startTime && !endTime && <Button size="small" variant="text" disabled={busy} onClick={useOneHourDuration}>{t('oneHourFromStart')}</Button>}
     </div>}
     {!needsValidation && warnings.map((warning) => <label key={warning} className="meeting-warning-choice">
       <input
@@ -229,14 +230,14 @@ function MeetingConfirmationCard({
         checked={acknowledged.includes(warning)}
         onChange={(event) => setAcknowledged((items) => event.target.checked ? [...items, warning] : items.filter((item) => item !== warning))}
       />
-      <span><b>日程提醒</b>{warning}<small>勾选后表示已了解该冲突，仍可继续创建。</small></span>
+      <span><b>{t('scheduleWarning')}</b>{warning}<small>{t('acknowledgeConflict')}</small></span>
     </label>)}
     {!needsValidation && warnings.length > 1 && !warningsAccepted && <Button
       size="small"
       variant="text"
       disabled={busy}
       onClick={() => setAcknowledged([...warnings])}
-    >接受全部 {warnings.length} 项冲突提醒</Button>}
+    >{t('acceptAllConflicts', { count: warnings.length })}</Button>}
     <div className="workspace-confirm-actions">
       {needsValidation ? <Button
         size="small"
@@ -248,27 +249,28 @@ function MeetingConfirmationCard({
           start_time: new Date(startTime).toISOString(),
           end_time: new Date(endTime).toISOString(),
         })}
-      >保存并检查冲突</Button> : <>
-        {warnings.length > 0 && <Button size="small" variant="outline" disabled={busy} onClick={() => startInputRef.current?.focus()}>修改时间</Button>}
+      >{t('saveCheckConflicts')}</Button> : <>
+        {warnings.length > 0 && <Button size="small" variant="outline" disabled={busy} onClick={() => startInputRef.current?.focus()}>{t('modifyTime')}</Button>}
         <Button
           size="small"
           theme="primary"
           loading={busy}
           disabled={!timesComplete || !warningsAccepted}
           onClick={() => void onConfirm()}
-        >{warnings.length ? '接受已勾选冲突并创建' : '创建腾讯会议'}</Button>
+        >{warnings.length ? t('acceptConflictsCreate') : t('createTencentMeeting')}</Button>
       </>}
-      <Button size="small" variant="outline" disabled={busy} onClick={() => void onCancel()}>取消</Button>
+      <Button size="small" variant="outline" disabled={busy} onClick={() => void onCancel()}>{t('cancel')}</Button>
     </div>
   </div>;
 }
 
 function ImageCreationProgress({ message }: { message: ChatMessage }) {
+  const { t } = useLanguage();
   const reference = message.searchResults?.media?.[0];
   const [step, setStep] = useState(0);
   const steps = reference?.alt
-    ? [`正在参考“${reference.alt.slice(0, 28)}${reference.alt.length > 28 ? '…' : ''}”的真实特征`, '正在重新组织卡通构图与神态', '正在细化线条、色彩和光影', '画面正在逐层显影']
-    : ['正在理解画面中的主体与氛围', '正在搭建构图与视觉层次', '正在细化线条、色彩和光影', '画面正在逐层显影'];
+    ? [t('paintingReference', { name: `${reference.alt.slice(0, 28)}${reference.alt.length > 28 ? '…' : ''}` }), t('paintingCartoon'), t('paintingDetail'), t('paintingReveal')]
+    : [t('paintingUnderstand'), t('paintingCompose'), t('paintingDetail'), t('paintingReveal')];
   useEffect(() => {
     const timer = window.setInterval(() => setStep((value) => (value + 1) % steps.length), 1800);
     return () => window.clearInterval(timer);
@@ -279,7 +281,7 @@ function ImageCreationProgress({ message }: { message: ChatMessage }) {
         <span />
         <div className="image-painting-copy" aria-live="polite">
           <strong>{steps[step]}</strong>
-          <small>图片工坊正在绘制，请稍候</small>
+          <small>{t('paintingWait')}</small>
         </div>
       </div>
     </div>
@@ -326,7 +328,7 @@ export default function MessageBubble({ message, client }: Props) {
       const next = await proactiveOperation(conversationId, operation, input);
       dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
     } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '主动服务操作失败');
+      MessagePlugin.error(error instanceof Error ? error.message : t('proactiveOperationFailed'));
     } finally { setProactiveBusy(''); }
   };
 
@@ -335,11 +337,11 @@ export default function MessageBubble({ message, client }: Props) {
     try {
       const documentContext = await loadProactiveDocumentContext(item);
       dispatch({ type: 'SET_DOCUMENT_CONTEXT', payload: documentContext });
-      dispatch({ type: 'SET_DRAFT', payload: item.action_prompt || `请帮我处理：${item.title}` });
+      dispatch({ type: 'SET_DRAFT', payload: item.action_prompt || t('helpMeHandle', { title: item.title }) });
       const next = await proactiveOperation(conversationId, 'mark_read', { notification_id: item.id });
       dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
     } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '无法准备主动建议');
+      MessagePlugin.error(error instanceof Error ? error.message : t('proactiveSuggestionFailed'));
     } finally {
       setProactiveBusy('');
     }
@@ -392,7 +394,7 @@ export default function MessageBubble({ message, client }: Props) {
   const copyAnswerText = async () => {
     const plainText = markdownToPlainText(message.content, message.searchResults?.results || []);
     if (!plainText) {
-      MessagePlugin.warning('当前回答没有可复制的纯文字内容');
+      MessagePlugin.warning(t('noPlainText'));
       return;
     }
     try {
@@ -411,9 +413,9 @@ export default function MessageBubble({ message, client }: Props) {
       }
       setAnswerCopied(true);
       window.setTimeout(() => setAnswerCopied(false), 1600);
-      MessagePlugin.success('已复制纯文字回答');
+      MessagePlugin.success(t('plainTextCopied'));
     } catch {
-      MessagePlugin.error('浏览器不允许自动复制，请手动选择文字复制');
+      MessagePlugin.error(t('clipboardDenied'));
     }
   };
 
@@ -422,9 +424,9 @@ export default function MessageBubble({ message, client }: Props) {
     setAnswerSaving(true);
     try {
       await saveElementAsImage(bubbleRef.current);
-      MessagePlugin.success('回答图片已保存');
+      MessagePlugin.success(t('answerImageSaved'));
     } catch {
-      MessagePlugin.error('回答图片保存失败，请稍后重试');
+      MessagePlugin.error(t('answerImageSaveFailed'));
     } finally {
       setAnswerSaving(false);
     }
@@ -434,7 +436,7 @@ export default function MessageBubble({ message, client }: Props) {
     if (!previousUserMessage || retryingAnswer || messages.some((item) => item.streaming)) return;
     if (!client.current) {
       dispatch({ type: 'SET_DRAFT', payload: previousUserMessage.content });
-      MessagePlugin.warning('连接尚未就绪，原问题已放回输入框');
+      MessagePlugin.warning(t('connectionNotReady'));
       return;
     }
     const retryMessage: ChatMessage = {
@@ -474,13 +476,13 @@ export default function MessageBubble({ message, client }: Props) {
 
   const executeConfirmedAction = async () => {
     if (!actionId || actionVersion < 1) {
-      throw new Error('该建议卡缺少后端 Action 快照，请重新发送需求');
+      throw new Error(t('missingActionSnapshot'));
     }
     const response = await workspaceOperation(conversationId, 'confirm_action', {
       action_id: actionId,
       version: actionVersion,
     });
-    if (!response.action) throw new Error('Makers Workspace 未返回操作结果');
+    if (!response.action) throw new Error(t('workspaceNoResult'));
     return response.action;
   };
 
@@ -495,7 +497,7 @@ export default function MessageBubble({ message, client }: Props) {
 
   const handleCreateMeeting = async () => {
     setMeetingCreating(true);
-    setMeetingStatusText('已确认，等待后台 Executor...');
+    setMeetingStatusText(t('confirmedWaitingExecutor'));
     try {
       const action = await executeConfirmedAction();
       const data = action.result || {};
@@ -509,14 +511,14 @@ export default function MessageBubble({ message, client }: Props) {
           start_time: typeof data.start_time === 'string' ? data.start_time : undefined,
         };
         setMeetingResult(result);
-        MessagePlugin.success('腾讯会议创建成功！');
+        MessagePlugin.success(t('meetingCreatedSuccess'));
       } else {
-        const error = action.error || '创建失败';
+        const error = action.error || t('creationFailed');
         setMeetingResult({ ok: false, error });
         MessagePlugin.warning(error);
       }
     } catch (error) {
-      const text = error instanceof Error ? error.message : '创建会议失败';
+      const text = error instanceof Error ? error.message : t('createMeetingFailed');
       setMeetingResult({ ok: false, error: text });
       MessagePlugin.error(text);
     } finally {
@@ -538,14 +540,14 @@ export default function MessageBubble({ message, client }: Props) {
         };
         setImageResult(result);
         ingestGeneratedImage(action);
-        MessagePlugin.success('图片生成成功！');
+        MessagePlugin.success(t('imageCreatedSuccess'));
       } else {
-        const error = action.error || '生成失败';
+        const error = action.error || t('generationFailedShort');
         setImageResult({ ok: false, error });
         MessagePlugin.warning(error);
       }
     } catch (error) {
-      const text = error instanceof Error ? error.message : '生图失败';
+      const text = error instanceof Error ? error.message : t('imageGenerationFailedShort');
       setImageResult({ ok: false, error: text });
       MessagePlugin.error(text);
     } finally {
@@ -561,9 +563,9 @@ export default function MessageBubble({ message, client }: Props) {
         version: actionVersion,
       });
       setSkillActioned(true);
-      MessagePlugin.success('已取消该操作');
+      MessagePlugin.success(t('actionCancelled'));
     } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '取消失败');
+      MessagePlugin.error(error instanceof Error ? error.message : t('cancelFailed'));
     }
   };
 
@@ -602,12 +604,12 @@ export default function MessageBubble({ message, client }: Props) {
       if (response.action) replaceWorkspaceAction(response.action);
       if (operation === 'activate_map' && response.map?.places?.length) {
         dispatch({ type: 'SET_MAP_PLACES', payload: { places: response.map.places, title: response.map.title, reveal: true } });
-        MessagePlugin.success('已在右侧地图显示这些地点');
+        MessagePlugin.success(t('mapShown'));
       } else if (operation === 'activate_map') {
-        if (!mapSnapshot.length) throw new Error('地点数据暂时不可用，请重新生成地点推荐');
-        MessagePlugin.warning('已显示已核实地点，但本次激活状态未保存');
+        if (!mapSnapshot.length) throw new Error(t('mapSnapshotUnavailable'));
+        MessagePlugin.warning(t('mapSnapshotNotSaved'));
       }
-      if (operation === 'update_meeting_action') MessagePlugin.success('会议信息已检查，请确认后创建');
+      if (operation === 'update_meeting_action') MessagePlugin.success(t('meetingChecked'));
       if (operation === 'confirm_action' && action.kind === 'calendar_changes') {
         dispatch({ type: 'SET_SCHEDULES', payload: response.schedules || [] });
         const changed = response.changed?.filter((item) => !item.deleted) || [];
@@ -616,25 +618,25 @@ export default function MessageBubble({ message, client }: Props) {
           const date = [first.getFullYear(), String(first.getMonth() + 1).padStart(2, '0'), String(first.getDate()).padStart(2, '0')].join('-');
           dispatch({ type: 'PULSE_CALENDAR', payload: { date, count: changed.length } });
         }
-        MessagePlugin.success('日程变更已确认并写入');
+        MessagePlugin.success(t('calendarChangesApplied'));
       }
       if (operation === 'confirm_action' && action.kind === 'meeting_create') {
         const result = response.action?.result || {};
-        if (response.action?.status === 'succeeded') MessagePlugin.success('腾讯会议创建成功');
-        else MessagePlugin.warning(String(response.action?.error || result.error || '会议创建失败'));
+        if (response.action?.status === 'succeeded') MessagePlugin.success(t('meetingCreatedSuccess'));
+        else MessagePlugin.warning(String(response.action?.error || result.error || t('createMeetingFailed')));
       }
       if (operation === 'confirm_action' && action.kind === 'image_generate') {
         if (response.action?.status === 'succeeded') {
           ingestGeneratedImage(response.action);
-          MessagePlugin.success('图片生成成功');
+          MessagePlugin.success(t('imageCreatedSuccess'));
         }
-        else MessagePlugin.warning(String(response.action?.error || '图片生成失败'));
+        else MessagePlugin.warning(String(response.action?.error || t('imageGenerationFailedShort')));
       }
-      if (operation === 'cancel_action') MessagePlugin.success('已取消该操作');
+      if (operation === 'cancel_action') MessagePlugin.success(t('actionCancelled'));
     } catch (error) {
-      const text = error instanceof Error ? error.message : '操作失败';
+      const text = error instanceof Error ? error.message : t('operationFailed');
       if (operation === 'activate_map' && mapSnapshot.length) {
-        MessagePlugin.warning(`已用核实快照显示地点；激活状态暂未保存：${text}`);
+        MessagePlugin.warning(t('activatedSnapshotNotSaved', { error: text }));
       } else {
         MessagePlugin.error(text);
       }
@@ -651,8 +653,8 @@ export default function MessageBubble({ message, client }: Props) {
 
     switch (intent) {
       case 'travel':
-        handleFollowUp(compatSkill?.content || '请继续帮我规划这次旅行，并在需要时询问缺少的信息');
-        MessagePlugin.info('旅行需求已填入输入框；发送后由 Makers Agent 继续规划');
+        handleFollowUp(compatSkill?.content || t('continueTravelPlanning'));
+        MessagePlugin.info(t('travelDraftReady'));
         break;
       case 'meeting':
         handleCreateMeeting();
@@ -663,7 +665,7 @@ export default function MessageBubble({ message, client }: Props) {
       case 'translation':
       case 'news':
       case 'paper':
-        MessagePlugin.info(`${skill?.action_label || '执行'}功能开发中，敬请期待`);
+        MessagePlugin.info(t('developing', { action: skill?.action_label || t('execute') }));
         setSkillActioned(false);
         break;
       default:
@@ -677,7 +679,7 @@ export default function MessageBubble({ message, client }: Props) {
     mode: intent === 'travel' ? 'auto' : 'suggest',
     content: message.travelIntent?.prompt || message.meetingIntent?.prompt || message.content,
     icon: intent === 'travel' ? '✈️' : intent === 'meeting' ? '📅' : '✨',
-    action_label: intent === 'travel' ? '规划行程' : intent === 'meeting' ? '创建腾讯会议' : '执行',
+    action_label: intent === 'travel' ? t('planTrip') : intent === 'meeting' ? t('createTencentMeeting') : t('execute'),
     params: {
       user_message: message.travelIntent?.user_message,
       message: message.meetingIntent?.message,
@@ -688,13 +690,13 @@ export default function MessageBubble({ message, client }: Props) {
 
   const searchStatus = typeof message.skill?.data?.statusText === 'string'
     ? message.skill.data.statusText
-    : '正在理解你想解决的问题…';
+    : t('understandingRequest');
   const progressStatus = message.content
     ? (message.skill?.intent === 'search'
       ? (message.searchResults?.media_pending
-        ? '正在边写边核对图片和出处…'
-        : '正在把核实后的信息整理成回答…')
-      : '正在逐步组织回答…')
+        ? t('writingReviewing')
+        : t('organizingVerifiedAnswer'))
+      : t('organizingAnswer'))
     : searchStatus;
   const markdownRender = {
     content: message.streaming ? streamingMarkdownAnswer(message.content) : message.content,
@@ -704,7 +706,7 @@ export default function MessageBubble({ message, client }: Props) {
   return (
     <div className={`msg-row ${isUser ? 'user' : 'ai'}`}>
       <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>
-        {isUser ? '我' : <img src="/floris-avatar.png" alt="Floris" />}
+        {isUser ? t('me') : <img src="/floris-avatar.png" alt="Floris" />}
       </div>
       <div className="msg-content-wrap">
         <div
@@ -741,32 +743,32 @@ export default function MessageBubble({ message, client }: Props) {
                 {(proactive.notifications || []).filter((item) => item.status !== 'dismissed').slice(0, 3).map((item) => <div className="proactive-conversation-item" key={item.id}>
                   <span>{item.title}</span>
                   <div>
-                    <Button size="small" variant="text" loading={proactiveBusy === `read:${item.id}`} onClick={() => { void applyProactiveSuggestion(item); }}>帮我处理</Button>
-                    <Button size="small" variant="text" loading={proactiveBusy === `snooze:${item.id}`} onClick={() => void mutateProactive(`snooze:${item.id}`, 'snooze', { notification_id: item.id, until: Math.floor(Date.now() / 1000) + 3600 })}>1 小时后提醒</Button>
-                    <Button size="small" variant="text" loading={proactiveBusy === `dismiss:${item.id}`} onClick={() => void mutateProactive(`dismiss:${item.id}`, 'dismiss', { notification_id: item.id })}>忽略</Button>
+                    <Button size="small" variant="text" loading={proactiveBusy === `read:${item.id}`} onClick={() => { void applyProactiveSuggestion(item); }}>{t('handleForMe')}</Button>
+                    <Button size="small" variant="text" loading={proactiveBusy === `snooze:${item.id}`} onClick={() => void mutateProactive(`snooze:${item.id}`, 'snooze', { notification_id: item.id, until: Math.floor(Date.now() / 1000) + 3600 })}>{t('remindInHour')}</Button>
+                    <Button size="small" variant="text" loading={proactiveBusy === `dismiss:${item.id}`} onClick={() => void mutateProactive(`dismiss:${item.id}`, 'dismiss', { notification_id: item.id })}>{t('ignore')}</Button>
                   </div>
                 </div>)}
                 {(proactive.workflows || []).filter((item) => item.status === 'awaiting_confirmation').map((workflow) => <div className="proactive-conversation-item" key={workflow.id}>
-                  <span>持续任务：{workflow.title}</span><small>{workflow.reason}</small>
+                  <span>{t('ongoingTask', { title: workflow.title })}</span><small>{workflow.reason}</small>
                   <div>
-                    <Button size="small" theme="primary" loading={proactiveBusy === `workflow:${workflow.id}`} onClick={() => void mutateProactive(`workflow:${workflow.id}`, 'confirm_workflow', { workflow_id: workflow.id, version: workflow.version })}>确认启用</Button>
-                    <Button size="small" variant="text" onClick={() => void mutateProactive(`workflow:${workflow.id}`, 'reject_workflow', { workflow_id: workflow.id, version: workflow.version })}>暂不启用</Button>
+                    <Button size="small" theme="primary" loading={proactiveBusy === `workflow:${workflow.id}`} onClick={() => void mutateProactive(`workflow:${workflow.id}`, 'confirm_workflow', { workflow_id: workflow.id, version: workflow.version })}>{t('enableWorkflow')}</Button>
+                    <Button size="small" variant="text" onClick={() => void mutateProactive(`workflow:${workflow.id}`, 'reject_workflow', { workflow_id: workflow.id, version: workflow.version })}>{t('notNow')}</Button>
                   </div>
                 </div>)}
                 {(proactive.workflows || []).filter((item) => item.status === 'active').map((workflow) => {
                   const step = workflow.steps.find((item) => !['completed', 'skipped', 'compensated'].includes(item.status));
                   return <div className="proactive-conversation-item" key={workflow.id}>
-                    <span>进行中的持续任务：{workflow.title}</span>
-                    <small>{step ? `当前步骤：${step.title}` : '所有步骤已处理，等待状态同步'}</small>
+                    <span>{t('activeWorkflow', { title: workflow.title })}</span>
+                    <small>{step ? t('currentStep', { title: step.title }) : t('workflowSyncing')}</small>
                     <div>
                       {step && ['pending', 'notified'].includes(step.status) && <>
-                        <Button size="small" theme="success" loading={proactiveBusy === `complete:${step.id}`} onClick={() => void mutateProactive(`complete:${step.id}`, 'complete_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>完成步骤</Button>
-                        <Button size="small" variant="text" loading={proactiveBusy === `skip:${step.id}`} onClick={() => void mutateProactive(`skip:${step.id}`, 'skip_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>跳过步骤</Button>
-                        <Button size="small" variant="text" loading={proactiveBusy === `fail:${step.id}`} onClick={() => void mutateProactive(`fail:${step.id}`, 'fail_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>标记失败</Button>
+                        <Button size="small" theme="success" loading={proactiveBusy === `complete:${step.id}`} onClick={() => void mutateProactive(`complete:${step.id}`, 'complete_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>{t('completeStep')}</Button>
+                        <Button size="small" variant="text" loading={proactiveBusy === `skip:${step.id}`} onClick={() => void mutateProactive(`skip:${step.id}`, 'skip_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>{t('skipStep')}</Button>
+                        <Button size="small" variant="text" loading={proactiveBusy === `fail:${step.id}`} onClick={() => void mutateProactive(`fail:${step.id}`, 'fail_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>{t('markFailed')}</Button>
                       </>}
-                      {step?.status === 'compensating' && <Button size="small" theme="success" loading={proactiveBusy === `compensate:${step.id}`} onClick={() => void mutateProactive(`compensate:${step.id}`, 'compensate_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>补偿已完成</Button>}
-                      {step && ['failed', 'attention_required'].includes(step.status) && <Button size="small" variant="outline" loading={proactiveBusy === `retry:${step.id}`} onClick={() => void mutateProactive(`retry:${step.id}`, 'retry_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>重试步骤</Button>}
-                      <Button size="small" variant="text" loading={proactiveBusy === `cancel:${workflow.id}`} onClick={() => void mutateProactive(`cancel:${workflow.id}`, 'cancel_workflow', { workflow_id: workflow.id, version: workflow.version })}>停止工作流</Button>
+                      {step?.status === 'compensating' && <Button size="small" theme="success" loading={proactiveBusy === `compensate:${step.id}`} onClick={() => void mutateProactive(`compensate:${step.id}`, 'compensate_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>{t('compensationComplete')}</Button>}
+                      {step && ['failed', 'attention_required'].includes(step.status) && <Button size="small" variant="outline" loading={proactiveBusy === `retry:${step.id}`} onClick={() => void mutateProactive(`retry:${step.id}`, 'retry_workflow_step', { workflow_id: workflow.id, step_id: step.id })}>{t('retryStep')}</Button>}
+                      <Button size="small" variant="text" loading={proactiveBusy === `cancel:${workflow.id}`} onClick={() => void mutateProactive(`cancel:${workflow.id}`, 'cancel_workflow', { workflow_id: workflow.id, version: workflow.version })}>{t('stopWorkflow')}</Button>
                     </div>
                   </div>;
                 })}
@@ -779,7 +781,7 @@ export default function MessageBubble({ message, client }: Props) {
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={() => { void retryFailedAnswer(); }}
                 >
-                  {retryingAnswer ? '正在重试…' : '重试生成'}
+                  {retryingAnswer ? t('retrying') : t('retryGeneration')}
                 </button>
               )}
               {!message.streaming && workspaceActions.map((action) => {
@@ -793,7 +795,7 @@ export default function MessageBubble({ message, client }: Props) {
                       disabled={busy || action.status === 'cancelled'}
                       onClick={() => void handleWorkspaceAction(action, 'activate_map')}
                     >
-                      {busy ? '正在打开地图…' : action.payload.action_text || '在右侧地图查看这些地点'}
+                      {busy ? t('openingMap') : action.payload.action_text || t('viewPlacesOnMap')}
                     </button>
                   );
                 }
@@ -818,28 +820,28 @@ export default function MessageBubble({ message, client }: Props) {
                   />;
                 }
                 const title = action.kind === 'calendar_changes'
-                  ? action.payload.summary || '是否应用这组日程变更？'
-                  : `生成图片：${action.payload.prompt || ''}`;
+                  ? action.payload.summary || t('applyCalendarChanges')
+                  : t('generateImagePrompt', { prompt: String(action.payload.prompt || '') });
                 const result = action.result || {};
                 return (
                   <div key={action.id} className="workspace-confirm-card">
                     <div className="workspace-confirm-title">{title}</div>
                     {action.payload.warnings?.map((warning) => (
-                      <div key={warning} className="workspace-confirm-warning">⚠ {warning}，请确认是否仍要继续</div>
+                      <div key={warning} className="workspace-confirm-warning">{t('warningContinue', { warning })}</div>
                     ))}
                     {action.status === 'awaiting_confirmation' ? (
                       <div className="workspace-confirm-actions">
-                        <Button size="small" theme="primary" loading={busy} onClick={() => void handleWorkspaceAction(action, 'confirm_action')}>确认</Button>
-                        <Button size="small" variant="outline" disabled={busy} onClick={() => void handleWorkspaceAction(action, 'cancel_action')}>取消</Button>
+                        <Button size="small" theme="primary" loading={busy} onClick={() => void handleWorkspaceAction(action, 'confirm_action')}>{t('confirm')}</Button>
+                        <Button size="small" variant="outline" disabled={busy} onClick={() => void handleWorkspaceAction(action, 'cancel_action')}>{t('cancel')}</Button>
                       </div>
                     ) : (
                       <div className={`workspace-action-status status-${action.status}`}>
-                        {action.status === 'succeeded' ? '✓ 已完成' : action.status === 'cancelled' ? '已取消' : action.status === 'reconciliation_required' ? `需要人工核对：${action.error || '外部结果未知'}` : action.status === 'failed' ? `失败：${action.error || '执行失败'}` : '处理中…'}
+                        {action.status === 'succeeded' ? t('completed') : action.status === 'cancelled' ? t('cancelled') : action.status === 'reconciliation_required' ? t('needsReview', { error: action.error || t('externalResultUnknown') }) : action.status === 'failed' ? t('failedWithReason', { error: action.error || t('executionFailed') }) : t('processing')}
                       </div>
                     )}
-                    {typeof result.join_url === 'string' && result.join_url && <a href={result.join_url} target="_blank" rel="noreferrer">加入腾讯会议</a>}
-                    {typeof result.trace_id === 'string' && result.trace_id && <div className="workspace-confirm-meta">追踪号：{result.trace_id}</div>}
-                    {typeof result.image_url === 'string' && result.image_url && <img className="workspace-generated-image" src={result.image_url} alt={String(action.payload.prompt || '生成图片')} />}
+                    {typeof result.join_url === 'string' && result.join_url && <a href={result.join_url} target="_blank" rel="noreferrer">{t('joinTencentMeeting')}</a>}
+                    {typeof result.trace_id === 'string' && result.trace_id && <div className="workspace-confirm-meta">{t('traceId', { id: result.trace_id })}</div>}
+                    {typeof result.image_url === 'string' && result.image_url && <img className="workspace-generated-image" src={result.image_url} alt={String(action.payload.prompt || t('generatedImage'))} />}
                   </div>
                 );
               })}
@@ -867,11 +869,11 @@ export default function MessageBubble({ message, client }: Props) {
           <div className="followup-section">
             <div className="travel-intent-card" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
               <div style={{ fontWeight: 600, fontSize: 14 }}>
-                ✅ 会议已创建：{meetingResult.subject}
+                {t('meetingCreated', { subject: meetingResult.subject || t('unnamedMeeting') })}
               </div>
               {meetingResult.meeting_code && (
                 <div style={{ fontSize: 13, color: 'var(--app-text-2)' }}>
-                  会议号：{meetingResult.meeting_code}
+                  {t('meetingCode', { code: meetingResult.meeting_code })}
                 </div>
               )}
               {meetingResult.join_url && (
@@ -886,7 +888,7 @@ export default function MessageBubble({ message, client }: Props) {
               )}
               {meetingResult.start_time && (
                 <div style={{ fontSize: 12, color: 'var(--app-text-3)' }}>
-                  开始时间：{meetingResult.start_time}
+                  {t('startTimeValue', { time: meetingResult.start_time })}
                 </div>
               )}
             </div>
@@ -907,7 +909,7 @@ export default function MessageBubble({ message, client }: Props) {
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 20 }}>⚠️</span>
-                <span style={{ fontWeight: 600, fontSize: 14 }}>创建失败</span>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>{t('creationFailed')}</span>
               </div>
               <div className="travel-intent-text">
                 <span className="travel-intent-icon">⚠️</span>
@@ -932,14 +934,14 @@ export default function MessageBubble({ message, client }: Props) {
                 onClick={handleSkillAction}
               >
                 {(meetingCreating && intent === 'meeting')
-                  ? (meetingStatusText || '处理中...')
+                  ? (meetingStatusText || t('processing'))
                   : (imageGenerating && intent === 'image')
-                  ? '生成中...'
+                  ? t('generatingEllipsis')
                   : compatSkill.action_label}
               </Button>
               {actionId && (intent === 'meeting' || intent === 'image') && (
                 <Button variant="outline" size="small" onClick={() => { void handleCancelAction(); }}>
-                  取消
+                  {t('cancel')}
                 </Button>
               )}
             </div>
@@ -952,7 +954,7 @@ export default function MessageBubble({ message, client }: Props) {
             <div className="message-generated-image">
               <img
                 src={imageResult.image_url}
-                alt={imageResult.prompt || '生成的图片'}
+                alt={imageResult.prompt || t('generatedImageAlt')}
               />
             </div>
           </div>
@@ -979,8 +981,8 @@ export default function MessageBubble({ message, client }: Props) {
         {message.paperFileId && !message.streaming && (
           <PaperInlineReader
             fileId={message.paperFileId}
-            fileName={message.paperFileName || 'PDF 文档'}
-            title={message.paperTitle || message.paperFileName || 'PDF 阅读'}
+            fileName={message.paperFileName || t('pdfDocument')}
+            title={message.paperTitle || message.paperFileName || t('pdfReading')}
             assistantEnabled={message.paperIsPaper ?? message.content.includes('已识别为论文')}
           />
         )}
@@ -990,7 +992,7 @@ export default function MessageBubble({ message, client }: Props) {
         {/* === 追问建议（只在最后一条 AI 消息显示） === */}
         {!isUser && !message.streaming && isLastAIMessage && message.followUps && message.followUps.length > 0 && (
           <div className="followup-section answer-followups" style={followUpWidth ? { width: followUpWidth } : undefined}>
-            <div className="followup-label">猜你想继续问</div>
+            <div className="followup-label">{t('followUpLabel')}</div>
             <div className="followup-list">
               {message.followUps.map((q, i) => (
                 <button key={i} className="followup-chip" onClick={() => handleFollowUp(q)}>

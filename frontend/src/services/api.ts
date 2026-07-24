@@ -5,6 +5,7 @@ import { createConversationId, makersConversationHeaders } from './conversation'
 import { splitSseFrames } from './sse';
 import { normalizeTimestamp } from './time';
 import { isCurrentConversationId } from './dataVersion';
+import { translate } from '../i18n';
 
 const BASE = '/api';
 
@@ -50,7 +51,7 @@ export async function workspaceOperation(
     body: JSON.stringify({ operation, ...input }),
   });
   const data = await res.json().catch(() => ({})) as WorkspaceResponse & { error?: string };
-  if (!res.ok) throw new Error(data.error || '工作区操作失败');
+  if (!res.ok) throw new Error(data.error || translate('workspaceOperationFailed'));
   if (typeof window !== 'undefined' && Array.isArray(data.schedules)) {
     window.dispatchEvent(new CustomEvent('yuanbao:workspace-changed', { detail: data }));
     if (Array.isArray(data.changed) && data.changed.length > 0) {
@@ -71,7 +72,7 @@ export async function proactiveOperation(
     body: JSON.stringify({ operation, ...input }),
   });
   const data = await res.json().catch(() => ({})) as ProactiveState & { error?: string };
-  if (!res.ok) throw new Error(data.error || '主动服务操作失败');
+  if (!res.ok) throw new Error(data.error || translate('proactiveOperationFailed'));
   return data;
 }
 
@@ -86,7 +87,7 @@ export async function intelligenceOperation(
     body: JSON.stringify({ operation, ...input }),
   });
   const data = await res.json().catch(() => ({})) as MakersIntelligenceState & { error?: string };
-  if (!res.ok) throw new Error(data.error || '记忆与反馈操作失败');
+  if (!res.ok) throw new Error(data.error || translate('intelligenceOperationFailed'));
   return data;
 }
 
@@ -106,8 +107,8 @@ export async function skillsOperation(
   ]);
   const intelligence = await intelligenceRes.json().catch(() => ({})) as MakersIntelligenceState & { error?: string };
   const system = await systemRes.json().catch(() => ({})) as { providers?: { meeting?: boolean }; error?: string };
-  if (!intelligenceRes.ok) throw new Error(intelligence.error || 'Skills 设置保存失败');
-  if (!systemRes.ok) throw new Error(system.error || 'Skills 状态读取失败');
+  if (!intelligenceRes.ok) throw new Error(intelligence.error || translate('skillsSaveFailed'));
+  if (!systemRes.ok) throw new Error(system.error || translate('skillsStatusReadFailed'));
   return {
     preferences: intelligence.skill_preferences || {},
     providers: { meeting: Boolean(system.providers?.meeting) },
@@ -126,10 +127,10 @@ export async function streamImageEdit(
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({})) as { error?: string };
-    throw new Error(data.error || `图片修改失败（${res.status}）`);
+    throw new Error(data.error || translate('imageEditStatusFailed', { status: res.status }));
   }
   const reader = res.body?.getReader();
-  if (!reader) throw new Error('无法读取图片修改进度');
+  if (!reader) throw new Error(translate('imageEditProgressReadFailed'));
   const decoder = new TextDecoder();
   let buffer = '';
   let action: WorkspaceAction | undefined;
@@ -146,7 +147,7 @@ export async function streamImageEdit(
       } catch { /* Heartbeats and malformed frames do not end the edit. */ }
     }
   }
-  if (!action) throw new Error('图片修改服务未返回版本结果');
+  if (!action) throw new Error(translate('imageEditNoVersion'));
   return action;
 }
 
@@ -161,7 +162,7 @@ export async function searchMakersPlaces(
     body: JSON.stringify({ query, city, limit: 10 }),
   });
   const data = await res.json().catch(() => ({})) as { places?: MakersMapPlace[]; error?: string };
-  if (!res.ok) throw new Error(data.error || '地点搜索失败');
+  if (!res.ok) throw new Error(data.error || translate('placeSearchFailed'));
   return data.places || [];
 }
 
@@ -176,7 +177,7 @@ export async function planMakersRoute(
     body: JSON.stringify({ places, mode: 'driving', optimize }),
   });
   const data = await res.json().catch(() => ({})) as { route?: MakersRoutePlan; error?: string };
-  if (!res.ok || !data.route) throw new Error(data.error || '真实道路路线规划失败');
+  if (!res.ok || !data.route) throw new Error(data.error || translate('realRoutePlanningFailed'));
   return data.route;
 }
 
@@ -205,7 +206,7 @@ export async function bootstrapApp(
       signal: controller.signal,
     });
     if (res.ok) return res.json();
-    if (options.strict) throw new Error(`读取 Makers 运行状态失败（HTTP ${res.status}）`);
+    if (options.strict) throw new Error(translate('makersRunReadStatusFailed', { status: res.status }));
   } catch (error) {
     if (options.strict) throw error;
     /* a new conversation has no checkpoint yet */
@@ -231,7 +232,7 @@ function normalizeConversation(item: Record<string, unknown>): ConversationSumma
     : run?.status === 'failed' ? 'failed' : 'idle';
   return {
     id,
-    title: String(metadata.title || item.title || '新对话'),
+    title: String(metadata.title || item.title || translate('newConversation')),
     createdAt,
     updatedAt,
     messageCount: Number(item.messageCount || item.message_count || 0),
@@ -241,7 +242,7 @@ function normalizeConversation(item: Record<string, unknown>): ConversationSumma
 
 export async function listConversations(): Promise<ConversationSummary[]> {
   const res = await authorizedFetch('/conversations');
-  if (!res.ok) throw new Error('读取历史对话失败');
+  if (!res.ok) throw new Error(translate('readConversationsFailed'));
   const data = await res.json() as { conversations?: Record<string, unknown>[] };
   return (data.conversations || [])
     .map(normalizeConversation)
@@ -251,7 +252,7 @@ export async function listConversations(): Promise<ConversationSummary[]> {
 
 export async function createNewConversation(): Promise<ConversationSummary> {
   const now = Date.now();
-  return { id: createConversationId(), title: '新对话', createdAt: now, updatedAt: now, messageCount: 0, pending: true };
+  return { id: createConversationId(), title: translate('newConversation'), createdAt: now, updatedAt: now, messageCount: 0, pending: true };
 }
 
 export async function saveConversationMessage(conversationId: string, message: ChatMessage): Promise<void> {
@@ -262,7 +263,7 @@ export async function saveConversationMessage(conversationId: string, message: C
       role: message.role, content: message.content, metadata: message,
     }),
   });
-  if (!res.ok) throw new Error('保存消息失败');
+  if (!res.ok) throw new Error(translate('saveMessageFailed'));
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('yuanbao:conversation-saved', {
       detail: { conversationId },
@@ -277,12 +278,12 @@ export async function uploadDocument(conversationId: string, file: File): Promis
     body: JSON.stringify({ conversation_id: conversationId, name: file.name, content_type: file.type || 'application/pdf', size: file.size }),
   });
   const upload = await signed.json().catch(() => ({})) as { url?: string; key?: string; content_url?: string; error?: string };
-  if (!signed.ok || !upload.url || !upload.key) throw new Error(upload.error || '无法创建 Makers Blob 上传地址');
+  if (!signed.ok || !upload.url || !upload.key) throw new Error(upload.error || translate('blobUploadUrlFailed'));
   const stored = await fetch(upload.url, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/pdf' }, body: file });
-  if (!stored.ok) throw new Error('上传到 Makers Blob 失败');
+  if (!stored.ok) throw new Error(translate('blobUploadFailed'));
   return {
     id: upload.key, original_name: file.name, mime_type: file.type || 'application/pdf', size_bytes: file.size,
-    page_count: 0, total_chars: 0, preview: '文件已保存到 EdgeOne Makers Blob。', created_at: Date.now(),
+    page_count: 0, total_chars: 0, preview: translate('blobSavedPreview'), created_at: Date.now(),
     storage_key: upload.key, content_url: upload.content_url ? withEdgeOneAuth(upload.content_url) : undefined,
   };
 }
@@ -315,7 +316,7 @@ export async function analyzeTravelIntent(params: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  if (!res.ok) throw new Error('分析失败');
+  if (!res.ok) throw new Error(translate('analysisFailed'));
   return res.json();
 }
 
@@ -343,7 +344,7 @@ export async function generateTravelPlan(params: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  if (!res.ok) throw new Error('生成旅游计划失败');
+  if (!res.ok) throw new Error(translate('travelGenerationFailed'));
   return res.json();
 }
 
@@ -353,7 +354,7 @@ export async function saveTravelPlan(sessionId: string, plan: TravelPlan): Promi
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId, plan }),
   });
-  if (!res.ok) throw new Error('保存计划失败');
+  if (!res.ok) throw new Error(translate('planSaveFailed'));
   return res.json();
 }
 
@@ -363,7 +364,7 @@ export async function updateTravelPlan(sessionId: string, planId: string, plan: 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId, plan }),
   });
-  if (!res.ok) throw new Error('更新计划失败');
+  if (!res.ok) throw new Error(translate('planUpdateFailed'));
   return res.json();
 }
 
@@ -371,7 +372,7 @@ export async function deleteTravelPlan(sessionId: string, planId: string): Promi
   const res = await authorizedFetch(`${BASE}/travel/plans/${sessionId}/${planId}`, {
     method: 'DELETE',
   });
-  if (!res.ok) throw new Error('删除计划失败');
+  if (!res.ok) throw new Error(translate('planDeleteFailed'));
   return res.json();
 }
 
@@ -397,7 +398,7 @@ export async function saveSchedule(sessionId: string, schedule: Partial<Schedule
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId, schedule }),
   });
-  if (!res.ok) throw new Error('保存日程失败');
+  if (!res.ok) throw new Error(translate('scheduleSaveFailed'));
   return res.json();
 }
 
@@ -407,7 +408,7 @@ export async function updateSchedule(sessionId: string, scheduleId: string, sche
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId, schedule }),
   });
-  if (!res.ok) throw new Error('更新日程失败');
+  if (!res.ok) throw new Error(translate('scheduleUpdateFailed'));
   return res.json();
 }
 
@@ -415,7 +416,7 @@ export async function deleteSchedule(sessionId: string, scheduleId: string): Pro
   const res = await authorizedFetch(`${BASE}/schedules/${sessionId}/${scheduleId}`, {
     method: 'DELETE',
   });
-  if (!res.ok) throw new Error('删除日程失败');
+  if (!res.ok) throw new Error(translate('scheduleDeleteFailed'));
   return res.json();
 }
 
@@ -423,7 +424,7 @@ export async function toggleScheduleDone(sessionId: string, scheduleId: string, 
   const res = await authorizedFetch(`${BASE}/schedules/${sessionId}/${scheduleId}/done?done=${done}`, {
     method: 'PATCH',
   });
-  if (!res.ok) throw new Error('操作失败');
+  if (!res.ok) throw new Error(translate('operationFailed'));
   return res.json();
 }
 
@@ -494,7 +495,7 @@ export async function planDailyRoute(params: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  if (!res.ok) throw new Error('路线规划失败');
+  if (!res.ok) throw new Error(translate('routePlanningFailed'));
   return res.json();
 }
 
@@ -522,7 +523,7 @@ export async function planRoute(origin: string, destination: string, waypoints?:
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ origin, destination, waypoints }),
   });
-  if (!res.ok) throw new Error('路线规划失败');
+  if (!res.ok) throw new Error(translate('routePlanningFailed'));
   return res.json();
 }
 
@@ -548,13 +549,13 @@ export async function createMeeting(sessionId: string, message: string): Promise
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId, message }),
   });
-  if (!res.ok) throw new Error('创建会议失败');
+  if (!res.ok) throw new Error(translate('createMeetingFailed'));
   return res.json();
 }
 
 export async function checkMeetingStatus(): Promise<{ ok: boolean; error?: string }> {
   const res = await authorizedFetch(`${BASE}/meeting/status`);
-  if (!res.ok) return { ok: false, error: '检查失败' };
+  if (!res.ok) return { ok: false, error: translate('checkFailed') };
   return res.json();
 }
 
@@ -574,13 +575,13 @@ export async function generateImage(prompt: string): Promise<{ ok: boolean; imag
 export async function listAgentRuns(status?: string): Promise<import('../types').AgentRun[]> {
   const query = status ? `?status=${encodeURIComponent(status)}` : '';
   const res = await authorizedFetch(`${BASE}/runs${query}`);
-  if (!res.ok) throw new Error('读取 Agent 运行记录失败');
+  if (!res.ok) throw new Error(translate('agentRunsReadFailed'));
   return (await res.json()).runs || [];
 }
 
 export async function getAgentRun(runId: string): Promise<import('../types').AgentRun> {
   const res = await authorizedFetch(`${BASE}/runs/${encodeURIComponent(runId)}`);
-  if (!res.ok) throw new Error('读取 Agent 运行记录失败');
+  if (!res.ok) throw new Error(translate('agentRunsReadFailed'));
   return (await res.json()).run;
 }
 
@@ -588,20 +589,20 @@ export async function cancelAgentRun(runId: string): Promise<import('../types').
   const res = await authorizedFetch(`${BASE}/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(typeof data.detail === 'string' ? data.detail : '取消 Agent 任务失败');
+    throw new Error(typeof data.detail === 'string' ? data.detail : translate('agentCancelFailed'));
   }
   return (await res.json()).run;
 }
 
 export async function listPendingActions(status = 'all'): Promise<import('../types').PendingAction[]> {
   const res = await authorizedFetch(`${BASE}/actions?status=${encodeURIComponent(status)}`);
-  if (!res.ok) throw new Error('读取待确认操作失败');
+  if (!res.ok) throw new Error(translate('pendingActionsReadFailed'));
   return (await res.json()).actions || [];
 }
 
 export async function getPendingAction(actionId: string): Promise<import('../types').PendingAction> {
   const res = await authorizedFetch(`${BASE}/actions/${encodeURIComponent(actionId)}`);
-  if (!res.ok) throw new Error('读取操作状态失败');
+  if (!res.ok) throw new Error(translate('actionStatusReadFailed'));
   return (await res.json()).action;
 }
 
@@ -613,7 +614,7 @@ export async function confirmPendingAction(actionId: string, version: number): P
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(typeof data.detail === 'string' ? data.detail : '确认操作失败');
+    throw new Error(typeof data.detail === 'string' ? data.detail : translate('actionConfirmFailed'));
   }
   return (await res.json()).action;
 }
@@ -622,7 +623,7 @@ export async function cancelPendingAction(actionId: string): Promise<import('../
   const res = await authorizedFetch(`${BASE}/actions/${encodeURIComponent(actionId)}/cancel`, { method: 'POST' });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(typeof data.detail === 'string' ? data.detail : '取消操作失败');
+    throw new Error(typeof data.detail === 'string' ? data.detail : translate('actionCancelFailed'));
   }
   return (await res.json()).action;
 }
@@ -638,29 +639,29 @@ export async function waitForPendingAction(
     if (['succeeded', 'failed', 'cancelled', 'expired'].includes(action.status)) return action;
     await new Promise((resolve) => window.setTimeout(resolve, pollMs));
   }
-  throw new Error('操作仍在后台执行，可在 Action Center 中继续查看');
+  throw new Error(translate('actionStillRunning'));
 }
 
 export async function listAgentNotifications(since?: number): Promise<import('../types').AgentNotification[]> {
   const query = since ? `?since=${encodeURIComponent(since)}` : '';
   const res = await authorizedFetch(`${BASE}/notifications${query}`);
-  if (!res.ok) throw new Error('读取通知失败');
+  if (!res.ok) throw new Error(translate('notificationsReadFailed'));
   return (await res.json()).notifications || [];
 }
 
 export async function markAgentNotificationRead(notificationId: string): Promise<void> {
   const res = await authorizedFetch(`${BASE}/notifications/${encodeURIComponent(notificationId)}/read`, { method: 'POST' });
-  if (!res.ok) throw new Error('标记通知失败');
+  if (!res.ok) throw new Error(translate('notificationMarkFailed'));
 }
 
 export async function dismissAgentNotification(notificationId: string): Promise<void> {
   const res = await authorizedFetch(`${BASE}/notifications/${encodeURIComponent(notificationId)}/dismiss`, { method: 'POST' });
-  if (!res.ok) throw new Error('忽略通知失败');
+  if (!res.ok) throw new Error(translate('notificationDismissFailed'));
 }
 
 export async function getNotificationPreferences(): Promise<import('../types').NotificationPreferences> {
   const res = await authorizedFetch(`${BASE}/notification-preferences`);
-  if (!res.ok) throw new Error('读取通知设置失败');
+  if (!res.ok) throw new Error(translate('notificationSettingsReadFailed'));
   return (await res.json()).preferences;
 }
 
@@ -672,20 +673,20 @@ export async function updateNotificationPreferences(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(changes),
   });
-  if (!res.ok) throw new Error('更新通知设置失败');
+  if (!res.ok) throw new Error(translate('notificationSettingsUpdateFailed'));
   return (await res.json()).preferences;
 }
 
 export async function listScheduledJobs(): Promise<import('../types').ScheduledJob[]> {
   const res = await authorizedFetch(`${BASE}/scheduled-jobs`);
-  if (!res.ok) throw new Error('读取定时任务失败');
+  if (!res.ok) throw new Error(translate('scheduledTasksReadFailed'));
   return (await res.json()).jobs || [];
 }
 
 // ============ 记忆、反馈与使用预算 ============
 export async function listMemoryProposals(status = 'awaiting_confirmation'): Promise<import('../types').MemoryProposal[]> {
   const res = await authorizedFetch(`${BASE}/memory-proposals?status=${encodeURIComponent(status)}`);
-  if (!res.ok) throw new Error('读取记忆提案失败');
+  if (!res.ok) throw new Error(translate('memoryProposalsReadFailed'));
   return (await res.json()).proposals || [];
 }
 
@@ -700,30 +701,30 @@ export async function confirmMemoryProposal(
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(typeof data.detail === 'string' ? data.detail : '确认记忆失败');
+    throw new Error(typeof data.detail === 'string' ? data.detail : translate('memoryConfirmFailed'));
   }
   return await res.json();
 }
 
 export async function rejectMemoryProposal(proposalId: string): Promise<void> {
   const res = await authorizedFetch(`${BASE}/memory-proposals/${encodeURIComponent(proposalId)}/reject`, { method: 'POST' });
-  if (!res.ok) throw new Error('拒绝记忆提案失败');
+  if (!res.ok) throw new Error(translate('memoryRejectFailed'));
 }
 
 export async function listAgentMemories(): Promise<import('../types').AgentMemory[]> {
   const res = await authorizedFetch(`${BASE}/memories`);
-  if (!res.ok) throw new Error('读取长期记忆失败');
+  if (!res.ok) throw new Error(translate('longTermMemoryReadFailed'));
   return (await res.json()).memories || [];
 }
 
 export async function deleteAgentMemory(memoryId: string): Promise<void> {
   const res = await authorizedFetch(`${BASE}/memories/${encodeURIComponent(memoryId)}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('删除记忆失败');
+  if (!res.ok) throw new Error(translate('memoryDeleteFailed'));
 }
 
 export async function exportAgentMemories(): Promise<{ schema_version: number; memories: import('../types').AgentMemory[] }> {
   const res = await authorizedFetch(`${BASE}/memories-export`);
-  if (!res.ok) throw new Error('导出记忆失败');
+  if (!res.ok) throw new Error(translate('memoryExportFailed'));
   return await res.json();
 }
 
@@ -740,13 +741,13 @@ export async function recordAgentFeedback(input: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error('记录反馈失败');
+  if (!res.ok) throw new Error(translate('feedbackRecordFailed'));
   return await res.json();
 }
 
 export async function getUsageSummary(): Promise<import('../types').UsageSummary> {
   const res = await authorizedFetch(`${BASE}/usage-summary`);
-  if (!res.ok) throw new Error('读取使用量失败');
+  if (!res.ok) throw new Error(translate('usageReadFailed'));
   return await res.json();
 }
 
@@ -758,14 +759,14 @@ export async function updateUsagePreferences(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(changes),
   });
-  if (!res.ok) throw new Error('更新预算设置失败');
+  if (!res.ok) throw new Error(translate('budgetUpdateFailed'));
   return (await res.json()).preferences;
 }
 
 // ============ 系统健康与备份恢复 ============
 export async function getSystemHealth(): Promise<import('../types').SystemHealth> {
   const res = await authorizedFetch(`${BASE}/system/health`);
-  if (!res.ok) throw new Error('读取系统健康状态失败');
+  if (!res.ok) throw new Error(translate('systemHealthReadFailed'));
   return await res.json();
 }
 
@@ -773,7 +774,7 @@ export async function downloadSystemBackup(): Promise<string> {
   const res = await authorizedFetch(`${BASE}/system/backup/export`, { method: 'POST' });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(typeof data.detail === 'string' ? data.detail : '生成备份失败');
+    throw new Error(typeof data.detail === 'string' ? data.detail : translate('backupCreateFailed'));
   }
   const disposition = res.headers.get('Content-Disposition') || '';
   const matched = disposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
@@ -800,7 +801,7 @@ export async function stageSystemRestore(file: File): Promise<import('../types')
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(typeof data.detail === 'string' ? data.detail : '备份校验失败');
+    throw new Error(typeof data.detail === 'string' ? data.detail : translate('backupValidationFailed'));
   }
   return await res.json();
 }

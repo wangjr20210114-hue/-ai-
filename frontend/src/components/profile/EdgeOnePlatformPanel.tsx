@@ -6,8 +6,7 @@ import { intelligenceOperation, searchMakersPlaces, workspaceOperation } from '.
 import type { MakersMapPlace, ScheduleItem } from '../../types';
 import MakersMap from './MakersMap';
 import ReadingLibraryPanel from './ReadingLibraryPanel';
-
-const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+import { useLanguage } from '../../i18n';
 const EMPTY_SCHEDULES: ScheduleItem[] = [];
 
 function dateKey(date: Date): string {
@@ -23,6 +22,8 @@ function isPastCalendarDate(date: Date, now = new Date()): boolean {
 }
 
 export default function EdgeOnePlatformPanel() {
+  const { language, t } = useLanguage();
+  const locale = language === 'zh-TW' ? 'zh-TW' : language === 'en' ? 'en' : 'zh-CN';
   const dispatch = useAppDispatch();
   const { conversationId, schedules, mapPlaces, mapTitle, mapRevision, calendarPulse } = useAppState();
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -111,10 +112,14 @@ export default function EdgeOnePlatformPanel() {
   );
   const effectiveTitle = showRecommendation && mapPlaces.length
     ? mapTitle
-    : `${selectedDate.getMonth() + 1}月${selectedDate.getDate()}日日程路线`;
+    : t('daySchedule', { date: selectedDate.toLocaleDateString(locale, { month: 'long', day: 'numeric' }) });
   const showingRecommendation = showRecommendation && mapPlaces.length > 0;
   const showingScheduleRoute = !showingRecommendation && schedulePlaces.length >= 2;
-  const monthLabel = `${currentMonth.getFullYear()}年${currentMonth.getMonth() + 1}月`;
+  const monthLabel = currentMonth.toLocaleDateString(locale, { year: 'numeric', month: 'long' });
+  const weekdays = useMemo(() => Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(2023, 0, 1 + index);
+    return new Intl.DateTimeFormat(locale, { weekday: 'narrow' }).format(date);
+  }), [locale]);
   const selectedDateIsPast = isPastCalendarDate(selectedDate);
   const todayKey = dateKey(new Date());
   const mapsEnabled = skillPreferences.maps !== false;
@@ -122,12 +127,12 @@ export default function EdgeOnePlatformPanel() {
 
   const openScheduleForm = (item?: ScheduleItem) => {
     if (!calendarEnabled) {
-      MessagePlugin.info('请先在 Skills 广场开启日程管理');
+      MessagePlugin.info(t('enableCalendarFirst'));
       window.dispatchEvent(new CustomEvent('yuanbao:open-skills'));
       return;
     }
     if (isPastCalendarDate(item ? new Date(item.start_time * 1000) : selectedDate)) {
-      MessagePlugin.warning('今天之前的日程只供查看，不能修改');
+      MessagePlugin.warning(t('pastScheduleReadOnly'));
       return;
     }
     const start = item ? new Date(item.start_time * 1000) : new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 9, 0);
@@ -188,12 +193,12 @@ export default function EdgeOnePlatformPanel() {
           }
         })
         .catch((error) => {
-          if (!disposed) MessagePlugin.error(error instanceof Error ? error.message : '地点搜索失败');
+          if (!disposed) MessagePlugin.error(error instanceof Error ? error.message : t('placeSearchFailed'));
         })
         .finally(() => { if (!disposed) setPlaceSearchBusy(false); });
     }, 350);
     return () => { disposed = true; window.clearTimeout(timer); };
-  }, [conversationId, formOpen, mapsEnabled, placeQuery, selectedPlace]);
+  }, [conversationId, formOpen, mapsEnabled, placeQuery, selectedPlace, t]);
 
   const selectPlace = (place: MakersMapPlace) => {
     setSelectedPlace(place);
@@ -201,7 +206,10 @@ export default function EdgeOnePlatformPanel() {
     setPlaceOptions([]);
     setPlaceOptionsOpen(false);
     setFormDescription((current) => {
-      const nextAuto = `前往${place.name}${place.address ? `（${place.address}）` : ''}`;
+      const nextAuto = t('goToPlaceDescription', {
+        name: place.name,
+        address: place.address ? t('parenthesizedAddress', { address: place.address }) : '',
+      });
       if (!current.trim() || current === autoDescriptionRef.current) {
         autoDescriptionRef.current = nextAuto;
         return nextAuto;
@@ -212,21 +220,21 @@ export default function EdgeOnePlatformPanel() {
 
   const saveSchedule = async () => {
     if (!formTitle.trim() || !formStart || !formEnd) {
-      MessagePlugin.warning('请填写标题和开始/结束时间');
+      MessagePlugin.warning(t('scheduleRequiredFields'));
       return;
     }
     if (mapsEnabled && placeQuery.trim() && !selectedPlace) {
-      MessagePlugin.warning('请从地点候选中选择真实地点，或清空地点');
+      MessagePlugin.warning(t('selectVerifiedPlace'));
       return;
     }
     const startTime = Math.floor(new Date(formStart).getTime() / 1000);
     const endTime = Math.floor(new Date(formEnd).getTime() / 1000);
     if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime <= startTime) {
-      MessagePlugin.warning('结束时间必须晚于开始时间');
+      MessagePlugin.warning(t('endAfterStart'));
       return;
     }
     if (isPastCalendarDate(new Date(startTime * 1000))) {
-      MessagePlugin.warning('不能新增或移动到今天之前的日程');
+      MessagePlugin.warning(t('cannotSchedulePast'));
       return;
     }
     setFormBusy(true);
@@ -252,9 +260,9 @@ export default function EdgeOnePlatformPanel() {
       setEditingId('');
       setPlaceOptionsOpen(false);
       setShowRecommendation(false);
-      MessagePlugin.success(editingId ? '日程已更新' : '日程已添加');
+      MessagePlugin.success(editingId ? t('scheduleUpdated') : t('scheduleAdded'));
     } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '保存失败');
+      MessagePlugin.error(error instanceof Error ? error.message : t('saveFailed'));
     } finally {
       setFormBusy(false);
     }
@@ -262,7 +270,7 @@ export default function EdgeOnePlatformPanel() {
 
   const deleteSchedule = async (item: ScheduleItem) => {
     if (isPastCalendarDate(new Date(item.start_time * 1000))) {
-      MessagePlugin.warning('今天之前的日程只供查看，不能删除');
+      MessagePlugin.warning(t('pastScheduleCannotDelete'));
       return;
     }
     try {
@@ -274,9 +282,9 @@ export default function EdgeOnePlatformPanel() {
       if (editingId === item.id) { setFormOpen(false); setEditingId(''); }
       setDeleteConfirmId('');
       setShowRecommendation(false);
-      MessagePlugin.success('日程已删除');
+      MessagePlugin.success(t('scheduleDeleted'));
     } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '删除失败');
+      MessagePlugin.error(error instanceof Error ? error.message : t('deleteFailed'));
     }
   };
 
@@ -288,22 +296,22 @@ export default function EdgeOnePlatformPanel() {
   };
 
   const scheduleForm = (
-    <div className={`makers-schedule-form schedule-inline-editor ${editingId ? 'is-editing' : 'is-creating'}`} aria-label={editingId ? '编辑日程' : '添加日程'}>
+    <div className={`makers-schedule-form schedule-inline-editor ${editingId ? 'is-editing' : 'is-creating'}`} aria-label={editingId ? t('editSchedule') : t('addSchedule')}>
       <div className="schedule-inline-heading">
-        <strong>{editingId ? '编辑这项日程' : '添加新日程'}</strong>
-        <button type="button" aria-label="关闭日程编辑" onClick={closeScheduleForm}>×</button>
+        <strong>{editingId ? t('editThisSchedule') : t('addNewSchedule')}</strong>
+        <button type="button" aria-label={t('closeScheduleEditor')} onClick={closeScheduleForm}>×</button>
       </div>
-      <input value={formTitle} onInput={(event) => setFormTitle(event.currentTarget.value)} placeholder="日程标题" maxLength={120} />
+      <input value={formTitle} onInput={(event) => setFormTitle(event.currentTarget.value)} placeholder={t('scheduleTitle')} maxLength={120} />
       <div className="makers-schedule-datetime">
-        <label>日期<input aria-label="日程日期" type="date" min={todayKey} value={formStart.slice(0, 10)} onInput={(event) => {
+        <label>{t('date')}<input aria-label={t('scheduleDate')} type="date" min={todayKey} value={formStart.slice(0, 10)} onInput={(event) => {
           const date = event.currentTarget.value;
           setFormStart(`${date}T${formStart.slice(11, 16) || '09:00'}`);
           setFormEnd(`${date}T${formEnd.slice(11, 16) || '10:00'}`);
         }} /></label>
-        <label>开始时间<input aria-label="日程开始时间" type="time" value={formStart.slice(11, 16)} onInput={(event) => setFormStart(`${formStart.slice(0, 10) || dateKey(selectedDate)}T${event.currentTarget.value}`)} /></label>
-        <label>结束时间<input aria-label="日程结束时间" type="time" value={formEnd.slice(11, 16)} onInput={(event) => setFormEnd(`${formEnd.slice(0, 10) || formStart.slice(0, 10) || dateKey(selectedDate)}T${event.currentTarget.value}`)} /></label>
+        <label>{t('startTime')}<input aria-label={t('scheduleStartTime')} type="time" value={formStart.slice(11, 16)} onInput={(event) => setFormStart(`${formStart.slice(0, 10) || dateKey(selectedDate)}T${event.currentTarget.value}`)} /></label>
+        <label>{t('endTime')}<input aria-label={t('scheduleEndTime')} type="time" value={formEnd.slice(11, 16)} onInput={(event) => setFormEnd(`${formEnd.slice(0, 10) || formStart.slice(0, 10) || dateKey(selectedDate)}T${event.currentTarget.value}`)} /></label>
       </div>
-      <textarea value={formDescription} onChange={(event) => { setFormDescription(event.target.value); autoDescriptionRef.current = ''; }} placeholder="日程描述（可编辑；选择地点后会自动生成建议）" maxLength={1000} rows={3} />
+      <textarea value={formDescription} onChange={(event) => { setFormDescription(event.target.value); autoDescriptionRef.current = ''; }} placeholder={t('scheduleDescriptionPlaceholder')} maxLength={1000} rows={3} />
       {mapsEnabled ? <>
         <div className="makers-place-picker" ref={placePickerRef}>
           <div className="makers-place-search-row makers-place-autocomplete">
@@ -312,10 +320,10 @@ export default function EdgeOnePlatformPanel() {
               onFocus={() => { if (placeOptions.length) setPlaceOptionsOpen(true); }}
               onKeyDown={(event) => { if (event.key === 'Escape') setPlaceOptionsOpen(false); }}
               onChange={(event) => { setPlaceQuery(event.target.value); setSelectedPlace(null); setPlaceOptionsOpen(true); }}
-              placeholder="输入地点名称，系统会自动查找真实地点"
+              placeholder={t('placeSearchPlaceholder')}
             />
-            {placeSearchBusy && <span className="makers-place-searching">正在查找…</span>}
-            {placeOptionsOpen && <button type="button" className="makers-place-close" aria-label="关闭地点候选" onClick={() => setPlaceOptionsOpen(false)}>×</button>}
+            {placeSearchBusy && <span className="makers-place-searching">{t('searching')}</span>}
+            {placeOptionsOpen && <button type="button" className="makers-place-close" aria-label={t('closePlaceSuggestions')} onClick={() => setPlaceOptionsOpen(false)}>×</button>}
           </div>
           {placeOptionsOpen && placeOptions.length > 0 && (
             <div className="makers-place-options">
@@ -327,14 +335,14 @@ export default function EdgeOnePlatformPanel() {
             </div>
           )}
         </div>
-        {selectedPlace && <div className="makers-selected-place">✓ 已选择：{selectedPlace.name}</div>}
+        {selectedPlace && <div className="makers-selected-place">{t('selectedPlace', { name: selectedPlace.name })}</div>}
       </> : <div className="schedule-map-dependency">
-        <span>当前可保存无地点日程。需要真实地点与路线时开启地图 Skill。</span>
-        <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('yuanbao:open-skills'))}>去开启</button>
+        <span>{t('scheduleWithoutMap')}</span>
+        <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('yuanbao:open-skills'))}>{t('enableNow')}</button>
       </div>}
       <div className="makers-form-actions">
-        <Button size="small" theme="primary" loading={formBusy} onClick={() => void saveSchedule()}>{editingId ? '确认更新' : '确认添加'}</Button>
-        <Button size="small" variant="outline" onClick={closeScheduleForm}>取消</Button>
+        <Button size="small" theme="primary" loading={formBusy} onClick={() => void saveSchedule()}>{editingId ? t('confirmUpdate') : t('confirmAdd')}</Button>
+        <Button size="small" variant="outline" onClick={closeScheduleForm}>{t('cancel')}</Button>
       </div>
     </div>
   );
@@ -351,13 +359,13 @@ export default function EdgeOnePlatformPanel() {
             showRoute={showingScheduleRoute}
             optimize={showingScheduleRoute}
           />
-          : <div className="workspace-skill-disabled"><span>⌖</span><strong>地图 Skill 已关闭</strong><small>日程仍可使用；开启地图后可核实真实地点和路线。</small><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('yuanbao:open-skills'))}>在 Skills 广场开启</button></div>}
+          : <div className="workspace-skill-disabled"><span>⌖</span><strong>{t('mapSkillDisabled')}</strong><small>{t('mapSkillDisabledDetail')}</small><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('yuanbao:open-skills'))}>{t('enableInSkills')}</button></div>}
       </div>
 
       <div className={`my-panel-card calendar-panel calendar-workspace-card ${dayViewOpen ? 'is-day-view' : ''}`}>
         {calendarPulse && (
           <div key={calendarPulse.token} className="calendar-write-notice">
-            ✓ 已写入 {calendarPulse.count} 项安排
+            {t('schedulesWritten', { count: calendarPulse.count })}
           </div>
         )}
         <div className="calendar-workspace-viewport">
@@ -368,7 +376,7 @@ export default function EdgeOnePlatformPanel() {
               <Button variant="text" size="small" icon={<ChevronRightIcon />} onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} />
             </div>
             <div className="calendar-weekdays">
-              {WEEKDAYS.map((weekday) => <div key={weekday} className="calendar-weekday">{weekday}</div>)}
+              {weekdays.map((weekday, index) => <div key={`${weekday}-${index}`} className="calendar-weekday">{weekday}</div>)}
             </div>
             <div className="calendar-grid">
               {calendarDays.map((date, index) => {
@@ -384,7 +392,7 @@ export default function EdgeOnePlatformPanel() {
                     tabIndex={dayViewOpen ? -1 : 0}
                     className={`calendar-day ${count ? 'has-events' : ''} ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''} ${isPulse ? 'calendar-day-pulse' : ''}`}
                     onClick={() => { setSelectedDate(date); setShowRecommendation(false); setDayViewOpen(true); }}
-                    title={count ? `${count} 项安排` : '暂无安排'}
+                    title={count ? t('scheduleItems', { count }) : t('noSchedule')}
                   >
                     <span className="calendar-day-num">{date.getDate()}</span>
                     {count > 0 && <span className="calendar-day-dot" />}
@@ -396,17 +404,17 @@ export default function EdgeOnePlatformPanel() {
 
           <section className="calendar-workspace-pane calendar-day-pane" aria-hidden={!dayViewOpen}>
             <div className="calendar-day-toolbar">
-              <Button shape="circle" variant="text" size="small" icon={<ArrowLeftIcon />} aria-label="返回日历" onClick={() => { setDayViewOpen(false); closeScheduleForm(); }} />
+              <Button shape="circle" variant="text" size="small" icon={<ArrowLeftIcon />} aria-label={t('backToCalendar')} onClick={() => { setDayViewOpen(false); closeScheduleForm(); }} />
               <div className="calendar-day-heading">
-                <strong>{selectedDate.getMonth() + 1}月{selectedDate.getDate()}日安排</strong>
-                <span>{selectedItems.length} 项</span>
+                <strong>{t('daySchedule', { date: selectedDate.toLocaleDateString(locale, { month: 'long', day: 'numeric' }) })}</strong>
+                <span>{t('itemCount', { count: selectedItems.length })}</span>
               </div>
-              <Button size="small" variant="text" disabled={selectedDateIsPast || !calendarEnabled} title={!calendarEnabled ? '请在 Skills 广场开启日程管理' : undefined} onClick={() => openScheduleForm()}>＋ 添加</Button>
+              <Button size="small" variant="text" disabled={selectedDateIsPast || !calendarEnabled} title={!calendarEnabled ? t('enableCalendarFirst') : undefined} onClick={() => openScheduleForm()}>＋ {t('add')}</Button>
             </div>
             <div className="calendar-day-scroll">
               {formOpen && !editingId && scheduleForm}
               {selectedItems.length === 0 ? (
-                <div className="makers-day-empty">这一天还没有安排</div>
+                <div className="makers-day-empty">{t('dayEmpty')}</div>
               ) : (
                 <div className="makers-day-list">
                   {selectedItems.map((item) => {
@@ -416,8 +424,8 @@ export default function EdgeOnePlatformPanel() {
                       <div key={item.id} className={`makers-day-item-shell ${formOpen && editingId === item.id ? 'is-editing' : ''}`}>
                         <div className="makers-day-item">
                           <div className="makers-day-time">
-                            {start.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                            <span>{end.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+                            {start.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false })}
+                            <span>{end.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
                           </div>
                           <div className="makers-day-content">
                             <div className="makers-day-title">{item.title}</div>
@@ -425,16 +433,16 @@ export default function EdgeOnePlatformPanel() {
                             {item.description && <div className="makers-day-description">{item.description}</div>}
                             {!selectedDateIsPast && calendarEnabled && (
                               <div className="makers-day-actions">
-                                <button type="button" aria-expanded={formOpen && editingId === item.id} onClick={() => openScheduleForm(item)}>编辑</button>
-                                <button type="button" aria-expanded={deleteConfirmId === item.id} onClick={() => { closeScheduleForm(); setDeleteConfirmId(item.id); }}>删除</button>
+                                <button type="button" aria-expanded={formOpen && editingId === item.id} onClick={() => openScheduleForm(item)}>{t('edit')}</button>
+                                <button type="button" aria-expanded={deleteConfirmId === item.id} onClick={() => { closeScheduleForm(); setDeleteConfirmId(item.id); }}>{t('delete')}</button>
                               </div>
                             )}
                           </div>
                         </div>
                         {formOpen && editingId === item.id && scheduleForm}
                         {deleteConfirmId === item.id && <div className="schedule-inline-delete" role="alert">
-                          <span>确定删除“{item.title}”吗？删除后会同步刷新主动提醒。</span>
-                          <div><button type="button" onClick={() => void deleteSchedule(item)}>确认删除</button><button type="button" onClick={() => setDeleteConfirmId('')}>取消</button></div>
+                          <span>{t('confirmDeleteSchedule', { title: item.title })}</span>
+                          <div><button type="button" onClick={() => void deleteSchedule(item)}>{t('confirmDelete')}</button><button type="button" onClick={() => setDeleteConfirmId('')}>{t('cancel')}</button></div>
                         </div>}
                       </div>
                     );

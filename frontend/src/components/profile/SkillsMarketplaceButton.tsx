@@ -3,10 +3,12 @@ import { Button, Dialog, MessagePlugin, Tag } from 'tdesign-react';
 import { AppIcon } from 'tdesign-icons-react';
 import { useAppState } from '../../store/appState';
 import { skillsOperation } from '../../services/api';
-import { SKILLS_CATALOG, SKILL_NAME } from './skillsCatalog';
+import { SKILLS_CATALOG } from './skillsCatalog';
+import { useLanguage } from '../../i18n';
 
 export default function SkillsMarketplaceButton() {
   const { conversationId } = useAppState();
+  const { t } = useLanguage();
   const [visible, setVisible] = useState(false);
   const [preferences, setPreferences] = useState<Record<string, boolean>>({});
   const [meetingConfigured, setMeetingConfigured] = useState(false);
@@ -20,9 +22,9 @@ export default function SkillsMarketplaceButton() {
       setPreferences(result.preferences);
       setMeetingConfigured(result.providers.meeting);
     } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '读取 Skills 状态失败');
+      MessagePlugin.error(error instanceof Error ? error.message : t('skillsReadFailed'));
     } finally { setLoading(false); }
-  }, [conversationId]);
+  }, [conversationId, t]);
 
   useEffect(() => { if (visible) void refresh(); }, [refresh, visible]);
   useEffect(() => {
@@ -51,20 +53,23 @@ export default function SkillsMarketplaceButton() {
       setMeetingConfigured(result.providers.meeting);
       window.dispatchEvent(new CustomEvent('yuanbao:skills-changed', { detail: result.preferences }));
       if (autoEnabled.length) {
-        MessagePlugin.success(`已同时开启必要依赖：${autoEnabled.map((id) => SKILL_NAME[id]).join('、')}`);
+        MessagePlugin.success(t('skillsDependenciesEnabled', { names: autoEnabled.map((id) => {
+          const dependency = SKILLS_CATALOG.find((item) => item.id === id);
+          return dependency ? t(dependency.nameKey) : id;
+        }).join('、') }));
       } else {
-        MessagePlugin.success(`${skill.name}已${enabled ? '开启' : '关闭'}`);
+        MessagePlugin.success(t('skillStateChanged', { name: t(skill.nameKey), state: enabled ? t('enabled') : t('disabled') }));
       }
     } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : 'Skills 设置保存失败');
+      MessagePlugin.error(error instanceof Error ? error.message : t('skillsSaveFailed'));
     } finally { setSavingId(''); }
   };
 
   return <>
-    <Button className="sidebar-settings-button" block variant="text" icon={<AppIcon />} onClick={() => setVisible(true)}>Skills 广场</Button>
+    <Button className="sidebar-settings-button" block variant="text" icon={<AppIcon />} onClick={() => setVisible(true)}>{t('skillsMarketplace')}</Button>
     <Dialog
       visible={visible}
-      header="Skills 广场"
+      header={t('skillsMarketplace')}
       width={760}
       placement="center"
       dialogClassName="secondary-dialog skills-marketplace-modal"
@@ -73,8 +78,8 @@ export default function SkillsMarketplaceButton() {
       onCancel={() => setVisible(false)}
     >
       <div className="skills-marketplace-head">
-        <div><strong>组合你的 Floris 能力</strong><span>现有能力默认开启，设置保存在 Makers 原生存储中。</span></div>
-        <Tag theme="primary" variant="light">已开启 {enabledCount}/{SKILLS_CATALOG.length}</Tag>
+        <div><strong>{t('composeSkills')}</strong><span>{t('skillsStoredNatively')}</span></div>
+        <Tag theme="primary" variant="light">{t('enabledCount', { enabled: enabledCount, total: SKILLS_CATALOG.length })}</Tag>
       </div>
       <div className="skills-marketplace" aria-busy={loading}>
         {SKILLS_CATALOG.map((skill) => {
@@ -87,32 +92,38 @@ export default function SkillsMarketplaceButton() {
             <div className="skill-market-icon" aria-hidden="true">{skill.icon}</div>
             <div className="skill-market-content">
               <div className="skill-market-title">
-                <strong>{skill.name}</strong>
-                {skill.locked && <Tag size="small">核心</Tag>}
-                {skill.external && <Tag size="small" theme={connected ? 'success' : 'warning'}>{connected ? '已连接' : '待连接'}</Tag>}
+                <strong>{t(skill.nameKey)}</strong>
+                {skill.locked && <Tag size="small">{t('core')}</Tag>}
+                {skill.external && <Tag size="small" theme={connected ? 'success' : 'warning'}>{connected ? t('connected') : t('waitingConnection')}</Tag>}
               </div>
-              <p>{skill.description}</p>
-              {blocked && <div className="skill-dependency-note is-blocked">需要先开启：{missingRequired.map((id) => SKILL_NAME[id]).join('、')}</div>}
-              {!blocked && enabled && missingRecommended.length > 0 && <div className="skill-dependency-note">建议同时开启 {missingRecommended.map((id) => SKILL_NAME[id]).join('、')}，可获得完整联动。</div>}
-              {skill.id === 'calendar' && preferences.maps === false && enabled && <div className="skill-dependency-note">日程仍可使用；涉及真实地点时，AI 会建议开启地图，而不会编造地址。</div>}
-              {skill.id === 'tencent-meeting' && !meetingConfigured && <button className="skill-install-link" type="button" onClick={() => window.open('https://meeting.tencent.com/ai-skill', '_blank', 'noopener,noreferrer')}>连接腾讯会议个人 Skill →</button>}
+              <p>{t(skill.descriptionKey)}</p>
+              {blocked && <div className="skill-dependency-note is-blocked">{t('requiresSkills', { names: missingRequired.map((id) => {
+                const dependency = SKILLS_CATALOG.find((item) => item.id === id);
+                return dependency ? t(dependency.nameKey) : id;
+              }).join('、') })}</div>}
+              {!blocked && enabled && missingRecommended.length > 0 && <div className="skill-dependency-note">{t('recommendsSkills', { names: missingRecommended.map((id) => {
+                const dependency = SKILLS_CATALOG.find((item) => item.id === id);
+                return dependency ? t(dependency.nameKey) : id;
+              }).join('、') })}</div>}
+              {skill.id === 'calendar' && preferences.maps === false && enabled && <div className="skill-dependency-note">{t('calendarWithoutMaps')}</div>}
+              {skill.id === 'tencent-meeting' && !meetingConfigured && <button className="skill-install-link" type="button" onClick={() => window.open('https://meeting.tencent.com/ai-skill', '_blank', 'noopener,noreferrer')}>{t('connectTencentMeeting')}</button>}
             </div>
             <button
               type="button"
               role="switch"
               aria-checked={enabled}
-              aria-label={`${enabled ? '关闭' : '开启'}${skill.name}`}
+              aria-label={t('toggleSkill', { action: enabled ? t('disableAction') : t('enableAction'), name: t(skill.nameKey) })}
               className={`skill-toggle ${enabled ? 'is-on' : ''}`}
               disabled={skill.locked || savingId === skill.id}
               onClick={() => void save(skill.id, !enabled)}
             ><span /></button>
           </article>;
         })}
-        {!SKILLS_CATALOG.length && !loading && <div className="conversation-list-empty">暂无可用 Skill</div>}
+        {!SKILLS_CATALOG.length && !loading && <div className="conversation-list-empty">{t('noSkills')}</div>}
       </div>
       <div className="skills-marketplace-footer">
-        <span>关闭能力后，AI 会明确说明限制，并引导你按需重新开启。</span>
-        <Button variant="outline" loading={loading} onClick={() => void refresh()}>刷新状态</Button>
+        <span>{t('disabledSkillHint')}</span>
+        <Button variant="outline" loading={loading} onClick={() => void refresh()}>{t('refreshStatus')}</Button>
       </div>
     </Dialog>
   </>;

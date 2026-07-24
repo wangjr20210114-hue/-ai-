@@ -1,4 +1,5 @@
 import type { SearchResultItem } from '../../types';
+import { translate } from '../../i18n';
 
 export function isSafeRemoteUrl(value: string): boolean {
   try {
@@ -32,7 +33,7 @@ export function sourceLabel(url: string, sources: SearchResultItem[] = []): stri
   try {
     return new URL(url).hostname.replace(/^www\./, '');
   } catch {
-    return '查看来源';
+    return translate('viewSource');
   }
 }
 

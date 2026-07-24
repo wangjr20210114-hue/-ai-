@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "check:i18n": "node scripts/check-i18n-labels.mjs",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "npm run check:i18n && vitest run",
     "preview": "vite preview"
   },
   "dependencies": {

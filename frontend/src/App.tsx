@@ -7,6 +7,7 @@ import EdgeOnePlatformPanel from './components/profile/EdgeOnePlatformPanel';
 import type { ChatClient } from './services/chatClient';
 import type { RefObject } from 'react';
 import ConversationSidebar from './components/conversation/ConversationSidebar';
+import { useLanguage } from './i18n';
 
 const LEFT_PANE_MIN = 190;
 const LEFT_PANE_MAX = 420;
@@ -30,6 +31,7 @@ function storedNumber(key: string, fallback: number) {
 
 function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
   const { theme, connected } = useAppState();
+  const { t } = useLanguage();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [leftPaneWidth, setLeftPaneWidth] = useState(() => storedNumber('yuanbao-left-pane-width', 252));
   const [rightPaneWidth, setRightPaneWidth] = useState(() => storedNumber('yuanbao-right-pane-width', 340));
@@ -135,7 +137,7 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
         <div
           className="workspace-resizer workspace-resizer-left"
           role="separator"
-          aria-label="调整对话列表宽度"
+          aria-label={t('resizeConversationList')}
           aria-orientation="vertical"
           tabIndex={0}
           onPointerDown={startResize('left')}
@@ -145,7 +147,7 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
         <div
           className={`workspace-resizer workspace-resizer-right ${rightPanelOpen ? 'is-open' : 'is-closed'}`}
               role="separator"
-              aria-label="调整右侧工作区宽度"
+              aria-label={t('resizeWorkspace')}
               aria-orientation="vertical"
               tabIndex={0}
               onPointerDown={startResize('right')}
@@ -158,7 +160,7 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
       {!connected && (
         <div className="connection-operation-lock" role="status" aria-live="polite">
           <span className="connection-operation-spinner" aria-hidden="true" />
-          <span>正在连接，连接完成后即可操作</span>
+          <span>{t('connectingLock')}</span>
         </div>
       )}
     </div>

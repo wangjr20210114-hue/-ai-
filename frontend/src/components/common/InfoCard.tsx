@@ -10,6 +10,7 @@
  * └──────────────────────────────────────────────┘
  */
 import React from 'react';
+import { useLanguage, type TranslationKey } from '../../i18n';
 
 export type CardType = 'wechat' | 'zhihu' | 'baike' | 'web' | 'paper' | 'location' | 'video' | 'music' | 'book' | 'movie';
 
@@ -47,17 +48,17 @@ export interface InfoCardProps {
   onClick?: () => void;
 }
 
-const TYPE_CONFIG: Record<string, { icon: string; color: string; bg: string; defaultLabel: string }> = {
-  wechat:   { icon: '微', color: '#07c160', bg: 'rgba(7,193,96,0.06)', defaultLabel: '公众号' },
-  zhihu:    { icon: '知', color: '#0066ff', bg: 'rgba(0,102,255,0.06)', defaultLabel: '知乎' },
-  baike:    { icon: '📖', color: '#e37318', bg: 'rgba(227,115,24,0.06)', defaultLabel: '百科' },
-  web:      { icon: '🔗', color: '#5a6072', bg: 'rgba(90,96,114,0.06)', defaultLabel: '网页' },
-  paper:    { icon: '📄', color: '#7c5cff', bg: 'rgba(124,92,255,0.06)', defaultLabel: '论文' },
-  location: { icon: '📍', color: '#2b5aed', bg: 'rgba(43,90,237,0.06)', defaultLabel: '地点' },
-  video:    { icon: '🎬', color: '#ff6b6b', bg: 'rgba(255,107,107,0.06)', defaultLabel: '视频' },
-  music:    { icon: '🎵', color: '#1db954', bg: 'rgba(29,185,84,0.06)', defaultLabel: '音乐' },
-  book:     { icon: '📚', color: '#e37318', bg: 'rgba(227,115,24,0.06)', defaultLabel: '书籍' },
-  movie:    { icon: '🎭', color: '#ff6b6b', bg: 'rgba(255,107,107,0.06)', defaultLabel: '电影' },
+const TYPE_CONFIG: Record<string, { icon: string; color: string; bg: string; defaultLabelKey: TranslationKey }> = {
+  wechat:   { icon: '微', color: '#07c160', bg: 'rgba(7,193,96,0.06)', defaultLabelKey: 'sourceWechat' },
+  zhihu:    { icon: '知', color: '#0066ff', bg: 'rgba(0,102,255,0.06)', defaultLabelKey: 'sourceZhihu' },
+  baike:    { icon: '📖', color: '#e37318', bg: 'rgba(227,115,24,0.06)', defaultLabelKey: 'sourceEncyclopedia' },
+  web:      { icon: '🔗', color: '#5a6072', bg: 'rgba(90,96,114,0.06)', defaultLabelKey: 'sourceWeb' },
+  paper:    { icon: '📄', color: '#7c5cff', bg: 'rgba(124,92,255,0.06)', defaultLabelKey: 'sourcePaper' },
+  location: { icon: '📍', color: '#2b5aed', bg: 'rgba(43,90,237,0.06)', defaultLabelKey: 'sourceLocation' },
+  video:    { icon: '🎬', color: '#ff6b6b', bg: 'rgba(255,107,107,0.06)', defaultLabelKey: 'sourceVideo' },
+  music:    { icon: '🎵', color: '#1db954', bg: 'rgba(29,185,84,0.06)', defaultLabelKey: 'sourceMusic' },
+  book:     { icon: '📚', color: '#e37318', bg: 'rgba(227,115,24,0.06)', defaultLabelKey: 'sourceBook' },
+  movie:    { icon: '🎭', color: '#ff6b6b', bg: 'rgba(255,107,107,0.06)', defaultLabelKey: 'sourceMovie' },
 };
 
 export default function InfoCard({
@@ -75,8 +76,9 @@ export default function InfoCard({
   compact,
   onClick,
 }: InfoCardProps) {
+  const { t } = useLanguage();
   const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.web;
-  const label = sourceLabel || cfg.defaultLabel;
+  const label = sourceLabel || t(cfg.defaultLabelKey);
   const pad = compact ? '6px 10px' : '10px 12px';
 
   const inner = (

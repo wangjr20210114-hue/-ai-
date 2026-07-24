@@ -26,9 +26,13 @@ export function formatConversationTime(value: unknown, nowValue = Date.now()): s
   const now = new Date(nowValue);
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
-  if (dayStart === startOfToday) return `今天 ${time}`;
-  if (dayStart === startOfToday - 86_400_000) return `昨天 ${time}`;
-  if (date.getFullYear() === now.getFullYear()) return `${date.getMonth() + 1}月${date.getDate()}日`;
-  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+  const language = getStoredLanguage();
+  const locale = language === 'zh-TW' ? 'zh-TW' : language === 'en' ? 'en' : 'zh-CN';
+  const time = date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (dayStart === startOfToday) return translate('todayAt', { time }, language);
+  if (dayStart === startOfToday - 86_400_000) return translate('yesterdayAt', { time }, language);
+  return date.toLocaleDateString(locale, date.getFullYear() === now.getFullYear()
+    ? { month: 'long', day: 'numeric' }
+    : { year: 'numeric', month: 'long', day: 'numeric' });
 }
+import { getStoredLanguage, translate } from '../i18n';

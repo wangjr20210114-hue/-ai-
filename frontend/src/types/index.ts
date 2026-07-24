@@ -396,15 +396,6 @@ export interface CityInfo {
 // ============ 通用日程 ============
 export type ScheduleCategory = 'travel' | 'meeting' | 'dining' | 'remind' | 'task' | 'other';
 
-export const SCHEDULE_CATEGORY_LABELS: Record<ScheduleCategory, string> = {
-  travel: '旅游',
-  meeting: '会议',
-  dining: '聚餐',
-  remind: '提醒',
-  task: '任务',
-  other: '其他',
-};
-
 export const SCHEDULE_CATEGORY_COLORS: Record<ScheduleCategory, string> = {
   travel: '#2b5aed',
   meeting: '#e37318',

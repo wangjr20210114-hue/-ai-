@@ -4,10 +4,11 @@ const NETWORK_ERROR = /(?:failed to fetch|load failed|networkerror|network reque
 export function presentableChatError(value: unknown): string {
   const message = String(value || '').trim();
   if (NETWORK_ERROR.test(message)) {
-    return '网络请求未能送达，请检查连接后重试。原问题不会自动重复发送。';
+    return translate('networkRequestFailed');
   }
   if (!message || TECHNICAL_ERROR.test(message)) {
-    return '消息服务暂时异常，请重试。本次失败不会保存为 AI 回答；如持续失败，请检查 Preview 的模型配置。';
+    return translate('messageServiceFailed');
   }
   return message.length > 180 ? `${message.slice(0, 180)}…` : message;
 }
+import { translate } from '../i18n';

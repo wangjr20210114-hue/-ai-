@@ -3,12 +3,13 @@ import { useAppDispatch, useAppState } from '../../store/appState';
 import MessageBubble from './MessageBubble';
 import type { ChatClient } from '../../services/chatClient';
 import { hasTextSelectionInside } from './scrollSelection';
+import { useLanguage, type TranslationKey } from '../../i18n';
 
-const STARTERS = [
-  '最近AI有什么新进展',
-  '帮我推荐几本明朝历史的书',
-  '北京故宫有什么好玩的',
-  '用Python写一个快速排序',
+const STARTERS: TranslationKey[] = [
+  'starterAiNews',
+  'starterHistoryBooks',
+  'starterForbiddenCity',
+  'starterQuickSort',
 ];
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
 /** 消息列表（居中），自动滚动到底部；空态展示引导。 */
 export default function MessageList({ client }: Props) {
   const { messages, thinking } = useAppState();
+  const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -67,12 +69,12 @@ export default function MessageList({ client }: Props) {
         <div className="chat-empty">
           <div className="chat-empty-logo"><img src="/floris-avatar.png" alt="Floris" /></div>
           <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--app-text)' }}>
-            FLORIS:一只有温度的大橘
+            {t('appTitle')}
           </div>
           <div style={{ fontSize: 13.5, maxWidth: 420, lineHeight: 1.8 }}>
-            和我对话即可。我可以主动理解任务，
+            {t('appWelcome')}
             <br />
-            支持旅游规划、会议创建、新闻搜索、翻译、论文助读、AI 生图。
+            {t('appCapabilities')}
           </div>
           <div
             style={{
@@ -84,9 +86,9 @@ export default function MessageList({ client }: Props) {
               maxWidth: 520,
             }}
           >
-            {STARTERS.map((s) => (
-              <button type="button" key={s} className="chip" onClick={() => dispatch({ type: 'SET_DRAFT', payload: s })}>
-                {s}
+            {STARTERS.map((key) => (
+              <button type="button" key={key} className="chip" onClick={() => dispatch({ type: 'SET_DRAFT', payload: t(key) })}>
+                {t(key)}
               </button>
             ))}
           </div>

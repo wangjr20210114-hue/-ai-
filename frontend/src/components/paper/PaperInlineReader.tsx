@@ -7,6 +7,7 @@ import { Button, Loading, MessagePlugin } from 'tdesign-react';
 import { BookOpenIcon, FullscreenIcon } from 'tdesign-icons-react';
 import { fetchPaperFile } from '../../services/paperApi';
 import PaperFullReader from './PaperFullReader';
+import { useLanguage } from '../../i18n';
 
 interface Props {
   fileId: string;
@@ -21,6 +22,7 @@ export default function PaperInlineReader({
   title,
   assistantEnabled = false,
 }: Props) {
+  const { t } = useLanguage();
   const [objectUrl, setObjectUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -34,7 +36,7 @@ export default function PaperInlineReader({
         setLoading(true);
         setLoadError('');
         const response = await fetchPaperFile(fileId, controller.signal);
-        if (!response.ok) throw new Error(`PDF 加载失败（${response.status}）`);
+        if (!response.ok) throw new Error(t('pdfLoadStatusFailed', { status: response.status }));
         const nextUrl = URL.createObjectURL(await response.blob());
         if (cancelled) {
           URL.revokeObjectURL(nextUrl);
@@ -43,7 +45,7 @@ export default function PaperInlineReader({
         setObjectUrl(nextUrl);
       } catch (error) {
         if (!cancelled && !(error instanceof DOMException && error.name === 'AbortError')) {
-          const text = error instanceof Error ? error.message : 'PDF 加载失败';
+          const text = error instanceof Error ? error.message : t('pdfLoadFailed');
           setLoadError(text);
           MessagePlugin.error(text);
         }
@@ -55,7 +57,7 @@ export default function PaperInlineReader({
       cancelled = true;
       controller.abort();
     };
-  }, [fileId]);
+  }, [fileId, t]);
 
   useEffect(() => () => {
     if (objectUrl) URL.revokeObjectURL(objectUrl);
@@ -74,7 +76,7 @@ export default function PaperInlineReader({
               icon={<BookOpenIcon />}
               onClick={() => setExpanded(true)}
             >
-              论文助读
+              {t('paperAssistant')}
             </Button>
           )}
           <Button
@@ -84,13 +86,13 @@ export default function PaperInlineReader({
             icon={<FullscreenIcon />}
             onClick={() => setExpanded(true)}
           >
-            全屏阅读
+            {t('fullscreenReading')}
           </Button>
         </div>
       </div>
       <div className="paper-inline-preview">
-        {loading && <div className="paper-loading-state"><Loading /><span>正在打开兼容预览…</span></div>}
-        {loadError && <div className="paper-load-error"><strong>PDF 打开失败</strong><span>{loadError}</span></div>}
+        {loading && <div className="paper-loading-state"><Loading /><span>{t('openingCompatiblePreview')}</span></div>}
+        {loadError && <div className="paper-load-error"><strong>{t('pdfOpenFailed')}</strong><span>{loadError}</span></div>}
         {objectUrl && <iframe className="paper-native-frame paper-inline-frame" src={objectUrl} title={title || fileName} />}
       </div>
       {expanded && createPortal(

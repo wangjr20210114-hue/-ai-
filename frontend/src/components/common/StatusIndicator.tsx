@@ -1,8 +1,10 @@
 import { useAppState } from '../../store/appState';
+import { useLanguage } from '../../i18n';
 
 /** 连接状态指示器。 */
 export default function StatusIndicator() {
   const { connected } = useAppState();
+  const { t } = useLanguage();
   return (
     <span
       className="connection-status"
@@ -17,7 +19,7 @@ export default function StatusIndicator() {
         className="status-dot"
         style={{ background: connected ? '#00a870' : '#e34d59' }}
       />
-      {connected ? '已连接' : '连接中…'}
+      {connected ? t('connected') : t('connecting')}
     </span>
   );
 }

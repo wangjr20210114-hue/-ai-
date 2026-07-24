@@ -6,15 +6,18 @@ import { proactiveOperation } from '../../services/api';
 import type { ProactiveNotification } from '../../types';
 import { activeProactiveNotifications } from './proactiveNotifications';
 import { loadProactiveDocumentContext } from '../../services/proactiveDocument';
+import { useLanguage } from '../../i18n';
 
-function clock(timestamp?: number | null): string {
+function clock(timestamp?: number | null, language = 'zh-CN'): string {
   if (!timestamp) return '';
-  return new Date(timestamp * 1000).toLocaleString('zh-CN', {
+  const locale = language === 'zh-TW' ? 'zh-TW' : language === 'en' ? 'en' : 'zh-CN';
+  return new Date(timestamp * 1000).toLocaleString(locale, {
     month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
   });
 }
 
 export default function ProactiveBriefPanel() {
+  const { language, t } = useLanguage();
   const { proactive, conversationId } = useAppState();
   const dispatch = useAppDispatch();
   const [mutating, setMutating] = useState('');
@@ -67,7 +70,7 @@ export default function ProactiveBriefPanel() {
       const next = await proactiveOperation(conversationId, operation, input);
       dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
     } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '提醒操作失败');
+      MessagePlugin.error(error instanceof Error ? error.message : t('reminderOperationFailed'));
     } finally {
       setMutating('');
     }
@@ -82,32 +85,32 @@ export default function ProactiveBriefPanel() {
       const next = await proactiveOperation(conversationId, 'mark_read', { notification_id: item.id });
       dispatch({ type: 'HYDRATE_PROACTIVE', payload: next });
     } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '无法准备主动建议');
+      MessagePlugin.error(error instanceof Error ? error.message : t('proactiveSuggestionFailed'));
     } finally {
       setMutating('');
     }
   };
 
   return (
-    <section className="sidebar-reminders" aria-label="主动提醒">
+    <section className="sidebar-reminders" aria-label={t('proactiveReminders')}>
       <div className="sidebar-reminders-heading">
-        <span><NotificationIcon size="15px" /> 提醒</span>
+        <span><NotificationIcon size="15px" /> {t('reminders')}</span>
         {notifications.length > 0 && <b>{notifications.length}</b>}
-        <button type="button" disabled={refreshing} onClick={() => { void refresh(); }} aria-label="刷新提醒">
+        <button type="button" disabled={refreshing} onClick={() => { void refresh(); }} aria-label={t('refreshReminders')}>
           {refreshing ? '…' : '↻'}
         </button>
       </div>
       {notifications.length === 0 ? (
-        <div className="sidebar-reminders-empty">暂无需要处理的事项</div>
+        <div className="sidebar-reminders-empty">{t('noReminders')}</div>
       ) : notifications.map((item) => (
         <article key={item.id} className={`sidebar-reminder priority-${item.priority}`}>
           <strong>{item.title}</strong>
           <p>{item.body}</p>
-          {item.status === 'snoozed' && <small>稍后提醒：{clock(item.snoozed_until)}</small>}
+          {item.status === 'snoozed' && <small>{t('remindLaterAt', { time: clock(item.snoozed_until, language) })}</small>}
           <div>
-            <button type="button" disabled={Boolean(mutating)} onClick={() => { void applySuggestion(item); }}>按建议处理</button>
-            <button type="button" disabled={Boolean(mutating)} onClick={() => { void mutate(`snooze:${item.id}`, 'snooze', { notification_id: item.id, until: Math.floor(Date.now() / 1000) + 3600 }); }}>稍后</button>
-            <button type="button" disabled={Boolean(mutating)} onClick={() => { void mutate(`dismiss:${item.id}`, 'dismiss', { notification_id: item.id }); }}>忽略</button>
+            <button type="button" disabled={Boolean(mutating)} onClick={() => { void applySuggestion(item); }}>{t('handleSuggestion')}</button>
+            <button type="button" disabled={Boolean(mutating)} onClick={() => { void mutate(`snooze:${item.id}`, 'snooze', { notification_id: item.id, until: Math.floor(Date.now() / 1000) + 3600 }); }}>{t('later')}</button>
+            <button type="button" disabled={Boolean(mutating)} onClick={() => { void mutate(`dismiss:${item.id}`, 'dismiss', { notification_id: item.id }); }}>{t('ignore')}</button>
           </div>
         </article>
       ))}

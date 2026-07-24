@@ -3,6 +3,7 @@
  * 核心：extractParagraphs + detectColumns + detectFormula
  */
 import * as pdfjsLib from 'pdfjs-dist';
+import { translate } from '../i18n';
 import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
 
 // EdgeOne static hosting does not serve Vite's emitted `.mjs` worker URL.
@@ -41,7 +42,7 @@ export async function loadPdf(data: ArrayBuffer): Promise<PDFDocumentProxy> {
       new Promise<never>((_, reject) => {
         timer = window.setTimeout(() => {
           void loadingTask.destroy();
-          reject(new Error('PDF 解析超时，请检查 PDF worker 或文件完整性'));
+          reject(new Error(translate('pdfParseTimeout')));
         }, 30_000);
       }),
     ]);

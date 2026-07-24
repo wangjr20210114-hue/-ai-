@@ -3,6 +3,7 @@ import { Tag, Loading, MessagePlugin } from 'tdesign-react';
 import { planMakersRoute, searchMakersPlaces } from '../../services/api';
 import { useAppState } from '../../store/appState';
 import type { MakersRoutePlan } from '../../types';
+import { useLanguage } from '../../i18n';
 
 interface Props {
   departure: string;
@@ -11,6 +12,7 @@ interface Props {
 
 /** 路线地图组件：调用腾讯位置服务显示旅游路线 + 费用估算。 */
 export default function RouteMap({ departure, destination }: Props) {
+  const { t } = useLanguage();
   const { conversationId } = useAppState();
   const [loading, setLoading] = useState(true);
   const [routeData, setRouteData] = useState<MakersRoutePlan | null>(null);
@@ -24,16 +26,16 @@ export default function RouteMap({ departure, destination }: Props) {
           searchMakersPlaces(conversationId, departure),
           searchMakersPlaces(conversationId, destination),
         ]);
-        if (!origins[0] || !destinations[0]) throw new Error('未找到可验证的出发地或目的地');
+        if (!origins[0] || !destinations[0]) throw new Error(t('noVerifiedEndpoints'));
         setRouteData(await planMakersRoute(conversationId, [origins[0], destinations[0]]));
       } catch {
-        MessagePlugin.error('路线规划失败');
+        MessagePlugin.error(t('routePlanningFailed'));
       } finally {
         setLoading(false);
       }
     };
     fetchRoute();
-  }, [conversationId, departure, destination]);
+  }, [conversationId, departure, destination, t]);
 
   // 渲染腾讯地图（通过 JS API GL）
   useEffect(() => {
@@ -140,7 +142,7 @@ export default function RouteMap({ departure, destination }: Props) {
       <div style={{ padding: 20, textAlign: 'center' }}>
         <Loading size="small" />
         <div style={{ marginTop: 8, fontSize: 13, color: 'var(--app-text-2)' }}>
-          正在规划路线...
+          {t('planningRoute')}
         </div>
       </div>
     );
@@ -160,9 +162,9 @@ export default function RouteMap({ departure, destination }: Props) {
       {/* 路线信息 */}
       <div className="route-info">
         <div className="route-info-header">
-          <span className="route-info-title">🚗 路线信息</span>
+          <span className="route-info-title">{t('routeInfo')}</span>
           <Tag size="small" theme="primary" variant="light">
-            {(routeData.distance_meters / 1000).toFixed(1)}km · {Math.round(routeData.duration_seconds / 60)}分钟
+            {t('distanceDuration', { distance: (routeData.distance_meters / 1000).toFixed(1), minutes: Math.round(routeData.duration_seconds / 60) })}
           </Tag>
         </div>
 
@@ -175,7 +177,7 @@ export default function RouteMap({ departure, destination }: Props) {
                 <div className="route-segment-content">
                   <div className="route-segment-route">{seg.from} → {seg.to}</div>
                   <div className="route-segment-meta">
-                    已通过 Makers 路线服务验证
+                    {t('routeVerified')}
                   </div>
                 </div>
               </div>
@@ -186,19 +188,19 @@ export default function RouteMap({ departure, destination }: Props) {
         {/* 费用估算 */}
         {routeData.fare && (
           <div className="route-cost">
-            <div className="route-cost-title">💰 费用估算</div>
+            <div className="route-cost-title">{t('costEstimate')}</div>
             <div className="route-cost-items">
               <div className="route-cost-item">
-                <span>自驾</span>
-                <span className="route-cost-value">约 ¥{routeData.fare.self_driving.estimate}</span>
+                <span>{t('selfDrive')}</span>
+                <span className="route-cost-value">{t('aboutCurrency', { amount: routeData.fare.self_driving.estimate })}</span>
               </div>
               <div className="route-cost-item">
-                <span>打车</span>
-                <span className="route-cost-value">约 ¥{routeData.fare.taxi.low}–{routeData.fare.taxi.high}</span>
+                <span>{t('taxi')}</span>
+                <span className="route-cost-value">{t('aboutCurrencyRange', { low: routeData.fare.taxi.low, high: routeData.fare.taxi.high })}</span>
               </div>
               {routeData.fare.self_driving.toll > 0 && (
                 <div className="route-cost-item">
-                  <span>过路费</span>
+                  <span>{t('toll')}</span>
                   <span className="route-cost-value">¥{routeData.fare.self_driving.toll}</span>
                 </div>
               )}

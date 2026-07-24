@@ -19,7 +19,7 @@ export default function Header({
   onToggleRightPanel?: () => void;
 }) {
   const { theme, connected, proactive } = useAppState();
-  const { language } = useLanguage();
+  const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const notifications = useMemo(
     () => activeProactiveNotifications(proactive?.notifications || []),
@@ -85,12 +85,12 @@ export default function Header({
             size="medium"
             disabled={!connected}
             onClick={onToggleSidebar}
-            aria-label={language === 'en' ? 'Open conversations' : '打开对话历史'}
+            aria-label={t('openConversations')}
             icon={<MenuIcon />}
           />
         )}
         <img className="header-brand-avatar" src="/floris-avatar.png" alt="" aria-hidden="true" />
-        <span className="brand-logo">FLORIS:一只有温度的大橘</span>
+        <span className="brand-logo">{t('appTitle')}</span>
       </div>
       <div className="header-proactive-slot">
         {connected && (
@@ -98,8 +98,8 @@ export default function Header({
             type="button"
             className={`header-proactive-ticker${reminderLines.length ? '' : ' is-idle'}`}
             aria-label={reminderLines.length
-              ? `查看主动提醒：${reminderLines[reminderIndex % reminderLines.length].text}`
-              : '主动服务已开启，暂无新提醒'}
+              ? t('viewReminder', { text: reminderLines[reminderIndex % reminderLines.length].text })
+              : t('proactiveNoNew')}
             onClick={onToggleSidebar}
           >
             <NotificationIcon size="14px" aria-hidden="true" />
@@ -109,7 +109,7 @@ export default function Header({
             >
               {reminderLines.length
                 ? reminderLines[reminderIndex % reminderLines.length].text
-                : (language === 'en' ? 'Proactive service is watching · No new alerts' : '主动服务已开启 · 暂无新提醒')}
+                : t('proactiveNoNew')}
             </span>
           </button>
         )}
@@ -124,7 +124,7 @@ export default function Header({
             size="medium"
             disabled={!connected}
             onClick={onToggleRightPanel}
-            aria-label={rightPanelOpen ? (language === 'en' ? 'Collapse panel' : '收起右栏') : (language === 'en' ? 'Expand panel' : '展开右栏')}
+            aria-label={rightPanelOpen ? t('collapsePanel') : t('expandPanel')}
             aria-pressed={rightPanelOpen}
             icon={rightPanelOpen ? <ChevronRightIcon /> : <ChevronLeftIcon />}
           />
@@ -136,7 +136,7 @@ export default function Header({
           size="medium"
           disabled={!connected}
           onClick={toggleTheme}
-          aria-label={theme === 'dark' ? (language === 'en' ? 'Use light theme' : '使用浅色主题') : (language === 'en' ? 'Use dark theme' : '使用深色主题')}
+          aria-label={theme === 'dark' ? t('useLightTheme') : t('useDarkTheme')}
           icon={theme === 'dark' ? <ModeLightIcon /> : <ModeDarkIcon />}
         />
       </div>

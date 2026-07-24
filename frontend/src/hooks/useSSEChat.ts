@@ -7,6 +7,7 @@ import { durableMessageCount, makersConversationHeaders, mergeMessages, normaliz
 import { splitSseFrames } from '../services/sse';
 import { useAppDispatch, useAppState } from '../store/appState';
 import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
+import { translate, type TranslationKey } from '../i18n';
 
 type ClientEvent = { type: string; payload: Record<string, unknown> };
 
@@ -36,33 +37,34 @@ function writeManualStopIntent(conversationId: string, stopped: boolean): void {
 }
 
 export function terminalGenerationError(error: unknown, timedOut = false): string {
-  if (timedOut) return '生成等待超时，本次已停止，不会自动重新生成。请点击重试。';
+  if (timedOut) return translate('generationTimedOut');
   const value = error as { name?: unknown; message?: unknown };
   if (String(value?.name || '') === 'AbortError') {
-    return '生成已停止，不会自动重新生成。';
+    return translate('generationStoppedTerminal');
   }
-  return String(value?.message || error || '生成失败，请点击重试。');
+  return String(value?.message || error || translate('generationFailedRetry'));
 }
 
-const TOOL_PROGRESS: Record<string, { active: string; complete: string }> = {
-  web_search: { active: '正在查找可核验的信息…', complete: '已找到相关资料，正在核对时间和出处…' },
-  rich_search: { active: '正在查找最新且可靠的资料与图片…', complete: '资料已经找到，正在核对重点、日期和出处…' },
-  search_places: { active: '正在查找并确认真实地点…', complete: '地点已经找到，正在确认名称和位置…' },
-  prepare_map_recommendation: { active: '正在把核实过的地点整理到地图…', complete: '地图地点已准备好，正在组织推荐理由…' },
-  recommend_places_on_map: { active: '正在逐个核实地点并准备地图…', complete: '可用地点已核实，正在整理成推荐…' },
-  propose_calendar_changes: { active: '正在检查时间、地点和日程冲突…', complete: '日程条件已检查，正在准备确认内容…' },
-  propose_meeting: { active: '正在检查会议时间和必要信息…', complete: '会议信息已检查，正在准备确认内容…' },
-  propose_image: { active: '正在理解画面并开始绘制…', complete: '画面已生成，正在整理展示结果…' },
-  image_generation_planning: { active: '正在理解画面主体、风格和构图…', complete: '画面要求已整理，正在开始绘制…' },
-  search_arxiv: { active: '正在查找论文并核对作者与年份…', complete: '论文已找到，正在核对摘要和下载信息…' },
-  collect_page_images: { active: '正在查看网页里真正有用的图片…', complete: '网页图片已提取，正在筛选与问题相关的内容…' },
-  search_rich_images: { active: '正在查找与问题相关的图片…', complete: '候选图片已找到，正在确认是否真的相关…' },
-  analyze_images_parallel: { active: '正在逐张确认图片内容和相关性…', complete: '图片内容已确认，正在放到合适的位置…' },
+const TOOL_PROGRESS: Record<string, { active: TranslationKey; complete: TranslationKey }> = {
+  web_search: { active: 'toolWebSearchActive', complete: 'toolWebSearchComplete' },
+  rich_search: { active: 'toolRichSearchActive', complete: 'toolRichSearchComplete' },
+  search_places: { active: 'toolPlacesActive', complete: 'toolPlacesComplete' },
+  prepare_map_recommendation: { active: 'toolMapPrepareActive', complete: 'toolMapPrepareComplete' },
+  recommend_places_on_map: { active: 'toolMapRecommendActive', complete: 'toolMapRecommendComplete' },
+  propose_calendar_changes: { active: 'toolCalendarActive', complete: 'toolCalendarComplete' },
+  propose_meeting: { active: 'toolMeetingActive', complete: 'toolMeetingComplete' },
+  propose_image: { active: 'toolImageActive', complete: 'toolImageComplete' },
+  image_generation_planning: { active: 'toolImagePlanActive', complete: 'toolImagePlanComplete' },
+  search_arxiv: { active: 'toolPaperActive', complete: 'toolPaperComplete' },
+  collect_page_images: { active: 'toolPageImagesActive', complete: 'toolPageImagesComplete' },
+  search_rich_images: { active: 'toolImageSearchActive', complete: 'toolImageSearchComplete' },
+  analyze_images_parallel: { active: 'toolImageAnalyzeActive', complete: 'toolImageAnalyzeComplete' },
 };
 
 export function progressTextForTool(toolName: string, phase: 'active' | 'complete'): string {
-  return TOOL_PROGRESS[toolName]?.[phase]
-    || (phase === 'active' ? '正在处理这一步需要的信息…' : '这一步已完成，正在整理结果…');
+  const key = TOOL_PROGRESS[toolName]?.[phase]
+    || (phase === 'active' ? 'toolGenericActive' : 'toolGenericComplete');
+  return translate(key);
 }
 
 export function mergeSearchMeta(previous: SearchMeta | undefined, incoming: Partial<SearchMeta>): SearchMeta {
@@ -93,10 +95,10 @@ export function shouldPublishProactiveOpening(restored: ChatMessage[], latest: C
 
 export function actionOnlyFallback(actions: WorkspaceAction[] | undefined): string {
   const kinds = new Set((actions || []).map((action) => action.kind));
-  if (kinds.has('map_recommendation')) return '地点已经核实，请点击下方按钮显示地点。';
-  if (kinds.has('meeting_create')) return '腾讯会议确认卡已准备好，请补齐并核对条件。';
-  if (kinds.has('calendar_changes')) return '日程变更确认卡已准备好，请核对后确认。';
-  if (kinds.has('image_generate')) return '图片任务已准备好，可在下方查看结果。';
+  if (kinds.has('map_recommendation')) return translate('actionMapReady');
+  if (kinds.has('meeting_create')) return translate('actionMeetingReady');
+  if (kinds.has('calendar_changes')) return translate('actionCalendarReady');
+  if (kinds.has('image_generate')) return translate('actionImageReady');
   return '';
 }
 
@@ -249,7 +251,7 @@ class SSEChatClient {
       armWatchdog();
 
       const reader = response.body?.getReader();
-      if (!reader) throw new Error('无法读取响应流');
+      if (!reader) throw new Error(translate('cannotReadStream'));
 
       const decoder = new TextDecoder();
       let buffer = '';
@@ -342,7 +344,7 @@ class SSEChatClient {
               case 'search_media':
                 this.emit({
                   type: 'search_status',
-                  payload: { id: streamId, status: 'arranging', statusText: '相关图片已经核对，正在放到合适的段落…' },
+                  payload: { id: streamId, status: 'arranging', statusText: translate('arrangingReviewedImages') },
                 });
                 this.emit({
                   type: 'search_media',
@@ -389,7 +391,7 @@ class SSEChatClient {
               case 'error_message':
                 this.emit({
                   type: 'error',
-                  payload: { id: streamId, message: typeof event.content === 'string' ? event.content : '服务异常' },
+                  payload: { id: streamId, message: typeof event.content === 'string' ? event.content : translate('serviceError') },
                 });
                 break;
               case 'ping':
@@ -409,7 +411,7 @@ class SSEChatClient {
           type: 'error',
           payload: {
             id: streamId,
-            message: '网络连接中断，本次生成已结束且不会自动重试。请检查连接后点击重试。',
+            message: translate('networkGenerationEnded'),
           },
         });
         this.setManualStopIntent(true);
@@ -476,7 +478,7 @@ export function useSSEChat() {
     const messageCount = durableMessageCount(cached(id));
     const next = {
       id,
-      title: previous?.title || '新对话',
+      title: previous?.title || translate('newConversation'),
       createdAt: previous?.createdAt || now,
       updatedAt: now,
       messageCount: Math.max(Number(previous?.messageCount || 0), messageCount),
@@ -522,7 +524,7 @@ export function useSSEChat() {
         case 'stream_start': {
           const streamMessage: ChatMessage = {
             id: streamId || `ai-stream-${Date.now()}`, role: 'ai', content: '', ts: Date.now(), streaming: true,
-            skill: { intent: 'chat', mode: 'immediate', content: '', icon: '✨', action_label: '', params: {}, data: { status: 'thinking', statusText: '正在理解你想解决的问题…' } },
+            skill: { intent: 'chat', mode: 'immediate', content: '', icon: '✨', action_label: '', params: {}, data: { status: 'thinking', statusText: translate('understandingRequest') } },
           };
           streams.set(streamMessage.id, streamMessage);
           const current = cached(id).filter((item) => item.id !== streamMessage.id && !item.failed);
@@ -581,7 +583,7 @@ export function useSSEChat() {
         case 'search_status': {
           const current = streams.get(streamId); if (!current) break;
           const intent = event.payload.intent === 'image' || current.skill?.intent === 'image' ? 'image' : 'search';
-          const skill = { intent, mode: 'immediate', content: '', icon: intent === 'image' ? '🎨' : '🔍', action_label: '', params: {}, data: { status: String(event.payload.status || 'searching'), statusText: String(event.payload.statusText || '正在处理需要的信息…') } } as ChatMessage['skill'];
+          const skill = { intent, mode: 'immediate', content: '', icon: intent === 'image' ? '🎨' : '🔍', action_label: '', params: {}, data: { status: String(event.payload.status || 'searching'), statusText: String(event.payload.statusText || translate('processingInformation')) } } as ChatMessage['skill'];
           streams.set(streamId, { ...current, skill }); patch(id, streamId, { skill }); break;
         }
         case 'search_results': {
@@ -656,7 +658,7 @@ export function useSSEChat() {
               failed: true,
               skill: current.skill ? {
                 ...current.skill,
-                data: { ...current.skill.data, status: 'error', statusText: '处理失败' },
+                data: { ...current.skill.data, status: 'error', statusText: translate('processingFailedStatus') },
               } : current.skill,
             };
             streams.set(streamId, next);
@@ -708,7 +710,7 @@ export function useSSEChat() {
             {
               id: `ai-interrupted-${data.run?.run_id || Date.now()}`,
               role: 'ai',
-              content: '上一次生成已中止，不会自动重新生成。请点击重试。',
+              content: translate('previousGenerationStopped'),
               ts: Date.now(),
               streaming: false,
               failed: true,
@@ -719,7 +721,7 @@ export function useSSEChat() {
                 icon: '✨',
                 action_label: '',
                 params: {},
-                data: { status: 'error', statusText: '生成已中止' },
+                data: { status: 'error', statusText: translate('generationStoppedStatus') },
               },
             },
           ];

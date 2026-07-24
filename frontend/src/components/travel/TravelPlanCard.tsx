@@ -6,6 +6,7 @@ import { useAppDispatch, useAppState } from '../../store/appState';
 import type { TravelPlan, ScheduleItem } from '../../types';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import RouteMap from './RouteMap';
+import { useLanguage } from '../../i18n';
 
 const { Panel: CollapsePanel } = Collapse;
 
@@ -20,6 +21,7 @@ interface Props {
 
 /** 旅游计划卡片：展示 Markdown 行程 + 百科信息 + 写入日程按钮。 */
 export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isSaved = false, onSaved, onDeleted }: Props) {
+  const { t } = useLanguage();
   const { conversationId } = useAppState();
   const dispatch = useAppDispatch();
   const [saving, setSaving] = useState(false);
@@ -45,7 +47,7 @@ export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isS
           });
           dispatch({ type: 'SET_SCHEDULES', payload: response.schedules });
         }
-        MessagePlugin.success('日程已更新');
+        MessagePlugin.success(t('scheduleUpdated'));
       } else {
         const savedPlan = await workspaceOperation(conversationId, 'save_travel_plan', { plan });
         const persisted = savedPlan.travel_plan || plan;
@@ -78,11 +80,11 @@ export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isS
         }
 
         setSaved(true);
-        MessagePlugin.success(changes.length ? '旅行计划和日程已保存到 Makers Workspace' : '旅行计划已保存；可继续让 Agent 安排具体日期');
+        MessagePlugin.success(changes.length ? t('travelSavedWithSchedule') : t('travelSavedWithoutDate'));
       }
       onSaved?.(plan);
     } catch {
-      MessagePlugin.error('操作失败，请重试');
+      MessagePlugin.error(t('operationRetry'));
     } finally {
       setSaving(false);
     }
@@ -102,10 +104,10 @@ export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isS
       if (scheduleId) {
         dispatch({ type: 'DELETE_SCHEDULE', payload: scheduleId });
       }
-      MessagePlugin.success('日程已删除');
+      MessagePlugin.success(t('scheduleDeleted'));
       onDeleted?.(plan.id);
     } catch {
-      MessagePlugin.error('删除失败');
+      MessagePlugin.error(t('deleteFailed'));
     }
   };
 
@@ -117,18 +119,18 @@ export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isS
         <div className="travel-plan-title">{plan.title}</div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <Tag size="small" theme="primary" variant="light">{plan.destination}</Tag>
-          <Tag size="small" theme="success" variant="light">{plan.days}天</Tag>
+          <Tag size="small" theme="success" variant="light">{t('days', { count: plan.days })}</Tag>
           <Tag size="small" variant="light">{plan.travel_style}</Tag>
         </div>
       </div>
 
       <div className="travel-plan-meta">
-        <span>出发地：{plan.departure}</span>
-        <span>目的地：{plan.destination}</span>
-        <span>天数：{plan.days}天</span>
-        <span>风格：{plan.travel_style}</span>
-        {plan.scenery_preference && <span>偏好：{plan.scenery_preference}</span>}
-        {plan.budget && <span>预算：{plan.budget}</span>}
+        <span>{t('departure', { value: plan.departure })}</span>
+        <span>{t('destination', { value: plan.destination })}</span>
+        <span>{t('dayTotal', { count: t('days', { count: plan.days }) })}</span>
+        <span>{t('travelStyle', { value: plan.travel_style })}</span>
+        {plan.scenery_preference && <span>{t('preference', { value: plan.scenery_preference })}</span>}
+        {plan.budget && <span>{t('budget', { value: plan.budget })}</span>}
       </div>
 
       <div className="travel-plan-markdown">
@@ -137,14 +139,14 @@ export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isS
 
       {/* 路线地图 */}
       <Collapse style={{ marginTop: 12 }}>
-        <CollapsePanel value="route" header="🗺 路线地图与费用估算">
+        <CollapsePanel value="route" header={t('routeAndCost')}>
           <RouteMap departure={plan.departure} destination={plan.destination} />
         </CollapsePanel>
       </Collapse>
 
       {baike.summary && (
         <Collapse style={{ marginTop: 12 }}>
-          <CollapsePanel value="baike" header={`${plan.destination}百科`}>
+          <CollapsePanel value="baike" header={t('encyclopedia', { name: plan.destination })}>
             <div style={{ fontSize: 13, lineHeight: 1.8, color: 'var(--app-text-2)' }}>
               <p>{baike.summary}</p>
               {baike.highlights && (
@@ -156,7 +158,7 @@ export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isS
               )}
               {baike.best_season && (
                 <p style={{ marginTop: 6 }}>
-                  <Tag size="small" theme="warning" variant="light">最佳季节</Tag>{' '}
+                  <Tag size="small" theme="warning" variant="light">{t('bestSeason')}</Tag>{' '}
                   {baike.best_season}
                 </p>
               )}
@@ -177,11 +179,11 @@ export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isS
           loading={saving}
           onClick={handleSave}
         >
-          {saved ? '更新日程' : '写入我的日程'}
+          {saved ? t('updateSchedule') : t('writeToCalendar')}
         </Button>
         {saved && (
           <Button variant="outline" icon={<DeleteIcon />} onClick={handleDelete}>
-            删除
+            {t('delete')}
           </Button>
         )}
       </div>

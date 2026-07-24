@@ -17,6 +17,7 @@ import {
   type PaperAssistantResult,
 } from '../../services/paperApi';
 import MarkdownRenderer from '../common/MarkdownRenderer';
+import { useLanguage } from '../../i18n';
 
 interface Props {
   fileId: string;
@@ -44,6 +45,8 @@ interface PageData {
 }
 
 export default function PaperFullReader({ fileId, title, assistantEnabled = true, onClose }: Props) {
+  const { language, t } = useLanguage();
+  const locale = language === 'zh-TW' ? 'zh-TW' : language === 'en' ? 'en' : 'zh-CN';
   const readerRef = useRef<HTMLDivElement>(null);
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const textLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -96,7 +99,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
         fetchTimer = window.setTimeout(() => fetchController.abort(), 30_000);
         const resp = await fetchPaperFile(fileId, fetchController.signal);
         window.clearTimeout(fetchTimer);
-        if (!resp.ok) throw new Error(`PDF 下载失败（${resp.status}）`);
+        if (!resp.ok) throw new Error(t('pdfDownloadStatusFailed', { status: resp.status }));
         const blob = await resp.blob();
         const buffer = await blob.arrayBuffer();
         const d = await loadPdf(buffer);
@@ -107,12 +110,12 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
         setPages(Array.from({ length: d.numPages }, (_, index) => ({ pageNum: index + 1, width: 0, height: 0, paragraphs: [], rendered: false })));
         setLoading(false);
       } catch (error) {
-        if (!cancelled) setLoadError(error instanceof DOMException && error.name === 'AbortError' ? 'PDF 下载超时，请重试' : error instanceof Error ? error.message : 'PDF 无法打开');
+        if (!cancelled) setLoadError(error instanceof DOMException && error.name === 'AbortError' ? t('pdfDownloadTimedOut') : error instanceof Error ? error.message : t('pdfCannotOpen'));
         setLoading(false);
       }
     })();
     return () => { cancelled = true; window.clearTimeout(fetchTimer); fetchController.abort(); };
-  }, [fileId]);
+  }, [fileId, t]);
 
   useEffect(() => {
     const onFullscreenChange = () => setIsFullscreen(document.fullscreenElement === readerRef.current);
@@ -180,10 +183,10 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
       if (!cancelled && enriched.length === pages.length) setPages(enriched);
     };
     void renderPages().catch((error) => {
-      if (!cancelled) setLoadError(error instanceof Error ? `PDF 渲染失败：${error.message}` : 'PDF 页面渲染失败');
+      if (!cancelled) setLoadError(error instanceof Error ? t('pdfRenderFailed', { error: error.message }) : t('pdfPageRenderFailed'));
     });
     return () => { cancelled = true; };
-  }, [doc, pages, scale]);
+  }, [doc, pages, scale, t]);
 
   // 段落命中检测（基于 text layer 的选择文本）
   const getSelectedText = (): string => {
@@ -256,13 +259,13 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
     if (!assistantEnabled) return;
     const sel = getSelectedText();
     if (sel && sel.length > 2) {
-      runAI('summarize', sel, '总结选中内容');
+      runAI('summarize', sel, t('summarizeSelection'));
       return;
     }
     const para = findParagraphByPoint(e, pageNum);
     if (!para) return;
     setActive({ page: pageNum, index: para.index });
-    runAI('summarize', para.text, '段落总结');
+    runAI('summarize', para.text, t('paragraphSummary'));
   };
 
   const handleContextMenu = (e: React.MouseEvent, pageNum: number) => {
@@ -293,7 +296,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
           setSavedTranslations((current) => [...current.filter((item) => item.id !== saved.id), saved].slice(-50));
           setAiResult(null);
         }).catch((saveError) => {
-          MessagePlugin.warning(saveError instanceof Error ? saveError.message : '翻译结果暂未保存');
+          MessagePlugin.warning(saveError instanceof Error ? saveError.message : t('translationNotSaved'));
         });
       }
     };
@@ -310,7 +313,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
       if (document.fullscreenElement === readerRef.current) await document.exitFullscreen();
       else await readerRef.current?.requestFullscreen?.();
     } catch {
-      MessagePlugin.warning('浏览器不支持切换全屏显示');
+      MessagePlugin.warning(t('fullscreenUnsupported'));
     }
   };
 
@@ -348,13 +351,13 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
 
   return (
     <div className="paper-reader-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="paper-reader" ref={readerRef} role="dialog" aria-modal="true" aria-label={`论文助读：${title}`}>
+      <div className="paper-reader" ref={readerRef} role="dialog" aria-modal="true" aria-label={t('paperAssistantAria', { title })}>
         <div className="paper-toolbar">
           <div className="paper-toolbar-title">
             <span style={{ fontSize: 16 }}>📄</span>
             <span className="paper-toolbar-title-text">{title}</span>
-            {doc && <Tag size="small" variant="light">{doc.numPages} 页</Tag>}
-            <Tag size="small" variant="outline">兼容预览</Tag>
+            {doc && <Tag size="small" variant="light">{t('pageCount', { count: doc.numPages }).replace(/^\s*·\s*/, '')}</Tag>}
+            <Tag size="small" variant="outline">{t('compatiblePreview')}</Tag>
           </div>
           <div className="paper-toolbar-actions">
             <Button
@@ -362,21 +365,21 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
               variant="outline"
               icon={isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
               onClick={() => void toggleFullscreen()}
-            >{isFullscreen ? '恢复窗口' : '全屏显示'}</Button>
+            >{isFullscreen ? t('restoreWindow') : t('fullscreen')}</Button>
             <span className="paper-toolbar-divider" />
-            {assistantEnabled && <Button size="small" variant="outline" onClick={() => runAI('analyze', '', '全文分析')}>📚 全文分析</Button>}
+            {assistantEnabled && <Button size="small" variant="outline" onClick={() => runAI('analyze', '', t('fullPaperAnalysis'))}>📚 {t('fullPaperAnalysis')}</Button>}
             <Button size="small" variant="text" onClick={() => setScale(s => Math.max(0.6, s - 0.3))}>−</Button>
             <span className="paper-zoom-value">{Math.round(scale * 100)}%</span>
             <Button size="small" variant="text" onClick={() => setScale(s => Math.min(3.0, s + 0.3))}>+</Button>
-            <Button shape="circle" variant="text" size="small" onClick={onClose} aria-label="关闭论文助读" icon={<CloseIcon />} />
+            <Button shape="circle" variant="text" size="small" onClick={onClose} aria-label={t('closePaperAssistant')} icon={<CloseIcon />} />
           </div>
         </div>
 
         <div className="paper-body" style={{ display: 'flex', overflow: 'hidden' }}>
           {/* PDF 侧 */}
           <div className="paper-compatible-view">
-            {loading && <div className="paper-loading-state"><Loading /><span>正在打开高清兼容预览…</span></div>}
-            {loadError && <div className="paper-load-error"><strong>PDF 打开失败</strong><span>{loadError}</span></div>}
+            {loading && <div className="paper-loading-state"><Loading /><span>{t('openingHdPreview')}</span></div>}
+            {loadError && <div className="paper-load-error"><strong>{t('pdfOpenFailed')}</strong><span>{loadError}</span></div>}
             {doc && pages.map(pg => (
               <div
                 key={pg.pageNum}
@@ -428,19 +431,19 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
           {/* AI 侧 - 自适应宽度 */}
           {assistantEnabled && <div className="paper-ai-side">
             <div className="paper-ai-tabs">
-              <button className={`paper-ai-tab ${aiTab === 'result' ? 'active' : ''}`} onClick={() => setAiTab('result')}>📑 结果</button>
-              <button className={`paper-ai-tab ${aiTab === 'qa' ? 'active' : ''}`} onClick={() => setAiTab('qa')}>💬 问答</button>
+              <button className={`paper-ai-tab ${aiTab === 'result' ? 'active' : ''}`} onClick={() => setAiTab('result')}>📑 {t('results')}</button>
+              <button className={`paper-ai-tab ${aiTab === 'qa' ? 'active' : ''}`} onClick={() => setAiTab('qa')}>💬 {t('qa')}</button>
             </div>
 
             {aiTab === 'result' && (
               <div className="paper-ai-content">
                 {!aiResult && !historyLoading && (
                   <div className="paper-ai-empty">
-                    在左侧 PDF 上：<br />
-                    · <strong>选中文字</strong> → 弹出翻译/总结工具条<br />
-                    · <strong>双击</strong>段落 → 总结<br />
-                    · <strong>右键</strong> → 翻译或总结<br /><br />
-                    或点击顶部按钮使用全文功能
+                    {t('paperAssistantInstructions')}<br />
+                    · {t('selectTextAction')}<br />
+                    · {t('doubleClickAction')}<br />
+                    · {t('rightClickAction')}<br /><br />
+                    {t('useFullPaperFeature')}
                   </div>
                 )}
                 {aiResult && (
@@ -455,10 +458,10 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
                 )}
                 {savedTranslations.length > 0 && (
                   <div className="paper-translation-history">
-                    <div className="paper-translation-history-title">已保存翻译 · {savedTranslations.length}</div>
+                    <div className="paper-translation-history-title">{t('savedTranslationsCount', { count: savedTranslations.length })}</div>
                     {savedTranslations.map((item) => (
                       <article className="paper-translation-entry" key={item.id}>
-                        <div className="paper-translation-time">{new Date(item.created_at).toLocaleString('zh-CN')}</div>
+                        <div className="paper-translation-time">{new Date(item.created_at).toLocaleString(locale)}</div>
                         <div className="paper-translation-entry-title">{item.title}</div>
                         <MarkdownRenderer content={item.content} />
                       </article>
@@ -471,24 +474,24 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
             {aiTab === 'qa' && (
               <div className="paper-ai-content" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                 <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-                  {qaHistory.length === 0 && <div style={{ textAlign: 'center', color: 'var(--app-text-3)', fontSize: 12, paddingTop: 30 }}>基于这篇论文向 AI 提问</div>}
+                  {qaHistory.length === 0 && <div style={{ textAlign: 'center', color: 'var(--app-text-3)', fontSize: 12, paddingTop: 30 }}>{t('askAboutPaper')}</div>}
                   {qaHistory.map((item, i) => (
                     <div key={i} style={{ marginBottom: 12 }}>
-                      <div style={{ fontSize: 11, color: '#2b5aed', fontWeight: 600, marginBottom: 3 }}>Q: {item.q}</div>
+                      <div style={{ fontSize: 11, color: '#2b5aed', fontWeight: 600, marginBottom: 3 }}>{t('paperQuestionPrefix')} {item.q}</div>
                       <div style={{ fontSize: 12, lineHeight: 1.6 }}><MarkdownRenderer content={item.a} /></div>
                     </div>
                   ))}
                   {aiResult?.action === 'qa' && (
                     <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontSize: 11, color: '#2b5aed', fontWeight: 600, marginBottom: 3 }}>Q: {aiResult.title}</div>
+                      <div style={{ fontSize: 11, color: '#2b5aed', fontWeight: 600, marginBottom: 3 }}>{t('paperQuestionPrefix')} {aiResult.title}</div>
                       <div style={{ fontSize: 12, lineHeight: 1.6 }}><MarkdownRenderer content={aiResult.content || '...'} /></div>
                     </div>
                   )}
                 </div>
                 <div className="paper-qa-input">
-                  <Textarea value={qaInput} onChange={(v) => setQaInput(v as string)} placeholder="提问..." autosize={{ minRows: 1, maxRows: 3 }} style={{ flex: 1 }}
+                  <Textarea value={qaInput} onChange={(v) => setQaInput(v as string)} placeholder={t('askPlaceholder')} autosize={{ minRows: 1, maxRows: 3 }} style={{ flex: 1 }}
                     onKeydown={(_, ctx) => { const e = ctx.e as React.KeyboardEvent; if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleQA(); } }} />
-                  <Button theme="primary" size="small" onClick={handleQA} disabled={!qaInput.trim()}>发送</Button>
+                  <Button theme="primary" size="small" onClick={handleQA} disabled={!qaInput.trim()}>{t('send')}</Button>
                 </div>
               </div>
             )}
@@ -514,8 +517,8 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
             onClick={(e) => e.stopPropagation()}
           >
             {[
-              { label: '🌐 翻译', action: 'translate' as AIAction, title: '翻译选中内容' },
-              { label: '📝 总结', action: 'summarize' as AIAction, title: '总结选中内容' },
+              { label: t('translateWithIcon'), action: 'translate' as AIAction, title: t('translateSelection') },
+              { label: t('summarizeWithIcon'), action: 'summarize' as AIAction, title: t('summarizeSelection') },
             ].map((btn, i, buttons) => (
               <button
                 key={i}
@@ -551,15 +554,15 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
             padding: 4, minWidth: 150,
           }} onClick={(e) => e.stopPropagation()}>
             {[
-              { label: '🌐 翻译', action: 'translate' as AIAction },
-              { label: '📝 总结', action: 'summarize' as AIAction },
+              { label: t('translateWithIcon'), action: 'translate' as AIAction },
+              { label: t('summarizeWithIcon'), action: 'summarize' as AIAction },
             ].map(item => (
               <button key={item.action} className="ctx-menu-item"
                 style={{ display: 'block', width: '100%', padding: '6px 10px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12, textAlign: 'left', borderRadius: 4, color: '#333' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = '#f0f4ff')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
                 onClick={() => {
-                  const titles: Record<string, string> = { translate: '翻译', summarize: '总结' };
+                  const titles: Record<string, string> = { translate: t('translate'), summarize: t('summarize') };
                   runAI(item.action, ctxMenu.text, titles[item.action]);
                   setCtxMenu(null);
                 }}

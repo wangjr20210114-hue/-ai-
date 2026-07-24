@@ -8,6 +8,7 @@ import { formatConversationTime } from '../../services/time';
 import AppSettingsButton from '../profile/AppSettingsButton';
 import SkillsMarketplaceButton from '../profile/SkillsMarketplaceButton';
 import ProactiveBriefPanel from '../profile/ProactiveBriefPanel';
+import { translate, useLanguage } from '../../i18n';
 
 interface Props {
   open: boolean;
@@ -18,7 +19,7 @@ function pendingConversation(conversationId: string): ConversationSummary {
   const now = Date.now();
   return {
     id: conversationId,
-    title: '新对话',
+    title: translate('newConversation'),
     createdAt: now,
     updatedAt: now,
     messageCount: 0,
@@ -28,6 +29,7 @@ function pendingConversation(conversationId: string): ConversationSummary {
 
 export default function ConversationSidebar({ open, onClose }: Props) {
   const { conversationId, conversations, messages } = useAppState();
+  const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -52,14 +54,14 @@ export default function ConversationSidebar({ open, onClose }: Props) {
         .sort((a, b) => b.updatedAt - a.updatedAt);
       dispatch({ type: 'SET_CONVERSATIONS', payload: withCurrent });
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : '读取历史对话失败');
+      setLoadError(error instanceof Error ? error.message : t('readConversationsFailed'));
       if (!conversations.some((item) => item.id === conversationId)) {
         dispatch({ type: 'UPSERT_CONVERSATION', payload: pendingConversation(conversationId) });
       }
     } finally {
       setLoading(false);
     }
-  }, [conversationId, conversations, dispatch]);
+  }, [conversationId, conversations, dispatch, t]);
 
   useEffect(() => {
     void load();
@@ -113,7 +115,7 @@ export default function ConversationSidebar({ open, onClose }: Props) {
       dispatch({ type: 'SET_CONVERSATION_ID', payload: conversation.id });
       onClose();
     } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '新建对话失败');
+      MessagePlugin.error(error instanceof Error ? error.message : t('createConversationFailed'));
     } finally { setCreating(false); }
   };
 
@@ -122,27 +124,27 @@ export default function ConversationSidebar({ open, onClose }: Props) {
       <button
         type="button"
         className={`conversation-sidebar-backdrop ${open ? 'is-open' : ''}`}
-        aria-label="关闭历史对话"
+        aria-label={t('closeConversations')}
         onClick={onClose}
       />
-      <aside className={`conversation-sidebar panel ${open ? 'is-open' : ''}`} aria-label="对话历史">
+      <aside className={`conversation-sidebar panel ${open ? 'is-open' : ''}`} aria-label={t('conversationHistory')}>
         <div className="conversation-sidebar-header">
-          <div className="conversation-sidebar-title">对话</div>
-          <button type="button" className="conversation-sidebar-close" onClick={onClose} aria-label="关闭">×</button>
+          <div className="conversation-sidebar-title">{t('conversations')}</div>
+          <button type="button" className="conversation-sidebar-close" onClick={onClose} aria-label={t('close')}>×</button>
         </div>
 
         <Button block theme="primary" loading={creating} onClick={() => { void create(); }}>
-          ＋ 新建对话
+          ＋ {t('newConversation')}
         </Button>
 
-        <div className="conversation-history-label">历史对话</div>
+        <div className="conversation-history-label">{t('history')}</div>
         <div className="conversation-list">
           {loading && conversations.length === 0 && (
-            <div className="conversation-list-empty">正在读取…</div>
+            <div className="conversation-list-empty">{t('loading')}</div>
           )}
           {loadError && (
             <button type="button" className="conversation-list-error" onClick={() => { void load(); }}>
-              {loadError}，点击重试
+              {t('clickToRetry', { message: loadError })}
             </button>
           )}
           {conversations.map((conversation) => (
@@ -153,19 +155,19 @@ export default function ConversationSidebar({ open, onClose }: Props) {
               onClick={() => { void activate(conversation.id); }}
               title={conversation.title}
             >
-              <span className={`conversation-item-icon status-${conversation.activityStatus || 'idle'}`} aria-label={conversation.activityStatus === 'running' ? '生成中' : conversation.activityStatus === 'failed' ? '生成失败' : '空闲'}>
+              <span className={`conversation-item-icon status-${conversation.activityStatus || 'idle'}`} aria-label={conversation.activityStatus === 'running' ? t('generating') : conversation.activityStatus === 'failed' ? t('generationFailedShort') : t('idle')}>
                 {conversation.activityStatus === 'running' ? '◌' : conversation.activityStatus === 'failed' ? '!' : '◇'}
               </span>
               <span className="conversation-item-content">
                 <span className="conversation-item-title">{conversation.title}</span>
                 <span className="conversation-item-meta">
                   {conversation.activityStatus === 'running'
-                    ? '正在生成回答…'
+                    ? t('generatingAnswer')
                     : conversation.activityStatus === 'failed'
-                      ? '上次生成失败，可进入重试'
+                      ? t('previousGenerationFailed')
                       : conversation.pending
-                    ? '尚未发送消息'
-                    : `${conversation.messageCount ? `${conversation.messageCount} 条消息 · ` : ''}${formatConversationTime(conversation.updatedAt)}`}
+                    ? t('noMessagesYet')
+                    : `${conversation.messageCount ? t('messageCount', { count: conversation.messageCount }) : ''}${formatConversationTime(conversation.updatedAt)}`}
                 </span>
               </span>
             </button>

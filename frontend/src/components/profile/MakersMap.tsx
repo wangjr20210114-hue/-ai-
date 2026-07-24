@@ -5,6 +5,7 @@ import { useAppDispatch } from '../../store/appState';
 import type { MakersMapPlace, MakersRoutePlan } from '../../types';
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
 import { shouldPlanMakersRoute } from './makersMapRouting';
+import { translate, useLanguage } from '../../i18n';
 
 interface Props {
   conversationId: string;
@@ -39,7 +40,7 @@ function loadTencentMap(key: string): Promise<TencentMapNamespace> {
       if (settled) return;
       settled = true;
       resetTencentMapSdk();
-      reject(new Error('地图 SDK 加载超时'));
+      reject(new Error(translate('mapSdkTimeout')));
     }, MAP_SDK_TIMEOUT_MS);
     script.onload = () => {
       if (settled) return;
@@ -48,7 +49,7 @@ function loadTencentMap(key: string): Promise<TencentMapNamespace> {
       if (window.TMap) resolve(window.TMap);
       else {
         resetTencentMapSdk();
-        reject(new Error('地图 SDK 加载失败'));
+        reject(new Error(translate('mapSdkFailed')));
       }
     };
     script.onerror = () => {
@@ -56,7 +57,7 @@ function loadTencentMap(key: string): Promise<TencentMapNamespace> {
       settled = true;
       window.clearTimeout(timer);
       resetTencentMapSdk();
-      reject(new Error('地图 SDK 加载失败'));
+      reject(new Error(translate('mapSdkFailed')));
     };
     document.head.appendChild(script);
   });
@@ -65,11 +66,12 @@ function loadTencentMap(key: string): Promise<TencentMapNamespace> {
 
 function hoursMinutes(seconds: number): string {
   const minutes = Math.max(1, Math.round(seconds / 60));
-  if (minutes < 60) return `${minutes} 分钟`;
-  return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`;
+  if (minutes < 60) return translate('minutes', { count: minutes });
+  return translate('hoursMinutes', { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }
 
 export default function MakersMap({ conversationId, title, places, revision, showRoute = false, optimize = false }: Props) {
+  const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const containerRef = useRef<HTMLDivElement>(null);
   const [animating, setAnimating] = useState(false);
@@ -91,7 +93,7 @@ export default function MakersMap({ conversationId, title, places, revision, sho
   const readCurrentLocation = useCallback(() => {
     if (!navigator.geolocation) {
       setPermission('unavailable');
-      setLocationError('当前浏览器不支持定位。');
+      setLocationError(t('geolocationUnsupported'));
       return;
     }
     const requestId = ++locationRequestRef.current;
@@ -108,8 +110,8 @@ export default function MakersMap({ conversationId, title, places, revision, sho
         setUserLocation({
           place_id: 'browser-current-location',
           provider: 'browser',
-          name: '当前位置',
-          address: '仅在当前浏览器会话中使用',
+          name: t('currentLocation'),
+          address: t('sessionOnlyLocation'),
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
         });
@@ -141,12 +143,12 @@ export default function MakersMap({ conversationId, title, places, revision, sho
       },
       LOCATION_OPTIONS,
     );
-  }, [conversationId, dispatch]);
+  }, [conversationId, dispatch, t]);
 
   const checkPermissionAndRead = useCallback(() => {
     if (!navigator.geolocation) {
       setPermission('unavailable');
-      setLocationError('当前浏览器不支持定位。');
+      setLocationError(t('geolocationUnsupported'));
       return;
     }
     if (!navigator.permissions) {
@@ -159,7 +161,7 @@ export default function MakersMap({ conversationId, title, places, revision, sho
       .then((status) => {
         if (status.state === 'denied') {
           setPermission('denied');
-          setLocationError('位置权限已关闭。请在浏览器的网站设置中允许定位后重试。');
+          setLocationError(t('locationPermissionClosed'));
           return;
         }
         // Both "granted" and "prompt" must go through the browser's native
@@ -167,7 +169,7 @@ export default function MakersMap({ conversationId, title, places, revision, sho
         readCurrentLocation();
       })
       .catch(readCurrentLocation);
-  }, [readCurrentLocation]);
+  }, [readCurrentLocation, t]);
 
   useEffect(() => {
     if (!navigator.permissions) {
@@ -218,9 +220,9 @@ export default function MakersMap({ conversationId, title, places, revision, sho
     setRouteError('');
     void planMakersRoute(conversationId, places, optimize)
       .then((next) => { if (!disposed) setRoute(next); })
-      .catch((error) => { if (!disposed) setRouteError(error instanceof Error ? error.message : '路线规划失败'); });
+      .catch((error) => { if (!disposed) setRouteError(error instanceof Error ? error.message : t('routePlanningFailed')); });
     return () => { disposed = true; };
-  }, [conversationId, places, revision, showRoute, optimize]);
+  }, [conversationId, places, revision, showRoute, optimize, t]);
 
   useEffect(() => {
     if (!displayPlaces.length) return;
@@ -280,7 +282,7 @@ export default function MakersMap({ conversationId, title, places, revision, sho
           id: `makers-label-${place.place_id || index}`,
           styleId: 'label',
           position: new TMap.LatLng(place.latitude, place.longitude),
-          content: place.name === '当前位置' ? place.name : `${index + 1}. ${place.name}`,
+          content: place.name === t('currentLocation') ? place.name : `${index + 1}. ${place.name}`,
         })),
       });
       if (route?.path?.length) {
@@ -312,28 +314,28 @@ export default function MakersMap({ conversationId, title, places, revision, sho
       resizeObserver?.disconnect();
       map?.destroy?.();
     };
-  }, [displayPlaces, places.length, route, routeError, revision, renderAttempt]);
+  }, [displayPlaces, places.length, route, routeError, revision, renderAttempt, t]);
 
   if (!displayPlaces.length) {
     return (
       <div className="makers-map-empty makers-location-state">
-        {permission === 'checking' && <><div>正在取得当前位置…</div><Button size="small" variant="outline" disabled>定位中</Button></>}
-        {permission === 'prompt' && <><div>{locationError || '今天还没有可连成路线的日程'}</div><Button size="small" theme="primary" onClick={checkPermissionAndRead}>显示我的位置</Button></>}
-        {permission === 'denied' && <><div>{locationError || '位置权限已关闭。请在浏览器的网站设置中允许定位后重试。'}</div><Button size="small" variant="outline" onClick={checkPermissionAndRead}>重新检查位置</Button></>}
-        {permission === 'unavailable' && <div>当前浏览器不支持定位；添加至少两个有效日程地点后仍可显示路线。</div>}
-        {permission === 'granted' && <><div>{locationError || '位置权限已开启，正在读取位置…'}</div><Button size="small" variant="outline" onClick={checkPermissionAndRead}>重新定位</Button></>}
+        {permission === 'checking' && <><div>{t('gettingLocation')}</div><Button size="small" variant="outline" disabled>{t('locating')}</Button></>}
+        {permission === 'prompt' && <><div>{locationError || t('noRouteScheduleToday')}</div><Button size="small" theme="primary" onClick={checkPermissionAndRead}>{t('showMyLocation')}</Button></>}
+        {permission === 'denied' && <><div>{locationError || t('locationPermissionClosed')}</div><Button size="small" variant="outline" onClick={checkPermissionAndRead}>{t('recheckLocation')}</Button></>}
+        {permission === 'unavailable' && <div>{t('locationUnsupportedRouteAvailable')}</div>}
+        {permission === 'granted' && <><div>{locationError || t('permissionReadingLocation')}</div><Button size="small" variant="outline" onClick={checkPermissionAndRead}>{t('relocate')}</Button></>}
       </div>
     );
   }
 
   return (
     <div className={`makers-map ${animating ? 'is-updating' : ''}`}>
-      <div className="makers-map-title">{places.length ? title : '当前位置'}</div>
-      <div ref={containerRef} className="makers-map-canvas" aria-label={`${title}地图`} />
-      {mapLoading && <div className="makers-map-loading" role="status">正在加载腾讯地图…</div>}
+      <div className="makers-map-title">{places.length ? title : t('currentLocation')}</div>
+      <div ref={containerRef} className="makers-map-canvas" aria-label={t('mapAria', { title })} />
+      {mapLoading && <div className="makers-map-loading" role="status">{t('loadingTencentMap')}</div>}
       {mapUnavailable && (
         <div className="makers-map-fallback" role="status">
-          <strong>底图暂时未加载，已核实地点仍可查看</strong>
+          <strong>{t('mapBaseUnavailable')}</strong>
           <div className="makers-map-fallback-places">
             {(route?.places?.length ? route.places : displayPlaces).map((place, index) => <div key={`${place.place_id}-${index}`}>
               <b>{index + 1}. {place.name}</b>
@@ -344,23 +346,23 @@ export default function MakersMap({ conversationId, title, places, revision, sho
             resetTencentMapSdk();
             setMapUnavailable(false);
             setRenderAttempt((value) => value + 1);
-          }}>重试加载底图</Button>
+          }}>{t('retryMapBase')}</Button>
         </div>
       )}
-      {showRoute && routeError && <div className="makers-route-error">未能取得真实道路路线：{routeError}</div>}
-      {shouldPlanMakersRoute(showRoute, places.length) && !route && !routeError && <div className="makers-route-loading">正在计算真实道路路线…</div>}
+      {showRoute && routeError && <div className="makers-route-error">{t('realRouteFailed', { error: routeError })}</div>}
+      {shouldPlanMakersRoute(showRoute, places.length) && !route && !routeError && <div className="makers-route-loading">{t('calculatingRoute')}</div>}
       {showRoute && route && (
         <div className="makers-route-summary">
-          <span>{(route.distance_meters / 1000).toFixed(1)} 公里</span>
+          <span>{t('kilometers', { count: (route.distance_meters / 1000).toFixed(1) })}</span>
           <span>{hoursMinutes(route.duration_seconds)}</span>
-          <span>自驾约 ¥{route.fare.self_driving.estimate.toFixed(0)}</span>
-          <span>打车约 ¥{route.fare.taxi.low.toFixed(0)}–{route.fare.taxi.high.toFixed(0)}</span>
+          <span>{t('drivingEstimate', { amount: route.fare.self_driving.estimate.toFixed(0) })}</span>
+          <span>{t('taxiEstimate', { low: route.fare.taxi.low.toFixed(0), high: route.fare.taxi.high.toFixed(0) })}</span>
           <small>{route.fare.basis}</small>
-          <small>{route.cache?.hit ? '已复用 6 小时内的 Makers 路线缓存' : '路线已保存到 Makers 缓存，6 小时内相同地点不重复计算'}</small>
+          <small>{route.cache?.hit ? t('routeCacheHit') : t('routeCacheSaved')}</small>
         </div>
       )}
       <div className="makers-place-chips">
-        {(route?.places?.length ? route.places : displayPlaces).map((place, index) => <span key={`${place.place_id}-${index}`}>{place.name === '当前位置' ? '📍' : index + 1} {place.name}</span>)}
+        {(route?.places?.length ? route.places : displayPlaces).map((place, index) => <span key={`${place.place_id}-${index}`}>{place.name === t('currentLocation') ? '📍' : index + 1} {place.name}</span>)}
       </div>
     </div>
   );

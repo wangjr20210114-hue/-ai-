@@ -1,4 +1,5 @@
 import type { ProactiveNotification } from '../../types';
+import { translate } from '../../i18n';
 
 export interface ProactiveReminderLine {
   id: string;
@@ -30,7 +31,7 @@ function finishSentence(text: string): string {
     .replace(/\s+/g, ' ')
     .replace(/[。！？；，、,.!?;]+$/u, '')
     .trim();
-  return clean ? `${clean}。` : '';
+  return clean ? `${clean}${translate('sentencePeriod')}` : '';
 }
 
 function weatherSentence(item: ProactiveNotification): string {
@@ -43,14 +44,14 @@ function weatherSentence(item: ProactiveNotification): string {
     weather.district
     || weather.city
     || schedule.location
-    || '你所在地区',
+    || translate('yourArea'),
   ).trim();
-  let advice = '出门前记得做好准备';
-  if (/[雷雨]/u.test(condition)) advice = '记得带伞，也注意保暖';
-  else if (/[雪冻冰雹]/u.test(condition)) advice = '记得保暖并注意路滑';
-  else if (/[风台风沙尘]/u.test(condition)) advice = '记得防风，出行注意安全';
-  else if (/雾/u.test(condition)) advice = '能见度可能较低，出行注意安全';
-  return finishSentence(`今天${location}有${condition}，${advice}`);
+  let advice = translate('weatherPrepare');
+  if (/[雷雨]/u.test(condition)) advice = translate('weatherRainAdvice');
+  else if (/[雪冻冰雹]/u.test(condition)) advice = translate('weatherSnowAdvice');
+  else if (/[风台风沙尘]/u.test(condition)) advice = translate('weatherWindAdvice');
+  else if (/雾/u.test(condition)) advice = translate('weatherFogAdvice');
+  return finishSentence(translate('weatherReminder', { location, condition, advice }));
 }
 
 function splitReminder(text: string, maxLength = 36): string[] {

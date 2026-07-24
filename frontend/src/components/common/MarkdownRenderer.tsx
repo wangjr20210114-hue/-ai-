@@ -7,11 +7,12 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import type { RichMediaAsset, SearchMeta } from '../../types';
 import { isSafeRemoteUrl, linkBareCitations, replaceCitationMarkers, sourceLabel } from './richContent';
+import { translate, useLanguage } from '../../i18n';
 
 const MEDIA_SLOT = /\[\[YUANBAO_MEDIA(?:\s*:\s*(\d+))?\]\]/g;
 
 function markdownAlt(value: string): string {
-  return value.replace(/[[\]\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 180) || '回答配图';
+  return value.replace(/[[\]\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 180) || translate('answerImage');
 }
 
 function mediaMarkdown(asset: RichMediaAsset): string {
@@ -31,12 +32,13 @@ function replaceLegacyMediaSlots(content: string, media: RichMediaAsset[] = []):
 
 function RichImage({ asset }: { asset: RichMediaAsset }) {
   const [failed, setFailed] = useState(false);
+  const { t } = useLanguage();
   if (failed) return null;
   return (
     <figure className={`rich-media-figure${asset.preview ? ' is-preview' : ''}`}>
       <img
         src={asset.url}
-        alt={asset.alt || asset.caption || '回答配图'}
+        alt={asset.alt || asset.caption || t('answerImage')}
         loading="eager"
         decoding="async"
         draggable={false}
@@ -45,8 +47,8 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
       {(asset.caption || asset.source_url) && (
         <figcaption>
           <span className="rich-media-caption-text">{asset.caption}</span>
-          {asset.preview && <span className="rich-media-reviewing">图片核实中</span>}
-          {asset.generated && <span className="rich-media-generated">AI 生成示意图</span>}
+          {asset.preview && <span className="rich-media-reviewing">{t('imageReviewing')}</span>}
+          {asset.generated && <span className="rich-media-generated">{t('aiGeneratedIllustration')}</span>}
           {asset.source_url && isSafeRemoteUrl(asset.source_url) && (
             <a
               href={asset.source_url}
@@ -64,6 +66,7 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
 
 function CodeBlock({ children }: { children: React.ReactNode }) {
   const [copied, setCopied] = useState(false);
+  const { t } = useLanguage();
   const child = React.Children.toArray(children)[0];
   if (!React.isValidElement<{ className?: string; children?: React.ReactNode }>(child)) {
     return <pre className="md-code-block">{children}</pre>;
@@ -87,8 +90,8 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
   };
   return <div className="md-code-shell">
     <div className="md-code-toolbar">
-      <span>{language || '代码'}</span>
-      <button type="button" onClick={() => { void copy(); }} aria-label="复制代码">{copied ? '已复制' : '复制'}</button>
+      <span>{language || t('code')}</span>
+      <button type="button" onClick={() => { void copy(); }} aria-label={t('copyCode')}>{copied ? t('copied') : t('copy')}</button>
     </div>
     <pre className="md-code-block"><code className={`hljs${language ? ` language-${language}` : ''}`} dangerouslySetInnerHTML={{ __html: highlighted }} /></pre>
   </div>;

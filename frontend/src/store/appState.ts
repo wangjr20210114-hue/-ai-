@@ -10,6 +10,7 @@ import type {
   ProactiveState,
   DocumentContext,
 } from '../types';
+import { translate } from '../i18n';
 
 const THEME_KEY = 'travel-theme';
 
@@ -88,7 +89,7 @@ export const initialState: AppState = {
   plans: [],
   schedules: [],
   mapPlaces: [],
-  mapTitle: '相关地点',
+  mapTitle: translate('relatedPlaces'),
   mapRevision: 0,
   calendarPulse: null,
   conversations: [],
@@ -165,7 +166,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, schedules: Array.from(merged.values()).sort((a, b) => a.start_time - b.start_time) };
     }
     case 'SET_MAP_PLACES': {
-      const nextTitle = action.payload.title || '相关地点';
+      const nextTitle = action.payload.title || translate('relatedPlaces');
       const placesChanged = !sameMapPlaces(state.mapPlaces, action.payload.places);
       return {
         ...state,
@@ -186,7 +187,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         schedules: action.payload.schedules || [],
         mapPlaces: placesChanged ? nextPlaces : state.mapPlaces,
-        mapTitle: hasMapSnapshot ? action.payload.mapTitle || '相关地点' : state.mapTitle,
+        mapTitle: hasMapSnapshot ? action.payload.mapTitle || translate('relatedPlaces') : state.mapTitle,
         mapRevision: placesChanged ? state.mapRevision + 1 : state.mapRevision,
       };
     }

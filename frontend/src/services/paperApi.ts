@@ -1,4 +1,5 @@
 import { authorizedFetch, withEdgeOneAuth } from './auth';
+import { translate } from '../i18n';
 import { getOrCreateConversationId, makersConversationHeaders } from './conversation';
 import { getStoredLanguage } from '../i18n';
 /**
@@ -96,14 +97,14 @@ export interface ReadingLibrary { papers: SavedPaper[]; folders: ReadingFolder[]
 export async function getReadingLibrary(): Promise<ReadingLibrary> {
   const resp = await authorizedFetch('/library');
   const data = await resp.json().catch(() => ({})) as { items?: SavedPaper[]; folders?: ReadingFolder[]; settings?: ReadingSettings; error?: string };
-  if (!resp.ok) throw new Error(data.error || '读取我的阅读失败');
+  if (!resp.ok) throw new Error(data.error || translate('readingLoadFailed'));
   return { papers: data.items || [], folders: data.folders || [], settings: { auto_organize: data.settings?.auto_organize !== false } };
 }
 
 async function libraryOperation<T>(body: Record<string, unknown>): Promise<T> {
   const resp = await authorizedFetch('/library', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const data = await resp.json().catch(() => ({})) as T & { error?: string };
-  if (!resp.ok) throw new Error(data.error || '更新阅读库失败');
+  if (!resp.ok) throw new Error(data.error || translate('readingLibraryUpdateFailed'));
   window.dispatchEvent(new CustomEvent('yuanbao:library-changed'));
   return data;
 }
@@ -156,7 +157,7 @@ export async function registerReadingItem(item: {
     body: JSON.stringify({ operation: 'register', ...item }),
   });
   const data = await resp.json().catch(() => ({})) as { item?: SavedPaper; error?: string };
-  if (!resp.ok || !data.item) throw new Error(data.error || '保存到我的阅读失败');
+  if (!resp.ok || !data.item) throw new Error(data.error || translate('saveToReadingFailed'));
   window.dispatchEvent(new CustomEvent('yuanbao:library-changed'));
   return data.item;
 }
@@ -190,7 +191,7 @@ export async function fetchPaperFile(fileId: string, signal?: AbortSignal): Prom
   }
   const blob = new Blob(chunks, { type: head.headers.get('content-type') || 'application/pdf' });
   if (blob.size !== size) {
-    return new Response(JSON.stringify({ error: 'PDF 分片不完整，请重试' }), {
+    return new Response(JSON.stringify({ error: translate('pdfChunksIncomplete') }), {
       status: 502,
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
     });
@@ -223,7 +224,7 @@ export function streamPaper(
       onDone(full);
     } catch (error: unknown) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
-        onDone(full, error instanceof Error ? error.message : '请求失败');
+        onDone(full, error instanceof Error ? error.message : translate('requestFailed'));
       }
     }
   })();

@@ -5,6 +5,7 @@ import { streamImageEdit } from '../../services/api';
 import { withEdgeOneAuth } from '../../services/auth';
 import { createZip } from '../../services/zip';
 import type { WorkspaceAction } from '../../types';
+import { useLanguage, type TranslationKey } from '../../i18n';
 
 interface ImageVersion {
   id: string;
@@ -46,28 +47,30 @@ function saveBlob(blob: Blob, name: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-const PAINTING_STEPS = [
-  '正在理解画面中的主体与氛围',
-  '正在搭建构图与视觉层次',
-  '正在细化线条、色彩和光影',
-  '画面正在逐层显影',
+const PAINTING_STEPS: TranslationKey[] = [
+  'paintingUnderstand',
+  'paintingCompose',
+  'paintingDetail',
+  'paintingReveal',
 ];
 
 function PaintingStatus() {
   const [step, setStep] = useState(0);
+  const { t } = useLanguage();
   useEffect(() => {
     const timer = window.setInterval(() => setStep((value) => (value + 1) % PAINTING_STEPS.length), 1800);
     return () => window.clearInterval(timer);
   }, []);
   return (
     <div className="image-painting-copy" aria-live="polite">
-      <strong>{PAINTING_STEPS[step]}</strong>
-      <small>图片工坊正在绘制，请稍候</small>
+      <strong>{t(PAINTING_STEPS[step])}</strong>
+      <small>{t('paintingWait')}</small>
     </div>
   );
 }
 
 export default function ImageStudioCard({ action, conversationId, onUpdated }: Props) {
+  const { t } = useLanguage();
   const [currentAction, setCurrentAction] = useState(action);
   const [index, setIndex] = useState(0);
   const [instruction, setInstruction] = useState('');
@@ -85,8 +88,8 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
   const imageReady = Boolean(selected && loadedUrls.has(selected.image_url));
   const originalPrompt = versions[0]?.prompt || selected?.prompt || '';
   const editHint = originalPrompt
-    ? `继续修改“${originalPrompt.slice(0, 36)}${originalPrompt.length > 36 ? '…' : ''}”，例如保留主体并调整背景、动作或画风`
-    : '描述希望保留和改变的部分';
+    ? t('editImageHint', { prompt: `${originalPrompt.slice(0, 36)}${originalPrompt.length > 36 ? '…' : ''}` })
+    : t('describeImageEdit');
 
   useEffect(() => {
     setCurrentAction(action);
@@ -124,7 +127,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
     const cached = downloadCacheRef.current.get(version.image_url);
     if (cached) return cached.blob;
     const response = await fetch(withEdgeOneAuth(version.image_url));
-    if (!response.ok) throw new Error('下载图片失败');
+    if (!response.ok) throw new Error(t('imageDownloadFailed'));
     const blob = await response.blob();
     downloadCacheRef.current.set(version.image_url, { blob, objectUrl: URL.createObjectURL(blob) });
     loadedUrlsRef.current.add(version.image_url);
@@ -145,10 +148,10 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
       const next = versionsFrom(action);
       setIndex(Math.max(0, next.length - 1));
       setInstruction('');
-      if (action.status === 'failed') throw new Error(action.error || '修改图片失败');
+      if (action.status === 'failed') throw new Error(action.error || t('imageEditFailed'));
       waitingForImage = true;
     } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '修改图片失败');
+      MessagePlugin.error(error instanceof Error ? error.message : t('imageEditFailed'));
     } finally {
       if (!waitingForImage) setGenerating(false);
     }
@@ -157,9 +160,9 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
   const downloadOne = async () => {
     if (!selected) return;
     try {
-      saveBlob(await fetchVersionBlob(selected), `Floris图片-${index + 1}.png`);
+      saveBlob(await fetchVersionBlob(selected), `Floris-image-${index + 1}.png`);
     } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '下载图片失败');
+      MessagePlugin.error(error instanceof Error ? error.message : t('imageDownloadFailed'));
     }
   };
 
@@ -169,14 +172,14 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
     try {
       const entries = await Promise.all(versions.map(async (version, versionIndex) => {
         try {
-          return { name: `Floris图片-${versionIndex + 1}.png`, data: new Uint8Array(await (await fetchVersionBlob(version)).arrayBuffer()) };
+          return { name: `Floris-image-${versionIndex + 1}.png`, data: new Uint8Array(await (await fetchVersionBlob(version)).arrayBuffer()) };
         } catch {
-          throw new Error(`第 ${versionIndex + 1} 张图片下载失败`);
+          throw new Error(t('imageNumberDownloadFailed', { number: versionIndex + 1 }));
         }
       }));
-      saveBlob(createZip(entries), `Floris图片组-${Date.now()}.zip`);
+      saveBlob(createZip(entries), `Floris-images-${Date.now()}.zip`);
     } catch (error) {
-      MessagePlugin.error(error instanceof Error ? error.message : '批量下载失败');
+      MessagePlugin.error(error instanceof Error ? error.message : t('batchDownloadFailed'));
     } finally {
       setDownloading(false);
     }
@@ -192,39 +195,39 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
     );
   }
   if (!versions.length) {
-    return <div className="image-studio-card image-studio-error">生成失败：{currentAction.error || '未返回图片'}</div>;
+    return <div className="image-studio-card image-studio-error">{t('imageGenerationFailed', { reason: currentAction.error || t('noImageReturned') })}</div>;
   }
 
   return (
     <div className="image-studio-card">
       <div className="image-studio-header">
-        <div><strong>图片工坊</strong><span>{index + 1} / {versions.length}</span></div>
+        <div><strong>{t('imageStudio')}</strong><span>{index + 1} / {versions.length}</span></div>
         <div className="image-studio-downloads">
-          <Button size="small" variant="text" icon={<DownloadIcon />} onClick={() => void downloadOne()}>下载</Button>
-          <Button size="small" variant="outline" loading={downloading} onClick={() => void downloadAll()}>批量下载</Button>
+          <Button size="small" variant="text" icon={<DownloadIcon />} onClick={() => void downloadOne()}>{t('download')}</Button>
+          <Button size="small" variant="outline" loading={downloading} onClick={() => void downloadAll()}>{t('batchDownload')}</Button>
         </div>
       </div>
       <div className={`image-studio-stage ${generating || !imageReady ? 'is-painting' : ''}`}>
-        <Button className="image-studio-nav previous" shape="circle" disabled={versions.length < 2} aria-label="上一张" icon={<ChevronLeftIcon />} onClick={() => setIndex((index - 1 + versions.length) % versions.length)} />
-        <img src={selectedSrc} alt={originalPrompt || '生成图片'} onLoad={() => {
+        <Button className="image-studio-nav previous" shape="circle" disabled={versions.length < 2} aria-label={t('previousImage')} icon={<ChevronLeftIcon />} onClick={() => setIndex((index - 1 + versions.length) % versions.length)} />
+        <img src={selectedSrc} alt={originalPrompt || t('generatedImage')} onLoad={() => {
           loadedUrlsRef.current.add(selected.image_url);
           setLoadedUrls((current) => new Set(current).add(selected.image_url));
-          if (generating) MessagePlugin.success('图片已生成并载入');
+          if (generating) MessagePlugin.success(t('imageLoaded'));
           setGenerating(false);
-        }} onError={() => { setGenerating(false); MessagePlugin.error('图片已生成，但载入浏览器失败'); }} />
+        }} onError={() => { setGenerating(false); MessagePlugin.error(t('imageLoadFailed')); }} />
         {(generating || !imageReady) && <div className="image-painting-overlay"><span /><PaintingStatus /></div>}
-        <Button className="image-studio-nav next" shape="circle" disabled={versions.length < 2} aria-label="下一张" icon={<ChevronRightIcon />} onClick={() => setIndex((index + 1) % versions.length)} />
+        <Button className="image-studio-nav next" shape="circle" disabled={versions.length < 2} aria-label={t('nextImage')} icon={<ChevronRightIcon />} onClick={() => setIndex((index + 1) % versions.length)} />
       </div>
       <div className="image-studio-prompt" title={originalPrompt}>{originalPrompt}</div>
       <div className="image-studio-editor">
         <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder={editHint} maxLength={2000} />
-        <Button theme="primary" loading={generating} disabled={!instruction.trim()} onClick={() => void generateEdit()}>基于此图修改</Button>
+        <Button theme="primary" loading={generating} disabled={!instruction.trim()} onClick={() => void generateEdit()}>{t('editFromImage')}</Button>
       </div>
       {versions.length > 1 && (
         <div className="image-studio-thumbs">
           {versions.map((version, versionIndex) => (
             <button key={version.id} type="button" className={versionIndex === index ? 'selected' : ''} onClick={() => setIndex(versionIndex)}>
-              <img src={downloadCacheRef.current.get(version.image_url)?.objectUrl || withEdgeOneAuth(version.image_url)} alt={`版本 ${versionIndex + 1}`} />
+              <img src={downloadCacheRef.current.get(version.image_url)?.objectUrl || withEdgeOneAuth(version.image_url)} alt={t('imageVersion', { number: versionIndex + 1 })} />
             </button>
           ))}
         </div>

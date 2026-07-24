@@ -199,6 +199,9 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
     /transport_recovering|RECOVERY_DEADLINE|shouldAutoResume|async resume\s*\(/,
     'failed or stopped chat runs must never resume automatically',
   );
-  assert.match(chatClient, /不会自动重试/);
-  assert.match(active, /重试生成/);
+  const i18n = await read('frontend/src/i18n.tsx');
+  assert.match(chatClient, /translate\('networkGenerationEnded'\)/);
+  assert.match(i18n, /不会自动重试/);
+  assert.match(active, /t\('retryGeneration'\)/);
+  assert.match(i18n, /重试生成/);
 });
