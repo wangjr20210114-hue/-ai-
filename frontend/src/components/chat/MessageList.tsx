@@ -4,6 +4,7 @@ import MessageBubble from './MessageBubble';
 import type { ChatClient } from '../../services/chatClient';
 import { autoFollowAfterScroll, hasTextSelectionInside } from './scrollSelection';
 import { useLanguage, type TranslationKey } from '../../i18n';
+import { assistantChainPositions } from './assistantMessageChain';
 
 const STARTERS: TranslationKey[] = [
   'starterAiNews',
@@ -19,6 +20,10 @@ interface Props {
 /** 消息列表（居中），自动滚动到底部；空态展示引导。 */
 export default function MessageList({ client }: Props) {
   const { messages, thinking } = useAppState();
+  const chainPositions = assistantChainPositions(
+    thinking ? [...messages, { role: 'ai' as const }] : messages,
+  );
+  const thinkingChainPosition = thinking ? chainPositions[messages.length] : 'single';
   const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const endRef = useRef<HTMLDivElement>(null);
@@ -123,14 +128,21 @@ export default function MessageList({ client }: Props) {
       onCopy={stopAutoFollow}
     >
       <div className="chat-inner">
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} client={client} />
+        {messages.map((m, index) => (
+          <MessageBubble
+            key={m.id}
+            message={m}
+            client={client}
+            assistantChainPosition={chainPositions[index]}
+          />
         ))}
 
         {thinking && (
-          <div className="msg-row ai">
-            <div className="msg-avatar ai"><img src="/floris-avatar.png" alt="Floris" /></div>
-            <div className="msg-bubble ai">
+          <div className={`msg-row ai${thinkingChainPosition !== 'single' ? ` assistant-chain-${thinkingChainPosition}` : ''}`}>
+            {thinkingChainPosition === 'middle' || thinkingChainPosition === 'end'
+              ? <div className="msg-avatar-spacer" aria-hidden="true" />
+              : <div className="msg-avatar ai"><img src="/floris-avatar.png" alt="Floris" /></div>}
+            <div className={`msg-bubble ai${thinkingChainPosition !== 'single' ? ` assistant-chain-bubble assistant-chain-bubble-${thinkingChainPosition}` : ''}`}>
               <span className="typing-dots">
                 <span />
                 <span />

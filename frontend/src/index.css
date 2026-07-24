@@ -602,6 +602,11 @@ html.is-resizing-workspace * {
   border: 1px solid var(--app-border);
   color: var(--app-text-2);
 }
+.msg-avatar-spacer {
+  width: 34px;
+  height: 1px;
+  flex: 0 0 34px;
+}
 
 .msg-bubble {
   --bubble-inline-padding: 16px;
@@ -639,6 +644,47 @@ html.is-resizing-workspace * {
   border-color: rgba(213, 73, 65, 0.34);
   background: color-mix(in srgb, #d54941 6%, var(--app-ai-bubble));
   color: var(--app-text);
+}
+
+/*
+ * Clarification continuations remain separate Makers checkpoints, but read as
+ * one Floris answer in the UI. Equal widths and collapsed seams create one
+ * continuous answer frame without weakening refresh/session restoration.
+ */
+.msg-row.ai.assistant-chain-start {
+  margin-bottom: 0;
+}
+.msg-row.ai.assistant-chain-middle {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.msg-row.ai.assistant-chain-end {
+  margin-top: 0;
+}
+.msg-row.ai .msg-bubble.ai.assistant-chain-bubble {
+  width: 75%;
+  max-width: 75%;
+}
+.msg-bubble.ai.assistant-chain-bubble-start {
+  border-bottom-color: transparent;
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+  box-shadow: none;
+  padding-bottom: 7px;
+}
+.msg-bubble.ai.assistant-chain-bubble-middle {
+  border-top: 0;
+  border-bottom: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+.msg-bubble.ai.assistant-chain-bubble-end {
+  border-top: 0;
+  border-top-right-radius: 0;
+  border-top-left-radius: 0;
+  padding-top: 7px;
 }
 .chat-retry-button {
   display: block;
@@ -4312,6 +4358,11 @@ body {
     border-radius: 9px;
   }
 
+  .msg-avatar-spacer {
+    width: 30px;
+    flex-basis: 30px;
+  }
+
   .msg-content-wrap {
     max-width: calc(100% - 38px);
   }
@@ -4320,6 +4371,11 @@ body {
     max-width: 92%;
     padding: 10px 12px;
     font-size: 14px;
+  }
+
+  .msg-row.ai .msg-bubble.ai.assistant-chain-bubble {
+    width: 92%;
+    max-width: 92%;
   }
 
   .msg-bubble.ai.has-copy-action {

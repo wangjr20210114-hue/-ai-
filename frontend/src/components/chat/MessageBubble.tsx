@@ -20,10 +20,12 @@ import { loadProactiveDocumentContext } from '../../services/proactiveDocument';
 import type { ProactiveNotification } from '../../types';
 import { markdownToPlainText } from '../common/richContent';
 import { getStoredLanguage, translate, useLanguage } from '../../i18n';
+import type { AssistantChainPosition } from './assistantMessageChain';
 
 interface Props {
   message: ChatMessage;
   client: React.RefObject<ChatClient | null>;
+  assistantChainPosition?: AssistantChainPosition;
 }
 
 function imageGroup(action: WorkspaceAction): string {
@@ -324,8 +326,10 @@ function ImageCreationProgress({ message }: { message: ChatMessage }) {
 }
 
 /** 单条消息气泡。AI 消息下方根据 skill.intent 渲染不同卡片。 */
-export default function MessageBubble({ message, client }: Props) {
+export default function MessageBubble({ message, client, assistantChainPosition = 'single' }: Props) {
   const isUser = message.role === 'user';
+  const isAssistantChain = !isUser && assistantChainPosition !== 'single';
+  const isAssistantChainTail = assistantChainPosition === 'single' || assistantChainPosition === 'end';
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [followUpWidth, setFollowUpWidth] = useState<number>();
   const dispatch = useAppDispatch();
@@ -723,20 +727,22 @@ export default function MessageBubble({ message, client }: Props) {
     streaming: Boolean(message.streaming),
   };
   return (
-    <div className={`msg-row ${isUser ? 'user' : 'ai'}`}>
-      <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>
-        {isUser ? t('me') : <img src="/floris-avatar.png" alt="Floris" />}
-      </div>
+    <div className={`msg-row ${isUser ? 'user' : 'ai'}${isAssistantChain ? ` assistant-chain-${assistantChainPosition}` : ''}`}>
+      {!isUser && (assistantChainPosition === 'middle' || assistantChainPosition === 'end')
+        ? <div className="msg-avatar-spacer" aria-hidden="true" />
+        : <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>
+          {isUser ? t('me') : <img src="/floris-avatar.png" alt="Floris" />}
+        </div>}
       <div className="msg-content-wrap">
         <div
           ref={bubbleRef}
-          className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''} ${!isUser && !message.streaming && message.content.trim() ? 'has-copy-action' : ''}`}
+          className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''} ${!isUser && !message.streaming && message.content.trim() && isAssistantChainTail ? 'has-copy-action' : ''}${isAssistantChain ? ` assistant-chain-bubble assistant-chain-bubble-${assistantChainPosition}` : ''}`}
         >
           {isUser ? (
             message.content
           ) : (
             <>
-              {!message.streaming && message.content.trim() && <div className="answer-action-group">
+              {!message.streaming && message.content.trim() && isAssistantChainTail && <div className="answer-action-group">
                 <button type="button" className="answer-action-button" title={t('saveImage')} aria-label={t('saveImage')} disabled={answerSaving} onPointerDown={(event) => event.stopPropagation()} onClick={() => { void saveAnswerImage(); }}>
                   <ImageIcon aria-hidden="true" />
                 </button>
