@@ -20,6 +20,14 @@ describe('fixed UI translations', () => {
     }
   });
 
+  it('localizes follow-up and source labels in every product language', () => {
+    expect(translate('followUpLabel', {}, 'en')).toBe('You may also want to ask');
+    expect(translate('viewSource', {}, 'en')).toBe('View source');
+    expect(translate('followUpLabel', {}, 'zh-TW')).toBe('猜你想繼續問');
+    expect(translate('viewSource', {}, 'zh-TW')).toBe('查看來源');
+    expect(translate('followUpLabel', {}, 'cat-cute')).toContain('喵');
+  });
+
   it('interpolates named values without leaking placeholders', () => {
     for (const language of languages) {
       const value = translate('messageCount', { count: 3 }, language);

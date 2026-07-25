@@ -46,7 +46,9 @@ export function linkBareCitations(content: string, sources: SearchResultItem[] =
   if (!sources.length) return content;
   return content.replace(/(?<!\])\((https?:\/\/[^\s)]+)\)/g, (match, url: string) => {
     if (!sourceForUrl(url, sources)) return match;
-    return `([${sourceLabel(url, sources)}](${url}))`;
+    // Keep the URL as the temporary Markdown label. MarkdownRenderer recognizes
+    // URL-only citations and supplies the current interface-language label.
+    return `([${url}](${url}))`;
   });
 }
 

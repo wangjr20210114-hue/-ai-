@@ -22,7 +22,7 @@ from agents.chat._capability_plan import (
     required_tool_for_plan,
     required_tools_for_plan,
 )
-from agents.chat._followups import parse_followups
+from agents.chat._followups import generate_followups, parse_followups
 from agents.chat._llm import _model_timeout
 from agents.chat._history import bounded_history, valid_model_history
 from agents.chat._calendar_context import calendar_context
@@ -746,6 +746,20 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             ["故宫为什么叫紫禁城？", "明清皇帝如何使用故宫？", "故宫有哪些必看建筑？"],
         )
         self.assertEqual(parse_followups("不是 JSON"), [])
+
+    async def test_follow_up_generator_uses_the_selected_output_language(self):
+        model = SimpleNamespace(ainvoke=AsyncMock(
+            return_value=SimpleNamespace(content='["What changed most?"]')
+        ))
+        result = await generate_followups(
+            model,
+            "What is new in artificial intelligence this week?",
+            plan_context='{"needs_web_search": true}',
+            response_language="en",
+        )
+        self.assertEqual(result, ["What changed most?"])
+        system_prompt = model.ainvoke.await_args.args[0][0]["content"]
+        self.assertIn("Write every question in clear, concise English.", system_prompt)
 
 
     def test_rich_search_handoff_uses_standard_markdown(self):

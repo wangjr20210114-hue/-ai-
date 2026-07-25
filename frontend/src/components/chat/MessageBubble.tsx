@@ -719,6 +719,7 @@ export default function MessageBubble({ message, client, assistantChainPosition 
         : t('organizingVerifiedAnswer'))
       : t('organizingAnswer'))
     : searchStatus;
+  const isImageCreation = Boolean(message.streaming && message.skill?.intent === 'image');
   const markdownRender = {
     content: message.streaming ? streamingMarkdownAnswer(message.content) : message.content,
     searchMeta: message.searchResults,
@@ -734,7 +735,7 @@ export default function MessageBubble({ message, client, assistantChainPosition 
       <div className="msg-content-wrap">
         <div
           ref={bubbleRef}
-          className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''} ${!isUser && !message.streaming && message.content.trim() && isAssistantChainTail ? 'has-copy-action' : ''}${isAssistantChain ? ` assistant-chain-bubble assistant-chain-bubble-${assistantChainPosition}` : ''}`}
+          className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''} ${isImageCreation ? 'is-image-generation' : ''} ${!isUser && !message.streaming && message.content.trim() && isAssistantChainTail ? 'has-copy-action' : ''}${isAssistantChain ? ` assistant-chain-bubble assistant-chain-bubble-${assistantChainPosition}` : ''}`}
         >
           {isUser ? (
             message.content
@@ -750,7 +751,7 @@ export default function MessageBubble({ message, client, assistantChainPosition 
               </div>}
               {/* 搜索动画 */}
               {!isUser && message.streaming && (
-                message.skill?.intent === 'image' || progressStatus.includes('生成图片') || progressStatus.includes('绘制') ? <ImageCreationProgress message={message} /> : <div className={`search-progress ${message.content ? 'has-content' : ''}`}>
+                isImageCreation ? <ImageCreationProgress message={message} /> : <div className={`search-progress ${message.content ? 'has-content' : ''}`}>
                   <div className="image-generating-spinner" />
                   <span className="search-progress-status" title={progressStatus}>{progressStatus}</span>
                   <span className="image-generating-dots"><span>.</span><span>.</span><span>.</span></span>

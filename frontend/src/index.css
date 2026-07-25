@@ -1768,13 +1768,24 @@ html.is-resizing-workspace * {
   z-index: 2;
   top: 50%;
   transform: translateY(-50%);
+  width: 30px !important;
+  height: 48px !important;
+  min-width: 30px !important;
+  padding: 0 !important;
   box-shadow: var(--app-shadow);
   border: 1px solid rgba(255,255,255,.72) !important;
   color: #17213c !important;
   background: rgba(255,255,255,.9) !important;
-  font-size: 21px !important;
-  font-weight: 800;
   transition: transform .18s var(--motion-ease-out), box-shadow .18s ease, opacity .18s ease !important;
+}
+.image-studio-nav-mark {
+  display: block;
+  width: 3px;
+  height: 22px;
+  margin: auto;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.26);
 }
 .image-studio-nav:hover:not(:disabled) { transform: translateY(-50%) scale(1.06); }
 .image-studio-nav:active:not(:disabled) { transform: translateY(-50%) scale(.94); }
@@ -1788,7 +1799,12 @@ html.is-resizing-workspace * {
 .image-painting-copy strong { font-size: 13px; line-height: 1.45; }
 .image-painting-copy small { color: rgba(255,255,255,.78); font-size: 10.5px; }
 @keyframes imagePaintSweep { from { transform: translateX(-45%) rotate(-5deg); } to { transform: translateX(45%) rotate(5deg); } }
-.image-generation-canvas { width: min(100%, 560px); box-sizing: border-box; display: flex; align-items: stretch; justify-content: stretch; padding: 8px; color: var(--app-text-2); }
+.msg-bubble.ai.is-image-generation {
+  width: 75%;
+  max-width: 75%;
+  padding: 8px;
+}
+.image-generation-canvas { width: 100%; min-width: 0; box-sizing: border-box; display: flex; align-items: stretch; justify-content: stretch; padding: 0; color: var(--app-text-2); }
 .image-generation-wash { position: relative; width: 100%; height: clamp(280px, 48vw, 420px); overflow: hidden; border-radius: 13px; background: radial-gradient(circle at 28% 34%, #f9c7a8, transparent 26%), radial-gradient(circle at 67% 60%, #879cff, transparent 34%), linear-gradient(135deg, #ececff, #d5e9f5); background-position: center; background-size: cover; filter: saturate(.8); }
 .image-generation-wash::after { content: ''; position: absolute; inset: 0; backdrop-filter: blur(16px); background: rgba(255,255,255,.12); }
 .image-generation-wash span { position: absolute; z-index: 1; inset: -35%; background: linear-gradient(110deg, transparent 38%, rgba(255,255,255,.8) 50%, transparent 62%); animation: imagePaintSweep 1.7s ease-in-out infinite; }
@@ -4390,6 +4406,12 @@ body {
     max-width: 92%;
     padding: 10px 12px;
     font-size: 14px;
+  }
+
+  .msg-bubble.ai.is-image-generation {
+    width: 92%;
+    max-width: 92%;
+    padding: 7px;
   }
 
   .msg-row.ai .msg-bubble.ai.assistant-chain-bubble {

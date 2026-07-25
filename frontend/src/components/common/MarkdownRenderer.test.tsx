@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import MarkdownRenderer from './MarkdownRenderer';
 import type { SearchMeta } from '../../types';
+import { LanguageProvider } from '../../i18n';
 
 const searchMeta: SearchMeta = {
   query: 'AI 进展', results: [{
@@ -60,7 +61,7 @@ describe('MarkdownRenderer', () => {
     );
     expect(html).toContain('href="https://news.example/ai"');
     expect(html).toContain('class="md-citation-link"');
-    expect(html).toContain('>AI 新闻</a>');
+    expect(html).toContain('>查看来源 · news.example</a>');
     expect(html).not.toContain('>https://news.example/ai</a>');
   });
 
@@ -71,7 +72,34 @@ describe('MarkdownRenderer', () => {
     expect(html).toContain('href="https://news.example/ai"');
     expect(html).toContain('class="md-citation-link"');
     expect(html).toContain('title="https://news.example/ai"');
-    expect(html).toContain('>AI 新闻</a>');
+    expect(html).toContain('>查看来源 · news.example</a>');
+  });
+
+  it('renders a source label in the active English interface language', () => {
+    const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: () => 'en',
+        setItem: () => undefined,
+        removeItem: () => undefined,
+        clear: () => undefined,
+        key: () => null,
+        length: 0,
+      } satisfies Storage,
+    });
+    try {
+      const html = renderToStaticMarkup(
+        <LanguageProvider>
+          <MarkdownRenderer content={'Conclusion [来源](https://news.example/ai).'} searchMeta={searchMeta} />
+        </LanguageProvider>,
+      );
+      expect(html).toContain('>View source · news.example</a>');
+      expect(html).not.toContain('>来源</a>');
+    } finally {
+      if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage);
+      else delete (globalThis as { localStorage?: Storage }).localStorage;
+    }
   });
 
   it('repairs a bare parenthesized provider URL into a titled clickable source', () => {
@@ -79,7 +107,7 @@ describe('MarkdownRenderer', () => {
       <MarkdownRenderer content={'事实说明。(https://news.example/ai)'} searchMeta={searchMeta} />,
     );
     expect(html).toContain('href="https://news.example/ai"');
-    expect(html).toContain('>AI 新闻</a>');
+    expect(html).toContain('>查看来源 · news.example</a>');
     expect(html).toContain('target="_blank"');
   });
 

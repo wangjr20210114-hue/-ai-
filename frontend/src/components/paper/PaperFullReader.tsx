@@ -18,6 +18,7 @@ import {
 } from '../../services/paperApi';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { useLanguage } from '../../i18n';
+import { newestTranslationsFirst } from './paperHistory';
 
 interface Props {
   fileId: string;
@@ -67,7 +68,9 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
   const [qaInput, setQaInput] = useState('');
   const [qaHistory, setQaHistory] = useState<{ q: string; a: string }[]>([]);
   const [savedTranslations, setSavedTranslations] = useState<PaperAssistantResult[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  // Avoid painting the empty instructions for one frame before history starts
+  // loading; that transient state looked like a flash when opening a paper.
+  const [historyLoading, setHistoryLoading] = useState(true);
   const streamRef = useRef<{ cancel: () => void } | null>(null);
 
   useEffect(() => {
@@ -76,8 +79,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
     void loadPaperAssistantResults(fileId)
       .then((items) => {
         if (cancelled) return;
-        const translations = items.filter((item) => item.action === 'translate');
-        setSavedTranslations(translations);
+        setSavedTranslations(newestTranslationsFirst(items));
       })
       .catch(() => {
         if (!cancelled) setSavedTranslations([]);
@@ -293,7 +295,10 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
           source_text: text,
           content: full,
         }).then((saved) => {
-          setSavedTranslations((current) => [...current.filter((item) => item.id !== saved.id), saved].slice(-50));
+          setSavedTranslations((current) => newestTranslationsFirst([
+            saved,
+            ...current.filter((item) => item.id !== saved.id),
+          ]));
           setAiResult(null);
         }).catch(() => {
           MessagePlugin.warning(t('translationNotSaved'));

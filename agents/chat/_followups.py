@@ -37,20 +37,32 @@ def parse_followups(content: Any) -> list[str]:
 
 
 async def generate_followups(
-    model, user_message: str, answer: str = "", *, plan_context: str = "",
+    model,
+    user_message: str,
+    answer: str = "",
+    *,
+    plan_context: str = "",
+    response_language: str = "zh-CN",
 ) -> list[str]:
     """Return useful next questions and allow planning beside answer synthesis."""
     grounding = answer.strip() or plan_context.strip()
     if len(user_message.strip()) + len(grounding) < 20:
         return []
+    language_instruction = {
+        "zh-CN": "问题必须使用自然、简洁的简体中文。",
+        "zh-TW": "問題必須使用自然、簡潔的繁體中文。",
+        "en": "Write every question in clear, concise English.",
+        "cat-cute": "使用简体中文和亲人的可爱猫咪语气，适度加入“喵”，不要影响清晰度。",
+        "cat-cold": "使用简体中文和冷静克制的猫咪语气，表达直接，偶尔可以用简短的“喵”。",
+    }.get(response_language, "问题必须使用自然、简洁的简体中文。")
     response = await model.ainvoke([
         {
             "role": "system",
             "content": (
                 "你只生成对话界面的‘猜你想问’，不续写或编排回答。结合用户原问题和回答，"
-                "给出2到3个自然、有信息增量、用户可能真的会点的简短中文问题。"
+                "给出2到3个自然、有信息增量、用户可能真的会点的简短问题。"
                 "不要重复原问题，不要写‘还有什么可以帮你’。如果不适合追问，返回[]。"
-                "只返回JSON字符串数组。"
+                f"{language_instruction}只返回JSON字符串数组。"
             ),
         },
         {

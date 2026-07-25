@@ -137,6 +137,7 @@ function MarkdownRenderer({
   searchMeta?: SearchMeta;
   streaming?: boolean;
 }) {
+  const { t } = useLanguage();
   const sources = useMemo(() => searchMeta?.results || [], [searchMeta?.results]);
   const visibleMedia = useMemo(() => {
     const reviewedMedia = uniqueMediaAssets(searchMeta?.media || []);
@@ -191,15 +192,18 @@ function MarkdownRenderer({
       if (!isSafeRemoteUrl(url)) return <>{children}</>;
       const label = linkLabel(children);
       const urlOnly = sameUrl(label.replace(/^<|>$/g, ''), url);
-      const semanticCitation = /^(来源|出处|参考|source)$/i.test(label);
+      const semanticCitation = /^(?:来源|查看来源|出处|参考|來源|查看來源|出處|參考|source|view source)(?:\s*[:：·-]?\s*.*)?$/i.test(label);
       const compactCitation = urlOnly || semanticCitation;
+      const citationHost = (() => {
+        try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return sourceLabel(url, sources); }
+      })();
       return <a
         href={url}
         target="_blank"
         rel="noopener noreferrer"
         className={compactCitation ? 'md-citation-link' : undefined}
         title={compactCitation ? url : undefined}
-      >{compactCitation ? sourceLabel(url, sources) : children}</a>;
+      >{compactCitation ? `${t('viewSource')} · ${citationHost}` : children}</a>;
     },
     img: ({ src, alt }: { src?: string; alt?: string }) => {
       const url = typeof src === 'string' ? src : '';
@@ -216,7 +220,7 @@ function MarkdownRenderer({
           generated: false,
         }} />;
     },
-  }), [hasSearchMeta, sources, visibleMedia]);
+  }), [hasSearchMeta, sources, t, visibleMedia]);
 
   return (
     <div

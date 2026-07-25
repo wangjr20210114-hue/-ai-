@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
-import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon } from 'tdesign-icons-react';
+import { DownloadIcon } from 'tdesign-icons-react';
 import { streamImageEdit } from '../../services/api';
 import { withEdgeOneAuth } from '../../services/auth';
 import { createZip } from '../../services/zip';
@@ -208,7 +208,9 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
         </div>
       </div>
       <div className={`image-studio-stage ${generating || !imageReady ? 'is-painting' : ''}`}>
-        <Button className="image-studio-nav previous" shape="circle" disabled={versions.length < 2} aria-label={t('previousImage')} title={t('previousImage')} icon={<ChevronLeftIcon />} onClick={() => setIndex((index - 1 + versions.length) % versions.length)} />
+        <Button className="image-studio-nav previous" shape="circle" disabled={versions.length < 2} aria-label={t('previousImage')} title={t('previousImage')} onClick={() => setIndex((index - 1 + versions.length) % versions.length)}>
+          <span className="image-studio-nav-mark" aria-hidden="true" />
+        </Button>
         <img src={selectedSrc} alt={originalPrompt || t('generatedImage')} onLoad={() => {
           loadedUrlsRef.current.add(selected.image_url);
           setLoadedUrls((current) => new Set(current).add(selected.image_url));
@@ -216,7 +218,9 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
           setGenerating(false);
         }} onError={() => { setGenerating(false); MessagePlugin.error(t('imageLoadFailed')); }} />
         {(generating || !imageReady) && <div className="image-painting-overlay"><span /><PaintingStatus /></div>}
-        <Button className="image-studio-nav next" shape="circle" disabled={versions.length < 2} aria-label={t('nextImage')} title={t('nextImage')} icon={<ChevronRightIcon />} onClick={() => setIndex((index + 1) % versions.length)} />
+        <Button className="image-studio-nav next" shape="circle" disabled={versions.length < 2} aria-label={t('nextImage')} title={t('nextImage')} onClick={() => setIndex((index + 1) % versions.length)}>
+          <span className="image-studio-nav-mark" aria-hidden="true" />
+        </Button>
       </div>
       <div className="image-studio-prompt" title={originalPrompt}>{originalPrompt}</div>
       <div className="image-studio-editor">

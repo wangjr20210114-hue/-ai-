@@ -130,6 +130,7 @@ export default function AppSettingsButton() {
   const preferences = proactive?.preferences;
   const skillEnabled = (id: string) => skillPreferences[id] !== false;
   const openSettings = () => {
+    setLoading(true);
     setVisible(true);
   };
   const saveMottos = () => void setPreferences({
