@@ -17,7 +17,7 @@ from ._capability_plan import (
     required_tools_for_plan,
 )
 from ._followups import generate_followups
-from ._protocol import PublicStreamFilter, public_content, public_error
+from ._protocol import PublicStreamFilter, StreamDeltaNormalizer, public_content, public_error
 from ._calendar_context import calendar_context
 from .._shared.intelligence import (
     apply_automatic_memory_candidates,
@@ -599,6 +599,7 @@ async def handler(ctx):
             pending_ai_content: list[str] = []
             final_answer_parts: list[str] = []
             public_stream = PublicStreamFilter()
+            stream_delta = StreamDeltaNormalizer()
             buffer_public_answer = bool(capability_plan.get("needs_image_generation"))
             run_error = ""
             cancelled = False
@@ -620,6 +621,7 @@ async def handler(ctx):
             async def reset_public_stream() -> None:
                 pending_ai_content.clear()
                 final_answer_parts.clear()
+                stream_delta.reset()
                 if public_stream.reset():
                     await queue.put(ctx.utils.sse({"type": "ai_response_reset"}))
 
@@ -772,7 +774,7 @@ async def handler(ctx):
 
                         content = _text_content(getattr(streamed_message, "content", ""))
                         if content:
-                            delta, reset_required = public_stream.push(content)
+                            delta, reset_required = public_stream.push(stream_delta.push(content))
                             if reset_required:
                                 pending_ai_content.clear()
                                 final_answer_parts.clear()

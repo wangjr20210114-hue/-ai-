@@ -37,7 +37,7 @@ from agents.chat.index import (
     should_persist_user_message,
 )
 from agents.chat._ui_tools import build_production_tools, verify_place_queries_parallel
-from agents.chat._protocol import PublicStreamFilter, action_fallback_content, dsml_tool_calls, public_content, public_error
+from agents.chat._protocol import PublicStreamFilter, StreamDeltaNormalizer, action_fallback_content, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
 from agents._shared.side_effects import (
     _cloudflare_image_prompt,
@@ -2267,6 +2267,23 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         parts.append(tail)
         self.assertFalse(reset)
         self.assertEqual("".join(parts), "这是一段完全正常的流式回答内容。")
+
+    def test_stream_delta_normalizer_drops_repeated_final_message(self):
+        normalizer = StreamDeltaNormalizer()
+        answer = "1 + 1 = 2。这个结果已经完整输出，不应再次显示。"
+        self.assertEqual(normalizer.push(answer), answer)
+        self.assertEqual(normalizer.push(answer), "")
+
+    def test_stream_delta_normalizer_converts_cumulative_chunks_to_deltas(self):
+        normalizer = StreamDeltaNormalizer()
+        self.assertEqual(normalizer.push("北"), "北")
+        self.assertEqual(normalizer.push("北京"), "京")
+        self.assertEqual(normalizer.push("北京天气"), "天气")
+
+    def test_stream_delta_normalizer_keeps_legitimate_short_repetition(self):
+        normalizer = StreamDeltaNormalizer()
+        self.assertEqual(normalizer.push("哈"), "哈")
+        self.assertEqual(normalizer.push("哈"), "哈")
 
     def test_today_filter_requires_a_verifiable_matching_publication_date(self):
         results = [

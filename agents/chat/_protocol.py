@@ -107,6 +107,29 @@ class PublicStreamFilter:
         return reset_required
 
 
+class StreamDeltaNormalizer:
+    """Turn provider deltas or cumulative messages into one monotonic stream."""
+
+    def __init__(self) -> None:
+        self.text = ""
+
+    def push(self, chunk: str) -> str:
+        value = str(chunk or "")
+        if not value:
+            return ""
+        if self.text and value.startswith(self.text) and len(value) > len(self.text):
+            delta = value[len(self.text):]
+            self.text = value
+            return delta
+        if len(value) >= 16 and (value == self.text or self.text.endswith(value)):
+            return ""
+        self.text += value
+        return value
+
+    def reset(self) -> None:
+        self.text = ""
+
+
 def _argument_value(raw: str) -> Any:
     value = unescape(re.sub(r"<[^>]+>", "", raw)).strip()
     if not value:
