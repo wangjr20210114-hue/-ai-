@@ -263,7 +263,7 @@ def _verified_candidate_matches(
         clean_query in clean_name
         or clean_name in clean_query
         or (
-            len(clean_query) >= 4
+            len(clean_query) >= 5
             and descriptive_coverage >= 0.65
         )
         or (

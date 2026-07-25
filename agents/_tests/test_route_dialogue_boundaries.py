@@ -266,6 +266,19 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             _rank_verified_workspace_matches("北京站", candidates, "北京"),
             [east_station],
         )
+        west_station_hotel = {
+            **PLACE,
+            "name": "锦江之星(北京西客站店)",
+            "place_id": "poi-west-station-hotel",
+        }
+        self.assertEqual(
+            _rank_verified_workspace_matches(
+                "北京西站",
+                {west_station_hotel["place_id"]: west_station_hotel},
+                "北京",
+            ),
+            [],
+        )
 
     def test_workspace_candidates_reuse_only_provider_backed_correction(self):
         corrected = {

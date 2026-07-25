@@ -383,6 +383,34 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(plan["route_stops"][1]["near_query"], "北京301医院")
 
+    async def test_explicit_calendar_proposal_survives_route_planner_omission(self):
+        model = StructuredPlannerModel({
+            "needs_route": True,
+            "needs_calendar_action": False,
+            "route_stops": [
+                {"query": "北京站"},
+                {"query": "北京西站"},
+            ],
+        })
+        plan = await plan_capabilities(
+            model,
+            "请规划北京站到北京西站的路线，并生成待确认的日程提案",
+        )
+        self.assertTrue(plan["needs_route"])
+        self.assertTrue(plan["needs_calendar_action"])
+        self.assertEqual(
+            required_tools_for_plan(plan),
+            ("plan_route_between_places", "propose_calendar_changes"),
+        )
+
+    async def test_route_planning_does_not_imply_calendar_side_effect(self):
+        model = StructuredPlannerModel({
+            "needs_route": True,
+            "needs_calendar_action": False,
+        })
+        plan = await plan_capabilities(model, "请帮我规划明天的六站行程")
+        self.assertFalse(plan["needs_calendar_action"])
+
     def test_capability_plan_rejects_unknown_blocked_skill(self):
         plan = parse_capability_plan(json.dumps({
             "blocked_skill": "fake-business-rule",

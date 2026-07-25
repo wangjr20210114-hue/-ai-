@@ -316,6 +316,32 @@ def next_required_tool(
     return ""
 
 
+def _preserve_explicit_calendar_intent(
+    plan: dict[str, Any],
+    user_message: str,
+) -> dict[str, Any]:
+    """Keep an unmistakable calendar request in a multi-tool plan."""
+    if str(plan.get("blocked_skill") or "").strip():
+        return plan
+    normalized = "".join(str(user_message or "").lower().split())
+    explicit_phrases = (
+        "日程提案",
+        "日历提案",
+        "写入日程",
+        "加入日程",
+        "添加到日程",
+        "创建日程",
+        "新增日程",
+        "calendarproposal",
+        "addtomycalendar",
+        "addtocalendar",
+        "createacalendarevent",
+    )
+    if any(phrase in normalized for phrase in explicit_phrases):
+        plan["needs_calendar_action"] = True
+    return plan
+
+
 async def plan_capabilities(
     model,
     user_message: str,
@@ -391,16 +417,18 @@ async def plan_capabilities(
         parsed_value = response.get("parsed") if isinstance(response, dict) else response
         parsed = _decode_capability_plan(parsed_value)
         if parsed is not None:
-            return parsed
+            return _preserve_explicit_calendar_intent(parsed, user_message)
         # One-call compatibility for gateways that return a raw message but
         # fail LangChain's structured parser. Never retry the model.
         raw = response.get("raw") if isinstance(response, dict) else None
         parsed = _decode_capability_plan(getattr(raw, "content", ""))
         if parsed is not None:
-            return parsed
+            return _preserve_explicit_calendar_intent(parsed, user_message)
     except Exception:
         pass
-    return dict(DEFAULT_PLAN)
+    return _preserve_explicit_calendar_intent(
+        dict(DEFAULT_PLAN), user_message,
+    )
 
 
 async def plan_capabilities_bounded(
