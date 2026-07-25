@@ -268,6 +268,22 @@ class _BurstPlaceModel(_RepeatingPlaceModel):
 
 
 class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_public_answer_can_use_a_non_thinking_sibling_model(self):
+        tool_model = _RecordingModel()
+        public_model = _RecordingModel()
+        graph = build_graph(
+            tool_model,
+            [],
+            "system",
+            public_answer_model=public_model,
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="简短总结已完成的操作")],
+        })
+        self.assertEqual(result["messages"][-1].content, "final answer")
+        self.assertEqual(public_model.unbound_calls, 1)
+        self.assertEqual(tool_model.unbound_calls, 0)
+
     async def test_direct_answer_does_not_call_rich_search(self):
         model = _RecordingModel()
         graph = build_graph(model, [rich_search], "system")

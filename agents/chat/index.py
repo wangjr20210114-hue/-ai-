@@ -444,13 +444,23 @@ async def handler(ctx):
     current_date = current_beijing.date().isoformat()
     try:
         model = get_model(ctx.env)
+        # Capability routing only fills a bounded schema, and final prose only
+        # summarizes validated Actions. Reuse one non-thinking sibling for
+        # those two latency-sensitive passes while retaining reasoning for
+        # route/calendar tool parameter generation.
+        fast_model = get_model(ctx.env, thinking_mode="disabled")
     except Exception as exc:
         logging.exception("chat model configuration failed")
         message_text = public_error(exc)
         await fail_run(message_text)
         return error(message_text, 503)
-    intelligence = await load_intelligence_state(ctx.store.langgraph_store, user_id)
-    proactive_state = await load_proactive_state(ctx.store.langgraph_store, user_id)
+    intelligence, proactive_state, workspace = await asyncio.gather(
+        load_intelligence_state(ctx.store.langgraph_store, user_id),
+        load_proactive_state(ctx.store.langgraph_store, user_id),
+        load_user_workspace(
+            ctx.store.langgraph_store, conversation_id, user_id,
+        ),
+    )
     budget = usage_summary(intelligence)
     if (
         str((budget.get("preferences") or {}).get("enforcement") or "soft") == "hard"
@@ -476,7 +486,6 @@ async def handler(ctx):
         "绝不能声称或模拟已关闭能力。若用户请求受关闭能力影响，要自然说明受限，并建议到 Skills 广场开启对应能力；"
         "日程在地图关闭时仍可创建无地点日程，但涉及真实地点时应建议开启地图；腾讯会议依赖日程写入。"
     )
-    workspace = await load_user_workspace(ctx.store.langgraph_store, conversation_id, user_id)
     current_calendar_context = calendar_context(workspace)
     current_route_context = latest_route_context(workspace)
     reference_image_context = ""
@@ -524,7 +533,7 @@ async def handler(ctx):
         ctx.env.get("CAPABILITY_PLAN_TIMEOUT_SECONDS") or 12
     )))
     capability_plan, planner_timed_out = await plan_capabilities_bounded(
-        model,
+        fast_model,
         planning_message,
         memory_context,
         skill_state=json.dumps({
@@ -668,6 +677,7 @@ async def handler(ctx):
         required_tools=required_tools_for_plan(capability_plan),
         blocked_skill=blocked_skill,
         response_language=response_language,
+        public_answer_model=fast_model,
     )
 
     async def gen():

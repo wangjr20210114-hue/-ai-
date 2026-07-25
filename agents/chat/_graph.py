@@ -299,8 +299,12 @@ def build_graph(
     required_tools: Iterable[str] | None = None,
     blocked_skill: str = "",
     response_language: str = "zh-CN",
+    public_answer_model=None,
 ):
-    public_model = _tagged(model, "floris:public-answer")
+    public_model = _tagged(
+        public_answer_model or model,
+        "floris:public-answer",
+    )
     model_with_tools = (
         _tagged(model.bind_tools(tools), "floris:tool-capable")
         if tools else public_model

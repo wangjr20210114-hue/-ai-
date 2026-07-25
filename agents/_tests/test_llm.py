@@ -34,34 +34,33 @@ class ModelConfigurationTests(unittest.TestCase):
         self.assertEqual(DEFAULT_FALLBACK_MODEL, "deepseek-v4-pro")
         self.assertEqual(
             chat_open_ai.call_args_list[0].kwargs["extra_body"],
-            {"thinking": {"type": "disabled"}},
+            {"thinking": {"type": "enabled"}},
         )
         self.assertEqual(
             chat_open_ai.call_args_list[1].kwargs["extra_body"],
-            {"thinking": {"type": "disabled"}},
+            {"thinking": {"type": "enabled"}},
         )
 
     @patch("agents.chat._llm.ChatOpenAI")
-    def test_thinking_mode_can_be_enabled_explicitly(self, chat_open_ai):
+    def test_thinking_mode_can_be_disabled_for_final_answers(self, chat_open_ai):
         chat_open_ai.return_value = MagicMock()
         get_model({
             "AI_GATEWAY_API_KEY": "makers-key",
             "AI_GATEWAY_BASE_URL": "https://ai-gateway.edgeone.link/v1",
-            "AI_GATEWAY_THINKING_MODE": "enabled",
-        })
+        }, thinking_mode="disabled")
         self.assertEqual(
             chat_open_ai.call_args.kwargs["extra_body"],
-            {"thinking": {"type": "enabled"}},
+            {"thinking": {"type": "disabled"}},
         )
 
     def test_invalid_thinking_mode_uses_safe_default(self):
-        self.assertEqual(_thinking_mode({}, "AI_GATEWAY_THINKING_MODE"), "disabled")
+        self.assertEqual(_thinking_mode({}, "AI_GATEWAY_THINKING_MODE"), "enabled")
         self.assertEqual(
             _thinking_mode(
                 {"AI_GATEWAY_THINKING_MODE": "unsupported"},
                 "AI_GATEWAY_THINKING_MODE",
             ),
-            "disabled",
+            "enabled",
         )
 
 

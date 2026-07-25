@@ -16,7 +16,7 @@ def _model_timeout(env: dict, key: str, default: float) -> float:
         return default
 
 
-def _thinking_mode(env: dict, key: str, default: str = "disabled") -> str:
+def _thinking_mode(env: dict, key: str, default: str = "enabled") -> str:
     value = str(env.get(key) or default).strip().lower()
     return value if value in {"enabled", "disabled"} else default
 
@@ -86,7 +86,7 @@ class QuotaFailoverModel:
                 yield chunk
 
 
-def get_model(env: dict):
+def get_model(env: dict, *, thinking_mode: str | None = None):
     missing = [
         key
         for key in ("AI_GATEWAY_API_KEY", "AI_GATEWAY_BASE_URL")
@@ -100,7 +100,12 @@ def get_model(env: dict):
     direct_key = str(env.get("DEEPSEEK_API_KEY") or "").strip()
     gateway_timeout = _model_timeout(env, "AI_GATEWAY_TIMEOUT_SECONDS", 12.0)
     fallback_timeout = _model_timeout(env, "DEEPSEEK_TIMEOUT_SECONDS", 12.0)
-    gateway_thinking = _thinking_mode(env, "AI_GATEWAY_THINKING_MODE")
+    requested_thinking = str(thinking_mode or "").strip().lower()
+    gateway_thinking = (
+        requested_thinking
+        if requested_thinking in {"enabled", "disabled"}
+        else _thinking_mode(env, "AI_GATEWAY_THINKING_MODE")
+    )
     fallback_thinking = _thinking_mode(
         env, "DEEPSEEK_THINKING_MODE", gateway_thinking,
     )
