@@ -49,6 +49,46 @@ KNOWN_SKILLS = {
     "tencent-meeting",
 }
 
+CAPABILITY_PLAN_TOOL_NAME = "submit_capability_plan"
+CAPABILITY_PLAN_TOOL = {
+    "type": "function",
+    "function": {
+        "name": CAPABILITY_PLAN_TOOL_NAME,
+        "description": (
+            "提交本轮用户目标所需的最短能力链。只做语义能力规划，"
+            "不回答用户、不执行业务操作。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                **{
+                    key: {"type": "boolean"}
+                    for key in BOOLEAN_KEYS
+                },
+                "search_query": {"type": "string"},
+                "image_query": {"type": "string"},
+                "paper_author": {"type": "string"},
+                "paper_year": {"type": "integer"},
+                "paper_limit": {"type": "integer"},
+                "blocked_skill": {
+                    "type": "string",
+                    "enum": ["", *sorted(KNOWN_SKILLS)],
+                },
+            },
+            "required": [
+                *BOOLEAN_KEYS,
+                "search_query",
+                "image_query",
+                "paper_author",
+                "paper_year",
+                "paper_limit",
+                "blocked_skill",
+            ],
+            "additionalProperties": False,
+        },
+    },
+}
+
 
 def _text(content: Any) -> str:
     if isinstance(content, str):
@@ -61,14 +101,17 @@ def _text(content: Any) -> str:
 
 
 def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
-    text = _text(content).strip()
-    fenced = re.search(r"\{[\s\S]*\}", text)
-    if fenced:
-        text = fenced.group(0)
-    try:
-        raw = json.loads(text)
-    except (TypeError, json.JSONDecodeError):
-        return None
+    if isinstance(content, dict):
+        raw = content
+    else:
+        text = _text(content).strip()
+        fenced = re.search(r"\{[\s\S]*\}", text)
+        if fenced:
+            text = fenced.group(0)
+        try:
+            raw = json.loads(text)
+        except (TypeError, json.JSONDecodeError):
+            return None
     if not isinstance(raw, dict):
         return None
     plan = {key: bool(raw.get(key, False)) for key in BOOLEAN_KEYS}
@@ -226,14 +269,31 @@ async def plan_capabilities(
         {"role": "system", "content": prompt},
         {"role": "user", "content": str(user_message or "")[:4000]},
     ]
-    for _attempt in range(2):
-        try:
-            response = await model.ainvoke(messages)
-            parsed = _decode_capability_plan(getattr(response, "content", ""))
+    try:
+        # Use LangChain's native tool protocol for the routing decision. This
+        # avoids asking a streaming chat model to emit free-text JSON and then
+        # retrying when the JSON is incomplete. The planner remains entirely
+        # semantic, while tool_choice guarantees one machine-readable plan.
+        planner_model = model.bind_tools(
+            [CAPABILITY_PLAN_TOOL],
+            tool_choice=CAPABILITY_PLAN_TOOL_NAME,
+        )
+        response = await planner_model.ainvoke(messages)
+        for tool_call in list(getattr(response, "tool_calls", None) or []):
+            if not isinstance(tool_call, dict):
+                continue
+            if str(tool_call.get("name") or "") != CAPABILITY_PLAN_TOOL_NAME:
+                continue
+            parsed = _decode_capability_plan(tool_call.get("args"))
             if parsed is not None:
                 return parsed
-        except Exception:
-            continue
+        # Compatibility for an OpenAI-compatible gateway that ignores
+        # tool_choice but still returns the requested JSON in content.
+        parsed = _decode_capability_plan(getattr(response, "content", ""))
+        if parsed is not None:
+            return parsed
+    except Exception:
+        pass
     return dict(DEFAULT_PLAN)
 
 

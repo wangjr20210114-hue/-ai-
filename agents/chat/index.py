@@ -473,8 +473,8 @@ async def handler(ctx):
         planning_message += f"\n\n[附图视觉事实，仅用于能力规划]\n{reference_image_context[:1600]}"
     if document_context:
         planning_message += f"\n\n[用户已选择的上传文档，仅用于能力规划]\n{document_context[:6000]}"
-    planner_timeout = max(6.0, min(15.0, float(
-        ctx.env.get("CAPABILITY_PLAN_TIMEOUT_SECONDS") or 10
+    planner_timeout = max(8.0, min(20.0, float(
+        ctx.env.get("CAPABILITY_PLAN_TIMEOUT_SECONDS") or 12
     )))
     capability_plan, planner_timed_out = await plan_capabilities_bounded(
         model,

@@ -3,7 +3,6 @@
 from typing import Iterable, Literal
 import json
 import logging
-import re
 import uuid
 
 from langchain_core.messages import AIMessage, SystemMessage
@@ -37,24 +36,6 @@ TURN_SINGLE_USE_TOOLS = {
     "propose_meeting",
     "propose_image",
     "search_arxiv",
-    "ask_user_clarification",
-}
-
-# Tools whose successful result creates a real structured surface or can
-# discover a domain ambiguity and return a structured clarification card.
-# This is an output-integrity set, not an intent router: the LLM still chooses
-# the capability and arguments.
-STRUCTURED_UI_TOOLS = {
-    "search_places",
-    "search_places_batch",
-    "plan_route_between_places",
-    "prepare_map_recommendation",
-    "recommend_places_on_map",
-    "recommend_nearby_places_on_map",
-    "propose_calendar_changes",
-    "propose_meeting",
-    "propose_workflow",
-    "propose_image",
     "ask_user_clarification",
 }
 
@@ -295,43 +276,6 @@ def _hidden_clarification_answer(message) -> bool:
     )
 
 
-def _claims_structured_ui_without_protocol(content: object) -> bool:
-    """Detect prose that pretends a card/options surface already exists.
-
-    This deliberately validates only the presentation contract. It does not
-    infer whether the user needs maps, calendar, meetings, or clarification.
-    When it fires, a second semantic LLM decision is forced to choose a real
-    structured tool instead of letting invented UI prose reach the user.
-    """
-    text = re.sub(r"\s+", "", public_content(content)).lower()
-    if not text:
-        return False
-    chinese_markers = (
-        "请在上方",
-        "请从上方",
-        "上方的选择",
-        "上方选择",
-        "下方的选择",
-        "下方选择",
-        "卡片已准备",
-        "确认卡已准备",
-        "提案已生成",
-        "卡片已经准备",
-        "卡片已经生成",
-        "系统已经列出",
-        "系统已列出",
-    )
-    english_markers = (
-        "cardabove",
-        "cardbelow",
-        "optionsabove",
-        "optionsbelow",
-        "confirmationcardisready",
-        "proposalhasbeencreated",
-    )
-    return any(marker in text for marker in (*chinese_markers, *english_markers))
-
-
 def build_graph(
     model: ChatOpenAI,
     tools: list,
@@ -505,39 +449,6 @@ def build_graph(
             normalized = dsml_tool_calls(getattr(response, "content", ""), allowed_tool_names)
             if normalized:
                 response = AIMessage(content="", tool_calls=normalized)
-        if (
-            not tools_closed
-            and not getattr(response, "tool_calls", None)
-            and _claims_structured_ui_without_protocol(getattr(response, "content", ""))
-        ):
-            structured_tools = [
-                tool for tool in tools
-                if getattr(tool, "name", "") in STRUCTURED_UI_TOOLS
-            ]
-            # Prefer the real domain capability. Generic clarification is used
-            # only when no domain tool is available, so location candidates
-            # cannot be invented in an otherwise valid-looking questionnaire.
-            domain_tools = [
-                tool for tool in structured_tools
-                if getattr(tool, "name", "") != "ask_user_clarification"
-            ]
-            correction_tools = domain_tools or structured_tools
-            if correction_tools:
-                logging.warning(
-                    "suppressed assistant prose claiming nonexistent structured UI"
-                )
-                response = await model.bind_tools(
-                    correction_tools,
-                    tool_choice="required",
-                ).ainvoke([
-                    SystemMessage(content=system_prompt),
-                    *history,
-                    SystemMessage(content=(
-                        "你刚才准备声称页面上已经存在卡片、候选项或提案，但本轮尚未产生任何真实结构化事件。"
-                        "现在必须通过一个实际工具完成对应步骤，不能再用普通文字模拟 UI。"
-                        "候选地点必须由地点或路线能力真实核验，不能用通用澄清工具编造候选。"
-                    )),
-                ])
         response_tool_calls = list(getattr(response, "tool_calls", None) or [])
         if not tools_closed and response_tool_calls:
             filtered_tool_calls = []

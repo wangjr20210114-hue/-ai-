@@ -168,20 +168,36 @@ class MakersCheckpointMessage:
         raise KeyError(key)
 
 
-class FlakyPlannerModel:
-    def __init__(self):
+class StructuredPlannerModel:
+    def __init__(self, args=None, delay=0):
         self.calls = 0
-
-    async def ainvoke(self, _messages):
-        self.calls += 1
-        content = "not-json" if self.calls == 1 else json.dumps({
+        self.args = args or {
             "needs_web_search": True,
             "needs_rich_answer": True,
             "needs_images": True,
             "search_query": "故宫历史",
             "image_query": "故宫建筑",
-        }, ensure_ascii=False)
-        return SimpleNamespace(content=content)
+        }
+        self.delay = delay
+        self.messages = []
+        self.tool_choice = ""
+        self.tools = []
+
+    def bind_tools(self, tools, **kwargs):
+        self.tools = tools
+        self.tool_choice = kwargs.get("tool_choice", "")
+        return self
+
+    async def ainvoke(self, messages):
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        self.calls += 1
+        self.messages = messages
+        return SimpleNamespace(content="", tool_calls=[{
+            "name": "submit_capability_plan",
+            "args": self.args,
+            "id": "capability-plan-1",
+        }])
 
 
 class FakeRequest:
@@ -303,35 +319,35 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-    async def test_capability_planner_retries_invalid_json(self):
-        model = FlakyPlannerModel()
+    async def test_capability_planner_uses_required_langchain_tool_protocol(self):
+        model = StructuredPlannerModel()
         plan = await plan_capabilities(model, "能给我讲讲故宫的历史吗")
-        self.assertEqual(model.calls, 2)
+        self.assertEqual(model.calls, 1)
+        self.assertEqual(model.tool_choice, "submit_capability_plan")
+        self.assertEqual(model.tools[0]["function"]["name"], "submit_capability_plan")
         self.assertTrue(plan["needs_web_search"])
         self.assertTrue(plan["needs_images"])
         self.assertEqual(plan["image_query"], "故宫建筑")
 
     async def test_capability_planner_receives_filtered_memory_context(self):
-        model = AsyncMock()
-        model.ainvoke.return_value = SimpleNamespace(content=json.dumps({"needs_web_search": False}))
+        model = StructuredPlannerModel({"needs_web_search": False})
         await plan_capabilities(model, "帮我规划旅行", "- preference.travel: 喜欢安静的博物馆")
-        system_prompt = model.ainvoke.await_args.args[0][0]["content"]
+        system_prompt = model.messages[0]["content"]
         self.assertIn("喜欢安静的博物馆", system_prompt)
         self.assertIn("不得把姓名、联系方式", system_prompt)
 
     async def test_capability_planner_receives_runtime_skill_state(self):
-        model = AsyncMock()
-        model.ainvoke.return_value = SimpleNamespace(content=json.dumps({
+        model = StructuredPlannerModel({
             "blocked_skill": "calendar",
             "needs_places": False,
             "needs_calendar_action": False,
-        }))
+        })
         plan = await plan_capabilities(
             model,
             "26号早8点安排北京天安门日程",
             skill_state='{"enabled":["maps"],"disabled":["calendar"]}',
         )
-        system_prompt = model.ainvoke.await_args.args[0][0]["content"]
+        system_prompt = model.messages[0]["content"]
         self.assertIn('"disabled":["calendar"]', system_prompt)
         self.assertEqual(plan["blocked_skill"], "calendar")
         self.assertEqual(required_tools_for_plan(plan), ())
@@ -345,10 +361,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(required_tools_for_plan(plan), ("propose_calendar_changes",))
 
     async def test_capability_planner_timeout_keeps_main_semantic_routing_available(self):
-        model = AsyncMock()
-        async def slow_plan(*_args, **_kwargs):
-            await asyncio.sleep(10)
-        model.ainvoke.side_effect = slow_plan
+        model = StructuredPlannerModel(delay=10)
         plan, timed_out = await plan_capabilities_bounded(
             model,
             "推荐北京三里屯附近的餐馆",
