@@ -342,6 +342,29 @@ def _preserve_explicit_calendar_intent(
     return plan
 
 
+def _linked_trip_fallback(user_message: str) -> dict[str, Any]:
+    """Preserve an unmistakable route→calendar chain after planner failure."""
+    plan = _preserve_explicit_calendar_intent(
+        dict(DEFAULT_PLAN), user_message,
+    )
+    if not plan["needs_calendar_action"]:
+        return plan
+    normalized = "".join(str(user_message or "").lower().split())
+    route_subject = any(term in normalized for term in (
+        "路线", "路程", "多站行程", "站间",
+    ))
+    route_action = any(term in normalized for term in (
+        "规划", "怎么走", "如何走", "导航", "出发",
+    ))
+    route_negated = any(term in normalized for term in (
+        "不要规划路线", "无需规划路线", "不需要规划路线",
+        "不用规划路线", "只要日程提案",
+    ))
+    if route_subject and route_action and not route_negated:
+        plan["needs_route"] = True
+    return plan
+
+
 async def plan_capabilities(
     model,
     user_message: str,
@@ -426,10 +449,11 @@ async def plan_capabilities(
             return _preserve_explicit_calendar_intent(parsed, user_message)
     except Exception:
         pass
-    # If structured planning itself failed, leave the main full-history model
-    # unconstrained. Forcing only the calendar tool here would skip required
-    # place/route verification and can make a large multi-stop request invalid.
-    return dict(DEFAULT_PLAN)
+    # If structured planning itself failed, keep only unmistakable user intent.
+    # A linked trip must retain both tools: forcing calendar alone would skip
+    # required place/route verification, while leaving everything optional can
+    # let the main model stop immediately after the map action.
+    return _linked_trip_fallback(user_message)
 
 
 async def plan_capabilities_bounded(

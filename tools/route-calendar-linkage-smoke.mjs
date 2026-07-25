@@ -111,6 +111,17 @@ async function answerClarification(id, conversationId, result, textReplacement =
   });
 }
 
+function mixedTextReplacement(result) {
+  const label = result.clarification?.fields?.[0]?.label || '';
+  if (label.includes('第 5 站')) {
+    return '中国人民解放军总医院第一医学中心';
+  }
+  if (label.includes('终点')) {
+    return '北京西站';
+  }
+  return '北京天坛公园';
+}
+
 const baseInstruction = [
   '请严格保持我给出的地点顺序，使用腾讯地图规划真实公交路线，并生成待确认的日程提案。',
   '日期是2026年8月22日，09:00出发；每个游览地点安排45分钟，站间按真实公交耗时顺延。',
@@ -168,9 +179,14 @@ if (!selectedScenario || selectedScenario === 'mixed') {
     message: `${baseInstruction}依次为：北京站、天安们、故宫博物院、万达广场、北京301医元、咕咕塔XYZ。`,
   });
   const clarificationTypes = [];
-  for (let turn = 2; result.has_clarification && turn <= 6; turn += 1) {
+  for (let turn = 2; result.has_clarification && turn <= 8; turn += 1) {
     clarificationTypes.push(...result.clarification.fields.map((field) => field.type));
-    result = await answerClarification(`six-stops-mixed-turn-${turn}`, conversationId, result);
+    result = await answerClarification(
+      `six-stops-mixed-turn-${turn}`,
+      conversationId,
+      result,
+      mixedTextReplacement(result),
+    );
   }
   assert(clarificationTypes.includes('single'), 'mixed trip should expose at least one finite place choice', result);
   assert(clarificationTypes.includes('text'), 'mixed trip should expose at least one fill-in for an unknown place', result);

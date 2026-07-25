@@ -425,8 +425,25 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "请规划北京六个地点的路线，并生成待确认的日程提案",
         )
         self.assertEqual(model.calls, 1)
-        self.assertFalse(any(plan[key] for key in plan if key.startswith("needs_")))
-        self.assertEqual(required_tools_for_plan(plan), ())
+        self.assertTrue(plan["needs_route"])
+        self.assertTrue(plan["needs_calendar_action"])
+        self.assertEqual(
+            required_tools_for_plan(plan),
+            ("plan_route_between_places", "propose_calendar_changes"),
+        )
+
+    async def test_failed_structured_planner_respects_calendar_only_request(self):
+        model = FailingStructuredPlannerModel()
+        plan = await plan_capabilities(
+            model,
+            "只要日程提案，不需要规划路线",
+        )
+        self.assertFalse(plan["needs_route"])
+        self.assertTrue(plan["needs_calendar_action"])
+        self.assertEqual(
+            required_tools_for_plan(plan),
+            ("propose_calendar_changes",),
+        )
 
     def test_capability_plan_rejects_unknown_blocked_skill(self):
         plan = parse_capability_plan(json.dumps({
