@@ -121,7 +121,7 @@ rich_search 始终是可用能力。是否搜索由你根据问题自主判断�
 搜索返回的网页、图片、视频等素材由你自由编排：只采用真正有助于当前叙述的项目，把它放在最相关的段落附近；可以交错使用、重排或全部舍弃。不要把素材统一堆在回答末尾。使用工具给出的原始 Markdown URL，前端会在你选定的位置渲染对应图片、视频或行内来源。
 对于“最近进展、新闻、发布会、行业动态”等视觉有助于理解的时效问题，如果富搜索返回了至少一张审核通过或明确标记为降级的图片，至少在相关段落就地使用一张；只有图片素材为空，或用户明确要求纯文字时才不插图。
 对“最新、截至目前、当前价格、当前能力”等时效事实，型号、日期、参数、价格和结论必须能由本轮检索结果直接支持；证据不足就缩小结论或明确未知，禁止用训练知识补出未核验的未来型号、数字或发布日期。“截至今天”是截止时间，不等于只采用今天发布的资料；只有 capability_plan 的 strict_today_only=true 时才执行当日发布日期硬过滤。
-用户询问某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时，优先一次调用 recommend_nearby_places_on_map：把完整参照地点与要找的类别分开传入，工具会复用 Makers 工作区里的已核实坐标并调用腾讯位置附近检索。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询；只有用户还要求评价、营业时间、新闻等地图服务之外的时效事实时，才额外调用一次 rich_search。非周边的单一地点核验使用 search_places；推荐两个及以上具体地点时优先调用 recommend_places_on_map：在一次调用中提供回答采用的每个独立地点名称，由工具逐一核实并直接生成地图 Action，避免再拆成重复地点查询。未验证地点可以在正文中明确说明，但不能进地图。若已经使用 search_places_batch，则只有地点工具返回的真实 place_id 才能交给 prepare_map_recommendation。
+用户询问某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时，优先一次调用 recommend_nearby_places_on_map：把完整参照地点与要找的类别分开传入，工具会复用 Makers 工作区里的已核实坐标并调用腾讯位置附近检索。用户给出“甲或乙附近”“这几个地点都可以”等多个备选参照点时，必须把所有备选点一次放入 anchor_queries，工具会并行核实各组并保留成功结果；不能自行只挑一个，也不能拆成多次同名工具调用。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询；只有用户还要求评价、营业时间、新闻等地图服务之外的时效事实时，才额外调用一次 rich_search。非周边的单一地点核验使用 search_places；推荐两个及以上具体地点时优先调用 recommend_places_on_map：在一次调用中提供回答采用的每个独立地点名称，由工具逐一核实并直接生成地图 Action，避免再拆成重复地点查询。未验证地点可以在正文中明确说明，但不能进地图。若已经使用 search_places_batch，则只有地点工具返回的真实 place_id 才能交给 prepare_map_recommendation。
 recommend_places_on_map 或 prepare_map_recommendation 只生成可安全激活的地图 Action；网页必须等用户点击按钮后才更新右侧地图，同时允许用户查看其他内容后再次点击恢复该组地点。部分地点未核实时，地图只展示已核实成功项，正文自然说明缺少哪些；只有全部未核实时才不生成地图。正文声称已核实并可显示的数量必须与 Action 实际地点数一致。action_text 要根据上下文自然生成，避免每次使用同一句话。
 用户询问两个地点之间多远、多久、怎么走或打车费用时，必须调用 plan_route_between_places，使用地点服务核验端点并采用真实道路路线结果；不能用 rich_search、直线距离或模型常识估算。若端点是“某地附近的某品牌”，把品牌和参照地点分别传入 query 与 near_query。工具返回多个候选时会直接生成结构化单选卡，本轮不要追加自然语言追问或擅自选择。
 新增、更新或删除日程时必须先调用 propose_calendar_changes 冻结提案，再请用户点击确认；不能只用普通文字询问，因为没有 Action 卡就无法安全提交。新增变更项设置 operation=create，并在 event 中提供 title、start_time、end_time；用户给了地点时必须先调用 search_places，从地点库选取 place_id，或者复用上一轮地点/路线工具已经核实并保存的唯一地点，未给地点则可以省略。更新和删除必须从“当前用户日程”中匹配仍存在的 schedule_id；删除某个日程时只提交该日程的 delete，绝不能把其余未变日程重新 create 一遍。用户没有明确要求新增时不得夹带 create。如果按日期、标题无法唯一匹配，或根本不存在，要调用 ask_user_clarification 让用户选择匹配项或自然说明未找到，绝不能编造 ID。修改地点同样必须重新查询地点库。时间必须为带 +08:00 的 ISO 8601。任何将写入、修改或删除真实状态的参数，都只能来自用户自己的明确表达、用户在结构化卡片中的选择或已核实的当前状态；你在此前回答里自行建议、假设或补出的时间、地点、对象和偏好不算用户确认。缺少不可替代的副作用参数时，必须先调用 ask_user_clarification，不能把你的假设直接提交给 Action。路线规划缺少出发时刻时可以给出一般耗时与方案，但不得虚构一个具体时刻。今天之前的日程只可查看，绝不能提议新增、修改或删除；即使用户明确要求也要自然说明限制。工具调用本身不会写入日程，绝不能在确认前声称已经修改日程。提案卡出现时间重叠警告时必须提醒用户核对，不能把重叠安排描述为无风险。
@@ -613,7 +613,6 @@ async def handler(ctx):
             final_answer_parts: list[str] = []
             public_stream = PublicStreamFilter()
             stream_delta = StreamDeltaNormalizer()
-            stream_saw_public_content = False
             buffer_public_answer = bool(capability_plan.get("needs_image_generation"))
             run_error = ""
             cancelled = False
@@ -633,11 +632,9 @@ async def handler(ctx):
             )
 
             async def reset_public_stream() -> None:
-                nonlocal stream_saw_public_content
                 pending_ai_content.clear()
                 final_answer_parts.clear()
                 stream_delta.reset()
-                stream_saw_public_content = False
                 if public_stream.reset():
                     await queue.put(ctx.utils.sse({"type": "ai_response_reset"}))
 
@@ -791,35 +788,38 @@ async def handler(ctx):
                         content = _text_content(getattr(streamed_message, "content", ""))
                         if content:
                             normalized_content = stream_delta.push(content)
-                            if normalized_content:
-                                stream_saw_public_content = True
                             delta, reset_required = public_stream.push(normalized_content)
                             if reset_required:
                                 pending_ai_content.clear()
                                 final_answer_parts.clear()
                                 await queue.put(ctx.utils.sse({"type": "ai_response_reset"}))
                             await emit_public(delta)
-                    # Manual AIMessage fallbacks are durable in the Makers
-                    # checkpoint but are not emitted as LLM token events. If
-                    # this run has no public text yet, recover exactly that
-                    # final user-safe prose before deciding the run failed.
-                    if checkpoint_recovery_needed(
-                        final_answer_parts,
-                        saw_public_content=stream_saw_public_content,
-                    ):
-                        try:
-                            final_snapshot = await graph.aget_state(config)
-                            recovered_answer = checkpoint_final_answer(final_snapshot)
-                            if recovered_answer:
-                                await emit_public(recovered_answer)
-                        except Exception as exc:
-                            logging.warning("final checkpoint answer recovery failed: %s", exc)
                 tail, reset_required = public_stream.finish()
                 if reset_required:
                     pending_ai_content.clear()
                     final_answer_parts.clear()
                     await queue.put(ctx.utils.sse({"type": "ai_response_reset"}))
                 await emit_public(tail)
+                # Manual AIMessage fallbacks are durable in the Makers
+                # checkpoint but are not emitted as LLM token events. Flush
+                # the public filter first: short valid answers may still be in
+                # its quarantine buffer, while pre-tool prose may already have
+                # been retracted. Only the actually emitted result determines
+                # whether checkpoint recovery is needed.
+                if (
+                    not cancelled
+                    and checkpoint_recovery_needed(
+                        final_answer_parts,
+                        stream_finished=True,
+                    )
+                ):
+                    try:
+                        final_snapshot = await graph.aget_state(config)
+                        recovered_answer = checkpoint_final_answer(final_snapshot)
+                        if recovered_answer:
+                            await emit_public(recovered_answer)
+                    except Exception as exc:
+                        logging.warning("final checkpoint answer recovery failed: %s", exc)
                 if buffer_public_answer:
                     final_content = "".join(pending_ai_content)
                     if any(action.get("action", {}).get("kind") == "image_generate" for action in pending_actions):

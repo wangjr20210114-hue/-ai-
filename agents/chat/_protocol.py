@@ -41,10 +41,17 @@ def public_error(error: Any) -> str:
 def checkpoint_recovery_needed(
     emitted_parts: list[str],
     *,
-    saw_public_content: bool,
+    stream_finished: bool,
 ) -> bool:
-    """Recover only when no safe text exists, including buffered short text."""
-    return not emitted_parts and not saw_public_content
+    """Recover only after the public filter has flushed and emitted nothing.
+
+    Raw model content is not evidence of a user-visible answer: a model may
+    start prose, switch back to a tool call, and have that prefix retracted.
+    Waiting until ``PublicStreamFilter.finish`` avoids duplicating legitimate
+    short buffered answers while still recovering the graph's durable terminal
+    fallback after such a reset.
+    """
+    return bool(stream_finished) and not emitted_parts
 
 
 def action_fallback_content(actions: list[dict[str, Any]]) -> str:

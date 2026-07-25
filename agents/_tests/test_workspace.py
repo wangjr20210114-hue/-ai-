@@ -1563,6 +1563,83 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             ["breakfast-1", "breakfast-2"],
         )
 
+    async def test_nearby_recommendation_keeps_successful_alternative_anchor(self):
+        samsung = {
+            **PLACE,
+            "place_id": "samsung-tower",
+            "name": "北京三星大厦",
+            "address": "北京市朝阳区景辉街31号院1号楼",
+            "latitude": 39.913,
+            "longitude": 116.456,
+        }
+        guomao = {
+            **PLACE,
+            "place_id": "guomao-tower",
+            "name": "北京国贸大厦",
+            "address": "北京市朝阳区建国门外大街1号",
+            "latitude": 39.909,
+            "longitude": 116.459,
+        }
+        restaurant = {
+            **PLACE,
+            "place_id": "restaurant-samsung",
+            "name": "三星大厦附近餐厅",
+            "address": "北京市朝阳区景辉街",
+            "latitude": 39.914,
+            "longitude": 116.455,
+            "distance_to_anchor_meters": 260.0,
+        }
+
+        async def anchor_provider(_key, query, *, city, limit):
+            self.assertEqual(city, "北京")
+            self.assertEqual(limit, 5)
+            return [samsung] if "三星" in query else [guomao]
+
+        async def nearby_provider(
+            _key, query, anchor, *, radius_meters, limit, accept_category_results,
+        ):
+            self.assertEqual(query, "适合生日聚餐的餐厅")
+            self.assertEqual(radius_meters, 2_000)
+            self.assertTrue(accept_category_results)
+            return [restaurant] if anchor["place_id"] == "samsung-tower" else []
+
+        with patch(
+            "agents.chat._ui_tools.provider_search_place_candidates",
+            new=AsyncMock(side_effect=anchor_provider),
+        ) as anchor_lookup, patch(
+            "agents.chat._ui_tools.provider_search_places_nearby",
+            new=AsyncMock(side_effect=nearby_provider),
+        ) as nearby_lookup:
+            tools = build_production_tools(
+                None,
+                store=FakeStore(),
+                conversation_id="alternative-nearby-restaurants",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+            )
+            tool = next(item for item in tools if item.name == "recommend_nearby_places_on_map")
+            result = json.loads(await tool.ainvoke({
+                "anchor_query": "北京三星大厦",
+                "anchor_queries": ["北京三星大厦", "北京国贸大厦"],
+                "query": "适合生日聚餐的餐厅",
+                "city": "北京",
+                "limit": 5,
+                "title": "三星大厦或国贸大厦附近餐厅",
+                "action_text": "查看附近餐厅",
+            }))
+
+        self.assertEqual(anchor_lookup.await_count, 2)
+        self.assertEqual(nearby_lookup.await_count, 2)
+        self.assertEqual(result["verified_place_count"], 1)
+        self.assertEqual(len(result["groups"]), 2)
+        self.assertEqual(
+            result["action"]["payload"]["places"][0]["nearby_anchor_name"],
+            "北京三星大厦",
+        )
+        self.assertEqual(
+            [place["place_id"] for place in result["action"]["payload"]["places"]],
+            ["restaurant-samsung"],
+        )
+
     async def test_nearby_recommendation_respects_user_explicit_strict_radius(self):
         anchor = {
             **PLACE,
@@ -2286,9 +2363,24 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(normalizer.push("哈"), "哈")
 
     def test_checkpoint_recovery_does_not_duplicate_buffered_short_answer(self):
-        self.assertFalse(checkpoint_recovery_needed([], saw_public_content=True))
-        self.assertFalse(checkpoint_recovery_needed(["已经发出的正文"], saw_public_content=False))
-        self.assertTrue(checkpoint_recovery_needed([], saw_public_content=False))
+        self.assertFalse(checkpoint_recovery_needed([], stream_finished=False))
+        self.assertFalse(checkpoint_recovery_needed(["已经发出的正文"], stream_finished=True))
+        self.assertTrue(checkpoint_recovery_needed([], stream_finished=True))
+
+    def test_nearby_tool_failure_fallback_is_user_facing(self):
+        result = tool_failure_fallback([
+            HumanMessage(content="三星大厦或者国贸大厦附近有餐厅吗"),
+            ToolMessage(
+                content=(
+                    "操作未完成：没有在“北京三星大厦”、“北京国贸大厦”附近 "
+                    "2000 米内核实到“餐厅”。请自然说明原因和下一步，不要声称已经成功。"
+                ),
+                tool_call_id="nearby-1",
+                name="recommend_nearby_places_on_map",
+            ),
+        ])
+        self.assertIn("地点服务这次没有找到", result)
+        self.assertNotIn("确认卡", result)
 
     def test_today_filter_requires_a_verifiable_matching_publication_date(self):
         results = [

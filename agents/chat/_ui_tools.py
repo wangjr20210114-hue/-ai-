@@ -307,6 +307,7 @@ def build_production_tools(
     async def recommend_nearby_places_on_map(
         anchor_query: str,
         query: str,
+        anchor_queries: list[str] | None = None,
         city: str = "全国",
         radius_meters: int = 2_000,
         strict_radius: bool = False,
@@ -314,17 +315,26 @@ def build_production_tools(
         title: str = "",
         action_text: str = "",
     ) -> str:
-        """Find a category near one verified anchor and prepare a map Action.
+        """Find a category near one or more verified anchors and prepare a map Action.
 
-        The anchor is resolved from the Makers user workspace first, including
+        Put the first or only anchor in anchor_query. When the user names
+        alternative anchors, also put every alternative in anchor_queries; the
+        tool keeps successful groups even if another anchor returns no result.
+        Anchors are resolved from the Makers user workspace first, including
         verified places attached to schedules. Only a missing anchor reaches
-        the location provider. Nearby discovery itself is one Tencent boundary
-        query rather than a web search plus repeated relative-name lookups.
+        the location provider. Each nearby lookup is one Tencent boundary query
+        rather than a web search plus repeated relative-name lookups.
         """
-        clean_anchor_query = str(anchor_query or "").strip()
+        clean_anchor_queries = list(dict.fromkeys(
+            str(value or "").strip()
+            for value in [anchor_query, *(anchor_queries or [])]
+            if str(value or "").strip()
+        ))
         clean_query = str(query or "").strip()
-        if not clean_anchor_query:
+        if not clean_anchor_queries:
             raise ValueError("附近搜索缺少参照地点")
+        if len(clean_anchor_queries) > 4:
+            raise ValueError("一次附近搜索最多支持 4 个备选参照地点")
         if not clean_query:
             raise ValueError("附近搜索缺少要查找的地点类别")
 
@@ -356,33 +366,45 @@ def build_production_tools(
         for place in (state.get("place_candidates") or {}).values():
             remember_stored(place)
 
-        normalized_anchor = _normalized_place_name(clean_anchor_query)
-
-        def anchor_score(place: dict[str, Any]) -> tuple[float, int]:
-            normalized_name = _normalized_place_name(place.get("name"))
-            if not normalized_anchor or not normalized_name:
-                return (0.0, 0)
-            if normalized_name == normalized_anchor:
-                return (4.0, len(normalized_name))
-            if normalized_anchor in normalized_name:
-                return (3.0 + len(normalized_anchor) / max(1, len(normalized_name)), len(normalized_name))
-            if normalized_name in normalized_anchor:
-                return (2.0 + len(normalized_name) / max(1, len(normalized_anchor)), len(normalized_name))
-            return (0.0, 0)
-
-        ranked_stored = sorted(
-            ((anchor_score(place), index, place) for index, place in enumerate(stored_places)),
-            key=lambda item: (-item[0][0], item[1]),
-        )
-        anchor = ranked_stored[0][2] if ranked_stored and ranked_stored[0][0][0] > 0 else None
-
         map_key = str(
             runtime_env.get("TENCENT_MAP_SERVER_KEY")
             or runtime_env.get("TENCENT_MAP_KEY")
             or runtime_env.get("VITE_TENCENT_MAP_KEY")
             or ""
         )
-        if anchor is None:
+
+        async def resolve_anchor(clean_anchor_query: str) -> dict[str, Any] | None:
+            normalized_anchor = _normalized_place_name(clean_anchor_query)
+
+            def anchor_score(place: dict[str, Any]) -> tuple[float, int]:
+                normalized_name = _normalized_place_name(place.get("name"))
+                if not normalized_anchor or not normalized_name:
+                    return (0.0, 0)
+                if normalized_name == normalized_anchor:
+                    return (4.0, len(normalized_name))
+                if normalized_anchor in normalized_name:
+                    return (
+                        3.0 + len(normalized_anchor) / max(1, len(normalized_name)),
+                        len(normalized_name),
+                    )
+                if normalized_name in normalized_anchor:
+                    return (
+                        2.0 + len(normalized_name) / max(1, len(normalized_anchor)),
+                        len(normalized_name),
+                    )
+                return (0.0, 0)
+
+            ranked_stored = sorted(
+                ((anchor_score(place), index, place) for index, place in enumerate(stored_places)),
+                key=lambda item: (-item[0][0], item[1]),
+            )
+            stored_anchor = (
+                ranked_stored[0][2]
+                if ranked_stored and ranked_stored[0][0][0] > 0
+                else None
+            )
+            if stored_anchor is not None:
+                return stored_anchor
             anchors = await _search_place_candidates_metered(
                 map_key,
                 clean_anchor_query,
@@ -393,46 +415,120 @@ def build_production_tools(
                 place for place in anchors
                 if _normalized_place_name(place.get("name")) == normalized_anchor
             ]
-            anchor = exact[0] if len(exact) == 1 else (anchors[0] if anchors else None)
-        if anchor is None:
-            raise ValueError(f"没有核实到参照地点“{clean_anchor_query}”")
+            return exact[0] if len(exact) == 1 else (anchors[0] if anchors else None)
+
+        resolved_anchors = await asyncio.gather(*(
+            resolve_anchor(clean_anchor_query)
+            for clean_anchor_query in clean_anchor_queries
+        ))
 
         requested_radius = max(300, min(20_000, int(radius_meters or 2_000)))
         # A model sometimes invents an overly narrow radius even though the
         # user only said "nearby". Keep the product default stable unless the
         # model marks a distance explicitly stated by the user as strict.
         radius = requested_radius if strict_radius else max(2_000, requested_radius)
-        bounded_limit = max(1, min(10, int(limit or 5)))
-        places = await _search_places_nearby_metered(
-            map_key,
-            clean_query,
-            anchor,
-            radius_meters=radius,
-            limit=bounded_limit,
-            accept_category_results=True,
-        )
-        logging.info(
-            "nearby place lookup anchor=%s query=%s radius=%s strict=%s results=%s",
-            str(anchor.get("name") or clean_anchor_query)[:120],
-            clean_query[:120],
-            radius,
-            bool(strict_radius),
-            len(places),
-        )
+        bounded_limit = max(1, min(6, int(limit or 5)))
+
+        async def lookup_nearby(
+            clean_anchor_query: str,
+            anchor: dict[str, Any] | None,
+        ) -> dict[str, Any]:
+            if anchor is None:
+                return {
+                    "anchor_query": clean_anchor_query,
+                    "anchor": None,
+                    "places": [],
+                    "error": f"没有核实到参照地点“{clean_anchor_query}”",
+                }
+            try:
+                found = await _search_places_nearby_metered(
+                    map_key,
+                    clean_query,
+                    anchor,
+                    radius_meters=radius,
+                    limit=bounded_limit,
+                    accept_category_results=True,
+                )
+                places = [{
+                    **place,
+                    "nearby_anchor_query": clean_anchor_query,
+                    "nearby_anchor_name": str(anchor.get("name") or clean_anchor_query),
+                    "nearby_anchor_place_id": str(anchor.get("place_id") or ""),
+                } for place in found]
+                logging.info(
+                    "nearby place lookup anchor=%s query=%s radius=%s strict=%s results=%s",
+                    str(anchor.get("name") or clean_anchor_query)[:120],
+                    clean_query[:120],
+                    radius,
+                    bool(strict_radius),
+                    len(places),
+                )
+                return {
+                    "anchor_query": clean_anchor_query,
+                    "anchor": anchor,
+                    "places": places,
+                    "error": "",
+                }
+            except Exception as exc:
+                logging.warning(
+                    "nearby place lookup failed anchor=%s query=%s error=%s",
+                    clean_anchor_query[:120],
+                    clean_query[:120],
+                    exc,
+                )
+                return {
+                    "anchor_query": clean_anchor_query,
+                    "anchor": anchor,
+                    "places": [],
+                    "error": str(exc)[:200],
+                }
+
+        groups = await asyncio.gather(*(
+            lookup_nearby(clean_anchor_query, anchor)
+            for clean_anchor_query, anchor in zip(clean_anchor_queries, resolved_anchors)
+        ))
+        places: list[dict[str, Any]] = []
+        seen_place_ids: set[str] = set()
+        max_group_size = max((len(group["places"]) for group in groups), default=0)
+        # Interleave groups so every successful alternative remains represented
+        # when the combined map reaches its 12-place safety cap.
+        for index in range(max_group_size):
+            for group in groups:
+                if index >= len(group["places"]):
+                    continue
+                place = group["places"][index]
+                place_id = str(place.get("place_id") or "")
+                if not place_id or place_id in seen_place_ids:
+                    continue
+                seen_place_ids.add(place_id)
+                places.append(place)
+                if len(places) >= 12:
+                    break
+            if len(places) >= 12:
+                break
         if not places:
+            anchors_text = "、".join(f"“{value}”" for value in clean_anchor_queries)
             raise ValueError(
-                f"没有在“{anchor.get('name') or clean_anchor_query}”附近 {radius} 米内"
-                f"核实到“{clean_query}”"
+                f"没有在{anchors_text}附近 {radius} 米内核实到“{clean_query}”"
             )
 
         candidates = state.setdefault("place_candidates", {})
-        candidates[str(anchor["place_id"])] = anchor
+        for anchor in resolved_anchors:
+            if anchor is not None:
+                candidates[str(anchor["place_id"])] = anchor
         for place in places:
             candidates[str(place["place_id"])] = place
         if len(candidates) > 200:
             state["place_candidates"] = dict(list(candidates.items())[-200:])
 
-        natural_title = str(title or f"{anchor.get('name') or clean_anchor_query}附近的{clean_query}")[:120]
+        anchor_names = [
+            str(group["anchor"].get("name") or group["anchor_query"])
+            for group in groups
+            if group["anchor"] is not None
+        ]
+        natural_title = str(
+            title or f"{'、'.join(anchor_names or clean_anchor_queries)}附近的{clean_query}"
+        )[:120]
         action = new_action(
             "map_recommendation",
             {
@@ -447,14 +543,17 @@ def build_production_tools(
         return json.dumps({
             "ui_action": "map_action",
             "action": action,
-            "anchor": anchor,
+            "anchor": next((anchor for anchor in resolved_anchors if anchor is not None), None),
+            "anchors": [anchor for anchor in resolved_anchors if anchor is not None],
+            "groups": groups,
             "places": places,
             "verified_place_count": len(places),
             "radius_meters": radius,
             "response_constraint": (
-                f"已基于“{anchor.get('name') or clean_anchor_query}”的核实坐标，"
-                f"在 {radius} 米范围内找到 {len(places)} 个真实地点。"
-                "正文只使用这些地点及其 distance_to_anchor_meters；不要补写未核实地点、评分或营业时间。"
+                f"已基于 {len([anchor for anchor in resolved_anchors if anchor is not None])} 个"
+                f"参照地点的核实坐标，在 {radius} 米范围内合并找到 {len(places)} 个真实地点。"
+                "每个地点的 nearby_anchor_name 表示其对应参照点；正文只使用这些地点及其"
+                " distance_to_anchor_meters，不要补写未核实地点、评分或营业时间。"
             ),
         }, ensure_ascii=False)
 
@@ -1224,7 +1323,7 @@ def build_production_tools(
     definitions = [
         (search_places, "search_places", "使用腾讯地点服务搜索真实地点，返回可安全用于地图和日程的 place_id。推荐地点、景点、餐馆或含地点日程前必须调用。"),
         (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
-        (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。传入完整明确的 anchor_query 与要找的类别 query；工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。用户没有明确距离时不要自行缩小 radius_meters，保持默认 2000 米且 strict_radius=false；只有用户明确说“X 米内”时才传该距离并设 strict_radius=true。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),
+        (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。传入完整明确的 anchor_query 与要找的类别 query；若用户给出多个备选参照地点，还必须把全部备选放入 anchor_queries，一次并行查询并保留各组成功结果，不能只选一个或拆成多次调用。工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。用户没有明确距离时不要自行缩小 radius_meters，保持默认 2000 米且 strict_radius=false；只有用户明确说“X 米内”时才传该距离并设 strict_radius=true。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),
         (plan_route_between_places, "plan_route_between_places", "查询两个真实地点之间的道路距离、驾车耗时或费用时必须使用。工具会自行核实起终点并调用真实路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 destination_query 传“锦江之星”、destination_near_query 传“北京301医院”；多个候选会自动生成单选卡让用户选择。"),
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
         (recommend_places_on_map, "recommend_places_on_map", "模型驱动的多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。"),

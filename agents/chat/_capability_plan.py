@@ -194,7 +194,7 @@ async def plan_capabilities(
 - rich_answer/images 表示富媒体素材可能有帮助，不规定最终版式；模型可以采用、穿插、重排或完全舍弃素材。
 - 旅行目的地介绍、第一次去某城市、请介绍当地有什么好玩/好吃/值得去，回答天然会包含多个可到访点，所以 needs_places 和 needs_map_action 都必须为 true；不能因为用户没说“地图”就关掉地图能力。
 - 单一地点的历史、文化或原理解说不需要 map_action，除非用户同时要求周边或路线。
-- 用户要找某个已知地点、当前位置或日程地点“附近/周边”的餐馆、早餐店、酒店、商店、景点等真实地点时，needs_nearby_places=true；该组合能力会复用工作区内已核实的参照地点并调用真实附近检索，同时生成仅含核实结果的地图。不要仅为了发现附近地点设置 needs_web_search；只有用户还要求点评、营业时间、新闻等地图服务之外的时效事实时才同时设置 web_search。needs_nearby_places 已包含地点核验和地图 Action，不必再设置 needs_places 或 needs_map_action。
+- 用户要找某个已知地点、当前位置或日程地点“附近/周边”的餐馆、早餐店、酒店、商店、景点等真实地点时，needs_nearby_places=true；该组合能力会复用工作区内已核实的参照地点并调用真实附近检索，同时生成仅含核实结果的地图。用户给出多个备选参照点时仍只需要这一项能力，主模型会把全部备选点一次交给组合工具，不能在规划阶段擅自缩成一个。不要仅为了发现附近地点设置 needs_web_search；只有用户还要求点评、营业时间、新闻等地图服务之外的时效事实时才同时设置 web_search。needs_nearby_places 已包含地点核验和地图 Action，不必再设置 needs_places 或 needs_map_action。
 - 用户询问两个地点之间“多远、多久、怎么走、打车多少钱”或明确要求道路路线时，needs_route=true。真实距离由地点与路线服务核验，不要为了距离本身设置 needs_web_search，也不要用网页结果估算；只有用户还要求沿途新闻、实时政策等额外事实时才同时设置 web_search。needs_route 已包含两个端点的地点核验，不必为了同一端点再额外设置 needs_places 或 map_action。
 - 用户要求新增/修改/删除行程日程才需要 calendar_action；仅说计划去某地不等于写日程。
 - 新增或修改日程时，只要用户给出了现实地点且本轮没有可唯一复用的已核实地点，就同时设置 needs_places=true，让地点核实先于 calendar_action；不得直接把自由文本地点或猜测的地点 ID 交给日程工具。
