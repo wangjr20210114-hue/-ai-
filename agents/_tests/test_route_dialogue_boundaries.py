@@ -55,6 +55,22 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             source,
         )
 
+    def test_place_resolution_target_overrides_premature_generic_clarification(self):
+        plan = parse_capability_plan(json.dumps({
+            "needs_clarification": True,
+            "place_resolution_target": "calendar",
+        }))
+        self.assertFalse(plan["needs_clarification"])
+        self.assertTrue(plan["needs_places"])
+        self.assertTrue(plan["needs_calendar_action"])
+        self.assertEqual(plan["place_resolution_target"], "calendar")
+
+        genuine_missing_parameter = parse_capability_plan(json.dumps({
+            "needs_clarification": True,
+            "place_resolution_target": "none",
+        }))
+        self.assertTrue(genuine_missing_parameter["needs_clarification"])
+
     def test_browser_location_is_fresh_bounded_and_not_model_text(self):
         current = normalize_browser_current_location({
             "latitude": 43.82,
