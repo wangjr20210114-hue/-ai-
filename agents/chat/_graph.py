@@ -318,20 +318,30 @@ def build_graph(
                 break
             if getattr(message, "type", "") == "tool":
                 name = getattr(message, "name", "")
-                if crossed_clarification_answer and name == "ask_user_clarification":
+                payload = None
+                try:
+                    payload = json.loads(str(getattr(message, "content", "") or ""))
+                except (TypeError, json.JSONDecodeError):
+                    pass
+                emitted_clarification = (
+                    isinstance(payload, dict)
+                    and payload.get("ui_action") == "clarification_action"
+                )
+                if crossed_clarification_answer and (
+                    name == "ask_user_clarification" or emitted_clarification
+                ):
+                    # A required domain tool can itself discover ambiguity and
+                    # return a structured card (for example, multiple hotel
+                    # branches). Answering that card does not mean the route or
+                    # action completed; the same capability must run again with
+                    # the newly supplied choice.
                     continue
                 if not crossed_clarification_answer:
                     tools_this_turn += 1
                 used_tool_names.append(name)
-                try:
-                    payload = json.loads(str(getattr(message, "content", "") or ""))
-                    clarification_ready = clarification_ready or (
-                        not crossed_clarification_answer
-                        and isinstance(payload, dict)
-                        and payload.get("ui_action") == "clarification_action"
-                    )
-                except (TypeError, json.JSONDecodeError):
-                    pass
+                clarification_ready = clarification_ready or (
+                    not crossed_clarification_answer and emitted_clarification
+                )
             if getattr(message, "type", "") in {"ai", "assistant"}:
                 for tool_call in list(getattr(message, "tool_calls", None) or []):
                     if isinstance(tool_call, dict):

@@ -714,6 +714,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             required_tools_for_plan({"needs_route": True}),
             ("plan_route_between_places",),
         )
+        self.assertIn("一个/多个依次停靠点", SYSTEM_PROMPT)
+        self.assertIn("ordered_stops", SYSTEM_PROMPT)
 
     def test_nearby_plan_uses_one_native_location_composite(self):
         self.assertEqual(
@@ -1784,6 +1786,70 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["route"]["duration_minutes"], 35)
         nearby.assert_awaited_once()
         planner.assert_awaited_once()
+
+    async def test_route_tool_preserves_user_order_for_multi_stop_itinerary(self):
+        places = {
+            "腾讯北京总部": {
+                **PLACE,
+                "place_id": "tencent",
+                "name": "腾讯北京总部大楼",
+            },
+            "锦江之星": {
+                **PLACE,
+                "place_id": "jinjiang",
+                "name": "锦江之星品尚(北京五棵松店)",
+            },
+            "烤肉刘王府井店": {
+                **PLACE,
+                "place_id": "restaurant",
+                "name": "清真·烤肉刘炙子烤肉(故宫·王府井店)",
+            },
+            "桔子酒店北京中关村软件园": {
+                **PLACE,
+                "place_id": "orange",
+                "name": "桔子酒店(北京中关村软件园店)",
+            },
+        }
+
+        async def place_provider(_key, query, *, city, limit):
+            self.assertEqual(city, "北京")
+            return [places[query]]
+
+        route = {
+            "provider": "tencent",
+            "mode": "driving",
+            "distance_meters": 52_400,
+            "duration_seconds": 7_200,
+            "fare": {"taxi": {"low": 120, "high": 150}},
+        }
+        with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
+             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
+            tools = build_production_tools(
+                None,
+                store=FakeStore(),
+                conversation_id="ordered-itinerary",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+            )
+            route_tool = next(item for item in tools if item.name == "plan_route_between_places")
+            result = json.loads(await route_tool.ainvoke({
+                "city": "北京",
+                "ordered_stops": [
+                    {"query": "腾讯北京总部"},
+                    {"query": "锦江之星"},
+                    {"query": "烤肉刘王府井店"},
+                    {"query": "桔子酒店北京中关村软件园"},
+                ],
+            }))
+
+        ordered_ids = [place["place_id"] for place in result["ordered_stops"]]
+        self.assertEqual(ordered_ids, ["tencent", "jinjiang", "restaurant", "orange"])
+        planned_places = planner.await_args.args[1]
+        self.assertEqual(
+            [place["place_id"] for place in planned_places],
+            ["tencent", "jinjiang", "restaurant", "orange"],
+        )
+        self.assertFalse(planner.await_args.kwargs["optimize"])
+        self.assertIn("绝不能重新排序", result["response_constraint"])
 
     async def test_route_tool_asks_user_to_choose_when_nearby_brand_has_multiple_branches(self):
         station = {**PLACE, "place_id": "station", "name": "北京站"}

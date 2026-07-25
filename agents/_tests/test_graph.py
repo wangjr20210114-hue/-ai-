@@ -409,6 +409,48 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result["messages"][-1].content, "日程确认卡已经准备好。")
 
+    async def test_domain_tool_clarification_does_not_mark_required_route_complete(self):
+        model = _RouteChainModel()
+        graph = build_graph(
+            model,
+            [plan_route_between_places],
+            "system",
+            required_tools=["plan_route_between_places"],
+        )
+        result = await graph.ainvoke({"messages": [
+            HumanMessage(content="从腾讯总部出发，先去锦江之星，再去王府井吃饭"),
+            AIMessage(content="", tool_calls=[{
+                "name": "plan_route_between_places",
+                "args": {
+                    "origin_query": "腾讯北京总部",
+                    "destination_query": "锦江之星",
+                },
+                "id": "route-ambiguous",
+            }]),
+            ToolMessage(
+                content='{"ui_action":"clarification_action","clarification":{"id":"hotel"}}',
+                name="plan_route_between_places",
+                tool_call_id="route-ambiguous",
+            ),
+            AIMessage(content=""),
+            HumanMessage(
+                content="桔子酒店：北京中关村软件园",
+                additional_kwargs={
+                    "floris_ui_hidden": True,
+                    "floris_interaction": "clarification",
+                    "clarification_id": "hotel",
+                },
+            ),
+        ]})
+        route_results = [
+            message for message in result["messages"]
+            if isinstance(message, ToolMessage)
+            and message.name == "plan_route_between_places"
+        ]
+        self.assertEqual(len(route_results), 2)
+        self.assertEqual(model.route_calls, 1)
+        self.assertEqual(result["messages"][-1].content, "真实道路距离为 13.8 公里。")
+
     async def test_empty_model_turn_after_tool_gets_one_tool_free_synthesis_retry(self):
         model = _BlankAfterToolModel()
         graph = build_graph(model, [plan_route_between_places], "system")

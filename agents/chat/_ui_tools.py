@@ -589,18 +589,22 @@ def build_production_tools(
         }, ensure_ascii=False)
 
     async def plan_route_between_places(
-        origin_query: str,
-        destination_query: str,
+        origin_query: str = "",
+        destination_query: str = "",
         city: str = "全国",
         origin_near_query: str = "",
         destination_near_query: str = "",
         nearby_radius_meters: int = 5_000,
+        ordered_stops: list[dict[str, str]] | None = None,
     ) -> str:
-        """Resolve two real POIs and calculate a verified driving route.
+        """Resolve an ordered itinerary and calculate one verified driving route.
 
-        When an endpoint is described relative to another place, pass the POI
-        name as *_query and its anchor as *_near_query. For example:
-        destination_query="锦江之星", destination_near_query="北京301医院".
+        For a two-place request, pass origin_query and destination_query. For a
+        multi-stop trip, pass ordered_stops in the user's exact order; every
+        item contains query and may contain near_query. Never optimize or
+        reorder user-provided stops. When a place is described relative to
+        another place, keep them separate, for example
+        {"query":"锦江之星","near_query":"北京301医院"}.
         """
         map_key = str(
             runtime_env.get("TENCENT_MAP_SERVER_KEY")
@@ -691,30 +695,56 @@ def build_production_tools(
                 )
             return matches[0], None
 
-        origin, origin_clarification = await resolve("起点", origin_query, origin_near_query)
-        if origin_clarification:
-            return origin_clarification
-        destination, destination_clarification = await resolve(
-            "终点", destination_query, destination_near_query,
-        )
-        if destination_clarification:
-            return destination_clarification
-        if not origin or not destination:
-            raise ValueError("起点或终点没有完成核实")
-        if str(origin.get("place_id") or "") == str(destination.get("place_id") or ""):
-            raise ValueError("起点和终点解析成了同一个地点，请选择不同地点")
+        requested_stops: list[tuple[str, str]] = []
+        if ordered_stops:
+            if not isinstance(ordered_stops, list) or not 2 <= len(ordered_stops) <= 12:
+                raise ValueError("有序行程必须包含 2 到 12 个地点")
+            for index, raw_stop in enumerate(ordered_stops, 1):
+                if not isinstance(raw_stop, dict):
+                    raise ValueError(f"第 {index} 个行程地点格式无效")
+                query = str(raw_stop.get("query") or "").strip()
+                near_query = str(raw_stop.get("near_query") or "").strip()
+                if not query:
+                    raise ValueError(f"第 {index} 个行程地点不能为空")
+                requested_stops.append((query, near_query))
+        else:
+            requested_stops = [
+                (str(origin_query or "").strip(), str(origin_near_query or "").strip()),
+                (str(destination_query or "").strip(), str(destination_near_query or "").strip()),
+            ]
 
-        route = await _plan_route_metered(map_key, [origin, destination], optimize=False)
+        resolved_stops: list[dict[str, Any]] = []
+        for index, (query, near_query) in enumerate(requested_stops, 1):
+            endpoint = (
+                "起点" if index == 1
+                else "终点" if index == len(requested_stops)
+                else f"第 {index} 站"
+            )
+            place, clarification = await resolve(endpoint, query, near_query)
+            if clarification:
+                return clarification
+            if not place:
+                raise ValueError(f"{endpoint}没有完成核实")
+            if (
+                resolved_stops
+                and str(resolved_stops[-1].get("place_id") or "")
+                == str(place.get("place_id") or "")
+            ):
+                raise ValueError(f"{endpoint}和上一站解析成了同一个地点，请选择不同地点")
+            resolved_stops.append(place)
+
+        route = await _plan_route_metered(map_key, resolved_stops, optimize=False)
         state = await _load_state()
         candidates = state.setdefault("place_candidates", {})
-        candidates[str(origin["place_id"])] = origin
-        candidates[str(destination["place_id"])] = destination
+        for place in resolved_stops:
+            candidates[str(place["place_id"])] = place
         await _save_state(state)
         distance_meters = float(route.get("distance_meters") or 0)
         duration_seconds = float(route.get("duration_seconds") or 0)
         return json.dumps({
-            "origin": origin,
-            "destination": destination,
+            "origin": resolved_stops[0],
+            "destination": resolved_stops[-1],
+            "ordered_stops": resolved_stops,
             "route": {
                 "provider": route.get("provider"),
                 "mode": route.get("mode") or "driving",
@@ -725,7 +755,8 @@ def build_production_tools(
                 "fare": route.get("fare") or {},
             },
             "response_constraint": (
-                "距离和耗时来自已核实地点之间的真实道路路线；"
+                f"距离和耗时来自按用户指定顺序核实的 {len(resolved_stops)} 个地点之间的真实道路路线；"
+                "必须按 ordered_stops 原顺序描述各站，绝不能重新排序；"
                 "回答必须使用这里的数值，不得改用网页估算、直线距离或模型猜测。"
             ),
         }, ensure_ascii=False)
@@ -1355,7 +1386,7 @@ def build_production_tools(
         (search_places, "search_places", "使用腾讯地点服务搜索真实地点，返回可安全用于地图和日程的 place_id。推荐地点、景点、餐馆或含地点日程前必须调用。"),
         (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
         (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。传入完整明确的 anchor_query 与要找的类别 query；若用户给出多个备选参照地点，还必须把全部备选放入 anchor_queries，一次并行查询并保留各组成功结果，不能只选一个或拆成多次调用。工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。用户没有明确距离时不要自行缩小 radius_meters，保持默认 2000 米且 strict_radius=false；只有用户明确说“X 米内”时才传该距离并设 strict_radius=true。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),
-        (plan_route_between_places, "plan_route_between_places", "查询两个真实地点之间的道路距离、驾车耗时或费用时必须使用。工具会自行核实起终点并调用真实路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 destination_query 传“锦江之星”、destination_near_query 传“北京301医院”；多个候选会自动生成单选卡让用户选择。"),
+        (plan_route_between_places, "plan_route_between_places", "查询两个真实地点之间的道路距离、驾车耗时或费用，或规划含多个停靠点的有序出行时必须使用。两点路线传 origin_query/destination_query；多段行程把全部地点按用户指定先后一次传入 ordered_stops，每项包含 query，可选 near_query，禁止拆成多次调用或自行重排。工具会核实全部地点并调用一次真实路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 query 传“锦江之星”、near_query 传“北京301医院”；多个候选会自动生成单选卡让用户选择。"),
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
         (recommend_places_on_map, "recommend_places_on_map", "模型驱动的非周边多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。只要用户目标表达了相对某个或多个参照点“附近、周边、离它近”，不得使用本工具，也不得从模型知识猜餐厅名称；必须改用 recommend_nearby_places_on_map，把全部参照点放入 anchor_queries。"),
         (propose_calendar_changes, "propose_calendar_changes", "必须用此工具准备日程新增、更新或删除提案并生成确认卡；不要只在正文里口头询问。格式示例：changes=[{operation:'create',event:{title:'游览北海公园',start_time:'2026-07-16T09:00:00+08:00',end_time:'2026-07-16T10:00:00+08:00',place_id:'地点工具返回的ID'}}]。更新/删除还要传 schedule_id。用户点击确认前不会真正写入。"),
