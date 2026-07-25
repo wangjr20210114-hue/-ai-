@@ -26,7 +26,10 @@ export default function EdgeOnePlatformPanel() {
   const { language, t } = useLanguage();
   const locale = language === 'zh-TW' ? 'zh-TW' : language === 'en' ? 'en' : 'zh-CN';
   const dispatch = useAppDispatch();
-  const { conversationId, schedules, mapPlaces, mapTitle, mapRevision, calendarPulse } = useAppState();
+  const {
+    conversationId, schedules, mapPlaces, mapTitle, mapRouteMode,
+    mapShowRoute, mapRevision, calendarPulse,
+  } = useAppState();
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -355,7 +358,8 @@ export default function EdgeOnePlatformPanel() {
             title={effectiveTitle}
             places={effectivePlaces}
             revision={mapRevision}
-            showRoute={showingScheduleRoute}
+            showRoute={showingScheduleRoute || (showingRecommendation && mapShowRoute)}
+            routeMode={showingRecommendation ? mapRouteMode : undefined}
           />
           : <div className="workspace-skill-disabled"><span>⌖</span><strong>{t('mapSkillDisabled')}</strong><small>{t('mapSkillDisabledDetail')}</small><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('yuanbao:open-skills'))}>{t('enableInSkills')}</button></div>}
       </div>

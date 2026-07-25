@@ -8,6 +8,7 @@ import { splitSseFrames } from '../services/sse';
 import { useAppDispatch, useAppState } from '../store/appState';
 import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
 import { translate, type TranslationKey } from '../i18n';
+import { currentBrowserLocation } from '../services/browserLocation';
 
 type ClientEvent = { type: string; payload: Record<string, unknown> };
 
@@ -241,6 +242,7 @@ class SSEChatClient {
 
     try {
       armWatchdog();
+      const browserLocation = currentBrowserLocation();
       const response = await fetch(withEdgeOneAuth('/chat'), {
         method: 'POST',
         headers: {
@@ -249,6 +251,7 @@ class SSEChatClient {
         },
         body: JSON.stringify({
           ...(message.payload || {}),
+          ...(browserLocation ? { current_location: browserLocation } : {}),
           ...(allowAfterStop ? { _allow_after_stop: true } : {}),
         }),
         signal,
@@ -766,7 +769,16 @@ export function useSSEChat() {
         dispatch({ type: 'UPSERT_CONVERSATION', payload: reconciled });
       }
       if (activeConversationRef.current === conversationId) {
-        dispatch({ type: 'HYDRATE_WORKSPACE', payload: { schedules: data.schedules, mapPlaces: data.map_places, mapTitle: data.map_title } });
+        dispatch({
+          type: 'HYDRATE_WORKSPACE',
+          payload: {
+            schedules: data.schedules,
+            mapPlaces: data.map_places,
+            mapTitle: data.map_title,
+            mapRouteMode: data.map_route_mode || undefined,
+            mapShowRoute: data.map_show_route,
+          },
+        });
         // Refresh the durable inbox without injecting a synthetic assistant
         // message into a blank conversation. Header owns the non-blocking
         // presentation so opening a chat cannot race the first user message.

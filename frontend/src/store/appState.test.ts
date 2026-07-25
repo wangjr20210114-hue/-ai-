@@ -124,6 +124,28 @@ describe('app state reducer', () => {
     expect(updated.mapRevision).toBe(initialState.mapRevision + 1);
   });
 
+  it('keeps an activated route action mode separate from ordinary map recommendations', () => {
+    const places = [{ place_id: 'a', name: 'A', address: '', latitude: 1, longitude: 1 }];
+    const route = reducer(initialState, {
+      type: 'SET_MAP_PLACES',
+      payload: {
+        title: '步行路线',
+        places,
+        routeMode: 'walking',
+        showRoute: true,
+      },
+    });
+    expect(route.mapRouteMode).toBe('walking');
+    expect(route.mapShowRoute).toBe(true);
+
+    const recommendation = reducer(route, {
+      type: 'SET_MAP_PLACES',
+      payload: { title: '地点推荐', places },
+    });
+    expect(recommendation.mapRouteMode).toBeUndefined();
+    expect(recommendation.mapShowRoute).toBe(false);
+  });
+
   it('keeps the map persistent across identical checkpoint snapshots', () => {
     const places = [{
       place_id: 'poi-wumen', provider: 'tencent', name: '午门', address: '北京市东城区',
@@ -175,6 +197,9 @@ describe('app state reducer', () => {
         daily_limit: 5,
         lookahead_hours: 24,
         window_limit: 4,
+        provider_schedule_limit: 6,
+        route_gap_hours: 3,
+        travel_buffer_minutes: 15,
         fallback_mottos: [],
         types: { schedule_upcoming: true },
       },

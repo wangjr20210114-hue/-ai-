@@ -40,6 +40,9 @@ def default_preferences() -> dict[str, Any]:
         "daily_limit": 5,
         "lookahead_hours": 24,
         "window_limit": 4,
+        "provider_schedule_limit": 6,
+        "route_gap_hours": 3,
+        "travel_buffer_minutes": 15,
         # These are presentation-only fallbacks. They never enter the
         # notification window or compete with a real proactive reminder.
         "fallback_mottos": [
@@ -93,7 +96,11 @@ def _merge_preferences(value: Any) -> dict[str, Any]:
     base = default_preferences()
     if not isinstance(value, dict):
         return base
-    for key in ("enabled", "autonomy_mode", "timezone", "daily_limit", "lookahead_hours", "window_limit"):
+    for key in (
+        "enabled", "autonomy_mode", "timezone", "daily_limit",
+        "lookahead_hours", "window_limit", "provider_schedule_limit",
+        "route_gap_hours", "travel_buffer_minutes",
+    ):
         if key in value:
             base[key] = copy.deepcopy(value[key])
     if isinstance(value.get("quiet_hours"), dict):
@@ -115,6 +122,13 @@ def _merge_preferences(value: Any) -> dict[str, Any]:
     base["daily_limit"] = max(0, min(50, int(base["daily_limit"] or 0)))
     base["lookahead_hours"] = max(1, min(168, int(base["lookahead_hours"] or 24)))
     base["window_limit"] = max(1, min(8, int(base["window_limit"] or 4)))
+    base["provider_schedule_limit"] = max(2, min(12, int(base["provider_schedule_limit"] or 6)))
+    base["route_gap_hours"] = max(1, min(8, int(base["route_gap_hours"] or 3)))
+    base["travel_buffer_minutes"] = max(0, min(120, int(
+        base["travel_buffer_minutes"]
+        if base["travel_buffer_minutes"] is not None
+        else 15
+    )))
     return base
 
 
@@ -332,14 +346,22 @@ def _verified_place(schedule: dict[str, Any]) -> dict[str, Any] | None:
 
 
 async def collect_provider_signals(
-    env: dict[str, Any], schedules: list[dict[str, Any]], now: int, lookahead_hours: int = 24,
+    env: dict[str, Any],
+    schedules: list[dict[str, Any]],
+    now: int,
+    lookahead_hours: int = 24,
+    preferences: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Collect bounded weather/route risks; provider failures stay observations."""
+    settings = _merge_preferences(preferences)
+    provider_schedule_limit = int(settings["provider_schedule_limit"])
+    route_gap_seconds = int(settings["route_gap_hours"]) * 3600
+    travel_buffer_seconds = int(settings["travel_buffer_minutes"]) * 60
     horizon = now + max(1, lookahead_hours) * 3600
     future = sorted(
         [item for item in schedules if now <= int(item.get("start_time") or 0) <= horizon and not item.get("done")],
         key=lambda item: int(item.get("start_time") or 0),
-    )[:4]
+    )[:provider_schedule_limit]
     key = str(env.get("TENCENT_MAP_SERVER_KEY") or env.get("TENCENT_MAP_KEY") or env.get("VITE_TENCENT_MAP_KEY") or "")
     signals: list[dict[str, Any]] = []
     diagnostics: dict[str, Any] = {
@@ -350,7 +372,7 @@ async def collect_provider_signals(
         "errors": [],
     }
     weather_keywords = ("雨", "雪", "雷", "暴", "台风", "大风", "沙尘", "雾", "冰雹", "冻")
-    for schedule in future[:3]:
+    for schedule in future[:min(3, provider_schedule_limit)]:
         place = _verified_place(schedule)
         if not place:
             continue
@@ -388,12 +410,12 @@ async def collect_provider_signals(
         previous_place = _verified_place(previous)
         current_place = _verified_place(current)
         available = int(current.get("start_time") or 0) - _schedule_end(previous)
-        if not previous_place or not current_place or available <= 0 or available > 3 * 3600:
+        if not previous_place or not current_place or available <= 0 or available > route_gap_seconds:
             continue
         try:
             route = await plan_verified_route(key, [previous_place, current_place])
             diagnostics["routes_checked"] += 1
-            required = int(route.get("duration_seconds") or 0) + 15 * 60
+            required = int(route.get("duration_seconds") or 0) + travel_buffer_seconds
             diagnostics["route_facts"].append({
                 "previous_schedule_id": str(previous.get("id") or ""),
                 "current_schedule_id": str(current.get("id") or ""),
@@ -401,6 +423,7 @@ async def collect_provider_signals(
                 "route_duration_seconds": int(route.get("duration_seconds") or 0),
                 "distance_meters": float(route.get("distance_meters") or 0),
                 "provider": str(route.get("provider") or ""),
+                "travel_buffer_seconds": travel_buffer_seconds,
                 "observed_at": now,
             })
             if required > available:
@@ -953,7 +976,11 @@ async def run_proactive_tick(
         signals = collect_schedule_signals(schedules, timestamp, int(preferences["lookahead_hours"]))
         signals.extend(collect_workflow_signals(state, timestamp))
         provider_signals, provider_diagnostics = await collect_provider_signals(
-            env or {}, schedules, timestamp, int(preferences["lookahead_hours"]),
+            env or {},
+            schedules,
+            timestamp,
+            int(preferences["lookahead_hours"]),
+            preferences,
         )
         # Realtime weather uses geocoding plus weather (two Tencent requests);
         # a successful Tencent route contributes one route request. Fallback
@@ -1055,7 +1082,8 @@ def update_preferences(state: dict[str, Any], changes: dict[str, Any]) -> dict[s
         for key in (
             "enabled", "autonomy_mode", "timezone", "daily_limit",
             "lookahead_hours", "window_limit", "quiet_hours", "types",
-            "fallback_mottos",
+            "fallback_mottos", "provider_schedule_limit", "route_gap_hours",
+            "travel_buffer_minutes",
         )
         if key in changes
     }

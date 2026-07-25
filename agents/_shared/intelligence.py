@@ -31,6 +31,50 @@ DEFAULT_SKILL_PREFERENCES = {
     "tencent-meeting": True,
 }
 
+DEFAULT_MAP_PREFERENCES = {
+    # Fast/balanced/complete control the provider concurrency and total search
+    # budget. Concrete limits remain explicit so users can tune the main
+    # latency drivers without exposing provider implementation details.
+    "service_mode": "balanced",
+    "place_result_limit": 6,
+    "route_stop_limit": 8,
+    "search_timeout_seconds": 30,
+    "preferred_route_mode": "driving",
+}
+
+
+def normalize_map_preferences(value: Any) -> dict[str, Any]:
+    preferences = value if isinstance(value, dict) else {}
+    mode = str(preferences.get("service_mode") or "balanced")
+    if mode not in {"fast", "balanced", "complete"}:
+        mode = "balanced"
+    mode_defaults = {
+        "fast": {"place_result_limit": 4, "route_stop_limit": 4, "search_timeout_seconds": 20},
+        "balanced": {"place_result_limit": 6, "route_stop_limit": 8, "search_timeout_seconds": 30},
+        "complete": {"place_result_limit": 10, "route_stop_limit": 12, "search_timeout_seconds": 55},
+    }[mode]
+
+    def bounded_int(key: str, minimum: int, maximum: int) -> int:
+        try:
+            return max(minimum, min(maximum, int(preferences.get(key, mode_defaults[key]))))
+        except (TypeError, ValueError):
+            return int(mode_defaults[key])
+
+    return {
+        "service_mode": mode,
+        "place_result_limit": bounded_int("place_result_limit", 3, 12),
+        "route_stop_limit": bounded_int("route_stop_limit", 2, 12),
+        # Keep enough room for the Tencent direction call while guaranteeing
+        # the complete map operation remains below the product's 60s ceiling.
+        "search_timeout_seconds": bounded_int("search_timeout_seconds", 10, 55),
+        "preferred_route_mode": (
+            str(preferences.get("preferred_route_mode") or "driving")
+            if str(preferences.get("preferred_route_mode") or "driving")
+            in {"driving", "transit", "walking", "bicycling"}
+            else "driving"
+        ),
+    }
+
 
 def empty_intelligence_state() -> dict[str, Any]:
     return {
@@ -52,6 +96,7 @@ def empty_intelligence_state() -> dict[str, Any]:
             "image_limit": 2,
             "parallel_image_search": True,
         },
+        "map_preferences": copy.deepcopy(DEFAULT_MAP_PREFERENCES),
         "skill_preferences": copy.deepcopy(DEFAULT_SKILL_PREFERENCES),
     }
 
@@ -93,6 +138,7 @@ async def load_intelligence_state(store: Any, user_id: str = USER_WORKSPACE_ID) 
         "image_limit": max(0, min(4, int(preferences.get("image_limit") if preferences.get("image_limit") is not None else 2))),
         "parallel_image_search": bool(preferences.get("parallel_image_search", True)),
     }
+    state["map_preferences"] = normalize_map_preferences(state.get("map_preferences"))
     skill_preferences = state.get("skill_preferences")
     if not isinstance(skill_preferences, dict):
         skill_preferences = {}
@@ -496,6 +542,7 @@ def public_intelligence_state(state: dict[str, Any]) -> dict[str, Any]:
         "search_preferences": copy.deepcopy(state.get("search_preferences") or {
             "result_limit": 8, "image_limit": 2, "parallel_image_search": True,
         }),
+        "map_preferences": normalize_map_preferences(state.get("map_preferences")),
         "skill_preferences": copy.deepcopy(state.get("skill_preferences") or DEFAULT_SKILL_PREFERENCES),
         "rule_proposals": sorted(state.get("rule_proposals", {}).values(), key=lambda item: int(item.get("updated_at") or 0), reverse=True),
         "feedback_count": len(state.get("feedback") or []),

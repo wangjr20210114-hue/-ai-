@@ -629,7 +629,13 @@ export default function MessageBubble({ message, client, assistantChainPosition 
       // a valid click look ineffective; the request below persists the choice.
       dispatch({
         type: 'SET_MAP_PLACES',
-        payload: { places: mapSnapshot, title: action.payload.title, reveal: true },
+        payload: {
+          places: mapSnapshot,
+          title: action.payload.title,
+          routeMode: action.payload.route_mode,
+          showRoute: action.payload.show_route,
+          reveal: true,
+        },
       });
     }
     setWorkspaceBusy(action.id);
@@ -641,7 +647,16 @@ export default function MessageBubble({ message, client, assistantChainPosition 
       });
       if (response.action) replaceWorkspaceAction(response.action);
       if (operation === 'activate_map' && response.map?.places?.length) {
-        dispatch({ type: 'SET_MAP_PLACES', payload: { places: response.map.places, title: response.map.title, reveal: true } });
+        dispatch({
+          type: 'SET_MAP_PLACES',
+          payload: {
+            places: response.map.places,
+            title: response.map.title,
+            routeMode: response.map.route_mode || undefined,
+            showRoute: response.map.show_route,
+            reveal: true,
+          },
+        });
         MessagePlugin.success(t('mapShown'));
       } else if (operation === 'activate_map') {
         if (!mapSnapshot.length) throw new Error(t('mapSnapshotUnavailable'));

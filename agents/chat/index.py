@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import math
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -75,6 +76,43 @@ def runtime_datetime_context(value: datetime) -> str:
     )
 
 
+def normalize_browser_current_location(value: object, *, now_ms: int | None = None) -> dict | None:
+    """Accept a fresh browser GPS fix without persisting or exposing it to the model."""
+    if not isinstance(value, dict) or value.get("coordinate_type") != "wgs84":
+        return None
+    try:
+        latitude = float(value.get("latitude"))
+        longitude = float(value.get("longitude"))
+        accuracy = max(0.0, float(value.get("accuracy_meters") or 0))
+        captured_at = int(value.get("captured_at") or 0)
+    except (TypeError, ValueError):
+        return None
+    timestamp = int(time.time() * 1000 if now_ms is None else now_ms)
+    if (
+        not math.isfinite(latitude)
+        or not math.isfinite(longitude)
+        or not -90 <= latitude <= 90
+        or not -180 <= longitude <= 180
+        or accuracy > 5_000
+        or captured_at <= 0
+        or captured_at > timestamp + 2 * 60 * 1000
+        or timestamp - captured_at > 10 * 60 * 1000
+    ):
+        return None
+    return {
+        "schema_version": 1,
+        "place_id": "browser-current-location",
+        "provider": "browser-wgs84",
+        "name": "当前位置",
+        "address": "本次请求的浏览器定位（不写入长期记忆）",
+        "latitude": latitude,
+        "longitude": longitude,
+        "coordinate_type": "wgs84",
+        "accuracy_meters": round(accuracy, 1),
+        "captured_at": captured_at,
+    }
+
+
 def run_cancelled(value: object) -> bool:
     """Treat both the platform acknowledgement and terminal marker as stop."""
     return bool(
@@ -130,6 +168,7 @@ SYSTEM_PROMPT = """你是 FLORIS:一只有温度的大橘，一个可靠、主�
 输出语言与语气要求：{response_language_instruction}
 当前北京时间是 {now}。weekday 是后端日期库计算的权威结果；回答涉及“今天周几”、营业日、周末或出行日期时必须直接采用，禁止自行重新推算或改写。
 当前用户日程（每轮从 Makers 用户 Workspace 实时读取；更新或删除只能使用这里仍存在的 id）：{calendar_context}
+浏览器当前位置只可作为本轮路线的隐式起点；不得复述精确坐标，不得写入日程、长期记忆或外部搜索词。若本轮状态为可用，用户说“我想去/带我去/怎么去某地”且没有另给起点时，直接以当前位置规划，不要再问起点；若用户明确给了起点，以用户表达为准。
 本轮主动模块建议（由独立模型做语义判断，不是关键词规则）：{capability_plan}。它只提示可用能力，不规定你的措辞或回答结构；不要在回答中提及它。需要搜索时可优先采用其中的 search_query 和 image_query，也可以根据上下文自然调整。若 blocked_skill 非空，表示独立规划模型判断用户当前目标不可替代地依赖该已关闭 Skill；本轮不得调用其他能力拼凑半成品，也不得复用旧工具结果，应自然说明本次请求尚未执行并建议用户到 Skills 广场开启它。
 当前用户消息对本轮范围、地点、时间和备选条件的更新优先于此前回答与旧工具结果。用户放宽、替换或否定旧范围时，不得继续把已被替换的旧地点混入新结果，也不得用旧地图 Action 冒充本轮已完成。
 本轮用户附图的视觉理解（由配置的多模态 Provider 一次性提取；没有附图时为“无”）：{reference_image_context}
@@ -141,10 +180,10 @@ rich_search 始终是可用能力。是否搜索由你根据问题自主判断�
 搜索返回的网页、图片、视频等素材由你自由编排：只采用真正有助于当前叙述的项目，把它放在最相关的段落附近；可以交错使用、重排或全部舍弃。不要把素材统一堆在回答末尾。使用工具给出的原始 Markdown URL，前端会在你选定的位置渲染对应图片、视频或行内来源。
 对于“最近进展、新闻、发布会、行业动态”等视觉有助于理解的时效问题，如果富搜索返回了至少一张审核通过或明确标记为降级的图片，至少在相关段落就地使用一张；只有图片素材为空，或用户明确要求纯文字时才不插图。
 对“最新、截至目前、当前价格、当前能力”等时效事实，型号、日期、参数、价格和结论必须能由本轮检索结果直接支持；证据不足就缩小结论或明确未知，禁止用训练知识补出未核验的未来型号、数字或发布日期。“截至今天”是截止时间，不等于只采用今天发布的资料；只有 capability_plan 的 strict_today_only=true 时才执行当日发布日期硬过滤。
-用户询问某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时，优先一次调用 recommend_nearby_places_on_map：把完整参照地点与要找的类别分开传入，工具会复用 Makers 工作区里的已核实坐标并调用腾讯位置附近检索。用户给出“甲或乙附近”“这几个地点都可以”等多个备选参照点时，必须把所有备选点一次放入 anchor_queries，工具会并行核实各组并保留成功结果；不能自行只挑一个，也不能拆成多次同名工具调用。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询；只有用户还要求评价、营业时间、新闻等地图服务之外的时效事实时，才额外调用一次 rich_search。非周边的单一地点核验使用 search_places；推荐两个及以上具体地点时优先调用 recommend_places_on_map：在一次调用中提供回答采用的每个独立地点名称，由工具逐一核实并直接生成地图 Action，避免再拆成重复地点查询。未验证地点可以在正文中明确说明，但不能进地图。若已经使用 search_places_batch，则只有地点工具返回的真实 place_id 才能交给 prepare_map_recommendation。
+用户询问某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时，优先一次调用 recommend_nearby_places_on_map：把完整参照地点与要找的类别分开传入，工具会复用 Makers 工作区里的已核实坐标并调用腾讯位置附近检索。用户给出“甲或乙附近”“这几个地点都可以”等多个备选参照点时，必须把所有备选点一次放入 anchor_queries，工具会并行核实各组并保留成功结果；不能自行只挑一个，也不能拆成多次同名工具调用。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询；只有用户还要求评价、营业时间、新闻等地图服务之外的时效事实时，才额外调用一次 rich_search。非周边的单一地点核验使用 search_places；推荐两个及以上具体地点时优先调用 recommend_places_on_map：在一次调用中提供回答采用的每个独立地点名称，由工具逐一核实并直接生成地图 Action，避免再拆成重复地点查询。未验证地点可以在正文中明确说明，但不能进地图。若已经使用 search_places_batch，则只有地点工具返回的真实 place_id 才能交给 prepare_map_recommendation；当前日程上下文中已经附带 place_id 的地点也可直接交给它，从日程显示地图不需要重复搜索。
 recommend_places_on_map 或 prepare_map_recommendation 只生成可安全激活的地图 Action；网页必须等用户点击按钮后才更新右侧地图，同时允许用户查看其他内容后再次点击恢复该组地点。部分地点未核实时，地图只展示已核实成功项，正文自然说明缺少哪些；只有全部未核实时才不生成地图。正文声称已核实并可显示的数量必须与 Action 实际地点数一致。action_text 要根据上下文自然生成，避免每次使用同一句话。
-用户询问两个地点之间多远、多久、怎么走、打车费用，或者给出出发地和一个/多个依次停靠点要求规划出行时，必须调用 plan_route_between_places，使用地点服务核验全部站点并采用真实道路路线结果；不能用 rich_search、直线距离或模型常识估算。多段行程要把全部地点按用户指定先后一次放入 ordered_stops，禁止拆成多次路线调用或自行调整顺序。若站点是“某地附近的某品牌”，把品牌和参照地点分别传入 query 与 near_query。工具返回多个候选时会直接生成结构化单选卡，本轮不要追加自然语言追问或擅自选择。
-新增、更新或删除日程时必须先调用 propose_calendar_changes 冻结提案，再请用户点击确认；不能只用普通文字询问，因为没有 Action 卡就无法安全提交。用户给出明确未来日期/出发时刻并让你规划一条多站行程时，如果本轮可使用日程能力，应在路线核实完成后主动生成可编辑的日程确认提案，不要再问用户“是否需要写入日程”；提案仍须由用户点击确认才生效。把刚规划的路线写入日程时，必须把路线工具返回的 route_plan_id 作为 source_route_plan_id，并按 ordered_stops 为每个站点分别创建事件，保留全部站点、顺序和已经确认的地点，绝不能把途经多个地点压缩成一个笼统事件，也不能擅自换餐厅或地点。新增变更项设置 operation=create，并在 event 中提供 title、start_time、end_time；用户给了地点时必须先调用 search_places，从地点库选取 place_id，或者复用上一轮地点/路线工具已经核实并保存的唯一地点，未给地点则可以省略。更新和删除必须从“当前用户日程”中匹配仍存在的 schedule_id；删除某个日程时只提交该日程的 delete，绝不能把其余未变日程重新 create 一遍。用户没有明确要求新增、且也不是上述带明确未来时刻的多站行程主动提案时，不得夹带 create。如果按日期、标题无法唯一匹配，或根本不存在，要调用 ask_user_clarification 让用户选择匹配项或自然说明未找到，绝不能编造 ID。修改地点同样必须重新查询地点库。时间必须为带 +08:00 的 ISO 8601。任何将写入、修改或删除真实状态的参数，都只能来自用户自己的明确表达、用户在结构化卡片中的选择或已核实的当前状态；你在此前回答里自行建议、假设或补出的时间、地点、对象和偏好不算用户确认。缺少不可替代的副作用参数时，必须先调用 ask_user_clarification，不能把你的假设直接提交给 Action。路线规划缺少出发时刻时可以给出一般耗时与方案，但不得虚构一个具体时刻。今天之前的日程只可查看，绝不能提议新增、修改或删除；即使用户明确要求也要自然说明限制。工具调用本身不会写入日程，绝不能在确认前声称已经修改日程。提案卡出现时间重叠警告时必须提醒用户核对，不能把重叠安排描述为无风险。
+用户询问两个地点之间多远、多久、怎么走、打车费用，或者给出出发地和一个/多个依次停靠点要求规划出行时，必须调用 plan_route_between_places，使用地点服务核验全部站点并采用真实道路路线结果；不能用 rich_search、直线距离或模型常识估算。浏览器当前位置可用且用户只说“我想去/带我去/怎么去某地”时，设置 use_current_location_as_origin=true，把目的地交给工具，不要追问起点，也不要把“当前位置”当普通 POI 搜索。用户明确给起点时不得覆盖。route_mode 支持 driving、transit、walking、bicycling；用户没指定时传 default 以采用其设置。多段行程要把全部文本地点按用户指定先后一次放入 ordered_stops，禁止拆成多次路线调用或自行调整顺序。若站点是“某地附近的某品牌”，把品牌和参照地点分别传入 query 与 near_query。地点服务给出高置信度纠错证据时可按纠正名称继续并明确说明；多个候选或证据不足时，工具会直接生成结构化澄清卡，本轮不要追加自然语言追问或擅自选择。路线工具会同时生成一个由用户点击后才激活的地图 Action；正文可以说明可在地图中查看，但不能声称地图已自动切换。
+新增、更新或删除日程时必须先调用 propose_calendar_changes 冻结提案，再请用户点击确认；不能只用普通文字询问，因为没有 Action 卡就无法安全提交。用户给出明确未来日期/出发时刻并让你规划一条多站行程时，如果本轮可使用日程能力，应在路线核实完成后主动生成可编辑的日程确认提案，不要再问用户“是否需要写入日程”；提案仍须由用户点击确认才生效。把刚规划的路线写入日程时，必须把路线工具返回的 route_plan_id 作为 source_route_plan_id，并按 ordered_stops 为每个站点分别创建事件，保留全部站点、顺序和已经确认的地点，绝不能把途经多个地点压缩成一个笼统事件，也不能擅自换餐厅或地点。新增变更项设置 operation=create，并在 event 中提供 title、start_time、end_time；用户给了地点时必须先调用 search_places，从地点库选取 place_id，或者复用上一轮地点/路线工具已经核实并保存的唯一地点，未给地点则可以省略。更新和删除必须从“当前用户日程”中匹配仍存在的 schedule_id；只移动开始时间而没有要求改变时长时省略 end_time，工具会保留原时长；用户明确要求移除地点时在 event 中设置 clear_location=true；Zoom、腾讯会议、Teams、线上或电话会议等应作为线上 location 保留，不要送去现实地点搜索。删除某个日程时只提交该日程的 delete，绝不能把其余未变日程重新 create 一遍。用户没有明确要求新增、且也不是上述带明确未来时刻的多站行程主动提案时，不得夹带 create。如果按日期、标题无法唯一匹配，或根本不存在，要调用 ask_user_clarification 让用户选择匹配项或自然说明未找到，绝不能编造 ID。修改现实地点同样必须重新查询地点库。时间必须为带 +08:00 的 ISO 8601。任何将写入、修改或删除真实状态的参数，都只能来自用户自己的明确表达、用户在结构化卡片中的选择或已核实的当前状态；你在此前回答里自行建议、假设或补出的时间、地点、对象和偏好不算用户确认。缺少不可替代的副作用参数时，必须先调用 ask_user_clarification，不能把你的假设直接提交给 Action。路线规划缺少出发时刻时可以给出一般耗时与方案，但不得虚构一个具体时刻。今天之前的日程只可查看，绝不能提议新增、修改或删除；即使用户明确要求也要自然说明限制。工具调用本身不会写入日程，绝不能在确认前声称已经修改日程。提案卡出现时间重叠警告时必须提醒用户核对，不能把重叠安排描述为无风险。
 只有缺失信息会阻断所有安全且有用的回答，或者无法唯一确定将要执行的真实副作用对象时，第一步且本轮唯一的用户可见结果才必须是调用 ask_user_clarification 生成结构化主动交互卡；不要先生成半份答案，也不要在答案末尾才列出问题。这个规则覆盖搜索问答、地点路线、写作、翻译、生图、文档总结、日程、会议和所有其他能力。“不同选择会改变结果”“知道后会更准确”“通常会问”都不是必要性；每个字段都必须满足“没有它就无法继续”的条件。每个问题必须能追溯到用户本轮目标、最近对话中尚未解决的条件、与本任务直接相关的安全长期记忆或当前可核验状态；禁止套用行业模板、用户画像问卷或附加问题，不能凭空扩大任务范围。已有对话或可靠记忆已经明确的内容不要重复询问；能由当前上下文、已经核实的工具结果、另一个必要字段或安全默认值推导出的信息也不得再问。例如已知日期和路线耗时只缺出发时刻时，只问一个 time 字段，不能再问日期或到达时间。记忆只能补足本轮已经不可缺少的条件，不能创造新的澄清维度，若记忆与本轮表达冲突或带有犹豫、否定、备选含义，以本轮表达为准。卡片只收继续所需的最少字段，字段优先级固定为：能列出有限候选就优先 single/multi；能用是/否表达就用 boolean；只缺日期用 date，日期已知只缺时刻用 time，日期与时刻都缺才用 datetime；只有答案确实无法枚举时才使用 text 短填空。不得为了省事把本可选择或判断的问题改成文本框。不要连续输出一长串追问，也不要向用户展示工具名或内部 JSON；卡片提交后，答案会作为当前对话的补充信息自动继续本轮任务，用户不需要再点发送；不得重复询问已经提交的字段。信息已经足够或只是普通事实问答时不要调用该工具。
 当偏好、范围或做法并非完成任务的必要条件，尤其是用户明确表示“没决定、都可以、先看看”时，不要发问卷或强迫用户先选。直接给出 2–3 套可独立采用的方案：为每套写清采用的假设、主要结果和取舍，共同内容只写一次；让用户看完后再决定即可。只有涉及创建、修改、删除、付费或其他真实副作用，且必须先唯一确定目标或参数时，才收集相应的最少必要信息。不要把选择问题机械地放在长回答末尾。
 仅当本轮工具列表包含 propose_meeting 时才可创建腾讯会议，并等待网页确认；若没有该工具，说明可选连接器尚未配置，可以先创建普通日程，不能暗示用户需要自行申请企业 API。用户要求生图时立即调用 propose_image，不要先询问确认；修改之前的生成图时把对应版本的 action id 作为 parent_action_id。若主体是需要外观准确的现实人物、地点或物体，先调用一次 rich_search 获取经 HY-Vision 验证的真实图片，再把最多 3 个图片 URL 作为 reference_image_urls 交给 propose_image；原创或幻想画面不要无意义搜索。
@@ -305,6 +344,12 @@ async def handler(ctx):
     clarification_id = clarification_response_id(body)
     silent_clarification = bool(clarification_id)
     response_language = str(body.get("response_language") or "zh-CN")
+    browser_current_location = normalize_browser_current_location(body.get("current_location"))
+    current_location_context = (
+        "已授权且新鲜，可作为隐式起点（精确坐标仅供路线工具使用）"
+        if browser_current_location
+        else "不可用；不得声称已定位"
+    )
     language_instructions = {
         "zh-CN": "使用自然、清晰的简体中文，保留 Markdown 结构与链接。",
         "zh-TW": "使用自然、清晰的繁體中文，保留 Markdown 結構與連結。",
@@ -405,6 +450,7 @@ async def handler(ctx):
         await fail_run(message_text)
         return error(message_text, 503)
     intelligence = await load_intelligence_state(ctx.store.langgraph_store, user_id)
+    proactive_state = await load_proactive_state(ctx.store.langgraph_store, user_id)
     budget = usage_summary(intelligence)
     if (
         str((budget.get("preferences") or {}).get("enforcement") or "soft") == "hard"
@@ -420,6 +466,7 @@ async def handler(ctx):
         search_preferences.get("image_limit") if search_preferences.get("image_limit") is not None else 2
     )))
     parallel_image_search = bool(search_preferences.get("parallel_image_search", True))
+    map_preferences = intelligence.get("map_preferences") or {}
     skill_preferences = intelligence.get("skill_preferences") or {}
     enabled_skills = {skill_id for skill_id, enabled in skill_preferences.items() if enabled}
     disabled_skills = sorted(skill_id for skill_id, enabled in skill_preferences.items() if not enabled)
@@ -484,6 +531,7 @@ async def handler(ctx):
             "enabled": sorted(enabled_skills),
             "disabled": disabled_skills,
         }, ensure_ascii=False),
+        location_context=current_location_context,
         timeout_seconds=planner_timeout,
     )
     if planner_timed_out:
@@ -567,6 +615,14 @@ async def handler(ctx):
         enabled_skills=enabled_skills,
         planned_route_stops=capability_plan.get("route_stops") or [],
         planned_route_city=str(capability_plan.get("route_city") or "全国"),
+        planned_route_mode=str(capability_plan.get("route_mode") or "default"),
+        planned_route_uses_current_location=bool(
+            capability_plan.get("route_uses_current_location")
+        ),
+        browser_current_location=browser_current_location,
+        map_preferences=map_preferences,
+        proactive_preferences=proactive_state.get("preferences") or {},
+        tracer=getattr(ctx, "tracer", None),
     )
     blocked_skill = str(capability_plan.get("blocked_skill") or "").strip()
     graph_tools = [] if blocked_skill else all_tools
@@ -595,7 +651,7 @@ async def handler(ctx):
             calendar_context=current_calendar_context,
             reference_image_context=reference_image_context or "无",
             document_context=document_context or "无",
-        ) + f"\n\n最近一次已核实的有序路线（仅当用户指代“这个/刚才的行程”时使用）：{current_route_context}" + f"\n\n{skill_context}" + (f"\n\n以下是用户已明确确认的长期记忆，只在相关时自然使用：\n{memory_context}" if memory_context else ""),
+        ) + f"\n\n浏览器当前位置状态：{current_location_context}" + f"\n\n最近一次已核实的有序路线（仅当用户指代“这个/刚才的行程”时使用）：{current_route_context}" + f"\n\n{skill_context}" + (f"\n\n以下是用户已明确确认的长期记忆，只在相关时自然使用：\n{memory_context}" if memory_context else ""),
         checkpointer=ctx.store.langgraph_checkpointer,
         store=ctx.store.langgraph_store,
         # Routing remains semantic and model-planned rather than keyword based.

@@ -20,6 +20,9 @@ export interface ProactivePreferences {
   daily_limit: number;
   lookahead_hours: number;
   window_limit: number;
+  provider_schedule_limit: number;
+  route_gap_hours: number;
+  travel_buffer_minutes: number;
   fallback_mottos: string[];
   types: Record<string, boolean>;
 }
@@ -142,6 +145,13 @@ export interface MakersIntelligenceState {
   memory_count?: number;
   memory_preferences?: { enabled: boolean };
   search_preferences?: { result_limit: number; image_limit: number; parallel_image_search: boolean };
+  map_preferences?: {
+    service_mode: 'fast' | 'balanced' | 'complete';
+    place_result_limit: number;
+    route_stop_limit: number;
+    search_timeout_seconds: number;
+    preferred_route_mode: MakersRouteMode;
+  };
   skill_preferences?: Record<string, boolean>;
   providers?: { meeting?: boolean };
   rule_proposals: ProactiveRuleProposal[];
@@ -444,6 +454,8 @@ export interface MakersMapPlace {
   category?: string;
 }
 
+export type MakersRouteMode = 'driving' | 'transit' | 'walking' | 'bicycling';
+
 export type WorkspaceActionKind = 'map_recommendation' | 'calendar_changes' | 'meeting_create' | 'image_generate';
 export type WorkspaceActionStatus = 'ready' | 'active' | 'awaiting_confirmation' | 'executing' | 'succeeded' | 'failed' | 'cancelled' | 'reconciliation_required';
 
@@ -457,6 +469,8 @@ export interface WorkspaceAction {
     title?: string;
     action_text?: string;
     places?: MakersMapPlace[];
+    route_mode?: MakersRouteMode;
+    show_route?: boolean;
     summary?: string;
     changes?: Array<Record<string, unknown>>;
     subject?: string;
@@ -485,7 +499,7 @@ export interface WorkspaceAction {
 export interface MakersRoutePlan {
   schema_version: number;
   provider: string;
-  mode: 'driving';
+  mode: MakersRouteMode;
   places: MakersMapPlace[];
   path: Array<{ latitude: number; longitude: number }>;
   distance_meters: number;
@@ -493,8 +507,14 @@ export interface MakersRoutePlan {
   fare: {
     currency: string;
     basis: string;
-    self_driving: { estimate: number; toll: number };
-    taxi: { low: number; high: number };
+    self_driving?: { estimate: number; toll: number };
+    taxi?: { low: number; high: number };
+    transit?: { estimate: number; provider_estimate?: boolean };
+  };
+  transit?: {
+    walking_distance_meters?: number;
+    lines?: string[];
+    transfer_count?: number;
   };
   cache?: { hit: boolean; expires_at: number };
 }

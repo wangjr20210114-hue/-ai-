@@ -1,0 +1,224 @@
+from __future__ import annotations
+
+import json
+import unittest
+from unittest.mock import AsyncMock, patch
+
+from agents._shared.intelligence import normalize_map_preferences
+from agents._shared.tencent_location import plan_verified_route
+from agents._shared.workspace import (
+    WorkspaceConflictError,
+    apply_calendar_changes,
+    empty_workspace,
+    load_workspace,
+    save_workspace,
+)
+from agents.chat._calendar_context import calendar_context
+from agents.chat._ui_tools import build_production_tools
+
+
+PLACE_A = {
+    "schema_version": 1,
+    "place_id": "tencent:a",
+    "provider": "tencent",
+    "name": "起点",
+    "address": "北京市起点路",
+    "latitude": 39.9,
+    "longitude": 116.3,
+    "city": "北京市",
+    "category": "地名",
+}
+PLACE_B = {
+    **PLACE_A,
+    "place_id": "tencent:b",
+    "name": "终点",
+    "address": "北京市终点路",
+    "latitude": 39.8,
+    "longitude": 116.4,
+}
+
+
+class FakeStore:
+    def __init__(self):
+        self.values = {}
+
+    async def aget(self, namespace, key):
+        value = self.values.get((namespace, key))
+        return None if value is None else {"value": value}
+
+    async def aput(self, namespace, key, value):
+        self.values[(namespace, key)] = value
+
+
+class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
+    def test_map_preferences_are_bounded_and_have_speed_profiles(self):
+        self.assertEqual(
+            normalize_map_preferences({"service_mode": "fast"})["search_timeout_seconds"],
+            20,
+        )
+        complete = normalize_map_preferences({
+            "service_mode": "complete",
+            "place_result_limit": 999,
+            "route_stop_limit": 999,
+            "search_timeout_seconds": 999,
+        })
+        self.assertEqual(complete["place_result_limit"], 12)
+        self.assertEqual(complete["route_stop_limit"], 12)
+        self.assertEqual(complete["search_timeout_seconds"], 55)
+
+    def test_calendar_context_prioritizes_future_over_oldest_history(self):
+        state = empty_workspace()
+        for index in range(120):
+            state["schedules"][f"old-{index}"] = {
+                "id": f"old-{index}",
+                "title": f"历史 {index}",
+                "start_time": 100 + index,
+                "duration_minutes": 30,
+            }
+        state["schedules"]["future"] = {
+            "id": "future",
+            "title": "明天的会议",
+            "start_time": 2_000,
+            "duration_minutes": 60,
+        }
+        context = json.loads(calendar_context(state, now=1_000))
+        self.assertEqual(context[0]["id"], "future")
+        self.assertIn("future", {item["id"] for item in context})
+        self.assertLessEqual(len(context), 100)
+
+    async def test_stale_workspace_cannot_overwrite_newer_revision(self):
+        store = FakeStore()
+        first = await load_workspace(store, "user")
+        stale = await load_workspace(store, "user")
+        first["schedules"]["a"] = {"id": "a"}
+        await save_workspace(store, "user", first)
+        stale["schedules"]["b"] = {"id": "b"}
+        with self.assertRaises(WorkspaceConflictError):
+            await save_workspace(store, "user", stale)
+
+    async def test_route_never_falls_back_to_osm(self):
+        failure = RuntimeError("Tencent unavailable")
+        with (
+            patch(
+                "agents._shared.tencent_location.plan_driving_route",
+                new=AsyncMock(side_effect=failure),
+            ) as tencent,
+            patch(
+                "agents._shared.tencent_location._get_public",
+                new=AsyncMock(),
+            ) as public_provider,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Tencent unavailable"):
+                await plan_verified_route("key", [PLACE_A, PLACE_B])
+        tencent.assert_awaited_once()
+        public_provider.assert_not_awaited()
+
+    async def test_chat_route_creates_independent_clickable_map_action(self):
+        store = FakeStore()
+        state = empty_workspace()
+        state["place_candidates"] = {
+            PLACE_A["place_id"]: PLACE_A,
+            PLACE_B["place_id"]: PLACE_B,
+        }
+        await save_workspace(store, "local-user", state)
+        route = {
+            "provider": "tencent",
+            "mode": "driving",
+            "places": [PLACE_A, PLACE_B],
+            "path": [],
+            "distance_meters": 10_000,
+            "duration_seconds": 1_800,
+            "fare": {},
+        }
+        with patch(
+            "agents.chat._ui_tools.provider_plan_route",
+            new=AsyncMock(return_value=route),
+        ):
+            tools = build_production_tools(
+                None,
+                store=store,
+                conversation_id="route-map",
+                env={},
+            )
+            route_tool = next(tool for tool in tools if tool.name == "plan_route_between_places")
+            result = json.loads(await route_tool.ainvoke({
+                "origin_query": "起点",
+                "destination_query": "终点",
+                "city": "北京",
+            }))
+        self.assertEqual(result["ui_action"], "map_action")
+        self.assertEqual(result["action"]["kind"], "map_recommendation")
+        self.assertEqual(
+            [item["place_id"] for item in result["action"]["payload"]["places"]],
+            ["tencent:a", "tencent:b"],
+        )
+        self.assertTrue(result["route_plan_id"])
+
+    async def test_calendar_move_keeps_duration_and_can_clear_location(self):
+        store = FakeStore()
+        state = empty_workspace()
+        created = apply_calendar_changes(state, [{
+            "operation": "create",
+            "event": {
+                "title": "两小时会议",
+                "start_time": 2_000_000_000,
+                "duration_minutes": 120,
+                "place": PLACE_A,
+            },
+        }])[0]
+        await save_workspace(store, "local-user", state)
+        tools = build_production_tools(
+            None,
+            store=store,
+            conversation_id="calendar-duration",
+            env={},
+        )
+        calendar_tool = next(tool for tool in tools if tool.name == "propose_calendar_changes")
+        result = json.loads(await calendar_tool.ainvoke({
+            "summary": "移动并清空地点",
+            "changes": [{
+                "operation": "update",
+                "schedule_id": created["id"],
+                "event": {
+                    "start_time": "2033-05-18T04:33:20+08:00",
+                    "clear_location": True,
+                },
+            }],
+        }))
+        event = result["action"]["payload"]["changes"][0]["event"]
+        self.assertEqual(event["duration_minutes"], 120)
+        self.assertEqual(event["location"], "")
+        self.assertIsNone(event["place"])
+
+    async def test_schedule_place_can_be_shown_on_map_without_research(self):
+        store = FakeStore()
+        state = empty_workspace()
+        apply_calendar_changes(state, [{
+            "operation": "create",
+            "event": {
+                "title": "日程中的故宫",
+                "start_time": 2_000_000_000,
+                "duration_minutes": 60,
+                "place": PLACE_A,
+            },
+        }])
+        state["place_candidates"] = {}
+        await save_workspace(store, "local-user", state)
+        tools = build_production_tools(
+            None,
+            store=store,
+            conversation_id="calendar-map",
+            env={},
+        )
+        map_tool = next(tool for tool in tools if tool.name == "prepare_map_recommendation")
+        result = json.loads(await map_tool.ainvoke({
+            "title": "日程地点",
+            "place_ids": [PLACE_A["place_id"]],
+            "action_text": "显示日程地点",
+            "expected_place_count": 1,
+        }))
+        self.assertEqual(result["action"]["payload"]["places"][0]["place_id"], PLACE_A["place_id"])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -6,6 +6,7 @@ actions, but only this module can activate a map selection or mutate schedules.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import hashlib
 import json
@@ -19,6 +20,20 @@ from .data_version import namespace
 
 SCHEMA_VERSION = 1
 USER_WORKSPACE_ID = "local-user"
+_workspace_write_locks: dict[str, asyncio.Lock] = {}
+
+
+class WorkspaceConflictError(RuntimeError):
+    """Raised instead of silently overwriting a newer user workspace."""
+
+
+def _workspace_write_lock(conversation_id: str) -> asyncio.Lock:
+    key = str(conversation_id or USER_WORKSPACE_ID)
+    lock = _workspace_write_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _workspace_write_locks[key] = lock
+    return lock
 
 
 def empty_workspace() -> dict[str, Any]:
@@ -64,12 +79,24 @@ async def load_workspace(store: Any, conversation_id: str) -> dict[str, Any]:
 
 
 async def save_workspace(store: Any, conversation_id: str, state: dict[str, Any]) -> dict[str, Any]:
-    state = copy.deepcopy(state)
-    state["schema_version"] = SCHEMA_VERSION
-    state["revision"] = int(state.get("revision") or 0) + 1
-    if store is not None:
-        await store.aput(_namespace(conversation_id), "state", state)
-    return state
+    expected_revision = int(state.get("revision") or 0)
+    async with _workspace_write_lock(conversation_id):
+        if store is not None:
+            current = _item_value(await store.aget(_namespace(conversation_id), "state"))
+            current_revision = int((current or {}).get("revision") or 0)
+            if current_revision != expected_revision:
+                raise WorkspaceConflictError(
+                    "日程或地图状态已在另一个窗口发生变化，请刷新后重试"
+                )
+        saved = copy.deepcopy(state)
+        saved["schema_version"] = SCHEMA_VERSION
+        saved["revision"] = expected_revision + 1
+        if store is not None:
+            await store.aput(_namespace(conversation_id), "state", saved)
+        # Keep callers that perform a second step on the same object aligned
+        # with the stored revision while preserving the returned copy contract.
+        state["revision"] = saved["revision"]
+        return saved
 
 
 async def load_user_workspace(
@@ -299,6 +326,8 @@ def normalize_schedule(event: dict[str, Any], *, existing_id: str = "") -> dict[
     extra["source"] = str(extra.get("source") or "makers-workspace")
     if place:
         extra["place"] = copy.deepcopy(place)
+    elif "place" in event:
+        extra.pop("place", None)
     return {
         "id": existing_id or f"makers-{uuid.uuid4().hex}",
         "session_id": "makers",
@@ -491,4 +520,6 @@ def active_map_payload(state: dict[str, Any]) -> dict[str, Any] | None:
         "action_id": action_id,
         "title": str(payload.get("title") or "相关地点"),
         "places": copy.deepcopy(payload.get("places") or []),
+        "route_mode": str(payload.get("route_mode") or ""),
+        "show_route": bool(payload.get("show_route")),
     }

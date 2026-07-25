@@ -20,6 +20,14 @@ const DEFAULT_SEARCH_PREFERENCES = {
   parallel_image_search: true,
 };
 
+const DEFAULT_MAP_PREFERENCES: NonNullable<MakersIntelligenceState['map_preferences']> = {
+  service_mode: 'balanced',
+  place_result_limit: 6,
+  route_stop_limit: 8,
+  search_timeout_seconds: 30,
+  preferred_route_mode: 'driving',
+};
+
 export default function AppSettingsButton() {
   const { conversationId, proactive } = useAppState();
   const { language, setLanguage, t } = useLanguage();
@@ -29,6 +37,7 @@ export default function AppSettingsButton() {
   const [automatic, setAutomatic] = useState(true);
   const [loading, setLoading] = useState(false);
   const [searchPreferences, setSearchPreferences] = useState(DEFAULT_SEARCH_PREFERENCES);
+  const [mapPreferences, setMapPreferences] = useState(DEFAULT_MAP_PREFERENCES);
   const [skillPreferences, setSkillPreferences] = useState<Record<string, boolean>>({});
   const [mottoDrafts, setMottoDrafts] = useState<string[]>([]);
   const [resetVisible, setResetVisible] = useState(false);
@@ -47,6 +56,7 @@ export default function AppSettingsButton() {
         intelligenceOperation(conversationId).then((state) => {
           if (disposed) return;
           setSearchPreferences(state.search_preferences || DEFAULT_SEARCH_PREFERENCES);
+          setMapPreferences(state.map_preferences || DEFAULT_MAP_PREFERENCES);
           setSkillPreferences(state.skill_preferences || {});
         }),
         getReadingSettings().then((settings) => {
@@ -145,6 +155,21 @@ export default function AppSettingsButton() {
       MessagePlugin.success(t('searchSettingsSaved'));
     } catch {
       MessagePlugin.error(t('searchSettingsSaveFailed'));
+    } finally { setBusy(''); }
+  };
+
+  const saveMap = async (changes: Partial<NonNullable<MakersIntelligenceState['map_preferences']>>) => {
+    const nextPreferences = { ...mapPreferences, ...changes };
+    setMapPreferences(nextPreferences);
+    setBusy('maps');
+    try {
+      const next = await intelligenceOperation(conversationId, 'update_map_preferences', {
+        preferences: nextPreferences,
+      });
+      setMapPreferences(next.map_preferences || nextPreferences);
+      MessagePlugin.success(t('mapSettingsSaved'));
+    } catch {
+      MessagePlugin.error(t('mapSettingsSaveFailed'));
     } finally { setBusy(''); }
   };
 
@@ -296,12 +321,54 @@ export default function AppSettingsButton() {
           </div>
         </section>}
 
+        {skillEnabled('maps') && <section className="app-settings-section">
+          <h3>{t('mapExperience')}</h3>
+          <p>{t('mapExperienceHint')}</p>
+          <div className="app-settings-grid">
+            <label><span>{t('mapServiceMode')}</span><select value={mapPreferences.service_mode} disabled={busy === 'maps'} onChange={(event) => {
+              const service_mode = event.target.value as NonNullable<MakersIntelligenceState['map_preferences']>['service_mode'];
+              const defaults = service_mode === 'fast'
+                ? { place_result_limit: 4, route_stop_limit: 4, search_timeout_seconds: 20 }
+                : service_mode === 'complete'
+                  ? { place_result_limit: 10, route_stop_limit: 12, search_timeout_seconds: 55 }
+                  : { place_result_limit: 6, route_stop_limit: 8, search_timeout_seconds: 30 };
+              void saveMap({ service_mode, ...defaults });
+            }}>
+              <option value="fast">{t('mapModeFast')}</option>
+              <option value="balanced">{t('mapModeBalanced')}</option>
+              <option value="complete">{t('mapModeComplete')}</option>
+            </select></label>
+            <label><span>{t('mapPlaceResultCount')}</span><select value={mapPreferences.place_result_limit} disabled={busy === 'maps'} onChange={(event) => void saveMap({ place_result_limit: Number(event.target.value) })}>
+              {[3, 4, 6, 8, 10, 12].map((value) => <option key={value} value={value}>{t('numericValue', { value })}</option>)}
+            </select></label>
+            <label><span>{t('mapRouteStopCount')}</span><select value={mapPreferences.route_stop_limit} disabled={busy === 'maps'} onChange={(event) => void saveMap({ route_stop_limit: Number(event.target.value) })}>
+              {[4, 6, 8, 10, 12].map((value) => <option key={value} value={value}>{t('numericValue', { value })}</option>)}
+            </select></label>
+            <label><span>{t('mapSearchTimeout')}</span><select value={mapPreferences.search_timeout_seconds} disabled={busy === 'maps'} onChange={(event) => void saveMap({ search_timeout_seconds: Number(event.target.value) })}>
+              <option value={15}>{t('secondsValue', { value: 15 })}</option>
+              <option value={20}>{t('secondsValue', { value: 20 })}</option>
+              <option value={30}>{t('secondsValue', { value: 30 })}</option>
+              <option value={45}>{t('secondsValue', { value: 45 })}</option>
+              <option value={55}>{t('secondsValue', { value: 55 })}</option>
+            </select></label>
+            <label><span>{t('preferredRouteMode')}</span><select value={mapPreferences.preferred_route_mode} disabled={busy === 'maps'} onChange={(event) => void saveMap({ preferred_route_mode: event.target.value as NonNullable<MakersIntelligenceState['map_preferences']>['preferred_route_mode'] })}>
+              <option value="driving">{t('routeModeDriving')}</option>
+              <option value="transit">{t('routeModeTransit')}</option>
+              <option value="walking">{t('routeModeWalking')}</option>
+              <option value="bicycling">{t('routeModeBicycling')}</option>
+            </select></label>
+          </div>
+        </section>}
+
         {skillEnabled('proactive-agent') && <section className="app-settings-section">
           <h3>{t('proactive')}</h3>
           <p>{t('proactiveHint')}</p>
           {preferences && <div className="app-settings-grid">
             <label><span>{t('proactiveEnabled')}</span><input type="checkbox" checked={preferences.enabled !== false} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ enabled: event.target.checked })} /></label>
             <label><span>{t('lookaheadRange')}</span><select value={preferences.lookahead_hours} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ lookahead_hours: Number(event.target.value) })}><option value={12}>{t('next12Hours')}</option><option value={24}>{t('next24Hours')}</option><option value={48}>{t('next48Hours')}</option><option value={72}>{t('next3Days')}</option></select></label>
+            <label><span>{t('providerScheduleCount')}</span><select value={preferences.provider_schedule_limit} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ provider_schedule_limit: Number(event.target.value) })}>{[4, 6, 8, 12].map((value) => <option key={value} value={value}>{t('numericValue', { value })}</option>)}</select></label>
+            <label><span>{t('routeGapHours')}</span><select value={preferences.route_gap_hours} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ route_gap_hours: Number(event.target.value) })}>{[1, 2, 3, 4, 6, 8].map((value) => <option key={value} value={value}>{t('numericValue', { value })}</option>)}</select></label>
+            <label><span>{t('travelBufferMinutes')}</span><select value={preferences.travel_buffer_minutes} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ travel_buffer_minutes: Number(event.target.value) })}>{[0, 10, 15, 30, 45, 60].map((value) => <option key={value} value={value}>{t('numericValue', { value })}</option>)}</select></label>
             <label><span>{t('quietHours')}</span><input type="checkbox" checked={preferences.quiet_hours.enabled} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ quiet_hours: { ...preferences.quiet_hours, enabled: event.target.checked } })} /></label>
             <Button size="small" variant="outline" loading={busy === 'scan'} onClick={() => {
               setBusy('scan');

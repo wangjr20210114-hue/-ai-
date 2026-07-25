@@ -32,12 +32,13 @@ describe('planMakersRoute', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await planMakersRoute('test-conversation', places);
+    await planMakersRoute('test-conversation', places, 'walking');
 
     const init = fetchMock.mock.calls[0][1] as RequestInit;
-    const body = JSON.parse(String(init.body)) as { places: MakersMapPlace[]; optimize: boolean };
+    const body = JSON.parse(String(init.body)) as { places: MakersMapPlace[]; optimize: boolean; mode: string };
     expect(body.places.map((item) => item.name)).toEqual(['早餐店', '北京站', '锦江之星']);
     expect(body.optimize).toBe(false);
+    expect(body.mode).toBe('walking');
   });
 });
 

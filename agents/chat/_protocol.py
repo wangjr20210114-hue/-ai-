@@ -61,12 +61,12 @@ def action_fallback_content(actions: list[dict[str, Any]]) -> str:
         for item in actions
         if isinstance(item, dict)
     }
-    if "map_recommendation" in kinds:
-        return "地点已经过真实地点服务核实。请点击下方按钮显示地点；未核实的地点不会进入地图。"
     if "meeting_create" in kinds:
         return "腾讯会议确认卡已准备好，请在卡片中补齐并核对条件后继续。"
     if "calendar_changes" in kinds:
         return "日程变更确认卡已准备好，请核对后再确认。"
+    if "map_recommendation" in kinds:
+        return "地点已经过真实地点服务核实。请点击下方按钮显示地点；未核实的地点不会进入地图。"
     if "image_generate" in kinds:
         return "图片任务已准备好，可在下方图片工坊查看结果。"
     return "操作卡已准备好，请核对下方内容后继续。"

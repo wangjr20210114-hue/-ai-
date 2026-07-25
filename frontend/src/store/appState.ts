@@ -5,6 +5,7 @@ import type {
   TravelPlan,
   ScheduleItem,
   MakersMapPlace,
+  MakersRouteMode,
   ConversationSummary,
   ProactiveState,
   DocumentContext,
@@ -32,6 +33,8 @@ export interface AppState {
   schedules: ScheduleItem[];
   mapPlaces: MakersMapPlace[];
   mapTitle: string;
+  mapRouteMode?: MakersRouteMode;
+  mapShowRoute: boolean;
   mapRevision: number;
   calendarPulse: { date: string; count: number; token: number } | null;
   conversations: ConversationSummary[];
@@ -57,10 +60,10 @@ export type Action =
   | { type: 'DELETE_PLAN'; payload: string }
   | { type: 'SET_SCHEDULES'; payload: ScheduleItem[] }
   | { type: 'MERGE_SCHEDULES'; payload: ScheduleItem[] }
-  | { type: 'SET_MAP_PLACES'; payload: { places: MakersMapPlace[]; title?: string; reveal?: boolean } }
+  | { type: 'SET_MAP_PLACES'; payload: { places: MakersMapPlace[]; title?: string; routeMode?: MakersRouteMode; showRoute?: boolean; reveal?: boolean } }
   | { type: 'PULSE_CALENDAR'; payload: { date: string; count: number } }
   | { type: 'CLEAR_CALENDAR_PULSE'; payload: Record<string, never> }
-  | { type: 'HYDRATE_WORKSPACE'; payload: { schedules?: ScheduleItem[]; mapPlaces?: MakersMapPlace[]; mapTitle?: string } }
+  | { type: 'HYDRATE_WORKSPACE'; payload: { schedules?: ScheduleItem[]; mapPlaces?: MakersMapPlace[]; mapTitle?: string; mapRouteMode?: MakersRouteMode; mapShowRoute?: boolean } }
   | { type: 'ADD_SCHEDULE'; payload: ScheduleItem }
   | { type: 'UPDATE_SCHEDULE'; payload: ScheduleItem }
   | { type: 'DELETE_SCHEDULE'; payload: string }
@@ -82,6 +85,8 @@ export const initialState: AppState = {
   schedules: [],
   mapPlaces: [],
   mapTitle: translate('relatedPlaces'),
+  mapRouteMode: undefined,
+  mapShowRoute: false,
   mapRevision: 0,
   calendarPulse: null,
   conversations: [],
@@ -162,6 +167,8 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         mapPlaces: placesChanged ? action.payload.places : state.mapPlaces,
         mapTitle: nextTitle,
+        mapRouteMode: action.payload.routeMode,
+        mapShowRoute: Boolean(action.payload.showRoute),
         mapRevision: placesChanged || action.payload.reveal ? state.mapRevision + 1 : state.mapRevision,
       };
     }
@@ -178,6 +185,8 @@ export function reducer(state: AppState, action: Action): AppState {
         schedules: action.payload.schedules || [],
         mapPlaces: placesChanged ? nextPlaces : state.mapPlaces,
         mapTitle: hasMapSnapshot ? action.payload.mapTitle || translate('relatedPlaces') : state.mapTitle,
+        mapRouteMode: hasMapSnapshot ? action.payload.mapRouteMode : state.mapRouteMode,
+        mapShowRoute: hasMapSnapshot ? Boolean(action.payload.mapShowRoute) : state.mapShowRoute,
         mapRevision: placesChanged ? state.mapRevision + 1 : state.mapRevision,
       };
     }

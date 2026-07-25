@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .._shared.intelligence import (
+    DEFAULT_MAP_PREFERENCES,
     DEFAULT_SKILL_PREFERENCES,
     confirm_memory,
     decide_rule,
@@ -12,6 +13,7 @@ from .._shared.intelligence import (
     reject_memory,
     rollback_memory,
     save_intelligence_state,
+    normalize_map_preferences,
 )
 from .._shared.proactive import load_proactive_state, save_proactive_state, update_preferences
 from .._shared.auth import require_user
@@ -79,6 +81,13 @@ async def handler(ctx):
             if "parallel_image_search" in changes:
                 current["parallel_image_search"] = bool(changes["parallel_image_search"])
             state["search_preferences"] = current
+        elif operation == "update_map_preferences":
+            changes = body.get("preferences") or {}
+            if not isinstance(changes, dict):
+                raise ValueError("地图设置格式无效")
+            current = dict(state.get("map_preferences") or DEFAULT_MAP_PREFERENCES)
+            current.update(changes)
+            state["map_preferences"] = normalize_map_preferences(current)
         elif operation == "update_skill_preferences":
             requested = body.get("preferences") or {}
             if not isinstance(requested, dict):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import difflib
 import hashlib
 import json
@@ -19,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .._shared.tencent_location import (
     plan_verified_route as provider_plan_route,
     search_places as provider_search_place_candidates,
-    search_verified_places as provider_search_places,
+    search_verified_places_bounded as provider_search_places,
     search_verified_places_nearby as provider_search_places_nearby,
 )
 from .._shared.web_media import collect_page_images as provider_collect_page_images
@@ -29,8 +30,11 @@ from .._shared.side_effects import generate_image as provider_generate_image, re
 from .._shared.arxiv import search_arxiv as provider_search_arxiv
 from .._shared.proactive import load_proactive_state, propose_workflow as create_workflow_proposal, save_proactive_state
 from .._shared.provider_metering import record_provider_usage, record_vision_diagnostics
+from .._shared.place_cache import load_place_cache, save_place_cache
+from .._shared.route_cache import load_route_cache, save_route_cache
 from .._shared.workspace import (
     begin_action_execution,
+    apply_calendar_changes,
     calendar_change_warnings,
     finish_provider_call,
     get_action,
@@ -116,6 +120,20 @@ class RoutePlanInput(BaseModel):
     origin_near_query: str = Field(default="", max_length=160)
     destination_near_query: str = Field(default="", max_length=160)
     nearby_radius_meters: int = Field(default=5_000, ge=500, le=20_000)
+    route_mode: Literal["default", "driving", "transit", "walking", "bicycling"] = Field(
+        default="default",
+        description=(
+            "Travel mode explicitly requested by the user. Use default to honor "
+            "the user's saved map preference."
+        ),
+    )
+    use_current_location_as_origin: bool = Field(
+        default=False,
+        description=(
+            "Use the fresh browser location supplied for this request as the origin. "
+            "Never invent coordinates or use it when the user stated another origin."
+        ),
+    )
     ordered_stops: list[RouteStopInput] = Field(
         default_factory=list,
         min_length=0,
@@ -129,10 +147,13 @@ class RoutePlanInput(BaseModel):
     @model_validator(mode="after")
     def validate_endpoints(self):
         if self.ordered_stops:
-            if len(self.ordered_stops) < 2:
+            if len(self.ordered_stops) < 2 and not self.use_current_location_as_origin:
                 raise ValueError("有序路线至少需要起点和终点")
             return self
-        if not self.origin_query.strip() or not self.destination_query.strip():
+        if (
+            not self.destination_query.strip()
+            or (not self.origin_query.strip() and not self.use_current_location_as_origin)
+        ):
             raise ValueError("两点路线必须同时提供起点和终点")
         return self
 
@@ -331,10 +352,35 @@ def build_production_tools(
     enabled_skills: set[str] | None = None,
     planned_route_stops: list[dict[str, str]] | None = None,
     planned_route_city: str = "全国",
+    planned_route_mode: str = "default",
+    planned_route_uses_current_location: bool = False,
+    browser_current_location: dict[str, Any] | None = None,
+    map_preferences: dict[str, Any] | None = None,
+    proactive_preferences: dict[str, Any] | None = None,
+    tracer: Any = None,
 ) -> list[StructuredTool]:
     runtime_env = env or {}
     paper_scope = paper_constraints or {}
     time_scope = temporal_context or {}
+    map_scope = map_preferences or {}
+    map_service_mode = str(map_scope.get("service_mode") or "balanced")
+    map_place_result_limit = max(3, min(12, int(map_scope.get("place_result_limit") or 6)))
+    map_route_stop_limit = max(2, min(12, int(map_scope.get("route_stop_limit") or 8)))
+    map_search_timeout = max(10.0, min(55.0, float(map_scope.get("search_timeout_seconds") or 30)))
+    map_preferred_route_mode = str(map_scope.get("preferred_route_mode") or "driving")
+    if map_preferred_route_mode not in {"driving", "transit", "walking", "bicycling"}:
+        map_preferred_route_mode = "driving"
+    map_parallelism = {"fast": 4, "balanced": 3, "complete": 2}.get(map_service_mode, 3)
+    proactive_scope = proactive_preferences or {}
+    travel_buffer_minutes = max(0, min(120, int(
+        proactive_scope.get("travel_buffer_minutes")
+        if proactive_scope.get("travel_buffer_minutes") is not None
+        else 15
+    )))
+    route_gap_hours = max(1, min(8, int(proactive_scope.get("route_gap_hours") or 3)))
+    provider_schedule_limit = max(2, min(12, int(
+        proactive_scope.get("provider_schedule_limit") or 6
+    )))
     # Per-request handoff: rich-search media can be consumed by image
     # generation without asking the model to copy fragile URLs between tools.
     turn_visual_references: list[str] = [
@@ -358,27 +404,84 @@ def build_production_tools(
                 store, user_id, "tencent_maps", "requests", 1, source=source,
             )
 
+    async def _traced_map_call(name: str, operation: str, call):
+        span_method = getattr(tracer, "span", None)
+        if not callable(span_method):
+            return await call()
+
+        async def run(span):
+            result = await call()
+            set_attributes = getattr(span, "set_attributes", None)
+            if callable(set_attributes):
+                attributes: dict[str, str | int | float | bool] = {
+                    "maps.operation": operation,
+                    "maps.service_mode": map_service_mode,
+                    "maps.timeout_seconds": map_search_timeout,
+                }
+                if isinstance(result, list):
+                    attributes["maps.result_count"] = len(result)
+                elif isinstance(result, dict):
+                    attributes["maps.provider"] = str(result.get("provider") or "unknown")
+                    attributes["maps.result_count"] = len(result.get("places") or [])
+                set_attributes(attributes)
+            return result
+
+        return await span_method(name, run, {
+            "maps.operation": operation,
+            "maps.service_mode": map_service_mode,
+        })
+
     async def _search_places_metered(map_key: str, *args, **kwargs):
+        query = str(args[0] if args else kwargs.get("query") or "")
+        city = str(kwargs.get("city") or "全国")
+        limit = int(kwargs.get("limit") or map_place_result_limit)
+        cached = await load_place_cache(store, user_id, query, city, limit)
+        if cached is not None:
+            return cached
         try:
-            return await provider_search_places(map_key, *args, **kwargs)
+            places = await _traced_map_call(
+                "maps.place_search",
+                "place_search",
+                lambda: asyncio.wait_for(
+                    provider_search_places(map_key, *args, **kwargs),
+                    timeout=map_search_timeout,
+                ),
+            )
         finally:
             await _record_map_call("chat_place_search", map_key)
+        await save_place_cache(store, user_id, query, city, limit, places)
+        return places
 
     async def _search_place_candidates_metered(map_key: str, *args, **kwargs):
         try:
-            return await provider_search_place_candidates(map_key, *args, **kwargs)
+            return await _traced_map_call(
+                "maps.tencent_place_candidates",
+                "tencent_place_candidates",
+                lambda: provider_search_place_candidates(map_key, *args, **kwargs),
+            )
         finally:
             await _record_map_call("chat_place_candidates", map_key)
 
     async def _search_places_nearby_metered(map_key: str, *args, **kwargs):
         try:
-            return await provider_search_places_nearby(map_key, *args, **kwargs)
+            return await _traced_map_call(
+                "maps.nearby_search",
+                "nearby_search",
+                lambda: provider_search_places_nearby(map_key, *args, **kwargs),
+            )
         finally:
             await _record_map_call("chat_nearby_search", map_key)
 
     async def _plan_route_metered(map_key: str, *args, **kwargs):
         try:
-            return await provider_plan_route(map_key, *args, **kwargs)
+            return await _traced_map_call(
+                "maps.tencent_route",
+                "tencent_route",
+                lambda: asyncio.wait_for(
+                    provider_plan_route(map_key, *args, **kwargs),
+                    timeout=min(18.0, max(8.0, 58.0 - map_search_timeout)),
+                ),
+            )
         finally:
             await _record_map_call("chat_route", map_key)
 
@@ -388,7 +491,7 @@ def build_production_tools(
             str(runtime_env.get("TENCENT_MAP_SERVER_KEY") or runtime_env.get("TENCENT_MAP_KEY") or runtime_env.get("VITE_TENCENT_MAP_KEY") or ""),
             query,
             city=city,
-            limit=max(1, min(20, int(limit))),
+            limit=max(1, min(map_place_result_limit, int(limit))),
         )
         state = await _load_state()
         candidates = state.setdefault("place_candidates", {})
@@ -409,27 +512,43 @@ def build_production_tools(
             if query and query not in seen_queries:
                 seen_queries.add(query)
                 normalized.append(query)
-        if not 1 <= len(normalized) <= 12:
-            raise ValueError("批量地点查询必须包含 1 到 12 个独立地点名称")
+        if not 1 <= len(normalized) <= map_route_stop_limit:
+            raise ValueError(
+                f"批量地点查询必须包含 1 到 {map_route_stop_limit} 个独立地点名称；"
+                "可在设置的“地图与路线”中调整上限"
+            )
 
         map_key = str(runtime_env.get("TENCENT_MAP_SERVER_KEY") or runtime_env.get("TENCENT_MAP_KEY") or runtime_env.get("VITE_TENCENT_MAP_KEY") or "")
         groups = []
         all_places = []
         seen_ids = set()
-        # Sequential calls are intentional: the compliant public fallback has a
-        # conservative rate limit, while Tencent calls are still fast enough.
-        for query in normalized:
+        semaphore = asyncio.Semaphore(map_parallelism)
+
+        async def search_one(query: str) -> dict[str, Any]:
             try:
-                places = await _search_places_metered(
-                    map_key,
-                    query,
-                    city=city,
-                    limit=max(1, min(5, int(limit_per_query))),
-                )
-                groups.append({"query": query, "places": places})
+                async with semaphore:
+                    places = await _search_places_metered(
+                        map_key,
+                        query,
+                        city=city,
+                        limit=max(1, min(map_place_result_limit, int(limit_per_query))),
+                    )
+                return {"query": query, "places": places}
             except Exception as exc:
-                places = []
-                groups.append({"query": query, "places": [], "error": str(exc)[:200]})
+                return {"query": query, "places": [], "error": str(exc)[:200]}
+
+        try:
+            groups = await asyncio.wait_for(
+                asyncio.gather(*(search_one(query) for query in normalized)),
+                timeout=map_search_timeout,
+            )
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(
+                f"批量地点搜索超过 {round(map_search_timeout)} 秒；"
+                "请减少地点数量或在设置中选择快速档"
+            ) from exc
+        for group in groups:
+            places = group.get("places") or []
             for place in places:
                 place_id = str(place["place_id"])
                 if place_id not in seen_ids:
@@ -565,17 +684,26 @@ def build_production_tools(
             ]
             return exact[0] if len(exact) == 1 else (anchors[0] if anchors else None)
 
-        resolved_anchors = await asyncio.gather(*(
-            resolve_anchor(clean_anchor_query)
-            for clean_anchor_query in clean_anchor_queries
-        ))
+        search_deadline = asyncio.get_running_loop().time() + map_search_timeout
+        try:
+            resolved_anchors = await asyncio.wait_for(
+                asyncio.gather(*(
+                    resolve_anchor(clean_anchor_query)
+                    for clean_anchor_query in clean_anchor_queries
+                )),
+                timeout=map_search_timeout,
+            )
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(
+                f"参照地点搜索超过 {round(map_search_timeout)} 秒；请减少地点数量或使用快速档"
+            ) from exc
 
         requested_radius = max(300, min(20_000, int(radius_meters or 2_000)))
         # A model sometimes invents an overly narrow radius even though the
         # user only said "nearby". Keep the product default stable unless the
         # model marks a distance explicitly stated by the user as strict.
         radius = requested_radius if strict_radius else max(2_000, requested_radius)
-        bounded_limit = max(1, min(6, int(limit or 5)))
+        bounded_limit = max(1, min(map_place_result_limit, int(limit or 5)))
 
         async def lookup_nearby(
             clean_anchor_query: str,
@@ -631,15 +759,28 @@ def build_production_tools(
                     "error": str(exc)[:200],
                 }
 
-        groups = await asyncio.gather(*(
-            lookup_nearby(clean_anchor_query, anchor)
-            for clean_anchor_query, anchor in zip(clean_anchor_queries, resolved_anchors)
-        ))
+        remaining = search_deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise TimeoutError(
+                f"附近地点搜索超过 {round(map_search_timeout)} 秒；请减少地点数量或使用快速档"
+            )
+        try:
+            groups = await asyncio.wait_for(
+                asyncio.gather(*(
+                    lookup_nearby(clean_anchor_query, anchor)
+                    for clean_anchor_query, anchor in zip(clean_anchor_queries, resolved_anchors)
+                )),
+                timeout=remaining,
+            )
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(
+                f"附近地点搜索超过 {round(map_search_timeout)} 秒；请减少地点数量或使用快速档"
+            ) from exc
         places: list[dict[str, Any]] = []
         seen_place_ids: set[str] = set()
         max_group_size = max((len(group["places"]) for group in groups), default=0)
         # Interleave groups so every successful alternative remains represented
-        # when the combined map reaches its 12-place safety cap.
+        # when the combined map reaches the user-selected result cap.
         for index in range(max_group_size):
             for group in groups:
                 if index >= len(group["places"]):
@@ -650,9 +791,9 @@ def build_production_tools(
                     continue
                 seen_place_ids.add(place_id)
                 places.append(place)
-                if len(places) >= 12:
+                if len(places) >= map_place_result_limit:
                     break
-            if len(places) >= 12:
+            if len(places) >= map_place_result_limit:
                 break
         if not places:
             anchors_text = "、".join(f"“{value}”" for value in clean_anchor_queries)
@@ -712,9 +853,11 @@ def build_production_tools(
         origin_near_query: str = "",
         destination_near_query: str = "",
         nearby_radius_meters: int = 5_000,
+        route_mode: str = "default",
+        use_current_location_as_origin: bool = False,
         ordered_stops: list[dict[str, str]] | None = None,
     ) -> str:
-        """Resolve an ordered itinerary and calculate one verified driving route.
+        """Resolve an ordered itinerary and calculate one verified Tencent route.
 
         For a two-place request, pass origin_query and destination_query. For a
         multi-stop trip, pass ordered_stops in the user's exact order; every
@@ -729,9 +872,49 @@ def build_production_tools(
             or runtime_env.get("VITE_TENCENT_MAP_KEY")
             or ""
         )
+        requested_route_mode = str(route_mode or "default").strip().lower()
+        planner_route_mode = str(planned_route_mode or "default").strip().lower()
+        if requested_route_mode not in {"default", "driving", "transit", "walking", "bicycling"}:
+            requested_route_mode = "default"
+        selected_route_mode = (
+            requested_route_mode
+            if requested_route_mode != "default"
+            else planner_route_mode
+            if planner_route_mode in {"driving", "transit", "walking", "bicycling"}
+            else map_preferred_route_mode
+        )
+        should_use_current_location = bool(
+            browser_current_location
+            and (use_current_location_as_origin or planned_route_uses_current_location)
+            and not str(origin_query or "").strip()
+        )
+        if (
+            (use_current_location_as_origin or planned_route_uses_current_location)
+            and not browser_current_location
+            and not str(origin_query or "").strip()
+        ):
+            return _clarification_action(
+                conversation_id,
+                title="需要路线起点",
+                prompt="浏览器当前位置未授权或已经过期。请先在地图卡片授权定位，或直接填写起点。",
+                fields=[{
+                    "id": "route_origin",
+                    "label": "从哪里出发？",
+                    "type": "text",
+                    "required": True,
+                    "options": [],
+                    "placeholder": "例如：吉林大学前卫南区",
+                }],
+            )
+        route_operation_deadline = asyncio.get_running_loop().time() + 58.0
         radius = max(500, min(20_000, int(nearby_radius_meters or 5_000)))
         state = await _load_state()
         candidates = state.setdefault("place_candidates", {})
+        for event in (state.get("schedules") or {}).values():
+            extra = event.get("extra") if isinstance(event, dict) and isinstance(event.get("extra"), dict) else {}
+            place = extra.get("place") if isinstance(extra, dict) else None
+            if isinstance(place, dict) and str(place.get("place_id") or ""):
+                candidates[str(place["place_id"])] = place
 
         async def resolve(
             endpoint: str,
@@ -740,6 +923,8 @@ def build_production_tools(
         ) -> tuple[dict[str, Any] | None, str | None]:
             clean_query = str(query or "").strip()
             clean_near = str(near_query or "").strip()
+            if clean_query == "__browser_current_location__":
+                return copy.deepcopy(browser_current_location), None
             if not clean_query:
                 raise ValueError(f"{endpoint}地点不能为空")
             if clean_near:
@@ -778,14 +963,28 @@ def build_production_tools(
                     )
             if not matches:
                 qualifier = f"（{clean_near}附近 {radius} 米内）" if clean_near else ""
-                raise ValueError(f"没有核实到{endpoint}“{clean_query}”{qualifier}")
+                return None, _clarification_action(
+                    conversation_id,
+                    title=f"请确认{endpoint}",
+                    prompt=(
+                        f"地点服务没有足够证据确认“{clean_query}”{qualifier}。"
+                        "可能是错别字、同名地点或缺少城市，请补充更完整名称。"
+                    ),
+                    fields=[{
+                        "id": f"route_{endpoint}_{hashlib.sha256(clean_query.encode()).hexdigest()[:6]}",
+                        "label": f"{endpoint}的正确名称或城市是什么？",
+                        "type": "text",
+                        "required": True,
+                        "options": [],
+                        "placeholder": f"例如：城市 + {clean_query}",
+                    }],
+                )
             for match in matches:
                 place_id = str(match.get("place_id") or "").strip()
                 if place_id:
                     candidates[place_id] = match
             if len(candidates) > 200:
                 state["place_candidates"] = dict(list(candidates.items())[-200:])
-            await _save_state(state)
 
             # A brand near an anchor commonly has several legitimate branches.
             # Even when one branch has the exact bare brand name, choosing it
@@ -825,8 +1024,11 @@ def build_production_tools(
 
         requested_stops: list[tuple[str, str]] = []
         if ordered_stops:
-            if not isinstance(ordered_stops, list) or not 2 <= len(ordered_stops) <= 12:
-                raise ValueError("有序行程必须包含 2 到 12 个地点")
+            if not isinstance(ordered_stops, list) or not 2 <= len(ordered_stops) <= map_route_stop_limit:
+                raise ValueError(
+                    f"有序行程必须包含 2 到 {map_route_stop_limit} 个地点；"
+                    "可在设置的“地图与路线”中调整上限"
+                )
             for index, raw_stop in enumerate(ordered_stops, 1):
                 if isinstance(raw_stop, BaseModel):
                     raw_stop = raw_stop.model_dump()
@@ -842,11 +1044,21 @@ def build_production_tools(
                 (str(origin_query or "").strip(), str(origin_near_query or "").strip()),
                 (str(destination_query or "").strip(), str(destination_near_query or "").strip()),
             ]
+        if should_use_current_location:
+            requested_stops = [
+                ("__browser_current_location__", ""),
+                *[item for item in requested_stops if item[0]],
+            ]
         model_stop_count = len(requested_stops)
         requested_stops = preserve_planned_route_stops(
             requested_stops,
             planned_route_stops,
         )
+        if len(requested_stops) > map_route_stop_limit:
+            raise ValueError(
+                f"当前地图设置允许单条路线最多 {map_route_stop_limit} 个地点，"
+                "请减少站点或在设置中提高上限"
+            )
         logging.info(
             "route stop handoff planner=%s tool_model=%s selected=%s",
             len(planned_route_stops or []),
@@ -856,17 +1068,40 @@ def build_production_tools(
         if (not city or city == "全国") and str(planned_route_city or "").strip():
             city = str(planned_route_city).strip()[:80]
 
-        resolved_stops: list[dict[str, Any]] = []
-        for index, (query, near_query) in enumerate(requested_stops, 1):
+        route_search_semaphore = asyncio.Semaphore(map_parallelism)
+
+        async def resolve_indexed(
+            index: int, query: str, near_query: str,
+        ) -> tuple[dict[str, Any] | None, str | None]:
             endpoint = (
                 "起点" if index == 1
                 else "终点" if index == len(requested_stops)
                 else f"第 {index} 站"
             )
-            place, clarification = await resolve(endpoint, query, near_query)
+            async with route_search_semaphore:
+                return await resolve(endpoint, query, near_query)
+
+        try:
+            resolution_results = await asyncio.wait_for(
+                asyncio.gather(*(
+                    resolve_indexed(index, query, near_query)
+                    for index, (query, near_query) in enumerate(requested_stops, 1)
+                )),
+                timeout=map_search_timeout,
+            )
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(
+                f"路线地点搜索超过 {round(map_search_timeout)} 秒；"
+                "请减少站点或在设置中选择快速档"
+            ) from exc
+
+        resolved_stops: list[dict[str, Any]] = []
+        for index, (place, clarification) in enumerate(resolution_results, 1):
             if clarification:
+                await _save_state(state)
                 return clarification
             if not place:
+                endpoint = "起点" if index == 1 else "终点" if index == len(requested_stops) else f"第 {index} 站"
                 raise ValueError(f"{endpoint}没有完成核实")
             if (
                 resolved_stops
@@ -876,9 +1111,57 @@ def build_production_tools(
                 raise ValueError(f"{endpoint}和上一站解析成了同一个地点，请选择不同地点")
             resolved_stops.append(place)
 
-        route = await _plan_route_metered(map_key, resolved_stops, optimize=False)
+        remaining_route_time = route_operation_deadline - asyncio.get_running_loop().time()
+        if remaining_route_time <= 1:
+            raise TimeoutError(
+                "路线规划总耗时已接近 60 秒上限，请减少站点或在设置中选择快速档"
+            )
+        route = await load_route_cache(
+            store, user_id, resolved_stops, False, mode=selected_route_mode,
+        )
+        if route is None:
+            try:
+                route = await asyncio.wait_for(
+                    _plan_route_metered(
+                        map_key,
+                        resolved_stops,
+                        optimize=False,
+                        mode=selected_route_mode,
+                    ),
+                    # The selected mode comes from the explicit request, semantic
+                    # plan, or user setting—in that order.
+                    timeout=remaining_route_time,
+                )
+            except asyncio.TimeoutError as exc:
+                raise TimeoutError(
+                    "路线规划超过 60 秒上限，请减少站点或在设置中选择快速档"
+                ) from exc
+            await save_route_cache(
+                store,
+                user_id,
+                resolved_stops,
+                False,
+                route,
+                mode=selected_route_mode,
+            )
+        provider_places = route.get("places")
+        if isinstance(provider_places, list) and len(provider_places) == len(resolved_stops):
+            resolved_stops = [copy.deepcopy(item) for item in provider_places if isinstance(item, dict)]
+            await save_route_cache(
+                store,
+                user_id,
+                resolved_stops,
+                False,
+                route,
+                mode=selected_route_mode,
+            )
         distance_meters = float(route.get("distance_meters") or 0)
         duration_seconds = float(route.get("duration_seconds") or 0)
+        query_corrections = [
+            copy.deepcopy(place.get("query_correction"))
+            for place in resolved_stops
+            if isinstance(place.get("query_correction"), dict)
+        ]
         for place in resolved_stops:
             candidates[str(place["place_id"])] = place
         route_plan_id = "routeplan-" + hashlib.sha256(
@@ -891,11 +1174,28 @@ def build_production_tools(
             "id": route_plan_id,
             "created_at": int(time.time()),
             "ordered_stops": resolved_stops,
+            "query_corrections": query_corrections,
             "distance_meters": round(distance_meters),
             "duration_seconds": round(duration_seconds),
+            "mode": selected_route_mode,
         }
+        map_action = new_action(
+            "map_recommendation",
+            {
+                "title": f"{resolved_stops[0].get('name') or '起点'} → {resolved_stops[-1].get('name') or '终点'}",
+                "action_text": "在地图中查看这条路线",
+                "places": resolved_stops,
+                "route_plan_id": route_plan_id,
+                "route_mode": selected_route_mode,
+                "show_route": True,
+            },
+            requires_confirmation=False,
+        )
+        put_action(state, map_action)
         await _save_state(state)
         return json.dumps({
+            "ui_action": "map_action",
+            "action": map_action,
             "route_plan_id": route_plan_id,
             "origin": resolved_stops[0],
             "destination": resolved_stops[-1],
@@ -908,10 +1208,16 @@ def build_production_tools(
                 "duration_seconds": round(duration_seconds),
                 "duration_minutes": max(1, round(duration_seconds / 60)),
                 "fare": route.get("fare") or {},
+                "transit": route.get("transit") or {},
             },
             "response_constraint": (
                 f"距离和耗时来自按用户指定顺序核实的 {len(resolved_stops)} 个地点之间的真实道路路线；"
-                "必须按 ordered_stops 原顺序描述各站，绝不能重新排序；"
+                f"交通方式为 {selected_route_mode}；"
+                + (
+                    "query_corrections 是腾讯地点候选提供的高置信度纠错证据，回答应简短说明按纠正名称规划；"
+                    if query_corrections else ""
+                )
+                + "必须按 ordered_stops 原顺序描述各站，绝不能重新排序；"
                 "回答必须使用这里的数值，不得改用网页估算、直线距离或模型猜测。"
             ),
         }, ensure_ascii=False)
@@ -927,10 +1233,18 @@ def build_production_tools(
         action_text is natural, contextual Chinese link copy generated for this answer.
         This tool does not change the user's map until the user clicks the action.
         """
-        if not isinstance(place_ids, list) or not 1 <= len(place_ids) <= 12:
-            raise ValueError("地图推荐必须包含 1 到 12 个地点 ID")
+        if not isinstance(place_ids, list) or not 1 <= len(place_ids) <= map_place_result_limit:
+            raise ValueError(
+                f"地图推荐必须包含 1 到 {map_place_result_limit} 个地点 ID；"
+                "可在设置的“地图与路线”中调整候选数量"
+            )
         state = await _load_state()
-        candidates = state.get("place_candidates", {})
+        candidates = dict(state.get("place_candidates", {}))
+        for event in (state.get("schedules") or {}).values():
+            extra = event.get("extra") if isinstance(event, dict) and isinstance(event.get("extra"), dict) else {}
+            place = extra.get("place") if isinstance(extra, dict) else None
+            if isinstance(place, dict) and str(place.get("place_id") or ""):
+                candidates[str(place["place_id"])] = place
         places = []
         seen = set()
         for raw_id in place_ids:
@@ -941,7 +1255,7 @@ def build_production_tools(
                 places.append(place)
         if not places:
             raise ValueError("推荐地点均未通过地点服务验证，不能显示到地图")
-        expected = max(1, min(12, int(expected_place_count or 2)))
+        expected = max(1, min(map_place_result_limit, int(expected_place_count or 2)))
         action = new_action(
             "map_recommendation",
             {
@@ -969,8 +1283,11 @@ def build_production_tools(
     ) -> str:
         """Verify model-selected destinations and prepare one terminal map Action."""
         normalized = list(dict.fromkeys(str(item or "").strip() for item in queries if str(item or "").strip()))
-        if not 2 <= len(normalized) <= 12:
-            raise ValueError("地图推荐需要模型提供 2 到 12 个独立地点名称")
+        if not 2 <= len(normalized) <= map_place_result_limit:
+            raise ValueError(
+                f"地图推荐需要模型提供 2 到 {map_place_result_limit} 个独立地点名称；"
+                "可在设置的“地图与路线”中调整候选数量"
+            )
         map_key = str(runtime_env.get("TENCENT_MAP_SERVER_KEY") or runtime_env.get("TENCENT_MAP_KEY") or runtime_env.get("VITE_TENCENT_MAP_KEY") or "")
         selected, all_candidates, missing = await verify_place_queries_parallel(
             _search_places_metered,
@@ -1054,7 +1371,14 @@ def build_production_tools(
                 if start_value:
                     start = _parse_datetime(start_value)
                     normalized_event["start_time"] = int(start.timestamp())
-                    end = _parse_datetime(end_value) if end_value else start + timedelta(hours=1)
+                    if end_value:
+                        end = _parse_datetime(end_value)
+                    elif operation == "update":
+                        end = start + timedelta(
+                            minutes=max(1, int(previous_event.get("duration_minutes") or 60))
+                        )
+                    else:
+                        end = start + timedelta(hours=1)
                     if end <= start:
                         raise ValueError(f"日程结束时间必须晚于开始时间：{title}")
                     normalized_event["duration_minutes"] = max(1, int((end - start).total_seconds() // 60))
@@ -1071,7 +1395,27 @@ def build_production_tools(
                         normalized_event[key] = event[key]
                 place_id = str(event.get("place_id") or event.get("location_place_id") or "").strip()
                 location_text = str(event.get("location") or "").strip()
+                clear_location = bool(event.get("clear_location", False))
+                online_location = bool(
+                    location_text
+                    and re.search(
+                        r"(?:zoom|腾讯会议|teams|google\s*meet|线上|在线|视频会议|电话会议)",
+                        location_text,
+                        re.I,
+                    )
+                )
+                if clear_location:
+                    place_id = ""
+                    location_text = ""
+                    normalized_event["place"] = None
+                    normalized_event["location"] = ""
+                elif online_location:
+                    normalized_event["location"] = location_text
                 if location_text and not place_id:
+                    if online_location:
+                        change["event"] = normalized_event
+                        normalized.append(change)
+                        continue
                     # A route or place tool in an earlier turn has already
                     # persisted verified candidates.  Reuse an unambiguous
                     # match instead of making the model transport a fragile
@@ -1217,6 +1561,107 @@ def build_production_tools(
 
         validate_calendar_change_window(state, normalized)
         warnings = calendar_change_warnings(state, normalized)
+
+        # Preview route feasibility before confirmation. The mutation remains
+        # independent: route failure never writes or cancels the calendar
+        # proposal, but users see whether travel time was verified.
+        preview = copy.deepcopy(state)
+        preview_changed = apply_calendar_changes(preview, normalized)
+        changed_ids = {
+            str(item.get("id") or "")
+            for item in preview_changed
+            if not item.get("deleted")
+        }
+        preview_schedules = sorted(
+            (
+                item for item in (preview.get("schedules") or {}).values()
+                if (
+                    isinstance(item, dict)
+                    and not item.get("done")
+                    and int(item.get("start_time") or 0) >= int(time.time()) - 24 * 60 * 60
+                )
+            ),
+            key=lambda item: int(item.get("start_time") or 0),
+        )[:provider_schedule_limit]
+        route_pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        for previous, current in zip(preview_schedules, preview_schedules[1:]):
+            if (
+                str(previous.get("id") or "") not in changed_ids
+                and str(current.get("id") or "") not in changed_ids
+            ):
+                continue
+            available = (
+                int(current.get("start_time") or 0)
+                - int(previous.get("start_time") or 0)
+                - max(1, int(previous.get("duration_minutes") or 60)) * 60
+            )
+            if not 0 < available <= route_gap_hours * 3600:
+                continue
+            previous_place = (
+                (previous.get("extra") or {}).get("place")
+                if isinstance(previous.get("extra"), dict) else None
+            )
+            current_place = (
+                (current.get("extra") or {}).get("place")
+                if isinstance(current.get("extra"), dict) else None
+            )
+            if isinstance(previous_place, dict) and isinstance(current_place, dict):
+                route_pairs.append((previous, current))
+            if len(route_pairs) >= 3:
+                break
+
+        map_key = str(
+            runtime_env.get("TENCENT_MAP_SERVER_KEY")
+            or runtime_env.get("TENCENT_MAP_KEY")
+            or runtime_env.get("VITE_TENCENT_MAP_KEY")
+            or ""
+        )
+
+        async def preview_route_pair(
+            previous: dict[str, Any], current: dict[str, Any],
+        ) -> str:
+            previous_place = (previous.get("extra") or {}).get("place")
+            current_place = (current.get("extra") or {}).get("place")
+            available = (
+                int(current.get("start_time") or 0)
+                - int(previous.get("start_time") or 0)
+                - max(1, int(previous.get("duration_minutes") or 60)) * 60
+            )
+            try:
+                route = await load_route_cache(
+                    store, user_id, [previous_place, current_place], False,
+                )
+                if route is None:
+                    route = await _plan_route_metered(
+                        map_key, [previous_place, current_place], optimize=False,
+                    )
+                    await save_route_cache(
+                        store, user_id, [previous_place, current_place], False, route,
+                    )
+                route_minutes = max(1, round(float(route.get("duration_seconds") or 0) / 60))
+                required_minutes = route_minutes + travel_buffer_minutes
+                available_minutes = max(0, available // 60)
+                if required_minutes > available_minutes:
+                    return (
+                        f"“{previous.get('title') or '前一项日程'}”到"
+                        f"“{current.get('title') or '后一项日程'}”道路路线约 {route_minutes} 分钟，"
+                        f"加 {travel_buffer_minutes} 分钟缓冲共需 {required_minutes} 分钟，"
+                        f"当前只有 {available_minutes} 分钟"
+                    )
+            except Exception:
+                return (
+                    f"暂未核验“{previous.get('title') or '前一项日程'}”到"
+                    f"“{current.get('title') or '后一项日程'}”的道路通勤时间"
+                )
+            return ""
+
+        if route_pairs:
+            route_warning_results = await asyncio.gather(*(
+                preview_route_pair(previous, current)
+                for previous, current in route_pairs
+            ))
+            warnings.extend(value for value in route_warning_results if value)
+            warnings = list(dict.fromkeys(warnings))[:8]
         action = new_action(
             "calendar_changes",
             {
@@ -1610,7 +2055,7 @@ def build_production_tools(
         (search_places, "search_places", "使用腾讯地点服务搜索真实地点，返回可安全用于地图和日程的 place_id。推荐地点、景点、餐馆或含地点日程前必须调用。"),
         (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
         (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。传入完整明确的 anchor_query 与要找的类别 query；若用户给出多个备选参照地点，还必须把全部备选放入 anchor_queries，一次并行查询并保留各组成功结果，不能只选一个或拆成多次调用。工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。用户没有明确距离时不要自行缩小 radius_meters，保持默认 2000 米且 strict_radius=false；只有用户明确说“X 米内”时才传该距离并设 strict_radius=true。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),
-        (plan_route_between_places, "plan_route_between_places", "查询两个真实地点之间的道路距离、驾车耗时或费用，或规划含多个停靠点的有序出行时必须使用。两点路线传 origin_query/destination_query；多段行程把全部地点按用户指定先后一次传入 ordered_stops，每项包含 query，可选 near_query，禁止拆成多次调用或自行重排。工具会核实全部地点并调用一次真实路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 query 传“锦江之星”、near_query 传“北京301医院”；多个候选会自动生成单选卡让用户选择。"),
+        (plan_route_between_places, "plan_route_between_places", "查询真实地点之间的道路距离、耗时或费用，或规划含多个停靠点的有序出行时必须使用。支持 route_mode=driving/transit/walking/bicycling，未指定时传 default。浏览器当前位置可用且用户未给起点时传 use_current_location_as_origin=true；不得把当前位置作为普通 POI 搜索。两点路线传 origin_query/destination_query；多段行程把全部文本地点按用户指定先后一次传入 ordered_stops，每项包含 query，可选 near_query，禁止拆成多次调用或自行重排。工具会核实全部地点并调用真实腾讯路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 query 传“锦江之星”、near_query 传“北京301医院”；高置信度错字会依据腾讯候选纠正，不唯一或证据不足会自动生成澄清卡。"),
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
         (recommend_places_on_map, "recommend_places_on_map", "模型驱动的非周边多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。只要用户目标表达了相对某个或多个参照点“附近、周边、离它近”，不得使用本工具，也不得从模型知识猜餐厅名称；必须改用 recommend_nearby_places_on_map，把全部参照点放入 anchor_queries。"),
         (propose_calendar_changes, "propose_calendar_changes", "必须用此工具准备日程新增、更新或删除提案并生成确认卡；不要只在正文里口头询问。格式示例：changes=[{operation:'create',event:{title:'游览北海公园',start_time:'2026-07-16T09:00:00+08:00',end_time:'2026-07-16T10:00:00+08:00',place_id:'地点工具返回的ID'}}]。把刚规划的多站路线写入日程时，必须传路线工具返回的 source_route_plan_id，并为 ordered_stops 中每个地点分别创建至少一个事件，严格保持顺序，禁止把多个站点合并成一个事件。更新/删除还要传 schedule_id。用户点击确认前不会真正写入。"),

@@ -190,18 +190,22 @@ export default function RouteMap({ departure, destination }: Props) {
           <div className="route-cost">
             <div className="route-cost-title">{t('costEstimate')}</div>
             <div className="route-cost-items">
-              <div className="route-cost-item">
+              {routeData.fare.self_driving && <div className="route-cost-item">
                 <span>{t('selfDrive')}</span>
                 <span className="route-cost-value">{t('aboutCurrency', { amount: routeData.fare.self_driving.estimate })}</span>
-              </div>
-              <div className="route-cost-item">
+              </div>}
+              {routeData.fare.taxi && <div className="route-cost-item">
                 <span>{t('taxi')}</span>
                 <span className="route-cost-value">{t('aboutCurrencyRange', { low: routeData.fare.taxi.low, high: routeData.fare.taxi.high })}</span>
-              </div>
-              {routeData.fare.self_driving.toll > 0 && (
+              </div>}
+              {routeData.fare.transit?.provider_estimate && <div className="route-cost-item">
+                <span>{t('routeModeTransit')}</span>
+                <span className="route-cost-value">{t('aboutCurrency', { amount: routeData.fare.transit.estimate })}</span>
+              </div>}
+              {(routeData.fare.self_driving?.toll || 0) > 0 && (
                 <div className="route-cost-item">
                   <span>{t('toll')}</span>
-                  <span className="route-cost-value">¥{routeData.fare.self_driving.toll}</span>
+                  <span className="route-cost-value">¥{routeData.fare.self_driving?.toll}</span>
                 </div>
               )}
             </div>

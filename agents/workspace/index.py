@@ -75,7 +75,9 @@ async def _record_calendar_signal(store, changed: list[dict], source: str, user_
         lookahead = int(preferences.get("lookahead_hours") or 24)
         now = int(time.time())
         signals = collect_schedule_signals(schedules, now, lookahead)
-        provider_signals, provider_diagnostics = await collect_provider_signals(env or {}, schedules, now, lookahead)
+        provider_signals, provider_diagnostics = await collect_provider_signals(
+            env or {}, schedules, now, lookahead, preferences,
+        )
         signals.extend(provider_signals)
         affected_ids = {str(item.get("id") or "") for item in changed if str(item.get("id") or "")}
         reconciliation = reconcile_schedule_notifications(state, signals, affected_ids, now)
@@ -111,7 +113,7 @@ async def _record_route_signal(store, source: str, user_id: str, env: dict | Non
         lookahead = int(preferences.get("lookahead_hours") or 24)
         signals = collect_schedule_signals(schedules, now, lookahead)
         provider_signals, provider_diagnostics = await collect_provider_signals(
-            env or {}, schedules, now, lookahead
+            env or {}, schedules, now, lookahead, preferences
         )
         signals.extend(provider_signals)
         affected_ids = {str(item.get("id") or "") for item in schedules if str(item.get("id") or "")}

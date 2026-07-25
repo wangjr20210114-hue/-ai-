@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import difflib
 import json
 import math
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
 
 
 API_ROOT = "https://apis.map.qq.com/ws"
+_OSM_SEARCH_SEMAPHORE = asyncio.Semaphore(1)
+_osm_last_request_at = 0.0
 
 
-def _fetch_json(url: str, params: dict[str, Any], timeout: int = 15) -> dict[str, Any]:
+def _fetch_json(url: str, params: dict[str, Any], timeout: int = 8) -> dict[str, Any]:
     query = urllib.parse.urlencode(params, doseq=True)
     request = urllib.request.Request(
         f"{url}?{query}",
@@ -30,7 +35,7 @@ def _fetch_json(url: str, params: dict[str, Any], timeout: int = 15) -> dict[str
     return data
 
 
-def _fetch_public_json(url: str, params: dict[str, Any], timeout: int = 20) -> Any:
+def _fetch_public_json(url: str, params: dict[str, Any], timeout: int = 8) -> Any:
     query = urllib.parse.urlencode(params, doseq=True)
     request = urllib.request.Request(
         f"{url}?{query}" if query else url,
@@ -41,7 +46,16 @@ def _fetch_public_json(url: str, params: dict[str, Any], timeout: int = 20) -> A
 
 
 async def _get(url: str, params: dict[str, Any]) -> dict[str, Any]:
-    return await asyncio.to_thread(_fetch_json, url, params)
+    for attempt in range(2):
+        try:
+            return await asyncio.to_thread(_fetch_json, url, params)
+        except urllib.error.HTTPError:
+            raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if attempt:
+                raise
+            await asyncio.sleep(0.2)
+    raise RuntimeError("腾讯位置服务请求失败")
 
 
 async def _get_public(url: str, params: dict[str, Any]) -> Any:
@@ -87,12 +101,42 @@ async def search_places(key: str, query: str, *, city: str = "全国", limit: in
     return [item for item in places if item is not None]
 
 
-async def search_osm_places(query: str, *, city: str = "", limit: int = 10) -> list[dict[str, Any]]:
-    terms = " ".join(part for part in (str(query or "").strip(), str(city or "").strip()) if part and part != "全国")
-    data = await _get_public(
-        "https://nominatim.openstreetmap.org/search",
-        {"q": terms or query, "format": "jsonv2", "addressdetails": 1, "limit": max(1, min(20, int(limit))), "accept-language": "zh-CN,zh,en"},
+async def search_place_suggestions(
+    key: str, query: str, *, city: str = "全国", limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Use Tencent's keyword-suggestion service as evidence for typo recovery."""
+    if not key:
+        return []
+    query = str(query or "").strip()
+    if not query:
+        return []
+    data = await _get(
+        f"{API_ROOT}/place/v1/suggestion",
+        {
+            "key": key,
+            "keyword": query[:120],
+            "region": str(city or "全国").strip(),
+            "region_fix": 0,
+            "page_size": max(1, min(20, int(limit))),
+        },
     )
+    places = [_place(item) for item in data.get("data", []) if isinstance(item, dict)]
+    return [item for item in places if item is not None]
+
+
+async def search_osm_places(query: str, *, city: str = "", limit: int = 10) -> list[dict[str, Any]]:
+    global _osm_last_request_at
+    terms = " ".join(part for part in (str(query or "").strip(), str(city or "").strip()) if part and part != "全国")
+    async with _OSM_SEARCH_SEMAPHORE:
+        loop = asyncio.get_running_loop()
+        delay = 1.0 - (loop.time() - _osm_last_request_at)
+        if delay > 0:
+            await asyncio.sleep(delay)
+        _osm_last_request_at = loop.time()
+        data = await _get_public(
+            "https://nominatim.openstreetmap.org/search",
+            {"q": terms or query, "format": "jsonv2", "addressdetails": 1, "limit": max(1, min(20, int(limit))), "accept-language": "zh-CN,zh,en"},
+        )
     places = []
     for item in data if isinstance(data, list) else []:
         try:
@@ -114,6 +158,7 @@ async def search_osm_places(query: str, *, city: str = "", limit: int = 10) -> l
             "address": str(item.get("display_name") or "")[:240],
             "latitude": lat,
             "longitude": lng,
+            "coordinate_type": "wgs84",
             "city": str(address.get("city") or address.get("town") or address.get("county") or "")[:80],
             "category": str(item.get("type") or item.get("category") or "")[:120],
         })
@@ -149,6 +194,65 @@ def _primary_place_match_score(item: dict[str, Any], normalized_query: str) -> f
     return 0.0
 
 
+def _typo_match_score(item: dict[str, Any], normalized_query: str) -> float:
+    """Return evidence strength for a likely one- or two-character place typo."""
+    normalized_name = _normalized_lookup_text(item.get("name"))
+    if len(normalized_query) < 3 or not normalized_name:
+        return 0.0
+    ratio = difflib.SequenceMatcher(None, normalized_query, normalized_name).ratio()
+    threshold = 0.64 if len(normalized_query) == 3 else 0.72 if len(normalized_query) == 4 else 0.76
+    if ratio < threshold:
+        return 0.0
+    # A weak match to a very long venue name is usually a category collision,
+    # not a safe correction.
+    coverage = min(len(normalized_query), len(normalized_name)) / max(
+        len(normalized_query), len(normalized_name),
+    )
+    return ratio if coverage >= 0.55 else 0.0
+
+
+def _verified_typo_candidates(
+    candidates: list[dict[str, Any]],
+    query: str,
+    city: str,
+    *,
+    limit: int,
+    evidence: str = "tencent_place_suggestion",
+) -> list[dict[str, Any]]:
+    normalized_query = _normalized_lookup_text(query)
+    requested_city = _normalized_lookup_text(city)
+    ranked: list[tuple[float, int, dict[str, Any]]] = []
+    for index, item in enumerate(candidates):
+        locality = _normalized_lookup_text(f"{item.get('city', '')}{item.get('address', '')}")
+        if requested_city and requested_city not in {
+            _normalized_lookup_text("全国"), _normalized_lookup_text("中国"),
+        } and requested_city not in locality:
+            continue
+        score = _typo_match_score(item, normalized_query)
+        if score > 0:
+            ranked.append((score, index, item))
+    ranked.sort(key=lambda value: (-value[0], value[1]))
+    if not ranked:
+        return []
+    top_score = ranked[0][0]
+    output = []
+    for score, _index, item in ranked:
+        if score < top_score - 0.04:
+            break
+        output.append({
+            **item,
+            "query_correction": {
+                "original_query": str(query or "").strip()[:120],
+                "corrected_name": str(item.get("name") or "")[:120],
+                "confidence": round(score, 3),
+                "evidence": evidence,
+            },
+        })
+        if len(output) >= max(1, min(20, int(limit))):
+            break
+    return output
+
+
 def place_distance_meters(origin: dict[str, Any], destination: dict[str, Any]) -> float:
     """Return a bounded straight-line distance for nearby-result validation."""
     lat1 = math.radians(float(origin["latitude"]))
@@ -163,11 +267,34 @@ def place_distance_meters(origin: dict[str, Any], destination: dict[str, Any]) -
 
 
 async def search_verified_places(key: str, query: str, *, city: str = "全国", limit: int = 10) -> list[dict[str, Any]]:
+    return await search_verified_places_bounded(
+        key, query, city=city, limit=limit, timeout_seconds=20,
+    )
+
+
+async def search_verified_places_bounded(
+    key: str,
+    query: str,
+    *,
+    city: str = "全国",
+    limit: int = 10,
+    timeout_seconds: float = 20,
+) -> list[dict[str, Any]]:
+    """Search Tencent first and use OSM only as a bounded POI-search fallback.
+
+    OSM coordinates may be passed to Tencent Directions later, but OSM is
+    never used for road matching or route calculation.
+    """
+    timeout = max(3.0, min(55.0, float(timeout_seconds)))
+    deadline = asyncio.get_running_loop().time() + timeout
     normalized_query = _normalized_lookup_text(query)
     primary: list[dict[str, Any]] = []
     if key:
         try:
-            primary = await search_places(key, query, city=city, limit=limit)
+            primary = await asyncio.wait_for(
+                search_places(key, query, city=city, limit=limit),
+                timeout=min(8.0, timeout),
+            )
             ranked_primary = sorted(
                 (
                     (_primary_place_match_score(item, normalized_query), index, item)
@@ -178,11 +305,60 @@ async def search_verified_places(key: str, query: str, *, city: str = "全国", 
             matched_primary = [item for score, _index, item in ranked_primary if score > 0]
             if matched_primary:
                 return matched_primary
+            typo_primary = _verified_typo_candidates(
+                primary, query, city, limit=limit,
+                evidence="tencent_place_search",
+            )
+            if typo_primary:
+                return typo_primary
         except Exception:
             pass
-    fallback = await search_osm_places(query, city=city, limit=limit)
-    if not fallback and str(city or "全国").strip() == "全国":
-        fallback = await search_osm_places(f"{query} 中国", limit=limit)
+    remaining = deadline - asyncio.get_running_loop().time()
+    if key and remaining > 0.5:
+        try:
+            suggestions = await asyncio.wait_for(
+                search_place_suggestions(
+                    key, query, city=city, limit=max(limit, 6),
+                ),
+                timeout=min(6.0, remaining),
+            )
+            typo_suggestions = _verified_typo_candidates(
+                suggestions, query, city, limit=limit,
+            )
+            if typo_suggestions:
+                return typo_suggestions
+        except Exception:
+            pass
+    remaining = deadline - asyncio.get_running_loop().time()
+    if remaining <= 0:
+        raise TimeoutError(f"地点搜索超过 {round(timeout)} 秒，请减少候选数量或使用快速档")
+    try:
+        fallback = await asyncio.wait_for(
+            search_osm_places(query, city=city, limit=limit),
+            timeout=max(0.1, remaining),
+        )
+        remaining = deadline - asyncio.get_running_loop().time()
+        if (
+            not fallback
+            and str(city or "全国").strip() == "全国"
+            and remaining > 0.5
+        ):
+            fallback = await asyncio.wait_for(
+                search_osm_places(f"{query} 中国", limit=limit),
+                timeout=max(0.1, remaining),
+            )
+    except asyncio.TimeoutError as exc:
+        raise TimeoutError(
+            f"地点搜索超过 {round(timeout)} 秒，请减少候选数量或使用快速档"
+        ) from exc
+    requested_city = _normalized_lookup_text(city)
+    if requested_city and requested_city != _normalized_lookup_text("全国"):
+        fallback = [
+            item for item in fallback
+            if requested_city in _normalized_lookup_text(
+                f"{item.get('city', '')}{item.get('address', '')}"
+            )
+        ]
     output, seen = [], set()
     # Unmatched Tencent candidates are real POIs but not verified answers to
     # this query (for example, the generic "三里屯" area returned for a missing
@@ -376,126 +552,330 @@ def _fare(
     }
 
 
-async def plan_driving_route(key: str, places: list[dict[str, Any]], *, optimize: bool = False) -> dict[str, Any]:
+def _decoded_route_path(route: dict[str, Any]) -> list[dict[str, float]]:
+    direct = route.get("polyline")
+    if isinstance(direct, list) and direct:
+        try:
+            return decode_polyline(direct)
+        except (TypeError, ValueError):
+            pass
+    path: list[dict[str, float]] = []
+
+    def collect(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key == "polyline" and isinstance(child, list) and child:
+                    try:
+                        segment = decode_polyline(child)
+                    except (TypeError, ValueError):
+                        continue
+                    if path and segment and path[-1] == segment[0]:
+                        segment = segment[1:]
+                    path.extend(segment)
+                elif key in {"steps", "lines", "walking", "segments"}:
+                    collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    collect(route.get("steps") or [])
+    return path
+
+
+async def normalize_route_places(
+    key: str, places: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Convert browser WGS84 fixes to Tencent coordinates before road matching."""
+    normalized = [copy.deepcopy(place) for place in places]
+    browser_indexes = [
+        index for index, place in enumerate(normalized)
+        if str(place.get("provider") or "") == "browser-wgs84"
+        or str(place.get("coordinate_type") or "") == "wgs84"
+    ]
+    if not browser_indexes:
+        return normalized
+    locations = ";".join(
+        f"{float(normalized[index]['latitude'])},{float(normalized[index]['longitude'])}"
+        for index in browser_indexes
+    )
+    data = await _get(
+        f"{API_ROOT}/coord/v1/translate",
+        {"key": key, "locations": locations, "type": 1},
+    )
+    translated = data.get("locations")
+    if not isinstance(translated, list):
+        translated = (data.get("result") or {}).get("locations")
+    if not isinstance(translated, list) or len(translated) != len(browser_indexes):
+        raise RuntimeError("腾讯坐标转换没有返回完整的当前位置结果")
+    for index, location in zip(browser_indexes, translated):
+        if not isinstance(location, dict):
+            raise RuntimeError("腾讯坐标转换返回格式无效")
+        lat, lng = location.get("lat"), location.get("lng")
+        if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+            raise RuntimeError("腾讯坐标转换缺少有效经纬度")
+        original_provider = str(normalized[index].get("provider") or "")
+        normalized[index].update({
+            "provider": (
+                "browser-tencent"
+                if original_provider.startswith("browser")
+                else original_provider or "tencent"
+            ),
+            "coordinate_type": "gcj02",
+            "coordinate_transformed_by": "tencent",
+            "latitude": float(lat),
+            "longitude": float(lng),
+        })
+    return normalized
+
+
+def _non_driving_fare(mode: str, route: dict[str, Any]) -> dict[str, Any]:
+    if mode == "transit":
+        estimate = route.get("fare_yuan")
+        fare_known = bool(route.get("fare_known"))
+        return {
+            "currency": "CNY",
+            "basis": "票价来自腾讯公交路线结果；实际票价受线路、优惠和支付方式影响",
+            "transit": {
+                "estimate": round(max(0.0, float(estimate or 0)), 2),
+                "provider_estimate": fare_known,
+            },
+        }
+    return {
+        "currency": "CNY",
+        "basis": "步行或骑行路线不估算交通票价",
+    }
+
+
+def _transit_summary(route: dict[str, Any]) -> dict[str, Any]:
+    walking_distance = 0.0
+    fare_yuan = 0.0
+    fare_known = False
+    lines: list[str] = []
+    segments: list[dict[str, Any]] = []
+    for step in route.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        if str(step.get("mode") or "").upper() == "WALKING":
+            walking_distance += float(step.get("distance") or 0)
+            continue
+        available_lines = [line for line in (step.get("lines") or []) if isinstance(line, dict)]
+        if not available_lines:
+            continue
+        # Tencent documents later items as alternate lines over the same stops;
+        # the first line carries the complete selected-leg details.
+        line = available_lines[0]
+        name = str(line.get("title") or line.get("name") or "").strip()
+        if name and name not in lines:
+            lines.append(name[:120])
+        price = line.get("price")
+        vehicle = str(line.get("vehicle") or "").upper()
+        if isinstance(price, (int, float)) and price >= 0:
+            fare_yuan += float(price) if vehicle == "RAIL" else float(price) / 100
+            fare_known = True
+        geton = line.get("geton") if isinstance(line.get("geton"), dict) else {}
+        getoff = line.get("getoff") if isinstance(line.get("getoff"), dict) else {}
+        segments.append({
+            "line": name[:120],
+            "vehicle": vehicle,
+            "geton": str(geton.get("title") or "")[:120],
+            "getoff": str(getoff.get("title") or "")[:120],
+            "station_count": max(0, int(line.get("station_count") or 0)),
+        })
+    return {
+        "walking_distance_meters": round(float(walking_distance or 0)),
+        "lines": lines[:12],
+        "transfer_count": max(0, len(segments) - 1),
+        "segments": segments[:12],
+        "fare_yuan": round(fare_yuan, 2),
+        "fare_known": fare_known,
+    }
+
+
+async def _plan_route_leg(
+    key: str,
+    origin: dict[str, Any],
+    destination: dict[str, Any],
+    *,
+    mode: str,
+    waypoints: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    coords = [origin, *(waypoints or []), destination]
+    params: dict[str, Any] = {
+        "key": key,
+        "from": f"{float(origin['latitude'])},{float(origin['longitude'])}",
+        "to": f"{float(destination['latitude'])},{float(destination['longitude'])}",
+    }
+    if mode == "driving":
+        params.update({"policy": "LEAST_TIME", "get_mp": 1})
+        if waypoints:
+            params["waypoints"] = ";".join(
+                f"{float(place['latitude'])},{float(place['longitude'])}"
+                for place in waypoints
+            )
+    elif mode == "transit":
+        params["policy"] = "LEAST_TIME"
+    data = await _get(f"{API_ROOT}/direction/v1/{mode}/", params)
+    routes = (data.get("result") or {}).get("routes") or []
+    candidates = [item for item in routes if isinstance(item, dict)]
+    if not candidates:
+        raise RuntimeError(f"腾讯位置服务没有返回可用的{mode}路线")
+    route = min(
+        candidates,
+        key=lambda item: (
+            float(item.get("duration") or math.inf),
+            float(item.get("distance") or math.inf),
+        ),
+    )
+    distance = float(route.get("distance") or 0)
+    # Tencent Direction WebService reports duration in minutes.
+    duration = float(route.get("duration") or 0) * 60
+    transit = _transit_summary(route) if mode == "transit" else {}
+    if mode == "driving":
+        toll = float(route.get("toll") or 0)
+        taxi_estimate = (
+            float(route.get("taxi_fare", {}).get("fare") or 0)
+            if isinstance(route.get("taxi_fare"), dict)
+            else 0
+        )
+        fare = _fare(distance, duration, toll, taxi_estimate)
+    else:
+        fare = _non_driving_fare(mode, transit)
+    return {
+        "places": coords,
+        "path": _decoded_route_path(route),
+        "distance_meters": distance,
+        "duration_seconds": duration,
+        "fare": fare,
+        **({"transit": transit} if mode == "transit" else {}),
+    }
+
+
+async def plan_route(
+    key: str,
+    places: list[dict[str, Any]],
+    *,
+    optimize: bool = False,
+    mode: str = "driving",
+) -> dict[str, Any]:
     if not key:
         raise RuntimeError("未配置 TENCENT_MAP_KEY")
     if len(places) < 2:
         raise ValueError("至少需要两个有效地点才能规划路线")
     if len(places) > 12:
         raise ValueError("单条路线最多支持 12 个地点")
-    if optimize:
+    mode = str(mode or "driving").strip().lower()
+    if mode not in {"driving", "transit", "walking", "bicycling"}:
+        raise ValueError("路线方式必须是 driving、transit、walking 或 bicycling")
+    places = await normalize_route_places(key, places)
+    if optimize and mode == "driving":
         places = await optimize_place_order(key, places)
-    coords = [
-        (float(place["latitude"]), float(place["longitude"]))
-        for place in places
-    ]
-    params: dict[str, Any] = {
-        "key": key,
-        "from": f"{coords[0][0]},{coords[0][1]}",
-        "to": f"{coords[-1][0]},{coords[-1][1]}",
-        "policy": "LEAST_DISTANCE",
-        "get_mp": 1,
-    }
-    if len(coords) > 2:
-        params["waypoints"] = ";".join(f"{lat},{lng}" for lat, lng in coords[1:-1])
-    data = await _get(f"{API_ROOT}/direction/v1/driving/", params)
-    routes = (data.get("result") or {}).get("routes") or []
-    if not routes:
-        raise RuntimeError("位置服务没有返回可用道路路线")
-    route = min(
-        (item for item in routes if isinstance(item, dict)),
-        key=lambda item: (float(item.get("distance") or math.inf), float(item.get("duration") or math.inf)),
-    )
-    distance = float(route.get("distance") or 0)
-    # Tencent Direction WebService reports route duration in minutes.  The
-    # public Yuanbao contract and the OSRM fallback both use seconds.
-    duration = float(route.get("duration") or 0) * 60
-    toll = float(route.get("toll") or 0)
-    taxi_estimate = (
-        float(route.get("taxi_fare", {}).get("fare") or 0)
-        if isinstance(route.get("taxi_fare"), dict)
-        else 0
-    )
-    return {
-        "schema_version": 2,
-        "provider": "tencent",
-        "mode": "driving",
-        "places": places,
-        "path": decode_polyline(route.get("polyline") or []),
-        "distance_meters": distance,
-        "duration_seconds": duration,
-        "fare": _fare(distance, duration, toll, taxi_estimate),
-    }
-
-
-def _best_open_path(matrix: list[list[float]]) -> tuple[int, ...]:
-    count = len(matrix)
-    dp: dict[tuple[int, int], tuple[float, tuple[int, ...]]] = {
-        (1 << index, index): (0.0, (index,)) for index in range(count)
-    }
-    for mask in range(1, 1 << count):
-        for last in range(count):
-            current = dp.get((mask, last))
-            if current is None:
-                continue
-            distance, path = current
-            for nxt in range(count):
-                if mask & (1 << nxt):
-                    continue
-                candidate = (distance + matrix[last][nxt], path + (nxt,))
-                state_key = (mask | (1 << nxt), nxt)
-                if state_key not in dp or candidate < dp[state_key]:
-                    dp[state_key] = candidate
-    full = (1 << count) - 1
-    return min(dp[(full, last)] for last in range(count))[1]
-
-
-async def plan_osrm_route(places: list[dict[str, Any]], *, optimize: bool = False) -> dict[str, Any]:
-    if not 2 <= len(places) <= 12:
-        raise ValueError("道路路线地点数量必须在 2 到 12 个之间")
-    ordered = list(places)
-    if optimize and len(places) <= 10:
-        coordinates = ";".join(f"{float(place['longitude'])},{float(place['latitude'])}" for place in places)
-        table = await _get_public(
-            f"https://router.project-osrm.org/table/v1/driving/{coordinates}",
-            {"annotations": "distance"},
+    if mode == "driving":
+        combined = await _plan_route_leg(
+            key,
+            places[0],
+            places[-1],
+            mode=mode,
+            waypoints=places[1:-1],
         )
-        matrix = table.get("distances") if isinstance(table, dict) else None
-        if isinstance(matrix, list) and len(matrix) == len(places) and all(isinstance(row, list) and len(row) == len(places) for row in matrix):
-            numeric = [[float(value) if value is not None else math.inf for value in row] for row in matrix]
-            ordered = [places[index] for index in _best_open_path(numeric)]
-    coordinates = ";".join(f"{float(place['longitude'])},{float(place['latitude'])}" for place in ordered)
-    data = await _get_public(
-        f"https://router.project-osrm.org/route/v1/driving/{coordinates}",
-        {"overview": "full", "geometries": "geojson", "steps": "false"},
-    )
-    routes = data.get("routes") if isinstance(data, dict) else None
-    if not routes:
-        raise RuntimeError("备用道路服务没有返回可用路线")
-    route = routes[0]
-    coordinates_out = ((route.get("geometry") or {}).get("coordinates") or [])
-    path = [{"latitude": float(item[1]), "longitude": float(item[0])} for item in coordinates_out if isinstance(item, list) and len(item) >= 2]
-    distance = float(route.get("distance") or 0)
-    duration = float(route.get("duration") or 0)
+    else:
+        semaphore = asyncio.Semaphore(3)
+
+        async def plan_index(index: int) -> dict[str, Any]:
+            async with semaphore:
+                return await _plan_route_leg(
+                    key, places[index], places[index + 1], mode=mode,
+                )
+
+        legs = await asyncio.gather(*(plan_index(index) for index in range(len(places) - 1)))
+        path: list[dict[str, float]] = []
+        for leg in legs:
+            segment = list(leg.get("path") or [])
+            if path and segment and path[-1] == segment[0]:
+                segment = segment[1:]
+            path.extend(segment)
+        combined = {
+            "path": path,
+            "distance_meters": sum(float(leg.get("distance_meters") or 0) for leg in legs),
+            "duration_seconds": sum(float(leg.get("duration_seconds") or 0) for leg in legs),
+            "fare": (
+                {
+                    "currency": "CNY",
+                    "basis": "票价为各段腾讯公交路线票价之和；实际票价受线路、优惠和支付方式影响",
+                    "transit": {
+                        "estimate": round(sum(
+                            float(((leg.get("fare") or {}).get("transit") or {}).get("estimate") or 0)
+                            for leg in legs
+                        ), 2),
+                        "provider_estimate": all(
+                            bool(((leg.get("fare") or {}).get("transit") or {}).get("provider_estimate"))
+                            for leg in legs
+                        ),
+                    },
+                }
+                if mode == "transit"
+                else _non_driving_fare(mode, {})
+            ),
+            **(
+                {"transit": {
+                    "walking_distance_meters": round(sum(
+                        float((leg.get("transit") or {}).get("walking_distance_meters") or 0)
+                        for leg in legs
+                    )),
+                    "lines": [
+                        line
+                        for leg in legs
+                        for line in (leg.get("transit") or {}).get("lines") or []
+                    ][:24],
+                    "legs": [leg.get("transit") or {} for leg in legs],
+                }}
+                if mode == "transit"
+                else {}
+            ),
+        }
     return {
-        "schema_version": 1,
-        "provider": "openstreetmap-osrm",
-        "mode": "driving",
-        "places": ordered,
-        "path": path,
-        "distance_meters": distance,
-        "duration_seconds": duration,
-        "fare": _fare(distance, duration, 0),
+        "schema_version": 2 if mode == "driving" else 3,
+        "provider": "tencent",
+        "mode": mode,
+        "places": places,
+        **combined,
     }
 
 
-async def plan_verified_route(key: str, places: list[dict[str, Any]], *, optimize: bool = False) -> dict[str, Any]:
-    if key:
-        try:
-            return await plan_driving_route(key, places, optimize=optimize)
-        except Exception:
-            pass
-    return await plan_osrm_route(places, optimize=optimize)
+async def plan_driving_route(
+    key: str, places: list[dict[str, Any]], *, optimize: bool = False,
+) -> dict[str, Any]:
+    """Backward-compatible driving entrypoint."""
+    return await plan_route(key, places, optimize=optimize, mode="driving")
+
+
+async def plan_verified_route(
+    key: str,
+    places: list[dict[str, Any]],
+    *,
+    optimize: bool = False,
+    mode: str = "driving",
+    timeout_seconds: float = 18,
+) -> dict[str, Any]:
+    """Plan roads exclusively with Tencent Location Service.
+
+    Public OSM is deliberately limited to POI search fallback. A Tencent
+    failure is surfaced instead of silently changing the road-matching
+    provider and semantics.
+    """
+    if not key:
+        raise RuntimeError("未配置腾讯地图服务密钥，无法计算道路路线")
+    timeout = max(5.0, min(25.0, float(timeout_seconds)))
+    try:
+        return await asyncio.wait_for(
+            (
+                plan_driving_route(key, places, optimize=optimize)
+                if str(mode or "driving") == "driving"
+                else plan_route(key, places, optimize=optimize, mode=mode)
+            ),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError as exc:
+        raise TimeoutError(f"腾讯地图路线服务超过 {round(timeout)} 秒未响应") from exc
 
 
 async def get_current_weather(key: str, place: dict[str, Any]) -> dict[str, Any]:

@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from 'tdesign-react';
 import { planMakersRoute, proactiveOperation } from '../../services/api';
 import { useAppDispatch } from '../../store/appState';
-import type { MakersMapPlace, MakersRoutePlan } from '../../types';
+import type { MakersMapPlace, MakersRouteMode, MakersRoutePlan } from '../../types';
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
 import { shouldPlanMakersRoute } from './makersMapRouting';
 import { translate, useLanguage } from '../../i18n';
+import { clearBrowserLocation, publishBrowserLocation } from '../../services/browserLocation';
 
 interface Props {
   conversationId: string;
@@ -14,6 +15,7 @@ interface Props {
   revision: number;
   /** Whether this map represents an ordered plan (for example a day's schedule). */
   showRoute?: boolean;
+  routeMode?: MakersRouteMode;
 }
 
 type PermissionState = 'checking' | 'prompt' | 'granted' | 'denied' | 'unavailable';
@@ -69,7 +71,9 @@ function hoursMinutes(seconds: number): string {
   return translate('hoursMinutes', { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }
 
-export default function MakersMap({ conversationId, title, places, revision, showRoute = false }: Props) {
+export default function MakersMap({
+  conversationId, title, places, revision, showRoute = false, routeMode,
+}: Props) {
   const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -107,12 +111,9 @@ export default function MakersMap({ conversationId, title, places, revision, sho
         setLocationError('');
         setMapUnavailable(false);
         setUserLocation({
-          place_id: 'browser-current-location',
-          provider: 'browser',
+          ...publishBrowserLocation(position),
           name: t('currentLocation'),
           address: t('sessionOnlyLocation'),
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
         });
         const localDay = new Date().toLocaleDateString('en-CA');
         void proactiveOperation(conversationId, 'ingest_signal', {
@@ -159,6 +160,7 @@ export default function MakersMap({ conversationId, title, places, revision, sho
     void navigator.permissions.query({ name: 'geolocation' })
       .then((status) => {
         if (status.state === 'denied') {
+          clearBrowserLocation();
           setPermission('denied');
           setLocationError(t('locationPermissionClosed'));
           return;
@@ -180,6 +182,7 @@ export default function MakersMap({ conversationId, title, places, revision, sho
       if (disposed) return;
       const update = () => {
         const next = status.state === 'granted' ? 'granted' : status.state === 'denied' ? 'denied' : 'prompt';
+        if (next === 'denied') clearBrowserLocation();
         setPermission(next);
         if (next === 'granted') readCurrentLocation();
       };
@@ -217,11 +220,11 @@ export default function MakersMap({ conversationId, title, places, revision, sho
     let disposed = false;
     setRoute(null);
     setRouteError('');
-    void planMakersRoute(conversationId, places)
+    void planMakersRoute(conversationId, places, routeMode)
       .then((next) => { if (!disposed) setRoute(next); })
       .catch((error) => { if (!disposed) setRouteError(error instanceof Error ? error.message : t('routePlanningFailed')); });
     return () => { disposed = true; };
-  }, [conversationId, places, revision, showRoute, t]);
+  }, [conversationId, places, revision, routeMode, showRoute, t]);
 
   useEffect(() => {
     if (!displayPlaces.length) return;
@@ -352,10 +355,19 @@ export default function MakersMap({ conversationId, title, places, revision, sho
       {shouldPlanMakersRoute(showRoute, places.length) && !route && !routeError && <div className="makers-route-loading">{t('calculatingRoute')}</div>}
       {showRoute && route && (
         <div className="makers-route-summary">
+          <span>{t(
+            route.mode === 'transit' ? 'routeModeTransit'
+              : route.mode === 'walking' ? 'routeModeWalking'
+                : route.mode === 'bicycling' ? 'routeModeBicycling'
+                  : 'routeModeDriving',
+          )}</span>
           <span>{t('kilometers', { count: (route.distance_meters / 1000).toFixed(1) })}</span>
           <span>{hoursMinutes(route.duration_seconds)}</span>
-          <span>{t('drivingEstimate', { amount: route.fare.self_driving.estimate.toFixed(0) })}</span>
-          <span>{t('taxiEstimate', { low: route.fare.taxi.low.toFixed(0), high: route.fare.taxi.high.toFixed(0) })}</span>
+          {route.fare.self_driving && <span>{t('drivingEstimate', { amount: route.fare.self_driving.estimate.toFixed(0) })}</span>}
+          {route.fare.taxi && <span>{t('taxiEstimate', { low: route.fare.taxi.low.toFixed(0), high: route.fare.taxi.high.toFixed(0) })}</span>}
+          {route.fare.transit?.provider_estimate && <span>{t('transitFareEstimate', { amount: route.fare.transit.estimate.toFixed(0) })}</span>}
+          {route.transit?.lines?.length ? <span>{t('transitLines', { lines: route.transit.lines.join(' → ') })}</span> : null}
+          {route.transit?.walking_distance_meters !== undefined && <span>{t('transitWalkingDistance', { count: route.transit.walking_distance_meters })}</span>}
           <small>{route.fare.basis}</small>
           <small>{route.cache?.hit ? t('routeCacheHit') : t('routeCacheSaved')}</small>
         </div>

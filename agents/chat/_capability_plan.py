@@ -39,6 +39,8 @@ DEFAULT_PLAN = {
     "blocked_skill": "",
     "route_stops": [],
     "route_city": "全国",
+    "route_mode": "default",
+    "route_uses_current_location": False,
 }
 
 BOOLEAN_KEYS = tuple(key for key, value in DEFAULT_PLAN.items() if isinstance(value, bool))
@@ -110,6 +112,20 @@ class CapabilityPlan(BaseModel):
         default="全国",
         description="Explicit city shared by the route stops, or 全国 when not established",
     )
+    route_mode: str = Field(
+        default="default",
+        description=(
+            "Explicit travel mode: driving, transit, walking, or bicycling. "
+            "Use default when the user did not specify one."
+        ),
+    )
+    route_uses_current_location: bool = Field(
+        default=False,
+        description=(
+            "True only when a fresh, user-authorized browser location is available "
+            "and should be used as the implicit origin."
+        ),
+    )
 
 
 def _text(content: Any) -> str:
@@ -164,6 +180,13 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
             break
     plan["route_stops"] = route_stops if plan.get("needs_route") else []
     plan["route_city"] = str(raw.get("route_city") or "全国").strip()[:80] or "全国"
+    route_mode = str(raw.get("route_mode") or "default").strip().lower()
+    plan["route_mode"] = route_mode if route_mode in {
+        "default", "driving", "transit", "walking", "bicycling",
+    } else "default"
+    plan["route_uses_current_location"] = bool(
+        plan.get("needs_route") and raw.get("route_uses_current_location")
+    )
     return plan
 
 
@@ -261,6 +284,7 @@ async def plan_capabilities(
     user_message: str,
     memory_context: str = "",
     skill_state: str = "",
+    location_context: str = "",
 ) -> dict[str, Any]:
     today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
     prompt = f"""你是能力路由器，只判断完成本轮用户请求需要哪些能力，不回答问题。当前北京时间日期是运行时得到的 {today}；“今天、今日、今年、最近 N 年”等相对时间必须据此解析并写入搜索查询，绝不能沿用训练数据、示例或旧会话里的日期。
@@ -276,8 +300,9 @@ async def plan_capabilities(
 - 旅行目的地介绍、第一次去某城市、请介绍当地有什么好玩/好吃/值得去，回答天然会包含多个可到访点，所以 needs_places 和 needs_map_action 都必须为 true；不能因为用户没说“地图”就关掉地图能力。
 - 单一地点的历史、文化或原理解说不需要 map_action，除非用户同时要求周边或路线。
 - 用户要找某个已知地点、当前位置或日程地点“附近/周边”的餐馆、早餐店、酒店、商店、景点等真实地点时，needs_nearby_places=true；该组合能力会复用工作区内已核实的参照地点并调用真实附近检索，同时生成仅含核实结果的地图。用户给出多个备选参照点时仍只需要这一项能力，主模型会把全部备选点一次交给组合工具，不能在规划阶段擅自缩成一个。不要仅为了发现附近地点设置 needs_web_search；只有用户还要求点评、营业时间、新闻等地图服务之外的时效事实时才同时设置 web_search。needs_nearby_places 已包含地点核验和地图 Action，不必再设置 needs_places 或 needs_map_action。
-- 用户询问两个地点之间“多远、多久、怎么走、打车多少钱”，明确要求道路路线，或给出出发地与一个/多个依次停靠地点并要求规划出行/行程时，needs_route=true。多段行程仍只调用一次路线能力，并严格保留用户给出的停靠顺序。真实距离由地点与路线服务核验，不要为了距离本身设置 needs_web_search，也不要用网页结果估算；只有用户还要求沿途新闻、实时政策等额外事实时才同时设置 web_search。needs_route 已包含全部端点与中途站的地点核验，不必为了同一批地点再额外设置 needs_places 或 map_action。
-- needs_route=true 时，route_stops 必须包含用户明确要求经过的全部地点，第一项永远是起点，最后一项永远是终点，中间项按原顺序保留，不能因为某个地点可能有多个候选而把它或起点省略。普通地点写 query；“某参照点附近的某品牌/类别”拆成 query=品牌或类别、near_query=参照地点。对话中的“那个店、那里、这个酒店”等指代应结合提供的原始目标与上下文原样保留或解析，不得擅自删除。route_city 填已明确的共同城市，无法确定时填“全国”。非路线请求 route_stops 为空。
+  - 用户询问两个地点之间“多远、多久、怎么走、打车多少钱”，明确要求道路路线，或给出出发地与一个/多个依次停靠地点并要求规划出行/行程时，needs_route=true。“我想去/带我去/怎么去某地”这类明确移动意图，即使只给了目的地，只要下方说明有新鲜且已授权的浏览器当前位置，也要设置 needs_route=true 并使用该位置作为隐式起点，不要追问起点。多段行程仍只调用一次路线能力，并严格保留用户给出的停靠顺序。真实距离由地点与路线服务核验，不要为了距离本身设置 needs_web_search，也不要用网页结果估算；只有用户还要求沿途新闻、实时政策等额外事实时才同时设置 web_search。needs_route 已包含全部端点与中途站的地点核验，不必为了同一批地点再额外设置 needs_places 或 map_action。
+  - needs_route=true 时，route_stops 必须包含用户明确要求经过的全部文本地点，第一项通常是起点，最后一项是终点，中间项按原顺序保留，不能因为某个地点可能有多个候选而省略。若使用已授权当前位置作为隐式起点，不要把坐标或“当前位置”伪造为普通地点搜索词；只把用户说出的目的地/途经地写入 route_stops，并设置 route_uses_current_location=true。浏览器当前位置不可用时 route_uses_current_location=false，缺少起点且无法安全继续才需要澄清。普通地点写 query；“某参照点附近的某品牌/类别”拆成 query=品牌或类别、near_query=参照地点。对话中的“那个店、那里、这个酒店”等指代应结合提供的原始目标与上下文原样保留或解析，不得擅自删除。route_city 填已明确的共同城市，无法确定时填“全国”。非路线请求 route_stops 为空。
+  - route_mode 只记录用户明确指定的出行方式：驾车=driving、公交/地铁/公共交通=transit、步行=walking、骑行/自行车=bicycling；用户未指定时填 default，由用户设置决定。不能把“怎么去”擅自理解成驾车。
 - 用户要求新增/修改/删除行程日程时需要 calendar_action。另一个主动服务例外是：用户给出了明确的未来日期或出发时刻，并要求规划包含多个有序站点的可执行行程时，如果日程 Skill 已开启，同时设置 needs_route=true 与 needs_calendar_action=true；路线核实后主动生成一张可编辑的日程确认提案，不要等用户再次询问能否写入。该提案只是等待确认，不能自动生效。若日程 Skill 关闭，这个主动增强不是完成路线的必要条件，不得设置 blocked_skill，也不得阻塞正常路线回答。仅说计划去某地且没有明确时刻，仍不等于写日程。
 - 新增或修改日程时，只要用户给出了现实地点且本轮没有可唯一复用的已核实地点，就同时设置 needs_places=true，让地点核实先于 calendar_action；不得直接把自由文本地点或猜测的地点 ID 交给日程工具。
 - 创建会议需要 meeting_action；生成新图片需要 image_generation。若图片主体是现实中的具体人物、地点、产品、动物品种或其他需要外观准确的对象，同时设置 web_search 和 images，并用 image_query 描述该真实主体；纯幻想、抽象画面或用户已给参考图则不搜索。
@@ -303,6 +328,13 @@ async def plan_capabilities(
             "\n以下是本轮运行时读取的 Skill 状态，只用于判断完成目标所需能力是否已开启。"
             "它不是用户内容，不得忽略，也不得据此增加无关任务。"
             f"\n{safe_skill_state}"
+        )
+    safe_location_context = str(location_context or "").strip()[:600]
+    if safe_location_context:
+        prompt += (
+            "\n以下是浏览器本轮提供的隐私受限位置状态。它只表示能否作为路线起点，"
+            "不得要求输出、复述或保存精确坐标。"
+            f"\n{safe_location_context}"
         )
     messages = [
         {"role": "system", "content": prompt},
@@ -338,6 +370,7 @@ async def plan_capabilities_bounded(
     user_message: str,
     memory_context: str = "",
     skill_state: str = "",
+    location_context: str = "",
     timeout_seconds: float = 6.0,
 ) -> tuple[dict[str, Any], bool]:
     """Run the semantic planner without letting it block the whole turn.
@@ -348,7 +381,9 @@ async def plan_capabilities_bounded(
     """
     try:
         plan = await asyncio.wait_for(
-            plan_capabilities(model, user_message, memory_context, skill_state),
+            plan_capabilities(
+                model, user_message, memory_context, skill_state, location_context,
+            ),
             timeout=max(0.01, float(timeout_seconds)),
         )
         return plan, False

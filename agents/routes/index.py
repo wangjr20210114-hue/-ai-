@@ -1,34 +1,13 @@
 """POST /routes: server-side real-road route planning and fare estimate."""
 
-import copy
-import hashlib
-import json
-import logging
-import time
+import asyncio
 
 from .._shared.tencent_location import plan_verified_route
 from .._shared.auth import require_user
-from .._shared.data_version import namespace as data_namespace
 from .._shared.http import error
 from .._shared.intelligence import load_intelligence_state
 from .._shared.provider_metering import record_provider_usage
-
-CACHE_TTL_SECONDS = 6 * 60 * 60
-
-
-def _cache_key(places: list[dict], optimize: bool) -> str:
-    normalized = [{
-        "place_id": str(item.get("place_id") or ""),
-        "latitude": round(float(item.get("latitude") or 0), 6),
-        "longitude": round(float(item.get("longitude") or 0), 6),
-    } for item in places if isinstance(item, dict)]
-    value = json.dumps({"places": normalized, "optimize": optimize}, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _item_value(item):
-    value = item.get("value") if isinstance(item, dict) else getattr(item, "value", None)
-    return value if isinstance(value, dict) else None
+from .._shared.route_cache import load_route_cache, save_route_cache
 
 
 async def handler(ctx):
@@ -41,30 +20,42 @@ async def handler(ctx):
     if not isinstance(places, list):
         return error("places must be a list")
     optimize = bool(body.get("optimize", False))
+    preferences = intelligence.get("map_preferences") or {}
+    mode = str(body.get("mode") or preferences.get("preferred_route_mode") or "driving").strip().lower()
+    if mode not in {"driving", "transit", "walking", "bicycling"}:
+        return error("路线方式必须是 driving、transit、walking 或 bicycling")
+    route_stop_limit = max(2, min(12, int(preferences.get("route_stop_limit") or 8)))
+    if not 2 <= len(places) <= route_stop_limit:
+        return error(
+            f"当前地图设置允许单条路线包含 2 到 {route_stop_limit} 个地点；"
+            "请调整地点数量或到设置中提高上限"
+        )
+    search_timeout = max(10.0, min(55.0, float(preferences.get("search_timeout_seconds") or 30)))
+    route_timeout = min(18.0, max(8.0, 58.0 - search_timeout))
     try:
-        cache_key = _cache_key(places, optimize)
+        cached_route = await load_route_cache(
+            getattr(ctx.store, "langgraph_store", None),
+            str(identity["user_id"]),
+            places,
+            optimize,
+            mode=mode,
+        )
     except (TypeError, ValueError):
         return error("地点坐标格式无效")
-    # v1 may contain Tencent minutes mislabeled as seconds.
-    namespace = data_namespace("route_cache", str(identity["user_id"]))
     store = getattr(ctx.store, "langgraph_store", None)
-    now = int(time.time())
-    if store is not None:
-        try:
-            cached = _item_value(await store.aget(namespace, cache_key))
-            if cached and int(cached.get("expires_at") or 0) > now and isinstance(cached.get("route"), dict):
-                route = copy.deepcopy(cached["route"])
-                route["cache"] = {"hit": True, "expires_at": int(cached["expires_at"])}
-                return {"route": route}
-        except Exception as exc:
-            logging.warning("route cache read failed: %s", exc)
+    if cached_route is not None:
+        return {"route": cached_route}
     try:
         map_key = str(ctx.env.get("TENCENT_MAP_SERVER_KEY") or ctx.env.get("TENCENT_MAP_KEY") or ctx.env.get("VITE_TENCENT_MAP_KEY") or "")
         try:
-            route = await plan_verified_route(
-                map_key,
-                places,
-                optimize=optimize,
+            route = await asyncio.wait_for(
+                plan_verified_route(
+                    map_key,
+                    places,
+                    optimize=optimize,
+                    **({"mode": mode} if mode != "driving" else {}),
+                ),
+                timeout=route_timeout,
             )
         finally:
             if map_key:
@@ -76,13 +67,24 @@ async def handler(ctx):
                     1,
                     source="routes_endpoint",
                 )
-        expires_at = now + CACHE_TTL_SECONDS
-        if store is not None:
-            try:
-                await store.aput(namespace, cache_key, {"route": copy.deepcopy(route), "created_at": now, "expires_at": expires_at})
-            except Exception as exc:
-                logging.warning("route cache write failed: %s", exc)
-        route = {**route, "cache": {"hit": False, "expires_at": expires_at}}
+        route = await save_route_cache(
+            store,
+            str(identity["user_id"]),
+            places,
+            optimize,
+            route,
+            mode=mode,
+        )
+        provider_places = route.get("places")
+        if isinstance(provider_places, list) and provider_places != places:
+            route = await save_route_cache(
+                store,
+                str(identity["user_id"]),
+                provider_places,
+                optimize,
+                route,
+                mode=mode,
+            )
         return {"route": route}
     except Exception as exc:
         return error(str(exc))

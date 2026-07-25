@@ -9,10 +9,12 @@ from langchain_core.messages import AIMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
+from langgraph.types import RetryPolicy
 
 from ._history import bounded_history
 from ._protocol import action_fallback_content, dsml_tool_calls, public_content
 from ._capability_plan import next_required_tool
+from ._llm import _is_quota_error, _is_transient_gateway_error
 
 
 TOOL_FAILURE_MESSAGE = (
@@ -270,6 +272,11 @@ def _tool_failure_message(exc: Exception) -> str:
         detail = str(exc).strip()[:500] or "输入不符合要求"
         return f"操作未完成：{detail}。请自然说明原因和下一步，不要声称已经成功。"
     return TOOL_FAILURE_MESSAGE
+
+
+def _retry_model_node(error: Exception) -> bool:
+    """Retry only provider conditions that are safe before state is emitted."""
+    return _is_quota_error(error) or _is_transient_gateway_error(error)
 
 
 def _hidden_clarification_answer(message) -> bool:
@@ -564,7 +571,18 @@ def build_graph(
         return "tools" if getattr(last, "tool_calls", None) else END
 
     graph = StateGraph(MessagesState)
-    graph.add_node("agent", agent_node)
+    graph.add_node(
+        "agent",
+        agent_node,
+        retry_policy=RetryPolicy(
+            initial_interval=0.4,
+            backoff_factor=2.0,
+            max_interval=1.5,
+            max_attempts=2,
+            jitter=True,
+            retry_on=_retry_model_node,
+        ),
+    )
     graph.add_edge(START, "agent")
     if tools:
         graph.add_node(

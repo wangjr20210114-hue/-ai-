@@ -1,10 +1,13 @@
-"""POST /places: verified Tencent place autocomplete for direct UI edits."""
+"""POST /places: bounded Tencent-first place search for direct UI edits."""
 
-from .._shared.tencent_location import search_verified_places
+import asyncio
+
+from .._shared.tencent_location import search_verified_places_bounded
 from .._shared.auth import require_user
 from .._shared.intelligence import load_intelligence_state
 from .._shared.http import error
 from .._shared.provider_metering import record_provider_usage
+from .._shared.place_cache import load_place_cache, save_place_cache
 
 
 async def handler(ctx):
@@ -17,13 +20,31 @@ async def handler(ctx):
     if not query:
         return error("query is required")
     map_key = str(ctx.env.get("TENCENT_MAP_SERVER_KEY") or ctx.env.get("TENCENT_MAP_KEY") or ctx.env.get("VITE_TENCENT_MAP_KEY") or "")
+    preferences = intelligence.get("map_preferences") or {}
+    result_limit = max(3, min(12, int(preferences.get("place_result_limit") or 6)))
+    timeout_seconds = max(10.0, min(55.0, float(preferences.get("search_timeout_seconds") or 30)))
     try:
+        limit = min(result_limit, int(body.get("limit") or result_limit))
+        city = str(body.get("city") or "全国")
+        cached = await load_place_cache(
+            ctx.store.langgraph_store,
+            str(identity["user_id"]),
+            query,
+            city,
+            limit,
+        )
+        if cached is not None:
+            return {"places": cached, "cache": {"hit": True}}
         try:
-            places = await search_verified_places(
-                map_key,
-                query,
-                city=str(body.get("city") or "全国"),
-                limit=int(body.get("limit") or 10),
+            places = await asyncio.wait_for(
+                search_verified_places_bounded(
+                    map_key,
+                    query,
+                    city=city,
+                    limit=limit,
+                    timeout_seconds=timeout_seconds,
+                ),
+                timeout=timeout_seconds,
             )
         finally:
             if map_key:
@@ -35,6 +56,14 @@ async def handler(ctx):
                     1,
                     source="places_endpoint",
                 )
-        return {"places": places}
+        await save_place_cache(
+            ctx.store.langgraph_store,
+            str(identity["user_id"]),
+            query,
+            city,
+            limit,
+            places,
+        )
+        return {"places": places, "cache": {"hit": False}}
     except Exception as exc:
         return error(str(exc))
