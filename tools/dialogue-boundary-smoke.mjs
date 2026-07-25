@@ -68,7 +68,12 @@ async function chat(index, input) {
     clarification_option_counts: clarificationFields.map((field) => (field?.options || []).length),
     answer_preview: answer.slice(0, 180),
   };
-  input.assert(result);
+  process.stderr.write(`${JSON.stringify(result)}\n`);
+  try {
+    input.assert(result);
+  } catch (error) {
+    throw new Error(`${error.message}; conversation_id=${conversationId}; result=${JSON.stringify(result)}`);
+  }
   return result;
 }
 
@@ -162,9 +167,22 @@ const cases = [
   },
 ];
 
+const requestedCaseIds = new Set(
+  String(process.env.FLORIS_SMOKE_CASES || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
+const selectedCases = requestedCaseIds.size
+  ? cases.filter((item) => requestedCaseIds.has(item.id))
+  : cases;
+if (!selectedCases.length) {
+  throw new Error(`No smoke cases matched FLORIS_SMOKE_CASES=${[...requestedCaseIds].join(',')}`);
+}
+
 const results = [];
-for (let index = 0; index < cases.length; index += 1) {
-  results.push(await chat(index + 1, cases[index]));
+for (let index = 0; index < selectedCases.length; index += 1) {
+  results.push(await chat(index + 1, selectedCases[index]));
 }
 process.stdout.write(`${JSON.stringify({
   ok: true,
