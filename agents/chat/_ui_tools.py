@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import hashlib
 import json
 import logging
@@ -114,6 +115,31 @@ def _normalized_place_name(value: Any) -> str:
     return "".join(re.findall(r"[\w\u4e00-\u9fff]+", str(value or "").lower()))
 
 
+def _verified_candidate_matches(
+    query: str,
+    place: dict[str, Any],
+    city: str,
+) -> bool:
+    """Reject provider fallbacks that do not match the requested POI or city."""
+    clean_query = _normalized_place_name(query)
+    clean_name = _normalized_place_name(place.get("name"))
+    if not clean_query or not clean_name:
+        return False
+    if not (
+        clean_query in clean_name
+        or clean_name in clean_query
+        or difflib.SequenceMatcher(None, clean_query, clean_name).ratio() >= 0.52
+    ):
+        return False
+    clean_city = _normalized_place_name(city)
+    if not clean_city or clean_city in {"全国", "中国"}:
+        return True
+    locality = _normalized_place_name(
+        f"{place.get('city') or ''}{place.get('address') or ''}"
+    )
+    return clean_city in locality
+
+
 def _place_choice_field(field_id: str, label: str, places: list[dict[str, Any]]) -> dict[str, Any]:
     options = []
     for place in places[:6]:
@@ -157,9 +183,14 @@ async def verify_place_queries_parallel(
     all_candidates: list[dict[str, Any]] = []
     missing: list[str] = []
     for query, matches in results:
-        if matches:
-            selected.append(matches[0])
-            all_candidates.extend(matches)
+        verified_matches = [
+            place for place in matches
+            if isinstance(place, dict)
+            and _verified_candidate_matches(query, place, city)
+        ]
+        if verified_matches:
+            selected.append(verified_matches[0])
+            all_candidates.extend(verified_matches)
         else:
             missing.append(query)
     return selected, all_candidates, missing
@@ -1326,7 +1357,7 @@ def build_production_tools(
         (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。传入完整明确的 anchor_query 与要找的类别 query；若用户给出多个备选参照地点，还必须把全部备选放入 anchor_queries，一次并行查询并保留各组成功结果，不能只选一个或拆成多次调用。工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。用户没有明确距离时不要自行缩小 radius_meters，保持默认 2000 米且 strict_radius=false；只有用户明确说“X 米内”时才传该距离并设 strict_radius=true。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),
         (plan_route_between_places, "plan_route_between_places", "查询两个真实地点之间的道路距离、驾车耗时或费用时必须使用。工具会自行核实起终点并调用真实路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 destination_query 传“锦江之星”、destination_near_query 传“北京301医院”；多个候选会自动生成单选卡让用户选择。"),
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
-        (recommend_places_on_map, "recommend_places_on_map", "模型驱动的多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。"),
+        (recommend_places_on_map, "recommend_places_on_map", "模型驱动的非周边多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。只要用户目标表达了相对某个或多个参照点“附近、周边、离它近”，不得使用本工具，也不得从模型知识猜餐厅名称；必须改用 recommend_nearby_places_on_map，把全部参照点放入 anchor_queries。"),
         (propose_calendar_changes, "propose_calendar_changes", "必须用此工具准备日程新增、更新或删除提案并生成确认卡；不要只在正文里口头询问。格式示例：changes=[{operation:'create',event:{title:'游览北海公园',start_time:'2026-07-16T09:00:00+08:00',end_time:'2026-07-16T10:00:00+08:00',place_id:'地点工具返回的ID'}}]。更新/删除还要传 schedule_id。用户点击确认前不会真正写入。"),
         (propose_meeting, "propose_meeting", "准备可编辑的腾讯会议确认卡；即使主题、开始时间或结束时间不完整也要调用本工具，把未知值留空，不要在正文中连续追问多个条件。确认卡会让用户逐项补齐、检查冲突并确认，之后才由后台通过腾讯会议官方 MCP Skill 执行。"),
         (propose_image, "propose_image", "直接调用混元生图并返回图片，不要询问确认。现实人物、地点或物体可先用 rich_search 获取经 HY-Vision 审核的图片 URL，再通过 reference_image_urls（最多 3 张）作为视觉参考；修改历史版本时传 parent_action_id。"),

@@ -1446,6 +1446,48 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(candidates), 3)
         self.assertEqual(missing, [])
 
+    async def test_model_selected_place_rejects_wrong_city_and_unrelated_name(self):
+        valid = {
+            **PLACE,
+            "place_id": "valid-restaurant",
+            "name": "小吊梨汤(王府井银泰店)",
+            "address": "北京市东城区王府井大街88号",
+            "city": "北京市",
+        }
+        wrong_city = {
+            **PLACE,
+            "place_id": "wrong-city",
+            "name": "小吊梨汤",
+            "address": "上海市浦东新区",
+            "city": "上海市",
+        }
+        unrelated = {
+            **PLACE,
+            "place_id": "unrelated",
+            "name": "庐江县气象局",
+            "address": "安徽省合肥市庐江县",
+            "city": "庐江县",
+        }
+
+        async def provider(_map_key, query, *, city, limit):
+            self.assertEqual(city, "北京")
+            self.assertEqual(limit, 3)
+            if "小吊梨汤" in query:
+                return [wrong_city, valid]
+            return [unrelated]
+
+        selected, candidates, missing = await verify_place_queries_parallel(
+            provider,
+            "map-key",
+            ["小吊梨汤王府井银泰店", "四季民福王府井店"],
+            city="北京",
+            timeout_seconds=1,
+        )
+
+        self.assertEqual([place["place_id"] for place in selected], ["valid-restaurant"])
+        self.assertEqual([place["place_id"] for place in candidates], ["valid-restaurant"])
+        self.assertEqual(missing, ["四季民福王府井店"])
+
     async def test_map_recommendation_keeps_verified_subset(self):
         async def provider(_map_key, query, *, city, limit):
             if query == "未核实餐馆":
