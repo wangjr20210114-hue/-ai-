@@ -5,7 +5,7 @@ from typing import Any
 from langchain_openai import ChatOpenAI
 
 DEFAULT_MODEL = "@makers/deepseek-v4-flash"
-DEFAULT_FALLBACK_MODEL = "deepseek-v4-flash"
+DEFAULT_FALLBACK_MODEL = "deepseek-v4-pro"
 _model_cache: dict[tuple[str, str, bool, float, float], Any] = {}
 
 

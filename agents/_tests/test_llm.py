@@ -30,7 +30,7 @@ class ModelConfigurationTests(unittest.TestCase):
             chat_open_ai.call_args_list[1].kwargs["model"],
             DEFAULT_FALLBACK_MODEL,
         )
-        self.assertEqual(DEFAULT_FALLBACK_MODEL, "deepseek-v4-flash")
+        self.assertEqual(DEFAULT_FALLBACK_MODEL, "deepseek-v4-pro")
 
 
 if __name__ == "__main__":

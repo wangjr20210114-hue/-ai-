@@ -64,7 +64,7 @@ edgeone makers dev
 | 推荐 | `TENCENT_MAP_SERVER_KEY`、`VITE_TENCENT_MAP_KEY` | 服务端地点/路线与浏览器地图 |
 | 推荐 | `HUNYUAN_IMAGE_API_KEY` | 混元文生图、图生图 |
 | 推荐 | `HUNYUAN_VISION_API_KEY` | 搜索图片与参考图的轻量审核；缺省可复用生图 Key |
-| 可选降级 | `DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL` | AI Gateway 配额或瞬时故障时的文本模型降级；默认模型为 `deepseek-v4-flash` |
+| 可选降级 | `DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL` | AI Gateway 配额或瞬时故障时的文本模型降级；默认模型为 `deepseek-v4-pro` |
 | 可选降级 | `CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_WORKERS_AI_TOKEN` | Workers AI 视觉理解、文生图、图生图降级 |
 | 可选降级 | `DASHSCOPE_API_KEY`、`GEMINI_API_KEY` | 视觉理解后备 |
 | 可选 Skill | `TENCENT_MEETING_TOKEN` | 腾讯会议个人 AI Skill；未配置时不向模型暴露会议工具 |

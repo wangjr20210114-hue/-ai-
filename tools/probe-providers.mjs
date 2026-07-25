@@ -166,7 +166,7 @@ const jobs = [
     openAICompletion(env.AI_GATEWAY_API_KEY, env.AI_GATEWAY_BASE_URL, env.AI_GATEWAY_MODEL || '@makers/deepseek-v4-flash')
   )),
   probe('deepseek_direct', ['DEEPSEEK_API_KEY'], () => (
-    openAICompletion(env.DEEPSEEK_API_KEY, env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1', env.DEEPSEEK_MODEL || 'deepseek-v4-flash')
+    openAICompletion(env.DEEPSEEK_API_KEY, env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1', env.DEEPSEEK_MODEL || 'deepseek-v4-pro')
   )),
   probe('wsa_searchpro', ['WSA_API_KEY'], async () => {
     const response = await fetch(`${String(env.WSA_BASE_URL || 'https://api.wsa.cloud.tencent.com').replace(/\/$/, '')}/SearchPro`, {
