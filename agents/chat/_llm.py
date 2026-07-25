@@ -6,7 +6,7 @@ from langchain_openai import ChatOpenAI
 
 DEFAULT_MODEL = "@makers/deepseek-v4-flash"
 DEFAULT_FALLBACK_MODEL = "deepseek-v4-pro"
-_model_cache: dict[tuple[str, str, bool, float, float], Any] = {}
+_model_cache: dict[tuple[str, str, bool, float, float, str, str], Any] = {}
 
 
 def _model_timeout(env: dict, key: str, default: float) -> float:
@@ -14,6 +14,11 @@ def _model_timeout(env: dict, key: str, default: float) -> float:
         return max(5.0, min(30.0, float(env.get(key) or default)))
     except (TypeError, ValueError):
         return default
+
+
+def _thinking_mode(env: dict, key: str, default: str = "disabled") -> str:
+    value = str(env.get(key) or default).strip().lower()
+    return value if value in {"enabled", "disabled"} else default
 
 
 def _is_quota_error(error: Exception) -> bool:
@@ -95,7 +100,19 @@ def get_model(env: dict):
     direct_key = str(env.get("DEEPSEEK_API_KEY") or "").strip()
     gateway_timeout = _model_timeout(env, "AI_GATEWAY_TIMEOUT_SECONDS", 12.0)
     fallback_timeout = _model_timeout(env, "DEEPSEEK_TIMEOUT_SECONDS", 12.0)
-    cache_key = (model_name, base_url, bool(direct_key), gateway_timeout, fallback_timeout)
+    gateway_thinking = _thinking_mode(env, "AI_GATEWAY_THINKING_MODE")
+    fallback_thinking = _thinking_mode(
+        env, "DEEPSEEK_THINKING_MODE", gateway_thinking,
+    )
+    cache_key = (
+        model_name,
+        base_url,
+        bool(direct_key),
+        gateway_timeout,
+        fallback_timeout,
+        gateway_thinking,
+        fallback_thinking,
+    )
     if cache_key in _model_cache:
         return _model_cache[cache_key]
 
@@ -106,6 +123,7 @@ def get_model(env: dict):
         temperature=0.0,
         timeout=gateway_timeout,
         streaming=True,
+        extra_body={"thinking": {"type": gateway_thinking}},
     )
     if direct_key:
         fallback = ChatOpenAI(
@@ -115,6 +133,7 @@ def get_model(env: dict):
             temperature=0.0,
             timeout=fallback_timeout,
             streaming=True,
+            extra_body={"thinking": {"type": fallback_thinking}},
         )
         model = QuotaFailoverModel(model, fallback)
     _model_cache[cache_key] = model
