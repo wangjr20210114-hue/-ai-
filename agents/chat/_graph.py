@@ -183,6 +183,8 @@ def tool_failure_fallback(messages: Iterable) -> str:
         if detail:
             if getattr(message, "name", "") == "recommend_nearby_places_on_map":
                 return f"地点服务这次没有找到可展示的附近地点：{detail}。你可以扩大范围或调整餐厅类别后重试。"
+            if getattr(message, "name", "") == "plan_route_between_places":
+                return f"这次没有完成路线规划：{detail}。请检查地点名称或从候选地点中选择后重试。"
             return f"这次没有生成确认卡：{detail}。请检查后重试。"
     return ""
 

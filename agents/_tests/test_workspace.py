@@ -1851,6 +1851,68 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(planner.await_args.kwargs["optimize"])
         self.assertIn("绝不能重新排序", result["response_constraint"])
 
+    async def test_route_tool_reuses_verified_workspace_place_for_descriptive_alias(self):
+        store = FakeStore()
+        state = empty_workspace()
+        headquarters = {
+            **PLACE,
+            "place_id": "tencent",
+            "name": "腾讯北京总部大楼",
+            "address": "北京市海淀区西北旺东路10号院西区9号楼",
+        }
+        restaurant = {
+            **PLACE,
+            "place_id": "restaurant",
+            "name": "清真·烤肉刘炙子烤肉(故宫·王府井店)",
+            "address": "北京市东城区王府井大街",
+        }
+        state["place_candidates"] = {
+            headquarters["place_id"]: headquarters,
+            restaurant["place_id"]: restaurant,
+        }
+        await save_user_workspace(store, state)
+        route = {
+            "provider": "tencent",
+            "mode": "driving",
+            "distance_meters": 28_000,
+            "duration_seconds": 3_600,
+            "fare": {},
+        }
+        with patch("agents.chat._ui_tools.provider_search_places", new=AsyncMock()) as search, \
+             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
+            tools = build_production_tools(
+                None,
+                store=store,
+                conversation_id="workspace-alias-route",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+            )
+            route_tool = next(item for item in tools if item.name == "plan_route_between_places")
+            result = json.loads(await route_tool.ainvoke({
+                "origin_query": "腾讯北京总部",
+                "destination_query": "烤肉刘（故宫·王府井店）",
+                "city": "北京",
+            }))
+
+        self.assertEqual(result["origin"]["place_id"], "tencent")
+        self.assertEqual(result["destination"]["place_id"], "restaurant")
+        search.assert_not_awaited()
+        planner.assert_awaited_once()
+
+    def test_route_failure_fallback_does_not_claim_a_confirmation_card(self):
+        content = tool_failure_fallback([
+            HumanMessage(content="帮我规划四站行程"),
+            ToolMessage(
+                content=(
+                    "操作未完成：没有核实到第 3 站“烤肉刘（故宫·王府井店）”。"
+                    "请自然说明原因和下一步，不要声称已经成功。"
+                ),
+                name="plan_route_between_places",
+                tool_call_id="route-failed",
+            ),
+        ])
+        self.assertIn("没有完成路线规划", content)
+        self.assertNotIn("确认卡", content)
+
     async def test_route_tool_asks_user_to_choose_when_nearby_brand_has_multiple_branches(self):
         station = {**PLACE, "place_id": "station", "name": "北京站"}
         hospital = {**PLACE, "place_id": "hospital", "name": "北京301医院"}

@@ -140,6 +140,34 @@ def _verified_candidate_matches(
     return clean_city in locality
 
 
+def _rank_verified_workspace_matches(
+    query: str,
+    candidates: dict[str, Any],
+    city: str,
+    *,
+    limit: int = 6,
+) -> list[dict[str, Any]]:
+    """Reuse provider-verified POIs for aliases before spending another call.
+
+    This is generic name matching over existing Makers workspace records. It
+    does not invent a place: every returned item already has a provider place
+    id and still passes the same city/name validation as a fresh lookup.
+    """
+    clean_query = _normalized_place_name(query)
+    ranked: list[tuple[int, float, str, dict[str, Any]]] = []
+    for place_id, raw_place in candidates.items():
+        if not isinstance(raw_place, dict) or not str(raw_place.get("place_id") or place_id):
+            continue
+        if not _verified_candidate_matches(query, raw_place, city):
+            continue
+        clean_name = _normalized_place_name(raw_place.get("name"))
+        exact_rank = 0 if clean_query == clean_name else 1 if clean_query in clean_name else 2
+        similarity = difflib.SequenceMatcher(None, clean_query, clean_name).ratio()
+        ranked.append((exact_rank, -similarity, str(place_id), raw_place))
+    ranked.sort(key=lambda item: (item[0], item[1], item[2]))
+    return [item[3] for item in ranked[:max(1, min(12, int(limit or 6)))]]
+
+
 def _place_choice_field(field_id: str, label: str, places: list[dict[str, Any]]) -> dict[str, Any]:
     options = []
     for place in places[:6]:
@@ -613,6 +641,8 @@ def build_production_tools(
             or ""
         )
         radius = max(500, min(20_000, int(nearby_radius_meters or 5_000)))
+        state = await _load_state()
+        candidates = state.setdefault("place_candidates", {})
 
         async def resolve(
             endpoint: str,
@@ -652,12 +682,26 @@ def build_production_tools(
                     limit=6,
                 )
             else:
-                matches = await _search_places_metered(
-                    map_key, clean_query, city=city or "全国", limit=6,
+                matches = _rank_verified_workspace_matches(
+                    clean_query,
+                    candidates,
+                    city or "全国",
+                    limit=6,
                 )
+                if not matches:
+                    matches = await _search_places_metered(
+                        map_key, clean_query, city=city or "全国", limit=6,
+                    )
             if not matches:
                 qualifier = f"（{clean_near}附近 {radius} 米内）" if clean_near else ""
                 raise ValueError(f"没有核实到{endpoint}“{clean_query}”{qualifier}")
+            for match in matches:
+                place_id = str(match.get("place_id") or "").strip()
+                if place_id:
+                    candidates[place_id] = match
+            if len(candidates) > 200:
+                state["place_candidates"] = dict(list(candidates.items())[-200:])
+            await _save_state(state)
 
             # A brand near an anchor commonly has several legitimate branches.
             # Even when one branch has the exact bare brand name, choosing it
@@ -734,8 +778,6 @@ def build_production_tools(
             resolved_stops.append(place)
 
         route = await _plan_route_metered(map_key, resolved_stops, optimize=False)
-        state = await _load_state()
-        candidates = state.setdefault("place_candidates", {})
         for place in resolved_stops:
             candidates[str(place["place_id"])] = place
         await _save_state(state)
