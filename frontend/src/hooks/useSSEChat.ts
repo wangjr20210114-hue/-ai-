@@ -15,6 +15,10 @@ const STREAM_IDLE_TIMEOUT_MS = 20_000;
 const STOP_TIMEOUT_MS = 4_000;
 const MANUAL_STOP_PREFIX = 'floris:manual-stop:';
 
+export function canStartChatTransport(active: boolean): boolean {
+  return !active;
+}
+
 function manualStopKey(conversationId: string): string {
   return `${MANUAL_STOP_PREFIX}${conversationId}`;
 }
@@ -185,13 +189,16 @@ class SSEChatClient {
   async send(rawMessage: unknown) {
     const message = rawMessage as { type?: string; payload?: Record<string, unknown> };
     if (message.type === 'ping') return;
+    // A second click, Enter key event, clarification submit, or retry must
+    // never abort and replace the request that currently owns this
+    // conversation. The UI has its own disabled state, but this transport
+    // guard closes the React render-window race as well.
+    if (!canStartChatTransport(Boolean(this.controller))) return;
 
     // A deliberate new message is the only action that clears a manual stop.
     // Do not call stop() here because that would persist a false user intent.
     const allowAfterStop = this.manualStopIntent;
     this.setManualStopIntent(false);
-    this.controller?.abort();
-    this.controller = null;
     this.controller = new AbortController();
     const signal = this.controller.signal;
     const streamId = `ai-stream-${Date.now()}`;

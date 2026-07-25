@@ -115,6 +115,45 @@ class _ClarificationChoiceModel:
         return AIMessage(content="unexpected")
 
 
+class _StructuredUiClaimBoundModel:
+    def __init__(self, owner, tools, tool_choice):
+        self.owner = owner
+        self.tools = tools
+        self.tool_choice = tool_choice
+
+    async def ainvoke(self, _messages, **_kwargs):
+        if self.tool_choice == "required":
+            self.owner.correction_tool_names = {tool.name for tool in self.tools}
+            self.owner.correction_calls += 1
+            return AIMessage(content="", tool_calls=[{
+                "name": "plan_route_between_places",
+                "args": {
+                    "origin_query": "腾讯北京总部",
+                    "destination_query": "锦江之星五棵松店",
+                },
+                "id": "real-route-after-ui-claim",
+            }])
+        if self.owner.correction_calls:
+            return AIMessage(content="已根据真实地点结果继续规划。")
+        return AIMessage(content="系统已经列出了候选，请在上方选择卡片中点选。")
+
+
+class _StructuredUiClaimModel:
+    def __init__(self):
+        self.correction_calls = 0
+        self.correction_tool_names = set()
+
+    def bind_tools(self, tools, **kwargs):
+        return _StructuredUiClaimBoundModel(
+            self,
+            tools,
+            kwargs.get("tool_choice", ""),
+        )
+
+    async def ainvoke(self, _messages, **_kwargs):
+        return AIMessage(content="已根据真实地点结果继续规划。")
+
+
 class _ContinuationBoundModel:
     def __init__(self, owner, tools, tool_choice):
         self.owner = owner
@@ -280,6 +319,30 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["messages"][-1].content, "")
         self.assertEqual(model.bound_calls, 0)
         self.assertEqual(model.unbound_calls, 0)
+
+    async def test_nonexistent_card_claim_is_replaced_by_real_domain_tool(self):
+        model = _StructuredUiClaimModel()
+        graph = build_graph(
+            model,
+            [plan_route_between_places, ask_user_clarification],
+            "system",
+        )
+        result = await graph.ainvoke({"messages": [
+            HumanMessage(content="从腾讯总部去301医院附近的锦江之星"),
+        ]})
+        route_results = [
+            message for message in result["messages"]
+            if isinstance(message, ToolMessage)
+            and message.name == "plan_route_between_places"
+        ]
+        self.assertEqual(len(route_results), 1)
+        self.assertEqual(model.correction_calls, 1)
+        self.assertEqual(
+            model.correction_tool_names,
+            {"plan_route_between_places"},
+        )
+        self.assertEqual(result["messages"][-1].content, "已根据真实地点结果继续规划。")
+        self.assertNotIn("上方", result["messages"][-1].content)
 
     async def test_every_required_qa_tool_can_yield_to_structured_clarification(self):
         model = _ClarificationChoiceModel()

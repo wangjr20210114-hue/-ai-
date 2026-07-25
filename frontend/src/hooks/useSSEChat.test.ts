@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   actionOnlyFallback,
+  canStartChatTransport,
   mergeSearchMeta,
   progressTextForTool,
   terminalGenerationError,
@@ -80,5 +81,12 @@ describe('terminal generation failure', () => {
   it('treats an explicit abort as a terminal stop', () => {
     expect(terminalGenerationError(new DOMException('Aborted', 'AbortError')))
       .toBe('生成已停止，不会自动重新生成。');
+  });
+});
+
+describe('chat transport ownership', () => {
+  it('rejects a second send while the current stream owns the conversation', () => {
+    expect(canStartChatTransport(false)).toBe(true);
+    expect(canStartChatTransport(true)).toBe(false);
   });
 });

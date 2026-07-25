@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, MessagePlugin, Textarea, Upload } from 'tdesign-react';
 import { SendIcon, AttachIcon } from 'tdesign-icons-react';
 import type { UploadFile } from 'tdesign-react';
@@ -44,6 +44,7 @@ export default function InputBar({ client }: Props) {
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
+  const sendLockRef = useRef(false);
   const [stopping, setStopping] = useState(false);
   const [referenceImage, setReferenceImage] = useState<{ name: string; dataUrl: string } | null>(null);
   const activeStreaming = messages.some((message) => message.streaming);
@@ -57,7 +58,7 @@ export default function InputBar({ client }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
 
-  const sendActivity = (message: ChatMessage, activity: string, referenceImages: string[] = []) => {
+  const sendActivity = async (message: ChatMessage, activity: string, referenceImages: string[] = []) => {
     const msg: WSMessage = {
       type: 'user_activity',
       payload: {
@@ -74,18 +75,19 @@ export default function InputBar({ client }: Props) {
         response_language: getStoredLanguage(),
       },
     };
-    client.current?.send(msg);
+    await Promise.resolve(client.current?.send(msg));
   };
 
   const handleSend = async () => {
     const content = text.trim();
-    if (!content || sending || stopping || activeStreaming) return;
+    if (!content || sendLockRef.current || sending || stopping || activeStreaming) return;
     const message = {
       id: Date.now().toString(),
       role: 'user' as const,
       content: referenceImage ? `${content}\n\n${t('attachedReference', { name: referenceImage.name })}` : content,
       ts: Date.now(),
     };
+    sendLockRef.current = true;
     setSending(true);
     // Optimistically render and seed the SSE cache before any network await;
     // otherwise stream_start can hydrate from an older cache and hide this row.
@@ -103,10 +105,14 @@ export default function InputBar({ client }: Props) {
       },
     });
     setText('');
-    sendActivity(message, 'asked', referenceImage ? [referenceImage.dataUrl] : []);
-    setReferenceImage(null);
-    dispatch({ type: 'SET_DOCUMENT_CONTEXT', payload: null });
-    setSending(false);
+    try {
+      await sendActivity(message, 'asked', referenceImage ? [referenceImage.dataUrl] : []);
+      setReferenceImage(null);
+      dispatch({ type: 'SET_DOCUMENT_CONTEXT', payload: null });
+    } finally {
+      sendLockRef.current = false;
+      setSending(false);
+    }
   };
 
   const handleStop = async () => {
