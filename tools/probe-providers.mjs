@@ -38,10 +38,25 @@ const selected = (name) => only.size === 0 || only.has(name);
 
 async function jsonBody(response) {
   const text = await response.text();
-  const eventData = text.trim().startsWith('data:')
-    ? text.split('\n').find((line) => line.startsWith('data:'))?.slice(5).trim()
-    : text;
-  try { return JSON.parse(eventData || ''); }
+  if (text.trim().startsWith('data:')) {
+    const events = text.split('\n')
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trim())
+      .filter((line) => line && line !== '[DONE]')
+      .map((line) => {
+        try { return JSON.parse(line); }
+        catch { return null; }
+      })
+      .filter(Boolean);
+    const content = events.map((item) => (
+      item?.choices?.[0]?.delta?.content
+      || item?.choices?.[0]?.message?.content
+      || ''
+    )).join('');
+    if (content) return { choices: [{ message: { content } }] };
+    return events.at(-1) || null;
+  }
+  try { return JSON.parse(text || ''); }
   catch { return null; }
 }
 
@@ -75,15 +90,24 @@ async function openAICompletion(key, base, model) {
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model, messages: [{ role: 'user', content: '只回复 OK' }],
-      max_tokens: 8, temperature: 0, stream: false,
+      max_tokens: 64, temperature: 0, stream: false,
     }),
     signal: timeout(25_000),
   });
   const data = await jsonBody(response);
+  const providerMessage = String(data?.error?.message || data?.message || '')
+    .replace(/(?:sk-|Bearer\s+)[A-Za-z0-9._-]{8,}/gi, '[redacted]')
+    .slice(0, 160) || null;
+  const responseShape = Boolean(data?.choices);
+  const contentPresent = Boolean(data?.choices?.[0]?.message?.content);
   return {
-    live: response.ok && Boolean(data?.choices?.[0]?.message?.content),
+    live: response.ok && responseShape,
     http_status: response.status,
-    response_shape: Boolean(data?.choices),
+    response_shape: responseShape,
+    content_present: contentPresent,
+    provider_error_code: data?.error?.code || data?.code || null,
+    provider_error_type: data?.error?.type || null,
+    provider_error_message: providerMessage,
   };
 }
 
@@ -142,7 +166,7 @@ const jobs = [
     openAICompletion(env.AI_GATEWAY_API_KEY, env.AI_GATEWAY_BASE_URL, env.AI_GATEWAY_MODEL || '@makers/deepseek-v4-flash')
   )),
   probe('deepseek_direct', ['DEEPSEEK_API_KEY'], () => (
-    openAICompletion(env.DEEPSEEK_API_KEY, env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1', env.DEEPSEEK_MODEL || 'deepseek-chat')
+    openAICompletion(env.DEEPSEEK_API_KEY, env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1', env.DEEPSEEK_MODEL || 'deepseek-v4-flash')
   )),
   probe('wsa_searchpro', ['WSA_API_KEY'], async () => {
     const response = await fetch(`${String(env.WSA_BASE_URL || 'https://api.wsa.cloud.tencent.com').replace(/\/$/, '')}/SearchPro`, {

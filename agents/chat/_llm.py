@@ -5,6 +5,7 @@ from typing import Any
 from langchain_openai import ChatOpenAI
 
 DEFAULT_MODEL = "@makers/deepseek-v4-flash"
+DEFAULT_FALLBACK_MODEL = "deepseek-v4-flash"
 _model_cache: dict[tuple[str, str, bool, float, float], Any] = {}
 
 
@@ -81,7 +82,7 @@ def get_model(env: dict):
     )
     if direct_key:
         fallback = ChatOpenAI(
-            model=str(env.get("DEEPSEEK_MODEL") or "deepseek-chat"),
+            model=str(env.get("DEEPSEEK_MODEL") or DEFAULT_FALLBACK_MODEL),
             api_key=direct_key,
             base_url=str(env.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com/v1").rstrip("/"),
             temperature=0.0,
