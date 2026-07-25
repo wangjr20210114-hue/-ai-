@@ -26,6 +26,9 @@ const DEFAULT_MAP_PREFERENCES: NonNullable<MakersIntelligenceState['map_preferen
   route_stop_limit: 8,
   search_timeout_seconds: 30,
   preferred_route_mode: 'driving',
+  route_strategy: 'time_then_cost',
+  near_time_tolerance_minutes: 10,
+  learn_route_preferences: true,
 };
 
 export default function AppSettingsButton() {
@@ -357,6 +360,15 @@ export default function AppSettingsButton() {
               <option value="walking">{t('routeModeWalking')}</option>
               <option value="bicycling">{t('routeModeBicycling')}</option>
             </select></label>
+            <label><span>{t('routeStrategy')}</span><select value={mapPreferences.route_strategy} disabled={busy === 'maps'} onChange={(event) => void saveMap({ route_strategy: event.target.value as NonNullable<MakersIntelligenceState['map_preferences']>['route_strategy'] })}>
+              <option value="time_then_cost">{t('routeStrategyTimeThenCost')}</option>
+              <option value="least_time">{t('routeStrategyLeastTime')}</option>
+              <option value="least_cost">{t('routeStrategyLeastCost')}</option>
+            </select></label>
+            <label><span>{t('nearTimeTolerance')}</span><select value={mapPreferences.near_time_tolerance_minutes} disabled={busy === 'maps'} onChange={(event) => void saveMap({ near_time_tolerance_minutes: Number(event.target.value) })}>
+              {[0, 5, 10, 15, 20, 30].map((value) => <option key={value} value={value}>{t('routeToleranceMinutes', { value })}</option>)}
+            </select></label>
+            <label><span>{t('learnRoutePreferences')}</span><input type="checkbox" checked={mapPreferences.learn_route_preferences !== false} disabled={busy === 'maps'} onChange={(event) => void saveMap({ learn_route_preferences: event.target.checked })} /></label>
           </div>
         </section>}
 

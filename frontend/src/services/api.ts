@@ -31,7 +31,7 @@ export interface MakersChatRun {
 export interface WorkspaceResponse {
   revision: number;
   schedules: ScheduleItem[];
-  map?: { action_id: string; title: string; places: MakersMapPlace[]; route_mode?: MakersRouteMode | ''; show_route?: boolean } | null;
+  map?: { action_id: string; title: string; places: MakersMapPlace[]; route_mode?: MakersRouteMode | ''; route_strategy?: 'time_then_cost' | 'least_time' | 'least_cost' | ''; show_route?: boolean } | null;
   action?: WorkspaceAction;
   actions?: WorkspaceAction[];
   changed?: Array<ScheduleItem & { deleted?: boolean }>;

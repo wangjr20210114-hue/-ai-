@@ -40,6 +40,7 @@ DEFAULT_PLAN = {
     "route_stops": [],
     "route_city": "全国",
     "route_mode": "default",
+    "route_strategy": "default",
     "route_uses_current_location": False,
 }
 
@@ -119,6 +120,13 @@ class CapabilityPlan(BaseModel):
             "Use default when the user did not specify one."
         ),
     )
+    route_strategy: str = Field(
+        default="default",
+        description=(
+            "Explicit route preference: time_then_cost, least_time, or least_cost. "
+            "Use default when the user did not state a preference."
+        ),
+    )
     route_uses_current_location: bool = Field(
         default=False,
         description=(
@@ -183,6 +191,10 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
     route_mode = str(raw.get("route_mode") or "default").strip().lower()
     plan["route_mode"] = route_mode if route_mode in {
         "default", "driving", "transit", "walking", "bicycling",
+    } else "default"
+    route_strategy = str(raw.get("route_strategy") or "default").strip().lower()
+    plan["route_strategy"] = route_strategy if route_strategy in {
+        "default", "time_then_cost", "least_time", "least_cost",
     } else "default"
     plan["route_uses_current_location"] = bool(
         plan.get("needs_route") and raw.get("route_uses_current_location")
@@ -303,6 +315,7 @@ async def plan_capabilities(
   - 用户询问两个地点之间“多远、多久、怎么走、打车多少钱”，明确要求道路路线，或给出出发地与一个/多个依次停靠地点并要求规划出行/行程时，needs_route=true。“我想去/带我去/怎么去某地”这类明确移动意图，即使只给了目的地，只要下方说明有新鲜且已授权的浏览器当前位置，也要设置 needs_route=true 并使用该位置作为隐式起点，不要追问起点。多段行程仍只调用一次路线能力，并严格保留用户给出的停靠顺序。真实距离由地点与路线服务核验，不要为了距离本身设置 needs_web_search，也不要用网页结果估算；只有用户还要求沿途新闻、实时政策等额外事实时才同时设置 web_search。needs_route 已包含全部端点与中途站的地点核验，不必为了同一批地点再额外设置 needs_places 或 map_action。
   - needs_route=true 时，route_stops 必须包含用户明确要求经过的全部文本地点，第一项通常是起点，最后一项是终点，中间项按原顺序保留，不能因为某个地点可能有多个候选而省略。若使用已授权当前位置作为隐式起点，不要把坐标或“当前位置”伪造为普通地点搜索词；只把用户说出的目的地/途经地写入 route_stops，并设置 route_uses_current_location=true。浏览器当前位置不可用时 route_uses_current_location=false，缺少起点且无法安全继续才需要澄清。普通地点写 query；“某参照点附近的某品牌/类别”拆成 query=品牌或类别、near_query=参照地点。对话中的“那个店、那里、这个酒店”等指代应结合提供的原始目标与上下文原样保留或解析，不得擅自删除。route_city 填已明确的共同城市，无法确定时填“全国”。非路线请求 route_stops 为空。
   - route_mode 只记录用户明确指定的出行方式：驾车=driving、公交/地铁/公共交通=transit、步行=walking、骑行/自行车=bicycling；用户未指定时填 default，由用户设置决定。不能把“怎么去”擅自理解成驾车。
+  - route_strategy 只记录用户明确指定的路线取舍：明确只要最快填 least_time，明确费用最低或最省钱填 least_cost，明确“省时优先、时间相近时省钱”填 time_then_cost；未指定填 default，由用户设置和已学习的明确选择决定。
 - 用户要求新增/修改/删除行程日程时需要 calendar_action。另一个主动服务例外是：用户给出了明确的未来日期或出发时刻，并要求规划包含多个有序站点的可执行行程时，如果日程 Skill 已开启，同时设置 needs_route=true 与 needs_calendar_action=true；路线核实后主动生成一张可编辑的日程确认提案，不要等用户再次询问能否写入。该提案只是等待确认，不能自动生效。若日程 Skill 关闭，这个主动增强不是完成路线的必要条件，不得设置 blocked_skill，也不得阻塞正常路线回答。仅说计划去某地且没有明确时刻，仍不等于写日程。
 - 新增或修改日程时，只要用户给出了现实地点且本轮没有可唯一复用的已核实地点，就同时设置 needs_places=true，让地点核实先于 calendar_action；不得直接把自由文本地点或猜测的地点 ID 交给日程工具。
 - 创建会议需要 meeting_action；生成新图片需要 image_generation。若图片主体是现实中的具体人物、地点、产品、动物品种或其他需要外观准确的对象，同时设置 web_search 和 images，并用 image_query 描述该真实主体；纯幻想、抽象画面或用户已给参考图则不搜索。

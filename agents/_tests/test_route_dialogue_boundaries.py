@@ -3,10 +3,17 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from agents._shared.route_cache import route_cache_key
+from agents._shared.intelligence import normalize_map_preferences
 from agents._shared.tencent_location import plan_verified_route, search_verified_places_bounded
 from agents.chat._capability_plan import parse_capability_plan
-from agents.chat._ui_tools import RoutePlanInput
+from agents.chat._ui_tools import (
+    RoutePlanInput,
+    _learned_route_preference,
+    _place_resolution,
+    build_production_tools,
+)
 from agents.chat.index import normalize_browser_current_location
+from agents.workspace.index import _learn_from_activated_route
 
 
 PLACE = {
@@ -19,6 +26,18 @@ PLACE = {
     "longitude": 116.3972,
     "city": "北京市",
 }
+
+
+class FakeStore:
+    def __init__(self):
+        self.values = {}
+
+    async def aget(self, namespace, key):
+        value = self.values.get((namespace, key))
+        return None if value is None else {"value": value}
+
+    async def aput(self, namespace, key, value):
+        self.values[(namespace, key)] = value
 
 
 class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
@@ -46,17 +65,87 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             "route_stops": [{"query": "故宫博物院", "near_query": ""}],
             "route_city": "北京",
             "route_mode": "transit",
+            "route_strategy": "least_cost",
             "route_uses_current_location": True,
         }))
         self.assertEqual(plan["route_mode"], "transit")
+        self.assertEqual(plan["route_strategy"], "least_cost")
         self.assertTrue(plan["route_uses_current_location"])
         self.assertEqual(plan["route_stops"][0]["query"], "故宫博物院")
         validated = RoutePlanInput(
             destination_query="故宫博物院",
             route_mode="transit",
+            route_strategy="least_cost",
             use_current_location_as_origin=True,
         )
         self.assertTrue(validated.use_current_location_as_origin)
+        self.assertEqual(validated.route_strategy, "least_cost")
+
+    def test_side_effect_place_resolution_is_auto_choose_or_fill(self):
+        decision, selected, reason = _place_resolution("故宫博物院", [PLACE])
+        self.assertEqual(decision, "auto_use")
+        self.assertEqual(selected["place_id"], PLACE["place_id"])
+        self.assertEqual(reason, "unique_exact_provider_match")
+
+        other = {**PLACE, "place_id": "poi-gugong-north", "address": "北门"}
+        decision, selected, reason = _place_resolution(
+            "故宫博物院", [PLACE, other],
+        )
+        self.assertEqual((decision, selected, reason), (
+            "choose", None, "multiple_verified_candidates",
+        ))
+        self.assertEqual(
+            _place_resolution("不存在的地点", []),
+            ("fill", None, "no_verified_candidate"),
+        )
+
+    def test_route_preferences_need_repeated_dominant_explicit_choices(self):
+        self.assertEqual(
+            _learned_route_preference(
+                {"mode_counts": {"transit": 2}},
+                "mode_counts",
+                {"driving", "transit"},
+            ),
+            "",
+        )
+        self.assertEqual(
+            _learned_route_preference(
+                {"mode_counts": {"transit": 3, "driving": 1}},
+                "mode_counts",
+                {"driving", "transit"},
+            ),
+            "transit",
+        )
+
+    def test_route_learning_requires_activation_and_deduplicates_action(self):
+        state = {}
+        action = {
+            "id": "map-action-1",
+            "payload": {
+                "preference_signal": {
+                    "mode": "transit",
+                    "strategy": "least_cost",
+                },
+            },
+        }
+        self.assertTrue(_learn_from_activated_route(state, action))
+        self.assertFalse(_learn_from_activated_route(state, action))
+        learning = state["route_preference_learning"]
+        self.assertEqual(learning["mode_counts"], {"transit": 1})
+        self.assertEqual(learning["strategy_counts"], {"least_cost": 1})
+
+    def test_map_preferences_default_to_time_then_cost_and_bound_tolerance(self):
+        defaults = normalize_map_preferences({})
+        self.assertEqual(defaults["route_strategy"], "time_then_cost")
+        self.assertEqual(defaults["near_time_tolerance_minutes"], 10)
+        bounded = normalize_map_preferences({
+            "route_strategy": "least_cost",
+            "near_time_tolerance_minutes": 99,
+            "learn_route_preferences": False,
+        })
+        self.assertEqual(bounded["route_strategy"], "least_cost")
+        self.assertEqual(bounded["near_time_tolerance_minutes"], 30)
+        self.assertFalse(bounded["learn_route_preferences"])
 
     async def test_tencent_suggestion_is_evidence_for_high_confidence_typo(self):
         corrected = {**PLACE, "name": "天安门", "place_id": "poi-tiananmen"}
@@ -84,6 +173,78 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         suggestions.assert_awaited_once()
         osm.assert_not_awaited()
+
+    async def test_calendar_place_lookup_enforces_choice_and_fill_cards(self):
+        tools = build_production_tools(
+            object(),
+            store=FakeStore(),
+            conversation_id="calendar-place-resolution",
+            env={"TENCENT_MAP_KEY": "key"},
+            enabled_skills={"maps", "calendar"},
+            planned_calendar_place_resolution=True,
+        )
+        search_tool = next(tool for tool in tools if tool.name == "search_places")
+        matches = [
+            PLACE,
+            {**PLACE, "place_id": "poi-gugong-north", "address": "北门"},
+        ]
+        with patch(
+            "agents.chat._ui_tools.provider_search_places",
+            AsyncMock(return_value=matches),
+        ):
+            choice = json.loads(await search_tool.ainvoke({
+                "query": "故宫博物院",
+                "city": "北京",
+            }))
+        self.assertEqual(choice["ui_action"], "clarification_action")
+        self.assertEqual(choice["clarification"]["fields"][0]["type"], "single")
+        self.assertEqual(len(choice["clarification"]["fields"][0]["options"]), 2)
+
+        with patch(
+            "agents.chat._ui_tools.provider_search_places",
+            AsyncMock(return_value=[]),
+        ):
+            fill = json.loads(await search_tool.ainvoke({
+                "query": "完全未知地点",
+                "city": "全国",
+            }))
+        self.assertEqual(fill["ui_action"], "clarification_action")
+        self.assertEqual(fill["clarification"]["fields"][0]["type"], "text")
+
+    async def test_calendar_unique_verified_correction_skips_extra_question(self):
+        corrected = {
+            **PLACE,
+            "name": "天安门",
+            "place_id": "poi-tiananmen",
+            "query_correction": {
+                "original_query": "天安们",
+                "corrected_name": "天安门",
+                "confidence": 0.95,
+                "evidence": "tencent_place_suggestion",
+            },
+        }
+        tools = build_production_tools(
+            object(),
+            store=FakeStore(),
+            conversation_id="calendar-unique-correction",
+            env={"TENCENT_MAP_KEY": "key"},
+            enabled_skills={"maps", "calendar"},
+            planned_calendar_place_resolution=True,
+        )
+        search_tool = next(tool for tool in tools if tool.name == "search_places")
+        with patch(
+            "agents.chat._ui_tools.provider_search_places",
+            AsyncMock(return_value=[corrected]),
+        ):
+            result = json.loads(await search_tool.ainvoke({
+                "query": "天安们",
+                "city": "北京",
+            }))
+        self.assertEqual(result["resolution"]["decision"], "auto_use")
+        self.assertEqual(
+            result["resolution"]["selected_place_id"],
+            "poi-tiananmen",
+        )
 
     async def test_transit_contract_decodes_path_fare_and_walking_transfer(self):
         browser = {
@@ -139,11 +300,81 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(route["places"][0]["coordinate_type"], "gcj02")
         self.assertGreaterEqual(len(route["path"]), 2)
 
+    async def test_time_then_cost_uses_cheapest_tencent_candidate_within_tolerance(self):
+        destination = {**PLACE, "place_id": "other", "latitude": 39.8}
+        seen_params = {}
+
+        async def provider(url, params):
+            seen_params.update(params)
+            return {
+                "status": 0,
+                "result": {"routes": [
+                    {
+                        "distance": 20_000,
+                        "duration": 30,
+                        "toll": 20,
+                        "polyline": [39.9, 116.3, 100, 100],
+                    },
+                    {
+                        "distance": 18_000,
+                        "duration": 35,
+                        "toll": 0,
+                        "polyline": [39.9, 116.3, 100, 100],
+                    },
+                    {
+                        "distance": 8_000,
+                        "duration": 50,
+                        "toll": 0,
+                        "polyline": [39.9, 116.3, 100, 100],
+                    },
+                ]},
+            }
+
+        with patch("agents._shared.tencent_location._get", side_effect=provider):
+            route = await plan_verified_route(
+                "key",
+                [PLACE, destination],
+                mode="driving",
+                strategy="time_then_cost",
+                near_time_tolerance_minutes=10,
+            )
+        self.assertEqual(route["duration_seconds"], 35 * 60)
+        self.assertEqual(route["selection"]["candidate_count"], 3)
+        self.assertEqual(route["selection"]["fastest_duration_seconds"], 30 * 60)
+        self.assertEqual(seen_params["policy"], "LEAST_TIME")
+        self.assertEqual(seen_params["get_mp"], 1)
+
+    async def test_least_cost_asks_tencent_to_avoid_fees(self):
+        destination = {**PLACE, "place_id": "other", "latitude": 39.8}
+        seen_params = {}
+
+        async def provider(url, params):
+            seen_params.update(params)
+            return {
+                "status": 0,
+                "result": {"routes": [{
+                    "distance": 10_000,
+                    "duration": 20,
+                    "toll": 0,
+                    "polyline": [39.9, 116.3, 100, 100],
+                }]},
+            }
+
+        with patch("agents._shared.tencent_location._get", side_effect=provider):
+            await plan_verified_route(
+                "key", [PLACE, destination], strategy="least_cost",
+            )
+        self.assertEqual(seen_params["policy"], "LEAST_TIME,LEAST_FEE")
+
     def test_cache_separates_each_travel_mode(self):
         places = [PLACE, {**PLACE, "place_id": "other", "latitude": 39.8}]
         self.assertNotEqual(
             route_cache_key(places, False, "driving"),
             route_cache_key(places, False, "walking"),
+        )
+        self.assertNotEqual(
+            route_cache_key(places, False, "driving", "least_time", 10),
+            route_cache_key(places, False, "driving", "time_then_cost", 10),
         )
 
 

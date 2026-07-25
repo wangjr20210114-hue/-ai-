@@ -151,6 +151,9 @@ export interface MakersIntelligenceState {
     route_stop_limit: number;
     search_timeout_seconds: number;
     preferred_route_mode: MakersRouteMode;
+    route_strategy: 'time_then_cost' | 'least_time' | 'least_cost';
+    near_time_tolerance_minutes: number;
+    learn_route_preferences: boolean;
   };
   skill_preferences?: Record<string, boolean>;
   providers?: { meeting?: boolean };
@@ -470,6 +473,7 @@ export interface WorkspaceAction {
     action_text?: string;
     places?: MakersMapPlace[];
     route_mode?: MakersRouteMode;
+    route_strategy?: 'time_then_cost' | 'least_time' | 'least_cost';
     show_route?: boolean;
     summary?: string;
     changes?: Array<Record<string, unknown>>;

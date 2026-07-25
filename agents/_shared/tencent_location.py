@@ -698,6 +698,8 @@ async def _plan_route_leg(
     *,
     mode: str,
     waypoints: list[dict[str, Any]] | None = None,
+    strategy: str = "time_then_cost",
+    near_time_tolerance_minutes: int = 10,
 ) -> dict[str, Any]:
     coords = [origin, *(waypoints or []), destination]
     params: dict[str, Any] = {
@@ -706,7 +708,14 @@ async def _plan_route_leg(
         "to": f"{float(destination['latitude'])},{float(destination['longitude'])}",
     }
     if mode == "driving":
-        params.update({"policy": "LEAST_TIME", "get_mp": 1})
+        params.update({
+            "policy": (
+                "LEAST_TIME,LEAST_FEE"
+                if strategy == "least_cost"
+                else "LEAST_TIME"
+            ),
+            "get_mp": 1,
+        })
         if waypoints:
             params["waypoints"] = ";".join(
                 f"{float(place['latitude'])},{float(place['longitude'])}"
@@ -719,13 +728,58 @@ async def _plan_route_leg(
     candidates = [item for item in routes if isinstance(item, dict)]
     if not candidates:
         raise RuntimeError(f"腾讯位置服务没有返回可用的{mode}路线")
-    route = min(
+    fastest = min(
         candidates,
         key=lambda item: (
             float(item.get("duration") or math.inf),
             float(item.get("distance") or math.inf),
         ),
     )
+    fastest_duration = float(fastest.get("duration") or math.inf)
+
+    def candidate_cost(item: dict[str, Any]) -> float:
+        if mode == "driving":
+            distance = float(item.get("distance") or 0)
+            toll = float(item.get("toll") or 0)
+            return float(
+                (_fare(distance, float(item.get("duration") or 0) * 60, toll)
+                 .get("self_driving") or {}).get("estimate") or math.inf
+            )
+        if mode == "transit":
+            summary = _transit_summary(item)
+            if summary.get("fare_known"):
+                return float(summary.get("fare_yuan") or 0)
+        if mode in {"walking", "bicycling"}:
+            return 0.0
+        return math.inf
+
+    tolerance = max(0, min(30, int(near_time_tolerance_minutes or 0)))
+    if strategy == "least_cost":
+        priced = [item for item in candidates if math.isfinite(candidate_cost(item))]
+        route = min(
+            priced or candidates,
+            key=lambda item: (
+                candidate_cost(item),
+                float(item.get("duration") or math.inf),
+                float(item.get("distance") or math.inf),
+            ),
+        )
+    elif strategy == "time_then_cost":
+        near_fastest = [
+            item for item in candidates
+            if float(item.get("duration") or math.inf) <= fastest_duration + tolerance
+        ]
+        priced = [item for item in near_fastest if math.isfinite(candidate_cost(item))]
+        route = min(
+            priced or near_fastest or [fastest],
+            key=lambda item: (
+                candidate_cost(item),
+                float(item.get("duration") or math.inf),
+                float(item.get("distance") or math.inf),
+            ),
+        )
+    else:
+        route = fastest
     distance = float(route.get("distance") or 0)
     # Tencent Direction WebService reports duration in minutes.
     duration = float(route.get("duration") or 0) * 60
@@ -746,6 +800,31 @@ async def _plan_route_leg(
         "distance_meters": distance,
         "duration_seconds": duration,
         "fare": fare,
+        "selection": {
+            "strategy": strategy,
+            "near_time_tolerance_minutes": tolerance,
+            "provider_policy": str(params.get("policy") or ""),
+            "candidate_count": len(candidates),
+            "fastest_duration_seconds": (
+                round(fastest_duration * 60)
+                if math.isfinite(fastest_duration)
+                else 0
+            ),
+            "selected_cost_yuan": (
+                round(candidate_cost(route), 2)
+                if math.isfinite(candidate_cost(route))
+                else None
+            ),
+            "cost_source": (
+                "estimated_self_driving"
+                if mode == "driving"
+                else "tencent_transit_fare"
+                if mode == "transit" and math.isfinite(candidate_cost(route))
+                else "zero_cost_mode"
+                if mode in {"walking", "bicycling"}
+                else "unavailable"
+            ),
+        },
         **({"transit": transit} if mode == "transit" else {}),
     }
 
@@ -756,6 +835,8 @@ async def plan_route(
     *,
     optimize: bool = False,
     mode: str = "driving",
+    strategy: str = "time_then_cost",
+    near_time_tolerance_minutes: int = 10,
 ) -> dict[str, Any]:
     if not key:
         raise RuntimeError("未配置 TENCENT_MAP_KEY")
@@ -766,6 +847,9 @@ async def plan_route(
     mode = str(mode or "driving").strip().lower()
     if mode not in {"driving", "transit", "walking", "bicycling"}:
         raise ValueError("路线方式必须是 driving、transit、walking 或 bicycling")
+    strategy = str(strategy or "time_then_cost").strip().lower()
+    if strategy not in {"time_then_cost", "least_time", "least_cost"}:
+        raise ValueError("路线策略必须是 time_then_cost、least_time 或 least_cost")
     places = await normalize_route_places(key, places)
     if optimize and mode == "driving":
         places = await optimize_place_order(key, places)
@@ -776,6 +860,8 @@ async def plan_route(
             places[-1],
             mode=mode,
             waypoints=places[1:-1],
+            strategy=strategy,
+            near_time_tolerance_minutes=near_time_tolerance_minutes,
         )
     else:
         semaphore = asyncio.Semaphore(3)
@@ -783,7 +869,12 @@ async def plan_route(
         async def plan_index(index: int) -> dict[str, Any]:
             async with semaphore:
                 return await _plan_route_leg(
-                    key, places[index], places[index + 1], mode=mode,
+                    key,
+                    places[index],
+                    places[index + 1],
+                    mode=mode,
+                    strategy=strategy,
+                    near_time_tolerance_minutes=near_time_tolerance_minutes,
                 )
 
         legs = await asyncio.gather(*(plan_index(index) for index in range(len(places) - 1)))
@@ -831,6 +922,18 @@ async def plan_route(
                 if mode == "transit"
                 else {}
             ),
+            "selection": {
+                "strategy": strategy,
+                "near_time_tolerance_minutes": max(
+                    0, min(30, int(near_time_tolerance_minutes or 0)),
+                ),
+                "provider_policy": "LEAST_TIME" if mode == "transit" else "",
+                "candidate_count": sum(
+                    int((leg.get("selection") or {}).get("candidate_count") or 0)
+                    for leg in legs
+                ),
+                "leg_selections": [leg.get("selection") or {} for leg in legs],
+            },
         }
     return {
         "schema_version": 2 if mode == "driving" else 3,
@@ -842,10 +945,22 @@ async def plan_route(
 
 
 async def plan_driving_route(
-    key: str, places: list[dict[str, Any]], *, optimize: bool = False,
+    key: str,
+    places: list[dict[str, Any]],
+    *,
+    optimize: bool = False,
+    strategy: str = "time_then_cost",
+    near_time_tolerance_minutes: int = 10,
 ) -> dict[str, Any]:
     """Backward-compatible driving entrypoint."""
-    return await plan_route(key, places, optimize=optimize, mode="driving")
+    return await plan_route(
+        key,
+        places,
+        optimize=optimize,
+        mode="driving",
+        strategy=strategy,
+        near_time_tolerance_minutes=near_time_tolerance_minutes,
+    )
 
 
 async def plan_verified_route(
@@ -854,6 +969,8 @@ async def plan_verified_route(
     *,
     optimize: bool = False,
     mode: str = "driving",
+    strategy: str = "time_then_cost",
+    near_time_tolerance_minutes: int = 10,
     timeout_seconds: float = 18,
 ) -> dict[str, Any]:
     """Plan roads exclusively with Tencent Location Service.
@@ -868,9 +985,22 @@ async def plan_verified_route(
     try:
         return await asyncio.wait_for(
             (
-                plan_driving_route(key, places, optimize=optimize)
+                plan_driving_route(
+                    key,
+                    places,
+                    optimize=optimize,
+                    strategy=strategy,
+                    near_time_tolerance_minutes=near_time_tolerance_minutes,
+                )
                 if str(mode or "driving") == "driving"
-                else plan_route(key, places, optimize=optimize, mode=mode)
+                else plan_route(
+                    key,
+                    places,
+                    optimize=optimize,
+                    mode=mode,
+                    strategy=strategy,
+                    near_time_tolerance_minutes=near_time_tolerance_minutes,
+                )
             ),
             timeout=timeout,
         )

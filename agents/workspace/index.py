@@ -56,6 +56,47 @@ def _response(state, action=None, **extra):
     return payload
 
 
+def _learn_from_activated_route(state: dict, action: dict) -> bool:
+    payload = action.get("payload") if isinstance(action, dict) else None
+    signal = payload.get("preference_signal") if isinstance(payload, dict) else None
+    if not isinstance(signal, dict) or not signal:
+        return False
+    learning = state.setdefault("route_preference_learning", {
+        "mode_counts": {},
+        "strategy_counts": {},
+        "action_ids": [],
+    })
+    action_ids = learning.setdefault("action_ids", [])
+    if not isinstance(action_ids, list):
+        action_ids = []
+        learning["action_ids"] = action_ids
+    action_id = str(action.get("id") or "")
+    if not action_id or action_id in action_ids:
+        return False
+
+    def record(key: str, value: str, allowed: set[str]) -> None:
+        if value not in allowed:
+            return
+        counts = learning.setdefault(key, {})
+        if not isinstance(counts, dict):
+            counts = {}
+            learning[key] = counts
+        counts[value] = min(10_000, max(0, int(counts.get(value) or 0)) + 1)
+
+    record(
+        "mode_counts",
+        str(signal.get("mode") or ""),
+        {"driving", "transit", "walking", "bicycling"},
+    )
+    record(
+        "strategy_counts",
+        str(signal.get("strategy") or ""),
+        {"time_then_cost", "least_time", "least_cost"},
+    )
+    learning["action_ids"] = [*action_ids[-199:], action_id]
+    return True
+
+
 async def _record_calendar_signal(store, changed: list[dict], source: str, user_id: str, env: dict | None = None) -> None:
     if not changed:
         return
@@ -214,6 +255,7 @@ async def handler(ctx):
             action["status"] = "active"
             action["updated_at"] = int(time.time())
             state["active_map_action_id"] = action["id"]
+            _learn_from_activated_route(state, action)
             state = await save_workspace(store, workspace_id, state)
             await _record_route_signal(
                 store, f"map_activated:{action['id']}:{action['version']}", user_id, ctx.env

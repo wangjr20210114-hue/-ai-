@@ -40,6 +40,9 @@ DEFAULT_MAP_PREFERENCES = {
     "route_stop_limit": 8,
     "search_timeout_seconds": 30,
     "preferred_route_mode": "driving",
+    "route_strategy": "time_then_cost",
+    "near_time_tolerance_minutes": 10,
+    "learn_route_preferences": True,
 }
 
 
@@ -60,6 +63,17 @@ def normalize_map_preferences(value: Any) -> dict[str, Any]:
         except (TypeError, ValueError):
             return int(mode_defaults[key])
 
+    try:
+        near_time_tolerance = max(
+            0,
+            min(
+                30,
+                int(preferences.get("near_time_tolerance_minutes", 10) or 0),
+            ),
+        )
+    except (TypeError, ValueError):
+        near_time_tolerance = 10
+
     return {
         "service_mode": mode,
         "place_result_limit": bounded_int("place_result_limit", 3, 12),
@@ -72,6 +86,16 @@ def normalize_map_preferences(value: Any) -> dict[str, Any]:
             if str(preferences.get("preferred_route_mode") or "driving")
             in {"driving", "transit", "walking", "bicycling"}
             else "driving"
+        ),
+        "route_strategy": (
+            str(preferences.get("route_strategy") or "time_then_cost")
+            if str(preferences.get("route_strategy") or "time_then_cost")
+            in {"time_then_cost", "least_time", "least_cost"}
+            else "time_then_cost"
+        ),
+        "near_time_tolerance_minutes": near_time_tolerance,
+        "learn_route_preferences": bool(
+            preferences.get("learn_route_preferences", True)
         ),
     }
 

@@ -49,6 +49,7 @@ async function chat(index, input) {
   if (!response.ok) throw new Error(`${input.id}: HTTP ${response.status} ${body.slice(0, 300)}`);
   const events = parseEvents(body);
   const mapAction = actionOf(events, 'map_action');
+  const calendarAction = actionOf(events, 'calendar_action');
   const clarification = actionOf(events, 'clarification_action');
   const answer = answerOf(events);
   const result = {
@@ -57,8 +58,10 @@ async function chat(index, input) {
     duration_ms: Date.now() - startedAt,
     event_types: [...new Set(events.map((event) => event?.type).filter(Boolean))],
     route_mode: mapAction?.action?.payload?.route_mode || '',
+    route_strategy: mapAction?.action?.payload?.route_strategy || '',
     places: (mapAction?.action?.payload?.places || []).map((place) => place?.name).filter(Boolean),
     has_map_action: Boolean(mapAction),
+    has_calendar_action: Boolean(calendarAction),
     has_clarification: Boolean(clarification),
     answer_preview: answer.slice(0, 180),
   };
@@ -86,6 +89,9 @@ const cases = [
       if (!result.places.includes('当前位置')) {
         throw new Error(`${result.id}: current location was not retained as origin`);
       }
+      if (result.route_strategy !== 'time_then_cost') {
+        throw new Error(`${result.id}: expected the default time_then_cost strategy`);
+      }
     },
   },
   {
@@ -112,6 +118,33 @@ const cases = [
     assert(result) {
       if (!result.has_clarification) {
         throw new Error(`${result.id}: expected a clarification instead of an invented route`);
+      }
+    },
+  },
+  {
+    id: 'calendar-unique-typo',
+    message: '请为我创建一条日程提案：2026年8月10日上午9点到10点去天安们参观。这里有一个明显错别字，请按地点服务证据处理。',
+    assert(result) {
+      if (!result.has_calendar_action || result.has_clarification) {
+        throw new Error(`${result.id}: expected a calendar proposal without an extra question`);
+      }
+    },
+  },
+  {
+    id: 'calendar-multiple-candidates',
+    message: '请为我创建一条日程提案：2026年8月11日下午2点到3点去万达广场，但我还没有说城市。',
+    assert(result) {
+      if (!result.has_clarification || result.has_calendar_action) {
+        throw new Error(`${result.id}: expected a finite place choice before calendar proposal`);
+      }
+    },
+  },
+  {
+    id: 'calendar-no-candidate',
+    message: '请为我创建一条日程提案：2026年8月12日上午9点到10点去不存在的日程地点咕咕塔XYZ。',
+    assert(result) {
+      if (!result.has_clarification || result.has_calendar_action) {
+        throw new Error(`${result.id}: expected a fill-in clarification before calendar proposal`);
       }
     },
   },

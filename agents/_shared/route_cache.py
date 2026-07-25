@@ -16,7 +16,11 @@ DEFAULT_ROUTE_CACHE_TTL_SECONDS = 30 * 60
 
 
 def route_cache_key(
-    places: list[dict], optimize: bool, mode: str = "driving",
+    places: list[dict],
+    optimize: bool,
+    mode: str = "driving",
+    strategy: str = "time_then_cost",
+    near_time_tolerance_minutes: int = 10,
 ) -> str:
     normalized = [{
         "place_id": str(item.get("place_id") or ""),
@@ -28,6 +32,10 @@ def route_cache_key(
             "places": normalized,
             "optimize": bool(optimize),
             "mode": str(mode or "driving"),
+            "strategy": str(strategy or "time_then_cost"),
+            "near_time_tolerance_minutes": max(
+                0, min(30, int(near_time_tolerance_minutes or 0)),
+            ),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -47,6 +55,8 @@ async def load_route_cache(
     optimize: bool,
     *,
     mode: str = "driving",
+    strategy: str = "time_then_cost",
+    near_time_tolerance_minutes: int = 10,
     now: int | None = None,
 ) -> dict[str, Any] | None:
     if store is None:
@@ -55,7 +65,13 @@ async def load_route_cache(
     try:
         cached = _item_value(await store.aget(
             data_namespace("route_cache", str(user_id)),
-            route_cache_key(places, optimize, mode),
+            route_cache_key(
+                places,
+                optimize,
+                mode,
+                strategy,
+                near_time_tolerance_minutes,
+            ),
         ))
         if (
             cached
@@ -81,6 +97,8 @@ async def save_route_cache(
     route: dict[str, Any],
     *,
     mode: str = "driving",
+    strategy: str = "time_then_cost",
+    near_time_tolerance_minutes: int = 10,
     now: int | None = None,
     ttl_seconds: int = DEFAULT_ROUTE_CACHE_TTL_SECONDS,
 ) -> dict[str, Any]:
@@ -90,7 +108,13 @@ async def save_route_cache(
         try:
             await store.aput(
                 data_namespace("route_cache", str(user_id)),
-                route_cache_key(places, optimize, mode),
+                route_cache_key(
+                    places,
+                    optimize,
+                    mode,
+                    strategy,
+                    near_time_tolerance_minutes,
+                ),
                 {
                     "route": copy.deepcopy(route),
                     "created_at": timestamp,

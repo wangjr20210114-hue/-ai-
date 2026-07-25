@@ -127,6 +127,15 @@ class RoutePlanInput(BaseModel):
             "the user's saved map preference."
         ),
     )
+    route_strategy: Literal[
+        "default", "time_then_cost", "least_time", "least_cost",
+    ] = Field(
+        default="default",
+        description=(
+            "Explicit route tradeoff. Use default when unstated; the saved and "
+            "learned preference then applies."
+        ),
+    )
     use_current_location_as_origin: bool = Field(
         default=False,
         description=(
@@ -293,6 +302,66 @@ def _place_choice_field(field_id: str, label: str, places: list[dict[str, Any]])
     }
 
 
+def _place_option_label(place: dict[str, Any]) -> str:
+    return (
+        f"{place.get('name') or '未命名地点'}｜"
+        f"{place.get('address') or '地址未提供'}"
+    )[:240]
+
+
+def _place_resolution(
+    query: str,
+    places: list[dict[str, Any]],
+) -> tuple[str, dict[str, Any] | None, str]:
+    """Return the deterministic three-level decision for a side-effect place.
+
+    Auto-use is deliberately limited to one exact provider match or one unique
+    verified candidate. Multiple real POIs always require a finite choice;
+    no candidates require free text.
+    """
+    clean_query = _normalized_place_name(query)
+    exact = [
+        place for place in places
+        if _normalized_place_name(place.get("name")) == clean_query
+    ]
+    if len(exact) == 1:
+        return "auto_use", exact[0], "unique_exact_provider_match"
+    if len(places) == 1:
+        correction = places[0].get("query_correction")
+        return (
+            "auto_use",
+            places[0],
+            "unique_verified_correction"
+            if isinstance(correction, dict)
+            else "unique_verified_candidate",
+        )
+    if places:
+        return "choose", None, "multiple_verified_candidates"
+    return "fill", None, "no_verified_candidate"
+
+
+def _learned_route_preference(
+    learning: dict[str, Any],
+    key: str,
+    allowed: set[str],
+) -> str:
+    counts = learning.get(key) if isinstance(learning, dict) else None
+    if not isinstance(counts, dict):
+        return ""
+    ranked = sorted(
+        (
+            (str(value), max(0, int(count)))
+            for value, count in counts.items()
+            if str(value) in allowed
+        ),
+        key=lambda item: (-item[1], item[0]),
+    )
+    total = sum(count for _value, count in ranked)
+    if not ranked or total < 3 or ranked[0][1] / total < 0.6:
+        return ""
+    return ranked[0][0]
+
+
 async def verify_place_queries_parallel(
     provider: Callable[..., Awaitable[list[dict[str, Any]]]],
     map_key: str,
@@ -353,7 +422,9 @@ def build_production_tools(
     planned_route_stops: list[dict[str, str]] | None = None,
     planned_route_city: str = "全国",
     planned_route_mode: str = "default",
+    planned_route_strategy: str = "default",
     planned_route_uses_current_location: bool = False,
+    planned_calendar_place_resolution: bool = False,
     browser_current_location: dict[str, Any] | None = None,
     map_preferences: dict[str, Any] | None = None,
     proactive_preferences: dict[str, Any] | None = None,
@@ -370,6 +441,15 @@ def build_production_tools(
     map_preferred_route_mode = str(map_scope.get("preferred_route_mode") or "driving")
     if map_preferred_route_mode not in {"driving", "transit", "walking", "bicycling"}:
         map_preferred_route_mode = "driving"
+    map_route_strategy = str(map_scope.get("route_strategy") or "time_then_cost")
+    if map_route_strategy not in {"time_then_cost", "least_time", "least_cost"}:
+        map_route_strategy = "time_then_cost"
+    map_near_time_tolerance = max(
+        0, min(30, int(map_scope.get("near_time_tolerance_minutes", 10) or 0)),
+    )
+    map_learn_route_preferences = bool(
+        map_scope.get("learn_route_preferences", True)
+    )
     map_parallelism = {"fast": 4, "balanced": 3, "complete": 2}.get(map_service_mode, 3)
     proactive_scope = proactive_preferences or {}
     travel_buffer_minutes = max(0, min(120, int(
@@ -485,23 +565,86 @@ def build_production_tools(
         finally:
             await _record_map_call("chat_route", map_key)
 
-    async def search_places(query: str, city: str = "全国", limit: int = 10) -> str:
-        """Search and verify real map places; returns stable place IDs and coordinates."""
+    async def search_places(
+        query: str,
+        city: str = "全国",
+        limit: int = 10,
+        purpose: Literal["browse", "calendar"] = "browse",
+    ) -> str:
+        """Search real places; calendar mode enforces auto/choose/fill resolution."""
+        effective_purpose = (
+            "calendar" if planned_calendar_place_resolution else purpose
+        )
+        state = await _load_state()
+        candidates = state.setdefault("place_candidates", {})
+        selected_option = next(
+            (
+                place for place in candidates.values()
+                if isinstance(place, dict)
+                and _normalized_place_name(_place_option_label(place))
+                == _normalized_place_name(query)
+            ),
+            None,
+        )
+        if effective_purpose == "calendar" and isinstance(selected_option, dict):
+            return json.dumps({
+                "places": [selected_option],
+                "count": 1,
+                "resolution": {
+                    "decision": "auto_use",
+                    "reason": "user_selected_verified_candidate",
+                    "selected_place_id": selected_option.get("place_id"),
+                },
+            }, ensure_ascii=False)
         places = await _search_places_metered(
             str(runtime_env.get("TENCENT_MAP_SERVER_KEY") or runtime_env.get("TENCENT_MAP_KEY") or runtime_env.get("VITE_TENCENT_MAP_KEY") or ""),
             query,
             city=city,
             limit=max(1, min(map_place_result_limit, int(limit))),
         )
-        state = await _load_state()
-        candidates = state.setdefault("place_candidates", {})
         for place in places:
             candidates[str(place["place_id"])] = place
         # Keep the short-lived candidate set bounded even in a long conversation.
         if len(candidates) > 200:
             state["place_candidates"] = dict(list(candidates.items())[-200:])
         await _save_state(state)
-        return json.dumps({"places": places, "count": len(places)}, ensure_ascii=False)
+        if effective_purpose != "calendar":
+            return json.dumps({"places": places, "count": len(places)}, ensure_ascii=False)
+        decision, selected, reason = _place_resolution(query, places)
+        if decision == "auto_use" and isinstance(selected, dict):
+            return json.dumps({
+                "places": [selected],
+                "count": 1,
+                "resolution": {
+                    "decision": decision,
+                    "reason": reason,
+                    "selected_place_id": selected.get("place_id"),
+                },
+            }, ensure_ascii=False)
+        if decision == "choose":
+            return _clarification_action(
+                conversation_id,
+                title="请选择日程地点",
+                prompt=f"查到多个符合“{query}”的真实地点。请选择要写入日程的地点。",
+                fields=[_place_choice_field(
+                    "calendar_place",
+                    "日程安排在哪个地点？",
+                    places,
+                )],
+            )
+        return _clarification_action(
+            conversation_id,
+            title="请补充日程地点",
+            prompt=f"地点服务没有足够证据确认“{query}”。请填写更完整的名称或城市。",
+            fields=[{
+                "id": "calendar_place",
+                "label": "日程的正确地点是什么？",
+                "type": "text",
+                "required": True,
+                "options": [],
+                "placeholder": f"例如：城市 + {query}",
+            }],
+        )
 
     async def search_places_batch(queries: list[str], city: str = "全国", limit_per_query: int = 3) -> str:
         """Verify every named destination independently and retain every candidate ID."""
@@ -854,6 +997,7 @@ def build_production_tools(
         destination_near_query: str = "",
         nearby_radius_meters: int = 5_000,
         route_mode: str = "default",
+        route_strategy: str = "default",
         use_current_location_as_origin: bool = False,
         ordered_stops: list[dict[str, str]] | None = None,
     ) -> str:
@@ -876,12 +1020,25 @@ def build_production_tools(
         planner_route_mode = str(planned_route_mode or "default").strip().lower()
         if requested_route_mode not in {"default", "driving", "transit", "walking", "bicycling"}:
             requested_route_mode = "default"
-        selected_route_mode = (
+        explicit_route_mode = (
             requested_route_mode
             if requested_route_mode != "default"
             else planner_route_mode
             if planner_route_mode in {"driving", "transit", "walking", "bicycling"}
-            else map_preferred_route_mode
+            else ""
+        )
+        requested_route_strategy = str(route_strategy or "default").strip().lower()
+        planner_route_strategy = str(planned_route_strategy or "default").strip().lower()
+        if requested_route_strategy not in {
+            "default", "time_then_cost", "least_time", "least_cost",
+        }:
+            requested_route_strategy = "default"
+        explicit_route_strategy = (
+            requested_route_strategy
+            if requested_route_strategy != "default"
+            else planner_route_strategy
+            if planner_route_strategy in {"time_then_cost", "least_time", "least_cost"}
+            else ""
         )
         should_use_current_location = bool(
             browser_current_location
@@ -909,6 +1066,34 @@ def build_production_tools(
         route_operation_deadline = asyncio.get_running_loop().time() + 58.0
         radius = max(500, min(20_000, int(nearby_radius_meters or 5_000)))
         state = await _load_state()
+        learning = state.setdefault("route_preference_learning", {
+            "mode_counts": {},
+            "strategy_counts": {},
+        })
+        learned_route_mode = (
+            _learned_route_preference(
+                learning,
+                "mode_counts",
+                {"driving", "transit", "walking", "bicycling"},
+            )
+            if map_learn_route_preferences
+            else ""
+        )
+        learned_route_strategy = (
+            _learned_route_preference(
+                learning,
+                "strategy_counts",
+                {"time_then_cost", "least_time", "least_cost"},
+            )
+            if map_learn_route_preferences
+            else ""
+        )
+        selected_route_mode = (
+            explicit_route_mode or learned_route_mode or map_preferred_route_mode
+        )
+        selected_route_strategy = (
+            explicit_route_strategy or learned_route_strategy or map_route_strategy
+        )
         candidates = state.setdefault("place_candidates", {})
         for event in (state.get("schedules") or {}).values():
             extra = event.get("extra") if isinstance(event, dict) and isinstance(event.get("extra"), dict) else {}
@@ -1117,7 +1302,13 @@ def build_production_tools(
                 "路线规划总耗时已接近 60 秒上限，请减少站点或在设置中选择快速档"
             )
         route = await load_route_cache(
-            store, user_id, resolved_stops, False, mode=selected_route_mode,
+            store,
+            user_id,
+            resolved_stops,
+            False,
+            mode=selected_route_mode,
+            strategy=selected_route_strategy,
+            near_time_tolerance_minutes=map_near_time_tolerance,
         )
         if route is None:
             try:
@@ -1127,6 +1318,8 @@ def build_production_tools(
                         resolved_stops,
                         optimize=False,
                         mode=selected_route_mode,
+                        strategy=selected_route_strategy,
+                        near_time_tolerance_minutes=map_near_time_tolerance,
                     ),
                     # The selected mode comes from the explicit request, semantic
                     # plan, or user setting—in that order.
@@ -1143,6 +1336,8 @@ def build_production_tools(
                 False,
                 route,
                 mode=selected_route_mode,
+                strategy=selected_route_strategy,
+                near_time_tolerance_minutes=map_near_time_tolerance,
             )
         provider_places = route.get("places")
         if isinstance(provider_places, list) and len(provider_places) == len(resolved_stops):
@@ -1154,6 +1349,8 @@ def build_production_tools(
                 False,
                 route,
                 mode=selected_route_mode,
+                strategy=selected_route_strategy,
+                near_time_tolerance_minutes=map_near_time_tolerance,
             )
         distance_meters = float(route.get("distance_meters") or 0)
         duration_seconds = float(route.get("duration_seconds") or 0)
@@ -1178,6 +1375,8 @@ def build_production_tools(
             "distance_meters": round(distance_meters),
             "duration_seconds": round(duration_seconds),
             "mode": selected_route_mode,
+            "strategy": selected_route_strategy,
+            "selection": copy.deepcopy(route.get("selection") or {}),
         }
         map_action = new_action(
             "map_recommendation",
@@ -1187,6 +1386,19 @@ def build_production_tools(
                 "places": resolved_stops,
                 "route_plan_id": route_plan_id,
                 "route_mode": selected_route_mode,
+                "route_strategy": selected_route_strategy,
+                "preference_signal": (
+                    {
+                        **({"mode": explicit_route_mode} if explicit_route_mode else {}),
+                        **(
+                            {"strategy": explicit_route_strategy}
+                            if explicit_route_strategy else {}
+                        ),
+                    }
+                    if map_learn_route_preferences
+                    and (explicit_route_mode or explicit_route_strategy)
+                    else {}
+                ),
                 "show_route": True,
             },
             requires_confirmation=False,
@@ -1209,10 +1421,13 @@ def build_production_tools(
                 "duration_minutes": max(1, round(duration_seconds / 60)),
                 "fare": route.get("fare") or {},
                 "transit": route.get("transit") or {},
+                "selection": route.get("selection") or {},
             },
             "response_constraint": (
                 f"距离和耗时来自按用户指定顺序核实的 {len(resolved_stops)} 个地点之间的真实道路路线；"
                 f"交通方式为 {selected_route_mode}；"
+                f"路线策略为 {selected_route_strategy}，由腾讯返回候选并按"
+                f"{map_near_time_tolerance} 分钟的时间相近容差选择；"
                 + (
                     "query_corrections 是腾讯地点候选提供的高置信度纠错证据，回答应简短说明按纠正名称规划；"
                     if query_corrections else ""
@@ -2052,10 +2267,10 @@ def build_production_tools(
         )
 
     definitions = [
-        (search_places, "search_places", "使用腾讯地点服务搜索真实地点，返回可安全用于地图和日程的 place_id。推荐地点、景点、餐馆或含地点日程前必须调用。"),
+        (search_places, "search_places", "使用腾讯地点服务搜索真实地点。普通查看传 purpose=browse；新增或修改含现实地点的日程必须传 purpose=calendar，工具会强制执行三级决策：唯一高置信候选直接返回可用 place_id，多个真实候选生成单选卡，无候选生成文本填空卡。"),
         (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
         (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。传入完整明确的 anchor_query 与要找的类别 query；若用户给出多个备选参照地点，还必须把全部备选放入 anchor_queries，一次并行查询并保留各组成功结果，不能只选一个或拆成多次调用。工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。用户没有明确距离时不要自行缩小 radius_meters，保持默认 2000 米且 strict_radius=false；只有用户明确说“X 米内”时才传该距离并设 strict_radius=true。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),
-        (plan_route_between_places, "plan_route_between_places", "查询真实地点之间的道路距离、耗时或费用，或规划含多个停靠点的有序出行时必须使用。支持 route_mode=driving/transit/walking/bicycling，未指定时传 default。浏览器当前位置可用且用户未给起点时传 use_current_location_as_origin=true；不得把当前位置作为普通 POI 搜索。两点路线传 origin_query/destination_query；多段行程把全部文本地点按用户指定先后一次传入 ordered_stops，每项包含 query，可选 near_query，禁止拆成多次调用或自行重排。工具会核实全部地点并调用真实腾讯路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 query 传“锦江之星”、near_query 传“北京301医院”；高置信度错字会依据腾讯候选纠正，不唯一或证据不足会自动生成澄清卡。"),
+        (plan_route_between_places, "plan_route_between_places", "查询真实地点之间的道路距离、耗时或费用，或规划含多个停靠点的有序出行时必须使用。支持 route_mode=driving/transit/walking/bicycling 和 route_strategy=time_then_cost/least_time/least_cost，未指定均传 default。默认由腾讯多方案按省时优先、时间相近选省钱；用户明确选择会形成非敏感习惯计数，至少三次且占比达到 60% 后可影响后续默认。浏览器当前位置可用且用户未给起点时传 use_current_location_as_origin=true；不得把当前位置作为普通 POI 搜索。两点路线传 origin_query/destination_query；多段行程把全部文本地点按用户指定先后一次传入 ordered_stops，每项包含 query，可选 near_query，禁止拆成多次调用或自行重排。工具会核实全部地点并调用真实腾讯路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 query 传“锦江之星”、near_query 传“北京301医院”；唯一高置信错字可纠正，多个候选单选，无候选填空。"),
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
         (recommend_places_on_map, "recommend_places_on_map", "模型驱动的非周边多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。只要用户目标表达了相对某个或多个参照点“附近、周边、离它近”，不得使用本工具，也不得从模型知识猜餐厅名称；必须改用 recommend_nearby_places_on_map，把全部参照点放入 anchor_queries。"),
         (propose_calendar_changes, "propose_calendar_changes", "必须用此工具准备日程新增、更新或删除提案并生成确认卡；不要只在正文里口头询问。格式示例：changes=[{operation:'create',event:{title:'游览北海公园',start_time:'2026-07-16T09:00:00+08:00',end_time:'2026-07-16T10:00:00+08:00',place_id:'地点工具返回的ID'}}]。把刚规划的多站路线写入日程时，必须传路线工具返回的 source_route_plan_id，并为 ordered_stops 中每个地点分别创建至少一个事件，严格保持顺序，禁止把多个站点合并成一个事件。更新/删除还要传 schedule_id。用户点击确认前不会真正写入。"),
