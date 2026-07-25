@@ -30,11 +30,16 @@ function summarize(id, conversationId, durationMs, events) {
   const clarification = clarificationAction?.clarification;
   const places = mapAction?.action?.payload?.places || [];
   const changes = calendarAction?.action?.payload?.changes || [];
+  const errorMessages = events
+    .filter((event) => event?.type === 'error_message')
+    .map((event) => event?.content || event?.payload?.message || event?.payload?.content || '')
+    .filter(Boolean);
   return {
     id,
     conversation_id: conversationId,
     duration_ms: durationMs,
     event_types: [...new Set(events.map((event) => event?.type).filter(Boolean))],
+    error_messages: errorMessages,
     has_map_action: Boolean(mapAction),
     has_calendar_action: Boolean(calendarAction),
     has_clarification: Boolean(clarification),
@@ -113,8 +118,9 @@ const baseInstruction = [
 ].join('');
 
 const results = [];
+const selectedScenario = String(process.env.FLORIS_LINKAGE_SCENARIO || '').trim();
 
-{
+if (!selectedScenario || selectedScenario === 'clean') {
   const conversationId = `yb7_linkage_${runStamp}_clean`;
   const result = await chat('six-stops-clean-with-typos', conversationId, {
     message: `${baseInstruction}依次为：北京站、天安们、故宫博物院、景山公园、北海公园、北京西站。`,
@@ -134,7 +140,7 @@ const results = [];
   results.push(result);
 }
 
-{
+if (!selectedScenario || selectedScenario === 'ambiguous') {
   const conversationId = `yb7_linkage_${runStamp}_ambiguous`;
   const result = await chat('six-stops-ambiguous-place', conversationId, {
     message: `${baseInstruction}依次为：北京站、天安门、故宫博物院、万达广场、北海公园、北京西站。`,
@@ -145,7 +151,7 @@ const results = [];
   results.push(result);
 }
 
-{
+if (!selectedScenario || selectedScenario === 'missing') {
   const conversationId = `yb7_linkage_${runStamp}_missing`;
   const result = await chat('six-stops-missing-place', conversationId, {
     message: `${baseInstruction}依次为：北京站、天安门、故宫博物院、景山公园、北海公园、咕咕塔XYZ。`,
@@ -156,7 +162,7 @@ const results = [];
   results.push(result);
 }
 
-{
+if (!selectedScenario || selectedScenario === 'mixed') {
   const conversationId = `yb7_linkage_${runStamp}_mixed`;
   let result = await chat('six-stops-mixed-turn-1', conversationId, {
     message: `${baseInstruction}依次为：北京站、天安们、故宫博物院、万达广场、北京301医元、咕咕塔XYZ。`,

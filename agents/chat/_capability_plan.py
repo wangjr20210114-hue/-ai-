@@ -426,9 +426,10 @@ async def plan_capabilities(
             return _preserve_explicit_calendar_intent(parsed, user_message)
     except Exception:
         pass
-    return _preserve_explicit_calendar_intent(
-        dict(DEFAULT_PLAN), user_message,
-    )
+    # If structured planning itself failed, leave the main full-history model
+    # unconstrained. Forcing only the calendar tool here would skip required
+    # place/route verification and can make a large multi-stop request invalid.
+    return dict(DEFAULT_PLAN)
 
 
 async def plan_capabilities_bounded(

@@ -208,6 +208,13 @@ class StructuredPlannerModel:
         }
 
 
+class FailingStructuredPlannerModel(StructuredPlannerModel):
+    async def ainvoke(self, messages):
+        self.calls += 1
+        self.messages = messages
+        raise RuntimeError("structured planner rejected the request")
+
+
 class FakeRequest:
     def __init__(self, body, headers=None):
         self.body = body
@@ -410,6 +417,16 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         })
         plan = await plan_capabilities(model, "请帮我规划明天的六站行程")
         self.assertFalse(plan["needs_calendar_action"])
+
+    async def test_failed_structured_planner_leaves_linked_trip_to_main_model(self):
+        model = FailingStructuredPlannerModel()
+        plan = await plan_capabilities(
+            model,
+            "请规划北京六个地点的路线，并生成待确认的日程提案",
+        )
+        self.assertEqual(model.calls, 1)
+        self.assertFalse(any(plan[key] for key in plan if key.startswith("needs_")))
+        self.assertEqual(required_tools_for_plan(plan), ())
 
     def test_capability_plan_rejects_unknown_blocked_skill(self):
         plan = parse_capability_plan(json.dumps({
