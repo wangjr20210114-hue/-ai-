@@ -1,4 +1,6 @@
-"""Bounded chat-history helpers with no runtime-framework dependency."""
+"""Bounded and compact chat-history helpers."""
+
+import json
 
 
 def _message_type(message) -> str:
@@ -89,3 +91,101 @@ def bounded_history(messages, limit: int = 32):
             break
         start += 1
     return list(messages[start:])
+
+
+def compact_tool_results_for_model(messages):
+    """Keep UI Actions intact in state while shrinking the next model input."""
+    output = []
+    for message in messages:
+        kind = _message_type(message)
+        name = (
+            str(message.get("name") or "")
+            if isinstance(message, dict)
+            else str(getattr(message, "name", "") or "")
+        )
+        content = (
+            message.get("content", "")
+            if isinstance(message, dict)
+            else getattr(message, "content", "")
+        )
+        if kind != "tool" or name not in {
+            "plan_route_between_places",
+            "propose_calendar_changes",
+        }:
+            output.append(message)
+            continue
+        try:
+            payload = json.loads(str(content or ""))
+        except (TypeError, json.JSONDecodeError):
+            output.append(message)
+            continue
+        if not isinstance(payload, dict):
+            output.append(message)
+            continue
+
+        if name == "plan_route_between_places":
+            compact = {
+                key: payload.get(key)
+                for key in (
+                    "ui_action",
+                    "route_plan_id",
+                    "route",
+                    "response_constraint",
+                )
+                if payload.get(key) is not None
+            }
+            compact["ordered_stops"] = [
+                {
+                    key: stop.get(key)
+                    for key in ("place_id", "name", "query_correction")
+                    if stop.get(key) is not None
+                }
+                for stop in (payload.get("ordered_stops") or [])
+                if isinstance(stop, dict)
+            ]
+            action = payload.get("action") or {}
+            if isinstance(action, dict):
+                compact["action"] = {
+                    key: action.get(key)
+                    for key in ("id", "kind", "status")
+                    if action.get(key) is not None
+                }
+        else:
+            action = payload.get("action") or {}
+            action_payload = (
+                action.get("payload") if isinstance(action, dict) else {}
+            ) or {}
+            changes = (
+                action_payload.get("changes")
+                if isinstance(action_payload, dict) else []
+            ) or []
+            compact = {
+                "ui_action": payload.get("ui_action"),
+                "action": {
+                    "id": action.get("id") if isinstance(action, dict) else "",
+                    "kind": action.get("kind") if isinstance(action, dict) else "",
+                    "status": action.get("status") if isinstance(action, dict) else "",
+                    "summary": (
+                        action_payload.get("summary")
+                        if isinstance(action_payload, dict) else ""
+                    ),
+                    "change_count": len(changes),
+                    "warnings": (
+                        action_payload.get("warnings")
+                        if isinstance(action_payload, dict) else []
+                    ) or [],
+                    "source_route_plan_id": (
+                        action_payload.get("source_route_plan_id")
+                        if isinstance(action_payload, dict) else ""
+                    ),
+                },
+            }
+
+        compact_content = json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
+        if isinstance(message, dict):
+            output.append({**message, "content": compact_content})
+        elif hasattr(message, "model_copy"):
+            output.append(message.model_copy(update={"content": compact_content}))
+        else:
+            output.append(message)
+    return output

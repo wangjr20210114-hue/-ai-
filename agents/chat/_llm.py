@@ -6,7 +6,8 @@ from langchain_openai import ChatOpenAI
 
 DEFAULT_MODEL = "@makers/deepseek-v4-flash"
 DEFAULT_FALLBACK_MODEL = "deepseek-v4-pro"
-_model_cache: dict[tuple[str, str, bool, float, float, str, str], Any] = {}
+DEFAULT_FAST_FALLBACK_MODEL = "deepseek-v4-flash"
+_model_cache: dict[tuple[str, str, bool, float, float, str, str, str], Any] = {}
 
 
 def _model_timeout(env: dict, key: str, default: float) -> float:
@@ -86,7 +87,12 @@ class QuotaFailoverModel:
                 yield chunk
 
 
-def get_model(env: dict, *, thinking_mode: str | None = None):
+def get_model(
+    env: dict,
+    *,
+    thinking_mode: str | None = None,
+    fallback_profile: str = "reasoning",
+):
     missing = [
         key
         for key in ("AI_GATEWAY_API_KEY", "AI_GATEWAY_BASE_URL")
@@ -106,8 +112,17 @@ def get_model(env: dict, *, thinking_mode: str | None = None):
         if requested_thinking in {"enabled", "disabled"}
         else _thinking_mode(env, "AI_GATEWAY_THINKING_MODE")
     )
-    fallback_thinking = _thinking_mode(
-        env, "DEEPSEEK_THINKING_MODE", gateway_thinking,
+    fallback_thinking = (
+        requested_thinking
+        if requested_thinking in {"enabled", "disabled"}
+        else _thinking_mode(env, "DEEPSEEK_THINKING_MODE", gateway_thinking)
+    )
+    requested_profile = str(fallback_profile or "reasoning").strip().lower()
+    fallback_model_name = str(
+        env.get("DEEPSEEK_FAST_MODEL")
+        or DEFAULT_FAST_FALLBACK_MODEL
+    ) if requested_profile == "fast" else str(
+        env.get("DEEPSEEK_MODEL") or DEFAULT_FALLBACK_MODEL
     )
     cache_key = (
         model_name,
@@ -117,6 +132,7 @@ def get_model(env: dict, *, thinking_mode: str | None = None):
         fallback_timeout,
         gateway_thinking,
         fallback_thinking,
+        fallback_model_name,
     )
     if cache_key in _model_cache:
         return _model_cache[cache_key]
@@ -132,7 +148,7 @@ def get_model(env: dict, *, thinking_mode: str | None = None):
     )
     if direct_key:
         fallback = ChatOpenAI(
-            model=str(env.get("DEEPSEEK_MODEL") or DEFAULT_FALLBACK_MODEL),
+            model=fallback_model_name,
             api_key=direct_key,
             base_url=str(env.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com/v1").rstrip("/"),
             temperature=0.0,

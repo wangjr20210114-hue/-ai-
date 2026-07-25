@@ -86,6 +86,16 @@ def search_places(query: str) -> str:
     """Return verified places."""
     return '{"places":[{"place_id":"breakfast-1","name":"早餐店","address":"酒店东侧"}],"count":1}'
 
+@tool
+def search_arxiv(
+    topic: str = "",
+    limit: int = 5,
+    author: str = "",
+    year: int = 0,
+) -> str:
+    """Return structured arXiv papers."""
+    return f"{topic}|{limit}|{author}|{year}"
+
 
 class _ClarificationChoiceBoundModel:
     def __init__(self, owner, tools, tool_choice):
@@ -268,6 +278,72 @@ class _BurstPlaceModel(_RepeatingPlaceModel):
 
 
 class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_planned_arxiv_arguments_skip_redundant_tool_model_round(self):
+        model = _RecordingModel()
+        public_model = _RecordingModel()
+        graph = build_graph(
+            model,
+            [search_arxiv],
+            "tool system",
+            required_tools=["search_arxiv"],
+            public_answer_model=public_model,
+            planned_tool_arguments={
+                "search_arxiv": {
+                    "topic": "large language model route planning",
+                    "limit": 3,
+                    "author": "",
+                    "year": 2024,
+                },
+            },
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="找三篇 2024 年相关论文")],
+        })
+        tool_calls = [
+            call
+            for message in result["messages"]
+            for call in list(getattr(message, "tool_calls", None) or [])
+        ]
+        self.assertEqual(tool_calls[0]["name"], "search_arxiv")
+        self.assertEqual(tool_calls[0]["args"]["year"], 2024)
+        self.assertEqual(model.bound_calls, 0)
+        self.assertEqual(public_model.unbound_calls, 1)
+
+    async def test_fixed_route_schema_uses_fast_tool_model(self):
+        reasoning_model = _LinkedRouteCalendarModel()
+        fast_model = _LinkedRouteCalendarModel()
+        public_model = _RecordingModel()
+        graph = build_graph(
+            reasoning_model,
+            [plan_route_between_places, ask_user_clarification],
+            "tool system",
+            required_tools=["plan_route_between_places"],
+            fast_tool_model=fast_model,
+            public_answer_model=public_model,
+            public_system_prompt="public system",
+        )
+        await graph.ainvoke({"messages": [HumanMessage(content="北京站到北京西站")]})
+        self.assertEqual(len(fast_model.decisions), 1)
+        self.assertEqual(len(reasoning_model.decisions), 0)
+        self.assertEqual(public_model.unbound_calls, 1)
+
+    async def test_calendar_side_effect_can_retain_reasoning_model(self):
+        reasoning_model = _LinkedRouteCalendarModel()
+        fast_model = _LinkedRouteCalendarModel()
+        public_model = _RecordingModel()
+        graph = build_graph(
+            reasoning_model,
+            [propose_calendar_changes, ask_user_clarification],
+            "tool system",
+            required_tools=["propose_calendar_changes"],
+            fast_tool_model=fast_model,
+            reasoning_tools={"propose_calendar_changes"},
+            public_answer_model=public_model,
+        )
+        await graph.ainvoke({"messages": [HumanMessage(content="创建日程提案")]})
+        self.assertEqual(len(reasoning_model.decisions), 1)
+        self.assertEqual(len(fast_model.decisions), 0)
+
     async def test_public_answer_can_use_a_non_thinking_sibling_model(self):
         tool_model = _RecordingModel()
         public_model = _RecordingModel()

@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from agents.chat._llm import (
+    DEFAULT_FAST_FALLBACK_MODEL,
     DEFAULT_FALLBACK_MODEL,
     QuotaFailoverModel,
     _model_cache,
@@ -50,6 +51,23 @@ class ModelConfigurationTests(unittest.TestCase):
         }, thinking_mode="disabled")
         self.assertEqual(
             chat_open_ai.call_args.kwargs["extra_body"],
+            {"thinking": {"type": "disabled"}},
+        )
+
+    @patch("agents.chat._llm.ChatOpenAI")
+    def test_fast_profile_uses_flash_for_direct_provider_failover(self, chat_open_ai):
+        chat_open_ai.side_effect = [MagicMock(), MagicMock()]
+        get_model({
+            "AI_GATEWAY_API_KEY": "makers-key",
+            "AI_GATEWAY_BASE_URL": "https://ai-gateway.edgeone.link/v1",
+            "DEEPSEEK_API_KEY": "direct-key",
+            "DEEPSEEK_THINKING_MODE": "enabled",
+        }, thinking_mode="disabled", fallback_profile="fast")
+        fallback = chat_open_ai.call_args_list[1].kwargs
+        self.assertEqual(fallback["model"], DEFAULT_FAST_FALLBACK_MODEL)
+        self.assertEqual(DEFAULT_FAST_FALLBACK_MODEL, "deepseek-v4-flash")
+        self.assertEqual(
+            fallback["extra_body"],
             {"thinking": {"type": "disabled"}},
         )
 

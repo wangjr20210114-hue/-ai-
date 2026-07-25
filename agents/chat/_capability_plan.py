@@ -27,6 +27,7 @@ DEFAULT_PLAN = {
     "needs_route": False,
     "needs_map_action": False,
     "needs_calendar_action": False,
+    "needs_calendar_context": False,
     "needs_meeting_action": False,
     "needs_workflow_action": False,
     "needs_image_generation": False,
@@ -93,6 +94,13 @@ class CapabilityPlan(BaseModel):
     needs_route: bool = False
     needs_map_action: bool = False
     needs_calendar_action: bool = False
+    needs_calendar_context: bool = Field(
+        default=False,
+        description=(
+            "True when answering requires reading the user's current schedules, "
+            "including calendar create, update, delete, conflict, or agenda questions."
+        ),
+    )
     needs_meeting_action: bool = False
     needs_workflow_action: bool = False
     needs_image_generation: bool = False
@@ -216,6 +224,8 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
         if place_resolution_target in {"none", "calendar"}
         else "none"
     )
+    if plan.get("needs_calendar_action"):
+        plan["needs_calendar_context"] = True
     # A real-world place ambiguity is resolvable only after provider lookup.
     # Restore the deterministic tool chain even if the semantic planner also
     # marked generic clarification. Missing dates/times keep target=none and
@@ -339,6 +349,7 @@ def _preserve_explicit_calendar_intent(
     )
     if any(phrase in normalized for phrase in explicit_phrases):
         plan["needs_calendar_action"] = True
+        plan["needs_calendar_context"] = True
     return plan
 
 
@@ -390,7 +401,7 @@ async def plan_capabilities(
   - needs_route=true 时，route_stops 必须包含用户明确要求经过的全部文本地点，第一项通常是起点，最后一项是终点，中间项按原顺序保留，不能因为某个地点可能有多个候选而省略。若使用已授权当前位置作为隐式起点，不要把坐标或“当前位置”伪造为普通地点搜索词；只把用户说出的目的地/途经地写入 route_stops，并设置 route_uses_current_location=true。浏览器当前位置不可用时 route_uses_current_location=false，缺少起点且无法安全继续才需要澄清。普通地点写 query；“某参照点附近的某品牌/类别”拆成 query=品牌或类别、near_query=参照地点。对话中的“那个店、那里、这个酒店”等指代应结合提供的原始目标与上下文原样保留或解析，不得擅自删除。route_city 填已明确的共同城市，无法确定时填“全国”。非路线请求 route_stops 为空。
   - route_mode 只记录用户明确指定的出行方式：驾车=driving、公交/地铁/公共交通=transit、步行=walking、骑行/自行车=bicycling；用户未指定时填 default，由用户设置决定。不能把“怎么去”擅自理解成驾车。
   - route_strategy 只记录用户明确指定的路线取舍：明确只要最快填 least_time，明确费用最低或最省钱填 least_cost，明确“省时优先、时间相近时省钱”填 time_then_cost；未指定填 default，由用户设置和已学习的明确选择决定。
-- 用户要求新增/修改/删除行程日程时需要 calendar_action。另一个主动服务例外是：用户给出了明确的未来日期或出发时刻，并要求规划包含多个有序站点的可执行行程时，如果日程 Skill 已开启，同时设置 needs_route=true 与 needs_calendar_action=true；路线核实后主动生成一张可编辑的日程确认提案，不要等用户再次询问能否写入。该提案只是等待确认，不能自动生效。若日程 Skill 关闭，这个主动增强不是完成路线的必要条件，不得设置 blocked_skill，也不得阻塞正常路线回答。仅说计划去某地且没有明确时刻，仍不等于写日程。
+- 读取、查询、汇总当前日程时设置 needs_calendar_context=true，但不设置 calendar_action。用户要求新增/修改/删除行程日程时同时设置 needs_calendar_context=true 与 calendar_action。另一个主动服务例外是：用户给出了明确的未来日期或出发时刻，并要求规划包含多个有序站点的可执行行程时，如果日程 Skill 已开启，同时设置 needs_route=true、needs_calendar_context=true 与 needs_calendar_action=true；路线核实后主动生成一张可编辑的日程确认提案，不要等用户再次询问能否写入。该提案只是等待确认，不能自动生效。若日程 Skill 关闭，这个主动增强不是完成路线的必要条件，不得设置 blocked_skill，也不得阻塞正常路线回答。仅说计划去某地且没有明确时刻，仍不等于写日程。
 - 新增或修改日程时，只要用户给出了现实地点且本轮没有可唯一复用的已核实地点，就设置 place_resolution_target=calendar，并同时设置 needs_places=true，让地点核实先于 calendar_action；不得因为缺少城市、可能同名或疑似错字而提前设置 needs_clarification，也不得直接把自由文本地点或猜测的地点 ID 交给日程工具。地点工具会根据真实腾讯候选决定直接采用、单选或填空。没有待核实现实地点时 place_resolution_target=none。
 - 创建会议需要 meeting_action；生成新图片需要 image_generation。若图片主体是现实中的具体人物、地点、产品、动物品种或其他需要外观准确的对象，同时设置 web_search 和 images，并用 image_query 描述该真实主体；纯幻想、抽象画面或用户已给参考图则不搜索。
 - 用户明确要求建立跨时间、多步骤、会持续推进或定时主动触达的提醒流程时需要 workflow_action；单次提醒或普通日程仍使用 calendar_action，不能用多条日程冒充主动工作流。
@@ -400,6 +411,24 @@ async def plan_capabilities(
 - “截至今天/截至目前的最新能力、现状、价格或对比”表示查询截止时间，不表示资料必须在今天发布；这类请求 strict_today_only=false，应检索截至当前日期可核验的最新官方资料并保留各自真实发布日期。
 - 需要图片时，image_query 写成适合找到具体视觉素材的查询，包含主体和最有代表性的可视对象；否则为空字符串。
 不要根据固定关键词机械匹配，要理解整句话的目标。只输出 JSON。"""
+    # The detailed aggregate above remains executable documentation for every
+    # product boundary. The routing call itself receives this compact contract:
+    # provider/tool adapters enforce the operational details, so repeating them
+    # here only increases first-token latency and schema-following failures.
+    prompt = f"""你是 FLORIS 能力路由器，只填写给定 schema，不回答用户。当前北京时间日期：{today}。
+总则：
+- 理解完整目标，可同时选择多个能力；非必要字段保持默认值。blocked_skill 只填用户目标不可替代地依赖、且运行时明确关闭的 Skill id；可选增强关闭时不要阻塞。
+- 只有缺失信息会阻断所有安全有用结果，或真实副作用对象无法唯一确定时，才设置 needs_clarification=true，并把其他 needs_* 设为 false。偏好未决定时直接交给主模型给方案，不要澄清。
+- 现实地点可能有错字、同名或缺城市时，不得在调用地点服务之前设置 needs_clarification。先选择地点/路线能力；地点工具会根据真实腾讯候选决定直接采用、单选或填空。
+能力：
+- 时效事实、用户要求查证或来源：needs_web_search=true；只在明确要求“今天发布”时 strict_today_only=true。search_query 合并为一次简洁查询并使用 {today} 解析相对日期。图片明显帮助理解时 needs_images=true 并填写 image_query。
+- 旅行目的地介绍或多地点推荐：needs_places=true、needs_map_action=true；找已知地点/当前位置/日程地点周边真实商家：只设 needs_nearby_places=true。
+- 真实道路距离、耗时、费用或有序行程：needs_route=true。route_stops 必须保留用户明确给出的全部地点和顺序；普通地点写 query，“参照点附近的品牌/类别”拆为 query 与 near_query。浏览器有新鲜授权位置且用户没给起点时 route_uses_current_location=true，否则缺起点才澄清。只记录用户明确指定的 route_mode 和 route_strategy，未指定填 default。
+- 查询、汇总当前日程：needs_calendar_context=true。新增、修改、删除日程：同时设置 needs_calendar_context=true、needs_calendar_action=true。明确未来日期/出发时刻的多站可执行行程在日程 Skill 开启时，同时需要 route、calendar_context、calendar_action。
+- 新增或修改日程含未核实现实地点时：place_resolution_target=calendar、needs_places=true、needs_calendar_action=true；只有缺日期、时间、标题等非地点必要参数时才澄清。
+- 创建会议：needs_meeting_action；持续、多步骤或定时主动触达：needs_workflow_action；单次提醒仍是 calendar_action。
+- 生成新图片：needs_image_generation；现实主体需要外观准确且用户未给参考图时，同时选择 web_search 和 images。搜索论文/arXiv：needs_papers，search_query 写论文主题；只有还要求普通网页或跨来源综述时才同时 web_search，并填写 paper_author、paper_year、paper_limit。
+严格只输出 schema 对应 JSON。"""
     safe_memory = str(memory_context or "").strip()[:4000]
     if safe_memory:
         prompt += (

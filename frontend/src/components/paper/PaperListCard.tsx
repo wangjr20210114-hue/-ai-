@@ -1,14 +1,13 @@
 /**
- * PaperListCard：论文列表卡片 + 内联阅读器。
- * 使用统一的 InfoCard 组件展示论文信息。
+ * Compact arXiv discovery cards. The only actions are entering the in-app
+ * paper assistant and opening the canonical arXiv page.
  */
 import { useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
-import { DownloadIcon, FullscreenIcon } from 'tdesign-icons-react';
+import { BookOpenIcon, JumpIcon } from 'tdesign-icons-react';
 import type { ChatMessage, PaperInfo } from '../../types';
-import { downloadPaper, fetchPaperFile } from '../../services/paperApi';
-import { dedupePapers } from '../../services/paperUtils';
-import InfoCard from '../common/InfoCard';
+import { downloadPaper } from '../../services/paperApi';
+import { dedupePapers, paperArxivHref } from '../../services/paperUtils';
 import PaperFullReader from './PaperFullReader';
 import { useLanguage } from '../../i18n';
 
@@ -40,12 +39,15 @@ export default function PaperListCard({ message }: Props) {
         return null;
       }
       const stored = {
-          fileId: result.file_id,
-          title: result.title,
-          fileName: result.filename,
-          arxivId: paper.arxiv_id,
-        };
-      setDownloaded(prev => ({ ...prev, [paper.arxiv_id]: stored }));
+        fileId: result.file_id,
+        title: result.title,
+        fileName: result.filename,
+        arxivId: paper.arxiv_id,
+      };
+      setDownloaded((previous) => ({
+        ...previous,
+        [paper.arxiv_id]: stored,
+      }));
       return stored;
     } catch {
       MessagePlugin.error(t('downloadFailed'));
@@ -60,46 +62,65 @@ export default function PaperListCard({ message }: Props) {
     if (stored) setFullReader(stored);
   };
 
-  const savePdf = async (paper: PaperInfo) => {
-    const stored = await ensureDownloaded(paper); if (!stored) return;
-    try {
-      const response = await fetchPaperFile(stored.fileId);
-      if (!response.ok) throw new Error(t('fileDownloadFailed'));
-      const url = URL.createObjectURL(await response.blob());
-      const link = document.createElement('a'); link.href = url; link.download = stored.fileName || `${paper.title}.pdf`; link.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch { MessagePlugin.error(t('fileDownloadFailed')); }
-  };
-
   if (papers.length === 0) return null;
 
   return (
-    <div>
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--app-text-3)', marginBottom: 6 }}>
-        {t('papersFound', { count: papers.length })}
+    <section className="paper-results" aria-label={t('paperResultsHeading', { count: papers.length })}>
+      <header className="paper-results-heading">
+        <span className="paper-results-mark"><BookOpenIcon /></span>
+        <span>{t('paperResultsHeading', { count: papers.length })}</span>
+      </header>
+
+      <div className="paper-results-list">
+        {papers.map((paper, index) => {
+          const arxivHref = paperArxivHref(paper);
+          return (
+            <article className="paper-discovery-card" key={`${paper.arxiv_id}-${index}`}>
+              <div className="paper-discovery-meta">
+                <span className="paper-discovery-source">arXiv</span>
+                {paper.year > 0 && <span>{paper.year}</span>}
+                <span className="paper-discovery-id">{paper.arxiv_id}</span>
+              </div>
+
+              <h3>{paper.title}</h3>
+              {paper.authors && (
+                <p className="paper-discovery-authors">{paper.authors}</p>
+              )}
+              {paper.abstract_zh && (
+                <p className="paper-discovery-abstract">{paper.abstract_zh}</p>
+              )}
+
+              <footer className="paper-discovery-actions">
+                <Button
+                  className="paper-assistant-button"
+                  theme="primary"
+                  loading={downloadingId === paper.arxiv_id}
+                  icon={<BookOpenIcon />}
+                  onClick={() => void openReader(paper)}
+                >
+                  {t('startPaperAssistant')}
+                </Button>
+                {arxivHref ? (
+                  <a
+                    className="paper-arxiv-button"
+                    href={arxivHref}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <JumpIcon />
+                    <span>{t('openArxiv')}</span>
+                  </a>
+                ) : (
+                  <span className="paper-arxiv-button is-disabled" aria-disabled="true">
+                    <JumpIcon />
+                    <span>{t('openArxiv')}</span>
+                  </span>
+                )}
+              </footer>
+            </article>
+          );
+        })}
       </div>
-      {papers.map((paper, i) => {
-        return (
-          <div key={paper.arxiv_id + i}>
-            <InfoCard
-              type="paper"
-              title={paper.title}
-              snippet={paper.abstract_zh}
-              sourceLabel={t('sourcePaper')}
-              tags={[
-                { label: String(paper.year) },
-                ...(paper.citations && paper.citations.toLowerCase() !== 'arxiv' ? [{ label: paper.citations }] : []),
-                { label: paper.arxiv_id.startsWith('webpdf-') ? t('publicPdf') : `arXiv:${paper.arxiv_id}` },
-              ]}
-              extra={<div className="paper-card-actions">
-                <Button size="small" theme="primary" loading={downloadingId === paper.arxiv_id} icon={<FullscreenIcon />} onClick={() => void openReader(paper)}>{t('fullscreenReading')}</Button>
-                <Button size="small" variant="outline" loading={downloadingId === paper.arxiv_id} icon={<DownloadIcon />} onClick={() => void savePdf(paper)}>{t('downloadPaper')}</Button>
-                {!paper.arxiv_id.startsWith('webpdf-') && <a href={paper.arxiv_url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}><Button size="small" variant="text">arXiv</Button></a>}
-              </div>}
-            />
-          </div>
-        );
-      })}
 
       {fullReader && (
         <PaperFullReader
@@ -109,6 +130,6 @@ export default function PaperListCard({ message }: Props) {
           onClose={() => setFullReader(null)}
         />
       )}
-    </div>
+    </section>
   );
 }

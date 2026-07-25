@@ -11,7 +11,7 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.types import RetryPolicy
 
-from ._history import bounded_history
+from ._history import bounded_history, compact_tool_results_for_model
 from ._protocol import action_fallback_content, dsml_tool_calls, public_content
 from ._capability_plan import next_required_tool
 from ._llm import _is_quota_error, _is_transient_gateway_error
@@ -300,6 +300,11 @@ def build_graph(
     blocked_skill: str = "",
     response_language: str = "zh-CN",
     public_answer_model=None,
+    fast_tool_model=None,
+    reasoning_tools: Iterable[str] | None = None,
+    stage_system_prompts: dict[str, str] | None = None,
+    public_system_prompt: str | None = None,
+    planned_tool_arguments: dict[str, dict] | None = None,
 ):
     public_model = _tagged(
         public_answer_model or model,
@@ -311,6 +316,11 @@ def build_graph(
     )
     allowed_tool_names = {getattr(tool, "name", "") for tool in tools}
     required_sequence = tuple(required_tools or (() if not required_tool else (required_tool,)))
+    fast_decision_model = fast_tool_model or model
+    reasoning_tool_names = set(reasoning_tools or ())
+    tool_stage_prompts = dict(stage_system_prompts or {})
+    final_system_prompt = public_system_prompt or system_prompt
+    direct_tool_arguments = dict(planned_tool_arguments or {})
 
     async def agent_node(state: MessagesState):
         # The semantic LLM planner—not a keyword rule—decides that a disabled
@@ -393,6 +403,17 @@ def build_graph(
             required_sequence, used_tool_names, allowed_tool_names,
         )
         planned_sequence_complete = bool(required_sequence) and not required_name
+        planned_arguments = direct_tool_arguments.get(required_name)
+        if (
+            required_name
+            and required_name not in used_tool_names
+            and isinstance(planned_arguments, dict)
+        ):
+            return {"messages": [AIMessage(content="", tool_calls=[{
+                "name": required_name,
+                "args": planned_arguments,
+                "id": f"planned-{required_name}-{uuid.uuid4().hex}",
+            }])]}
         # The semantic LLM planner has already decided that rich_search is
         # required and the tool adapter already owns its merged search query.
         # Asking a second tool-bound LLM to merely echo that decision adds a
@@ -459,17 +480,27 @@ def build_graph(
                 and "plan_route_between_places" in required_sequence
                 and "propose_calendar_changes" in required_sequence
             )
+            decision_model = (
+                model
+                if required_name in reasoning_tool_names
+                else fast_decision_model
+            )
             active_model = _tagged(
-                model.bind_tools(
+                decision_model.bind_tools(
                     required_or_question_tools,
                     **({} if linked_trip_step else {"tool_choice": "required"}),
                 ),
                 "floris:tool-decision",
             )
         else:
+            decision_model = (
+                model
+                if required_name in reasoning_tool_names
+                else fast_decision_model
+            )
             active_model = (
                 _tagged(
-                    model.bind_tools(
+                    decision_model.bind_tools(
                         tools,
                         tool_choice=required_name,
                     ),
@@ -477,8 +508,15 @@ def build_graph(
                 )
                 if required_name else model_with_tools
             )
-        history = bounded_history(state["messages"])
-        messages = [SystemMessage(content=system_prompt), *history]
+        history = compact_tool_results_for_model(
+            bounded_history(state["messages"]),
+        )
+        active_system_prompt = tool_stage_prompts.get(
+            required_name, system_prompt,
+        )
+        if tools_closed or not tools:
+            active_system_prompt = final_system_prompt
+        messages = [SystemMessage(content=active_system_prompt), *history]
         if force_finalize:
             messages.append(SystemMessage(content=(
                 "本轮工具阶段已经结束。不要再描述搜索过程，不要再输出或模拟任何工具调用。"
@@ -541,7 +579,7 @@ def build_graph(
                     response = response.model_copy(update={"tool_calls": filtered_tool_calls})
                 else:
                     response = await public_model.ainvoke([
-                        SystemMessage(content=system_prompt),
+                        SystemMessage(content=final_system_prompt),
                         *history,
                         SystemMessage(content=(
                             "本轮需要的工具已经成功执行；重复调用已被忽略。"
@@ -554,7 +592,7 @@ def build_graph(
             # after tools are unbound. One clean retry yields prose without
             # exposing a placeholder or inventing results.
             response = await public_model.ainvoke([
-                SystemMessage(content=system_prompt),
+                SystemMessage(content=final_system_prompt),
                 *history,
                 SystemMessage(content=(
                     "现在只输出给用户看的最终回答，禁止 XML、DSML、tool_calls、invoke 或参数。"
@@ -576,7 +614,7 @@ def build_graph(
             # or calendar proposal cannot collapse into the generic
             # “模型未返回有效回答” terminal error.
             response = await public_model.ainvoke([
-                SystemMessage(content=system_prompt),
+                SystemMessage(content=final_system_prompt),
                 *history,
                 SystemMessage(content=(
                     "工具阶段已经完成。现在只输出给用户看的最终回答，禁止调用、模拟或描述工具协议。"

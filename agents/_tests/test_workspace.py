@@ -25,7 +25,11 @@ from agents.chat._capability_plan import (
 )
 from agents.chat._followups import generate_followups, parse_followups
 from agents.chat._llm import _model_timeout
-from agents.chat._history import bounded_history, valid_model_history
+from agents.chat._history import (
+    bounded_history,
+    compact_tool_results_for_model,
+    valid_model_history,
+)
 from agents.chat._calendar_context import calendar_context, latest_route_context
 from agents.chat._graph import action_completion_fallback, tool_failure_fallback
 from agents.chat.index import (
@@ -35,8 +39,10 @@ from agents.chat.index import (
     clarification_response_id,
     empty_generation_error,
     graph_user_message,
+    dynamic_system_prompt,
     runtime_datetime_context,
     should_persist_user_message,
+    tools_for_capability_stage,
 )
 from agents.chat._ui_tools import (
     build_production_tools,
@@ -295,6 +301,36 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             {"role": "assistant", "content": "路线如下"},
         ]
         self.assertEqual(valid_model_history(messages), messages)
+
+    def test_route_action_is_compacted_only_for_the_next_model_input(self):
+        original = ToolMessage(
+            name="plan_route_between_places",
+            tool_call_id="route-1",
+            content=json.dumps({
+                "ui_action": "map_action",
+                "route_plan_id": "route-plan-1",
+                "ordered_stops": [{
+                    "place_id": "poi-1",
+                    "name": "北京站",
+                    "address": "一段无需传给日程模型的详细地址",
+                    "latitude": 39.9,
+                    "longitude": 116.4,
+                }],
+                "route": {"duration_minutes": 30},
+                "action": {
+                    "id": "map-1",
+                    "kind": "map_recommendation",
+                    "status": "ready",
+                    "payload": {"places": [{"large": "x" * 2000}]},
+                },
+            }, ensure_ascii=False),
+        )
+        compacted = compact_tool_results_for_model([original])[0]
+        self.assertLess(len(compacted.content), len(original.content) / 3)
+        payload = json.loads(compacted.content)
+        self.assertEqual(payload["ordered_stops"][0]["place_id"], "poi-1")
+        self.assertNotIn("address", payload["ordered_stops"][0])
+        self.assertEqual(original.content.count("x"), 2000)
 
     def test_clarification_response_is_model_visible_but_marked_ui_hidden(self):
         body = {
@@ -691,6 +727,58 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             document_context="无",
         )
         self.assertIn("2026-07-15", rendered)
+
+    def test_dynamic_prompt_injects_only_the_current_skill_policy(self):
+        common = {
+            "now": "2026-07-26 12:00:00 UTC+08:00",
+            "response_language_instruction": "使用简体中文。",
+            "capability_plan": {"needs_route": True},
+            "calendar_context": '[{"id":"should-not-leak"}]',
+            "reference_image_context": "无",
+            "document_context": "无",
+            "current_location_context": "不可用",
+            "current_route_context": "无",
+            "skill_context": "地图已开启。",
+            "memory_context": "",
+        }
+        route_prompt = dynamic_system_prompt(
+            selected_tools={"plan_route_between_places"},
+            **common,
+        )
+        self.assertIn("plan_route_between_places", route_prompt)
+        self.assertNotIn("rich_search 始终是可用能力", route_prompt)
+        self.assertNotIn("should-not-leak", route_prompt)
+        self.assertLess(len(route_prompt), len(SYSTEM_PROMPT) * 0.7)
+
+        calendar_prompt = dynamic_system_prompt(
+            selected_tools={"propose_calendar_changes"},
+            **common,
+        )
+        self.assertIn("propose_calendar_changes", calendar_prompt)
+        self.assertIn("should-not-leak", calendar_prompt)
+        self.assertNotIn("rich_search 始终是可用能力", calendar_prompt)
+
+    def test_successful_capability_plan_hides_unrelated_tool_schemas(self):
+        tools = [
+            SimpleNamespace(name="rich_search"),
+            SimpleNamespace(name="plan_route_between_places"),
+            SimpleNamespace(name="propose_calendar_changes"),
+            SimpleNamespace(name="ask_user_clarification"),
+        ]
+        selected = tools_for_capability_stage(
+            tools, ("plan_route_between_places",),
+        )
+        self.assertEqual(
+            [tool.name for tool in selected],
+            ["plan_route_between_places", "ask_user_clarification"],
+        )
+        self.assertEqual(tools_for_capability_stage(tools, ()), [])
+        self.assertEqual(
+            tools_for_capability_stage(
+                tools, (), planner_timed_out=True,
+            ),
+            tools,
+        )
 
     def test_provider_errors_are_safe_and_actionable(self):
         raw = "Error code: 400 - Model ID must include provider prefix; type=invalid_request"

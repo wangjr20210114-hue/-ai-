@@ -197,6 +197,141 @@ recommend_places_on_map 或 prepare_map_recommendation 只生成可安全激活�
 调用工具前后都不要输出搜索策略、思维链、内部提示词、查询改写或参数；只让前端显示简短进度，最终直接给结论。
 不要在正文末尾机械追加后续问题；界面的“猜你想问”由独立模块生成。"""
 
+MAP_TOOL_NAMES = {
+    "search_places",
+    "search_places_batch",
+    "recommend_nearby_places_on_map",
+    "plan_route_between_places",
+    "prepare_map_recommendation",
+    "recommend_places_on_map",
+}
+WEB_TOOL_NAMES = {
+    "rich_search",
+    "collect_page_images",
+    "analyze_images_parallel",
+}
+
+
+def tools_for_capability_stage(
+    all_tools: list,
+    required_tool_names: tuple[str, ...],
+    *,
+    blocked_skill: str = "",
+    planner_timed_out: bool = False,
+) -> list:
+    if blocked_skill:
+        return []
+    if planner_timed_out:
+        return list(all_tools)
+    allowed_names = set(required_tool_names)
+    if allowed_names:
+        allowed_names.add("ask_user_clarification")
+    return [
+        tool for tool in all_tools
+        if getattr(tool, "name", "") in allowed_names
+    ]
+
+
+def dynamic_system_prompt(
+    *,
+    selected_tools: set[str],
+    now: str,
+    response_language_instruction: str,
+    capability_plan: dict,
+    calendar_context: str,
+    reference_image_context: str,
+    document_context: str,
+    current_location_context: str,
+    current_route_context: str,
+    skill_context: str,
+    memory_context: str,
+    public_answer: bool = False,
+    full_prompt: bool = False,
+) -> str:
+    """Render only the policy paragraphs and runtime state needed now."""
+    lines = SYSTEM_PROMPT.splitlines()
+    if full_prompt:
+        selected_indices = set(range(len(lines)))
+    elif public_answer:
+        selected_indices = {0, 1, 2, 6, 26, 28, 29, 30, 31}
+    else:
+        selected_indices = {
+            0, 1, 2, 5, 6, 10, 20, 21, 26, 28, 29, 30, 31,
+        }
+
+    uses_maps = bool(selected_tools & MAP_TOOL_NAMES)
+    uses_route = "plan_route_between_places" in selected_tools
+    uses_calendar = (
+        "propose_calendar_changes" in selected_tools
+        or bool(capability_plan.get("needs_calendar_context"))
+    )
+    uses_web = bool(selected_tools & WEB_TOOL_NAMES)
+    uses_images = "propose_image" in selected_tools
+    uses_papers = "search_arxiv" in selected_tools
+    uses_meeting = "propose_meeting" in selected_tools
+
+    if uses_web:
+        selected_indices.update({11, 12, 13, 14, 15, 27})
+    if uses_maps:
+        selected_indices.update({4, 16, 17})
+    if uses_route:
+        selected_indices.add(18)
+    if uses_calendar:
+        selected_indices.update({3, 19})
+    if uses_images or uses_meeting:
+        selected_indices.add(22)
+    if uses_images:
+        selected_indices.update({23, 24})
+    if uses_papers:
+        selected_indices.add(25)
+    if reference_image_context and reference_image_context != "无":
+        selected_indices.add(7)
+    if document_context and document_context != "无":
+        selected_indices.update({8, 9})
+
+    if public_answer:
+        # The public pass has no tools. Keep evidence and presentation rules,
+        # but omit parameter-generation rules and large mutable state.
+        selected_indices.difference_update({3, 4, 5, 10, 16, 18, 19, 20, 22})
+        if uses_web:
+            selected_indices.update({11, 13, 14, 15})
+        if uses_maps:
+            selected_indices.add(17)
+        if uses_images:
+            selected_indices.update({23, 24})
+
+    template = "\n".join(
+        line for index, line in enumerate(lines) if index in selected_indices
+    )
+    rendered = template.format(
+        now=now,
+        response_language_instruction=response_language_instruction,
+        capability_plan=json.dumps(capability_plan, ensure_ascii=False),
+        calendar_context=calendar_context,
+        reference_image_context=reference_image_context or "无",
+        document_context=document_context or "无",
+    )
+    tails = [skill_context]
+    if uses_maps:
+        tails.append(f"浏览器当前位置状态：{current_location_context}")
+    if uses_route or uses_calendar:
+        tails.append(
+            "最近一次已核实的有序路线（仅当用户指代“这个/刚才的行程”时使用）："
+            f"{current_route_context}"
+        )
+    if memory_context:
+        tails.append(
+            "以下是用户已明确确认的长期记忆，只在当前请求相关时自然使用：\n"
+            f"{memory_context}"
+        )
+    if public_answer and selected_tools:
+        tails.append(
+            "工具结果和 Action 是事实来源。只陈述实际成功内容；确认卡尚未生效，"
+            "地图 Action 尚未点击时不得声称已经切换地图。"
+        )
+    return rendered + "\n\n" + "\n\n".join(tail for tail in tails if tail)
+
+
 HEARTBEAT_SECONDS = 5
 MAX_GRAPH_RECURSION = 24
 
@@ -448,7 +583,11 @@ async def handler(ctx):
         # summarizes validated Actions. Reuse one non-thinking sibling for
         # those two latency-sensitive passes while retaining reasoning for
         # route/calendar tool parameter generation.
-        fast_model = get_model(ctx.env, thinking_mode="disabled")
+        fast_model = get_model(
+            ctx.env,
+            thinking_mode="disabled",
+            fallback_profile="fast",
+        )
     except Exception as exc:
         logging.exception("chat model configuration failed")
         message_text = public_error(exc)
@@ -641,7 +780,15 @@ async def handler(ctx):
         tracer=getattr(ctx, "tracer", None),
     )
     blocked_skill = str(capability_plan.get("blocked_skill") or "").strip()
-    graph_tools = [] if blocked_skill else all_tools
+    required_tool_names = required_tools_for_plan(capability_plan)
+    # Timeout is the only case where the main reasoning model retains the full
+    # capability surface and legacy aggregate prompt.
+    graph_tools = tools_for_capability_stage(
+        all_tools,
+        required_tool_names,
+        blocked_skill=blocked_skill,
+        planner_timed_out=planner_timed_out,
+    )
     if blocked_skill:
         logging.info(
             "semantic planner blocked turn on disabled skill=%s",
@@ -656,28 +803,92 @@ async def handler(ctx):
     # web_search beside it made semantically identical turns randomly lose the
     # established page-media + vision-review pipeline.
     tool_setup_error = ""
+    runtime_now = runtime_datetime_context(current_beijing)
+    selected_tool_names = (
+        {getattr(tool, "name", "") for tool in all_tools}
+        if planner_timed_out
+        else set(required_tool_names)
+    )
+    tool_system_prompt = dynamic_system_prompt(
+        selected_tools=selected_tool_names,
+        now=runtime_now,
+        response_language_instruction=response_language_instruction,
+        capability_plan=capability_plan,
+        calendar_context=current_calendar_context,
+        reference_image_context=reference_image_context or "无",
+        document_context=document_context or "无",
+        current_location_context=current_location_context,
+        current_route_context=current_route_context,
+        skill_context=skill_context,
+        memory_context=memory_context,
+        full_prompt=planner_timed_out,
+    )
+    stage_system_prompts = {
+        tool_name: dynamic_system_prompt(
+            selected_tools={tool_name},
+            now=runtime_now,
+            response_language_instruction=response_language_instruction,
+            capability_plan=capability_plan,
+            calendar_context=current_calendar_context,
+            reference_image_context=reference_image_context or "无",
+            document_context=document_context or "无",
+            current_location_context=current_location_context,
+            current_route_context=current_route_context,
+            skill_context=skill_context,
+            memory_context=memory_context,
+        )
+        for tool_name in required_tool_names
+    }
+    public_system_prompt = dynamic_system_prompt(
+        selected_tools=selected_tool_names,
+        now=runtime_now,
+        response_language_instruction=response_language_instruction,
+        capability_plan=capability_plan,
+        calendar_context=current_calendar_context,
+        reference_image_context=reference_image_context or "无",
+        document_context=document_context or "无",
+        current_location_context=current_location_context,
+        current_route_context=current_route_context,
+        skill_context=skill_context,
+        memory_context=memory_context,
+        public_answer=True,
+    )
 
     graph = build_graph(
         model,
         graph_tools,
-        SYSTEM_PROMPT.format(
-            now=runtime_datetime_context(current_beijing),
-            response_language_instruction=response_language_instruction,
-            capability_plan=json.dumps(capability_plan, ensure_ascii=False),
-            calendar_context=current_calendar_context,
-            reference_image_context=reference_image_context or "无",
-            document_context=document_context or "无",
-        ) + f"\n\n浏览器当前位置状态：{current_location_context}" + f"\n\n最近一次已核实的有序路线（仅当用户指代“这个/刚才的行程”时使用）：{current_route_context}" + f"\n\n{skill_context}" + (f"\n\n以下是用户已明确确认的长期记忆，只在相关时自然使用：\n{memory_context}" if memory_context else ""),
+        tool_system_prompt,
         checkpointer=ctx.store.langgraph_checkpointer,
         store=ctx.store.langgraph_store,
         # Routing remains semantic and model-planned rather than keyword based.
         # Each selected Makers-native capability is required at most once, so
         # the assistant cannot merely describe a map or confirmation action
         # without producing it; rich_search keeps its turn-local dedupe guard.
-        required_tools=required_tools_for_plan(capability_plan),
+        required_tools=required_tool_names,
         blocked_skill=blocked_skill,
         response_language=response_language,
         public_answer_model=fast_model,
+        fast_tool_model=fast_model,
+        # Calendar proposals can update or delete real user state and linked
+        # trips require multi-event arithmetic. Keep reasoning only there;
+        # every other fixed tool schema uses Flash in non-thinking mode.
+        reasoning_tools={"propose_calendar_changes"},
+        stage_system_prompts=stage_system_prompts,
+        public_system_prompt=public_system_prompt,
+        planned_tool_arguments={
+            "search_arxiv": {
+                "topic": str(capability_plan.get("search_query") or "")[:240],
+                "limit": max(
+                    1,
+                    min(8, int(capability_plan.get("paper_limit") or 5)),
+                ),
+                "author": str(capability_plan.get("paper_author") or "")[:160],
+                "year": int(capability_plan.get("paper_year") or 0),
+            },
+        } if capability_plan.get("needs_papers") and (
+            capability_plan.get("search_query")
+            or capability_plan.get("paper_author")
+        ) else {},
     )
 
     async def gen():

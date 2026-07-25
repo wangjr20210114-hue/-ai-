@@ -12,3 +12,11 @@ export function dedupePapers(items: PaperInfo[]): PaperInfo[] {
     return true;
   });
 }
+
+export function paperArxivHref(paper: PaperInfo): string {
+  if (paper.arxiv_url) return paper.arxiv_url;
+  if (paper.arxiv_id && !paper.arxiv_id.startsWith('webpdf-')) {
+    return `https://arxiv.org/abs/${encodeURIComponent(paper.arxiv_id)}`;
+  }
+  return '';
+}
