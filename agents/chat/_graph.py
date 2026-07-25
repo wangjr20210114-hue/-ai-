@@ -120,15 +120,14 @@ def blocked_capability_response(
 def _logical_turn_messages(messages: Iterable) -> list:
     """Return messages belonging to the current user goal.
 
-    A hidden structured-card answer continues its original goal, so it may
-    cross one human boundary. Normal user messages always start a new turn.
+    Hidden structured-card answers continue their original goal. A route can
+    legitimately require several successive POI choices, so cross every hidden
+    answer until the first normal user message rather than only one boundary.
     """
     logical_turn_messages: list = []
-    crossed_clarification_answer = False
     for message in reversed(list(messages)):
         if getattr(message, "type", "") in {"human", "user"}:
-            if not crossed_clarification_answer and _hidden_clarification_answer(message):
-                crossed_clarification_answer = True
+            if _hidden_clarification_answer(message):
                 continue
             break
         logical_turn_messages.append(message)
@@ -314,7 +313,7 @@ def build_graph(
                 # missing time does not repeat expensive work. The prior
                 # clarification tool itself is deliberately excluded below:
                 # its card was terminal only before the user answered it.
-                if not crossed_clarification_answer and _hidden_clarification_answer(message):
+                if _hidden_clarification_answer(message):
                     crossed_clarification_answer = True
                     continue
                 break

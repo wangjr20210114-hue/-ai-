@@ -23,3 +23,29 @@ def calendar_context(workspace: dict) -> str:
             "location": str(item.get("location") or "")[:160],
         })
     return json.dumps(public, ensure_ascii=False, separators=(",", ":"))
+
+
+def latest_route_context(workspace: dict) -> str:
+    """Expose one bounded, provider-verified route for calendar continuation."""
+    route = workspace.get("latest_route_plan")
+    if not isinstance(route, dict) or not str(route.get("id") or ""):
+        return "无"
+    stops = []
+    for item in (route.get("ordered_stops") or [])[:12]:
+        if not isinstance(item, dict):
+            continue
+        stops.append({
+            "place_id": str(item.get("place_id") or ""),
+            "name": str(item.get("name") or "")[:120],
+            "address": str(item.get("address") or "")[:180],
+        })
+    if len(stops) < 2:
+        return "无"
+    public = {
+        "id": str(route.get("id") or ""),
+        "created_at": int(route.get("created_at") or 0),
+        "ordered_stops": stops,
+        "distance_meters": int(route.get("distance_meters") or 0),
+        "duration_seconds": int(route.get("duration_seconds") or 0),
+    }
+    return json.dumps(public, ensure_ascii=False, separators=(",", ":"))

@@ -778,12 +778,26 @@ def build_production_tools(
             resolved_stops.append(place)
 
         route = await _plan_route_metered(map_key, resolved_stops, optimize=False)
-        for place in resolved_stops:
-            candidates[str(place["place_id"])] = place
-        await _save_state(state)
         distance_meters = float(route.get("distance_meters") or 0)
         duration_seconds = float(route.get("duration_seconds") or 0)
+        for place in resolved_stops:
+            candidates[str(place["place_id"])] = place
+        route_plan_id = "routeplan-" + hashlib.sha256(
+            (
+                "|".join(str(place.get("place_id") or "") for place in resolved_stops)
+                + f":{time.time_ns()}"
+            ).encode()
+        ).hexdigest()[:16]
+        state["latest_route_plan"] = {
+            "id": route_plan_id,
+            "created_at": int(time.time()),
+            "ordered_stops": resolved_stops,
+            "distance_meters": round(distance_meters),
+            "duration_seconds": round(duration_seconds),
+        }
+        await _save_state(state)
         return json.dumps({
+            "route_plan_id": route_plan_id,
             "origin": resolved_stops[0],
             "destination": resolved_stops[-1],
             "ordered_stops": resolved_stops,
@@ -900,7 +914,11 @@ def build_production_tools(
             "response_constraint": response_constraint,
         }, ensure_ascii=False)
 
-    async def propose_calendar_changes(summary: str, changes: list[dict]) -> str:
+    async def propose_calendar_changes(
+        summary: str,
+        changes: list[dict],
+        source_route_plan_id: str = "",
+    ) -> str:
         """Prepare create/update/delete changes; the calendar is mutated only after UI confirmation."""
         if not isinstance(changes, list) or not 1 <= len(changes) <= 24:
             raise ValueError("日程变更数量必须在 1 到 24 项之间")
@@ -1038,11 +1056,76 @@ def build_production_tools(
                     normalized_event["location"] = place.get("address") or place.get("name")
                 change["event"] = normalized_event
             normalized.append(change)
+        latest_route = state.get("latest_route_plan")
+        route_source_id = str(source_route_plan_id or "").strip()
+        if not route_source_id and isinstance(latest_route, dict):
+            # If a proposal contains at least two places from a very recent
+            # verified route, it is semantically a route-derived calendar
+            # proposal even when the model omitted the explicit source id.
+            # Enforce completeness instead of silently accepting a compressed
+            # two-event version of a four-stop itinerary.
+            route_age = int(time.time()) - int(latest_route.get("created_at") or 0)
+            route_place_ids = {
+                str(item.get("place_id") or "")
+                for item in (latest_route.get("ordered_stops") or [])
+                if isinstance(item, dict) and str(item.get("place_id") or "")
+            }
+            proposed_place_ids = {
+                str(((change.get("event") or {}).get("place") or {}).get("place_id") or "")
+                for change in normalized
+                if change.get("operation") == "create"
+            }
+            if 0 <= route_age <= 10_800 and len(route_place_ids & proposed_place_ids) >= 2:
+                route_source_id = str(latest_route.get("id") or "")
+
+        if route_source_id:
+            if (
+                not isinstance(latest_route, dict)
+                or route_source_id != str(latest_route.get("id") or "")
+            ):
+                raise ValueError("引用的路线规划已经变化，请根据最近一次已核实路线重新生成日程提案")
+            required_stops = [
+                item for item in (latest_route.get("ordered_stops") or [])
+                if isinstance(item, dict) and str(item.get("place_id") or "")
+            ]
+            required_ids = [str(item.get("place_id") or "") for item in required_stops]
+            created = [
+                change for change in normalized if change.get("operation") == "create"
+            ]
+            created.sort(key=lambda change: int(
+                ((change.get("event") or {}).get("start_time") or 0)
+            ))
+            proposed_ids = [
+                str(((change.get("event") or {}).get("place") or {}).get("place_id") or "")
+                for change in created
+            ]
+            missing_names = [
+                str(stop.get("name") or "未命名地点")
+                for stop, place_id in zip(required_stops, required_ids)
+                if place_id not in proposed_ids
+            ]
+            proposed_route_order = [
+                place_id for place_id in proposed_ids if place_id in set(required_ids)
+            ]
+            if len(created) < len(required_ids) or missing_names:
+                raise ValueError(
+                    f"完整路线包含 {len(required_ids)} 个站点，日程提案必须至少创建 "
+                    f"{len(required_ids)} 个按站点拆分的事件；尚未覆盖："
+                    f"{'、'.join(missing_names) or '部分站点'}"
+                )
+            if proposed_route_order[:len(required_ids)] != required_ids:
+                raise ValueError("日程事件顺序必须与已核实路线的站点顺序完全一致，不能合并或重排")
+
         validate_calendar_change_window(state, normalized)
         warnings = calendar_change_warnings(state, normalized)
         action = new_action(
             "calendar_changes",
-            {"summary": str(summary or "日程变更")[:300], "changes": normalized, "warnings": warnings},
+            {
+                "summary": str(summary or "日程变更")[:300],
+                "changes": normalized,
+                "warnings": warnings,
+                **({"source_route_plan_id": route_source_id} if route_source_id else {}),
+            },
             requires_confirmation=True,
         )
         put_action(state, action)
@@ -1431,7 +1514,7 @@ def build_production_tools(
         (plan_route_between_places, "plan_route_between_places", "查询两个真实地点之间的道路距离、驾车耗时或费用，或规划含多个停靠点的有序出行时必须使用。两点路线传 origin_query/destination_query；多段行程把全部地点按用户指定先后一次传入 ordered_stops，每项包含 query，可选 near_query，禁止拆成多次调用或自行重排。工具会核实全部地点并调用一次真实路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 query 传“锦江之星”、near_query 传“北京301医院”；多个候选会自动生成单选卡让用户选择。"),
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
         (recommend_places_on_map, "recommend_places_on_map", "模型驱动的非周边多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。只要用户目标表达了相对某个或多个参照点“附近、周边、离它近”，不得使用本工具，也不得从模型知识猜餐厅名称；必须改用 recommend_nearby_places_on_map，把全部参照点放入 anchor_queries。"),
-        (propose_calendar_changes, "propose_calendar_changes", "必须用此工具准备日程新增、更新或删除提案并生成确认卡；不要只在正文里口头询问。格式示例：changes=[{operation:'create',event:{title:'游览北海公园',start_time:'2026-07-16T09:00:00+08:00',end_time:'2026-07-16T10:00:00+08:00',place_id:'地点工具返回的ID'}}]。更新/删除还要传 schedule_id。用户点击确认前不会真正写入。"),
+        (propose_calendar_changes, "propose_calendar_changes", "必须用此工具准备日程新增、更新或删除提案并生成确认卡；不要只在正文里口头询问。格式示例：changes=[{operation:'create',event:{title:'游览北海公园',start_time:'2026-07-16T09:00:00+08:00',end_time:'2026-07-16T10:00:00+08:00',place_id:'地点工具返回的ID'}}]。把刚规划的多站路线写入日程时，必须传路线工具返回的 source_route_plan_id，并为 ordered_stops 中每个地点分别创建至少一个事件，严格保持顺序，禁止把多个站点合并成一个事件。更新/删除还要传 schedule_id。用户点击确认前不会真正写入。"),
         (propose_meeting, "propose_meeting", "准备可编辑的腾讯会议确认卡；即使主题、开始时间或结束时间不完整也要调用本工具，把未知值留空，不要在正文中连续追问多个条件。确认卡会让用户逐项补齐、检查冲突并确认，之后才由后台通过腾讯会议官方 MCP Skill 执行。"),
         (propose_image, "propose_image", "直接调用混元生图并返回图片，不要询问确认。现实人物、地点或物体可先用 rich_search 获取经 HY-Vision 审核的图片 URL，再通过 reference_image_urls（最多 3 张）作为视觉参考；修改历史版本时传 parent_action_id。"),
         (collect_page_images, "collect_page_images", "从一个公开网页提取最多 30 张真实图片候选，网页图片不足时返回实际数量。"),

@@ -31,6 +31,7 @@ def empty_workspace() -> dict[str, Any]:
         "place_candidates": {},
         "provider_calls": {},
         "active_map_action_id": "",
+        "latest_route_plan": {},
     }
 
 
@@ -57,6 +58,8 @@ async def load_workspace(store: Any, conversation_id: str) -> dict[str, Any]:
     for key in ("schedules", "travel_plans", "actions", "place_candidates", "provider_calls"):
         if not isinstance(state.get(key), dict):
             state[key] = {}
+    if not isinstance(state.get("latest_route_plan"), dict):
+        state["latest_route_plan"] = {}
     return state
 
 

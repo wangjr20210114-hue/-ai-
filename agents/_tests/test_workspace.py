@@ -26,7 +26,7 @@ from agents.chat._capability_plan import (
 from agents.chat._followups import generate_followups, parse_followups
 from agents.chat._llm import _model_timeout
 from agents.chat._history import bounded_history, valid_model_history
-from agents.chat._calendar_context import calendar_context
+from agents.chat._calendar_context import calendar_context, latest_route_context
 from agents.chat._graph import action_completion_fallback, tool_failure_fallback
 from agents.chat.index import (
     SYSTEM_PROMPT,
@@ -714,8 +714,17 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             required_tools_for_plan({"needs_route": True}),
             ("plan_route_between_places",),
         )
+        self.assertEqual(
+            required_tools_for_plan({
+                "needs_route": True,
+                "needs_calendar_action": True,
+            }),
+            ("plan_route_between_places", "propose_calendar_changes"),
+        )
         self.assertIn("一个/多个依次停靠点", SYSTEM_PROMPT)
         self.assertIn("ordered_stops", SYSTEM_PROMPT)
+        self.assertIn("不要再问用户“是否需要写入日程”", SYSTEM_PROMPT)
+        self.assertIn("source_route_plan_id", SYSTEM_PROMPT)
 
     def test_nearby_plan_uses_one_native_location_composite(self):
         self.assertEqual(
@@ -1822,11 +1831,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "duration_seconds": 7_200,
             "fare": {"taxi": {"low": 120, "high": 150}},
         }
+        store = FakeStore()
         with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
              patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
             tools = build_production_tools(
                 None,
-                store=FakeStore(),
+                store=store,
                 conversation_id="ordered-itinerary",
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
             )
@@ -1850,6 +1860,78 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(planner.await_args.kwargs["optimize"])
         self.assertIn("绝不能重新排序", result["response_constraint"])
+        saved = await load_user_workspace(store)
+        self.assertEqual(saved["latest_route_plan"]["id"], result["route_plan_id"])
+        self.assertEqual(
+            [item["place_id"] for item in saved["latest_route_plan"]["ordered_stops"]],
+            ["tencent", "jinjiang", "restaurant", "orange"],
+        )
+        self.assertIn(result["route_plan_id"], latest_route_context(saved))
+
+    async def test_route_calendar_proposal_rejects_compressed_stops_and_accepts_complete_order(self):
+        store = FakeStore()
+        state = empty_workspace()
+        now = datetime.now(timezone(timedelta(hours=8))).replace(
+            minute=0, second=0, microsecond=0,
+        ) + timedelta(days=1)
+        stops = [
+            {
+                **PLACE,
+                "place_id": place_id,
+                "name": name,
+                "address": f"北京市{name}地址",
+            }
+            for place_id, name in (
+                ("tencent", "腾讯北京总部大楼"),
+                ("jinjiang", "锦江之星品尚(北京五棵松店)"),
+                ("restaurant", "清真·烤肉刘炙子烤肉(故宫·王府井店)"),
+                ("orange", "桔子酒店(北京中关村软件园店)"),
+            )
+        ]
+        state["place_candidates"] = {item["place_id"]: item for item in stops}
+        state["latest_route_plan"] = {
+            "id": "routeplan-complete",
+            "created_at": int(time.time()),
+            "ordered_stops": stops,
+            "distance_meters": 62_800,
+            "duration_seconds": 9_720,
+        }
+        await save_user_workspace(store, state)
+        tools = build_production_tools(
+            None,
+            store=store,
+            conversation_id="route-calendar",
+            env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+        )
+        calendar_tool = next(item for item in tools if item.name == "propose_calendar_changes")
+
+        def change(index: int) -> dict:
+            start = now + timedelta(minutes=index * 45)
+            return {
+                "operation": "create",
+                "event": {
+                    "title": f"第{index + 1}站：{stops[index]['name']}",
+                    "start_time": start.isoformat(),
+                    "end_time": (start + timedelta(minutes=30)).isoformat(),
+                    "place_id": stops[index]["place_id"],
+                },
+            }
+
+        with self.assertRaisesRegex(ValueError, "完整路线包含 4 个站点"):
+            await calendar_tool.ainvoke({
+                "summary": "压缩后的两站行程",
+                "source_route_plan_id": "routeplan-complete",
+                "changes": [change(0), change(2)],
+            })
+
+        result = json.loads(await calendar_tool.ainvoke({
+            "summary": "完整四站行程",
+            "source_route_plan_id": "routeplan-complete",
+            "changes": [change(index) for index in range(4)],
+        }))
+        self.assertEqual(result["ui_action"], "calendar_action")
+        self.assertEqual(result["action"]["payload"]["source_route_plan_id"], "routeplan-complete")
+        self.assertEqual(len(result["action"]["payload"]["changes"]), 4)
 
     async def test_route_tool_reuses_verified_workspace_place_for_descriptive_alias(self):
         store = FakeStore()
