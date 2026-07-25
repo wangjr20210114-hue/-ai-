@@ -208,9 +208,9 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
         </div>
       </div>
       <div className={`image-studio-stage ${generating || !imageReady ? 'is-painting' : ''}`}>
-        <Button className="image-studio-nav previous" shape="circle" disabled={versions.length < 2} aria-label={t('previousImage')} title={t('previousImage')} onClick={() => setIndex((index - 1 + versions.length) % versions.length)}>
+        {versions.length > 1 && <button className="image-studio-nav previous" type="button" aria-label={t('previousImage')} title={t('previousImage')} onClick={() => setIndex((index - 1 + versions.length) % versions.length)}>
           <span className="image-studio-nav-mark" aria-hidden="true" />
-        </Button>
+        </button>}
         <img src={selectedSrc} alt={originalPrompt || t('generatedImage')} onLoad={() => {
           loadedUrlsRef.current.add(selected.image_url);
           setLoadedUrls((current) => new Set(current).add(selected.image_url));
@@ -218,9 +218,9 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
           setGenerating(false);
         }} onError={() => { setGenerating(false); MessagePlugin.error(t('imageLoadFailed')); }} />
         {(generating || !imageReady) && <div className="image-painting-overlay"><span /><PaintingStatus /></div>}
-        <Button className="image-studio-nav next" shape="circle" disabled={versions.length < 2} aria-label={t('nextImage')} title={t('nextImage')} onClick={() => setIndex((index + 1) % versions.length)}>
+        {versions.length > 1 && <button className="image-studio-nav next" type="button" aria-label={t('nextImage')} title={t('nextImage')} onClick={() => setIndex((index + 1) % versions.length)}>
           <span className="image-studio-nav-mark" aria-hidden="true" />
-        </Button>
+        </button>}
       </div>
       <div className="image-studio-prompt" title={originalPrompt}>{originalPrompt}</div>
       <div className="image-studio-editor">

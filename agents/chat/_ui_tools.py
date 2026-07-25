@@ -14,7 +14,7 @@ from typing import Any, Awaitable, Callable, Literal
 from urllib.parse import urlparse
 
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .._shared.tencent_location import (
     plan_verified_route as provider_plan_route,
@@ -72,6 +72,93 @@ class ClarificationFieldInput(BaseModel):
         default="",
         description="Short example only for a text field; do not use it for choices or dates",
     )
+
+
+class RouteStopInput(BaseModel):
+    """A single ordered route stop exposed to the model as a strict schema."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(
+        min_length=1,
+        max_length=160,
+        description=(
+            "Standalone place name or resolved dialogue reference. The first "
+            "list item is the origin; preserve every user-requested stop."
+        ),
+    )
+    near_query: str = Field(
+        default="",
+        max_length=160,
+        description=(
+            "Separate anchor for a place described relative to another place, "
+            "for example query=锦江之星 and near_query=北京301医院."
+        ),
+    )
+
+
+class RoutePlanInput(BaseModel):
+    """Validated LangChain input contract for two-point and multi-stop routes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    origin_query: str = Field(
+        default="",
+        max_length=160,
+        description="Origin for a two-place route; do not use when ordered_stops is supplied.",
+    )
+    destination_query: str = Field(
+        default="",
+        max_length=160,
+        description="Destination for a two-place route; do not use when ordered_stops is supplied.",
+    )
+    city: str = Field(default="全国", max_length=80)
+    origin_near_query: str = Field(default="", max_length=160)
+    destination_near_query: str = Field(default="", max_length=160)
+    nearby_radius_meters: int = Field(default=5_000, ge=500, le=20_000)
+    ordered_stops: list[RouteStopInput] = Field(
+        default_factory=list,
+        min_length=0,
+        max_length=12,
+        description=(
+            "For a multi-stop trip, every stop in the user's exact order. "
+            "The first item must be the stated origin and the last item the destination."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_endpoints(self):
+        if self.ordered_stops:
+            if len(self.ordered_stops) < 2:
+                raise ValueError("有序路线至少需要起点和终点")
+            return self
+        if not self.origin_query.strip() or not self.destination_query.strip():
+            raise ValueError("两点路线必须同时提供起点和终点")
+        return self
+
+
+def preserve_planned_route_stops(
+    model_stops: list[tuple[str, str]],
+    planned_stops: list[dict[str, str]] | None,
+) -> list[tuple[str, str]]:
+    """Restore stops dropped between two semantic LangChain model calls.
+
+    The capability model sees the original user goal and records its ordered
+    stop list. The full-history tool model may improve aliases, so its list wins
+    when it is at least as complete. A shorter list is structurally incomplete
+    and is replaced wholesale rather than patched by keyword heuristics.
+    """
+    normalized_plan = [
+        (
+            str(item.get("query") or "").strip(),
+            str(item.get("near_query") or "").strip(),
+        )
+        for item in (planned_stops or [])
+        if isinstance(item, dict) and str(item.get("query") or "").strip()
+    ][:12]
+    if len(normalized_plan) >= 2 and len(model_stops) < len(normalized_plan):
+        return normalized_plan
+    return model_stops
 
 
 def _parse_datetime(value: str) -> datetime:
@@ -242,6 +329,8 @@ def build_production_tools(
     search_image_limit: int = 2,
     parallel_image_search: bool = True,
     enabled_skills: set[str] | None = None,
+    planned_route_stops: list[dict[str, str]] | None = None,
+    planned_route_city: str = "全国",
 ) -> list[StructuredTool]:
     runtime_env = env or {}
     paper_scope = paper_constraints or {}
@@ -653,11 +742,6 @@ def build_production_tools(
             clean_near = str(near_query or "").strip()
             if not clean_query:
                 raise ValueError(f"{endpoint}地点不能为空")
-            if "附近" in clean_query and not clean_near:
-                raise ValueError(
-                    f"{endpoint}包含相对位置，请把要找的地点与参照地点分开传入；"
-                    "不要把“附近”复合条件当成一个普通地点名"
-                )
             if clean_near:
                 try:
                     anchors = await _search_place_candidates_metered(
@@ -744,6 +828,8 @@ def build_production_tools(
             if not isinstance(ordered_stops, list) or not 2 <= len(ordered_stops) <= 12:
                 raise ValueError("有序行程必须包含 2 到 12 个地点")
             for index, raw_stop in enumerate(ordered_stops, 1):
+                if isinstance(raw_stop, BaseModel):
+                    raw_stop = raw_stop.model_dump()
                 if not isinstance(raw_stop, dict):
                     raise ValueError(f"第 {index} 个行程地点格式无效")
                 query = str(raw_stop.get("query") or "").strip()
@@ -756,6 +842,19 @@ def build_production_tools(
                 (str(origin_query or "").strip(), str(origin_near_query or "").strip()),
                 (str(destination_query or "").strip(), str(destination_near_query or "").strip()),
             ]
+        model_stop_count = len(requested_stops)
+        requested_stops = preserve_planned_route_stops(
+            requested_stops,
+            planned_route_stops,
+        )
+        logging.info(
+            "route stop handoff planner=%s tool_model=%s selected=%s",
+            len(planned_route_stops or []),
+            model_stop_count,
+            len(requested_stops),
+        )
+        if (not city or city == "全国") and str(planned_route_city or "").strip():
+            city = str(planned_route_city).strip()[:80]
 
         resolved_stops: list[dict[str, Any]] = []
         for index, (query, near_query) in enumerate(requested_stops, 1):
@@ -1552,4 +1651,12 @@ def build_production_tools(
         "ask_user_clarification": "core",
     }
     definitions = [definition for definition in definitions if tool_skills.get(definition[1]) == "core" or tool_skills.get(definition[1]) in active]
-    return [StructuredTool.from_function(coroutine=fn, name=name, description=description) for fn, name, description in definitions]
+    return [
+        StructuredTool.from_function(
+            coroutine=fn,
+            name=name,
+            description=description,
+            **({"args_schema": RoutePlanInput} if name == "plan_route_between_places" else {}),
+        )
+        for fn, name, description in definitions
+    ]

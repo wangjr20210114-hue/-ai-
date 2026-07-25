@@ -13,6 +13,8 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
+from pydantic import BaseModel, ConfigDict, Field
+
 
 DEFAULT_PLAN = {
     "needs_clarification": False,
@@ -35,6 +37,8 @@ DEFAULT_PLAN = {
     "paper_year": 0,
     "paper_limit": 0,
     "blocked_skill": "",
+    "route_stops": [],
+    "route_city": "全国",
 }
 
 BOOLEAN_KEYS = tuple(key for key, value in DEFAULT_PLAN.items() if isinstance(value, bool))
@@ -49,45 +53,63 @@ KNOWN_SKILLS = {
     "tencent-meeting",
 }
 
-CAPABILITY_PLAN_TOOL_NAME = "submit_capability_plan"
-CAPABILITY_PLAN_TOOL = {
-    "type": "function",
-    "function": {
-        "name": CAPABILITY_PLAN_TOOL_NAME,
-        "description": (
-            "提交本轮用户目标所需的最短能力链。只做语义能力规划，"
-            "不回答用户、不执行业务操作。"
+class PlannedRouteStop(BaseModel):
+    """One user-specified stop preserved verbatim and in user order."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(
+        default="",
+        description=(
+            "The standalone place name or dialogue reference for this stop. "
+            "The first item is always the origin and the last item the destination."
         ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                **{
-                    key: {"type": "boolean"}
-                    for key in BOOLEAN_KEYS
-                },
-                "search_query": {"type": "string"},
-                "image_query": {"type": "string"},
-                "paper_author": {"type": "string"},
-                "paper_year": {"type": "integer"},
-                "paper_limit": {"type": "integer"},
-                "blocked_skill": {
-                    "type": "string",
-                    "enum": ["", *sorted(KNOWN_SKILLS)],
-                },
-            },
-            "required": [
-                *BOOLEAN_KEYS,
-                "search_query",
-                "image_query",
-                "paper_author",
-                "paper_year",
-                "paper_limit",
-                "blocked_skill",
-            ],
-            "additionalProperties": False,
-        },
-    },
-}
+    )
+    near_query: str = Field(
+        default="",
+        description=(
+            "The separate anchor place only when query is a category or brand "
+            "described as near another place; otherwise empty."
+        ),
+    )
+
+
+class CapabilityPlan(BaseModel):
+    """Validated semantic plan returned by LangChain structured output."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    needs_clarification: bool = False
+    needs_web_search: bool = False
+    strict_today_only: bool = False
+    needs_rich_answer: bool = False
+    needs_images: bool = False
+    needs_places: bool = False
+    needs_nearby_places: bool = False
+    needs_route: bool = False
+    needs_map_action: bool = False
+    needs_calendar_action: bool = False
+    needs_meeting_action: bool = False
+    needs_workflow_action: bool = False
+    needs_image_generation: bool = False
+    needs_papers: bool = False
+    search_query: str = ""
+    image_query: str = ""
+    paper_author: str = ""
+    paper_year: int = 0
+    paper_limit: int = 0
+    blocked_skill: str = Field(default="", description="Exact disabled Skill id or empty")
+    route_stops: list[PlannedRouteStop] = Field(
+        default_factory=list,
+        description=(
+            "For a route request, every explicitly requested stop in exact order. "
+            "Never omit the origin, intermediate stops, or destination. Empty otherwise."
+        ),
+    )
+    route_city: str = Field(
+        default="全国",
+        description="Explicit city shared by the route stops, or 全国 when not established",
+    )
 
 
 def _text(content: Any) -> str:
@@ -101,7 +123,9 @@ def _text(content: Any) -> str:
 
 
 def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
-    if isinstance(content, dict):
+    if isinstance(content, BaseModel):
+        raw = content.model_dump()
+    elif isinstance(content, dict):
         raw = content
     else:
         text = _text(content).strip()
@@ -126,6 +150,20 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
     except (TypeError, ValueError):
         plan["paper_year"] = 0
         plan["paper_limit"] = 0
+    route_stops: list[dict[str, str]] = []
+    for item in raw.get("route_stops") or []:
+        if isinstance(item, BaseModel):
+            item = item.model_dump()
+        if not isinstance(item, dict):
+            continue
+        query = str(item.get("query") or "").strip()[:160]
+        near_query = str(item.get("near_query") or "").strip()[:160]
+        if query:
+            route_stops.append({"query": query, "near_query": near_query})
+        if len(route_stops) >= 12:
+            break
+    plan["route_stops"] = route_stops if plan.get("needs_route") else []
+    plan["route_city"] = str(raw.get("route_city") or "全国").strip()[:80] or "全国"
     return plan
 
 
@@ -226,7 +264,7 @@ async def plan_capabilities(
 ) -> dict[str, Any]:
     today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
     prompt = f"""你是能力路由器，只判断完成本轮用户请求需要哪些能力，不回答问题。当前北京时间日期是运行时得到的 {today}；“今天、今日、今年、最近 N 年”等相对时间必须据此解析并写入搜索查询，绝不能沿用训练数据、示例或旧会话里的日期。
-返回严格 JSON：needs_clarification、needs_web_search、strict_today_only、needs_rich_answer、needs_images、needs_places、needs_nearby_places、needs_route、needs_map_action、needs_calendar_action、needs_meeting_action、needs_workflow_action、needs_image_generation、needs_papers 为布尔值；search_query、image_query、paper_author、blocked_skill 为字符串；paper_year、paper_limit 为整数。
+严格填写提供的结构化 schema，不要在字段外补充文字。
 判断原则：
 - 这些字段只是给主模型的能力建议，绝不是工具开关；主模型始终可以自主决定是否搜索、使用多少素材以及怎样组织回答。
 - Skill 状态会在下方单独提供。先理解用户真正要完成的目标，再判断它是否不可替代地依赖某个已关闭 Skill；若是，blocked_skill 必须填写该 Skill 的精确 id，其他 needs_* 全部为 false，让主模型自然提醒用户开启。不得因为问题中出现日期、地点、图片等表面词语就机械判定依赖，也不得把可选的富媒体增强当成阻塞；只有缺少该能力就无法完成用户明确要求的最终结果时才阻塞。Skill 已开启或任务不依赖已关闭能力时 blocked_skill 为空字符串。
@@ -239,6 +277,7 @@ async def plan_capabilities(
 - 单一地点的历史、文化或原理解说不需要 map_action，除非用户同时要求周边或路线。
 - 用户要找某个已知地点、当前位置或日程地点“附近/周边”的餐馆、早餐店、酒店、商店、景点等真实地点时，needs_nearby_places=true；该组合能力会复用工作区内已核实的参照地点并调用真实附近检索，同时生成仅含核实结果的地图。用户给出多个备选参照点时仍只需要这一项能力，主模型会把全部备选点一次交给组合工具，不能在规划阶段擅自缩成一个。不要仅为了发现附近地点设置 needs_web_search；只有用户还要求点评、营业时间、新闻等地图服务之外的时效事实时才同时设置 web_search。needs_nearby_places 已包含地点核验和地图 Action，不必再设置 needs_places 或 needs_map_action。
 - 用户询问两个地点之间“多远、多久、怎么走、打车多少钱”，明确要求道路路线，或给出出发地与一个/多个依次停靠地点并要求规划出行/行程时，needs_route=true。多段行程仍只调用一次路线能力，并严格保留用户给出的停靠顺序。真实距离由地点与路线服务核验，不要为了距离本身设置 needs_web_search，也不要用网页结果估算；只有用户还要求沿途新闻、实时政策等额外事实时才同时设置 web_search。needs_route 已包含全部端点与中途站的地点核验，不必为了同一批地点再额外设置 needs_places 或 map_action。
+- needs_route=true 时，route_stops 必须包含用户明确要求经过的全部地点，第一项永远是起点，最后一项永远是终点，中间项按原顺序保留，不能因为某个地点可能有多个候选而把它或起点省略。普通地点写 query；“某参照点附近的某品牌/类别”拆成 query=品牌或类别、near_query=参照地点。对话中的“那个店、那里、这个酒店”等指代应结合提供的原始目标与上下文原样保留或解析，不得擅自删除。route_city 填已明确的共同城市，无法确定时填“全国”。非路线请求 route_stops 为空。
 - 用户要求新增/修改/删除行程日程时需要 calendar_action。另一个主动服务例外是：用户给出了明确的未来日期或出发时刻，并要求规划包含多个有序站点的可执行行程时，如果日程 Skill 已开启，同时设置 needs_route=true 与 needs_calendar_action=true；路线核实后主动生成一张可编辑的日程确认提案，不要等用户再次询问能否写入。该提案只是等待确认，不能自动生效。若日程 Skill 关闭，这个主动增强不是完成路线的必要条件，不得设置 blocked_skill，也不得阻塞正常路线回答。仅说计划去某地且没有明确时刻，仍不等于写日程。
 - 新增或修改日程时，只要用户给出了现实地点且本轮没有可唯一复用的已核实地点，就同时设置 needs_places=true，让地点核实先于 calendar_action；不得直接把自由文本地点或猜测的地点 ID 交给日程工具。
 - 创建会议需要 meeting_action；生成新图片需要 image_generation。若图片主体是现实中的具体人物、地点、产品、动物品种或其他需要外观准确的对象，同时设置 web_search 和 images，并用 image_query 描述该真实主体；纯幻想、抽象画面或用户已给参考图则不搜索。
@@ -270,26 +309,23 @@ async def plan_capabilities(
         {"role": "user", "content": str(user_message or "")[:4000]},
     ]
     try:
-        # Use LangChain's native tool protocol for the routing decision. This
-        # avoids asking a streaming chat model to emit free-text JSON and then
-        # retrying when the JSON is incomplete. The planner remains entirely
-        # semantic, while tool_choice guarantees one machine-readable plan.
-        planner_model = model.bind_tools(
-            [CAPABILITY_PLAN_TOOL],
-            tool_choice=CAPABILITY_PLAN_TOOL_NAME,
+        # Delegate schema/tool strategy and Pydantic validation to LangChain.
+        # ``function_calling`` works across the Makers OpenAI-compatible
+        # gateway while preserving the raw AIMessage for diagnostics.
+        planner_model = model.with_structured_output(
+            CapabilityPlan,
+            method="function_calling",
+            include_raw=True,
         )
         response = await planner_model.ainvoke(messages)
-        for tool_call in list(getattr(response, "tool_calls", None) or []):
-            if not isinstance(tool_call, dict):
-                continue
-            if str(tool_call.get("name") or "") != CAPABILITY_PLAN_TOOL_NAME:
-                continue
-            parsed = _decode_capability_plan(tool_call.get("args"))
-            if parsed is not None:
-                return parsed
-        # Compatibility for an OpenAI-compatible gateway that ignores
-        # tool_choice but still returns the requested JSON in content.
-        parsed = _decode_capability_plan(getattr(response, "content", ""))
+        parsed_value = response.get("parsed") if isinstance(response, dict) else response
+        parsed = _decode_capability_plan(parsed_value)
+        if parsed is not None:
+            return parsed
+        # One-call compatibility for gateways that return a raw message but
+        # fail LangChain's structured parser. Never retry the model.
+        raw = response.get("raw") if isinstance(response, dict) else None
+        parsed = _decode_capability_plan(getattr(raw, "content", ""))
         if parsed is not None:
             return parsed
     except Exception:

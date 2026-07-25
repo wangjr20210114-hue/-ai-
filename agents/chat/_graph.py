@@ -258,6 +258,12 @@ def _tool_call_signature(tool_call: dict) -> str:
     return f"{name}:{json.dumps(args, ensure_ascii=False, sort_keys=True, default=str, separators=(',', ':'))}"
 
 
+def _tagged(model, tag: str):
+    """Attach LangChain stream metadata without constraining test doubles."""
+    with_config = getattr(model, "with_config", None)
+    return with_config(tags=[tag]) if callable(with_config) else model
+
+
 def _tool_failure_message(exc: Exception) -> str:
     """Keep safe validation feedback so the model can answer naturally."""
     if isinstance(exc, ValueError):
@@ -287,7 +293,11 @@ def build_graph(
     blocked_skill: str = "",
     response_language: str = "zh-CN",
 ):
-    model_with_tools = model.bind_tools(tools) if tools else model
+    public_model = _tagged(model, "floris:public-answer")
+    model_with_tools = (
+        _tagged(model.bind_tools(tools), "floris:tool-capable")
+        if tools else public_model
+    )
     allowed_tool_names = {getattr(tool, "name", "") for tool in tools}
     required_sequence = tuple(required_tools or (() if not required_tool else (required_tool,)))
 
@@ -400,14 +410,17 @@ def build_graph(
             or (finalize_after_rich_search and not remaining_tools)
         )
         if force_finalize:
-            active_model = model
+            active_model = public_model
         elif planned_sequence_complete:
             # The semantic planner's shortest capability chain has completed.
             # Close the tool surface for synthesis so the answer model cannot
             # restart a successful place/search/action capability.
-            active_model = model
+            active_model = public_model
         elif finalize_after_rich_search:
-            active_model = model.bind_tools(remaining_tools) if remaining_tools else model
+            active_model = (
+                _tagged(model.bind_tools(remaining_tools), "floris:tool-capable")
+                if remaining_tools else public_model
+            )
         elif required_name and "ask_user_clarification" in allowed_tool_names:
             # The planner guarantees that one capability is required, while
             # the full-history model decides whether the dialogue has actually
@@ -420,10 +433,22 @@ def build_graph(
                     required_name, "ask_user_clarification",
                 }
             ]
-            active_model = model.bind_tools(required_or_question_tools, tool_choice="required")
+            active_model = _tagged(
+                model.bind_tools(
+                    required_or_question_tools,
+                    tool_choice="required",
+                ),
+                "floris:tool-decision",
+            )
         else:
             active_model = (
-                model.bind_tools(tools, tool_choice=required_name)
+                _tagged(
+                    model.bind_tools(
+                        tools,
+                        tool_choice=required_name,
+                    ),
+                    "floris:tool-decision",
+                )
                 if required_name else model_with_tools
             )
         history = bounded_history(state["messages"])
@@ -481,7 +506,7 @@ def build_graph(
                 if filtered_tool_calls:
                     response = response.model_copy(update={"tool_calls": filtered_tool_calls})
                 else:
-                    response = await model.ainvoke([
+                    response = await public_model.ainvoke([
                         SystemMessage(content=system_prompt),
                         *history,
                         SystemMessage(content=(
@@ -494,7 +519,7 @@ def build_graph(
             # Some provider models keep imitating their previous DSML transport
             # after tools are unbound. One clean retry yields prose without
             # exposing a placeholder or inventing results.
-            response = await model.ainvoke([
+            response = await public_model.ainvoke([
                 SystemMessage(content=system_prompt),
                 *history,
                 SystemMessage(content=(
@@ -516,7 +541,7 @@ def build_graph(
             # tool history one clean, tool-free synthesis pass so a valid route
             # or calendar proposal cannot collapse into the generic
             # “模型未返回有效回答” terminal error.
-            response = await model.ainvoke([
+            response = await public_model.ainvoke([
                 SystemMessage(content=system_prompt),
                 *history,
                 SystemMessage(content=(

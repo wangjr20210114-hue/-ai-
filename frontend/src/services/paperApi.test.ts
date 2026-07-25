@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchPaperFile } from './paperApi';
+import { fetchPaperFile, streamPaper } from './paperApi';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -27,5 +27,34 @@ describe('fetchPaperFile', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(String(fetchMock.mock.calls[1][0])).toContain('part=0');
     expect(String(fetchMock.mock.calls[2][0])).toContain('part=1');
+  });
+});
+
+describe('streamPaper', () => {
+  it('emits incremental Markdown deltas from the Makers SSE reader', async () => {
+    const encoder = new TextEncoder();
+    const response = new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"type":"paper_delta","content":"## 结论"}\n\n'));
+        controller.enqueue(encoder.encode('data: {"type":"paper_delta","content":"\\n\\n- 第一条"}\n\n'));
+        controller.enqueue(encoder.encode('data: {"type":"paper_done"}\n\ndata: [DONE]\n\n'));
+        controller.close();
+      },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream; charset=utf-8' },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+    const deltas: string[] = [];
+    const result = await new Promise<{ full: string; error?: string }>((resolve) => {
+      streamPaper(
+        'translate',
+        { text: 'source' },
+        (delta) => deltas.push(delta),
+        (full, error) => resolve({ full, error }),
+      );
+    });
+    expect(deltas).toEqual(['## 结论', '\n\n- 第一条']);
+    expect(result).toEqual({ full: '## 结论\n\n- 第一条', error: undefined });
   });
 });

@@ -45,6 +45,20 @@ class QuotaFailoverModel:
             self.fallback.bind_tools(tools, **kwargs),
         )
 
+    def with_structured_output(self, schema, **kwargs):
+        """Preserve provider failover around LangChain's validated schema API."""
+        return QuotaFailoverModel(
+            self.primary.with_structured_output(schema, **kwargs),
+            self.fallback.with_structured_output(schema, **kwargs),
+        )
+
+    def with_config(self, config=None, **kwargs):
+        """Forward LangChain tags/metadata to both provider branches."""
+        return QuotaFailoverModel(
+            self.primary.with_config(config, **kwargs),
+            self.fallback.with_config(config, **kwargs),
+        )
+
     async def ainvoke(self, messages, **kwargs):
         try:
             return await self.primary.ainvoke(messages, **kwargs)
@@ -52,6 +66,19 @@ class QuotaFailoverModel:
             if not (_is_quota_error(exc) or _is_transient_gateway_error(exc)):
                 raise
             return await self.fallback.ainvoke(messages, **kwargs)
+
+    async def astream(self, messages, **kwargs):
+        """Fail over only before public tokens start, never replay a partial stream."""
+        emitted = False
+        try:
+            async for chunk in self.primary.astream(messages, **kwargs):
+                emitted = True
+                yield chunk
+        except Exception as exc:
+            if emitted or not (_is_quota_error(exc) or _is_transient_gateway_error(exc)):
+                raise
+            async for chunk in self.fallback.astream(messages, **kwargs):
+                yield chunk
 
 
 def get_model(env: dict):

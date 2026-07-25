@@ -38,7 +38,11 @@ from agents.chat.index import (
     runtime_datetime_context,
     should_persist_user_message,
 )
-from agents.chat._ui_tools import build_production_tools, verify_place_queries_parallel
+from agents.chat._ui_tools import (
+    build_production_tools,
+    preserve_planned_route_stops,
+    verify_place_queries_parallel,
+)
 from agents.chat._protocol import PublicStreamFilter, StreamDeltaNormalizer, action_fallback_content, checkpoint_recovery_needed, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
 from agents._shared.side_effects import (
@@ -182,10 +186,14 @@ class StructuredPlannerModel:
         self.messages = []
         self.tool_choice = ""
         self.tools = []
+        self.schema = None
+        self.method = ""
+        self.include_raw = False
 
-    def bind_tools(self, tools, **kwargs):
-        self.tools = tools
-        self.tool_choice = kwargs.get("tool_choice", "")
+    def with_structured_output(self, schema, **kwargs):
+        self.schema = schema
+        self.method = kwargs.get("method", "")
+        self.include_raw = bool(kwargs.get("include_raw"))
         return self
 
     async def ainvoke(self, messages):
@@ -193,11 +201,11 @@ class StructuredPlannerModel:
             await asyncio.sleep(self.delay)
         self.calls += 1
         self.messages = messages
-        return SimpleNamespace(content="", tool_calls=[{
-            "name": "submit_capability_plan",
-            "args": self.args,
-            "id": "capability-plan-1",
-        }])
+        return {
+            "parsed": self.schema(**self.args),
+            "raw": SimpleNamespace(content=""),
+            "parsing_error": None,
+        }
 
 
 class FakeRequest:
@@ -319,12 +327,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-    async def test_capability_planner_uses_required_langchain_tool_protocol(self):
+    async def test_capability_planner_uses_langchain_structured_output(self):
         model = StructuredPlannerModel()
         plan = await plan_capabilities(model, "能给我讲讲故宫的历史吗")
         self.assertEqual(model.calls, 1)
-        self.assertEqual(model.tool_choice, "submit_capability_plan")
-        self.assertEqual(model.tools[0]["function"]["name"], "submit_capability_plan")
+        self.assertEqual(model.schema.__name__, "CapabilityPlan")
+        self.assertEqual(model.method, "function_calling")
+        self.assertTrue(model.include_raw)
         self.assertTrue(plan["needs_web_search"])
         self.assertTrue(plan["needs_images"])
         self.assertEqual(plan["image_query"], "故宫建筑")
@@ -351,6 +360,28 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"disabled":["calendar"]', system_prompt)
         self.assertEqual(plan["blocked_skill"], "calendar")
         self.assertEqual(required_tools_for_plan(plan), ())
+
+    async def test_capability_planner_preserves_every_ordered_route_stop(self):
+        model = StructuredPlannerModel({
+            "needs_route": True,
+            "route_city": "北京",
+            "route_stops": [
+                {"query": "腾讯北京总部"},
+                {"query": "锦江之星", "near_query": "北京301医院"},
+                {"query": "王府井那个店"},
+                {"query": "桔子酒店"},
+            ],
+        })
+        plan = await plan_capabilities(
+            model,
+            "今晚从腾讯北京总部出发，先去301医院附近的锦江之星，再去王府井那个店，最后回桔子酒店",
+        )
+        self.assertEqual(plan["route_city"], "北京")
+        self.assertEqual(
+            [item["query"] for item in plan["route_stops"]],
+            ["腾讯北京总部", "锦江之星", "王府井那个店", "桔子酒店"],
+        )
+        self.assertEqual(plan["route_stops"][1]["near_query"], "北京301医院")
 
     def test_capability_plan_rejects_unknown_blocked_skill(self):
         plan = parse_capability_plan(json.dumps({
@@ -1880,6 +1911,75 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             ["tencent", "jinjiang", "restaurant", "orange"],
         )
         self.assertIn(result["route_plan_id"], latest_route_context(saved))
+
+    async def test_route_tool_restores_origin_dropped_by_second_model_call(self):
+        names = {
+            "腾讯北京总部": "tencent",
+            "锦江之星": "jinjiang",
+            "王府井餐厅": "restaurant",
+            "桔子酒店": "orange",
+        }
+
+        async def place_provider(_key, query, *, city, limit):
+            return [{
+                **PLACE,
+                "place_id": names[query],
+                "name": query,
+            }]
+
+        route = {
+            "provider": "tencent",
+            "mode": "driving",
+            "distance_meters": 50_000,
+            "duration_seconds": 7_000,
+            "fare": {},
+        }
+        planned_stops = [
+            {"query": "腾讯北京总部", "near_query": ""},
+            {"query": "锦江之星", "near_query": ""},
+            {"query": "王府井餐厅", "near_query": ""},
+            {"query": "桔子酒店", "near_query": ""},
+        ]
+        store = FakeStore()
+        with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
+             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
+            tools = build_production_tools(
+                None,
+                store=store,
+                conversation_id="restore-dropped-origin",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+                planned_route_stops=planned_stops,
+                planned_route_city="北京",
+            )
+            route_tool = next(item for item in tools if item.name == "plan_route_between_places")
+            result = json.loads(await route_tool.ainvoke({
+                "city": "北京",
+                # Simulate the full-history tool model accidentally omitting
+                # the stated origin while retaining later stops.
+                "ordered_stops": [
+                    {"query": "锦江之星"},
+                    {"query": "王府井餐厅"},
+                    {"query": "桔子酒店"},
+                ],
+            }))
+
+        self.assertEqual(
+            [item["place_id"] for item in result["ordered_stops"]],
+            ["tencent", "jinjiang", "restaurant", "orange"],
+        )
+        self.assertEqual(
+            [item["place_id"] for item in planner.await_args.args[1]],
+            ["tencent", "jinjiang", "restaurant", "orange"],
+        )
+
+    def test_complete_tool_route_arguments_are_not_overwritten_by_planner(self):
+        self.assertEqual(
+            preserve_planned_route_stops(
+                [("腾讯北京总部大楼", ""), ("北京站", "")],
+                [{"query": "腾讯总部"}, {"query": "北京站"}],
+            ),
+            [("腾讯北京总部大楼", ""), ("北京站", "")],
+        )
 
     async def test_route_calendar_proposal_rejects_compressed_stops_and_accepts_complete_order(self):
         store = FakeStore()

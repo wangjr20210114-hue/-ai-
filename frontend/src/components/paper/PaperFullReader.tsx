@@ -56,7 +56,9 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
   const [pages, setPages] = useState<PageData[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  // Open as a full-viewport workspace without relying on the browser's
+  // permission-gated Fullscreen API. The toolbar can restore the inset view.
+  const [expandedLayout, setExpandedLayout] = useState(true);
   const [hover, setHover] = useState<{ page: number; index: number } | null>(null);
   const [active, setActive] = useState<{ page: number; index: number } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; text: string } | null>(null);
@@ -120,9 +122,9 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
   }, [fileId, t]);
 
   useEffect(() => {
-    const onFullscreenChange = () => setIsFullscreen(document.fullscreenElement === readerRef.current);
-    document.addEventListener('fullscreenchange', onFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
   }, []);
 
   // 渲染 canvas + text layer（scale 变化时重新渲染）
@@ -313,14 +315,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
     }
   };
 
-  const toggleFullscreen = async () => {
-    try {
-      if (document.fullscreenElement === readerRef.current) await document.exitFullscreen();
-      else await readerRef.current?.requestFullscreen?.();
-    } catch {
-      MessagePlugin.warning(t('fullscreenUnsupported'));
-    }
-  };
+  const toggleExpandedLayout = () => setExpandedLayout((value) => !value);
 
   const handleQA = () => {
     if (!qaInput.trim()) return;
@@ -331,7 +326,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
     const onDelta = (delta: string) => setAiResult(prev => prev ? { ...prev, content: prev.content + delta } : prev);
     const onDone = (full: string, error?: string) => {
       setAiResult(prev => prev ? { ...prev, streaming: false } : prev);
-      setQaHistory(prev => [...prev, { q, a: error ? `❌ ${error}` : full }]);
+      setQaHistory(prev => [{ q, a: error ? `❌ ${error}` : full }, ...prev]);
       setAiResult(null);
     };
     const documentText = pages.map((page) => `【第 ${page.pageNum} 页】\n${page.paragraphs.map((paragraph) => paragraph.text).join('\n')}`).join('\n\n');
@@ -355,8 +350,8 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
   }, [ctxMenu]);
 
   return (
-    <div className="paper-reader-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="paper-reader" ref={readerRef} role="dialog" aria-modal="true" aria-label={t('paperAssistantAria', { title })}>
+    <div className={`paper-reader-overlay ${expandedLayout ? 'is-expanded' : ''}`} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className={`paper-reader ${expandedLayout ? 'is-expanded' : ''}`} ref={readerRef} role="dialog" aria-modal="true" aria-label={t('paperAssistantAria', { title })}>
         <div className="paper-toolbar">
           <div className="paper-toolbar-title">
             <span style={{ fontSize: 16 }}>📄</span>
@@ -368,9 +363,9 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
             <Button
               size="small"
               variant="outline"
-              icon={isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
-              onClick={() => void toggleFullscreen()}
-            >{isFullscreen ? t('restoreWindow') : t('fullscreen')}</Button>
+              icon={expandedLayout ? <FullscreenExitIcon /> : <FullscreenIcon />}
+              onClick={toggleExpandedLayout}
+            >{expandedLayout ? t('restoreWindow') : t('fullscreen')}</Button>
             <span className="paper-toolbar-divider" />
             {assistantEnabled && <Button size="small" variant="outline" onClick={() => runAI('analyze', '', t('fullPaperAnalysis'))}>📚 {t('fullPaperAnalysis')}</Button>}
             <Button size="small" variant="text" aria-label={t('zoomOut')} title={t('zoomOut')} onClick={() => setScale(s => Math.max(0.6, s - 0.3))}>−</Button>
@@ -480,18 +475,18 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
               <div className="paper-ai-content" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                 <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
                   {qaHistory.length === 0 && <div style={{ textAlign: 'center', color: 'var(--app-text-3)', fontSize: 12, paddingTop: 30 }}>{t('askAboutPaper')}</div>}
-                  {qaHistory.map((item, i) => (
-                    <div key={i} style={{ marginBottom: 12 }}>
-                      <div style={{ fontSize: 11, color: '#2b5aed', fontWeight: 600, marginBottom: 3 }}>{t('paperQuestionPrefix')} {item.q}</div>
-                      <div style={{ fontSize: 12, lineHeight: 1.6 }}><MarkdownRenderer content={item.a} /></div>
-                    </div>
-                  ))}
                   {aiResult?.action === 'qa' && (
                     <div style={{ marginBottom: 12 }}>
                       <div style={{ fontSize: 11, color: '#2b5aed', fontWeight: 600, marginBottom: 3 }}>{t('paperQuestionPrefix')} {aiResult.title}</div>
                       <div style={{ fontSize: 12, lineHeight: 1.6 }}><MarkdownRenderer content={aiResult.content || '...'} /></div>
                     </div>
                   )}
+                  {qaHistory.map((item, i) => (
+                    <div key={i} style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 11, color: '#2b5aed', fontWeight: 600, marginBottom: 3 }}>{t('paperQuestionPrefix')} {item.q}</div>
+                      <div style={{ fontSize: 12, lineHeight: 1.6 }}><MarkdownRenderer content={item.a} /></div>
+                    </div>
+                  ))}
                 </div>
                 <div className="paper-qa-input">
                   <Textarea value={qaInput} onChange={(v) => setQaInput(v as string)} placeholder={t('askPlaceholder')} autosize={{ minRows: 1, maxRows: 3 }} style={{ flex: 1 }}

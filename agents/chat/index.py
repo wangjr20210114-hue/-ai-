@@ -565,6 +565,8 @@ async def handler(ctx):
         search_image_limit=search_image_limit,
         parallel_image_search=parallel_image_search,
         enabled_skills=enabled_skills,
+        planned_route_stops=capability_plan.get("route_stops") or [],
+        planned_route_city=str(capability_plan.get("route_city") or "全国"),
     )
     blocked_skill = str(capability_plan.get("blocked_skill") or "").strip()
     graph_tools = [] if blocked_skill else all_tools
@@ -731,6 +733,14 @@ async def handler(ctx):
                             break
 
                         streamed_message, _metadata = event
+                        stream_tags = {
+                            str(tag)
+                            for tag in (
+                                _metadata.get("tags", [])
+                                if isinstance(_metadata, dict) else []
+                            )
+                        }
+                        suppress_decision_prose = "floris:tool-decision" in stream_tags
                         input_tokens, output_tokens, total_tokens = _usage_values(streamed_message)
                         usage[0] = max(usage[0], input_tokens)
                         usage[1] = max(usage[1], output_tokens)
@@ -807,7 +817,7 @@ async def handler(ctx):
                             continue
 
                         content = _text_content(getattr(streamed_message, "content", ""))
-                        if content:
+                        if content and not suppress_decision_prose:
                             normalized_content = stream_delta.push(content)
                             delta, reset_required = public_stream.push(normalized_content)
                             if reset_required:

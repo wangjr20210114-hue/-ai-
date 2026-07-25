@@ -182,6 +182,12 @@ export function streamPaper(
 ): { cancel: () => void } {
   const ctrl = new AbortController();
   let full = '';
+  let settled = false;
+  const finish = (error?: string) => {
+    if (settled) return;
+    settled = true;
+    onDone(full, error);
+  };
 
   (async () => {
     try {
@@ -191,14 +197,59 @@ export function streamPaper(
         body: JSON.stringify({ action: endpoint, ...params, response_language: getStoredLanguage() }),
         signal: ctrl.signal,
       });
-      const data = await resp.json().catch(() => ({})) as { content?: string; error?: string };
-      if (!resp.ok || data.error) return onDone('', data.error || `HTTP ${resp.status}`);
-      full = data.content || '';
-      if (full) onDelta(full);
-      onDone(full);
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({})) as { error?: string };
+        return finish(data.error || `HTTP ${resp.status}`);
+      }
+      const contentType = resp.headers.get('content-type') || '';
+      if (!contentType.includes('text/event-stream') || !resp.body) {
+        const data = await resp.json().catch(() => ({})) as { content?: string; error?: string };
+        if (data.error) return finish(data.error);
+        full = data.content || '';
+        if (full) onDelta(full);
+        return finish();
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const consume = (frame: string) => {
+        const payload = frame
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trimStart())
+          .join('\n')
+          .trim();
+        if (!payload || payload === '[DONE]') return;
+        try {
+          const event = JSON.parse(payload) as { type?: string; content?: string };
+          if (event.type === 'paper_delta' && event.content) {
+            full += event.content;
+            onDelta(event.content);
+          } else if (event.type === 'error_message') {
+            finish(event.content || translate('requestFailed'));
+          } else if (event.type === 'paper_done') {
+            finish();
+          }
+        } catch {
+          // Ignore malformed heartbeat/proxy frames; the terminal frame still
+          // determines success or failure.
+        }
+      };
+      while (!settled) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split(/\r?\n\r?\n/);
+        buffer = frames.pop() || '';
+        frames.forEach(consume);
+      }
+      buffer += decoder.decode();
+      if (buffer.trim()) consume(buffer);
+      finish();
     } catch (error: unknown) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
-        onDone(full, error instanceof Error ? error.message : translate('requestFailed'));
+        finish(error instanceof Error ? error.message : translate('requestFailed'));
       }
     }
   })();

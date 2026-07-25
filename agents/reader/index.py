@@ -1,6 +1,10 @@
 """Focused AI operations for the Makers PDF/paper reader."""
 
+import asyncio
+import time
+
 from ..chat._llm import get_model
+from ..chat._protocol import StreamDeltaNormalizer, public_error
 from .._shared.auth import require_user
 from .._shared.http import error
 
@@ -43,18 +47,64 @@ async def handler(ctx):
         if not question:
             return error("问题不能为空")
         user += f"\n\n问题：{question[:2000]}"
-    try:
-        language_hint = {
-            "zh-CN": "请使用简体中文。",
-            "zh-TW": "請使用繁體中文。",
-            "en": "Respond in clear English.",
-            "cat-cute": "请使用简体中文，保持准确，语气像可爱的橘猫，适度加“喵”。",
-            "cat-cold": "请使用简体中文，保持准确，语气像冷静克制的橘猫，偶尔简短加“喵”。",
-        }.get(response_language, "请使用简体中文。")
-        response = await get_model(ctx.env).ainvoke([
-            {"role": "system", "content": f"{PROMPTS[action]}\n{language_hint}"},
-            {"role": "user", "content": user},
-        ])
-        return {"content": _text(getattr(response, "content", ""))}
-    except Exception as exc:
-        return error(f"助读失败：{exc}", 500)
+    language_hint = {
+        "zh-CN": "请使用简体中文。",
+        "zh-TW": "請使用繁體中文。",
+        "en": "Respond in clear English.",
+        "cat-cute": "请使用简体中文，保持准确，语气像可爱的橘猫，适度加“喵”。",
+        "cat-cold": "请使用简体中文，保持准确，语气像冷静克制的橘猫，偶尔简短加“喵”。",
+    }.get(response_language, "请使用简体中文。")
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                f"{PROMPTS[action]}\n{language_hint}\n"
+                "输出 GitHub Flavored Markdown。直接输出结果，不要描述内部过程。"
+            ),
+        },
+        {"role": "user", "content": user},
+    ]
+
+    async def gen():
+        queue: asyncio.Queue = asyncio.Queue()
+        done = object()
+
+        async def produce():
+            normalizer = StreamDeltaNormalizer()
+            try:
+                async for chunk in get_model(ctx.env).astream(messages):
+                    delta = normalizer.push(_text(getattr(chunk, "content", "")))
+                    if delta:
+                        await queue.put(ctx.utils.sse({
+                            "type": "paper_delta",
+                            "content": delta,
+                        }))
+                await queue.put(ctx.utils.sse({"type": "paper_done"}))
+            except Exception as exc:
+                await queue.put(ctx.utils.sse({
+                    "type": "error_message",
+                    "content": public_error(exc),
+                }))
+            finally:
+                await queue.put(done)
+
+        producer = asyncio.create_task(produce())
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=5)
+                except asyncio.TimeoutError:
+                    yield ctx.utils.sse({
+                        "type": "ping",
+                        "ts": int(time.time() * 1000),
+                    })
+                    continue
+                if item is done:
+                    break
+                yield item
+        finally:
+            if not producer.done():
+                producer.cancel()
+        yield b"data: [DONE]\n\n"
+
+    return ctx.utils.stream_sse(gen())
