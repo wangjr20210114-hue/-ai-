@@ -1,5 +1,6 @@
 import json
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from agents._shared.route_cache import route_cache_key
@@ -41,6 +42,19 @@ class FakeStore:
 
 
 class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    def test_capability_planner_searches_real_places_before_clarifying_ambiguity(self):
+        source = (
+            Path(__file__).parents[1] / "chat" / "_capability_plan.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "不得在调用地点服务之前设置 needs_clarification",
+            source,
+        )
+        self.assertIn(
+            "地点工具会根据真实腾讯候选决定直接采用、单选或填空",
+            source,
+        )
+
     def test_browser_location_is_fresh_bounded_and_not_model_text(self):
         current = normalize_browser_current_location({
             "latitude": 43.82,

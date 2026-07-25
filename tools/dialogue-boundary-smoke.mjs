@@ -51,6 +51,7 @@ async function chat(index, input) {
   const mapAction = actionOf(events, 'map_action');
   const calendarAction = actionOf(events, 'calendar_action');
   const clarification = actionOf(events, 'clarification_action');
+  const clarificationFields = clarification?.clarification?.fields || [];
   const answer = answerOf(events);
   const result = {
     id: input.id,
@@ -63,6 +64,8 @@ async function chat(index, input) {
     has_map_action: Boolean(mapAction),
     has_calendar_action: Boolean(calendarAction),
     has_clarification: Boolean(clarification),
+    clarification_field_types: clarificationFields.map((field) => field?.type).filter(Boolean),
+    clarification_option_counts: clarificationFields.map((field) => (field?.options || []).length),
     answer_preview: answer.slice(0, 180),
   };
   input.assert(result);
@@ -134,7 +137,12 @@ const cases = [
     id: 'calendar-multiple-candidates',
     message: '请为我创建一条日程提案：2026年8月11日下午2点到3点去万达广场，但我还没有说城市。',
     assert(result) {
-      if (!result.has_clarification || result.has_calendar_action) {
+      if (
+        !result.has_clarification
+        || result.has_calendar_action
+        || !result.clarification_field_types.includes('single')
+        || Math.max(0, ...result.clarification_option_counts) < 2
+      ) {
         throw new Error(`${result.id}: expected a finite place choice before calendar proposal`);
       }
     },
@@ -143,7 +151,11 @@ const cases = [
     id: 'calendar-no-candidate',
     message: '请为我创建一条日程提案：2026年8月12日上午9点到10点去不存在的日程地点咕咕塔XYZ。',
     assert(result) {
-      if (!result.has_clarification || result.has_calendar_action) {
+      if (
+        !result.has_clarification
+        || result.has_calendar_action
+        || !result.clarification_field_types.includes('text')
+      ) {
         throw new Error(`${result.id}: expected a fill-in clarification before calendar proposal`);
       }
     },
