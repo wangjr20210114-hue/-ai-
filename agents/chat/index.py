@@ -55,6 +55,25 @@ from .._shared.proactive import (
     save_proactive_state,
 )
 
+WEEKDAY_LABELS = (
+    ("Monday", "周一"),
+    ("Tuesday", "周二"),
+    ("Wednesday", "周三"),
+    ("Thursday", "周四"),
+    ("Friday", "周五"),
+    ("Saturday", "周六"),
+    ("Sunday", "周日"),
+)
+
+
+def runtime_datetime_context(value: datetime) -> str:
+    """Return an explicit runtime date and weekday; the LLM must not recalculate it."""
+    english_weekday, chinese_weekday = WEEKDAY_LABELS[value.weekday()]
+    return (
+        f"{value.strftime('%Y-%m-%d %H:%M:%S')} UTC+08:00，"
+        f"weekday={english_weekday}（{chinese_weekday}）"
+    )
+
 
 def run_cancelled(value: object) -> bool:
     """Treat both the platform acknowledgement and terminal marker as stop."""
@@ -109,7 +128,7 @@ def checkpoint_final_answer(snapshot) -> str:
 
 SYSTEM_PROMPT = """你是 FLORIS:一只有温度的大橘，一个可靠、主动、自然的中文智能助手。使用 GitHub Flavored Markdown 回复；多行代码必须使用带语言标识的围栏代码块，不能用普通缩进或行内代码冒充代码块。
 输出语言与语气要求：{response_language_instruction}
-当前北京时间是 {now}。
+当前北京时间是 {now}。weekday 是后端日期库计算的权威结果；回答涉及“今天周几”、营业日、周末或出行日期时必须直接采用，禁止自行重新推算或改写。
 当前用户日程（每轮从 Makers 用户 Workspace 实时读取；更新或删除只能使用这里仍存在的 id）：{calendar_context}
 本轮主动模块建议（由独立模型做语义判断，不是关键词规则）：{capability_plan}。它只提示可用能力，不规定你的措辞或回答结构；不要在回答中提及它。需要搜索时可优先采用其中的 search_query 和 image_query，也可以根据上下文自然调整。若 blocked_skill 非空，表示独立规划模型判断用户当前目标不可替代地依赖该已关闭 Skill；本轮不得调用其他能力拼凑半成品，也不得复用旧工具结果，应自然说明本次请求尚未执行并建议用户到 Skills 广场开启它。
 当前用户消息对本轮范围、地点、时间和备选条件的更新优先于此前回答与旧工具结果。用户放宽、替换或否定旧范围时，不得继续把已被替换的旧地点混入新结果，也不得用旧地图 Action 冒充本轮已完成。
@@ -567,7 +586,7 @@ async def handler(ctx):
         model,
         graph_tools,
         SYSTEM_PROMPT.format(
-            now=current_beijing.strftime("%Y-%m-%d %H:%M:%S UTC+08:00"),
+            now=runtime_datetime_context(current_beijing),
             response_language_instruction=response_language_instruction,
             capability_plan=json.dumps(capability_plan, ensure_ascii=False),
             calendar_context=current_calendar_context,

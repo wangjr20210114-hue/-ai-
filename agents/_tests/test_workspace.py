@@ -7,6 +7,7 @@ import json
 import ast
 import time
 import urllib.error
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -34,6 +35,7 @@ from agents.chat.index import (
     clarification_response_id,
     empty_generation_error,
     graph_user_message,
+    runtime_datetime_context,
     should_persist_user_message,
 )
 from agents.chat._ui_tools import build_production_tools, verify_place_queries_parallel
@@ -202,6 +204,16 @@ class FakeContext:
 
 
 class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
+    def test_runtime_datetime_context_includes_authoritative_weekday(self):
+        value = datetime(
+            2026, 7, 25, 15, 30,
+            tzinfo=timezone(timedelta(hours=8)),
+        )
+        context = runtime_datetime_context(value)
+        self.assertIn("2026-07-25 15:30:00 UTC+08:00", context)
+        self.assertIn("weekday=Saturday（周六）", context)
+        self.assertIn("禁止自行重新推算", SYSTEM_PROMPT)
+
     def test_model_timeout_is_bounded_for_fast_failover(self):
         self.assertEqual(_model_timeout({}, "AI_GATEWAY_TIMEOUT_SECONDS", 12), 12)
         self.assertEqual(_model_timeout({"AI_GATEWAY_TIMEOUT_SECONDS": "999"}, "AI_GATEWAY_TIMEOUT_SECONDS", 12), 30)
