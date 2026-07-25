@@ -242,10 +242,34 @@ def _verified_candidate_matches(
     clean_name = _normalized_place_name(place.get("name"))
     if not clean_query or not clean_name:
         return False
+    matcher = difflib.SequenceMatcher(None, clean_query, clean_name)
+    edits = {tag for tag, *_rest in matcher.get_opcodes() if tag != "equal"}
+    query_bigrams = {
+        clean_query[index:index + 2]
+        for index in range(max(0, len(clean_query) - 1))
+    }
+    descriptive_coverage = (
+        sum(part in clean_name for part in query_bigrams) / len(query_bigrams)
+        if query_bigrams
+        else 0.0
+    )
+    typo_threshold = (
+        0.64 if len(clean_query) == 3
+        else 0.72 if len(clean_query) == 4
+        else 0.76
+    )
+    likely_semantic_insertion = bool(edits and edits <= {"insert", "delete"})
     if not (
         clean_query in clean_name
         or clean_name in clean_query
-        or difflib.SequenceMatcher(None, clean_query, clean_name).ratio() >= 0.52
+        or (
+            len(clean_query) >= 4
+            and descriptive_coverage >= 0.65
+        )
+        or (
+            not likely_semantic_insertion
+            and matcher.ratio() >= typo_threshold
+        )
     ):
         return False
     clean_city = _normalized_place_name(city)
@@ -275,10 +299,26 @@ def _rank_verified_workspace_matches(
     for place_id, raw_place in candidates.items():
         if not isinstance(raw_place, dict) or not str(raw_place.get("place_id") or place_id):
             continue
-        if not _verified_candidate_matches(query, raw_place, city):
-            continue
         clean_name = _normalized_place_name(raw_place.get("name"))
-        exact_rank = 0 if clean_query == clean_name else 1 if clean_query in clean_name else 2
+        correction = raw_place.get("query_correction")
+        corrected_from = (
+            _normalized_place_name(correction.get("original_query"))
+            if isinstance(correction, dict)
+            else ""
+        )
+        clean_option = _normalized_place_name(_place_option_label(raw_place))
+        if not (
+            _verified_candidate_matches(query, raw_place, city)
+            or clean_query == clean_option
+            or clean_query == corrected_from
+        ):
+            continue
+        exact_rank = (
+            0 if clean_query == clean_option
+            else 1 if clean_query == clean_name
+            else 2 if clean_query == corrected_from
+            else 3
+        )
         similarity = difflib.SequenceMatcher(None, clean_query, clean_name).ratio()
         ranked.append((exact_rank, -similarity, str(place_id), raw_place))
     ranked.sort(key=lambda item: (item[0], item[1], item[2]))
@@ -1285,8 +1325,12 @@ def build_production_tools(
             if clarification:
                 await _save_state(state)
                 return clarification
+            endpoint = (
+                "起点" if index == 1
+                else "终点" if index == len(requested_stops)
+                else f"第 {index} 站"
+            )
             if not place:
-                endpoint = "起点" if index == 1 else "终点" if index == len(requested_stops) else f"第 {index} 站"
                 raise ValueError(f"{endpoint}没有完成核实")
             if (
                 resolved_stops

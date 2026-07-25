@@ -11,6 +11,7 @@ from agents.chat._ui_tools import (
     RoutePlanInput,
     _learned_route_preference,
     _place_resolution,
+    _rank_verified_workspace_matches,
     build_production_tools,
 )
 from agents.chat.index import normalize_browser_current_location
@@ -249,6 +250,41 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 "key", "北京西站", city="北京", limit=3, timeout_seconds=10,
             )
         self.assertEqual(places, [])
+
+    def test_workspace_candidates_do_not_collapse_similar_station_names(self):
+        east_station = {
+            **PLACE,
+            "name": "北京站",
+            "place_id": "poi-beijing-station",
+        }
+        candidates = {east_station["place_id"]: east_station}
+        self.assertEqual(
+            _rank_verified_workspace_matches("北京西站", candidates, "北京"),
+            [],
+        )
+        self.assertEqual(
+            _rank_verified_workspace_matches("北京站", candidates, "北京"),
+            [east_station],
+        )
+
+    def test_workspace_candidates_reuse_only_provider_backed_correction(self):
+        corrected = {
+            **PLACE,
+            "name": "天安门",
+            "place_id": "poi-tiananmen",
+            "query_correction": {
+                "original_query": "天安们",
+                "corrected_name": "天安门",
+                "confidence": 0.88,
+                "evidence": "tencent_place_suggestion",
+            },
+        }
+        self.assertEqual(
+            _rank_verified_workspace_matches(
+                "天安们", {corrected["place_id"]: corrected}, "北京",
+            ),
+            [corrected],
+        )
 
     async def test_calendar_place_lookup_enforces_choice_and_fill_cards(self):
         tools = build_production_tools(
