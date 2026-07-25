@@ -187,7 +187,15 @@ def _primary_place_match_score(item: dict[str, Any], normalized_query: str) -> f
         return 0.0
     if normalized_query in normalized_record:
         return 3.0 + min(1.0, len(normalized_query) / max(1, len(normalized_record)))
-    if len(normalized_name) >= 3 and normalized_name in normalized_query:
+    # A short insertion can identify a genuinely different POI: 北京西站 is
+    # not a descriptive spelling of 北京站. Only accept a candidate name
+    # embedded in a substantially longer free-form description.
+    extra_length = len(normalized_query) - len(normalized_name)
+    if (
+        len(normalized_name) >= 3
+        and normalized_name in normalized_query
+        and extra_length >= 3
+    ):
         coverage = len(normalized_name) / max(1, len(normalized_query))
         if coverage > 0.25:
             return 2.0 + coverage
@@ -199,7 +207,17 @@ def _typo_match_score(item: dict[str, Any], normalized_query: str) -> float:
     normalized_name = _normalized_lookup_text(item.get("name"))
     if len(normalized_query) < 3 or not normalized_name:
         return 0.0
-    ratio = difflib.SequenceMatcher(None, normalized_query, normalized_name).ratio()
+    # Substring additions often carry semantic identity (北京西站/北京站,
+    # 大雁塔北广场/大雁塔), so they are unsafe as automatic typo corrections.
+    matcher = difflib.SequenceMatcher(None, normalized_query, normalized_name)
+    edits = {tag for tag, *_rest in matcher.get_opcodes() if tag != "equal"}
+    if (
+        normalized_query in normalized_name
+        or normalized_name in normalized_query
+        or (edits and edits <= {"insert", "delete"})
+    ):
+        return 0.0
+    ratio = matcher.ratio()
     threshold = 0.64 if len(normalized_query) == 3 else 0.72 if len(normalized_query) == 4 else 0.76
     if ratio < threshold:
         return 0.0
@@ -322,6 +340,18 @@ async def search_verified_places_bounded(
                 ),
                 timeout=min(6.0, remaining),
             )
+            ranked_suggestions = sorted(
+                (
+                    (_primary_place_match_score(item, normalized_query), index, item)
+                    for index, item in enumerate(suggestions)
+                ),
+                key=lambda candidate: (-candidate[0], candidate[1]),
+            )
+            matched_suggestions = [
+                item for score, _index, item in ranked_suggestions if score > 0
+            ]
+            if matched_suggestions:
+                return matched_suggestions[:max(1, min(20, int(limit)))]
             typo_suggestions = _verified_typo_candidates(
                 suggestions, query, city, limit=limit,
             )

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test cloud-functions/platform-reuse.test.js cloud-functions/acceptance/index.test.js cloud-functions/files/index.test.js cloud-functions/proactive-tick/index.test.js cloud-functions/reset-files/index.test.js",
-    "test:dialogue:production": "node tools/dialogue-boundary-smoke.mjs"
+    "test:dialogue:production": "node tools/dialogue-boundary-smoke.mjs",
+    "test:linkage:production": "node tools/route-calendar-linkage-smoke.mjs"
   },
   "dependencies": {
     "@edgeone/pages-blob": "^0.0.14"

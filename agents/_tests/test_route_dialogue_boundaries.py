@@ -204,6 +204,52 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         suggestions.assert_awaited_once()
         osm.assert_not_awaited()
 
+    async def test_distinguishing_character_does_not_collapse_train_stations(self):
+        east_station = {**PLACE, "name": "北京站", "place_id": "poi-beijing-station"}
+        west_station = {**PLACE, "name": "北京西站", "place_id": "poi-beijing-west"}
+        with (
+            patch(
+                "agents._shared.tencent_location.search_places",
+                AsyncMock(return_value=[east_station]),
+            ),
+            patch(
+                "agents._shared.tencent_location.search_place_suggestions",
+                AsyncMock(return_value=[west_station]),
+            ) as suggestions,
+            patch(
+                "agents._shared.tencent_location.search_osm_places",
+                AsyncMock(return_value=[]),
+            ) as osm,
+        ):
+            places = await search_verified_places_bounded(
+                "key", "北京西站", city="北京", limit=3, timeout_seconds=10,
+            )
+        self.assertEqual([item["place_id"] for item in places], ["poi-beijing-west"])
+        self.assertNotIn("query_correction", places[0])
+        suggestions.assert_awaited_once()
+        osm.assert_not_awaited()
+
+    async def test_distinguishing_character_is_not_treated_as_typo_without_evidence(self):
+        east_station = {**PLACE, "name": "北京站", "place_id": "poi-beijing-station"}
+        with (
+            patch(
+                "agents._shared.tencent_location.search_places",
+                AsyncMock(return_value=[east_station]),
+            ),
+            patch(
+                "agents._shared.tencent_location.search_place_suggestions",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "agents._shared.tencent_location.search_osm_places",
+                AsyncMock(return_value=[]),
+            ),
+        ):
+            places = await search_verified_places_bounded(
+                "key", "北京西站", city="北京", limit=3, timeout_seconds=10,
+            )
+        self.assertEqual(places, [])
+
     async def test_calendar_place_lookup_enforces_choice_and_fill_cards(self):
         tools = build_production_tools(
             object(),
