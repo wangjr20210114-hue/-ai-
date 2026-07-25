@@ -35,6 +35,7 @@ from .._shared.proactive_memory import infer_memory_reminder
 from .._shared.auth import require_user
 from .._shared.http import error
 from .._shared.tencent_location import get_current_weather
+from .._shared.provider_metering import record_provider_usage
 from ..chat._llm import get_model
 
 
@@ -264,6 +265,14 @@ async def handler(ctx):
                     weather = await get_current_weather(
                         key,
                         {"latitude": latitude, "longitude": longitude},
+                    )
+                    await record_provider_usage(
+                        store,
+                        user_id,
+                        "tencent_maps",
+                        "requests",
+                        2,
+                        source="browser_location_weather",
                     )
                     state.setdefault("checkpoints", {})["location_context"] = {
                         key: weather.get(key)

@@ -46,6 +46,7 @@ from .._shared.makers_conversation import (
 from .._shared.http import error
 from .._shared.workspace import load_user_workspace
 from .._shared.vision import describe_reference_images
+from .._shared.provider_metering import record_vision_diagnostics
 from .._shared.opportunities import detect_opportunity, opportunity_signal
 from .._shared.proactive import (
     load_proactive_state,
@@ -422,6 +423,12 @@ async def handler(ctx):
             "reference image analysis provider=%s attempted=%s",
             vision_diagnostics.get("provider") or "none",
             vision_diagnostics.get("attempted") or 0,
+        )
+        await record_vision_diagnostics(
+            ctx.store.langgraph_store,
+            user_id,
+            vision_diagnostics,
+            source="chat_reference_images",
         )
         if not reference_image_context:
             reference_image_context = (

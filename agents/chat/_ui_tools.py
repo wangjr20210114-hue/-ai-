@@ -27,6 +27,7 @@ from .._shared.data_version import namespace as data_namespace
 from .._shared.side_effects import generate_image as provider_generate_image, resolve_image_reference
 from .._shared.arxiv import search_arxiv as provider_search_arxiv
 from .._shared.proactive import load_proactive_state, propose_workflow as create_workflow_proposal, save_proactive_state
+from .._shared.provider_metering import record_provider_usage, record_vision_diagnostics
 from .._shared.workspace import (
     begin_action_execution,
     calendar_change_warnings,
@@ -203,9 +204,39 @@ def build_production_tools(
     async def _save_state(state: dict[str, Any]) -> dict[str, Any]:
         return await save_user_workspace(store, state, user_id)
 
+    async def _record_map_call(source: str, map_key: str) -> None:
+        if str(map_key or "").strip():
+            await record_provider_usage(
+                store, user_id, "tencent_maps", "requests", 1, source=source,
+            )
+
+    async def _search_places_metered(map_key: str, *args, **kwargs):
+        try:
+            return await provider_search_places(map_key, *args, **kwargs)
+        finally:
+            await _record_map_call("chat_place_search", map_key)
+
+    async def _search_place_candidates_metered(map_key: str, *args, **kwargs):
+        try:
+            return await provider_search_place_candidates(map_key, *args, **kwargs)
+        finally:
+            await _record_map_call("chat_place_candidates", map_key)
+
+    async def _search_places_nearby_metered(map_key: str, *args, **kwargs):
+        try:
+            return await provider_search_places_nearby(map_key, *args, **kwargs)
+        finally:
+            await _record_map_call("chat_nearby_search", map_key)
+
+    async def _plan_route_metered(map_key: str, *args, **kwargs):
+        try:
+            return await provider_plan_route(map_key, *args, **kwargs)
+        finally:
+            await _record_map_call("chat_route", map_key)
+
     async def search_places(query: str, city: str = "全国", limit: int = 10) -> str:
         """Search and verify real map places; returns stable place IDs and coordinates."""
-        places = await provider_search_places(
+        places = await _search_places_metered(
             str(runtime_env.get("TENCENT_MAP_SERVER_KEY") or runtime_env.get("TENCENT_MAP_KEY") or runtime_env.get("VITE_TENCENT_MAP_KEY") or ""),
             query,
             city=city,
@@ -241,7 +272,7 @@ def build_production_tools(
         # conservative rate limit, while Tencent calls are still fast enough.
         for query in normalized:
             try:
-                places = await provider_search_places(
+                places = await _search_places_metered(
                     map_key,
                     query,
                     city=city,
@@ -352,7 +383,7 @@ def build_production_tools(
             or ""
         )
         if anchor is None:
-            anchors = await provider_search_place_candidates(
+            anchors = await _search_place_candidates_metered(
                 map_key,
                 clean_anchor_query,
                 city=city or "全国",
@@ -372,7 +403,7 @@ def build_production_tools(
         # model marks a distance explicitly stated by the user as strict.
         radius = requested_radius if strict_radius else max(2_000, requested_radius)
         bounded_limit = max(1, min(10, int(limit or 5)))
-        places = await provider_search_places_nearby(
+        places = await _search_places_nearby_metered(
             map_key,
             clean_query,
             anchor,
@@ -465,11 +496,11 @@ def build_production_tools(
                 )
             if clean_near:
                 try:
-                    anchors = await provider_search_place_candidates(
+                    anchors = await _search_place_candidates_metered(
                         map_key, clean_near, city=city or "全国", limit=5,
                     )
                 except Exception:
-                    anchors = await provider_search_places(
+                    anchors = await _search_places_metered(
                         map_key, clean_near, city=city or "全国", limit=5,
                     )
                 if not anchors:
@@ -479,7 +510,7 @@ def build_production_tools(
                     if _normalized_place_name(item.get("name")) == _normalized_place_name(clean_near)
                 ]
                 anchor = anchor_exact[0] if len(anchor_exact) == 1 else anchors[0]
-                matches = await provider_search_places_nearby(
+                matches = await _search_places_nearby_metered(
                     map_key,
                     clean_query,
                     anchor,
@@ -487,7 +518,7 @@ def build_production_tools(
                     limit=6,
                 )
             else:
-                matches = await provider_search_places(
+                matches = await _search_places_metered(
                     map_key, clean_query, city=city or "全国", limit=6,
                 )
             if not matches:
@@ -543,7 +574,7 @@ def build_production_tools(
         if str(origin.get("place_id") or "") == str(destination.get("place_id") or ""):
             raise ValueError("起点和终点解析成了同一个地点，请选择不同地点")
 
-        route = await provider_plan_route(map_key, [origin, destination], optimize=False)
+        route = await _plan_route_metered(map_key, [origin, destination], optimize=False)
         state = await _load_state()
         candidates = state.setdefault("place_candidates", {})
         candidates[str(origin["place_id"])] = origin
@@ -626,7 +657,7 @@ def build_production_tools(
             raise ValueError("地图推荐需要模型提供 2 到 12 个独立地点名称")
         map_key = str(runtime_env.get("TENCENT_MAP_SERVER_KEY") or runtime_env.get("TENCENT_MAP_KEY") or runtime_env.get("VITE_TENCENT_MAP_KEY") or "")
         selected, all_candidates, missing = await verify_place_queries_parallel(
-            provider_search_places,
+            _search_places_metered,
             map_key,
             normalized,
             city=city or "全国",
@@ -754,7 +785,7 @@ def build_production_tools(
                             raise ValueError(
                                 f"“{location_text}”需要地图 Skill 核实，请先到 Skills 广场开启地图"
                             )
-                        verified = await provider_search_places(
+                        verified = await _search_places_metered(
                             str(
                                 runtime_env.get("TENCENT_MAP_SERVER_KEY")
                                 or runtime_env.get("TENCENT_MAP_KEY")
@@ -780,7 +811,7 @@ def build_production_tools(
                         # location instead of accepting or persisting that id.
                         maps_enabled = enabled_skills is None or "maps" in enabled_skills
                         if maps_enabled:
-                            verified = await provider_search_places(
+                            verified = await _search_places_metered(
                                 str(
                                     runtime_env.get("TENCENT_MAP_SERVER_KEY")
                                     or runtime_env.get("TENCENT_MAP_KEY")
@@ -878,6 +909,16 @@ def build_production_tools(
         start_provider_call(state, action, now)
         state = await _save_state(state)
         result = await provider_generate_image(runtime_env, clean_prompt, references, user_id=user_id)
+        if result.get("ok"):
+            await record_provider_usage(
+                store,
+                user_id,
+                str(result.get("provider") or "image_provider"),
+                "images",
+                1,
+                model=str(result.get("model") or ""),
+                source="chat_image",
+            )
         state = await _load_state()
         current = get_action(state, action["id"])
         finish_provider_call(state, current, result, int(datetime.now().timestamp()))
@@ -959,6 +1000,12 @@ def build_production_tools(
                     try:
                         async def publish_enriched_media(enriched: dict[str, Any]) -> None:
                             completed = {**enriched, "cache_hit": False, "media_pending": False}
+                            await record_vision_diagnostics(
+                                store,
+                                user_id,
+                                completed.get("vision_diagnostics"),
+                                source="rich_search_media",
+                            )
                             if store is not None:
                                 try:
                                     await store.aput(cache_namespace, cache_key, {
@@ -971,21 +1018,33 @@ def build_production_tools(
                                 await media_callback(completed)
 
                         rich_search_provider_calls += 1
-                        metadata = await provider_rich_search(
-                            runtime_env,
-                            clean_query,
-                            image_query=clean_image_query,
-                            depth=clean_depth,
-                            target_date=target_date,
-                            strict_date=strict_date,
-                            media_callback=publish_enriched_media if progressive_media and media_enabled else None,
-                            background_tasks=background_tasks if progressive_media and media_enabled else None,
-                            include_media=media_enabled,
-                            result_limit=search_result_limit,
-                            image_limit=search_image_limit,
-                            parallel_queries=parallel_image_search,
-                        )
+                        try:
+                            metadata = await provider_rich_search(
+                                runtime_env,
+                                clean_query,
+                                image_query=clean_image_query,
+                                depth=clean_depth,
+                                target_date=target_date,
+                                strict_date=strict_date,
+                                media_callback=publish_enriched_media if progressive_media and media_enabled else None,
+                                background_tasks=background_tasks if progressive_media and media_enabled else None,
+                                include_media=media_enabled,
+                                result_limit=search_result_limit,
+                                image_limit=search_image_limit,
+                                parallel_queries=parallel_image_search,
+                            )
+                        finally:
+                            await record_provider_usage(
+                                store, user_id, "wsa", "requests", 1, source="rich_search",
+                            )
                         metadata = {**metadata, "cache_hit": False}
+                        if not progressive_media:
+                            await record_vision_diagnostics(
+                                store,
+                                user_id,
+                                metadata.get("vision_diagnostics"),
+                                source="rich_search_media",
+                            )
                     except Exception:
                         stale_limit = max(3600, int(search_cache_ttl_seconds) * 4)
                         if isinstance(stale_metadata, dict) and stale_age <= stale_limit:

@@ -358,6 +358,9 @@ async def _vision_filter(
         provider_name = str(provider_diagnostics.get("provider") or "")
         if provider_name:
             diagnostics[f"provider_{provider_name}"] += 1
+        diagnostics["input_tokens"] += max(0, int(provider_diagnostics.get("input_tokens") or 0))
+        diagnostics["output_tokens"] += max(0, int(provider_diagnostics.get("output_tokens") or 0))
+        diagnostics["total_tokens"] += max(0, int(provider_diagnostics.get("total_tokens") or 0))
         if not item:
             diagnostics[str(provider_diagnostics.get("error") or "vision_failed")] += 1
             continue

@@ -106,12 +106,12 @@ def vision_providers(env: dict[str, Any]) -> list[VisionProvider]:
     return sorted(providers, key=lambda provider: rank[provider.name])
 
 
-def _post_completion(
+def _post_completion_with_usage(
     provider: VisionProvider,
     content: list[dict[str, Any]],
     max_tokens: int,
     timeout: float,
-) -> str:
+) -> tuple[str, dict[str, int]]:
     if provider.name == "cloudflare":
         # Workers AI's documented Llama Vision REST schema is not the
         # OpenAI multi-part content schema.  It accepts text messages plus one
@@ -155,8 +155,44 @@ def _post_completion(
         data = json.loads(response.read(4 * 1024 * 1024).decode("utf-8"))
     if provider.name == "cloudflare":
         result = data.get("result") if isinstance(data.get("result"), dict) else data
-        return str(result.get("response") or "").strip()
-    return str(data["choices"][0]["message"]["content"]).strip()
+        usage = result.get("usage") if isinstance(result.get("usage"), dict) else data.get("usage")
+        return str(result.get("response") or "").strip(), _usage_fields(usage)
+    return str(data["choices"][0]["message"]["content"]).strip(), _usage_fields(data.get("usage"))
+
+
+def _usage_fields(value: Any) -> dict[str, int]:
+    usage = value if isinstance(value, dict) else {}
+    try:
+        input_tokens = max(0, int(
+            usage.get("prompt_tokens")
+            or usage.get("input_tokens")
+            or 0
+        ))
+        output_tokens = max(0, int(
+            usage.get("completion_tokens")
+            or usage.get("output_tokens")
+            or 0
+        ))
+        total_tokens = max(0, int(usage.get("total_tokens") or input_tokens + output_tokens))
+    except (TypeError, ValueError):
+        return {}
+    if total_tokens <= 0:
+        return {}
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def _post_completion(
+    provider: VisionProvider,
+    content: list[dict[str, Any]],
+    max_tokens: int,
+    timeout: float,
+) -> str:
+    """Compatibility wrapper retained for the provider adapter unit tests."""
+    return _post_completion_with_usage(provider, content, max_tokens, timeout)[0]
 
 
 async def vision_completion(
@@ -177,9 +213,9 @@ async def vision_completion(
         if remaining <= 0.25:
             break
         try:
-            text = await asyncio.wait_for(
+            text, usage = await asyncio.wait_for(
                 asyncio.to_thread(
-                    _post_completion,
+                    _post_completion_with_usage,
                     provider,
                     content,
                     max_tokens,
@@ -193,6 +229,7 @@ async def vision_completion(
                     "model": provider.model,
                     "attempted": len(failures) + 1,
                     "failures": failures,
+                    **usage,
                 }
             failures.append(f"{provider.name}:empty")
         except asyncio.CancelledError:
@@ -248,8 +285,14 @@ async def describe_reference_images(
         _index, text, diagnostics = successful[0]
         return text, diagnostics
     providers = [str(item.get("provider") or "") for _index, _text, item in successful]
+    input_tokens = sum(int(item.get("input_tokens") or 0) for _index, _text, item in successful)
+    output_tokens = sum(int(item.get("output_tokens") or 0) for _index, _text, item in successful)
+    total_tokens = sum(int(item.get("total_tokens") or 0) for _index, _text, item in successful)
     return "\n".join(f"附图 {index}：{text}" for index, text, _item in successful), {
         "provider": providers[0] if len(set(providers)) == 1 else "mixed",
         "providers": providers,
         "attempted": len(results),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
     }

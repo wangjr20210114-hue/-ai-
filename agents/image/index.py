@@ -8,6 +8,7 @@ from .._shared.side_effects import generate_image, resolve_image_reference
 from .._shared.auth import require_user, scoped_conversation_id
 from .._shared.http import error
 from .._shared.intelligence import load_intelligence_state
+from .._shared.provider_metering import record_provider_usage
 from .._shared.workspace import (
     USER_WORKSPACE_ID,
     begin_action_execution,
@@ -81,6 +82,16 @@ async def handler(ctx):
                         yield ctx.utils.sse({"type": "ping", "ts": int(time.time() * 1000)})
                 result = await retry
 
+        if result.get("ok"):
+            await record_provider_usage(
+                store,
+                user_id,
+                str(result.get("provider") or "image_provider"),
+                "images",
+                1,
+                model=str(result.get("model") or ""),
+                source="image_edit",
+            )
         latest = await load_user_workspace(store, conversation_id, user_id)
         current = get_action(latest, action["id"])
         finish_provider_call(latest, current, result, int(time.time()))

@@ -11,6 +11,7 @@ from .._shared.auth import require_user
 from .._shared.data_version import namespace as data_namespace
 from .._shared.http import error
 from .._shared.intelligence import load_intelligence_state
+from .._shared.provider_metering import record_provider_usage
 
 CACHE_TTL_SECONDS = 6 * 60 * 60
 
@@ -58,11 +59,23 @@ async def handler(ctx):
         except Exception as exc:
             logging.warning("route cache read failed: %s", exc)
     try:
-        route = await plan_verified_route(
-            str(ctx.env.get("TENCENT_MAP_SERVER_KEY") or ctx.env.get("TENCENT_MAP_KEY") or ctx.env.get("VITE_TENCENT_MAP_KEY") or ""),
-            places,
-            optimize=optimize,
-        )
+        map_key = str(ctx.env.get("TENCENT_MAP_SERVER_KEY") or ctx.env.get("TENCENT_MAP_KEY") or ctx.env.get("VITE_TENCENT_MAP_KEY") or "")
+        try:
+            route = await plan_verified_route(
+                map_key,
+                places,
+                optimize=optimize,
+            )
+        finally:
+            if map_key:
+                await record_provider_usage(
+                    store,
+                    str(identity["user_id"]),
+                    "tencent_maps",
+                    "requests",
+                    1,
+                    source="routes_endpoint",
+                )
         expires_at = now + CACHE_TTL_SECONDS
         if store is not None:
             try:

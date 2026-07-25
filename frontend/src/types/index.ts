@@ -154,6 +154,33 @@ export interface MakersIntelligenceState {
   };
 }
 
+export interface ProviderBalance {
+  currency: string;
+  total_balance: string;
+  granted_balance: string;
+  topped_up_balance: string;
+}
+
+export interface ProviderUsageSummary {
+  refreshed_at: number;
+  usage: MakersIntelligenceState['usage'];
+  metering: {
+    daily: Record<string, number>;
+    monthly: Record<string, number>;
+    providers: Record<string, Record<string, number>>;
+    recorded_events: number;
+    timezone: string;
+  };
+  providers: Array<{
+    id: 'deepseek' | string;
+    configured: boolean;
+    status: 'available' | 'unavailable' | 'credentials_required' | 'temporarily_unavailable';
+    is_available: boolean;
+    balances: ProviderBalance[];
+    checked_at: number;
+  }>;
+}
+
 export interface SkillParams {
   message?: string;
   prompt?: string;

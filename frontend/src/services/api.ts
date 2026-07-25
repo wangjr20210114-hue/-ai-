@@ -1,4 +1,4 @@
-import type { ChatMessage, ConversationSummary, TravelPlan, ScheduleItem, StoredFileInfo, MakersMapPlace, MakersRoutePlan, WorkspaceAction, ProactiveState, MakersIntelligenceState } from '../types';
+import type { ChatMessage, ConversationSummary, TravelPlan, ScheduleItem, StoredFileInfo, MakersMapPlace, MakersRoutePlan, WorkspaceAction, ProactiveState, MakersIntelligenceState, ProviderUsageSummary } from '../types';
 
 import { authorizedFetch, withEdgeOneAuth } from './auth';
 import { createConversationId, makersConversationHeaders } from './conversation';
@@ -150,6 +150,27 @@ export async function intelligenceOperation(
   });
   const data = await res.json().catch(() => ({})) as MakersIntelligenceState & { error?: string };
   if (!res.ok) throw new Error(data.error || translate('intelligenceOperationFailed'));
+  return data;
+}
+
+export async function getProviderUsage(conversationId: string): Promise<ProviderUsageSummary> {
+  const res = await authorizedFetch('/provider_usage', {
+    method: 'GET',
+    headers: makersConversationHeaders(conversationId),
+  });
+  const data = await res.json().catch(() => ({})) as ProviderUsageSummary & { error?: string };
+  if (
+    !res.ok
+    || !data.usage
+    || typeof data.usage.daily_tokens !== 'number'
+    || typeof data.usage.monthly_tokens !== 'number'
+    || !data.metering
+    || !data.metering.daily
+    || !data.metering.monthly
+    || !Array.isArray(data.providers)
+  ) {
+    throw new Error(data.error || translate('providerUsageLoadFailed'));
+  }
   return data;
 }
 

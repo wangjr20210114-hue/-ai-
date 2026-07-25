@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button, Dialog, MessagePlugin } from 'tdesign-react';
-import { AddIcon, DeleteIcon, SettingIcon } from 'tdesign-icons-react';
+import { AddIcon, DeleteIcon, RefreshIcon, SettingIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import {
   DataResetError,
+  getProviderUsage,
   intelligenceOperation,
   proactiveOperation,
   resetApplicationData,
@@ -11,7 +12,7 @@ import {
 import { getReadingSettings, updateReadingSettings } from '../../services/paperApi';
 import { clearLocalApplicationData } from '../../services/conversation';
 import { languageName, useLanguage, type Language } from '../../i18n';
-import type { MakersIntelligenceState } from '../../types';
+import type { MakersIntelligenceState, ProviderUsageSummary } from '../../types';
 
 const DEFAULT_SEARCH_PREFERENCES = {
   result_limit: 8,
@@ -33,6 +34,9 @@ export default function AppSettingsButton() {
   const [resetVisible, setResetVisible] = useState(false);
   const [resetPassword, setResetPassword] = useState('');
   const [resetError, setResetError] = useState('');
+  const [providerUsage, setProviderUsage] = useState<ProviderUsageSummary | null>(null);
+  const [providerUsageLoading, setProviderUsageLoading] = useState(false);
+  const [providerUsageError, setProviderUsageError] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -61,6 +65,23 @@ export default function AppSettingsButton() {
       disposed = true;
     };
   }, [conversationId, visible]);
+
+  const loadProviderUsage = useCallback(async () => {
+    setProviderUsageLoading(true);
+    setProviderUsageError(false);
+    try {
+      setProviderUsage(await getProviderUsage(conversationId));
+    } catch {
+      setProviderUsageError(true);
+    } finally {
+      setProviderUsageLoading(false);
+    }
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!visible) return;
+    void loadProviderUsage();
+  }, [loadProviderUsage, visible]);
 
   useEffect(() => {
     if (!visible || proactive) return;
@@ -129,6 +150,9 @@ export default function AppSettingsButton() {
 
   const preferences = proactive?.preferences;
   const skillEnabled = (id: string) => skillPreferences[id] !== false;
+  const metered = (period: 'daily' | 'monthly', metric: string) => Object.entries(
+    providerUsage?.metering?.[period] || {},
+  ).reduce((total, [key, value]) => total + (key.endsWith(`.${metric}`) ? Number(value) || 0 : 0), 0);
   const openSettings = () => {
     setLoading(true);
     setVisible(true);
@@ -186,6 +210,70 @@ export default function AppSettingsButton() {
             {(['zh-CN', 'zh-TW', 'en', 'cat-cute', 'cat-cold'] as Language[]).map((item) => <option key={item} value={item}>{languageName(item)}</option>)}
           </select>
           <p className="settings-language-hint">{t('languageHint')}</p>
+        </section>
+
+        <section className="app-settings-section provider-usage-section">
+          <div className="provider-usage-heading">
+            <div>
+              <h3>{t('providerUsage')}</h3>
+              <p>{t('providerUsageHint')}</p>
+            </div>
+            <Button
+              shape="circle"
+              variant="text"
+              size="small"
+              loading={providerUsageLoading}
+              icon={<RefreshIcon />}
+              aria-label={t('providerUsageRefresh')}
+              title={t('providerUsageRefresh')}
+              onClick={() => void loadProviderUsage()}
+            />
+          </div>
+          {providerUsage && <div className="provider-usage-grid">
+            <article>
+              <span>{t('providerUsageToday')}</span>
+              <strong>{providerUsage.usage.daily_tokens.toLocaleString(language)}</strong>
+            </article>
+            <article>
+              <span>{t('providerUsageMonth')}</span>
+              <strong>{providerUsage.usage.monthly_tokens.toLocaleString(language)}</strong>
+            </article>
+            {([
+              ['vision_tokens', 'visionTokenUsage'],
+              ['images', 'imageGenerationUsage'],
+            ] as const).map(([metric, label]) => (
+              <article key={metric}>
+                <span>{t(label)}</span>
+                <strong>{metered('monthly', metric).toLocaleString(language)}</strong>
+                <small>{t('providerUsageTodayValue', { value: metered('daily', metric).toLocaleString(language) })}</small>
+              </article>
+            ))}
+            <article>
+              <span>{t('wsaUsage')}</span>
+              <strong>{Number(providerUsage.metering.monthly['wsa.requests'] || 0).toLocaleString(language)}</strong>
+              <small>{t('providerUsageTodayValue', { value: Number(providerUsage.metering.daily['wsa.requests'] || 0).toLocaleString(language) })}</small>
+            </article>
+            <article>
+              <span>{t('mapUsage')}</span>
+              <strong>{Number(providerUsage.metering.monthly['tencent_maps.requests'] || 0).toLocaleString(language)}</strong>
+              <small>{t('providerUsageTodayValue', { value: Number(providerUsage.metering.daily['tencent_maps.requests'] || 0).toLocaleString(language) })}</small>
+            </article>
+            {providerUsage.providers.flatMap((provider) => provider.balances.map((balance) => (
+              <article key={`${provider.id}-${balance.currency}`}>
+                <span>{t('deepseekBalance')}</span>
+                <strong>{new Intl.NumberFormat(language, {
+                  style: 'currency',
+                  currency: balance.currency,
+                }).format(Number(balance.total_balance))}</strong>
+                <small>{provider.is_available ? t('balanceAvailable') : t('balanceUnavailable')}</small>
+              </article>
+            )))}
+          </div>}
+          {providerUsage && <small className="provider-usage-updated">{t('providerUsageUpdated', {
+            time: new Date(providerUsage.refreshed_at * 1000).toLocaleString(language),
+          })}</small>}
+          {providerUsageError && <p className="provider-usage-error" role="status">{t('providerUsageLoadFailed')}</p>}
+          <p className="provider-usage-limit-hint">{t('providerUsageLimitedHint')}</p>
         </section>
 
         {skillEnabled('web-search') && <section className="app-settings-section">

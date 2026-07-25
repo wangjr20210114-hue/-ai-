@@ -17,6 +17,7 @@ from typing import Any
 from .data_version import namespace
 from .workspace import USER_WORKSPACE_ID, load_user_workspace, recover_stale_actions, save_user_workspace
 from .tencent_location import get_current_weather, plan_verified_route
+from .provider_metering import record_provider_usage
 
 
 SCHEMA_VERSION = 1
@@ -954,6 +955,23 @@ async def run_proactive_tick(
         provider_signals, provider_diagnostics = await collect_provider_signals(
             env or {}, schedules, timestamp, int(preferences["lookahead_hours"]),
         )
+        # Realtime weather uses geocoding plus weather (two Tencent requests);
+        # a successful Tencent route contributes one route request. Fallback
+        # OSM routes are intentionally excluded from the Tencent counter.
+        tencent_route_calls = sum(
+            1 for fact in provider_diagnostics.get("route_facts", [])
+            if str(fact.get("provider") or "") == "tencent"
+        )
+        tencent_map_calls = int(provider_diagnostics.get("weather_checked") or 0) * 2 + tencent_route_calls
+        if tencent_map_calls:
+            await record_provider_usage(
+                store,
+                user_id,
+                "tencent_maps",
+                "requests",
+                tencent_map_calls,
+                source="proactive_tick",
+            )
         signals.extend(provider_signals)
     stats = process_schedule_signals(state, signals, timestamp)
     if memory_signals:

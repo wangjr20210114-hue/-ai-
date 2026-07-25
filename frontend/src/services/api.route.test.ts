@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { planMakersRoute, resetApplicationData } from './api';
+import { getProviderUsage, planMakersRoute, resetApplicationData } from './api';
 import type { MakersMapPlace, MakersRoutePlan } from '../types';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -38,6 +38,38 @@ describe('planMakersRoute', () => {
     const body = JSON.parse(String(init.body)) as { places: MakersMapPlace[]; optimize: boolean };
     expect(body.places.map((item) => item.name)).toEqual(['早餐店', '北京站', '锦江之星']);
     expect(body.optimize).toBe(false);
+  });
+});
+
+describe('getProviderUsage', () => {
+  it('accepts a safe provider usage summary', async () => {
+    const payload = {
+      refreshed_at: 2_000_000_000,
+      usage: {
+        daily_tokens: 120,
+        monthly_tokens: 340,
+        preferences: { daily_token_limit: 0, monthly_token_limit: 0, enforcement: 'off' },
+        alerts: { daily: false, monthly: false },
+      },
+      metering: {
+        daily: { 'wsa.requests': 2 },
+        monthly: { 'wsa.requests': 9 },
+        providers: { wsa: { daily_requests: 2, monthly_requests: 9 } },
+        recorded_events: 9,
+        timezone: 'Asia/Shanghai',
+      },
+      providers: [],
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 })));
+    await expect(getProviderUsage('yb7_provider-usage')).resolves.toEqual(payload);
+  });
+
+  it('rejects an HTML fallback or malformed 200 response instead of crashing settings', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<!doctype html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    })));
+    await expect(getProviderUsage('yb7_provider-usage')).rejects.toThrow();
   });
 });
 
