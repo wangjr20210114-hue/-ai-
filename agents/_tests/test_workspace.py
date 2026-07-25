@@ -37,7 +37,7 @@ from agents.chat.index import (
     should_persist_user_message,
 )
 from agents.chat._ui_tools import build_production_tools, verify_place_queries_parallel
-from agents.chat._protocol import PublicStreamFilter, StreamDeltaNormalizer, action_fallback_content, dsml_tool_calls, public_content, public_error
+from agents.chat._protocol import PublicStreamFilter, StreamDeltaNormalizer, action_fallback_content, checkpoint_recovery_needed, dsml_tool_calls, public_content, public_error
 from agents.messages.index import handler as messages_handler
 from agents._shared.side_effects import (
     _cloudflare_image_prompt,
@@ -2284,6 +2284,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         normalizer = StreamDeltaNormalizer()
         self.assertEqual(normalizer.push("哈"), "哈")
         self.assertEqual(normalizer.push("哈"), "哈")
+
+    def test_checkpoint_recovery_does_not_duplicate_buffered_short_answer(self):
+        self.assertFalse(checkpoint_recovery_needed([], saw_public_content=True))
+        self.assertFalse(checkpoint_recovery_needed(["已经发出的正文"], saw_public_content=False))
+        self.assertTrue(checkpoint_recovery_needed([], saw_public_content=False))
 
     def test_today_filter_requires_a_verifiable_matching_publication_date(self):
         results = [

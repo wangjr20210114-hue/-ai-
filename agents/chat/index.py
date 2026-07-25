@@ -17,7 +17,13 @@ from ._capability_plan import (
     required_tools_for_plan,
 )
 from ._followups import generate_followups
-from ._protocol import PublicStreamFilter, StreamDeltaNormalizer, public_content, public_error
+from ._protocol import (
+    PublicStreamFilter,
+    StreamDeltaNormalizer,
+    checkpoint_recovery_needed,
+    public_content,
+    public_error,
+)
 from ._calendar_context import calendar_context
 from .._shared.intelligence import (
     apply_automatic_memory_candidates,
@@ -600,6 +606,7 @@ async def handler(ctx):
             final_answer_parts: list[str] = []
             public_stream = PublicStreamFilter()
             stream_delta = StreamDeltaNormalizer()
+            stream_saw_public_content = False
             buffer_public_answer = bool(capability_plan.get("needs_image_generation"))
             run_error = ""
             cancelled = False
@@ -619,9 +626,11 @@ async def handler(ctx):
             )
 
             async def reset_public_stream() -> None:
+                nonlocal stream_saw_public_content
                 pending_ai_content.clear()
                 final_answer_parts.clear()
                 stream_delta.reset()
+                stream_saw_public_content = False
                 if public_stream.reset():
                     await queue.put(ctx.utils.sse({"type": "ai_response_reset"}))
 
@@ -774,7 +783,10 @@ async def handler(ctx):
 
                         content = _text_content(getattr(streamed_message, "content", ""))
                         if content:
-                            delta, reset_required = public_stream.push(stream_delta.push(content))
+                            normalized_content = stream_delta.push(content)
+                            if normalized_content:
+                                stream_saw_public_content = True
+                            delta, reset_required = public_stream.push(normalized_content)
                             if reset_required:
                                 pending_ai_content.clear()
                                 final_answer_parts.clear()
@@ -784,7 +796,10 @@ async def handler(ctx):
                     # checkpoint but are not emitted as LLM token events. If
                     # this run has no public text yet, recover exactly that
                     # final user-safe prose before deciding the run failed.
-                    if not final_answer_parts:
+                    if checkpoint_recovery_needed(
+                        final_answer_parts,
+                        saw_public_content=stream_saw_public_content,
+                    ):
                         try:
                             final_snapshot = await graph.aget_state(config)
                             recovered_answer = checkpoint_final_answer(final_snapshot)

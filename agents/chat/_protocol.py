@@ -38,6 +38,15 @@ def public_error(error: Any) -> str:
     return text if len(text) <= 180 else f"{text[:180]}…"
 
 
+def checkpoint_recovery_needed(
+    emitted_parts: list[str],
+    *,
+    saw_public_content: bool,
+) -> bool:
+    """Recover only when no safe text exists, including buffered short text."""
+    return not emitted_parts and not saw_public_content
+
+
 def action_fallback_content(actions: list[dict[str, Any]]) -> str:
     """Keep a durable UI action visible when a provider returns no final prose."""
     kinds = {
