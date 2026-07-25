@@ -145,6 +145,44 @@ class _ContinuationModel:
         return AIMessage(content="日程确认卡已经准备好。")
 
 
+class _LinkedRouteCalendarBoundModel:
+    def __init__(self, owner, tools, tool_choice):
+        self.owner = owner
+        self.tools = tools
+        self.tool_choice = tool_choice
+
+    async def ainvoke(self, _messages, **_kwargs):
+        tool_names = {tool.name for tool in self.tools}
+        self.owner.decisions.append((tool_names, self.tool_choice))
+        if "plan_route_between_places" in tool_names:
+            return AIMessage(content="", tool_calls=[{
+                "name": "plan_route_between_places",
+                "args": {
+                    "origin_query": "北京站",
+                    "destination_query": "北京西站",
+                },
+                "id": "linked-route-1",
+            }])
+        return AIMessage(content="", tool_calls=[{
+            "name": "propose_calendar_changes",
+            "args": {"summary": "六站日程提案"},
+            "id": "linked-calendar-1",
+        }])
+
+
+class _LinkedRouteCalendarModel:
+    def __init__(self):
+        self.decisions = []
+
+    def bind_tools(self, tools, **kwargs):
+        return _LinkedRouteCalendarBoundModel(
+            self, tools, kwargs.get("tool_choice", ""),
+        )
+
+    async def ainvoke(self, _messages, **_kwargs):
+        return AIMessage(content="路线和日程提案已准备好。")
+
+
 class _BlankAfterToolBoundModel:
     async def ainvoke(self, _messages, **_kwargs):
         return AIMessage(content="")
@@ -408,6 +446,51 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
             {"propose_calendar_changes", "ask_user_clarification"},
         )
         self.assertEqual(result["messages"][-1].content, "日程确认卡已经准备好。")
+
+    async def test_linked_route_uses_auto_choice_before_required_calendar(self):
+        model = _LinkedRouteCalendarModel()
+        graph = build_graph(
+            model,
+            [
+                plan_route_between_places,
+                propose_calendar_changes,
+                ask_user_clarification,
+            ],
+            "system",
+            required_tools=[
+                "plan_route_between_places",
+                "propose_calendar_changes",
+            ],
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="规划六站路线并生成日程提案")],
+        })
+        tool_names = [
+            message.name for message in result["messages"]
+            if isinstance(message, ToolMessage)
+        ]
+        self.assertEqual(
+            tool_names,
+            ["plan_route_between_places", "propose_calendar_changes"],
+        )
+        self.assertEqual(
+            model.decisions[0],
+            (
+                {"plan_route_between_places", "ask_user_clarification"},
+                "",
+            ),
+        )
+        self.assertEqual(
+            model.decisions[1],
+            (
+                {"propose_calendar_changes", "ask_user_clarification"},
+                "required",
+            ),
+        )
+        self.assertEqual(
+            result["messages"][-1].content,
+            "路线和日程提案已准备好。",
+        )
 
     async def test_domain_tool_clarification_does_not_mark_required_route_complete(self):
         model = _RouteChainModel()

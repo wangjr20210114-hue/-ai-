@@ -440,10 +440,21 @@ def build_graph(
                     required_name, "ask_user_clarification",
                 }
             ]
+            # Some OpenAI-compatible gateways reject a large multi-stop route
+            # request when tool_choice="required" is combined with the route
+            # schema. Keep the first dependent route decision constrained to
+            # route-or-clarification, but let the model choose automatically.
+            # Once the route succeeds, the following calendar proposal remains
+            # a required step in the sequence.
+            linked_route_entry = (
+                required_name == "plan_route_between_places"
+                and "propose_calendar_changes" in required_sequence
+                and "plan_route_between_places" not in used_tool_names
+            )
             active_model = _tagged(
                 model.bind_tools(
                     required_or_question_tools,
-                    tool_choice="required",
+                    **({} if linked_route_entry else {"tool_choice": "required"}),
                 ),
                 "floris:tool-decision",
             )
