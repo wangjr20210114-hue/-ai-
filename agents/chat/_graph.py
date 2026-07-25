@@ -416,6 +416,7 @@ def build_graph(
             or planned_sequence_complete
             or (finalize_after_rich_search and not remaining_tools)
         )
+        linked_trip_step = False
         if force_finalize:
             active_model = public_model
         elif planned_sequence_complete:
@@ -440,21 +441,24 @@ def build_graph(
                     required_name, "ask_user_clarification",
                 }
             ]
-            # Some OpenAI-compatible gateways reject a large multi-stop route
-            # request when tool_choice="required" is combined with the route
-            # schema. Keep the first dependent route decision constrained to
-            # route-or-clarification, but let the model choose automatically.
-            # Once the route succeeds, the following calendar proposal remains
-            # a required step in the sequence.
-            linked_route_entry = (
-                required_name == "plan_route_between_places"
+            # Some OpenAI-compatible gateways reject a complex multi-stop
+            # route/calendar request when tool_choice="required" is combined
+            # with either large tool schema. Keep each dependent decision
+            # constrained to its current capability-or-clarification, but let
+            # the model select automatically. The sequence still prevents the
+            # calendar step from seeing or restarting the route capability.
+            linked_trip_step = (
+                required_name in {
+                    "plan_route_between_places",
+                    "propose_calendar_changes",
+                }
+                and "plan_route_between_places" in required_sequence
                 and "propose_calendar_changes" in required_sequence
-                and "plan_route_between_places" not in used_tool_names
             )
             active_model = _tagged(
                 model.bind_tools(
                     required_or_question_tools,
-                    **({} if linked_route_entry else {"tool_choice": "required"}),
+                    **({} if linked_trip_step else {"tool_choice": "required"}),
                 ),
                 "floris:tool-decision",
             )
@@ -488,6 +492,14 @@ def build_graph(
                 "否则直接基于已有证据回答。不要描述内部搜索过程。"
             )))
         response = await active_model.ainvoke(messages)
+        if linked_trip_step and not getattr(response, "tool_calls", None):
+            response = await active_model.ainvoke([
+                *messages,
+                SystemMessage(content=(
+                    f"本轮能力链尚未完成。现在必须调用 {required_name} 或在确有阻塞信息时调用"
+                    " ask_user_clarification；不要提前输出最终回答。"
+                )),
+            ])
         if not tools_closed and not getattr(response, "tool_calls", None):
             normalized = dsml_tool_calls(getattr(response, "content", ""), allowed_tool_names)
             if normalized:

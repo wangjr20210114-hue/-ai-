@@ -484,7 +484,7 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
             model.decisions[1],
             (
                 {"propose_calendar_changes", "ask_user_clarification"},
-                "required",
+                "",
             ),
         )
         self.assertEqual(
