@@ -40,12 +40,15 @@ from agents.chat.index import (
     SYSTEM_PROMPT,
     capability_planning_message,
     checkpoint_clarification_answers,
+    checkpoint_clarification_state,
     checkpoint_final_answer,
+    clarification_response_answers,
     clarification_response_id,
     empty_generation_error,
     graph_user_message,
     dynamic_system_prompt,
     runtime_datetime_context,
+    resume_capability_protocol,
     should_persist_user_message,
     tools_for_capability_stage,
 )
@@ -410,13 +413,30 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         }
         clarification_id = clarification_response_id(body)
         self.assertEqual(clarification_id, "trip-date")
-        self.assertEqual(graph_user_message("出发日期：2026-08-01", clarification_id), {
+        answers = clarification_response_answers({
+            "interaction_mode": "clarification",
+            "clarification_response": {
+                "answers": [{
+                    "id": "trip_date",
+                    "label": "出发日期",
+                    "value": "2026-08-01",
+                }],
+            },
+        })
+        self.assertEqual(graph_user_message(
+            "出发日期：2026-08-01", clarification_id, answers,
+        ), {
             "role": "user",
             "content": "出发日期：2026-08-01",
             "additional_kwargs": {
                 "floris_ui_hidden": True,
                 "floris_interaction": "clarification",
                 "clarification_id": "trip-date",
+                "floris_answers": [{
+                    "id": "trip_date",
+                    "label": "出发日期",
+                    "value": "2026-08-01",
+                }],
             },
         })
         self.assertEqual(clarification_response_id({
@@ -479,6 +499,129 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("北京通州万达广场", planning)
         self.assertIn("北京西站", planning)
         self.assertIn("中国人民解放军总医院第一医学中心", planning)
+
+    async def test_checkpoint_recovers_structured_answers_and_resume_protocol_once(self):
+        messages = [
+            HumanMessage(content="规划六站路线并写入日程"),
+            AIMessage(
+                content="",
+                additional_kwargs={"floris_resume": {
+                    "version": 1,
+                    "required_tools": [
+                        "plan_route_between_places",
+                        "propose_calendar_changes",
+                    ],
+                    "planned_tool_arguments": {
+                        "plan_route_between_places": {
+                            "ordered_stops": [
+                                {"query": "北京站", "near_query": ""},
+                                {"query": "万达广场", "near_query": ""},
+                                {"query": "咕咕塔XYZ", "near_query": ""},
+                            ],
+                            "route_strategy": "default",
+                        },
+                    },
+                }},
+            ),
+            HumanMessage(
+                content="第 2 站：通州万达广场",
+                additional_kwargs={
+                    "floris_interaction": "clarification",
+                    "clarification_id": "route-stop-2",
+                    "floris_answers": [{
+                        "id": "route_stop_2",
+                        "label": "第 2 站",
+                        "value": "北京通州万达广场｜北京市通州区",
+                    }],
+                },
+            ),
+            AIMessage(
+                content="",
+                additional_kwargs={"floris_resume": {
+                    "version": 1,
+                    "required_tools": [
+                        "plan_route_between_places",
+                        "propose_calendar_changes",
+                    ],
+                    "planned_tool_arguments": {
+                        "plan_route_between_places": {
+                            "ordered_stops": [
+                                {"query": "北京站", "near_query": ""},
+                                {"query": "北京通州万达广场｜北京市通州区", "near_query": ""},
+                                {"query": "咕咕塔XYZ", "near_query": ""},
+                            ],
+                            "route_strategy": "default",
+                        },
+                    },
+                }},
+            ),
+        ]
+        state = await checkpoint_clarification_state(
+            FakeCheckpointer(messages),
+            "route-clarification-protocol",
+        )
+        self.assertEqual(state["answer_texts"], ["第 2 站：通州万达广场"])
+        self.assertEqual(state["answers"][0]["id"], "route_stop_2")
+        self.assertEqual(
+            state["resume"]["required_tools"],
+            ["plan_route_between_places", "propose_calendar_changes"],
+        )
+
+    def test_resume_protocol_preserves_chain_and_applies_route_field_ids(self):
+        plan, arguments = resume_capability_protocol(
+            {
+                "needs_route": False,
+                "needs_calendar_action": False,
+                "route_strategy": "least_time",
+            },
+            {
+                "version": 1,
+                "required_tools": [
+                    "plan_route_between_places",
+                    "propose_calendar_changes",
+                ],
+                "planned_tool_arguments": {
+                    "plan_route_between_places": {
+                        "city": "北京",
+                        "route_mode": "transit",
+                        "route_strategy": "default",
+                        "ordered_stops": [
+                            {"query": "北京站", "near_query": ""},
+                            {"query": "万达广场", "near_query": ""},
+                            {"query": "咕咕塔XYZ", "near_query": ""},
+                            {"query": "北京西站", "near_query": ""},
+                        ],
+                    },
+                },
+            },
+            [
+                {
+                    "id": "route_stop_2",
+                    "value": "北京通州万达广场｜北京市通州区",
+                },
+                {
+                    "id": "route_stop_3_a1b2c3",
+                    "value": "中国人民革命军事博物馆",
+                },
+            ],
+        )
+        self.assertTrue(plan["needs_route"])
+        self.assertTrue(plan["needs_calendar_context"])
+        self.assertTrue(plan["needs_calendar_action"])
+        self.assertEqual(plan["route_strategy"], "default")
+        self.assertEqual(
+            [stop["query"] for stop in plan["route_stops"]],
+            [
+                "北京站",
+                "北京通州万达广场｜北京市通州区",
+                "中国人民革命军事博物馆",
+                "北京西站",
+            ],
+        )
+        self.assertEqual(
+            arguments["plan_route_between_places"]["ordered_stops"],
+            plan["route_stops"],
+        )
 
     async def test_capability_planner_uses_langchain_structured_output(self):
         model = StructuredPlannerModel()
@@ -553,13 +696,18 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 "required": True,
             }],
         })
+        timings = {}
         plan, timed_out = await plan_capabilities_bounded(
             model,
             "一种没有固定短语的新表达",
             timeout_seconds=1,
+            timings_ms=timings,
         )
         self.assertFalse(timed_out)
         self.assertEqual(model.calls, 2)
+        self.assertIn("semantic_preflight", timings)
+        self.assertIn("clarification_review", timings)
+        self.assertIn("capability_planning_total", timings)
         self.assertEqual(
             required_tools_for_plan(plan),
             ("ask_user_clarification",),

@@ -231,7 +231,9 @@ class CapabilityPlan(BaseModel):
         default="default",
         description=(
             "Explicit route preference: time_then_cost, least_time, or least_cost. "
-            "Use default when the user did not state a preference."
+            "Use least_time only when the user explicitly prioritizes the shortest "
+            "duration. Asking for actual travel time or calendar timing is not a "
+            "route preference. Use default when no preference was stated."
         ),
     )
     route_uses_current_location: bool = Field(
@@ -515,7 +517,8 @@ PLANNER_PROMPT_DETAILS = {
         "needs_places+needs_map_action；真实道路距离、耗时、费用或有序停靠用 needs_route。"
         "route_stops 逐字、按原顺序保留，不得在规划器中纠错、改名或选择分店；若使用浏览器"
         "当前位置作起点，route_uses_current_location=true 且 route_stops 只列目的地；"
-        "错字/同名交给腾讯地点服务处理，不得提前澄清。"
+        "错字/同名交给腾讯地点服务处理，不得提前澄清。只有用户明确优先最短耗时才设置 "
+        "route_strategy=least_time；询问真实耗时或要求按路程安排日程不代表该偏好，保持 default。"
     ),
     "calendar": (
         "【日程】只读/汇总当前日程用 needs_calendar_context；新增、修改、删除还要 "
@@ -933,6 +936,7 @@ async def plan_capabilities_bounded(
     has_reference_images: bool = False,
     has_document_context: bool = False,
     timeout_seconds: float = 6.0,
+    timings_ms: dict[str, int | bool] | None = None,
 ) -> tuple[dict[str, Any], bool]:
     """Run the semantic planner without letting it block the whole turn.
 
@@ -940,9 +944,13 @@ async def plan_capabilities_bounded(
     the planner receives all detail fragments; if capability planning times
     out, only the model-selected topic tools remain available for recovery.
     """
+    loop = asyncio.get_running_loop()
+    started_at = loop.time()
     total_timeout = max(0.02, float(timeout_seconds))
-    deadline = asyncio.get_running_loop().time() + total_timeout
+    deadline = started_at + total_timeout
     gate_timeout = min(8.0, max(0.01, total_timeout * 0.45))
+    gate_started_at = loop.time()
+    gate_timed_out = False
     try:
         clarification = await asyncio.wait_for(
             plan_required_clarification(
@@ -955,16 +963,24 @@ async def plan_capabilities_bounded(
             timeout=gate_timeout,
         )
     except asyncio.TimeoutError:
+        gate_timed_out = True
         clarification = {
             "needs_clarification": False,
             "_prompt_topics": list(PLANNER_PROMPT_DETAILS),
         }
+    if timings_ms is not None:
+        timings_ms["semantic_preflight"] = round(
+            (loop.time() - gate_started_at) * 1000
+        )
+        timings_ms["semantic_preflight_timed_out"] = gate_timed_out
     topics = tuple(clarification.get("_prompt_topics") or ())
     if clarification.get("needs_clarification"):
         review_timeout = min(
             4.0,
             max(0.01, deadline - asyncio.get_running_loop().time()),
         )
+        review_started_at = loop.time()
+        review_timed_out = False
         try:
             approved = await asyncio.wait_for(
                 review_required_clarification(
@@ -978,7 +994,13 @@ async def plan_capabilities_bounded(
                 timeout=review_timeout,
             )
         except asyncio.TimeoutError:
+            review_timed_out = True
             approved = False
+        if timings_ms is not None:
+            timings_ms["clarification_review"] = round(
+                (loop.time() - review_started_at) * 1000
+            )
+            timings_ms["clarification_review_timed_out"] = review_timed_out
         if approved:
             plan = dict(DEFAULT_PLAN)
             plan.update({
@@ -988,7 +1010,12 @@ async def plan_capabilities_bounded(
                 "clarification_fields": clarification.get("clarification_fields") or [],
                 "_prompt_topics": list(topics),
             })
+            if timings_ms is not None:
+                timings_ms["capability_planning_total"] = round(
+                    (loop.time() - started_at) * 1000
+                )
             return plan, False
+    plan_started_at = loop.time()
     try:
         plan_timeout = max(
             0.01,
@@ -1005,8 +1032,24 @@ async def plan_capabilities_bounded(
             ),
             timeout=plan_timeout,
         )
+        if timings_ms is not None:
+            timings_ms["capability_plan"] = round(
+                (loop.time() - plan_started_at) * 1000
+            )
+            timings_ms["capability_plan_timed_out"] = False
+            timings_ms["capability_planning_total"] = round(
+                (loop.time() - started_at) * 1000
+            )
         return plan, False
     except asyncio.TimeoutError:
         fallback = dict(DEFAULT_PLAN)
         fallback["_prompt_topics"] = list(topics)
+        if timings_ms is not None:
+            timings_ms["capability_plan"] = round(
+                (loop.time() - plan_started_at) * 1000
+            )
+            timings_ms["capability_plan_timed_out"] = True
+            timings_ms["capability_planning_total"] = round(
+                (loop.time() - started_at) * 1000
+            )
         return fallback, True

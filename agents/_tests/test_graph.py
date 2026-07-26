@@ -536,8 +536,59 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
             ToolMessage(content='{"ui_action":"clarification_action"}', name="ask_user_clarification", tool_call_id="clarify-1"),
         ]})
         self.assertEqual(result["messages"][-1].content, "")
+        self.assertEqual(
+            result["messages"][-1].additional_kwargs["floris_resume"]["version"],
+            1,
+        )
         self.assertEqual(model.bound_calls, 0)
         self.assertEqual(model.unbound_calls, 0)
+
+    async def test_domain_clarification_checkpoints_original_linked_tool_protocol(self):
+        model = _RecordingModel()
+        route_arguments = {
+            "city": "北京",
+            "route_mode": "transit",
+            "route_strategy": "default",
+            "ordered_stops": [
+                {"query": "北京站", "near_query": ""},
+                {"query": "万达广场", "near_query": ""},
+                {"query": "北京西站", "near_query": ""},
+            ],
+        }
+        graph = build_graph(
+            model,
+            [plan_route_between_places, propose_calendar_changes],
+            "system",
+            required_tools=[
+                "plan_route_between_places",
+                "propose_calendar_changes",
+            ],
+            planned_tool_arguments={
+                "plan_route_between_places": route_arguments,
+            },
+        )
+        result = await graph.ainvoke({"messages": [
+            HumanMessage(content="规划路线并写入日程"),
+            AIMessage(content="", tool_calls=[{
+                "name": "plan_route_between_places",
+                "args": route_arguments,
+                "id": "route-needs-place",
+            }]),
+            ToolMessage(
+                content='{"ui_action":"clarification_action"}',
+                name="plan_route_between_places",
+                tool_call_id="route-needs-place",
+            ),
+        ]})
+        resume = result["messages"][-1].additional_kwargs["floris_resume"]
+        self.assertEqual(
+            resume["required_tools"],
+            ["plan_route_between_places", "propose_calendar_changes"],
+        )
+        self.assertEqual(
+            resume["planned_tool_arguments"]["plan_route_between_places"],
+            route_arguments,
+        )
 
     async def test_failed_required_route_cannot_advance_or_invent_prose(self):
         model = _RecordingModel()

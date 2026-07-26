@@ -28,6 +28,7 @@ function record(frame) {
       elapsed_ms: elapsedMs(),
       type: event?.type || '',
       tool: toolName(event),
+      ...(event?.timings_ms ? { timings_ms: event.timings_ms } : {}),
     };
     events.push(row);
     process.stderr.write(`${JSON.stringify(row)}\n`);
@@ -60,6 +61,7 @@ const response = await fetch(`${baseUrl}/chat`, {
   body: JSON.stringify({
     message,
     response_language: 'zh-CN',
+    _diagnostics: true,
   }),
 });
 if (!response.ok || !response.body) {

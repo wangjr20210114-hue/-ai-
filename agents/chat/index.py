@@ -1,6 +1,7 @@
 """LangGraph chat endpoint running on the EdgeOne Makers agent runtime."""
 
 import asyncio
+import copy
 import contextlib
 import json
 import logging
@@ -515,13 +516,47 @@ async def _recent_user_questions(store, conversation_id: str, current_message: s
     return questions
 
 
-async def checkpoint_clarification_answers(
+def clarification_response_answers(body: dict) -> list[dict]:
+    """Normalize structured card answers as bounded protocol data."""
+    response = body.get("clarification_response")
+    if body.get("interaction_mode") != "clarification" or not isinstance(response, dict):
+        return []
+    normalized: list[dict] = []
+    for raw in response.get("answers") or []:
+        if not isinstance(raw, dict):
+            continue
+        field_id = str(raw.get("id") or "").strip()[:80]
+        if not field_id:
+            continue
+        value = raw.get("value")
+        if isinstance(value, list):
+            clean_value = [
+                " ".join(str(item or "").split())[:240]
+                for item in value[:12]
+                if str(item or "").strip()
+            ]
+        else:
+            clean_value = " ".join(str(value or "").split())[:240]
+        if not clean_value:
+            continue
+        normalized.append({
+            "id": field_id,
+            "label": " ".join(str(raw.get("label") or "").split())[:160],
+            "value": clean_value,
+        })
+        if len(normalized) >= 12:
+            break
+    return normalized
+
+
+async def checkpoint_clarification_state(
     checkpointer,
     conversation_id: str,
-) -> list[str]:
-    """Recover prior hidden card answers for the current logical user goal."""
+) -> dict:
+    """Recover answers and unfinished machine protocol in one checkpoint read."""
+    empty = {"answer_texts": [], "answers": [], "resume": {}}
     if checkpointer is None or not hasattr(checkpointer, "aget_tuple"):
-        return []
+        return empty
     try:
         checkpoint_tuple = await checkpointer.aget_tuple({
             "configurable": {"thread_id": conversation_id},
@@ -538,30 +573,64 @@ async def checkpoint_clarification_answers(
             else []
         )
     except Exception:
-        return []
-    answers: list[str] = []
+        return empty
+    answer_texts: list[str] = []
+    structured_answer_groups: list[list[dict]] = []
+    resume: dict = {}
     for item in reversed(list(messages or [])):
         try:
             role = str(
                 _field(item, "type", _field(item, "role", "")) or ""
             ).lower()
+            additional = _field(item, "additional_kwargs", {}) or {}
+            if (
+                not resume
+                and role in {"ai", "assistant"}
+                and isinstance(additional, dict)
+                and isinstance(additional.get("floris_resume"), dict)
+            ):
+                resume = copy.deepcopy(additional["floris_resume"])
             if role not in {"human", "user"}:
                 continue
-            additional = _field(item, "additional_kwargs", {}) or {}
             if not (
                 isinstance(additional, dict)
                 and additional.get("floris_interaction") == "clarification"
             ):
                 break
             content = _text_content(_field(item, "content", "")).strip()
+            raw_answers = additional.get("floris_answers") or []
         except Exception:
             continue
         if content:
-            answers.append(content[:500])
-        if len(answers) >= 8:
+            answer_texts.append(content[:500])
+        if isinstance(raw_answers, list):
+            structured_answer_groups.append([
+                copy.deepcopy(answer)
+                for answer in raw_answers
+                if isinstance(answer, dict)
+            ])
+        if len(answer_texts) >= 8:
             break
-    answers.reverse()
-    return answers
+    answer_texts.reverse()
+    structured_answers = [
+        answer
+        for group in reversed(structured_answer_groups)
+        for answer in group
+    ]
+    return {
+        "answer_texts": answer_texts,
+        "answers": structured_answers[-48:],
+        "resume": resume,
+    }
+
+
+async def checkpoint_clarification_answers(
+    checkpointer,
+    conversation_id: str,
+) -> list[str]:
+    """Backward-compatible text-only view of checkpoint clarification state."""
+    state = await checkpoint_clarification_state(checkpointer, conversation_id)
+    return state["answer_texts"]
 
 
 def clarification_response_id(body: dict) -> str:
@@ -572,16 +641,13 @@ def clarification_response_id(body: dict) -> str:
 
 
 def clarification_answer_value(body: dict, field_id: str) -> str:
-    response = body.get("clarification_response")
-    if body.get("interaction_mode") != "clarification" or not isinstance(response, dict):
-        return ""
-    for answer in response.get("answers") or []:
-        if not isinstance(answer, dict) or str(answer.get("id") or "") != field_id:
+    for answer in clarification_response_answers(body):
+        if answer["id"] != field_id:
             continue
         value = answer.get("value")
         if isinstance(value, list):
-            value = "、".join(str(item).strip() for item in value if str(item).strip())
-        return " ".join(str(value or "").split())[:240]
+            value = "、".join(value)
+        return str(value or "")[:240]
     return ""
 
 
@@ -589,15 +655,170 @@ def should_persist_user_message(body: dict) -> bool:
     return not clarification_response_id(body)
 
 
-def graph_user_message(content: str, clarification_id: str = "") -> dict:
+def graph_user_message(
+    content: str,
+    clarification_id: str = "",
+    clarification_answers: list[dict] | None = None,
+) -> dict:
     message = {"role": "user", "content": content}
     if clarification_id:
         message["additional_kwargs"] = {
             "floris_ui_hidden": True,
             "floris_interaction": "clarification",
             "clarification_id": clarification_id,
+            "floris_answers": copy.deepcopy(clarification_answers or []),
         }
     return message
+
+
+_RESUME_TOOL_PLAN_FLAGS = {
+    # These are stable internal protocol names, not natural-language routing.
+    "rich_search": ("needs_web_search",),
+    "get_current_location": ("needs_current_location",),
+    "search_places": ("needs_places",),
+    "recommend_nearby_places_on_map": ("needs_nearby_places",),
+    "recommend_places_on_map": ("needs_places", "needs_map_action"),
+    "plan_route_between_places": ("needs_route",),
+    "propose_calendar_changes": ("needs_calendar_context", "needs_calendar_action"),
+    "propose_meeting": ("needs_meeting_action",),
+    "propose_workflow": ("needs_workflow_action",),
+    "propose_image": ("needs_image_generation",),
+    "search_arxiv": ("needs_papers",),
+}
+
+
+def _clarification_scalar(answer: dict) -> str:
+    value = answer.get("value")
+    if isinstance(value, list):
+        return str(value[0] if value else "").strip()[:240]
+    return str(value or "").strip()[:240]
+
+
+def _apply_route_protocol_answers(
+    arguments: dict,
+    answers: list[dict],
+) -> dict:
+    """Apply route card fields to original ordered stops by stable field ids."""
+    updated = copy.deepcopy(arguments)
+    raw_stops = updated.get("ordered_stops")
+    ordered_stops = (
+        [copy.deepcopy(item) for item in raw_stops if isinstance(item, dict)]
+        if isinstance(raw_stops, list)
+        else []
+    )
+    for answer in answers:
+        field_id = str(answer.get("id") or "")
+        match = re.fullmatch(
+            r"(route_origin|route_destination|route_stop_(\d+))(?:_[0-9a-f]{6})?",
+            field_id,
+        )
+        value = _clarification_scalar(answer)
+        if not match or not value:
+            continue
+        target = match.group(1)
+        if ordered_stops:
+            if target == "route_origin":
+                index = 0
+            elif target == "route_destination":
+                index = len(ordered_stops) - 1
+            else:
+                index = int(match.group(2) or 0) - 1
+            if 0 <= index < len(ordered_stops):
+                ordered_stops[index] = {"query": value, "near_query": ""}
+            continue
+        if target == "route_origin":
+            updated["origin_query"] = value
+            updated["origin_near_query"] = ""
+            updated["use_current_location_as_origin"] = False
+        elif target == "route_destination":
+            updated["destination_query"] = value
+            updated["destination_near_query"] = ""
+    if ordered_stops:
+        updated["ordered_stops"] = ordered_stops
+    return updated
+
+
+def resume_capability_protocol(
+    capability_plan: dict,
+    resume: dict | None,
+    clarification_answers: list[dict] | None = None,
+) -> tuple[dict, dict]:
+    """Restore an interrupted tool chain without semantic phrase heuristics."""
+    plan = dict(capability_plan or {})
+    if not isinstance(resume, dict) or str(resume.get("version") or "") != "1":
+        return plan, {}
+    required_tools = [
+        str(name or "").strip()
+        for name in (resume.get("required_tools") or [])
+        if str(name or "").strip() in _RESUME_TOOL_PLAN_FLAGS
+    ]
+    if not required_tools or str(plan.get("blocked_skill") or "").strip():
+        return plan, {}
+    plan["needs_clarification"] = False
+    plan["clarification_title"] = ""
+    plan["clarification_prompt"] = ""
+    plan["clarification_fields"] = []
+    for tool_name in required_tools:
+        for flag in _RESUME_TOOL_PLAN_FLAGS[tool_name]:
+            plan[flag] = True
+    raw_arguments = resume.get("planned_tool_arguments")
+    planned_arguments = (
+        copy.deepcopy(raw_arguments)
+        if isinstance(raw_arguments, dict)
+        else {}
+    )
+    route_arguments = planned_arguments.get("plan_route_between_places")
+    if isinstance(route_arguments, dict):
+        route_arguments = _apply_route_protocol_answers(
+            route_arguments,
+            clarification_answers or [],
+        )
+        planned_arguments["plan_route_between_places"] = route_arguments
+        raw_stops = route_arguments.get("ordered_stops")
+        if isinstance(raw_stops, list):
+            plan["route_stops"] = [
+                {
+                    "query": str(item.get("query") or "").strip()[:160],
+                    "near_query": str(item.get("near_query") or "").strip()[:160],
+                }
+                for item in raw_stops[:12]
+                if isinstance(item, dict) and str(item.get("query") or "").strip()
+            ]
+        else:
+            route_stops = []
+            if not route_arguments.get("use_current_location_as_origin"):
+                origin = str(route_arguments.get("origin_query") or "").strip()
+                if origin:
+                    route_stops.append({
+                        "query": origin[:160],
+                        "near_query": str(
+                            route_arguments.get("origin_near_query") or ""
+                        ).strip()[:160],
+                    })
+            destination = str(
+                route_arguments.get("destination_query") or ""
+            ).strip()
+            if destination:
+                route_stops.append({
+                    "query": destination[:160],
+                    "near_query": str(
+                        route_arguments.get("destination_near_query") or ""
+                    ).strip()[:160],
+                })
+            plan["route_stops"] = route_stops
+        plan["route_city"] = str(
+            route_arguments.get("city") or plan.get("route_city") or "全国"
+        )[:80]
+        plan["route_mode"] = str(
+            route_arguments.get("route_mode") or "default"
+        )
+        plan["route_strategy"] = str(
+            route_arguments.get("route_strategy") or "default"
+        )
+        plan["route_uses_current_location"] = bool(
+            route_arguments.get("use_current_location_as_origin")
+        )
+    return plan, planned_arguments
 
 
 def capability_planning_message(
@@ -639,12 +860,15 @@ def capability_planning_message(
 
 
 async def handler(ctx):
+    handler_started_at = time.monotonic()
+    stage_timings_ms: dict[str, int | bool] = {}
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
     conversation_id = scoped_conversation_id(ctx, user_id)
     body = ctx.request.body or {}
     message = body.get("message") or body.get("text") or ""
     clarification_id = clarification_response_id(body)
+    current_clarification_answers = clarification_response_answers(body)
     silent_clarification = bool(clarification_id)
     manual_location_answer = clarification_answer_value(body, "manual_location")
     direct_public_answer = (
@@ -772,6 +996,10 @@ async def handler(ctx):
         message_text = public_error(exc)
         await fail_run(message_text)
         return error(message_text, 503)
+    intelligence_started_at = time.monotonic()
+    stage_timings_ms["request_setup"] = round(
+        (intelligence_started_at - handler_started_at) * 1000
+    )
     # Intelligence contains Skill switches, budgets, search/map settings and
     # confirmed memory, so it is the only state every turn needs before routing.
     # Workspace and proactive state are loaded later only when the selected
@@ -779,6 +1007,10 @@ async def handler(ctx):
     intelligence = await load_intelligence_state(
         ctx.store.langgraph_store, user_id,
     )
+    stage_timings_ms["intelligence_load"] = round(
+        (time.monotonic() - intelligence_started_at) * 1000
+    )
+    planning_context_started_at = time.monotonic()
     proactive_state: dict = {}
     workspace: dict = {}
     budget = usage_summary(intelligence)
@@ -837,14 +1069,20 @@ async def handler(ctx):
     document_context = _document_context(body)
     clarification_context: list[str] = []
     prior_clarification_answers: list[str] = []
+    checkpoint_clarification = {
+        "answer_texts": [],
+        "answers": [],
+        "resume": {},
+    }
     if silent_clarification:
-        clarification_context, prior_clarification_answers = await asyncio.gather(
+        clarification_context, checkpoint_clarification = await asyncio.gather(
             _recent_user_questions(ctx.store, conversation_id, message),
-            checkpoint_clarification_answers(
+            checkpoint_clarification_state(
                 getattr(ctx.store, "langgraph_checkpointer", None),
                 conversation_id,
             ),
         )
+        prior_clarification_answers = checkpoint_clarification["answer_texts"]
     planning_message = capability_planning_message(
         message,
         clarification_id,
@@ -857,6 +1095,9 @@ async def handler(ctx):
         planning_message += f"\n\n[附图视觉事实，仅用于能力规划]\n{reference_image_context[:1600]}"
     if document_context:
         planning_message += f"\n\n[用户已选择的上传文档，仅用于能力规划]\n{document_context[:6000]}"
+    stage_timings_ms["planning_context"] = round(
+        (time.monotonic() - planning_context_started_at) * 1000
+    )
     planner_timeout = max(12.0, min(25.0, float(
         ctx.env.get("CAPABILITY_PLAN_TIMEOUT_SECONDS") or 18
     )))
@@ -876,6 +1117,18 @@ async def handler(ctx):
             has_reference_images=bool(reference_images),
             has_document_context=bool(document_context),
             timeout_seconds=planner_timeout,
+            timings_ms=stage_timings_ms,
+        )
+    post_plan_started_at = time.monotonic()
+    resumed_planned_arguments: dict = {}
+    if silent_clarification:
+        capability_plan, resumed_planned_arguments = resume_capability_protocol(
+            capability_plan,
+            checkpoint_clarification.get("resume"),
+            [
+                *(checkpoint_clarification.get("answers") or []),
+                *current_clarification_answers,
+            ],
         )
     clarification_tool_arguments: dict = {}
     if (
@@ -988,7 +1241,12 @@ async def handler(ctx):
                 capability_plan.get("nearby_uses_current_location")
             ),
         }
-    if capability_plan.get("needs_route") and capability_plan.get("route_stops"):
+    resumed_route_arguments = resumed_planned_arguments.get(
+        "plan_route_between_places"
+    )
+    if isinstance(resumed_route_arguments, dict):
+        route_tool_arguments = copy.deepcopy(resumed_route_arguments)
+    elif capability_plan.get("needs_route") and capability_plan.get("route_stops"):
         route_stops = capability_plan.get("route_stops") or []
         route_tool_arguments = {
             "city": str(capability_plan.get("route_city") or "全国"),
@@ -1039,6 +1297,10 @@ async def handler(ctx):
         state_jobs.append(("proactive", asyncio.create_task(load_proactive_state(
             ctx.store.langgraph_store, user_id,
         ))))
+    workspace_started_at = time.monotonic()
+    stage_timings_ms["post_plan_prepare"] = round(
+        (workspace_started_at - post_plan_started_at) * 1000
+    )
     if state_jobs:
         state_values = await asyncio.gather(*(task for _, task in state_jobs))
         for (state_name, _), state_value in zip(state_jobs, state_values):
@@ -1046,6 +1308,9 @@ async def handler(ctx):
                 workspace = state_value
             else:
                 proactive_state = state_value
+    stage_timings_ms["selected_state_load"] = round(
+        (time.monotonic() - workspace_started_at) * 1000
+    )
     current_calendar_context = calendar_context(workspace)
     current_route_context = latest_route_context(workspace)
     if planner_timed_out:
@@ -1086,6 +1351,7 @@ async def handler(ctx):
             },
         }))
 
+    graph_setup_started_at = time.monotonic()
     # Production UI tools are local LangGraph tools; web search remains Makers-native.
     all_tools = build_production_tools(
         model,
@@ -1256,6 +1522,7 @@ async def handler(ctx):
         stage_system_prompts=stage_system_prompts,
         public_system_prompt=public_system_prompt,
         planned_tool_arguments={
+            **resumed_planned_arguments,
             **({
                 "get_current_location": {},
             } if capability_plan.get("needs_current_location") else {}),
@@ -1285,6 +1552,18 @@ async def handler(ctx):
         },
         direct_answer=direct_public_answer,
     )
+    stage_timings_ms["tool_graph_setup"] = round(
+        (time.monotonic() - graph_setup_started_at) * 1000
+    )
+    stage_timings_ms["pre_graph_total"] = round(
+        (time.monotonic() - handler_started_at) * 1000
+    )
+    tracer_event = getattr(getattr(ctx, "tracer", None), "event", None)
+    if callable(tracer_event):
+        tracer_event("chat.pre_graph_timing", {
+            f"chat.timing.{key}": value
+            for key, value in stage_timings_ms.items()
+        })
 
     async def gen():
         done = object()
@@ -1319,6 +1598,11 @@ async def handler(ctx):
             run_error = ""
             cancelled = False
             clarification_emitted = False
+            if bool(body.get("_diagnostics")):
+                await queue.put(ctx.utils.sse({
+                    "type": "stage_timing",
+                    "timings_ms": stage_timings_ms,
+                }))
             # Optional post-turn jobs are themselves dynamically planned. They
             # use non-thinking Flash and are never started for every message by
             # default: a route card does not need memory extraction, and a
@@ -1426,7 +1710,11 @@ async def handler(ctx):
                         status="running",
                     )
                 if not cancelled:
-                    current_user_message = graph_user_message(message, clarification_id)
+                    current_user_message = graph_user_message(
+                        message,
+                        clarification_id,
+                        current_clarification_answers,
+                    )
                     async for event in graph.astream(
                         {"messages": [current_user_message]},
                         config=config,

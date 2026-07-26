@@ -677,7 +677,21 @@ def build_graph(
         # turn. Do not run a second prose pass that repeats the questions after
         # the card and makes the interaction feel like an afterthought.
         if "ask_user_clarification" in used_tool_names or clarification_ready:
-            return {"messages": [AIMessage(content="")]}
+            # Keep the unfinished machine protocol in the native LangGraph
+            # checkpoint. A card answer is only one field update, not a new
+            # user goal; the next request must therefore recover the original
+            # tool sequence and planner-authored arguments without asking an
+            # LLM to reconstruct them from prose.
+            return {"messages": [AIMessage(
+                content="",
+                additional_kwargs={
+                    "floris_resume": {
+                        "version": 1,
+                        "required_tools": list(required_sequence),
+                        "planned_tool_arguments": direct_tool_arguments,
+                    },
+                },
+            )]}
         # A failed required capability is terminal for this logical turn.
         # Never advance to dependent tools or let an answer model replace
         # missing provider evidence with plausible-looking prose.
