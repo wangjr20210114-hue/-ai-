@@ -55,3 +55,7 @@ npm-debug.log*
 .tef_dist/
 .agents/
 .platform-reference/
+
+# Local engineering notes and test evidence; main exposes README.md only.
+docs/
+test-results/
