@@ -1543,7 +1543,8 @@ def build_production_tools(
             if isinstance(place.get("query_correction"), dict)
         ]
         for place in resolved_stops:
-            candidates[str(place["place_id"])] = place
+            if not place.get("ephemeral"):
+                candidates[str(place["place_id"])] = place
         route_plan_id = "routeplan-" + hashlib.sha256(
             (
                 "|".join(str(place.get("place_id") or "") for place in resolved_stops)
@@ -1739,6 +1740,23 @@ def build_production_tools(
             raise ValueError("日程变更数量必须在 1 到 24 项之间")
         state = await _load_state()
         candidates = state.get("place_candidates", {})
+        latest_route = state.get("latest_route_plan")
+        route_source_id = str(source_route_plan_id or "").strip()
+        implicit_route_origin = (
+            (latest_route.get("ordered_stops") or [None])[0]
+            if (
+                isinstance(latest_route, dict)
+                and latest_route.get("implicit_browser_origin")
+                and route_source_id == str(latest_route.get("id") or "")
+                and (latest_route.get("ordered_stops") or [])
+            )
+            else None
+        )
+        ephemeral_place_ids = {
+            str(place.get("place_id") or "")
+            for place in (browser_current_location, implicit_route_origin)
+            if isinstance(place, dict) and str(place.get("place_id") or "")
+        }
         normalized = []
         for raw in changes:
             if not isinstance(raw, dict):
@@ -1794,6 +1812,13 @@ def build_production_tools(
                         normalized_event[key] = event[key]
                 place_id = str(event.get("place_id") or event.get("location_place_id") or "").strip()
                 location_text = str(event.get("location") or "").strip()
+                if place_id and place_id in ephemeral_place_ids:
+                    # Browser coordinates are request-scoped routing input.
+                    # Keep a useful departure reminder, but never persist its
+                    # transient place object or readable address in a calendar.
+                    place_id = ""
+                    location_text = ""
+                    normalized_event["location"] = ""
                 clear_location = bool(event.get("clear_location", False))
                 location_kind = str(event.get("location_kind") or "").strip().lower()
                 if location_kind not in {"", "physical", "online"}:
@@ -1919,8 +1944,6 @@ def build_production_tools(
                     normalized_event["location"] = place.get("address") or place.get("name")
                 change["event"] = normalized_event
             normalized.append(change)
-        latest_route = state.get("latest_route_plan")
-        route_source_id = str(source_route_plan_id or "").strip()
         if not route_source_id and isinstance(latest_route, dict):
             # If a proposal contains at least two places from a very recent
             # verified route, it is semantically a route-derived calendar

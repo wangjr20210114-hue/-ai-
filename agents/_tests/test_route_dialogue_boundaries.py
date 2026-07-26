@@ -107,6 +107,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         }, now_ms=1_200_000)
         self.assertEqual(current["place_id"], "browser-current-location")
         self.assertEqual(current["coordinate_type"], "wgs84")
+        self.assertTrue(current["ephemeral"])
         self.assertIsNone(normalize_browser_current_location({
             "latitude": 43.82,
             "longitude": 125.32,

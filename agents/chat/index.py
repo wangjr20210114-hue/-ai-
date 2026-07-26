@@ -112,6 +112,7 @@ def normalize_browser_current_location(value: object, *, now_ms: int | None = No
         "coordinate_type": "wgs84",
         "accuracy_meters": round(accuracy, 1),
         "captured_at": captured_at,
+        "ephemeral": True,
     }
 
 

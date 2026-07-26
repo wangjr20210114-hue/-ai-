@@ -2584,6 +2584,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "name": "当前位置",
             "provider": "browser-wgs84",
             "coordinate_type": "wgs84",
+            "ephemeral": True,
         }
         route = {
             "provider": "tencent",
@@ -2593,11 +2594,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "fare": {},
         }
         planned_stops = [{"query": "颐和园"}, {"query": "故宫"}]
+        store = FakeStore()
         with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
              patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
             tools = build_production_tools(
                 None,
-                store=FakeStore(),
+                store=store,
                 conversation_id="browser-origin-planned-stops",
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
                 planned_route_stops=planned_stops,
@@ -2617,6 +2619,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [item["place_id"] for item in planner.await_args.args[1]],
             ["browser-current-location", "summer-palace", "forbidden-city"],
+        )
+        saved = await load_user_workspace(store)
+        self.assertNotIn(
+            "browser-current-location",
+            saved["place_candidates"],
         )
 
     async def test_route_ambiguity_card_identifies_intermediate_stop(self):
@@ -2750,6 +2757,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "place_id": "browser-current-location",
             "provider": "browser-tencent",
             "name": "当前位置",
+            "ephemeral": True,
         }
         destination = {
             **PLACE,
@@ -2782,23 +2790,36 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         result = json.loads(await calendar_tool.ainvoke({
             "summary": "从当前位置去颐和园",
             "source_route_plan_id": "routeplan-browser-origin",
-            "changes": [{
-                "operation": "create",
-                "event": {
-                    "title": "游览颐和园",
-                    "start_time": start.isoformat(),
-                    "end_time": (start + timedelta(hours=2)).isoformat(),
-                    "place_id": destination["place_id"],
+            "changes": [
+                {
+                    "operation": "create",
+                    "event": {
+                        "title": "从当前位置出发",
+                        "start_time": start.isoformat(),
+                        "end_time": (start + timedelta(minutes=1)).isoformat(),
+                        "place_id": browser_origin["place_id"],
+                    },
                 },
-            }],
+                {
+                    "operation": "create",
+                    "event": {
+                        "title": "游览颐和园",
+                        "start_time": (start + timedelta(minutes=23)).isoformat(),
+                        "end_time": (start + timedelta(hours=2)).isoformat(),
+                        "place_id": destination["place_id"],
+                    },
+                },
+            ],
         }))
 
         self.assertEqual(result["ui_action"], "calendar_action")
         payload = result["action"]["payload"]
         self.assertEqual(payload["source_route_plan_id"], "routeplan-browser-origin")
-        self.assertEqual(len(payload["changes"]), 1)
+        self.assertEqual(len(payload["changes"]), 2)
+        self.assertNotIn("place", payload["changes"][0]["event"])
+        self.assertEqual(payload["changes"][0]["event"]["location"], "")
         self.assertEqual(
-            payload["changes"][0]["event"]["place"]["place_id"],
+            payload["changes"][1]["event"]["place"]["place_id"],
             "summer-palace",
         )
         self.assertNotIn("browser-current-location", json.dumps(payload))
