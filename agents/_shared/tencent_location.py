@@ -237,13 +237,15 @@ def _provider_place_candidates(
     *,
     limit: int,
     evidence: str,
+    annotate_corrections: bool = False,
 ) -> list[dict[str, Any]]:
-    """Preserve provider ranking and expose non-exact names as evidence.
+    """Preserve provider ranking and provider-native correction evidence.
 
     The adapter deliberately does not infer typo similarity, strip category
-    suffixes, or collapse aliases. Tencent's ordered response is the evidence;
-    downstream code may continue only for one candidate and otherwise asks the
-    user to choose.
+    suffixes, or collapse aliases. A normal Tencent place-search result with a
+    different name may simply be another branch, so only Tencent's suggestion
+    endpoint is allowed to annotate it as a correction. Downstream semantic
+    adjudication sees the complete ordered candidate set.
     """
     normalized_query = _normalized_lookup_text(query)
     output: list[dict[str, Any]] = []
@@ -254,7 +256,10 @@ def _provider_place_candidates(
             continue
         seen.add(place_id)
         current = dict(item)
-        if _normalized_lookup_text(item.get("name")) != normalized_query:
+        if (
+            annotate_corrections
+            and _normalized_lookup_text(item.get("name")) != normalized_query
+        ):
             current["query_correction"] = {
                 "original_query": str(query or "").strip()[:120],
                 "corrected_name": str(item.get("name") or "")[:120],
@@ -317,8 +322,13 @@ async def search_verified_places_bounded(
                 if _normalized_lookup_text(item.get("name")) == normalized_query
             ]
             if exact_primary:
+                # Do not discard alternate Tencent records merely because one
+                # item has the exact bare name. That shortcut silently selected
+                # one branch for queries such as a chain mall or hotel. The
+                # route layer now receives the complete provider-ranked set and
+                # asks only when semantic intent is not near-certain.
                 return _provider_place_candidates(
-                    exact_primary, query, limit=limit,
+                    primary, query, limit=limit,
                     evidence="tencent_place_search",
                 )
             unresolved_primary = primary
@@ -343,6 +353,7 @@ async def search_verified_places_bounded(
                 return _provider_place_candidates(
                     exact_suggestions or suggestions, query, limit=limit,
                     evidence="tencent_place_suggestion",
+                    annotate_corrections=True,
                 )
         except Exception:
             pass
