@@ -191,6 +191,7 @@ class StructuredPlannerModel:
         delay=0,
         topic_args=None,
         clarification_args=None,
+        review_args=None,
     ):
         self.calls = 0
         self.args = args or {
@@ -203,6 +204,10 @@ class StructuredPlannerModel:
         self.topic_args = topic_args or {"topics": []}
         self.clarification_args = clarification_args or {
             "needs_clarification": False,
+        }
+        self.review_args = review_args or {
+            "approved": True,
+            "reason": "The dependency is genuinely blocking.",
         }
         self.messages = []
         self.tool_choice = ""
@@ -225,6 +230,8 @@ class StructuredPlannerModel:
         values = (
             self.clarification_args
             if self.schema.__name__ == "ClarificationDecision"
+            else self.review_args
+            if self.schema.__name__ == "ClarificationReview"
             else self.topic_args
             if self.schema.__name__ == "PromptTopicSelection"
             else self.args
@@ -498,12 +505,50 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             timeout_seconds=1,
         )
         self.assertFalse(timed_out)
-        self.assertEqual(model.calls, 1)
+        self.assertEqual(model.calls, 2)
         self.assertEqual(
             required_tools_for_plan(plan),
             ("ask_user_clarification",),
         )
         self.assertEqual(plan["clarification_fields"][0]["id"], "source_content")
+
+    async def test_semantic_review_rejects_invented_optional_clarification(self):
+        model = StructuredPlannerModel(
+            args={
+                "needs_route": True,
+                "needs_calendar_action": True,
+                "route_stops": [{"query": "颐和园"}],
+                "route_uses_current_location": True,
+            },
+            topic_args={"topics": ["maps", "calendar"]},
+            clarification_args={
+                "needs_clarification": True,
+                "title": "查看会议安排",
+                "prompt": "你想查看哪个日历？",
+                "fields": [{
+                    "id": "calendar_account",
+                    "label": "请选择日历账户",
+                    "type": "single",
+                    "required": True,
+                    "options": ["个人", "工作"],
+                }],
+            },
+            review_args={
+                "approved": False,
+                "reason": "The user did not make an account choice necessary.",
+            },
+        )
+        plan, timed_out = await plan_capabilities_bounded(
+            model,
+            "从本轮浏览器位置去颐和园并生成日程提案",
+            location_context="浏览器位置已授权且新鲜，可作为本轮起点",
+            timeout_seconds=2,
+        )
+        self.assertFalse(timed_out)
+        self.assertFalse(plan["needs_clarification"])
+        self.assertTrue(plan["needs_route"])
+        self.assertTrue(plan["needs_calendar_action"])
+        self.assertEqual(model.calls, 4)
 
     async def test_required_input_gate_receives_request_location_context(self):
         model = StructuredPlannerModel()

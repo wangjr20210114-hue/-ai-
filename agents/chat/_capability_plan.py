@@ -579,6 +579,15 @@ class ClarificationDecision(BaseModel):
     fields: list[PlannedClarificationField] = Field(default_factory=list)
 
 
+class ClarificationReview(BaseModel):
+    """Independent semantic review before a blocking card reaches the user."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approved: bool = False
+    reason: str = ""
+
+
 def _normalize_prompt_topics(values: Iterable[Any]) -> tuple[str, ...]:
     allowed = set(PLANNER_PROMPT_DETAILS)
     return tuple(dict.fromkeys(
@@ -606,8 +615,12 @@ async def plan_required_clarification(
         "mistake the instruction sentence itself for a source object it merely "
         "refers to. Set needs_clarification=true only when an absent dependency "
         "blocks every safe useful result, or when a real side-effect target cannot "
-        "be uniquely identified. If a safe default, assumptions, or useful options "
-        "can satisfy the request, return false. When true, provide one compact card "
+        "be uniquely identified. A dependency must be entailed by the user's goal; "
+        "never invent an account, provider, output format, preference, or other "
+        "implementation choice that the user did not make necessary. If a safe "
+        "default, assumptions, or useful options can satisfy the request, return "
+        "false. Before returning true, adversarially check that every safe useful "
+        "result really is blocked. When true, provide one compact card "
         "with only the minimum fields: finite choices before free text, and no "
         "optional preference questions. The request-scoped location context below "
         "is authoritative: when it says a browser location is available, that "
@@ -654,6 +667,53 @@ async def plan_required_clarification(
         "clarification_prompt": "",
         "clarification_fields": [],
     }
+
+
+async def review_required_clarification(
+    model,
+    user_message: str,
+    clarification: dict[str, Any],
+    *,
+    location_context: str = "",
+    has_reference_images: bool = False,
+    has_document_context: bool = False,
+) -> bool:
+    """Reject optional or invented questions without phrase-based rules."""
+    prompt = (
+        "You are an independent adversarial reviewer for a proposed blocking "
+        "clarification card. Do not answer the user and do not rewrite the card. "
+        "Approve only when the original goal entails the missing dependency and "
+        "every safe useful result is impossible without the requested field. "
+        "Reject when the card asks for an optional preference, account, provider, "
+        "output format, implementation detail, or any value that has a safe "
+        "default; reject when the user message, attachments, prior clarification "
+        "supplement, or authoritative request-scoped location already supplies it. "
+        "A side effect may remain a proposal for user confirmation, so editable "
+        "proposal fields do not automatically block planning. Judge meaning, not "
+        "keywords or fixed phrases."
+        f"\nAuthoritative location context: {str(location_context or 'not supplied')[:1000]}"
+        f"\nReference images attached: {bool(has_reference_images)}"
+        f"\nDocument context attached: {bool(has_document_context)}"
+        "\nProposed card:\n"
+        f"{json.dumps(clarification, ensure_ascii=False, default=str)[:5000]}"
+    )
+    messages = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": str(user_message or "")[:7000]},
+    ]
+    try:
+        reviewer = model.with_structured_output(
+            ClarificationReview,
+            method="function_calling",
+            include_raw=True,
+        )
+        response = await reviewer.ainvoke(messages)
+        parsed = response.get("parsed") if isinstance(response, dict) else response
+        if isinstance(parsed, BaseModel):
+            parsed = parsed.model_dump()
+        return bool(isinstance(parsed, dict) and parsed.get("approved"))
+    except Exception:
+        return False
 
 
 async def select_prompt_context(
@@ -875,15 +935,31 @@ async def plan_capabilities_bounded(
     except asyncio.TimeoutError:
         clarification = {"needs_clarification": False}
     if clarification.get("needs_clarification"):
-        plan = dict(DEFAULT_PLAN)
-        plan.update({
-            "needs_clarification": True,
-            "clarification_title": clarification.get("clarification_title") or "",
-            "clarification_prompt": clarification.get("clarification_prompt") or "",
-            "clarification_fields": clarification.get("clarification_fields") or [],
-            "_prompt_topics": [],
-        })
-        return plan, False
+        review_timeout = min(4.0, max(0.01, total_timeout * 0.20))
+        try:
+            approved = await asyncio.wait_for(
+                review_required_clarification(
+                    model,
+                    user_message,
+                    clarification,
+                    location_context=location_context,
+                    has_reference_images=has_reference_images,
+                    has_document_context=has_document_context,
+                ),
+                timeout=review_timeout,
+            )
+        except asyncio.TimeoutError:
+            approved = False
+        if approved:
+            plan = dict(DEFAULT_PLAN)
+            plan.update({
+                "needs_clarification": True,
+                "clarification_title": clarification.get("clarification_title") or "",
+                "clarification_prompt": clarification.get("clarification_prompt") or "",
+                "clarification_fields": clarification.get("clarification_fields") or [],
+                "_prompt_topics": [],
+            })
+            return plan, False
     topic_timeout = min(5.0, max(0.01, total_timeout * 0.25))
     try:
         prompt_context = await asyncio.wait_for(
