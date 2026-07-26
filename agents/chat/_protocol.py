@@ -16,9 +16,34 @@ _INTERNAL_ERROR = re.compile(r"\brole\b|keyerror|traceback|stack|agent_run_error
 _QUOTA_ERROR = re.compile(r"quota|rate[_ -]?limit|too many requests|\b429\b", re.I)
 
 
+def _strip_leading_observation(text: str) -> tuple[str, bool]:
+    """Remove an echoed internal observation while retaining following prose.
+
+    Completed tool results are intentionally flattened into a JSON observation
+    for the next model call. A provider may occasionally repeat that object
+    verbatim before its user-facing answer. The marker occurs within the stream
+    quarantine window, so we can wait for the complete JSON object and remove
+    only it without suppressing the actual answer that follows.
+    """
+    leading = str(text or "").lstrip()
+    marker = '"floris_observation"'
+    if not leading.startswith("{") or marker not in leading[:160]:
+        return str(text or ""), False
+    try:
+        payload, end = json.JSONDecoder().raw_decode(leading)
+    except json.JSONDecodeError:
+        return "", True
+    if not isinstance(payload, dict) or "floris_observation" not in payload:
+        return str(text or ""), False
+    return leading[end:].lstrip("\r\n "), False
+
+
 def public_content(content: str) -> str:
     """Remove provider/tool wire syntax from user-visible assistant content."""
     text = str(content or "")
+    text, incomplete_observation = _strip_leading_observation(text)
+    if incomplete_observation:
+        return ""
     if _WIRE_PATTERN.search(text):
         return ""
     return text
@@ -91,6 +116,10 @@ class PublicStreamFilter:
         if self.blocked or not chunk:
             return "", False
         self.buffer += str(chunk)
+        cleaned, incomplete_observation = _strip_leading_observation(self.buffer)
+        if incomplete_observation:
+            return "", False
+        self.buffer = cleaned
         if _WIRE_PATTERN.search(self.buffer):
             self.blocked = True
             self.buffer = ""

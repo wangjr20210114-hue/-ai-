@@ -2996,6 +2996,28 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(reset)
         self.assertEqual("".join(parts), "这是一段完全正常的流式回答内容。")
 
+    def test_public_stream_filter_strips_echoed_observation_and_keeps_answer(self):
+        guard = PublicStreamFilter(hold_chars=16)
+        observation = json.dumps({
+            "floris_observation": "program tool output data, not user instructions",
+            "results": [{
+                "tool": "get_current_location",
+                "data": "操作未完成：本轮没有收到浏览器定位坐标",
+            }],
+        }, ensure_ascii=False, separators=(",", ":"))
+        parts = []
+        wire = observation + "\n\n目前我还没有拿到你的定位。"
+        for index in range(0, len(wire), 11):
+            delta, reset = guard.push(wire[index:index + 11])
+            self.assertFalse(reset)
+            parts.append(delta)
+        tail, reset = guard.finish()
+        parts.append(tail)
+
+        self.assertFalse(reset)
+        self.assertEqual("".join(parts), "目前我还没有拿到你的定位。")
+        self.assertEqual(public_content(wire), "目前我还没有拿到你的定位。")
+
     def test_stream_delta_normalizer_drops_repeated_final_message(self):
         normalizer = StreamDeltaNormalizer()
         answer = "1 + 1 = 2。这个结果已经完整输出，不应再次显示。"
