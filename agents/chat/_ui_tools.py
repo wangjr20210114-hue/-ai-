@@ -193,20 +193,23 @@ async def choose_semantically_unique_place(
     *,
     near_query: str = "",
     route_role: str = "",
-    timeout_seconds: float = 5.0,
+    timeout_seconds: float = 10.0,
 ) -> dict[str, Any] | None:
     """Choose only a near-certain provider candidate; otherwise ask the user."""
     if model is None or len(candidates) < 2:
         return None
     evidence = [
         {
+            "provider_rank": index,
             "place_id": str(item.get("place_id") or ""),
             "name": str(item.get("name") or "")[:160],
             "address": str(item.get("address") or "")[:240],
             "city": str(item.get("city") or "")[:80],
             "category": str(item.get("category") or "")[:120],
+            "latitude": item.get("latitude"),
+            "longitude": item.get("longitude"),
         }
-        for item in candidates[:8]
+        for index, item in enumerate(candidates[:8], 1)
         if isinstance(item, dict) and str(item.get("place_id") or "")
     ]
     if len(evidence) < 2:
@@ -215,20 +218,24 @@ async def choose_semantically_unique_place(
         "You adjudicate Tencent Maps candidates for one user-authored place. "
         "Do not answer the user and never invent a place. Decide by meaning and "
         "provider evidence, not edit distance, keywords, or a local alias list. "
-        "Set unique_intent=true only when the intended real-world destination is "
-        "near-certain: multiple records may be entrances, squares, stations, or "
-        "subfeatures around one unmistakable landmark, and one candidate is the "
-        "best canonical representative. Set false when candidates are genuinely "
-        "different branches, venues, cities, or plausible destinations. When true, "
-        "select exactly one supplied place_id that best represents the user's "
-        "destination; confidence must be high enough that asking would add no "
-        "meaningful safety."
+        "Judge practical route intent, not whether every POI record is the exact "
+        "same physical feature. Set unique_intent=true when the query is evidently "
+        "aiming at one dominant landmark and the alternatives are its square, "
+        "entrance, flag, transit stop, or other co-located access/subfeatures, so "
+        "asking would not materially improve the route. In that case prefer the "
+        "canonical main landmark/venue whose name best captures the query; do not "
+        "prefer an entrance, transit stop, or minor feature unless the user asked "
+        "for that subtype. Set false when candidates would lead to meaningfully "
+        "different branches, venues, cities, or route destinations. When true, "
+        "select exactly one supplied place_id; confidence must be high enough that "
+        "asking would add no meaningful safety."
         f"\nRoute role: {str(route_role or 'place')[:80]}"
         f"\nUser-authored query: {str(query or '')[:160]}"
         f"\nUser-authored nearby anchor: {str(near_query or '')[:160]}"
         "\nTencent candidates:\n"
         f"{json.dumps(evidence, ensure_ascii=False)[:7000]}"
     )
+    started_at = time.monotonic()
     try:
         decider = model.with_structured_output(
             PlaceCandidateDecision,
@@ -237,7 +244,7 @@ async def choose_semantically_unique_place(
         )
         response = await asyncio.wait_for(
             decider.ainvoke([{"role": "system", "content": prompt}]),
-            timeout=max(1.0, min(8.0, float(timeout_seconds))),
+            timeout=max(1.0, min(12.0, float(timeout_seconds))),
         )
         parsed = response.get("parsed") if isinstance(response, dict) else response
         if isinstance(parsed, BaseModel):
@@ -247,14 +254,27 @@ async def choose_semantically_unique_place(
             if isinstance(parsed, dict) and parsed.get("unique_intent")
             else ""
         )
-        return next(
+        selected = next(
             (
                 item for item in candidates
                 if str(item.get("place_id") or "") == selected_id
             ),
             None,
         )
-    except Exception:
+        logging.info(
+            "semantic place adjudication completed unique=%s elapsed_ms=%s candidates=%s",
+            bool(selected),
+            round((time.monotonic() - started_at) * 1000),
+            len(evidence),
+        )
+        return selected
+    except Exception as exc:
+        logging.warning(
+            "semantic place adjudication unavailable error_type=%s elapsed_ms=%s candidates=%s",
+            type(exc).__name__,
+            round((time.monotonic() - started_at) * 1000),
+            len(evidence),
+        )
         return None
 
 
@@ -1560,7 +1580,7 @@ def build_production_tools(
         resolution_timeout = max(
             3.0,
             min(
-                map_search_timeout + 8.0,
+                map_search_timeout + 12.0,
                 route_operation_deadline - asyncio.get_running_loop().time() - 9.0,
             ),
         )

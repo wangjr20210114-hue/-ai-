@@ -2694,6 +2694,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(selected["place_id"], "gate")
         self.assertEqual(model.schema.__name__, "PlaceCandidateDecision")
         self.assertIn("not edit distance", model.messages[0]["content"])
+        self.assertIn("practical route intent", model.messages[0]["content"])
+        self.assertIn("materially improve the route", model.messages[0]["content"])
 
     async def test_semantic_candidate_adjudicator_keeps_real_branches_ambiguous(self):
         candidates = [
