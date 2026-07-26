@@ -14,6 +14,9 @@ from agents.chat._ui_tools import (
     RoutePlanInput,
     _learned_route_preference,
     _place_resolution,
+    _prioritize_clarification_options_for_city,
+    _prioritize_provider_candidates_for_city,
+    _provider_city_consensus,
     _rank_verified_workspace_matches,
     build_production_tools,
 )
@@ -196,6 +199,137 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             _place_resolution("不存在的地点", []),
             ("fill", None, "no_verified_candidate"),
+        )
+
+        corrected_square = {
+            **PLACE,
+            "place_id": "poi-tiananmen-square",
+            "name": "天安门广场",
+            "latitude": 39.9032,
+            "longitude": 116.3976,
+            "query_correction": {
+                "original_query": "天安们",
+                "corrected_name": "天安门广场",
+                "evidence": "tencent_place_suggestion",
+            },
+        }
+        corrected_gate = {
+            **PLACE,
+            "place_id": "poi-tiananmen-gate",
+            "name": "天安门",
+            "latitude": 39.9087,
+            "longitude": 116.3975,
+            "query_correction": {
+                "original_query": "天安们",
+                "corrected_name": "天安门",
+                "evidence": "tencent_place_suggestion",
+            },
+        }
+        decision, selected, reason = _place_resolution(
+            "天安们",
+            [corrected_square, corrected_gate],
+        )
+        self.assertEqual(decision, "auto_use")
+        self.assertEqual(selected["place_id"], "poi-tiananmen-square")
+        self.assertEqual(
+            reason,
+            "tencent_provider_ranked_correction",
+        )
+        search_aliases = [
+            {
+                **corrected_square,
+                "query_correction": {
+                    **corrected_square["query_correction"],
+                    "evidence": "tencent_place_search",
+                },
+            },
+            {
+                **corrected_gate,
+                "query_correction": {
+                    **corrected_gate["query_correction"],
+                    "evidence": "tencent_place_search",
+                },
+            },
+        ]
+        self.assertEqual(
+            _place_resolution("天安们", search_aliases),
+            ("choose", None, "multiple_verified_candidates"),
+        )
+
+    def test_provider_candidates_keep_rank_but_prioritize_proven_city(self):
+        zhuhai = {
+            **PLACE,
+            "place_id": "poi-zhuhai",
+            "name": "景山公园索道",
+            "city": "珠海市",
+            "address": "广东省珠海市香洲区",
+        }
+        beijing_first = {
+            **PLACE,
+            "place_id": "poi-beijing-first",
+            "name": "景山公园内环跑步路线",
+            "city": "北京市",
+            "address": "北京市西城区什刹海街道景山公园",
+        }
+        beijing_second = {
+            **PLACE,
+            "place_id": "poi-beijing-second",
+            "name": "景山公园东门",
+            "city": "北京市",
+            "address": "北京市西城区",
+        }
+        ranked = _prioritize_provider_candidates_for_city(
+            [zhuhai, beijing_first, beijing_second],
+            "北京",
+        )
+        self.assertEqual(
+            [place["place_id"] for place in ranked],
+            ["poi-beijing-first", "poi-beijing-second", "poi-zhuhai"],
+        )
+        self.assertEqual(
+            _prioritize_provider_candidates_for_city(
+                [zhuhai, beijing_first],
+                "全国",
+            ),
+            [zhuhai, beijing_first],
+        )
+        self.assertEqual(
+            _provider_city_consensus([beijing_first, beijing_second]),
+            "北京市",
+        )
+        self.assertEqual(
+            _provider_city_consensus([beijing_first]),
+            "北京市",
+        )
+        self.assertEqual(
+            _provider_city_consensus([beijing_first, zhuhai]),
+            "",
+        )
+        card = json.dumps({
+            "ui_action": "clarification_action",
+            "clarification": {
+                "fields": [{
+                    "type": "single",
+                    "options": [
+                        "景山公园索道｜广东省珠海市香洲区",
+                        "景山公园内环跑步路线｜北京市西城区什刹海街道景山公园",
+                    ],
+                }],
+            },
+        }, ensure_ascii=False)
+        ranked_card = json.loads(
+            _prioritize_clarification_options_for_city(
+                card,
+                {
+                    zhuhai["place_id"]: zhuhai,
+                    beijing_first["place_id"]: beijing_first,
+                },
+                "北京市",
+            )
+        )
+        self.assertTrue(
+            ranked_card["clarification"]["fields"][0]["options"][0]
+            .startswith("景山公园内环跑步路线")
         )
 
     def test_route_preferences_need_repeated_dominant_explicit_choices(self):
@@ -645,15 +779,9 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             planned_calendar_place_resolution=True,
         )
         search_tool = next(tool for tool in tools if tool.name == "search_places")
-        with (
-            patch(
-                "agents.chat._ui_tools.provider_search_places",
-                AsyncMock(return_value=[PLACE, entrance]),
-            ),
-            patch(
-                "agents.chat._ui_tools.choose_semantically_unique_place",
-                AsyncMock(return_value=PLACE),
-            ) as adjudicator,
+        with patch(
+            "agents.chat._ui_tools.provider_search_places",
+            AsyncMock(return_value=[PLACE, entrance]),
         ):
             result = json.loads(await search_tool.ainvoke({
                 "query": "故宫博物院",
@@ -664,7 +792,6 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         field = result["clarification"]["fields"][0]
         self.assertEqual(field["type"], "single")
         self.assertGreaterEqual(len(field["options"]), 2)
-        adjudicator.assert_not_awaited()
 
     async def test_calendar_unique_verified_correction_skips_extra_question(self):
         corrected = {

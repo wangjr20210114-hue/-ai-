@@ -22,8 +22,8 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        app: resolve(__dirname, 'index.html'),
-        acceptance: resolve(__dirname, 'test-cases-entry.html'),
+        app: 'index.html',
+        acceptance: 'test-cases-entry.html',
       },
     },
   },

@@ -54,7 +54,6 @@ from agents.chat.index import (
 )
 from agents.chat._ui_tools import (
     build_production_tools,
-    choose_semantically_unique_place,
     preserve_planned_route_stops,
     verify_place_queries_parallel,
 )
@@ -197,7 +196,6 @@ class StructuredPlannerModel:
         topic_args=None,
         clarification_args=None,
         review_args=None,
-        candidate_args=None,
         preflight_args=None,
     ):
         self.calls = 0
@@ -215,11 +213,6 @@ class StructuredPlannerModel:
         self.review_args = review_args or {
             "approved": True,
             "reason": "The dependency is genuinely blocking.",
-        }
-        self.candidate_args = candidate_args or {
-            "unique_intent": False,
-            "selected_place_id": "",
-            "reason": "Candidates remain genuinely different.",
         }
         self.preflight_args = preflight_args or {
             **self.clarification_args,
@@ -248,8 +241,6 @@ class StructuredPlannerModel:
             if self.schema.__name__ == "SemanticPreflight"
             else self.review_args
             if self.schema.__name__ == "ClarificationReview"
-            else self.candidate_args
-            if self.schema.__name__ == "PlaceCandidateDecision"
             else self.topic_args
             if self.schema.__name__ == "PromptTopicSelection"
             else self.args
@@ -2899,77 +2890,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("第 3 站", result["clarification"]["prompt"])
         planner.assert_not_awaited()
 
-    async def test_semantic_candidate_adjudicator_can_choose_one_landmark(self):
-        candidates = [
-            {**PLACE, "place_id": "square", "name": "天安门广场"},
-            {**PLACE, "place_id": "gate", "name": "天安门"},
-            {**PLACE, "place_id": "station", "name": "天安门东[地铁站]"},
-        ]
-        model = StructuredPlannerModel(candidate_args={
-            "unique_intent": True,
-            "selected_place_id": "gate",
-            "reason": "One canonical landmark is near-certain.",
-        })
-        selected = await choose_semantically_unique_place(
-            model,
-            "天安们",
-            candidates,
-            route_role="第 2 站",
-        )
-        self.assertEqual(selected["place_id"], "gate")
-        self.assertEqual(model.schema.__name__, "PlaceCandidateDecision")
-        self.assertIn("edit-distance threshold", model.messages[0]["content"])
-        self.assertIn("practical route intent", model.messages[0]["content"])
-        self.assertIn("materially improve the route", model.messages[0]["content"])
-        self.assertIn("天安们", model.messages[1]["content"])
-
-    async def test_semantic_candidate_adjudicator_keeps_real_branches_ambiguous(self):
-        candidates = [
-            {**PLACE, "place_id": "wanda-a", "name": "北京通州万达广场"},
-            {**PLACE, "place_id": "wanda-b", "name": "北京五棵松万达广场"},
-        ]
-        model = StructuredPlannerModel(candidate_args={
-            "unique_intent": False,
-            "selected_place_id": "",
-            "reason": "These are different venues.",
-        })
-        self.assertIsNone(await choose_semantically_unique_place(
-            model,
-            "万达广场",
-            candidates,
-            route_role="第 4 站",
-        ))
-
-    async def test_semantic_candidate_adjudicator_rejects_distant_false_unique(self):
-        candidates = [
-            {
-                **PLACE,
-                "place_id": "wanda-cbd",
-                "name": "北京CBD万达广场",
-                "latitude": 39.909,
-                "longitude": 116.473,
-            },
-            {
-                **PLACE,
-                "place_id": "wanda-fengtai",
-                "name": "北京丰台万达广场",
-                "latitude": 39.863,
-                "longitude": 116.286,
-            },
-        ]
-        model = StructuredPlannerModel(candidate_args={
-            "unique_intent": True,
-            "selected_place_id": "wanda-cbd",
-            "reason": "Incorrectly treated the first result as canonical.",
-        })
-        self.assertIsNone(await choose_semantically_unique_place(
-            model,
-            "万达广场",
-            candidates,
-            route_role="第 4 站",
-            max_colocation_radius_meters=2_000,
-        ))
-
     async def test_route_shows_ranked_candidates_without_extra_semantic_round(self):
         origin = {**PLACE, "place_id": "station", "name": "北京站"}
         candidates = [
@@ -2981,16 +2901,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         async def place_provider(_key, query, *, city, limit):
             return [origin] if query == "北京站" else candidates
 
-        model = StructuredPlannerModel(candidate_args={
-            "unique_intent": True,
-            "selected_place_id": "gate",
-            "reason": "One canonical landmark is near-certain.",
-        })
         with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
              patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock()) as planner:
             tools = build_production_tools(
                 None,
-                place_disambiguation_model=model,
                 store=FakeStore(),
                 conversation_id="semantic-candidate-route",
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
@@ -3010,7 +2924,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(len(field["options"]), 2)
         self.assertIn("天安门", field["options"][0])
         planner.assert_not_awaited()
-        self.assertEqual(model.messages, [])
 
     async def test_route_search_timeout_returns_fill_in_card(self):
         async def place_provider(_key, _query, *, city, limit):

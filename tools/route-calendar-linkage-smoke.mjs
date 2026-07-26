@@ -140,12 +140,38 @@ const selectedScenario = String(process.env.FLORIS_LINKAGE_SCENARIO || '').trim(
 
 if (!selectedScenario || selectedScenario === 'clean') {
   const conversationId = `yb7_linkage_${runStamp}_clean`;
-  const result = await chat('six-stops-clean-with-typos', conversationId, {
+  let result = await chat('six-stops-clean-with-typos', conversationId, {
     message: `${baseInstruction}依次为：北京站、天安们、故宫博物院、景山公园、北海公园、北京西站。`,
   });
+  let cityRankedChoiceObserved = false;
+  let typoClarificationObserved = false;
+  for (let turn = 2; result.has_clarification && turn <= 8; turn += 1) {
+    const field = result.clarification.fields[0];
+    const options = field?.options || [];
+    typoClarificationObserved ||= Boolean(field?.label?.includes('第 2 站'));
+    if (
+      field?.type === 'single'
+      && options.some((option) => option.includes('北京市'))
+      && options.some((option) => !option.includes('北京市'))
+    ) {
+      cityRankedChoiceObserved = true;
+      assert(
+        options[0].includes('北京市'),
+        'proven-city candidate should be first in the proactive card',
+        result,
+      );
+    }
+    result = await answerClarification(
+      `six-stops-clean-turn-${turn}`,
+      conversationId,
+      result,
+    );
+  }
   assert(result.has_map_action, 'clean six-stop trip should produce a map action', result);
   assert(result.has_calendar_action, 'clean six-stop trip should produce a calendar proposal', result);
-  assert(!result.has_clarification, 'high-confidence typo should not require clarification', result);
+  assert(!result.has_clarification, 'resolved clean trip should not leave an open clarification', result);
+  assert(!typoClarificationObserved, 'high-confidence typo should not require clarification', result);
+  assert(cityRankedChoiceObserved, 'complex cross-city candidates should expose a city-ranked proactive card', result);
   assert(result.route_mode === 'transit', 'explicit transit request should be retained', result);
   assert(result.route_strategy === 'time_then_cost', 'default route strategy should be time_then_cost', result);
   assert(result.ordered_places.length === 6, 'route should retain all six ordered places', result);
@@ -171,12 +197,24 @@ if (!selectedScenario || selectedScenario === 'ambiguous') {
 
 if (!selectedScenario || selectedScenario === 'missing') {
   const conversationId = `yb7_linkage_${runStamp}_missing`;
-  const result = await chat('six-stops-missing-place', conversationId, {
+  let result = await chat('six-stops-missing-place', conversationId, {
     message: `${baseInstruction}依次为：北京站、天安门、故宫博物院、景山公园、北海公园、咕咕塔XYZ。`,
   });
   assert(result.has_clarification, 'unknown place should require clarification', result);
   assert(!result.has_map_action && !result.has_calendar_action, 'unknown place must block route and calendar actions', result);
-  assert(result.clarification.fields.some((field) => field.type === 'text'), 'unknown place should use a text fill-in', result);
+  let sawTextFill = result.clarification.fields.some((field) => field.type === 'text');
+  for (let turn = 2; !sawTextFill && result.has_clarification && turn <= 8; turn += 1) {
+    result = await answerClarification(
+      `six-stops-missing-turn-${turn}`,
+      conversationId,
+      result,
+      mixedTextReplacement(result),
+    );
+    sawTextFill = Boolean(
+      result.clarification?.fields?.some((field) => field.type === 'text'),
+    );
+  }
+  assert(sawTextFill, 'unknown place should eventually use a text fill-in', result);
   results.push(result);
 }
 
