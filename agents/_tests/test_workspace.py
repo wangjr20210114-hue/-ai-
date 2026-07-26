@@ -467,6 +467,32 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "source_content",
         )
 
+    async def test_semantic_preflight_short_circuits_on_blocking_missing_input(self):
+        model = StructuredPlannerModel(topic_args={
+            "topics": [],
+            "needs_clarification": True,
+            "clarification_title": "请提供需要处理的内容",
+            "clarification_prompt": "本轮没有收到原文。",
+            "clarification_fields": [{
+                "id": "source_content",
+                "label": "需要处理的原文",
+                "type": "text",
+                "required": True,
+            }],
+        })
+        plan, timed_out = await plan_capabilities_bounded(
+            model,
+            "一种没有固定短语的新表达",
+            timeout_seconds=1,
+        )
+        self.assertFalse(timed_out)
+        self.assertEqual(model.calls, 1)
+        self.assertEqual(
+            required_tools_for_plan(plan),
+            ("ask_user_clarification",),
+        )
+        self.assertEqual(plan["clarification_fields"][0]["id"], "source_content")
+
     async def test_capability_planner_receives_runtime_skill_state(self):
         model = StructuredPlannerModel({
             "blocked_skill": "calendar",

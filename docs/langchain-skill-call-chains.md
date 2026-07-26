@@ -9,8 +9,10 @@
 1. 只读取每轮必需的用户能力开关、预算和设置。
 2. 使用两级关闭深度思考的 Flash 结构化链。
    - 第一级 `PromptTopicSelection` 按完整语义选择本轮需要的
-     `web / maps / calendar / image / paper / meeting / proactive` 提示词片段。
+     `web / maps / calendar / image / paper / meeting / proactive` 提示词片段，并专门判断是否缺少
+     会阻断所有安全结果的必要输入。
    - 第二级只读取第一级选中的详细边界，输出完整 `CapabilityPlan`。
+   - 第一级若已输出最小主动卡片 schema，就直接结束规划，不再运行第二级。
    - 两级都使用 LangChain `with_structured_output`；代码不以关键词、正则或固定短语决定 Skill。
 3. 只为选中的能力加载 Workspace 或主动服务状态，只向 LangGraph 暴露当前工具和全局
    `ask_user_clarification`。
