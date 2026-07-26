@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  browserLocationRequestContext,
   clearBrowserLocation,
   currentBrowserLocation,
   messageNeedsBrowserLocation,
@@ -36,6 +37,8 @@ describe('ephemeral browser location', () => {
     expect(messageNeedsBrowserLocation('我现在在哪')).toBe(true);
     expect(messageNeedsBrowserLocation('这附近有什么好吃的？')).toBe(true);
     expect(messageNeedsBrowserLocation('带我去颐和园')).toBe(true);
+    expect(messageNeedsBrowserLocation('明天上午10点从当前位置出发去颐和园')).toBe(true);
+    expect(messageNeedsBrowserLocation('颐和园离我多远')).toBe(true);
     expect(messageNeedsBrowserLocation('我现在在哪个步骤修改论文标题？')).toBe(false);
     expect(messageNeedsBrowserLocation('介绍一下北京')).toBe(false);
   });
@@ -74,6 +77,7 @@ describe('ephemeral browser location', () => {
 
     await expect(requestBrowserLocationForChat()).resolves.toBe('denied');
     expect(currentBrowserLocation()).toBeNull();
+    expect(browserLocationRequestContext().state).toBe('denied');
   });
 
   it('reports a location timeout so the backend can fall back to a card', async () => {
@@ -88,5 +92,6 @@ describe('ephemeral browser location', () => {
 
     await expect(requestBrowserLocationForChat()).resolves.toBe('timed_out');
     expect(currentBrowserLocation()).toBeNull();
+    expect(browserLocationRequestContext().state).toBe('timed_out');
   });
 });

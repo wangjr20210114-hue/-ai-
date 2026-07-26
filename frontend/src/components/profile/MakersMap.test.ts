@@ -7,7 +7,7 @@ describe('MakersMap geolocation recovery', () => {
   it('reuses a recent authorized location after a page refresh', () => {
     expect(LOCATION_OPTIONS.enableHighAccuracy).toBe(false);
     expect(LOCATION_OPTIONS.maximumAge).toBeGreaterThanOrEqual(5 * 60_000);
-    expect(LOCATION_OPTIONS.timeout).toBeLessThanOrEqual(8_000);
+    expect(LOCATION_OPTIONS.timeout).toBeLessThanOrEqual(12_000);
   });
 
   it('gives a concrete retry instruction for every browser failure', () => {

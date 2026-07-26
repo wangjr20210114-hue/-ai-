@@ -16,10 +16,12 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agents.chat._capability_plan import (
     explicit_route_destination,
+    fallback_tools_for_prompt_topics,
     media_enabled_for_plan,
     parse_capability_plan,
     plan_capabilities,
     plan_capabilities_bounded,
+    planner_prompt_topics,
     next_required_tool,
     required_tool_for_plan,
     required_tools_for_plan,
@@ -186,7 +188,6 @@ class StructuredPlannerModel:
         self.calls = 0
         self.args = args or {
             "needs_web_search": True,
-            "needs_rich_answer": True,
             "needs_images": True,
             "search_query": "故宫历史",
             "image_query": "故宫建筑",
@@ -417,6 +418,19 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         system_prompt = model.messages[0]["content"]
         self.assertIn("喜欢安静的博物馆", system_prompt)
         self.assertIn("不得把姓名、联系方式", system_prompt)
+
+    def test_capability_planner_prompt_sections_are_request_scoped(self):
+        self.assertEqual(planner_prompt_topics("解释一下快速排序"), ("core",))
+        route_topics = planner_prompt_topics("从当前位置坐公交去颐和园")
+        self.assertIn("maps", route_topics)
+        self.assertNotIn("paper", route_topics)
+        paper_topics = planner_prompt_topics("找三篇 transformer 论文")
+        self.assertIn("paper", paper_topics)
+        self.assertNotIn("calendar", paper_topics)
+        self.assertEqual(
+            fallback_tools_for_prompt_topics("找三篇 transformer 论文"),
+            ("rich_search", "search_arxiv"),
+        )
 
     async def test_capability_planner_receives_runtime_skill_state(self):
         model = StructuredPlannerModel({
@@ -818,6 +832,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("plan_route_between_places", route_prompt)
         self.assertNotIn("rich_search 始终是可用能力", route_prompt)
+        self.assertNotIn("用户询问某个已知地点、当前位置或日程地点附近", route_prompt)
         self.assertNotIn("should-not-leak", route_prompt)
         self.assertLess(len(route_prompt), len(SYSTEM_PROMPT) * 0.7)
 
@@ -850,7 +865,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             [tool.name for tool in selected],
             ["plan_route_between_places", "ask_user_clarification"],
         )
-        self.assertEqual(tools_for_capability_stage(tools, ()), [])
+        self.assertEqual(
+            [tool.name for tool in tools_for_capability_stage(tools, ())],
+            ["ask_user_clarification"],
+        )
         self.assertEqual(
             tools_for_capability_stage(
                 tools, (), planner_timed_out=True,
@@ -904,22 +922,18 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
     def test_semantic_web_search_makes_media_available_without_keyword_rules(self):
         self.assertTrue(media_enabled_for_plan({
             "needs_web_search": True,
-            "needs_rich_answer": False,
             "needs_images": False,
         }, 2))
         self.assertFalse(media_enabled_for_plan({
             "needs_web_search": False,
-            "needs_rich_answer": False,
             "needs_images": False,
         }, 2))
         self.assertFalse(media_enabled_for_plan({
             "needs_web_search": True,
-            "needs_rich_answer": True,
             "needs_images": True,
         }, 0))
         self.assertTrue(media_enabled_for_plan({
             "needs_web_search": False,
-            "needs_rich_answer": False,
             "needs_images": False,
         }, 2, planner_timed_out=True))
 

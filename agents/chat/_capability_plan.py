@@ -21,7 +21,6 @@ DEFAULT_PLAN = {
     "needs_clarification": False,
     "needs_web_search": False,
     "strict_today_only": False,
-    "needs_rich_answer": False,
     "needs_images": False,
     "needs_places": False,
     "needs_current_location": False,
@@ -34,6 +33,11 @@ DEFAULT_PLAN = {
     "needs_workflow_action": False,
     "needs_image_generation": False,
     "needs_papers": False,
+    "needs_deep_reasoning": False,
+    "needs_followups": False,
+    "needs_memory_extraction": False,
+    "needs_opportunity_review": False,
+    "use_memory_context": False,
     "search_query": "",
     "image_query": "",
     "nearby_query": "",
@@ -90,7 +94,6 @@ class CapabilityPlan(BaseModel):
     needs_clarification: bool = False
     needs_web_search: bool = False
     strict_today_only: bool = False
-    needs_rich_answer: bool = False
     needs_images: bool = False
     needs_places: bool = False
     needs_current_location: bool = Field(
@@ -115,6 +118,38 @@ class CapabilityPlan(BaseModel):
     needs_workflow_action: bool = False
     needs_image_generation: bool = False
     needs_papers: bool = False
+    needs_deep_reasoning: bool = Field(
+        default=False,
+        description=(
+            "True only for genuinely multi-step open-ended reasoning. Fixed JSON, "
+            "tool arguments, routing, acknowledgements, and ordinary chat use Flash."
+        ),
+    )
+    needs_followups: bool = Field(
+        default=False,
+        description="True only when suggested next questions add concrete user value.",
+    )
+    needs_memory_extraction: bool = Field(
+        default=False,
+        description=(
+            "True only when the user explicitly states a durable non-sensitive "
+            "preference or fact that may help future turns."
+        ),
+    )
+    needs_opportunity_review: bool = Field(
+        default=False,
+        description=(
+            "True only when the completed turn may justify a useful proactive "
+            "next-step notification and proactive-agent is enabled."
+        ),
+    )
+    use_memory_context: bool = Field(
+        default=False,
+        description=(
+            "True only when confirmed long-term memory is directly relevant to "
+            "the current request."
+        ),
+    )
     search_query: str = ""
     image_query: str = ""
     nearby_query: str = Field(
@@ -574,6 +609,115 @@ def _linked_trip_fallback(user_message: str) -> dict[str, Any]:
     return _finalize_plan(plan, user_message)
 
 
+def planner_prompt_topics(user_message: str) -> tuple[str, ...]:
+    """Select prompt detail, never the final capability decision.
+
+    The compact semantic index remains present for every request, so an
+    unfamiliar phrasing can still select any Skill. These broad signals only
+    decide which operational edge cases are worth expanding in the prompt.
+    """
+    text = str(user_message or "").casefold()
+    compact = "".join(text.split())
+    topics: list[str] = ["core"]
+    topic_patterns = {
+        "web": (
+            r"最新|今天|今日|新闻|进展|价格|查证|来源|搜索|检索|官网|网页|链接|"
+            r"latest|news|search|source|price|current"
+        ),
+        "maps": (
+            r"位置|附近|周边|地点|地图|路线|路程|导航|怎么去|多远|多久|打车|"
+            r"公交|地铁|步行|骑行|景点|餐厅|酒店|商场|公园|旅行|行程|"
+            r"location|nearby|map|route|drive|transit|walk|bike|travel"
+        ),
+        "calendar": (
+            r"日程|日历|安排|议程|提醒|几点|上午|下午|今晚|明天|后天|"
+            r"创建|新增|修改|删除|改到|推迟|提前|calendar|schedule|agenda|remind"
+        ),
+        "image": (
+            r"图片|照片|图像|画一|画张|生图|生成图|海报|插画|视觉|"
+            r"附图|这张图|image|photo|draw|poster|illustration"
+        ),
+        "paper": (
+            r"论文|文献|学术|研究成果|arxiv|paper|literature|research"
+        ),
+        "meeting": (
+            r"会议|开会|腾讯会议|视频会|线上会|meeting|conference"
+        ),
+        "proactive": (
+            r"工作流|持续|每隔|定时|自动提醒|分步骤|长期跟进|主动通知|"
+            r"workflow|recurring|proactive|followup"
+        ),
+    }
+    for topic, pattern in topic_patterns.items():
+        if re.search(pattern, compact, re.I):
+            topics.append(topic)
+    return tuple(topics)
+
+
+PLANNER_PROMPT_DETAILS = {
+    "web": (
+        "【联网搜索】时效事实、用户要求查证或来源时 needs_web_search=true；"
+        "search_query 合并为一次简洁事实查询。只有明确要求今天发布的内容才设 "
+        "strict_today_only=true。图片确实帮助理解时再设 needs_images 并填写 image_query。"
+    ),
+    "maps": (
+        "【地图与路线】直接问当前位置用 needs_current_location；周边商家只用 "
+        "needs_nearby_places 并填写 nearby_query；目的地介绍/多地点推荐用 "
+        "needs_places+needs_map_action；真实道路距离、耗时、费用或有序停靠用 needs_route。"
+        "route_stops 逐字、按原顺序保留，不得在规划器中纠错、改名或选择分店；"
+        "错字/同名交给腾讯地点服务处理，不得提前澄清。"
+        "浏览器有新鲜位置且用户没给起点时 route_uses_current_location=true。"
+    ),
+    "calendar": (
+        "【日程】只读/汇总当前日程用 needs_calendar_context；新增、修改、删除还要 "
+        "needs_calendar_action。现实地点未核实时先 needs_places 且 "
+        "place_resolution_target=calendar。明确未来时刻的多站可执行行程在日程 Skill "
+        "开启时同时选择 route、calendar_context、calendar_action。"
+    ),
+    "image": (
+        "【视觉与生图】生成新图片用 needs_image_generation。现实主体需要外观准确且用户"
+        "没有参考图时，才同时选择 web_search+images；纯幻想、抽象画面或已有附图不搜索。"
+    ),
+    "paper": (
+        "【论文】检索论文、文献或 arXiv 用 needs_papers，search_query 写研究主题；"
+        "只有还要求普通网页、新闻或跨来源综述时才同时 web_search。作者、年份、数量分别"
+        "写入 paper_author、paper_year、paper_limit。"
+    ),
+    "meeting": (
+        "【会议】创建腾讯会议用 needs_meeting_action；会议依赖日程 Skill。只创建普通"
+        "日程而不需要会议链接时不要选择 meeting。"
+    ),
+    "proactive": (
+        "【主动服务】跨时间、多步骤、持续推进或定时主动触达用 needs_workflow_action；"
+        "单次提醒仍是 calendar_action。只有回答完成后确实可能产生有价值的主动下一步，"
+        "才设 needs_opportunity_review。"
+    ),
+}
+
+
+def fallback_tools_for_prompt_topics(user_message: str) -> tuple[str, ...]:
+    """Bound the recovery tool surface when the semantic router times out."""
+    topic_tools = {
+        "web": ("rich_search",),
+        "maps": (
+            "get_current_location",
+            "search_places",
+            "recommend_nearby_places_on_map",
+            "recommend_places_on_map",
+            "plan_route_between_places",
+        ),
+        "calendar": ("search_places", "propose_calendar_changes"),
+        "image": ("propose_image", "rich_search"),
+        "paper": ("rich_search", "search_arxiv"),
+        "meeting": ("propose_meeting",),
+        "proactive": ("propose_workflow",),
+    }
+    names: list[str] = []
+    for topic in planner_prompt_topics(user_message):
+        names.extend(topic_tools.get(topic, ()))
+    return tuple(dict.fromkeys(names))
+
+
 async def plan_capabilities(
     model,
     user_message: str,
@@ -582,54 +726,31 @@ async def plan_capabilities(
     location_context: str = "",
 ) -> dict[str, Any]:
     today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
-    prompt = f"""你是能力路由器，只判断完成本轮用户请求需要哪些能力，不回答问题。当前北京时间日期是运行时得到的 {today}；“今天、今日、今年、最近 N 年”等相对时间必须据此解析并写入搜索查询，绝不能沿用训练数据、示例或旧会话里的日期。
-严格填写提供的结构化 schema，不要在字段外补充文字。
-判断原则：
-- 这些字段只是给主模型的能力建议，绝不是工具开关；主模型始终可以自主决定是否搜索、使用多少素材以及怎样组织回答。
-- Skill 状态会在下方单独提供。先理解用户真正要完成的目标，再判断它是否不可替代地依赖某个已关闭 Skill；若是，blocked_skill 必须填写该 Skill 的精确 id，其他 needs_* 全部为 false，让主模型自然提醒用户开启。不得因为问题中出现日期、地点、图片等表面词语就机械判定依赖，也不得把可选的富媒体增强当成阻塞；只有缺少该能力就无法完成用户明确要求的最终结果时才阻塞。Skill 已开启或任务不依赖已关闭能力时 blocked_skill 为空字符串。
-- 只有缺失信息会阻断所有安全且有用的回答，或无法唯一确定将要执行的真实副作用对象时，needs_clarification=true，而且本轮其他能力全部设为 false。“不同偏好会改变结果”“知道后会更好”或用户尚未决定，都不足以触发澄清；只要能够基于不同合理假设给出至少两套不误导的方案，needs_clarification 必须为 false，并让主模型直接给出 2–3 套带假设与取舍的方案。这个判断必须泛化到任何主题和偏好，不能按某个任务类别套用固定问题。普通事实问答、存在低风险默认值时也不要澄清。特别地，现实地点名称可能同名、缺少城市或有错字时，不得在调用地点服务之前设置 needs_clarification；应先设置 needs_places（路线则设置 needs_route），由地点工具基于真实结果执行“唯一候选直接采用、多个候选单选、无候选填空”。如果这个未核实地点属于日程新增或修改，无论你是否同时误判 needs_clarification，都必须设置 place_resolution_target=calendar；只有缺日期、时间、标题等非地点必要参数时 place_resolution_target 才保持 none。澄清字段只能来自用户本轮明确目标、当前对话里尚未解决的条件、与本任务直接相关的安全长期记忆或当前可核验状态；不得套用某类任务常见的画像问卷，也不得因为“可能有帮助”就追加问题。已有上下文、可靠记忆、核实结果或其他必要字段能够推导的内容不要再问；记忆与本轮表达冲突或仍不确定时，以本轮表达为准。澄清卡只收齐继续执行所不可缺少的最少字段：有限候选优先单选/多选，能用是/否表达就用判断，只缺日期用 date、日期已知只缺时刻用 time、两者都缺才用 datetime，只有答案无法枚举时才用短文本；不要在长回答末尾再追问。
-- 先语义判断是否需要外部事实。简单计算、脑筋急转弯、闲聊或模型可直接可靠回答的请求不搜索；时效事实、用户明确要求查证、需要来源或现实世界信息时搜索。
-- 独立判断图片是否能明显加快理解。现实事件的新闻/近期进展综述，如果现场、人物、产品或实物图片能帮助用户区分各条进展，通常设置 needs_images=true；只有用户明确要极简文字、主题高度抽象或确实没有有意义视觉对象时才设为 false。地点、产品、动植物、历史实物等同理。不能机械地按“用户有没有说图片”判断。
-- search_query 必须把完成目标所需的事实约束合并成一次高质量查询；不要拆成多个近义查询，也不要预留“第二次再搜”。近期进展综述要在同一查询中要求多个独立事件、可核验日期和可靠来源，避免只命中一条宽泛报道。image_query 只表达最能代表这些事实的视觉对象，可与事实搜索并发。
-- rich_answer/images 表示富媒体素材可能有帮助，不规定最终版式；模型可以采用、穿插、重排或完全舍弃素材。
-- 旅行目的地介绍、第一次去某城市、请介绍当地有什么好玩/好吃/值得去，回答天然会包含多个可到访点，所以 needs_places 和 needs_map_action 都必须为 true；不能因为用户没说“地图”就关掉地图能力。
-- 单一地点的历史、文化或原理解说不需要 map_action，除非用户同时要求周边或路线。
-- 用户要找某个已知地点、当前位置或日程地点“附近/周边”的餐馆、早餐店、酒店、商店、景点等真实地点时，needs_nearby_places=true，并把要找的简短腾讯地点类别写入 nearby_query（如餐厅、景点、咖啡馆、酒店）；该组合能力会复用工作区内已核实的参照地点并调用真实附近检索，同时生成仅含核实结果的地图。用户给出多个备选参照点时仍只需要这一项能力，主模型会把全部备选点一次交给组合工具，不能在规划阶段擅自缩成一个。不要仅为了发现附近地点设置 needs_web_search；只有用户还要求点评、营业时间、新闻等地图服务之外的时效事实时才同时设置 web_search。needs_nearby_places 已包含地点核验和地图 Action，不必再设置 needs_places 或 needs_map_action。
-  - 用户询问两个地点之间“多远、多久、怎么走、打车多少钱”，明确要求道路路线，或给出出发地与一个/多个依次停靠地点并要求规划出行/行程时，needs_route=true。“我想去/带我去/怎么去某地”这类明确移动意图，即使只给了目的地，只要下方说明有新鲜且已授权的浏览器当前位置，也要设置 needs_route=true 并使用该位置作为隐式起点，不要追问起点。多段行程仍只调用一次路线能力，并严格保留用户给出的停靠顺序。真实距离由地点与路线服务核验，不要为了距离本身设置 needs_web_search，也不要用网页结果估算；只有用户还要求沿途新闻、实时政策等额外事实时才同时设置 web_search。needs_route 已包含全部端点与中途站的地点核验，不必为了同一批地点再额外设置 needs_places 或 map_action。
-  - needs_route=true 时，route_stops 必须包含用户明确要求经过的全部文本地点，第一项通常是起点，最后一项是终点，中间项按原顺序保留，不能因为某个地点可能有多个候选而省略。地点文字必须逐字保留用户原文，不得在规划器中改正错字、替换同义名称或补写具体分店；只有后续地点工具能依据腾讯候选纠正或要求选择。若使用已授权当前位置作为隐式起点，不要把坐标或“当前位置”伪造为普通地点搜索词；只把用户说出的目的地/途经地写入 route_stops，并设置 route_uses_current_location=true。浏览器当前位置不可用时 route_uses_current_location=false，缺少起点且无法安全继续才需要澄清。普通地点写 query；“某参照点附近的某品牌/类别”拆成 query=品牌或类别、near_query=参照地点。对话中的“那个店、那里、这个酒店”等指代应结合提供的原始目标与上下文原样保留或解析，不得擅自删除。route_city 填已明确的共同城市，无法确定时填“全国”。非路线请求 route_stops 为空。
-  - route_mode 只记录用户明确指定的出行方式：驾车=driving、公交/地铁/公共交通=transit、步行=walking、骑行/自行车=bicycling；用户未指定时填 default，由用户设置决定。不能把“怎么去”擅自理解成驾车。
-  - route_strategy 只记录用户明确指定的路线取舍：明确只要最快填 least_time，明确费用最低或最省钱填 least_cost，明确“省时优先、时间相近时省钱”填 time_then_cost；未指定填 default，由用户设置和已学习的明确选择决定。
-- 读取、查询、汇总当前日程时设置 needs_calendar_context=true，但不设置 calendar_action。用户要求新增/修改/删除行程日程时同时设置 needs_calendar_context=true 与 calendar_action。另一个主动服务例外是：用户给出了明确的未来日期或出发时刻，并要求规划包含多个有序站点的可执行行程时，如果日程 Skill 已开启，同时设置 needs_route=true、needs_calendar_context=true 与 needs_calendar_action=true；路线核实后主动生成一张可编辑的日程确认提案，不要等用户再次询问能否写入。该提案只是等待确认，不能自动生效。若日程 Skill 关闭，这个主动增强不是完成路线的必要条件，不得设置 blocked_skill，也不得阻塞正常路线回答。仅说计划去某地且没有明确时刻，仍不等于写日程。
-- 新增或修改日程时，只要用户给出了现实地点且本轮没有可唯一复用的已核实地点，就设置 place_resolution_target=calendar，并同时设置 needs_places=true，让地点核实先于 calendar_action；不得因为缺少城市、可能同名或疑似错字而提前设置 needs_clarification，也不得直接把自由文本地点或猜测的地点 ID 交给日程工具。地点工具会根据真实腾讯候选决定直接采用、单选或填空。没有待核实现实地点时 place_resolution_target=none。
-- 创建会议需要 meeting_action；生成新图片需要 image_generation。若图片主体是现实中的具体人物、地点、产品、动物品种或其他需要外观准确的对象，同时设置 web_search 和 images，并用 image_query 描述该真实主体；纯幻想、抽象画面或用户已给参考图则不搜索。
-- 用户明确要求建立跨时间、多步骤、会持续推进或定时主动触达的提醒流程时需要 workflow_action；单次提醒或普通日程仍使用 calendar_action，不能用多条日程冒充主动工作流。
-- 搜索论文、文献、arXiv 或某研究方向的学术成果需要 papers；papers 会调用独立 arXiv 能力，不要求同时开启 web-search。只有用户还要求查网页、新闻、官方资料或跨来源综述时才额外设置 needs_web_search。search_query 写论文主题。用户指定作者时 paper_author 使用其常见英文学术署名（如能确定），指定年份和数量时分别填写 paper_year、paper_limit；没有则为 0 或空字符串。
-- 需要搜索时，search_query 改写成适合搜索引擎的简洁事实查询，不要保留“能不能、给我讲讲”等对话措辞；否则为空字符串。
-- 只有用户明确要求“今天/今日发生或发布的新闻、公告、进展”时，strict_today_only=true，search_query 必须包含上面的当前完整日期，并强调只要发布日期可核验为该日的内容；不能用“过去一周”或其他日期代替。
-- “截至今天/截至目前的最新能力、现状、价格或对比”表示查询截止时间，不表示资料必须在今天发布；这类请求 strict_today_only=false，应检索截至当前日期可核验的最新官方资料并保留各自真实发布日期。
-- 需要图片时，image_query 写成适合找到具体视觉素材的查询，包含主体和最有代表性的可视对象；否则为空字符串。
-不要根据固定关键词机械匹配，要理解整句话的目标。只输出 JSON。"""
-    # The detailed aggregate above remains executable documentation for every
-    # product boundary. The routing call itself receives this compact contract:
-    # provider/tool adapters enforce the operational details, so repeating them
-    # here only increases first-token latency and schema-following failures.
     prompt = f"""你是 FLORIS 能力路由器，只填写给定 schema，不回答用户。当前北京时间日期：{today}。
 总则：
 - 理解完整目标，可同时选择多个能力；非必要字段保持默认值。blocked_skill 只填用户目标不可替代地依赖、且运行时明确关闭的 Skill id；可选增强关闭时不要阻塞。
 - 只有缺失信息会阻断所有安全有用结果，或真实副作用对象无法唯一确定时，才设置 needs_clarification=true，并把其他 needs_* 设为 false。偏好未决定时直接交给主模型给方案，不要澄清。
 - 用户只是探索思路、比较假设方案，且目的地、预算、同行或节奏尚未决定时，不需要外部事实、地点核验或地图；保持所有 needs_* 为 false，让主模型直接给 2–3 套假设方案。只有用户要求当前信息、来源、真实地点推荐或可执行路线时才选择相应能力。
 - 现实地点可能有错字、同名或缺城市时，不得在调用地点服务之前设置 needs_clarification。先选择地点/路线能力；地点工具会根据真实腾讯候选决定直接采用、单选或填空。
-能力：
-- 时效事实、用户要求查证或来源：needs_web_search=true；只在明确要求“今天发布”时 strict_today_only=true。search_query 合并为一次简洁查询并使用 {today} 解析相对日期。图片明显帮助理解时 needs_images=true 并填写 image_query。
-- 用户直接问“我现在在哪、当前位置是什么、你能否读到我的位置”：needs_current_location=true，由腾讯逆地址解析把本轮浏览器坐标转为可读地址；不要设置 web_search 或把坐标写入查询。没有浏览器定位时仍设置该能力，由工具如实返回不可用。
-- 旅行目的地介绍或多地点推荐：needs_places=true、needs_map_action=true；找已知地点/当前位置/日程地点周边真实商家：只设 needs_nearby_places=true，并把简短地点类别写入 nearby_query。说“我附近/当前位置附近”时只能使用下方浏览器状态；不可用时不得把“当前位置”当普通地点词，也不得声称已定位或已搜索。
-- 真实道路距离、耗时、费用或有序行程：needs_route=true。route_stops 必须按原顺序逐字保留用户说出的地点，不得在规划器中纠错、改名或选择分店；普通地点写 query，“参照点附近的品牌/类别”只拆为 query 与 near_query。浏览器有新鲜授权位置且用户没给起点时 route_uses_current_location=true，否则缺起点才澄清。只记录用户明确指定的 route_mode 和 route_strategy，未指定填 default。
-- 查询、汇总当前日程：needs_calendar_context=true。新增、修改、删除日程：同时设置 needs_calendar_context=true、needs_calendar_action=true。明确未来日期/出发时刻的多站可执行行程在日程 Skill 开启时，同时需要 route、calendar_context、calendar_action。
-- 新增或修改日程含未核实现实地点时：place_resolution_target=calendar、needs_places=true、needs_calendar_action=true；只有缺日期、时间、标题等非地点必要参数时才澄清。
-- 创建会议：needs_meeting_action；持续、多步骤或定时主动触达：needs_workflow_action；单次提醒仍是 calendar_action。
-- 生成新图片：needs_image_generation；现实主体需要外观准确且用户未给参考图时，同时选择 web_search 和 images。搜索论文/arXiv：needs_papers，search_query 写论文主题；只有还要求普通网页或跨来源综述时才同时 web_search，并填写 paper_author、paper_year、paper_limit。
+- 能力语义索引：web-search=时效事实/查证；vision=理解附图或审核检索图片；image-studio=生图；
+  maps=真实地点/附近/道路路线；calendar=个人日程；proactive-agent=持续工作流和主动提醒；
+  paper-reading=论文检索与助读；tencent-meeting=创建会议。下面只附本轮候选能力的详细边界，
+  但 schema 中任何能力仍可按完整语义选择，不能把提示词片段选择当作最终路由。
+- needs_deep_reasoning 只用于确实需要多步开放推理的最终回答；能力路由、固定 JSON、工具参数、
+  Action 确认、简单问答都保持 false，使用 Flash 即可。
+- needs_followups 只在“猜你想问”确有具体价值时为 true；needs_memory_extraction 只在用户明确陈述
+  可长期复用的非敏感事实或稳定偏好时为 true；needs_opportunity_review 只在主动服务已开启且本轮
+  可能产生有价值主动下一步时为 true；use_memory_context 只在长期记忆与本轮目标直接相关时为 true。
 严格只输出 schema 对应 JSON。"""
-    safe_memory = str(memory_context or "").strip()[:4000]
+    prompt_topics = planner_prompt_topics(user_message)
+    details = [
+        PLANNER_PROMPT_DETAILS[topic]
+        for topic in prompt_topics
+        if topic in PLANNER_PROMPT_DETAILS
+    ]
+    if details:
+        prompt += "\n\n本轮候选能力详细边界：\n" + "\n".join(details)
+    safe_memory = str(memory_context or "").strip()[:1800]
     if safe_memory:
         prompt += (
             "\n以下是已过滤为非敏感的长期记忆。只在确实相关时用于个性化查询；"

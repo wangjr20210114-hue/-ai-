@@ -13,9 +13,11 @@ from ._graph import build_graph
 from ._llm import get_model
 from ._ui_tools import build_production_tools
 from ._capability_plan import (
+    DEFAULT_PLAN,
     explicit_nearby_query,
     explicit_location_intent,
     explicit_route_destination,
+    fallback_tools_for_prompt_topics,
     media_enabled_for_plan,
     plan_capabilities_bounded,
     required_tools_for_plan,
@@ -114,6 +116,48 @@ def normalize_browser_current_location(value: object, *, now_ms: int | None = No
         "accuracy_meters": round(accuracy, 1),
         "captured_at": captured_at,
     }
+
+
+def normalize_browser_location_request(value: object) -> str:
+    """Keep only a non-sensitive browser outcome used to tailor recovery UI."""
+    if not isinstance(value, dict):
+        return "not_attempted"
+    state = str(value.get("state") or "").strip().lower()
+    return state if state in {
+        "available", "denied", "timed_out", "unavailable", "failed", "idle",
+    } else "not_attempted"
+
+
+def location_clarification_copy(intent: str, request_state: str) -> tuple[str, str]:
+    nearby = intent == "nearby"
+    if request_state == "denied":
+        return (
+            "定位权限未开启",
+            "浏览器已拒绝本网站读取位置。你可以在当前网站的权限设置中改为允许后重试，"
+            "也可以直接填写你所在的区域或附近地标，提交后我会继续处理。",
+        )
+    if request_state == "timed_out":
+        return (
+            "定位暂时超时",
+            "设备在 12 秒内没有返回位置，手机或平板上可确认系统定位服务已开启。"
+            "你可以重新尝试，也可以直接填写"
+            + ("附近搜索的起点。" if nearby else "大致位置或出发地。"),
+        )
+    if request_state == "unavailable":
+        return (
+            "设备暂时无法定位",
+            "当前浏览器或设备没有提供可用位置。你可以换用支持定位的安全浏览器，"
+            "也可以直接填写"
+            + ("附近搜索的起点。" if nearby else "大致位置或出发地。"),
+        )
+    return (
+        "需要附近搜索的起点" if nearby else "需要你的位置",
+        "浏览器没有提供当前位置。请填写你所在的区域或附近地标，"
+        "提交后我会自动继续查找，不需要重新描述需求。"
+        if nearby
+        else "浏览器没有提供当前位置。你可以填写大致位置，"
+        "我会用它继续附近推荐、路线规划或日程安排。",
+    )
 
 
 def run_cancelled(value: object) -> bool:
@@ -227,9 +271,11 @@ def tools_for_capability_stage(
         return []
     if planner_timed_out:
         return list(all_tools)
-    allowed_names = set(required_tool_names)
-    if allowed_names:
-        allowed_names.add("ask_user_clarification")
+    # Necessary-information collection is a product-wide interaction surface,
+    # not a calendar/map special case. Keep the one strictly validated card
+    # tool available even when the planner selects no domain capability, so a
+    # full-history answer pass can recover a blocker the compact router missed.
+    allowed_names = {"ask_user_clarification", *required_tool_names}
     return [
         tool for tool in all_tools
         if getattr(tool, "name", "") in allowed_names
@@ -265,6 +311,18 @@ def dynamic_system_prompt(
 
     uses_maps = bool(selected_tools & MAP_TOOL_NAMES)
     uses_route = "plan_route_between_places" in selected_tools
+    uses_place_lookup = bool(selected_tools & {
+        "search_places",
+        "search_places_batch",
+        "recommend_nearby_places_on_map",
+        "prepare_map_recommendation",
+        "recommend_places_on_map",
+    })
+    uses_map_recommendation = bool(selected_tools & {
+        "recommend_nearby_places_on_map",
+        "prepare_map_recommendation",
+        "recommend_places_on_map",
+    })
     uses_calendar = (
         "propose_calendar_changes" in selected_tools
         or bool(capability_plan.get("needs_calendar_context"))
@@ -277,7 +335,11 @@ def dynamic_system_prompt(
     if uses_web:
         selected_indices.update({11, 12, 13, 14, 15, 27})
     if uses_maps:
-        selected_indices.update({4, 16, 17})
+        selected_indices.add(4)
+    if uses_place_lookup:
+        selected_indices.add(16)
+    if uses_map_recommendation:
+        selected_indices.add(17)
     if uses_route:
         selected_indices.add(18)
     if uses_calendar:
@@ -299,7 +361,7 @@ def dynamic_system_prompt(
         selected_indices.difference_update({3, 4, 5, 10, 16, 18, 19, 20, 22})
         if uses_web:
             selected_indices.update({11, 13, 14, 15})
-        if uses_maps:
+        if uses_map_recommendation:
             selected_indices.add(17)
         if uses_images:
             selected_indices.update({23, 24})
@@ -318,20 +380,30 @@ def dynamic_system_prompt(
     # This short truth signal is always present: direct questions such as
     # “我现在在哪” may legitimately have no map tool selected, but must never
     # hallucinate a permission grant or a successful location lookup.
-    tails = [
-        skill_context,
-        (
+    tails = []
+    if full_prompt or selected_tools or capability_plan.get("blocked_skill"):
+        tails.append(skill_context)
+    if (
+        full_prompt
+        or uses_maps
+        or capability_plan.get("needs_current_location")
+        or capability_plan.get("needs_nearby_places")
+        or capability_plan.get("needs_route")
+        or capability_plan.get("route_uses_current_location")
+    ):
+        tails.append(
             f"浏览器当前位置状态：{current_location_context}。"
             "关于“我在哪、是否已定位、我附近”的回答只以此状态为准；"
             "状态不可用时禁止声称已授权、已定位或已搜索当前位置附近。"
-        ),
-    ]
+        )
     if uses_route or uses_calendar:
         tails.append(
             "最近一次已核实的有序路线（仅当用户指代“这个/刚才的行程”时使用）："
             f"{current_route_context}"
         )
-    if memory_context:
+    if memory_context and (
+        full_prompt or capability_plan.get("use_memory_context")
+    ):
         tails.append(
             "以下是用户已明确确认的长期记忆，只在当前请求相关时自然使用：\n"
             f"{memory_context}"
@@ -492,10 +564,13 @@ async def handler(ctx):
     silent_clarification = bool(clarification_id)
     response_language = str(body.get("response_language") or "zh-CN")
     browser_current_location = normalize_browser_current_location(body.get("current_location"))
+    browser_location_request = normalize_browser_location_request(
+        body.get("location_request")
+    )
     current_location_context = (
         "已授权且新鲜，可作为路线隐式起点或附近搜索参照（精确坐标仅供地图工具使用）"
         if browser_current_location
-        else "不可用；不得声称已定位"
+        else f"不可用（浏览器本轮结果：{browser_location_request}）；不得声称已定位"
     )
     language_instructions = {
         "zh-CN": "使用自然、清晰的简体中文，保留 Markdown 结构与链接。",
@@ -605,13 +680,15 @@ async def handler(ctx):
         message_text = public_error(exc)
         await fail_run(message_text)
         return error(message_text, 503)
-    intelligence, proactive_state, workspace = await asyncio.gather(
-        load_intelligence_state(ctx.store.langgraph_store, user_id),
-        load_proactive_state(ctx.store.langgraph_store, user_id),
-        load_user_workspace(
-            ctx.store.langgraph_store, conversation_id, user_id,
-        ),
+    # Intelligence contains Skill switches, budgets, search/map settings and
+    # confirmed memory, so it is the only state every turn needs before routing.
+    # Workspace and proactive state are loaded later only when the selected
+    # chain can consume them.
+    intelligence = await load_intelligence_state(
+        ctx.store.langgraph_store, user_id,
     )
+    proactive_state: dict = {}
+    workspace: dict = {}
     budget = usage_summary(intelligence)
     if (
         str((budget.get("preferences") or {}).get("enforcement") or "soft") == "hard"
@@ -620,7 +697,9 @@ async def handler(ctx):
         message_text = "已达到今日 Token 预算；请在“记忆与学习”中调整预算或切换策略"
         await fail_run(message_text)
         return error(message_text, 429)
-    memory_context = confirmed_memory_context(intelligence)
+    # The planner only needs a bounded recent slice to decide whether memory is
+    # relevant. The answer prompt receives it only when use_memory_context=true.
+    memory_context = confirmed_memory_context(intelligence, limit=8)
     search_preferences = intelligence.get("search_preferences") or {}
     search_result_limit = max(4, min(18, int(search_preferences.get("result_limit") or 8)))
     search_image_limit = max(0, min(4, int(
@@ -637,8 +716,8 @@ async def handler(ctx):
         "绝不能声称或模拟已关闭能力。若用户请求受关闭能力影响，要自然说明受限，并建议到 Skills 广场开启对应能力；"
         "日程在地图关闭时仍可创建无地点日程，但涉及真实地点时应建议开启地图；腾讯会议依赖日程写入。"
     )
-    current_calendar_context = calendar_context(workspace)
-    current_route_context = latest_route_context(workspace)
+    current_calendar_context = "[]"
+    current_route_context = "无"
     reference_image_context = ""
     if reference_images and "vision" in enabled_skills:
         reference_image_context, vision_diagnostics = await describe_reference_images(
@@ -683,22 +762,70 @@ async def handler(ctx):
     planner_timeout = max(8.0, min(20.0, float(
         ctx.env.get("CAPABILITY_PLAN_TIMEOUT_SECONDS") or 12
     )))
-    capability_plan, planner_timed_out = await plan_capabilities_bounded(
-        fast_model,
-        planning_message,
-        memory_context,
-        skill_state=json.dumps({
-            "enabled": sorted(enabled_skills),
-            "disabled": disabled_skills,
-        }, ensure_ascii=False),
-        location_context=current_location_context,
-        timeout_seconds=planner_timeout,
+    location_intent = explicit_location_intent(message)
+    direct_route_destination = explicit_route_destination(message)
+    explicit_current_route_origin = bool(re.search(
+        r"(?:从|以)(?:我的)?(?:当前位置|当前地点|这里|这儿|我这)(?:出发|为起点)",
+        message,
+    ))
+    simple_nearby_turn = bool(
+        location_intent == "nearby"
+        and not re.search(
+            r"营业|评价|点评|新闻|最新|日程|日历|安排|会议|同时|并且|还要|"
+            r"hours|review|news|calendar|schedule|meeting",
+            message,
+            re.I,
+        )
     )
+    direct_map_turn = bool(
+        location_intent == "current"
+        or simple_nearby_turn
+        or direct_route_destination
+    )
+    if direct_map_turn:
+        capability_plan = dict(DEFAULT_PLAN)
+        if "maps" not in enabled_skills:
+            capability_plan["blocked_skill"] = "maps"
+        elif location_intent == "current":
+            capability_plan["needs_current_location"] = True
+        elif simple_nearby_turn:
+            capability_plan["needs_nearby_places"] = True
+            capability_plan["nearby_query"] = explicit_nearby_query(message)
+        else:
+            capability_plan["needs_route"] = True
+            capability_plan["route_stops"] = [{
+                "query": direct_route_destination,
+                "near_query": "",
+            }]
+            capability_plan["route_uses_current_location"] = bool(
+                browser_current_location
+            )
+        planner_timed_out = False
+    else:
+        capability_plan, planner_timed_out = await plan_capabilities_bounded(
+            fast_model,
+            planning_message,
+            memory_context,
+            skill_state=json.dumps({
+                "enabled": sorted(enabled_skills),
+                "disabled": disabled_skills,
+            }, ensure_ascii=False),
+            location_context=current_location_context,
+            timeout_seconds=planner_timeout,
+        )
     location_card_arguments: dict = {}
     nearby_tool_arguments: dict = {}
     route_tool_arguments: dict = {}
-    location_intent = explicit_location_intent(message)
-    direct_route_destination = explicit_route_destination(message)
+    if capability_plan.get("needs_route") and explicit_current_route_origin:
+        capability_plan["route_stops"] = [
+            stop for stop in (capability_plan.get("route_stops") or [])
+            if str((stop or {}).get("query") or "").strip() not in {
+                "当前位置", "当前地点", "这里", "这儿", "我这",
+            }
+        ]
+        capability_plan["route_uses_current_location"] = bool(
+            browser_current_location
+        )
     if (
         not browser_current_location
         and not silent_clarification
@@ -714,19 +841,12 @@ async def handler(ctx):
             if key.startswith("needs_"):
                 capability_plan[key] = False
         capability_plan["needs_clarification"] = True
+        location_title, location_prompt = location_clarification_copy(
+            location_intent, browser_location_request,
+        )
         location_card_arguments = {
-            "title": (
-                "需要附近搜索的起点"
-                if location_intent == "nearby"
-                else "需要你的位置"
-            ),
-            "prompt": (
-                "浏览器没有提供当前位置。请填写你所在的区域或附近地标，"
-                "提交后我会自动继续查找，不需要重新描述需求。"
-                if location_intent == "nearby"
-                else "浏览器没有提供当前位置。你可以填写大致位置，"
-                "我会用它继续附近推荐、路线规划或日程安排。"
-            ),
+            "title": location_title,
+            "prompt": location_prompt,
             "fields": [{
                 "id": (
                     "nearby_anchor"
@@ -785,6 +905,60 @@ async def handler(ctx):
             # product-wide origin card; it never searches "当前位置" as a POI.
             "use_current_location_as_origin": True,
         }
+    elif capability_plan.get("needs_route") and capability_plan.get("route_stops"):
+        # The structured planner already emitted the exact fixed-schema route
+        # arguments. Calling another model merely to restate the same ordered
+        # stops is duplicate work; the route adapter still validates every
+        # field and resolves all places through Tencent.
+        route_tool_arguments = {
+            "city": str(capability_plan.get("route_city") or "全国"),
+            "route_mode": str(capability_plan.get("route_mode") or "default"),
+            "route_strategy": str(
+                capability_plan.get("route_strategy") or "default"
+            ),
+            "use_current_location_as_origin": bool(
+                capability_plan.get("route_uses_current_location")
+                or explicit_current_route_origin
+            ),
+            "ordered_stops": capability_plan.get("route_stops") or [],
+        }
+    timeout_fallback_names = (
+        fallback_tools_for_prompt_topics(message)
+        if planner_timed_out
+        else ()
+    )
+    needs_workspace_state = bool(
+        capability_plan.get("needs_calendar_context")
+        or capability_plan.get("needs_calendar_action")
+        or capability_plan.get("needs_route")
+        or {
+            "propose_calendar_changes",
+            "plan_route_between_places",
+        } & set(timeout_fallback_names)
+    )
+    needs_proactive_state = bool(
+        capability_plan.get("needs_workflow_action")
+        or capability_plan.get("needs_opportunity_review")
+        or "propose_workflow" in timeout_fallback_names
+    )
+    state_jobs = []
+    if needs_workspace_state:
+        state_jobs.append(("workspace", asyncio.create_task(load_user_workspace(
+            ctx.store.langgraph_store, conversation_id, user_id,
+        ))))
+    if needs_proactive_state:
+        state_jobs.append(("proactive", asyncio.create_task(load_proactive_state(
+            ctx.store.langgraph_store, user_id,
+        ))))
+    if state_jobs:
+        state_values = await asyncio.gather(*(task for _, task in state_jobs))
+        for (state_name, _), state_value in zip(state_jobs, state_values):
+            if state_name == "workspace":
+                workspace = state_value
+            else:
+                proactive_state = state_value
+    current_calendar_context = calendar_context(workspace)
+    current_route_context = latest_route_context(workspace)
     if planner_timed_out:
         logging.warning(
             "chat capability planning timed out after %.1fs; main semantic model retains all tools",
@@ -885,13 +1059,18 @@ async def handler(ctx):
     )
     blocked_skill = str(capability_plan.get("blocked_skill") or "").strip()
     required_tool_names = required_tools_for_plan(capability_plan)
-    # Timeout is the only case where the main reasoning model retains the full
-    # capability surface and legacy aggregate prompt.
+    fallback_tool_names = (
+        fallback_tools_for_prompt_topics(message)
+        if planner_timed_out and not required_tool_names
+        else ()
+    )
+    graph_tool_names = required_tool_names or fallback_tool_names
+    # A router timeout retains a semantically bounded recovery surface instead
+    # of injecting every schema and every Skill policy into one model call.
     graph_tools = tools_for_capability_stage(
-        all_tools,
-        required_tool_names,
+        all_tools, graph_tool_names,
         blocked_skill=blocked_skill,
-        planner_timed_out=planner_timed_out,
+        planner_timed_out=False,
     )
     if blocked_skill:
         logging.info(
@@ -909,9 +1088,7 @@ async def handler(ctx):
     tool_setup_error = ""
     runtime_now = runtime_datetime_context(current_beijing)
     selected_tool_names = (
-        {getattr(tool, "name", "") for tool in all_tools}
-        if planner_timed_out
-        else set(required_tool_names)
+        set(graph_tool_names)
     )
     tool_system_prompt = dynamic_system_prompt(
         selected_tools=selected_tool_names,
@@ -925,7 +1102,7 @@ async def handler(ctx):
         current_route_context=current_route_context,
         skill_context=skill_context,
         memory_context=memory_context,
-        full_prompt=planner_timed_out,
+        full_prompt=False,
     )
     stage_system_prompts = {
         tool_name: dynamic_system_prompt(
@@ -958,8 +1135,13 @@ async def handler(ctx):
         public_answer=True,
     )
 
+    graph_model = (
+        model
+        if planner_timed_out or capability_plan.get("needs_deep_reasoning")
+        else fast_model
+    )
     graph = build_graph(
-        model,
+        graph_model,
         graph_tools,
         tool_system_prompt,
         checkpointer=ctx.store.langgraph_checkpointer,
@@ -982,6 +1164,9 @@ async def handler(ctx):
         stage_system_prompts=stage_system_prompts,
         public_system_prompt=public_system_prompt,
         planned_tool_arguments={
+            **({
+                "get_current_location": {},
+            } if capability_plan.get("needs_current_location") else {}),
             **({
                 "ask_user_clarification": location_card_arguments,
             } if location_card_arguments else {}),
@@ -1041,18 +1226,43 @@ async def handler(ctx):
             run_error = ""
             cancelled = False
             clarification_emitted = False
-            # These independent judgments start beside the primary answer so
-            # they do not create a second visible thinking pause after tokens
-            # finish. Follow-ups use the semantic plan, not a partial answer.
-            follow_up_task = asyncio.create_task(generate_followups(
-                model,
-                message,
-                plan_context=json.dumps(capability_plan, ensure_ascii=False),
-                response_language=response_language,
-            ))
-            memory_task = asyncio.create_task(extract_automatic_memory_candidates(model, message))
-            recent_questions_task = asyncio.create_task(
-                _recent_user_questions(ctx.store, conversation_id, message)
+            # Optional post-turn jobs are themselves dynamically planned. They
+            # use non-thinking Flash and are never started for every message by
+            # default: a route card does not need memory extraction, and a
+            # clarification card does not need suggested follow-up questions.
+            follow_up_task = (
+                asyncio.create_task(generate_followups(
+                    fast_model,
+                    message,
+                    plan_context=json.dumps(capability_plan, ensure_ascii=False),
+                    response_language=response_language,
+                ))
+                if capability_plan.get("needs_followups")
+                and not capability_plan.get("needs_clarification")
+                and not blocked_skill
+                else None
+            )
+            memory_enabled = bool(
+                (intelligence.get("memory_preferences") or {}).get("enabled", True)
+            )
+            memory_task = (
+                asyncio.create_task(
+                    extract_automatic_memory_candidates(fast_model, message)
+                )
+                if memory_enabled
+                and capability_plan.get("needs_memory_extraction")
+                else None
+            )
+            opportunity_enabled = bool(
+                "proactive-agent" in enabled_skills
+                and capability_plan.get("needs_opportunity_review")
+            )
+            recent_questions_task = (
+                asyncio.create_task(
+                    _recent_user_questions(ctx.store, conversation_id, message)
+                )
+                if opportunity_enabled
+                else None
             )
 
             async def reset_public_stream() -> None:
@@ -1291,14 +1501,15 @@ async def handler(ctx):
                     # finish. The already-running follow-up job may land a
                     # moment later, but it must never create a second pause.
                     await queue.put(ctx.utils.sse({"type": "answer_complete"}))
-                    try:
-                        follow_ups = await asyncio.wait_for(
-                            asyncio.shield(follow_up_task), timeout=3,
-                        )
-                    except Exception as exc:
-                        logging.warning("parallel follow-up generation failed: %s", exc)
-                        if not follow_up_task.done():
-                            follow_up_task.cancel()
+                    if follow_up_task is not None:
+                        try:
+                            follow_ups = await asyncio.wait_for(
+                                asyncio.shield(follow_up_task), timeout=3,
+                            )
+                        except Exception as exc:
+                            logging.warning("parallel follow-up generation failed: %s", exc)
+                            if not follow_up_task.done():
+                                follow_up_task.cancel()
                     if follow_ups:
                         await queue.put(ctx.utils.sse({"type": "follow_ups", "payload": {"items": follow_ups}}))
                     try:
@@ -1307,7 +1518,7 @@ async def handler(ctx):
                         logging.warning("answer follow-up persistence failed: %s", exc)
                 else:
                     for task in (follow_up_task, memory_task, recent_questions_task):
-                        if not task.done():
+                        if task is not None and not task.done():
                             task.cancel()
                 if background_tasks:
                     try:
@@ -1331,31 +1542,53 @@ async def handler(ctx):
                         await persist_answer_extras()
                     except Exception as exc:
                         logging.warning("answer media persistence failed: %s", exc)
-                if final_answer:
+                if final_answer and (memory_task is not None or opportunity_enabled):
                     try:
-                        try:
-                            recent_questions = await asyncio.wait_for(
-                                asyncio.shield(recent_questions_task),
-                                timeout=1.5,
-                            )
-                        except Exception:
-                            recent_questions = []
-                        opportunity_task = asyncio.create_task(detect_opportunity(
-                            model,
-                            user_message=message,
-                            answer=final_answer,
-                            capability_plan=capability_plan,
-                            memory_context=memory_context,
-                            recent_questions=recent_questions,
-                            has_pending_action=any(
-                                action.get("action", {}).get("status") in {"awaiting_confirmation", "ready"}
-                                for action in pending_actions
-                            ),
-                            timeout_seconds=float(ctx.env.get("OPPORTUNITY_PLAN_TIMEOUT_SECONDS") or 6),
-                        ))
-                        memory_candidates, opportunity = await asyncio.wait_for(
-                            asyncio.gather(memory_task, opportunity_task), timeout=8,
+                        recent_questions = []
+                        if recent_questions_task is not None:
+                            try:
+                                recent_questions = await asyncio.wait_for(
+                                    asyncio.shield(recent_questions_task),
+                                    timeout=1.5,
+                                )
+                            except Exception:
+                                recent_questions = []
+                        opportunity_task = (
+                            asyncio.create_task(detect_opportunity(
+                                fast_model,
+                                user_message=message,
+                                answer=final_answer,
+                                capability_plan=capability_plan,
+                                memory_context=(
+                                    memory_context
+                                    if capability_plan.get("use_memory_context")
+                                    else ""
+                                ),
+                                recent_questions=recent_questions,
+                                has_pending_action=any(
+                                    action.get("action", {}).get("status") in {"awaiting_confirmation", "ready"}
+                                    for action in pending_actions
+                                ),
+                                timeout_seconds=float(ctx.env.get("OPPORTUNITY_PLAN_TIMEOUT_SECONDS") or 6),
+                            ))
+                            if opportunity_enabled
+                            else None
                         )
+                        optional_jobs = [
+                            task for task in (memory_task, opportunity_task)
+                            if task is not None
+                        ]
+                        optional_results = await asyncio.wait_for(
+                            asyncio.gather(*optional_jobs), timeout=8,
+                        )
+                        result_index = 0
+                        memory_candidates = []
+                        opportunity = None
+                        if memory_task is not None:
+                            memory_candidates = optional_results[result_index]
+                            result_index += 1
+                        if opportunity_task is not None:
+                            opportunity = optional_results[result_index]
                         await persist_answer_extras(follow_ups)
                         if memory_candidates:
                             latest_intelligence = await load_intelligence_state(ctx.store.langgraph_store, user_id)

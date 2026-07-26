@@ -657,6 +657,18 @@ def build_graph(
         # the card and makes the interaction feel like an afterthought.
         if "ask_user_clarification" in used_tool_names or clarification_ready:
             return {"messages": [AIMessage(content="")]}
+        # Current-location lookup has a fixed privacy-preserving presentation.
+        # Once Tencent reverse geocoding succeeds (or truthfully reports
+        # unavailable), another model round cannot add facts and may only
+        # hallucinate permission state.
+        if (
+            tuple(required_sequence) == ("get_current_location",)
+            and {name for name in used_tool_names if name}
+            == {"get_current_location"}
+        ):
+            location_answer = tool_result_fallback(state["messages"])
+            if location_answer:
+                return {"messages": [AIMessage(content=location_answer)]}
         # A paper-only search already has all user-visible content in its
         # structured cards. Do not spend another model round synthesizing a
         # fixed acknowledgement—and do not let an empty unbound model response

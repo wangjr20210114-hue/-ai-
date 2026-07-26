@@ -6,7 +6,12 @@ import type { MakersMapPlace, MakersRouteMode, MakersRoutePlan } from '../../typ
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
 import { shouldPlanMakersRoute } from './makersMapRouting';
 import { translate, useLanguage } from '../../i18n';
-import { clearBrowserLocation, publishBrowserLocation } from '../../services/browserLocation';
+import {
+  BROWSER_LOCATION_EVENT,
+  clearBrowserLocation,
+  currentBrowserLocation,
+  publishBrowserLocation,
+} from '../../services/browserLocation';
 
 interface Props {
   conversationId: string;
@@ -83,7 +88,17 @@ export default function MakersMap({
   const [route, setRoute] = useState<MakersRoutePlan | null>(null);
   const [routeError, setRouteError] = useState('');
   const [permission, setPermission] = useState<PermissionState>('checking');
-  const [userLocation, setUserLocation] = useState<MakersMapPlace | null>(null);
+  const [userLocation, setUserLocation] = useState<MakersMapPlace | null>(() => {
+    const location = currentBrowserLocation();
+    return location ? {
+      place_id: 'browser-current-location',
+      provider: 'browser-wgs84',
+      name: translate('currentLocation'),
+      address: translate('sessionOnlyLocation'),
+      latitude: location.latitude,
+      longitude: location.longitude,
+    } : null;
+  });
   const [renderAttempt, setRenderAttempt] = useState(0);
   const [locationError, setLocationError] = useState('');
   const locationRequestRef = useRef(0);
@@ -145,6 +160,35 @@ export default function MakersMap({
     );
   }, [conversationId, dispatch, t]);
 
+  useEffect(() => {
+    const syncSharedLocation = () => {
+      const location = currentBrowserLocation();
+      if (!location) {
+        setUserLocation(null);
+        return;
+      }
+      setPermission('granted');
+      setLocationError('');
+      setUserLocation({
+        place_id: 'browser-current-location',
+        provider: 'browser-wgs84',
+        name: t('currentLocation'),
+        address: t('sessionOnlyLocation'),
+        latitude: location.latitude,
+        longitude: location.longitude,
+      });
+    };
+    window.addEventListener(BROWSER_LOCATION_EVENT, syncSharedLocation);
+    // Keep the blue point and the chat request truth contract aligned. A map
+    // must not keep showing an expired fix after the backend would reject it.
+    const timer = window.setInterval(syncSharedLocation, 60_000);
+    syncSharedLocation();
+    return () => {
+      window.removeEventListener(BROWSER_LOCATION_EVENT, syncSharedLocation);
+      window.clearInterval(timer);
+    };
+  }, [t]);
+
   const checkPermissionAndRead = useCallback(() => {
     if (!navigator.geolocation) {
       setPermission('unavailable');
@@ -160,7 +204,7 @@ export default function MakersMap({
     void navigator.permissions.query({ name: 'geolocation' })
       .then((status) => {
         if (status.state === 'denied') {
-          clearBrowserLocation();
+          clearBrowserLocation('denied');
           setPermission('denied');
           setLocationError(t('locationPermissionClosed'));
           return;
@@ -182,7 +226,7 @@ export default function MakersMap({
       if (disposed) return;
       const update = () => {
         const next = status.state === 'granted' ? 'granted' : status.state === 'denied' ? 'denied' : 'prompt';
-        if (next === 'denied') clearBrowserLocation();
+        if (next === 'denied') clearBrowserLocation('denied');
         setPermission(next);
         if (next === 'granted') readCurrentLocation();
       };

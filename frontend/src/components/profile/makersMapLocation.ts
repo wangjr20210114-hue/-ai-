@@ -2,7 +2,7 @@ const LOCATION_CACHE_MS = 5 * 60_000;
 
 export const LOCATION_OPTIONS: PositionOptions = {
   enableHighAccuracy: false,
-  timeout: 8_000,
+  timeout: 12_000,
   maximumAge: LOCATION_CACHE_MS,
 };
 

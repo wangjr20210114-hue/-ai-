@@ -9,6 +9,7 @@ import { useAppDispatch, useAppState } from '../store/appState';
 import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
 import { translate, type TranslationKey } from '../i18n';
 import {
+  browserLocationRequestContext,
   currentBrowserLocation,
   messageNeedsBrowserLocation,
   requestBrowserLocationForChat,
@@ -247,10 +248,12 @@ class SSEChatClient {
     try {
       armWatchdog();
       const messageText = String(message.payload?.text || '');
-      if (!currentBrowserLocation() && messageNeedsBrowserLocation(messageText)) {
+      const needsBrowserLocation = messageNeedsBrowserLocation(messageText);
+      if (!currentBrowserLocation() && needsBrowserLocation) {
         await requestBrowserLocationForChat();
       }
       const browserLocation = currentBrowserLocation();
+      const locationRequest = browserLocationRequestContext();
       const response = await fetch(withEdgeOneAuth('/chat'), {
         method: 'POST',
         headers: {
@@ -260,6 +263,7 @@ class SSEChatClient {
         body: JSON.stringify({
           ...(message.payload || {}),
           ...(browserLocation ? { current_location: browserLocation } : {}),
+          ...(needsBrowserLocation ? { location_request: locationRequest } : {}),
           ...(allowAfterStop ? { _allow_after_stop: true } : {}),
         }),
         signal,

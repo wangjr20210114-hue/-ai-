@@ -64,6 +64,12 @@ async def handler(ctx):
         },
         {"role": "user", "content": user},
     ]
+    reasoning_action = action in {"analyze", "qa"}
+    reader_model = get_model(
+        ctx.env,
+        thinking_mode="enabled" if reasoning_action else "disabled",
+        fallback_profile="reasoning" if reasoning_action else "fast",
+    )
 
     async def gen():
         queue: asyncio.Queue = asyncio.Queue()
@@ -72,7 +78,7 @@ async def handler(ctx):
         async def produce():
             normalizer = StreamDeltaNormalizer()
             try:
-                async for chunk in get_model(ctx.env).astream(messages):
+                async for chunk in reader_model.astream(messages):
                     delta = normalizer.push(_text(getattr(chunk, "content", "")))
                     if delta:
                         await queue.put(ctx.utils.sse({

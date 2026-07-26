@@ -39,6 +39,14 @@ from .._shared.provider_metering import record_provider_usage
 from ..chat._llm import get_model
 
 
+def _fast_model(ctx):
+    return get_model(
+        ctx.env,
+        thinking_mode="disabled",
+        fallback_profile="fast",
+    )
+
+
 async def _run_tick_with_memory(
     ctx,
     store,
@@ -64,7 +72,7 @@ async def _run_tick_with_memory(
             for item in public.get("notifications", [])
         ]
         candidate = await infer_memory_reminder(
-            get_model(ctx.env),
+            _fast_model(ctx),
             intelligence_state,
             location_context=location,
             existing_reminders=existing,
@@ -205,7 +213,7 @@ async def handler(ctx):
                 opportunity = None
                 try:
                     opportunity = await detect_uploaded_file_opportunity(
-                        get_model(ctx.env),
+                        _fast_model(ctx),
                         payload,
                         timeout_seconds=float(ctx.env.get("OPPORTUNITY_PLAN_TIMEOUT_SECONDS") or 6),
                     )
@@ -234,7 +242,7 @@ async def handler(ctx):
             elif created and signal_type == "image_generated":
                 try:
                     opportunity = await detect_generated_image_opportunity(
-                        get_model(ctx.env),
+                        _fast_model(ctx),
                         payload,
                         timeout_seconds=float(ctx.env.get("OPPORTUNITY_PLAN_TIMEOUT_SECONDS") or 6),
                     )

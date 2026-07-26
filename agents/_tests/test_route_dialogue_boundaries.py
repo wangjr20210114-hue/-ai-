@@ -18,7 +18,11 @@ from agents.chat._ui_tools import (
     _rank_verified_workspace_matches,
     build_production_tools,
 )
-from agents.chat.index import normalize_browser_current_location
+from agents.chat.index import (
+    location_clarification_copy,
+    normalize_browser_current_location,
+    normalize_browser_location_request,
+)
 from agents.workspace.index import _learn_from_activated_route
 
 
@@ -114,6 +118,22 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             "captured_at": 1,
             "coordinate_type": "wgs84",
         }, now_ms=1_200_000))
+
+    def test_browser_location_failure_reason_selects_recovery_card_copy(self):
+        self.assertEqual(
+            normalize_browser_location_request({"state": "denied"}),
+            "denied",
+        )
+        denied_title, denied_prompt = location_clarification_copy(
+            "current", "denied",
+        )
+        self.assertEqual(denied_title, "定位权限未开启")
+        self.assertIn("直接填写", denied_prompt)
+        timeout_title, timeout_prompt = location_clarification_copy(
+            "nearby", "timed_out",
+        )
+        self.assertEqual(timeout_title, "定位暂时超时")
+        self.assertIn("附近搜索的起点", timeout_prompt)
 
     def test_semantic_route_plan_preserves_mode_and_current_origin_decision(self):
         plan = parse_capability_plan(json.dumps({
