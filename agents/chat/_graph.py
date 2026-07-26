@@ -525,14 +525,19 @@ def _tool_failure_message(exc: Exception) -> str:
     if isinstance(exc, ValueError):
         detail = str(exc).strip()[:500] or "输入不符合要求"
         kind = "validation"
+        retry_same_call = True
     else:
         detail = TOOL_FAILURE_MESSAGE
         kind = "runtime"
+        retry_same_call = False
     return json.dumps({
         "tool_error": {
             "kind": kind,
             "detail": detail,
-            "retry_same_call": False,
+            # Validation failures happen before an Action is created or any
+            # side effect is applied. One corrected argument-generation pass is
+            # therefore safe; runtime/provider failures remain terminal.
+            "retry_same_call": retry_same_call,
         },
     }, ensure_ascii=False)
 
@@ -606,6 +611,7 @@ def build_graph(
         route_result_payload = None
         calendar_result_payload = None
         required_tool_failed = False
+        retryable_required_failures: dict[str, int] = {}
         for message in reversed(state["messages"]):
             if getattr(message, "type", "") in {"human", "user"}:
                 # A structured-card answer is a continuation of the original
@@ -625,11 +631,21 @@ def build_graph(
                     payload = json.loads(str(getattr(message, "content", "") or ""))
                 except (TypeError, json.JSONDecodeError):
                     pass
-                required_tool_failed = required_tool_failed or (
-                    name in required_sequence
-                    and isinstance(payload, dict)
+                tool_error = (
+                    payload.get("tool_error")
+                    if isinstance(payload, dict)
                     and isinstance(payload.get("tool_error"), dict)
+                    else None
                 )
+                if name in required_sequence and isinstance(tool_error, dict):
+                    retryable = bool(tool_error.get("retry_same_call"))
+                    retryable_required_failures[name] = (
+                        retryable_required_failures.get(name, 0) + 1
+                    )
+                    required_tool_failed = required_tool_failed or (
+                        not retryable
+                        or retryable_required_failures[name] >= 2
+                    )
                 emitted_clarification = (
                     isinstance(payload, dict)
                     and payload.get("ui_action") == "clarification_action"
@@ -662,6 +678,17 @@ def build_graph(
                     # branches). Answering that card does not mean the route or
                     # action completed; the same capability must run again with
                     # the newly supplied choice.
+                    continue
+                if (
+                    name in required_sequence
+                    and isinstance(tool_error, dict)
+                    and bool(tool_error.get("retry_same_call"))
+                    and retryable_required_failures.get(name, 0) < 2
+                ):
+                    # Do not mark a validation-only attempt complete. The next
+                    # pass sees the exact structured error and may correct the
+                    # required tool arguments once; identical calls are still
+                    # blocked by the signature guard below.
                     continue
                 if not crossed_clarification_answer:
                     tools_this_turn += 1
@@ -962,12 +989,33 @@ def build_graph(
             filtered_tool_calls = []
             suppressed_rich_search = False
             suppressed_duplicate = False
+            suppressed_out_of_stage = False
             used_tool_name_set = set(used_tool_names)
             accepted_signatures = set(seen_tool_call_signatures)
             accepted_single_use_names = set(used_tool_name_set)
+            stage_allowed_tool_names = (
+                {
+                    required_name,
+                    *(
+                        {"ask_user_clarification"}
+                        if "ask_user_clarification" in allowed_tool_names
+                        else set()
+                    ),
+                }
+                if required_name
+                else allowed_tool_names
+            )
             for tool_call in response_tool_calls:
                 name = tool_call.get("name", "") if isinstance(tool_call, dict) else ""
                 signature = _tool_call_signature(tool_call) if isinstance(tool_call, dict) else ""
+                if name not in stage_allowed_tool_names:
+                    suppressed_out_of_stage = True
+                    logging.info(
+                        "suppressed out-of-stage tool call name=%s required=%s",
+                        name,
+                        required_name,
+                    )
+                    continue
                 if (
                     signature in accepted_signatures
                     or (name in TURN_SINGLE_USE_TOOLS and name in accepted_single_use_names)
@@ -985,9 +1033,22 @@ def build_graph(
                     accepted_signatures.add(signature)
                 if name in TURN_SINGLE_USE_TOOLS:
                     accepted_single_use_names.add(name)
-            if suppressed_rich_search or suppressed_duplicate:
+            if suppressed_rich_search or suppressed_duplicate or suppressed_out_of_stage:
                 if filtered_tool_calls:
                     response = response.model_copy(update={"tool_calls": filtered_tool_calls})
+                elif required_name and suppressed_out_of_stage:
+                    response = await active_model.ainvoke([
+                        *messages,
+                        SystemMessage(content=(
+                            f"刚才的工具调用不属于当前能力阶段，已被忽略。"
+                            f"现在只调用 {required_name}"
+                            + (
+                                "；只有确有阻塞信息时才可改用 ask_user_clarification。"
+                                if "ask_user_clarification" in stage_allowed_tool_names
+                                else "。"
+                            )
+                        )),
+                    ])
                 else:
                     response = await public_model.ainvoke([
                         SystemMessage(content=final_system_prompt),

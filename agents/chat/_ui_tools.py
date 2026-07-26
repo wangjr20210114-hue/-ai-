@@ -1526,13 +1526,13 @@ def build_production_tools(
                     prompt=f"查到多个位于“{clean_near}”附近的“{clean_query}”。为避免算错距离，请先选择具体{endpoint_label}。",
                     fields=[field],
                 )
-            exact = [
-                item for item in matches
-                if _normalized_place_name(item.get("name")) == _normalized_place_name(clean_query)
-            ]
-            if len(exact) == 1:
-                return exact[0], None
             if len(matches) > 1:
+                # One exact-looking bare name among several Tencent results is
+                # not enough evidence that the user meant that branch. A mall,
+                # hotel or hospital can have one canonical record plus several
+                # materially different branches. Let the semantic adjudicator
+                # use all provider evidence; if intent is not near-certain the
+                # user receives the finite Tencent candidate list.
                 semantic_choice = await choose_semantically_unique_place(
                     place_disambiguation_model,
                     clean_query,

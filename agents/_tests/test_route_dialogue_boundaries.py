@@ -440,6 +440,56 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             [wanda],
         )
 
+    async def test_exact_bare_name_among_multiple_tencent_branches_requires_choice(self):
+        station = {
+            **PLACE,
+            "place_id": "poi-station",
+            "name": "北京站",
+        }
+        wanda_cbd = {
+            **PLACE,
+            "place_id": "poi-wanda-cbd",
+            "name": "万达广场",
+            "address": "北京市朝阳区建国路93号",
+        }
+        wanda_fengtai = {
+            **PLACE,
+            "place_id": "poi-wanda-fengtai",
+            "name": "万达广场(丰台店)",
+            "address": "北京市丰台区",
+        }
+
+        async def place_provider(_key, query, *, city, limit):
+            if query == "北京站":
+                return [station]
+            return [wanda_cbd, wanda_fengtai]
+
+        tools = build_production_tools(
+            None,
+            store=FakeStore(),
+            conversation_id="route-branch-choice",
+            env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+        )
+        route_tool = next(
+            item for item in tools
+            if item.name == "plan_route_between_places"
+        )
+        with patch(
+            "agents.chat._ui_tools.provider_search_places",
+            new=place_provider,
+        ):
+            result = json.loads(await route_tool.ainvoke({
+                "origin_query": "北京站",
+                "destination_query": "万达广场",
+                "city": "北京",
+                "route_mode": "transit",
+            }))
+
+        self.assertEqual(result["ui_action"], "clarification_action")
+        field = result["clarification"]["fields"][0]
+        self.assertEqual(field["type"], "single")
+        self.assertEqual(len(field["options"]), 2)
+
     async def test_primary_tencent_stage_allows_adapter_retry_budget(self):
         place = {**PLACE, "name": "王府井", "place_id": "poi-wangfujing"}
         observed_timeouts = []

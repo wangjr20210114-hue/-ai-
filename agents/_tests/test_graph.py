@@ -230,6 +230,37 @@ class _LinkedRouteCalendarModel:
         return AIMessage(content="路线和日程提案已准备好。")
 
 
+class _CalendarStageGuardBoundModel:
+    def __init__(self, owner):
+        self.owner = owner
+
+    async def ainvoke(self, _messages, **_kwargs):
+        self.owner.calls += 1
+        return AIMessage(content="", tool_calls=[
+            {
+                "name": "search_places",
+                "args": {"query": "北京西站"},
+                "id": f"out-of-stage-{self.owner.calls}",
+            },
+            {
+                "name": "propose_calendar_changes",
+                "args": {"summary": "路线日程提案"},
+                "id": f"calendar-stage-{self.owner.calls}",
+            },
+        ])
+
+
+class _CalendarStageGuardModel:
+    def __init__(self):
+        self.calls = 0
+
+    def bind_tools(self, _tools, **_kwargs):
+        return _CalendarStageGuardBoundModel(self)
+
+    async def ainvoke(self, _messages, **_kwargs):
+        return AIMessage(content="日程提案已准备好。")
+
+
 class _BlankAfterToolBoundModel:
     async def ainvoke(self, _messages, **_kwargs):
         return AIMessage(content="")
@@ -633,6 +664,62 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         ))
         self.assertEqual(model.bound_calls, 0)
         self.assertEqual(model.unbound_calls, 0)
+
+    async def test_retryable_validation_failure_gets_one_corrected_required_call(self):
+        model = _LinkedRouteCalendarModel()
+        graph = build_graph(
+            model,
+            [propose_calendar_changes, ask_user_clarification],
+            "system",
+            required_tools=["propose_calendar_changes"],
+        )
+        result = await graph.ainvoke({"messages": [
+            HumanMessage(content="生成路线日程提案"),
+            AIMessage(content="", tool_calls=[{
+                "name": "propose_calendar_changes",
+                "args": {"summary": "时间范围无效"},
+                "id": "calendar-invalid-time",
+            }]),
+            ToolMessage(
+                content=json.dumps({
+                    "tool_error": {
+                        "kind": "validation",
+                        "detail": "日程结束时间必须晚于开始时间",
+                        "retry_same_call": True,
+                    },
+                }, ensure_ascii=False),
+                name="propose_calendar_changes",
+                tool_call_id="calendar-invalid-time",
+            ),
+        ]})
+
+        calendar_results = [
+            message for message in result["messages"]
+            if isinstance(message, ToolMessage)
+            and message.name == "propose_calendar_changes"
+        ]
+        self.assertEqual(len(calendar_results), 2)
+        self.assertEqual(len(model.decisions), 1)
+        self.assertEqual(result["messages"][-1].content, "路线和日程提案已准备好。")
+
+    async def test_linked_calendar_stage_suppresses_unbound_place_tool(self):
+        model = _CalendarStageGuardModel()
+        graph = build_graph(
+            model,
+            [propose_calendar_changes, ask_user_clarification],
+            "system",
+            required_tools=["propose_calendar_changes"],
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="把已核实路线生成日程提案")],
+        })
+
+        tool_names = [
+            message.name for message in result["messages"]
+            if isinstance(message, ToolMessage)
+        ]
+        self.assertEqual(tool_names, ["propose_calendar_changes"])
+        self.assertEqual(model.calls, 1)
 
     async def test_every_required_qa_tool_can_yield_to_structured_clarification(self):
         model = _ClarificationChoiceModel()
