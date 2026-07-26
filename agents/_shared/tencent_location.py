@@ -271,6 +271,26 @@ def _provider_place_candidates(
     return output
 
 
+def _merge_place_candidates(
+    *candidate_groups: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Merge provider-ranked groups without changing order or inferring aliases."""
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    bounded_limit = max(1, min(20, int(limit)))
+    for group in candidate_groups:
+        for item in group:
+            place_id = str(item.get("place_id") or "")
+            if not place_id or place_id in seen:
+                continue
+            seen.add(place_id)
+            merged.append(item)
+            if len(merged) >= bounded_limit:
+                return merged
+    return merged
+
+
 def place_distance_meters(origin: dict[str, Any], destination: dict[str, Any]) -> float:
     """Return a bounded straight-line distance for nearby-result validation."""
     lat1 = math.radians(float(origin["latitude"]))
@@ -307,6 +327,7 @@ async def search_verified_places_bounded(
     deadline = asyncio.get_running_loop().time() + timeout
     normalized_query = _normalized_lookup_text(query)
     unresolved_primary: list[dict[str, Any]] = []
+    exact_primary: list[dict[str, Any]] = []
     if key:
         try:
             primary = await asyncio.wait_for(
@@ -321,7 +342,7 @@ async def search_verified_places_bounded(
                 item for item in primary
                 if _normalized_lookup_text(item.get("name")) == normalized_query
             ]
-            if exact_primary:
+            if exact_primary and len(primary) > 1:
                 # Do not discard alternate Tencent records merely because one
                 # item has the exact bare name. That shortcut silently selected
                 # one branch for queries such as a chain mall or hotel. The
@@ -346,17 +367,37 @@ async def search_verified_places_bounded(
                 timeout=min(17.0, remaining),
             )
             if suggestions:
-                exact_suggestions = [
-                    item for item in suggestions
-                    if _normalized_lookup_text(item.get("name")) == normalized_query
-                ]
-                return _provider_place_candidates(
-                    exact_suggestions or suggestions, query, limit=limit,
+                suggestion_candidates = _provider_place_candidates(
+                    suggestions, query, limit=limit,
                     evidence="tencent_place_suggestion",
-                    annotate_corrections=True,
+                    # When the main Tencent endpoint already supplied an exact
+                    # record, other suggestions are alternative POIs, not typo
+                    # corrections. Without an exact main result, the suggestion
+                    # endpoint is Tencent-native correction evidence.
+                    annotate_corrections=not bool(exact_primary),
                 )
+                if exact_primary:
+                    primary_candidates = _provider_place_candidates(
+                        unresolved_primary,
+                        query,
+                        limit=limit,
+                        evidence="tencent_place_search",
+                    )
+                    return _merge_place_candidates(
+                        primary_candidates,
+                        suggestion_candidates,
+                        limit=limit,
+                    )
+                return suggestion_candidates
         except Exception:
             pass
+    if exact_primary:
+        return _provider_place_candidates(
+            unresolved_primary,
+            query,
+            limit=limit,
+            evidence="tencent_place_search",
+        )
     if len(unresolved_primary) > 1:
         return _provider_place_candidates(
             unresolved_primary,

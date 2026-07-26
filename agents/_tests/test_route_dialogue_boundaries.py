@@ -348,6 +348,40 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all("query_correction" not in item for item in places))
         suggestions.assert_not_awaited()
 
+    async def test_single_exact_primary_merges_tencent_suggestion_branches(self):
+        exact = {
+            **PLACE,
+            "name": "万达广场",
+            "place_id": "poi-wanda-cbd",
+            "address": "北京市朝阳区建国路93号",
+        }
+        branch = {
+            **PLACE,
+            "name": "万达广场(丰台店)",
+            "place_id": "poi-wanda-fengtai",
+            "address": "北京市丰台区",
+        }
+        with (
+            patch(
+                "agents._shared.tencent_location.search_places",
+                AsyncMock(return_value=[exact]),
+            ),
+            patch(
+                "agents._shared.tencent_location.search_place_suggestions",
+                AsyncMock(return_value=[exact, branch]),
+            ) as suggestions,
+        ):
+            places = await search_verified_places_bounded(
+                "key", "万达广场", city="北京", limit=6, timeout_seconds=10,
+            )
+
+        self.assertEqual(
+            [item["place_id"] for item in places],
+            ["poi-wanda-cbd", "poi-wanda-fengtai"],
+        )
+        self.assertTrue(all("query_correction" not in item for item in places))
+        suggestions.assert_awaited_once()
+
     def test_workspace_candidates_do_not_collapse_similar_station_names(self):
         east_station = {
             **PLACE,
