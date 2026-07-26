@@ -556,6 +556,7 @@ def build_graph(
     stage_system_prompts: dict[str, str] | None = None,
     public_system_prompt: str | None = None,
     planned_tool_arguments: dict[str, dict] | None = None,
+    direct_answer: str = "",
 ):
     public_model = _tagged(
         public_answer_model or model,
@@ -574,6 +575,8 @@ def build_graph(
     direct_tool_arguments = dict(planned_tool_arguments or {})
 
     async def agent_node(state: MessagesState):
+        if direct_answer:
+            return {"messages": [AIMessage(content=direct_answer)]}
         # The semantic LLM planner—not a keyword rule—decides that a disabled
         # Skill is indispensable. Once decided, the runtime enforces the UI
         # truth contract: no model may simulate a card, search result or side

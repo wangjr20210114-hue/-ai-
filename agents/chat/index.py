@@ -517,6 +517,20 @@ def clarification_response_id(body: dict) -> str:
     return str(response.get("id") or "").strip()
 
 
+def clarification_answer_value(body: dict, field_id: str) -> str:
+    response = body.get("clarification_response")
+    if body.get("interaction_mode") != "clarification" or not isinstance(response, dict):
+        return ""
+    for answer in response.get("answers") or []:
+        if not isinstance(answer, dict) or str(answer.get("id") or "") != field_id:
+            continue
+        value = answer.get("value")
+        if isinstance(value, list):
+            value = "、".join(str(item).strip() for item in value if str(item).strip())
+        return " ".join(str(value or "").split())[:240]
+    return ""
+
+
 def should_persist_user_message(body: dict) -> bool:
     return not clarification_response_id(body)
 
@@ -562,6 +576,14 @@ async def handler(ctx):
     message = body.get("message") or body.get("text") or ""
     clarification_id = clarification_response_id(body)
     silent_clarification = bool(clarification_id)
+    manual_location_answer = clarification_answer_value(body, "manual_location")
+    direct_public_answer = (
+        f"你刚填写的位置是：{manual_location_answer}。"
+        "这是你手动提供的大致位置，不是浏览器实时定位；"
+        "我可以据此继续做附近推荐、路线规划或日程安排。"
+        if manual_location_answer
+        else ""
+    )
     response_language = str(body.get("response_language") or "zh-CN")
     browser_current_location = normalize_browser_current_location(body.get("current_location"))
     browser_location_request = normalize_browser_location_request(
@@ -782,7 +804,10 @@ async def handler(ctx):
         or simple_nearby_turn
         or direct_route_destination
     )
-    if direct_map_turn:
+    if direct_public_answer:
+        capability_plan = dict(DEFAULT_PLAN)
+        planner_timed_out = False
+    elif direct_map_turn:
         capability_plan = dict(DEFAULT_PLAN)
         if "maps" not in enabled_skills:
             capability_plan["blocked_skill"] = "maps"
@@ -1191,6 +1216,7 @@ async def handler(ctx):
                 or capability_plan.get("paper_author")
             ) else {}),
         },
+        direct_answer=direct_public_answer,
     )
 
     async def gen():

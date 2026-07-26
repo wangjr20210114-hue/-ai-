@@ -19,6 +19,7 @@ from agents.chat._ui_tools import (
     build_production_tools,
 )
 from agents.chat.index import (
+    clarification_answer_value,
     location_clarification_copy,
     normalize_browser_current_location,
     normalize_browser_location_request,
@@ -134,6 +135,23 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(timeout_title, "定位暂时超时")
         self.assertIn("附近搜索的起点", timeout_prompt)
+
+    def test_manual_location_card_answer_is_available_for_deterministic_resume(self):
+        body = {
+            "interaction_mode": "clarification",
+            "clarification_response": {
+                "id": "location-card",
+                "answers": [{
+                    "id": "manual_location",
+                    "label": "你目前所在的位置或出发地",
+                    "value": "北京市海淀区中关村",
+                }],
+            },
+        }
+        self.assertEqual(
+            clarification_answer_value(body, "manual_location"),
+            "北京市海淀区中关村",
+        )
 
     def test_semantic_route_plan_preserves_mode_and_current_origin_decision(self):
         plan = parse_capability_plan(json.dumps({
