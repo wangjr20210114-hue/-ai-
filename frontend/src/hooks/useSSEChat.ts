@@ -8,7 +8,11 @@ import { splitSseFrames } from '../services/sse';
 import { useAppDispatch, useAppState } from '../store/appState';
 import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
 import { translate, type TranslationKey } from '../i18n';
-import { currentBrowserLocation } from '../services/browserLocation';
+import {
+  currentBrowserLocation,
+  messageNeedsBrowserLocation,
+  requestBrowserLocationForChat,
+} from '../services/browserLocation';
 
 type ClientEvent = { type: string; payload: Record<string, unknown> };
 
@@ -242,6 +246,10 @@ class SSEChatClient {
 
     try {
       armWatchdog();
+      const messageText = String(message.payload?.text || '');
+      if (!currentBrowserLocation() && messageNeedsBrowserLocation(messageText)) {
+        await requestBrowserLocationForChat();
+      }
       const browserLocation = currentBrowserLocation();
       const response = await fetch(withEdgeOneAuth('/chat'), {
         method: 'POST',

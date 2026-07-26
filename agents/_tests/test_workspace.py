@@ -528,6 +528,40 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(timed_out)
         self.assertFalse(any(plan[key] for key in plan if key.startswith("needs_")))
 
+    async def test_capability_planner_timeout_preserves_direct_current_location(self):
+        model = StructuredPlannerModel(delay=10)
+        plan, timed_out = await plan_capabilities_bounded(
+            model,
+            "我现在在哪",
+            timeout_seconds=0.01,
+        )
+        self.assertTrue(timed_out)
+        self.assertEqual(required_tools_for_plan(plan), ("get_current_location",))
+
+    async def test_capability_planner_timeout_preserves_first_person_nearby_search(self):
+        model = StructuredPlannerModel(delay=10)
+        plan, timed_out = await plan_capabilities_bounded(
+            model,
+            "这附近有什么好吃的？",
+            timeout_seconds=0.01,
+        )
+        self.assertTrue(timed_out)
+        self.assertEqual(
+            required_tools_for_plan(plan),
+            ("recommend_nearby_places_on_map",),
+        )
+
+    async def test_location_guard_does_not_hijack_non_location_question(self):
+        model = StructuredPlannerModel(delay=10)
+        plan, timed_out = await plan_capabilities_bounded(
+            model,
+            "我现在在哪个步骤可以修改论文标题？",
+            timeout_seconds=0.01,
+        )
+        self.assertTrue(timed_out)
+        self.assertFalse(plan["needs_current_location"])
+        self.assertFalse(plan["needs_nearby_places"])
+
     async def test_message_restore_keeps_rich_search_metadata(self):
         metadata = {"total": 1, "results": [{"title": "故宫", "url": "https://example.com"}], "media": []}
         messages = [
@@ -1974,8 +2008,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             result = json.loads(await tool.ainvoke({}))
 
         provider.assert_not_awaited()
-        self.assertFalse(result["location_available"])
-        self.assertIn("没有收到浏览器定位", result["message"])
+        self.assertEqual(result["ui_action"], "clarification_action")
+        self.assertEqual(result["clarification"]["fields"][0]["id"], "manual_location")
+        self.assertEqual(result["clarification"]["fields"][0]["type"], "text")
 
     async def test_nearby_current_location_without_browser_fix_never_searches_provider(self):
         with patch(
@@ -1993,15 +2028,16 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 browser_current_location=None,
             )
             tool = next(item for item in tools if item.name == "recommend_nearby_places_on_map")
-            with self.assertRaisesRegex(ValueError, "本轮没有收到浏览器定位坐标"):
-                await tool.ainvoke({
-                    "anchor_query": "当前位置",
-                    "query": "好玩的地方",
-                    "use_current_location_as_anchor": True,
-                })
+            result = json.loads(await tool.ainvoke({
+                "anchor_query": "当前位置",
+                "query": "好玩的地方",
+                "use_current_location_as_anchor": True,
+            }))
 
         place_search.assert_not_awaited()
         nearby_search.assert_not_awaited()
+        self.assertEqual(result["ui_action"], "clarification_action")
+        self.assertEqual(result["clarification"]["fields"][0]["id"], "nearby_anchor")
 
     async def test_nearby_recommendation_keeps_successful_alternative_anchor(self):
         samsung = {

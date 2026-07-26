@@ -732,15 +732,22 @@ def build_production_tools(
     async def get_current_location() -> str:
         """Describe the fresh browser location through Tencent reverse geocoding."""
         if browser_current_location is None:
-            return json.dumps({
-                "location_available": False,
-                "message": (
-                    "本轮没有收到浏览器定位坐标。请先在地图中允许定位并等待定位成功后再重试。"
+            return _clarification_action(
+                conversation_id,
+                title="需要你的位置",
+                prompt=(
+                    "浏览器没有提供当前位置。你可以在浏览器设置中允许定位后重试，"
+                    "也可以填写大致位置，我会用它继续附近推荐或路线规划。"
                 ),
-                "response_constraint": (
-                    "必须明确尚未拿到定位；不得声称已授权、已定位或输出猜测地址。"
-                ),
-            }, ensure_ascii=False)
+                fields=[{
+                    "id": "manual_location",
+                    "label": "你目前所在的位置或出发地",
+                    "type": "text",
+                    "required": True,
+                    "options": [],
+                    "placeholder": "例如：北京市海淀区中关村，或吉林大学前卫南区",
+                }],
+            )
         map_key = str(
             runtime_env.get("TENCENT_MAP_SERVER_KEY")
             or runtime_env.get("TENCENT_MAP_KEY")
@@ -967,9 +974,21 @@ def build_production_tools(
             raise ValueError("附近搜索缺少要查找的地点类别")
         if current_location_requested and browser_current_location is None:
             if len(clean_anchor_queries) == 1:
-                raise ValueError(
-                    "本轮没有收到浏览器定位坐标，不能搜索当前位置附近。"
-                    "请先在地图中允许定位并等待定位成功后再重试"
+                return _clarification_action(
+                    conversation_id,
+                    title="需要附近搜索的起点",
+                    prompt=(
+                        "浏览器没有提供当前位置。请填写你所在的区域或附近地标，"
+                        "提交后我会自动继续查找，不需要重新描述需求。"
+                    ),
+                    fields=[{
+                        "id": "nearby_anchor",
+                        "label": "你现在在哪里？",
+                        "type": "text",
+                        "required": True,
+                        "options": [],
+                        "placeholder": "例如：北京市海淀区中关村，或吉林大学前卫南区",
+                    }],
                 )
             # Keep explicit alternative anchors useful even when the browser
             # branch is unavailable. The response reports only anchors that
@@ -2530,7 +2549,7 @@ def build_production_tools(
         )
 
     definitions = [
-        (get_current_location, "get_current_location", "用户直接询问“我现在在哪、当前位置是什么、你能否读到我的位置”时使用。它只读取本轮浏览器真实上传的新鲜定位，并调用腾讯逆地址解析返回可读地址、行政区和附近地标；不得输出经纬度、不得使用 IP 猜测、不得保存位置。没有浏览器定位时会如实返回不可用。"),
+        (get_current_location, "get_current_location", "用户直接询问“我现在在哪、当前位置是什么、你能否读到我的位置”时使用。它只读取本轮浏览器真实上传的新鲜定位，并调用腾讯逆地址解析返回可读地址、行政区和附近地标；不得输出经纬度、不得使用 IP 猜测、不得保存位置。没有浏览器定位时会生成填写大致位置的结构化卡片，以便继续附近推荐或路线规划。"),
         (search_places, "search_places", "使用腾讯地点服务搜索真实地点。普通查看传 purpose=browse；新增或修改含现实地点的日程必须传 purpose=calendar，工具会强制执行三级决策：唯一高置信候选直接返回可用 place_id，多个真实候选生成单选卡，无候选生成文本填空卡。"),
         (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
         (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。用户说“我附近/当前位置附近”时必须设置 use_current_location_as_anchor=true；工具只会使用本轮浏览器实际上传的新鲜坐标，未收到坐标会明确失败，绝不能把“当前位置”当普通 POI 搜索或声称已经定位。其他情况传入完整明确的 anchor_query 与要找的类别 query；若用户给出多个备选参照地点，还必须把全部备选放入 anchor_queries，一次并行查询并保留各组成功结果，不能只选一个或拆成多次调用。工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。用户没有明确距离时不要自行缩小 radius_meters，保持默认 2000 米且 strict_radius=false；只有用户明确说“X 米内”时才传该距离并设 strict_radius=true。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),

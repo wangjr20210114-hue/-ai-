@@ -364,6 +364,57 @@ def _preserve_explicit_calendar_intent(
     return plan
 
 
+def _preserve_explicit_location_intent(
+    plan: dict[str, Any],
+    user_message: str,
+) -> dict[str, Any]:
+    """Repair only unmistakable first-person location requests.
+
+    The semantic planner remains responsible for general map routing. These
+    narrow guards protect privacy and product truth when a fast model times out
+    or drops a single boolean: the main model must not improvise an answer to
+    "where am I" or a current-position nearby search without using map tools.
+    """
+    if str(plan.get("blocked_skill") or "").strip():
+        return plan
+    normalized = "".join(str(user_message or "").lower().split())
+    direct_location = bool(
+        re.fullmatch(
+            r"(?:请)?(?:告诉我)?我(?:现在|当前)?(?:具体)?在哪(?:里|儿)?[？?。！!]*",
+            normalized,
+        )
+        or re.fullmatch(
+            r"(?:请)?(?:告诉我)?(?:我的)?当前位置(?:是|在哪(?:里|儿)?)?[？?。！!]*",
+            normalized,
+        )
+        or re.fullmatch(
+            r"(?:你)?(?:知道|能看到|能读到|拿到)(?:我|我的)?(?:当前)?位置(?:吗)?[？?。！!]*",
+            normalized,
+        )
+    )
+    if direct_location:
+        plan["needs_clarification"] = False
+        plan["needs_current_location"] = True
+        return plan
+
+    first_person_nearby = bool(
+        re.search(r"(?:我|这|当前位置|当前地点)(?:这边|这里|这儿)?(?:附近|周边)", normalized)
+        or re.match(r"(?:这|我这|这里|这儿)?附近(?:有|哪|找|推荐|什么)", normalized)
+    )
+    place_discovery = bool(re.search(
+        r"(?:有什么|有没有|哪里有|哪儿有|找|推荐|好吃|好玩|餐|店|商场|"
+        r"公园|景点|酒店|咖啡|超市|医院|厕所|充电)",
+        normalized,
+    ))
+    if first_person_nearby and place_discovery and not plan.get("needs_route"):
+        plan["needs_clarification"] = False
+        plan["needs_current_location"] = False
+        plan["needs_nearby_places"] = True
+        plan["needs_places"] = False
+        plan["needs_map_action"] = False
+    return plan
+
+
 def _restore_literal_route_queries(
     plan: dict[str, Any],
     user_message: str,
@@ -432,7 +483,10 @@ def _restore_literal_route_queries(
 
 def _finalize_plan(plan: dict[str, Any], user_message: str) -> dict[str, Any]:
     return _restore_literal_route_queries(
-        _preserve_explicit_calendar_intent(plan, user_message),
+        _preserve_explicit_location_intent(
+            _preserve_explicit_calendar_intent(plan, user_message),
+            user_message,
+        ),
         user_message,
     )
 
@@ -457,7 +511,7 @@ def _linked_trip_fallback(user_message: str) -> dict[str, Any]:
     ))
     if route_subject and route_action and not route_negated:
         plan["needs_route"] = True
-    return plan
+    return _finalize_plan(plan, user_message)
 
 
 async def plan_capabilities(
@@ -594,4 +648,4 @@ async def plan_capabilities_bounded(
         )
         return plan, False
     except asyncio.TimeoutError:
-        return dict(DEFAULT_PLAN), True
+        return _finalize_plan(dict(DEFAULT_PLAN), user_message), True
