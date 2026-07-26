@@ -5,9 +5,10 @@ import {
   locationRetryMessage,
   mergeSearchMeta,
   progressTextForTool,
+  restoredConversationWasInterrupted,
   terminalGenerationError,
 } from './useSSEChat';
-import type { WorkspaceAction } from '../types';
+import type { ChatMessage, WorkspaceAction } from '../types';
 import type { SearchMeta } from '../types';
 
 const media = [{
@@ -105,5 +106,35 @@ describe('chat transport ownership', () => {
         _location_retry: true,
       },
     });
+  });
+});
+
+describe('Makers card restoration', () => {
+  it('does not report an interrupted generation when Makers restored a structured card', () => {
+    const messages: ChatMessage[] = [
+      { id: 'user', role: 'user', content: '我现在在哪', ts: 1 },
+      {
+        id: 'card',
+        role: 'ai',
+        content: '',
+        ts: 2,
+        clarification: {
+          id: 'manual-location',
+          title: '补充位置',
+          prompt: '请填写所在区域',
+          fields: [{ id: 'location', label: '位置', type: 'text', required: true }],
+        },
+      },
+    ];
+
+    expect(restoredConversationWasInterrupted(messages, true, false)).toBe(false);
+  });
+
+  it('still reports a genuinely unanswered Makers user turn', () => {
+    const messages: ChatMessage[] = [
+      { id: 'user', role: 'user', content: '未完成的问题', ts: 1 },
+    ];
+
+    expect(restoredConversationWasInterrupted(messages, false, false)).toBe(true);
   });
 });

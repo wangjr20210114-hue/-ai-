@@ -55,15 +55,41 @@ export function makersConversationHeaders(conversationId: string): Record<string
   return { 'makers-conversation-id': conversationId };
 }
 
+/**
+ * Return true when an assistant row has durable, user-visible state.
+ *
+ * Makers LangGraph checkpoints can persist a structured card without prose.
+ * Treating only non-empty Markdown as durable drops clarification and Action
+ * cards during restore, leaving a false user-only tail that the UI mistakes
+ * for an interrupted generation.
+ */
+export function hasDurableAssistantPayload(message: ChatMessage): boolean {
+  return message.role === 'ai' && (
+    Boolean(message.content.trim())
+    || Boolean(message.clarification)
+    || Boolean(message.workspaceActions?.length)
+    || Boolean(message.papers?.length)
+    || Boolean(message.proactive)
+  );
+}
+
+export function isDurableChatMessage(message: ChatMessage): boolean {
+  return !message.failed && (
+    message.role === 'user' || hasDurableAssistantPayload(message)
+  );
+}
+
 export function durableMessageCount(messages: ChatMessage[]): number {
-  return messages.filter((message) => (
-    !message.failed && (message.role === 'user' || (message.role === 'ai' && (Boolean(message.content.trim()) || Boolean(message.clarification))))
-  )).length;
+  return messages.filter(isDurableChatMessage).length;
 }
 
 export function settleStoppedMessages(messages: ChatMessage[]): ChatMessage[] {
   return messages
-    .filter((message) => !message.streaming || message.role === 'user' || Boolean(message.content.trim()))
+    .filter((message) => (
+      !message.streaming
+      || message.role === 'user'
+      || hasDurableAssistantPayload(message)
+    ))
     .map((message) => message.streaming ? { ...message, streaming: false } : message);
 }
 
@@ -269,6 +295,18 @@ export function reconcileConversationSummary(
 }
 
 function messageFingerprint(message: ChatMessage): string {
+  if (message.role === 'ai' && message.clarification?.id) {
+    return `${message.role}\u0000clarification:${message.clarification.id}`;
+  }
+  if (message.role === 'ai' && message.workspaceActions?.length) {
+    return `${message.role}\u0000actions:${message.workspaceActions.map((action) => action.id).sort().join(',')}`;
+  }
+  if (message.role === 'ai' && message.papers?.length) {
+    return `${message.role}\u0000papers:${message.papers.map((paper) => paper.arxiv_id || paper.arxiv_url || paper.title).join(',')}`;
+  }
+  if (message.role === 'ai' && message.proactive) {
+    return `${message.role}\u0000proactive:${message.id}`;
+  }
   return `${message.role}\u0000${message.content.trim()}`;
 }
 
@@ -279,9 +317,10 @@ export function mergeMessages(
   options: { preserveStreaming?: boolean } = {},
 ): ChatMessage[] {
   const preserveStreaming = Boolean(options.preserveStreaming);
-  remote = remote.filter((message) => !message.failed && (message.role === 'user' || message.content.trim()));
-  local = local.filter((message) => !message.failed && (
-    message.role === 'user' || message.content.trim() || (preserveStreaming && message.streaming)
+  remote = remote.filter(isDurableChatMessage);
+  local = local.filter((message) => (
+    isDurableChatMessage(message)
+    || (!message.failed && preserveStreaming && Boolean(message.streaming))
   ));
   const localByFingerprint = new Map<string, number[]>();
   local.forEach((message, index) => {
@@ -309,7 +348,7 @@ export function mergeMessages(
   const lastRemoteMatch = consumed.size ? Math.max(...consumed) : -1;
   const unmatchedSuffix = local.slice(lastRemoteMatch + 1);
   const lastCompletedLocalOffset = unmatchedSuffix.reduce(
-    (last, message, index) => message.role === 'ai' && message.content.trim() ? index : last,
+    (last, message, index) => hasDurableAssistantPayload(message) ? index : last,
     -1,
   );
   local.forEach((message, index) => {

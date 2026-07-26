@@ -3,7 +3,7 @@ import { MessagePlugin } from 'tdesign-react';
 import { bootstrapApp, proactiveOperation } from '../services/api';
 import { withEdgeOneAuth } from '../services/auth';
 import { presentableChatError } from '../services/chatError';
-import { durableMessageCount, makersConversationHeaders, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../services/conversation';
+import { durableMessageCount, hasDurableAssistantPayload, isDurableChatMessage, makersConversationHeaders, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../services/conversation';
 import { splitSseFrames } from '../services/sse';
 import { useAppDispatch, useAppState } from '../store/appState';
 import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
@@ -33,6 +33,17 @@ export function locationRetryMessage(
   };
   delete payload.client_message;
   return { type: message.type, payload };
+}
+
+export function restoredConversationWasInterrupted(
+  messages: ChatMessage[],
+  runActive: boolean,
+  liveTransport: boolean,
+): boolean {
+  if (liveTransport) return false;
+  const tail = messages[messages.length - 1];
+  if (tail && hasDurableAssistantPayload(tail)) return false;
+  return runActive || tail?.role === 'user';
 }
 
 function manualStopKey(conversationId: string): string {
@@ -493,13 +504,13 @@ function readMessageCache(conversationId: string): ChatMessage[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(`${MESSAGE_CACHE_PREFIX}${conversationId}`) || '[]') as ChatMessage[];
     return Array.isArray(parsed)
-      ? parsed.filter((item) => !item.failed && (item.role === 'user' || item.content.trim() || Boolean(item.clarification))).map((item) => ({ ...item, streaming: false }))
+      ? parsed.filter(isDurableChatMessage).map((item) => ({ ...item, streaming: false }))
       : [];
   } catch { return []; }
 }
 
 function writeMessageCache(conversationId: string, messages: ChatMessage[]) {
-  const durable = messages.filter((item) => !item.failed && (item.role === 'user' || item.content.trim() || Boolean(item.clarification)));
+  const durable = messages.filter(isDurableChatMessage);
   try { localStorage.setItem(`${MESSAGE_CACHE_PREFIX}${conversationId}`, JSON.stringify(durable.slice(-60))); }
   catch { /* Remote checkpoints remain the durable fallback. */ }
 }
@@ -603,7 +614,7 @@ export function useSSEChat() {
           if (current) {
             streams.delete(streamId);
             if (current.failed) break;
-            if (!current.content.trim() && !current.workspaceActions?.length && !current.clarification) {
+            if (!isDurableChatMessage(current)) {
               publish(id, cached(id).filter((item) => item.id !== streamId));
               setConversationActivity(id, 'idle');
               break;
@@ -748,16 +759,19 @@ export function useSSEChat() {
       const merged = mergeMessages(data.messages, cached(conversationId), {
         preserveStreaming: runActive && liveTransport,
       });
-      const hasFinalAnswer = merged[merged.length - 1]?.role === 'ai'
-        && Boolean(merged[merged.length - 1]?.content.trim());
       const hasUnansweredUser = merged[merged.length - 1]?.role === 'user';
+      const interrupted = restoredConversationWasInterrupted(
+        merged,
+        runActive,
+        liveTransport,
+      );
       let visibleMessages = liveTransport ? merged : settleStoppedMessages(merged);
       if (!liveTransport && (runActive || hasUnansweredUser)) {
         // A reload or lost browser connection must never silently resume an
         // earlier model run. Stop the orphaned Maker run and render one
         // explicit failure row; only the user's Retry button can send again.
         if (runActive) void client.stop();
-        if (!hasFinalAnswer) {
+        if (interrupted) {
           visibleMessages = [
             ...visibleMessages,
             {
@@ -782,11 +796,22 @@ export function useSSEChat() {
       }
       publish(conversationId, visibleMessages);
       const summary = conversationsRef.current.find((item) => item.id === conversationId);
-      if (summary && summary.messageCount !== visibleMessages.length) {
+      const restoredActivityStatus = interrupted
+        ? 'failed' as const
+        : hasDurableAssistantPayload(visibleMessages[visibleMessages.length - 1])
+          ? 'idle' as const
+          : summary?.activityStatus;
+      if (
+        summary
+        && (
+          summary.messageCount !== visibleMessages.length
+          || summary.activityStatus !== restoredActivityStatus
+        )
+      ) {
         const reconciled = {
           ...summary,
           messageCount: visibleMessages.length,
-          activityStatus: !liveTransport && (runActive || hasUnansweredUser) ? 'failed' as const : summary.activityStatus,
+          activityStatus: restoredActivityStatus,
         };
         conversationsRef.current = conversationsRef.current.map((item) => (
           item.id === conversationId ? reconciled : item

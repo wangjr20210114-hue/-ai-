@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../types';
-import { clearLocalApplicationData, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
+import { clearLocalApplicationData, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
 import { CONVERSATION_PREFIX, isCurrentConversationId } from './dataVersion';
 
 describe('getOrCreateConversationId', () => {
@@ -188,6 +188,57 @@ describe('mergeMessages', () => {
     ];
     expect(mergeMessages(remote, local, { preserveStreaming: true }).map((item) => item.id))
       .toEqual(['checkpoint-user', 'live-ai']);
+  });
+
+  it('restores a Makers-persisted clarification card without requiring prose', () => {
+    const clarification = {
+      id: 'required-location',
+      title: '补充位置',
+      prompt: '请填写所在区域',
+      fields: [{
+        id: 'manual_location',
+        label: '当前位置',
+        type: 'text' as const,
+        required: true,
+      }],
+    };
+    const remote: ChatMessage[] = [
+      { id: 'checkpoint-user', role: 'user', content: '我现在在哪', ts: 1 },
+      {
+        id: 'checkpoint-card',
+        role: 'ai',
+        content: '',
+        ts: 2,
+        clarification,
+      },
+    ];
+
+    const merged = mergeMessages(remote, []);
+    expect(merged).toHaveLength(2);
+    expect(merged[1]).toMatchObject({
+      id: 'checkpoint-card',
+      clarification,
+      streaming: false,
+    });
+    expect(durableMessageCount(merged)).toBe(2);
+  });
+
+  it('keeps a structured card when settling a detached stream', () => {
+    const card: ChatMessage = {
+      id: 'card',
+      role: 'ai',
+      content: '',
+      ts: 2,
+      streaming: true,
+      clarification: {
+        id: 'required-input',
+        title: '补充信息',
+        prompt: '请选择',
+        fields: [{ id: 'choice', label: '选项', type: 'single', options: ['A', 'B'] }],
+      },
+    };
+
+    expect(settleStoppedMessages([card])).toEqual([{ ...card, streaming: false }]);
   });
 });
 
