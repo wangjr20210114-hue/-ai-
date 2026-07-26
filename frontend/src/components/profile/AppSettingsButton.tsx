@@ -28,7 +28,7 @@ const DEFAULT_MAP_PREFERENCES: NonNullable<MakersIntelligenceState['map_preferen
   preferred_route_mode: 'driving',
   route_strategy: 'time_then_cost',
   near_time_tolerance_minutes: 10,
-  semantic_colocation_radius_meters: 2000,
+  semantic_colocation_radius_meters: 1000,
   learn_route_preferences: true,
 };
 

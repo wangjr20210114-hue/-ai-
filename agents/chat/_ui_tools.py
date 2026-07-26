@@ -194,7 +194,7 @@ async def choose_semantically_unique_place(
     near_query: str = "",
     route_role: str = "",
     timeout_seconds: float = 10.0,
-    max_colocation_radius_meters: float = 2_000,
+    max_colocation_radius_meters: float = 1_000,
 ) -> dict[str, Any] | None:
     """Choose only a near-certain provider candidate; otherwise ask the user."""
     if model is None or len(candidates) < 2:
@@ -655,8 +655,8 @@ def build_production_tools(
         min(
             5_000.0,
             float(
-                map_scope.get("semantic_colocation_radius_meters", 2_000)
-                or 2_000
+                map_scope.get("semantic_colocation_radius_meters", 1_000)
+                or 1_000
             ),
         ),
     )

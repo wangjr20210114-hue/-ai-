@@ -42,7 +42,7 @@ DEFAULT_MAP_PREFERENCES = {
     "preferred_route_mode": "driving",
     "route_strategy": "time_then_cost",
     "near_time_tolerance_minutes": 10,
-    "semantic_colocation_radius_meters": 2_000,
+    "semantic_colocation_radius_meters": 1_000,
     "learn_route_preferences": True,
 }
 
@@ -82,14 +82,14 @@ def normalize_map_preferences(value: Any) -> dict[str, Any]:
                 int(
                     preferences.get(
                         "semantic_colocation_radius_meters",
-                        2_000,
+                        1_000,
                     )
-                    or 2_000
+                    or 1_000
                 ),
             ),
         )
     except (TypeError, ValueError):
-        semantic_colocation_radius = 2_000
+        semantic_colocation_radius = 1_000
 
     return {
         "service_mode": mode,

@@ -237,7 +237,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         defaults = normalize_map_preferences({})
         self.assertEqual(defaults["route_strategy"], "time_then_cost")
         self.assertEqual(defaults["near_time_tolerance_minutes"], 10)
-        self.assertEqual(defaults["semantic_colocation_radius_meters"], 2_000)
+        self.assertEqual(defaults["semantic_colocation_radius_meters"], 1_000)
         bounded = normalize_map_preferences({
             "route_strategy": "least_cost",
             "near_time_tolerance_minutes": 99,
