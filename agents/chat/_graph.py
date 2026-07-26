@@ -881,11 +881,7 @@ def build_graph(
                 "否则直接基于已有证据回答。不要描述内部搜索过程。"
             )))
         response = await active_model.ainvoke(messages)
-        if (
-            (linked_trip_step or reasoning_tool_step)
-            and required_name
-            and not getattr(response, "tool_calls", None)
-        ):
+        if required_name and not getattr(response, "tool_calls", None):
             response = await active_model.ainvoke([
                 *messages,
                 SystemMessage(content=(

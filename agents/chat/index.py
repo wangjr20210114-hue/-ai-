@@ -13,6 +13,7 @@ from ._graph import build_graph
 from ._llm import get_model
 from ._ui_tools import build_production_tools
 from ._capability_plan import (
+    explicit_location_intent,
     media_enabled_for_plan,
     plan_capabilities_bounded,
     required_tools_for_plan,
@@ -691,6 +692,53 @@ async def handler(ctx):
         location_context=current_location_context,
         timeout_seconds=planner_timeout,
     )
+    location_card_arguments: dict = {}
+    location_intent = explicit_location_intent(message)
+    if (
+        not browser_current_location
+        and not silent_clarification
+        and location_intent in {"current", "nearby"}
+        and not str(capability_plan.get("blocked_skill") or "").strip()
+    ):
+        # A native permission request has already been attempted by the
+        # frontend for this narrow class of turns. If no fresh fix reached the
+        # request, bypass another probabilistic model decision and emit the
+        # product-wide clarification card directly. Card submissions skip this
+        # guard so the supplied textual anchor can continue the original goal.
+        for key in list(capability_plan):
+            if key.startswith("needs_"):
+                capability_plan[key] = False
+        capability_plan["needs_clarification"] = True
+        location_card_arguments = {
+            "title": (
+                "需要附近搜索的起点"
+                if location_intent == "nearby"
+                else "需要你的位置"
+            ),
+            "prompt": (
+                "浏览器没有提供当前位置。请填写你所在的区域或附近地标，"
+                "提交后我会自动继续查找，不需要重新描述需求。"
+                if location_intent == "nearby"
+                else "浏览器没有提供当前位置。你可以填写大致位置，"
+                "我会用它继续附近推荐、路线规划或日程安排。"
+            ),
+            "fields": [{
+                "id": (
+                    "nearby_anchor"
+                    if location_intent == "nearby"
+                    else "manual_location"
+                ),
+                "label": (
+                    "你现在在哪里？"
+                    if location_intent == "nearby"
+                    else "你目前所在的位置或出发地"
+                ),
+                "type": "text",
+                "required": True,
+                "options": [],
+                "placeholder": "例如：北京市海淀区中关村，或吉林大学前卫南区",
+            }],
+        }
     if planner_timed_out:
         logging.warning(
             "chat capability planning timed out after %.1fs; main semantic model retains all tools",
@@ -888,19 +936,24 @@ async def handler(ctx):
         stage_system_prompts=stage_system_prompts,
         public_system_prompt=public_system_prompt,
         planned_tool_arguments={
-            "search_arxiv": {
-                "topic": str(capability_plan.get("search_query") or "")[:240],
-                "limit": max(
-                    1,
-                    min(8, int(capability_plan.get("paper_limit") or 5)),
-                ),
-                "author": str(capability_plan.get("paper_author") or "")[:160],
-                "year": int(capability_plan.get("paper_year") or 0),
-            },
-        } if capability_plan.get("needs_papers") and (
-            capability_plan.get("search_query")
-            or capability_plan.get("paper_author")
-        ) else {},
+            **({
+                "ask_user_clarification": location_card_arguments,
+            } if location_card_arguments else {}),
+            **({
+                "search_arxiv": {
+                    "topic": str(capability_plan.get("search_query") or "")[:240],
+                    "limit": max(
+                        1,
+                        min(8, int(capability_plan.get("paper_limit") or 5)),
+                    ),
+                    "author": str(capability_plan.get("paper_author") or "")[:160],
+                    "year": int(capability_plan.get("paper_year") or 0),
+                },
+            } if capability_plan.get("needs_papers") and (
+                capability_plan.get("search_query")
+                or capability_plan.get("paper_author")
+            ) else {}),
+        },
     )
 
     async def gen():

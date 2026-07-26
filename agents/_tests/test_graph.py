@@ -135,6 +135,32 @@ class _ClarificationChoiceModel:
         return AIMessage(content="unexpected")
 
 
+class _RetryRequiredBoundModel:
+    def __init__(self, owner):
+        self.owner = owner
+
+    async def ainvoke(self, _messages, **_kwargs):
+        self.owner.calls += 1
+        if self.owner.calls == 1:
+            return AIMessage(content="请告诉我更多信息")
+        return AIMessage(content="", tool_calls=[{
+            "name": "ask_user_clarification",
+            "args": {"title": "请补充必要信息"},
+            "id": "clarify-required-retry",
+        }])
+
+
+class _RetryRequiredModel:
+    def __init__(self):
+        self.calls = 0
+
+    def bind_tools(self, _tools, **_kwargs):
+        return _RetryRequiredBoundModel(self)
+
+    async def ainvoke(self, _messages, **_kwargs):
+        return AIMessage(content="unexpected")
+
+
 class _ContinuationBoundModel:
     def __init__(self, owner, tools, tool_choice):
         self.owner = owner
@@ -526,6 +552,20 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
             {"propose_calendar_changes", "ask_user_clarification"},
         )
         self.assertEqual(model.tool_choice, "required")
+        self.assertEqual(result["messages"][-1].content, "")
+
+    async def test_required_capability_retries_when_gateway_ignores_tool_choice(self):
+        model = _RetryRequiredModel()
+        graph = build_graph(
+            model,
+            [ask_user_clarification],
+            "system",
+            required_tools=["ask_user_clarification"],
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="帮我完成一个缺必要信息的任务")],
+        })
+        self.assertEqual(model.calls, 2)
         self.assertEqual(result["messages"][-1].content, "")
 
     async def test_unavailable_required_tool_is_not_treated_as_completed(self):

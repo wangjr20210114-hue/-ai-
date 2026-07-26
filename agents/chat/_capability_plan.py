@@ -364,19 +364,8 @@ def _preserve_explicit_calendar_intent(
     return plan
 
 
-def _preserve_explicit_location_intent(
-    plan: dict[str, Any],
-    user_message: str,
-) -> dict[str, Any]:
-    """Repair only unmistakable first-person location requests.
-
-    The semantic planner remains responsible for general map routing. These
-    narrow guards protect privacy and product truth when a fast model times out
-    or drops a single boolean: the main model must not improvise an answer to
-    "where am I" or a current-position nearby search without using map tools.
-    """
-    if str(plan.get("blocked_skill") or "").strip():
-        return plan
+def explicit_location_intent(user_message: str) -> str:
+    """Return a narrow, high-confidence browser-location intent."""
     normalized = "".join(str(user_message or "").lower().split())
     direct_location = bool(
         re.fullmatch(
@@ -393,10 +382,7 @@ def _preserve_explicit_location_intent(
         )
     )
     if direct_location:
-        plan["needs_clarification"] = False
-        plan["needs_current_location"] = True
-        return plan
-
+        return "current"
     first_person_nearby = bool(
         re.search(r"(?:我|这|当前位置|当前地点)(?:这边|这里|这儿)?(?:附近|周边)", normalized)
         or re.match(r"(?:这|我这|这里|这儿)?附近(?:有|哪|找|推荐|什么)", normalized)
@@ -406,7 +392,29 @@ def _preserve_explicit_location_intent(
         r"公园|景点|酒店|咖啡|超市|医院|厕所|充电)",
         normalized,
     ))
-    if first_person_nearby and place_discovery and not plan.get("needs_route"):
+    return "nearby" if first_person_nearby and place_discovery else ""
+
+
+def _preserve_explicit_location_intent(
+    plan: dict[str, Any],
+    user_message: str,
+) -> dict[str, Any]:
+    """Repair only unmistakable first-person location requests.
+
+    The semantic planner remains responsible for general map routing. These
+    narrow guards protect privacy and product truth when a fast model times out
+    or drops a single boolean: the main model must not improvise an answer to
+    "where am I" or a current-position nearby search without using map tools.
+    """
+    if str(plan.get("blocked_skill") or "").strip():
+        return plan
+    intent = explicit_location_intent(user_message)
+    if intent == "current":
+        plan["needs_clarification"] = False
+        plan["needs_current_location"] = True
+        return plan
+
+    if intent == "nearby" and not plan.get("needs_route"):
         plan["needs_clarification"] = False
         plan["needs_current_location"] = False
         plan["needs_nearby_places"] = True
