@@ -48,6 +48,7 @@ from agents.chat.index import (
     empty_generation_error,
     graph_user_message,
     dynamic_system_prompt,
+    missing_source_content_clarification,
     runtime_datetime_context,
     should_persist_user_message,
     tools_for_capability_stage,
@@ -462,6 +463,30 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(has_explicit_current_location_origin(
             "看看当前位置附近有什么餐厅",
         ))
+
+    def test_missing_source_content_uses_global_clarification_card(self):
+        card = missing_source_content_clarification(
+            "把下面这段文字翻译成英文",
+        )
+        self.assertEqual(card["fields"][0]["id"], "source_content")
+        self.assertEqual(card["fields"][0]["type"], "text")
+        self.assertEqual(
+            missing_source_content_clarification(
+                "把下面这段文字翻译成英文：你好，世界",
+            ),
+            {},
+        )
+        self.assertEqual(
+            missing_source_content_clarification(
+                "总结这份文档",
+                document_context="文档正文",
+            ),
+            {},
+        )
+        self.assertEqual(
+            missing_source_content_clarification("帮我写一封商务邮件"),
+            {},
+        )
 
     async def test_capability_planner_receives_runtime_skill_state(self):
         model = StructuredPlannerModel({

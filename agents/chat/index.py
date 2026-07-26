@@ -164,6 +164,54 @@ def location_clarification_copy(intent: str, request_state: str) -> tuple[str, s
     )
 
 
+def missing_source_content_clarification(
+    message: str,
+    *,
+    document_context: str = "",
+    has_reference_images: bool = False,
+) -> dict:
+    """Return a card for an unmistakable operation whose source is absent.
+
+    This is a high-confidence completeness guard, not a general intent router.
+    It avoids spending a model call only to say "please send the text" and
+    leaves ambiguous or open-ended writing requests to the semantic planner.
+    """
+    text = str(message or "").strip()
+    if not text or document_context.strip() or has_reference_images:
+        return {}
+    if re.search(r"[:：]\s*\S{2,}", text) or re.search(
+        r"[“\"]\s*\S{2,}?\s*[”\"]", text,
+    ):
+        return {}
+    operation = re.search(
+        r"翻译|译成|总结|摘要|概括|润色|改写|校对|解释|提炼|"
+        r"translate|summari[sz]e|rewrite|proofread",
+        text,
+        re.I,
+    )
+    absent_reference = re.search(
+        r"下面|以下|上述|上面|这(?:一)?段|这(?:一)?篇|这(?:一)?份|"
+        r"(?:这|该)(?:些)?(?:文字|文本|内容|文章|文档)|"
+        r"below|following|this\s+(?:text|content|article|document)",
+        text,
+        re.I,
+    )
+    if not operation or not absent_reference:
+        return {}
+    return {
+        "title": "请提供需要处理的内容",
+        "prompt": "本轮没有收到你所指的文字或文档。填写后我会自动继续原来的任务。",
+        "fields": [{
+            "id": "source_content",
+            "label": "需要处理的原文",
+            "type": "text",
+            "required": True,
+            "options": [],
+            "placeholder": "请粘贴文字内容",
+        }],
+    }
+
+
 def run_cancelled(value: object) -> bool:
     """Treat both the platform acknowledgement and terminal marker as stop."""
     return bool(
@@ -785,6 +833,11 @@ async def handler(ctx):
         planning_message += f"\n\n[附图视觉事实，仅用于能力规划]\n{reference_image_context[:1600]}"
     if document_context:
         planning_message += f"\n\n[用户已选择的上传文档，仅用于能力规划]\n{document_context[:6000]}"
+    required_input_card = missing_source_content_clarification(
+        message,
+        document_context=document_context,
+        has_reference_images=bool(reference_images),
+    )
     planner_timeout = max(8.0, min(20.0, float(
         ctx.env.get("CAPABILITY_PLAN_TIMEOUT_SECONDS") or 12
     )))
@@ -807,6 +860,10 @@ async def handler(ctx):
     )
     if direct_public_answer:
         capability_plan = dict(DEFAULT_PLAN)
+        planner_timed_out = False
+    elif required_input_card:
+        capability_plan = dict(DEFAULT_PLAN)
+        capability_plan["needs_clarification"] = True
         planner_timed_out = False
     elif direct_map_turn:
         capability_plan = dict(DEFAULT_PLAN)
@@ -839,7 +896,7 @@ async def handler(ctx):
             location_context=current_location_context,
             timeout_seconds=planner_timeout,
         )
-    location_card_arguments: dict = {}
+    clarification_tool_arguments: dict = dict(required_input_card)
     nearby_tool_arguments: dict = {}
     route_tool_arguments: dict = {}
     if capability_plan.get("needs_route") and explicit_current_route_origin:
@@ -870,7 +927,7 @@ async def handler(ctx):
         location_title, location_prompt = location_clarification_copy(
             location_intent, browser_location_request,
         )
-        location_card_arguments = {
+        clarification_tool_arguments = {
             "title": location_title,
             "prompt": location_prompt,
             "fields": [{
@@ -1194,8 +1251,8 @@ async def handler(ctx):
                 "get_current_location": {},
             } if capability_plan.get("needs_current_location") else {}),
             **({
-                "ask_user_clarification": location_card_arguments,
-            } if location_card_arguments else {}),
+                "ask_user_clarification": clarification_tool_arguments,
+            } if clarification_tool_arguments else {}),
             **({
                 "recommend_nearby_places_on_map": nearby_tool_arguments,
             } if nearby_tool_arguments else {}),
