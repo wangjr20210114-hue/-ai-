@@ -39,6 +39,15 @@ function record(frame) {
       type: event?.type || '',
       tool: toolName(event),
     };
+    if (row.type === 'error_message') {
+      row.message = String(
+        event?.message
+        || event?.content
+        || event?.error
+        || event?.payload?.message
+        || '',
+      ).slice(0, 500);
+    }
     if (
       row.type === 'ai_response'
       && events.some((item) => item.type === 'ai_response')

@@ -6,7 +6,10 @@ from unittest.mock import AsyncMock, patch
 from agents._shared.route_cache import route_cache_key
 from agents._shared.intelligence import normalize_map_preferences
 from agents._shared.tencent_location import plan_verified_route, search_verified_places_bounded
-from agents.chat._capability_plan import parse_capability_plan
+from agents.chat._capability_plan import (
+    _restore_literal_route_queries,
+    parse_capability_plan,
+)
 from agents.chat._ui_tools import (
     RoutePlanInput,
     _learned_route_preference,
@@ -43,6 +46,23 @@ class FakeStore:
 
 
 class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    def test_route_plan_cannot_silently_correct_user_place_spelling(self):
+        plan = {
+            "needs_route": True,
+            "route_stops": [
+                {"query": "北京站", "near_query": ""},
+                {"query": "天安门", "near_query": ""},
+            ],
+        }
+        restored = _restore_literal_route_queries(
+            plan,
+            "从北京站步行去天安们",
+        )
+        self.assertEqual(
+            [item["query"] for item in restored["route_stops"]],
+            ["北京站", "天安们"],
+        )
+
     def test_capability_planner_searches_real_places_before_clarifying_ambiguity(self):
         source = (
             Path(__file__).parents[1] / "chat" / "_capability_plan.py"
@@ -53,6 +73,10 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(
             "地点工具会根据真实腾讯候选决定直接采用、单选或填空",
+            source,
+        )
+        self.assertIn(
+            "不得在规划器中纠错、改名或选择分店",
             source,
         )
 
@@ -298,6 +322,21 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             ),
             [corrected],
         )
+        exact_reuse = _rank_verified_workspace_matches(
+            "天安门", {corrected["place_id"]: corrected}, "北京",
+        )
+        self.assertEqual(exact_reuse[0]["name"], "天安门")
+        self.assertNotIn("query_correction", exact_reuse[0])
+        unproven = {
+            key: value for key, value in corrected.items()
+            if key != "query_correction"
+        }
+        self.assertEqual(
+            _rank_verified_workspace_matches(
+                "天安们", {unproven["place_id"]: unproven}, "北京",
+            ),
+            [],
+        )
 
     async def test_calendar_place_lookup_enforces_choice_and_fill_cards(self):
         tools = build_production_tools(
@@ -369,6 +408,139 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             result["resolution"]["selected_place_id"],
             "poi-tiananmen",
+        )
+
+    async def test_cached_route_keeps_current_tencent_typo_evidence(self):
+        station = {
+            **PLACE,
+            "place_id": "poi-station",
+            "name": "北京站",
+            "address": "北京市东城区",
+        }
+        corrected = {
+            **PLACE,
+            "place_id": "poi-tiananmen",
+            "name": "天安门",
+            "query_correction": {
+                "original_query": "天安们",
+                "corrected_name": "天安门",
+                "confidence": 0.95,
+                "evidence": "tencent_place_suggestion",
+            },
+        }
+
+        async def place_provider(_key, query, *, city, limit):
+            return [station] if query == "北京站" else [corrected]
+
+        # Provider/cache-normalized places do not carry the current query's
+        # spelling evidence. The tool must merge it back before finalizing.
+        route = {
+            "provider": "tencent",
+            "mode": "walking",
+            "places": [
+                {key: value for key, value in station.items() if key != "query_correction"},
+                {key: value for key, value in corrected.items() if key != "query_correction"},
+            ],
+            "distance_meters": 4_100,
+            "duration_seconds": 3_720,
+            "fare": {},
+        }
+        tools = build_production_tools(
+            None,
+            store=FakeStore(),
+            conversation_id="route-typo-cache",
+            env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+        )
+        route_tool = next(
+            item for item in tools
+            if item.name == "plan_route_between_places"
+        )
+        with (
+            patch(
+                "agents.chat._ui_tools.provider_search_places",
+                new=place_provider,
+            ),
+            patch(
+                "agents.chat._ui_tools.provider_plan_route",
+                new=AsyncMock(return_value=route),
+            ),
+        ):
+            result = json.loads(await route_tool.ainvoke({
+                "origin_query": "北京站",
+                "destination_query": "天安们",
+                "city": "北京",
+                "route_mode": "walking",
+            }))
+        self.assertEqual(
+            result["ordered_stops"][1]["query_correction"]["original_query"],
+            "天安们",
+        )
+        self.assertEqual(
+            result["ordered_stops"][1]["query_correction"]["evidence"],
+            "tencent_place_suggestion",
+        )
+
+    async def test_cached_route_drops_correction_for_current_exact_query(self):
+        station = {
+            **PLACE,
+            "place_id": "poi-station",
+            "name": "北京站",
+        }
+        destination = {
+            **PLACE,
+            "place_id": "poi-tiananmen",
+            "name": "天安门",
+        }
+        stale_destination = {
+            **destination,
+            "query_correction": {
+                "original_query": "天安们",
+                "corrected_name": "天安门",
+                "confidence": 0.95,
+                "evidence": "tencent_place_suggestion",
+            },
+        }
+
+        async def place_provider(_key, query, *, city, limit):
+            return [station] if query == "北京站" else [destination]
+
+        route = {
+            "provider": "tencent",
+            "mode": "transit",
+            "places": [station, stale_destination],
+            "distance_meters": 4_500,
+            "duration_seconds": 2_100,
+            "fare": {},
+        }
+        tools = build_production_tools(
+            None,
+            store=FakeStore(),
+            conversation_id="route-exact-cache",
+            env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+        )
+        route_tool = next(
+            item for item in tools
+            if item.name == "plan_route_between_places"
+        )
+        with (
+            patch(
+                "agents.chat._ui_tools.provider_search_places",
+                new=place_provider,
+            ),
+            patch(
+                "agents.chat._ui_tools.provider_plan_route",
+                new=AsyncMock(return_value=route),
+            ),
+        ):
+            result = json.loads(await route_tool.ainvoke({
+                "origin_query": "北京站",
+                "destination_query": "天安门",
+                "city": "北京",
+                "route_mode": "transit",
+            }))
+        self.assertNotIn(
+            "query_correction",
+            result["ordered_stops"][1],
         )
 
     async def test_transit_contract_decodes_path_fare_and_walking_transfer(self):

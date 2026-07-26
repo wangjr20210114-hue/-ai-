@@ -8,6 +8,7 @@ answer or performs a side effect.
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json
 import re
 from datetime import datetime, timedelta, timezone
@@ -353,6 +354,79 @@ def _preserve_explicit_calendar_intent(
     return plan
 
 
+def _restore_literal_route_queries(
+    plan: dict[str, Any],
+    user_message: str,
+) -> dict[str, Any]:
+    """Restore a near-identical place spelling from the user's own text.
+
+    Structured-output models occasionally normalize an obvious typo while
+    copying route stops. That would bypass the provider-backed correction
+    contract. This post-validation does not guess a place: it only replaces a
+    planned query with a same-length, high-similarity substring that visibly
+    occurs in the current user message. Tencent still decides whether it is a
+    valid correction, an ambiguity, or no match.
+    """
+    if not plan.get("needs_route") or not plan.get("route_stops"):
+        return plan
+    source = str(user_message or "")
+
+    def literal(value: str) -> str:
+        query = str(value or "").strip()
+        if not query or query in source:
+            return query
+        # Limit this repair to compact CJK place tokens. Dialogue references,
+        # long addresses and Latin names keep the semantic planner's value.
+        if (
+            not 2 <= len(query) <= 24
+            or not re.fullmatch(r"[\w\u4e00-\u9fff]+", query)
+            or not re.search(r"[\u4e00-\u9fff]", query)
+        ):
+            return query
+        candidates = []
+        for chunk_match in re.finditer(r"[\w\u4e00-\u9fff]+", source):
+            chunk = chunk_match.group(0)
+            if len(chunk) < len(query):
+                continue
+            for index in range(len(chunk) - len(query) + 1):
+                candidate = chunk[index:index + len(query)]
+                score = difflib.SequenceMatcher(None, query, candidate).ratio()
+                aligned = sum(
+                    left == right for left, right in zip(query, candidate)
+                ) / len(query)
+                candidates.append((
+                    score,
+                    aligned,
+                    chunk_match.start() + index,
+                    candidate,
+                ))
+        if not candidates:
+            return query
+        score, _aligned, _position, candidate = max(
+            candidates,
+            key=lambda item: (item[0], item[1], -item[2]),
+        )
+        threshold = 0.64 if len(query) == 3 else 0.72
+        return candidate if score >= threshold else query
+
+    plan["route_stops"] = [
+        {
+            "query": literal(str(stop.get("query") or "")),
+            "near_query": literal(str(stop.get("near_query") or "")),
+        }
+        for stop in plan.get("route_stops") or []
+        if isinstance(stop, dict) and str(stop.get("query") or "").strip()
+    ][:12]
+    return plan
+
+
+def _finalize_plan(plan: dict[str, Any], user_message: str) -> dict[str, Any]:
+    return _restore_literal_route_queries(
+        _preserve_explicit_calendar_intent(plan, user_message),
+        user_message,
+    )
+
+
 def _linked_trip_fallback(user_message: str) -> dict[str, Any]:
     """Preserve an unmistakable route→calendar chain after planner failure."""
     plan = _preserve_explicit_calendar_intent(
@@ -398,7 +472,7 @@ async def plan_capabilities(
 - 单一地点的历史、文化或原理解说不需要 map_action，除非用户同时要求周边或路线。
 - 用户要找某个已知地点、当前位置或日程地点“附近/周边”的餐馆、早餐店、酒店、商店、景点等真实地点时，needs_nearby_places=true；该组合能力会复用工作区内已核实的参照地点并调用真实附近检索，同时生成仅含核实结果的地图。用户给出多个备选参照点时仍只需要这一项能力，主模型会把全部备选点一次交给组合工具，不能在规划阶段擅自缩成一个。不要仅为了发现附近地点设置 needs_web_search；只有用户还要求点评、营业时间、新闻等地图服务之外的时效事实时才同时设置 web_search。needs_nearby_places 已包含地点核验和地图 Action，不必再设置 needs_places 或 needs_map_action。
   - 用户询问两个地点之间“多远、多久、怎么走、打车多少钱”，明确要求道路路线，或给出出发地与一个/多个依次停靠地点并要求规划出行/行程时，needs_route=true。“我想去/带我去/怎么去某地”这类明确移动意图，即使只给了目的地，只要下方说明有新鲜且已授权的浏览器当前位置，也要设置 needs_route=true 并使用该位置作为隐式起点，不要追问起点。多段行程仍只调用一次路线能力，并严格保留用户给出的停靠顺序。真实距离由地点与路线服务核验，不要为了距离本身设置 needs_web_search，也不要用网页结果估算；只有用户还要求沿途新闻、实时政策等额外事实时才同时设置 web_search。needs_route 已包含全部端点与中途站的地点核验，不必为了同一批地点再额外设置 needs_places 或 map_action。
-  - needs_route=true 时，route_stops 必须包含用户明确要求经过的全部文本地点，第一项通常是起点，最后一项是终点，中间项按原顺序保留，不能因为某个地点可能有多个候选而省略。若使用已授权当前位置作为隐式起点，不要把坐标或“当前位置”伪造为普通地点搜索词；只把用户说出的目的地/途经地写入 route_stops，并设置 route_uses_current_location=true。浏览器当前位置不可用时 route_uses_current_location=false，缺少起点且无法安全继续才需要澄清。普通地点写 query；“某参照点附近的某品牌/类别”拆成 query=品牌或类别、near_query=参照地点。对话中的“那个店、那里、这个酒店”等指代应结合提供的原始目标与上下文原样保留或解析，不得擅自删除。route_city 填已明确的共同城市，无法确定时填“全国”。非路线请求 route_stops 为空。
+  - needs_route=true 时，route_stops 必须包含用户明确要求经过的全部文本地点，第一项通常是起点，最后一项是终点，中间项按原顺序保留，不能因为某个地点可能有多个候选而省略。地点文字必须逐字保留用户原文，不得在规划器中改正错字、替换同义名称或补写具体分店；只有后续地点工具能依据腾讯候选纠正或要求选择。若使用已授权当前位置作为隐式起点，不要把坐标或“当前位置”伪造为普通地点搜索词；只把用户说出的目的地/途经地写入 route_stops，并设置 route_uses_current_location=true。浏览器当前位置不可用时 route_uses_current_location=false，缺少起点且无法安全继续才需要澄清。普通地点写 query；“某参照点附近的某品牌/类别”拆成 query=品牌或类别、near_query=参照地点。对话中的“那个店、那里、这个酒店”等指代应结合提供的原始目标与上下文原样保留或解析，不得擅自删除。route_city 填已明确的共同城市，无法确定时填“全国”。非路线请求 route_stops 为空。
   - route_mode 只记录用户明确指定的出行方式：驾车=driving、公交/地铁/公共交通=transit、步行=walking、骑行/自行车=bicycling；用户未指定时填 default，由用户设置决定。不能把“怎么去”擅自理解成驾车。
   - route_strategy 只记录用户明确指定的路线取舍：明确只要最快填 least_time，明确费用最低或最省钱填 least_cost，明确“省时优先、时间相近时省钱”填 time_then_cost；未指定填 default，由用户设置和已学习的明确选择决定。
 - 读取、查询、汇总当前日程时设置 needs_calendar_context=true，但不设置 calendar_action。用户要求新增/修改/删除行程日程时同时设置 needs_calendar_context=true 与 calendar_action。另一个主动服务例外是：用户给出了明确的未来日期或出发时刻，并要求规划包含多个有序站点的可执行行程时，如果日程 Skill 已开启，同时设置 needs_route=true、needs_calendar_context=true 与 needs_calendar_action=true；路线核实后主动生成一张可编辑的日程确认提案，不要等用户再次询问能否写入。该提案只是等待确认，不能自动生效。若日程 Skill 关闭，这个主动增强不是完成路线的必要条件，不得设置 blocked_skill，也不得阻塞正常路线回答。仅说计划去某地且没有明确时刻，仍不等于写日程。
@@ -419,11 +493,12 @@ async def plan_capabilities(
 总则：
 - 理解完整目标，可同时选择多个能力；非必要字段保持默认值。blocked_skill 只填用户目标不可替代地依赖、且运行时明确关闭的 Skill id；可选增强关闭时不要阻塞。
 - 只有缺失信息会阻断所有安全有用结果，或真实副作用对象无法唯一确定时，才设置 needs_clarification=true，并把其他 needs_* 设为 false。偏好未决定时直接交给主模型给方案，不要澄清。
+- 用户只是探索思路、比较假设方案，且目的地、预算、同行或节奏尚未决定时，不需要外部事实、地点核验或地图；保持所有 needs_* 为 false，让主模型直接给 2–3 套假设方案。只有用户要求当前信息、来源、真实地点推荐或可执行路线时才选择相应能力。
 - 现实地点可能有错字、同名或缺城市时，不得在调用地点服务之前设置 needs_clarification。先选择地点/路线能力；地点工具会根据真实腾讯候选决定直接采用、单选或填空。
 能力：
 - 时效事实、用户要求查证或来源：needs_web_search=true；只在明确要求“今天发布”时 strict_today_only=true。search_query 合并为一次简洁查询并使用 {today} 解析相对日期。图片明显帮助理解时 needs_images=true 并填写 image_query。
 - 旅行目的地介绍或多地点推荐：needs_places=true、needs_map_action=true；找已知地点/当前位置/日程地点周边真实商家：只设 needs_nearby_places=true。
-- 真实道路距离、耗时、费用或有序行程：needs_route=true。route_stops 必须保留用户明确给出的全部地点和顺序；普通地点写 query，“参照点附近的品牌/类别”拆为 query 与 near_query。浏览器有新鲜授权位置且用户没给起点时 route_uses_current_location=true，否则缺起点才澄清。只记录用户明确指定的 route_mode 和 route_strategy，未指定填 default。
+- 真实道路距离、耗时、费用或有序行程：needs_route=true。route_stops 必须按原顺序逐字保留用户说出的地点，不得在规划器中纠错、改名或选择分店；普通地点写 query，“参照点附近的品牌/类别”只拆为 query 与 near_query。浏览器有新鲜授权位置且用户没给起点时 route_uses_current_location=true，否则缺起点才澄清。只记录用户明确指定的 route_mode 和 route_strategy，未指定填 default。
 - 查询、汇总当前日程：needs_calendar_context=true。新增、修改、删除日程：同时设置 needs_calendar_context=true、needs_calendar_action=true。明确未来日期/出发时刻的多站可执行行程在日程 Skill 开启时，同时需要 route、calendar_context、calendar_action。
 - 新增或修改日程含未核实现实地点时：place_resolution_target=calendar、needs_places=true、needs_calendar_action=true；只有缺日期、时间、标题等非地点必要参数时才澄清。
 - 创建会议：needs_meeting_action；持续、多步骤或定时主动触达：needs_workflow_action；单次提醒仍是 calendar_action。
@@ -469,13 +544,13 @@ async def plan_capabilities(
         parsed_value = response.get("parsed") if isinstance(response, dict) else response
         parsed = _decode_capability_plan(parsed_value)
         if parsed is not None:
-            return _preserve_explicit_calendar_intent(parsed, user_message)
+            return _finalize_plan(parsed, user_message)
         # One-call compatibility for gateways that return a raw message but
         # fail LangChain's structured parser. Never retry the model.
         raw = response.get("raw") if isinstance(response, dict) else None
         parsed = _decode_capability_plan(getattr(raw, "content", ""))
         if parsed is not None:
-            return _preserve_explicit_calendar_intent(parsed, user_message)
+            return _finalize_plan(parsed, user_message)
     except Exception:
         pass
     # If structured planning itself failed, keep only unmistakable user intent.

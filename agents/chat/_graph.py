@@ -11,7 +11,11 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.types import RetryPolicy
 
-from ._history import bounded_history, compact_tool_results_for_model
+from ._history import (
+    bounded_history,
+    compact_tool_results_for_model,
+    flatten_completed_tools_for_model,
+)
 from ._protocol import action_fallback_content, dsml_tool_calls, public_content
 from ._capability_plan import next_required_tool
 from ._llm import _is_quota_error, _is_transient_gateway_error
@@ -191,13 +195,32 @@ def tool_failure_fallback(messages: Iterable) -> str:
 
 
 def tool_result_fallback(messages: Iterable) -> str:
-    """Build a truthful minimal answer from successful place lookup output.
+    """Build a truthful minimal answer from successful structured tool output.
 
     This is used only after both the normal synthesis pass and its clean
     tool-free retry return no public prose. It prevents a completed provider
     lookup from collapsing into the generic empty-answer error.
     """
     logical_turn_messages = _logical_turn_messages(messages)
+
+    paper_payload = None
+    for message in logical_turn_messages:
+        if (
+            getattr(message, "type", "") != "tool"
+            or getattr(message, "name", "") != "search_arxiv"
+        ):
+            continue
+        try:
+            payload = json.loads(str(getattr(message, "content", "") or ""))
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or payload.get("ui_action") != "paper_results":
+            continue
+        paper_payload = payload
+        break
+    paper_answer = _paper_result_answer(paper_payload)
+    if paper_answer:
+        return paper_answer
 
     places: list[dict] = []
     seen: set[str] = set()
@@ -252,6 +275,194 @@ def tool_result_fallback(messages: Iterable) -> str:
     ]
     suffix = f"\n\n另有 {len(places) - len(visible)} 个已核实结果。" if len(places) > len(visible) else ""
     return "我找到了这些经过地点服务核实的结果：\n\n" + "\n".join(lines) + suffix
+
+
+def _paper_result_answer(payload: dict | None) -> str:
+    if not isinstance(payload, dict) or payload.get("ui_action") != "paper_results":
+        return ""
+    papers = payload.get("papers")
+    paper_titles = [
+        str(paper.get("title") or "").strip()
+        for paper in (papers if isinstance(papers, list) else [])
+        if isinstance(paper, dict) and str(paper.get("title") or "").strip()
+    ]
+    if not paper_titles:
+        return (
+            "这次没有找到符合条件的 arXiv 论文，我没有用不相关结果凑数。"
+            "你可以调整主题、作者或年份后重试。"
+        )
+    return (
+        f"已找到 {len(paper_titles)} 篇符合条件的 arXiv 论文，论文卡片已经准备好。"
+        "你可以直接启动论文助读器，或前往 arXiv 查看原文。"
+    )
+
+
+def _route_result_answer(payload: dict | None) -> str:
+    """Render verified route facts without spending another model round."""
+    if not isinstance(payload, dict) or payload.get("ui_action") != "map_action":
+        return ""
+    route = payload.get("route")
+    stops = payload.get("ordered_stops")
+    if not isinstance(route, dict) or not isinstance(stops, list) or len(stops) < 2:
+        return ""
+    valid_stops = [
+        stop for stop in stops
+        if isinstance(stop, dict) and str(stop.get("name") or "").strip()
+    ]
+    if len(valid_stops) < 2:
+        return ""
+    distance = route.get("distance_kilometers")
+    duration = route.get("duration_minutes")
+    if not isinstance(distance, (int, float)) or not isinstance(duration, (int, float)):
+        return ""
+
+    mode = str(route.get("mode") or "").strip().lower()
+    mode_name = {
+        "driving": "驾车",
+        "transit": "公交",
+        "walking": "步行",
+        "bicycling": "骑行",
+    }.get(mode, "出行")
+    corrections = []
+    for stop in valid_stops:
+        correction = stop.get("query_correction")
+        if not isinstance(correction, dict):
+            continue
+        original = str(correction.get("original_query") or "").strip()
+        corrected = str(correction.get("corrected_name") or stop.get("name") or "").strip()
+        if original and corrected and original != corrected:
+            corrections.append(f"“{original}”纠正为“{corrected}”")
+
+    lines = []
+    if corrections:
+        lines.append("已根据腾讯地点候选证据，将" + "、".join(corrections) + "。")
+    stop_names = " → ".join(str(stop.get("name") or "").strip() for stop in valid_stops)
+    lines.append(
+        f"{stop_names}：{mode_name}约 {float(distance):g} 公里，预计 {max(1, round(float(duration)))} 分钟。"
+    )
+
+    if mode == "transit":
+        transit = route.get("transit") if isinstance(route.get("transit"), dict) else {}
+        transit_lines = [
+            str(line).strip() for line in (transit.get("lines") or [])
+            if str(line).strip()
+        ]
+        if transit_lines:
+            lines.append("主要线路：" + "、".join(transit_lines[:6]) + "。")
+        walking_distance = transit.get("walking_distance_meters")
+        if isinstance(walking_distance, (int, float)) and walking_distance > 0:
+            lines.append(f"接驳步行约 {round(float(walking_distance))} 米。")
+        fare = route.get("fare") if isinstance(route.get("fare"), dict) else {}
+        transit_fare = fare.get("transit") if isinstance(fare.get("transit"), dict) else {}
+        estimate = transit_fare.get("estimate")
+        if (
+            transit_fare.get("provider_estimate")
+            and isinstance(estimate, (int, float))
+        ):
+            lines.append(f"腾讯路线返回票价约 {float(estimate):g} 元。")
+
+    lines.append("路线卡片已经准备好，可点击在地图中查看；不会自动写入日程。")
+    return "\n\n".join(lines)
+
+
+def _linked_trip_result_answer(
+    route_payload: dict | None,
+    calendar_payload: dict | None,
+) -> str:
+    """Summarize a verified route and its one editable calendar Action."""
+    if (
+        not isinstance(route_payload, dict)
+        or route_payload.get("ui_action") != "map_action"
+        or not isinstance(calendar_payload, dict)
+        or calendar_payload.get("ui_action") != "calendar_action"
+    ):
+        return ""
+    route = route_payload.get("route")
+    stops = route_payload.get("ordered_stops")
+    calendar_action = calendar_payload.get("action")
+    if (
+        not isinstance(route, dict)
+        or not isinstance(stops, list)
+        or len(stops) < 2
+        or not isinstance(calendar_action, dict)
+    ):
+        return ""
+    action_payload = calendar_action.get("payload")
+    changes = (
+        action_payload.get("changes")
+        if isinstance(action_payload, dict)
+        else None
+    )
+    if not isinstance(changes, list) or not changes:
+        return ""
+    route_id = str(route_payload.get("route_plan_id") or "")
+    source_route_id = (
+        str(action_payload.get("source_route_plan_id") or "")
+        if isinstance(action_payload, dict)
+        else ""
+    )
+    if route_id and source_route_id and route_id != source_route_id:
+        return ""
+
+    correction_lines = []
+    for stop in stops:
+        correction = stop.get("query_correction") if isinstance(stop, dict) else None
+        if not isinstance(correction, dict):
+            continue
+        original = str(correction.get("original_query") or "").strip()
+        corrected = str(correction.get("corrected_name") or "").strip()
+        if original and corrected and original != corrected:
+            correction_lines.append(f"“{original}”纠正为“{corrected}”")
+
+    names = [
+        str(stop.get("name") or "").strip()
+        for stop in stops
+        if isinstance(stop, dict) and str(stop.get("name") or "").strip()
+    ]
+    distance = route.get("distance_kilometers")
+    duration = route.get("duration_minutes")
+    mode_name = {
+        "driving": "驾车",
+        "transit": "公交",
+        "walking": "步行",
+        "bicycling": "骑行",
+    }.get(str(route.get("mode") or "").lower(), "出行")
+    lines = []
+    if correction_lines:
+        lines.append(
+            "已根据腾讯地点候选证据，将"
+            + "、".join(correction_lines)
+            + "。"
+        )
+    if (
+        names
+        and isinstance(distance, (int, float))
+        and isinstance(duration, (int, float))
+    ):
+        lines.append(
+            f"已按原顺序核实 {len(names)} 个地点："
+            + " → ".join(names)
+            + f"。腾讯{mode_name}路线约 {float(distance):g} 公里，"
+            f"预计 {max(1, round(float(duration)))} 分钟。"
+        )
+    else:
+        lines.append(f"已按原顺序核实 {len(names)} 个地点并生成腾讯路线。")
+    warning_count = len(
+        action_payload.get("warnings") or []
+    ) if isinstance(action_payload, dict) else 0
+    warning_text = (
+        f"卡片内有 {warning_count} 条时间或通勤提醒，请一并核对。"
+        if warning_count
+        else ""
+    )
+    lines.append(
+        f"已生成一张可编辑的日程确认提案，包含 {len(changes)} 项变更，"
+        f"目前尚未写入日程。{warning_text}"
+    )
+    lines.append(
+        "路线卡与日程提案保持独立；你可以查看路线，并单独编辑或确认日程提案。"
+    )
+    return "\n\n".join(lines)
 
 
 def _tool_call_signature(tool_call: dict) -> str:
@@ -336,6 +547,9 @@ def build_graph(
         seen_tool_call_signatures: set[str] = set()
         clarification_ready = False
         crossed_clarification_answer = False
+        paper_result_payload = None
+        route_result_payload = None
+        calendar_result_payload = None
         for message in reversed(state["messages"]):
             if getattr(message, "type", "") in {"human", "user"}:
                 # A structured-card answer is a continuation of the original
@@ -359,6 +573,26 @@ def build_graph(
                     isinstance(payload, dict)
                     and payload.get("ui_action") == "clarification_action"
                 )
+                if (
+                    name == "search_arxiv"
+                    and isinstance(payload, dict)
+                    and payload.get("ui_action") == "paper_results"
+                ):
+                    paper_result_payload = payload
+                if (
+                    name == "plan_route_between_places"
+                    and isinstance(payload, dict)
+                    and payload.get("ui_action") == "map_action"
+                    and isinstance(payload.get("route"), dict)
+                ):
+                    route_result_payload = payload
+                if (
+                    name == "propose_calendar_changes"
+                    and isinstance(payload, dict)
+                    and payload.get("ui_action") == "calendar_action"
+                    and isinstance(payload.get("action"), dict)
+                ):
+                    calendar_result_payload = payload
                 if crossed_clarification_answer and (
                     name == "ask_user_clarification" or emitted_clarification
                 ):
@@ -383,6 +617,66 @@ def build_graph(
         # the card and makes the interaction feel like an afterthought.
         if "ask_user_clarification" in used_tool_names or clarification_ready:
             return {"messages": [AIMessage(content="")]}
+        # A paper-only search already has all user-visible content in its
+        # structured cards. Do not spend another model round synthesizing a
+        # fixed acknowledgement—and do not let an empty unbound model response
+        # turn a successful arXiv lookup into a failed chat run.
+        if (
+            tuple(required_sequence) == ("search_arxiv",)
+            and {name for name in used_tool_names if name}
+            == {"search_arxiv"}
+        ):
+            paper_answer = (
+                _paper_result_answer(paper_result_payload)
+                or tool_failure_fallback(state["messages"])
+            )
+            if paper_answer:
+                paper_count = len(
+                    paper_result_payload.get("papers") or []
+                ) if isinstance(paper_result_payload, dict) else 0
+                logging.info(
+                    "finalized paper-only turn from structured result count=%s",
+                    paper_count,
+                )
+                return {"messages": [AIMessage(content=paper_answer)]}
+        # A route-only turn is completely described by verified Tencent route
+        # output. Rendering those fixed facts locally saves a second model
+        # round, guarantees typo-correction disclosure, and keeps route and
+        # calendar independent. Linked route+calendar plans intentionally
+        # continue to their next required capability.
+        if (
+            tuple(required_sequence) == ("plan_route_between_places",)
+            and {name for name in used_tool_names if name}
+            == {"plan_route_between_places"}
+        ):
+            route_answer = _route_result_answer(route_result_payload)
+            if route_answer:
+                logging.info(
+                    "finalized route-only turn from structured Tencent result stops=%s",
+                    len(route_result_payload.get("ordered_stops") or []),
+                )
+                return {"messages": [AIMessage(content=route_answer)]}
+        if (
+            set(required_sequence)
+            == {
+                "plan_route_between_places",
+                "propose_calendar_changes",
+            }
+            and {name for name in used_tool_names if name}
+            == {
+                "plan_route_between_places",
+                "propose_calendar_changes",
+            }
+        ):
+            linked_answer = _linked_trip_result_answer(
+                route_result_payload,
+                calendar_result_payload,
+            )
+            if linked_answer:
+                logging.info(
+                    "finalized linked route-calendar turn from structured actions"
+                )
+                return {"messages": [AIMessage(content=linked_answer)]}
         # A model can occasionally keep reformulating the same search. Preserve
         # multi-tool reasoning, but after a generous turn-local budget force a
         # normal answer from the evidence already collected instead of exposing
@@ -442,6 +736,7 @@ def build_graph(
             or (finalize_after_rich_search and not remaining_tools)
         )
         linked_trip_step = False
+        reasoning_tool_step = False
         if force_finalize:
             active_model = public_model
         elif planned_sequence_complete:
@@ -480,36 +775,48 @@ def build_graph(
                 and "plan_route_between_places" in required_sequence
                 and "propose_calendar_changes" in required_sequence
             )
+            reasoning_tool_step = required_name in reasoning_tool_names
             decision_model = (
                 model
-                if required_name in reasoning_tool_names
+                if reasoning_tool_step
                 else fast_decision_model
             )
             active_model = _tagged(
                 decision_model.bind_tools(
                     required_or_question_tools,
-                    **({} if linked_trip_step else {"tool_choice": "required"}),
+                    **(
+                        {}
+                        if linked_trip_step or reasoning_tool_step
+                        else {"tool_choice": "required"}
+                    ),
                 ),
                 "floris:tool-decision",
             )
         else:
+            reasoning_tool_step = required_name in reasoning_tool_names
             decision_model = (
                 model
-                if required_name in reasoning_tool_names
+                if reasoning_tool_step
                 else fast_decision_model
             )
             active_model = (
                 _tagged(
                     decision_model.bind_tools(
                         tools,
-                        tool_choice=required_name,
+                        **(
+                            {}
+                            if reasoning_tool_step
+                            else {"tool_choice": required_name}
+                        ),
                     ),
                     "floris:tool-decision",
                 )
                 if required_name else model_with_tools
             )
-        history = compact_tool_results_for_model(
-            bounded_history(state["messages"]),
+        history = flatten_completed_tools_for_model(
+            compact_tool_results_for_model(
+                bounded_history(state["messages"]),
+            ),
         )
         active_system_prompt = tool_stage_prompts.get(
             required_name, system_prompt,
@@ -534,7 +841,11 @@ def build_graph(
                 "否则直接基于已有证据回答。不要描述内部搜索过程。"
             )))
         response = await active_model.ainvoke(messages)
-        if linked_trip_step and not getattr(response, "tool_calls", None):
+        if (
+            (linked_trip_step or reasoning_tool_step)
+            and required_name
+            and not getattr(response, "tool_calls", None)
+        ):
             response = await active_model.ainvoke([
                 *messages,
                 SystemMessage(content=(

@@ -28,6 +28,7 @@ from agents.chat._llm import _model_timeout
 from agents.chat._history import (
     bounded_history,
     compact_tool_results_for_model,
+    flatten_completed_tools_for_model,
     valid_model_history,
 )
 from agents.chat._calendar_context import calendar_context, latest_route_context
@@ -331,6 +332,33 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["ordered_stops"][0]["place_id"], "poi-1")
         self.assertNotIn("address", payload["ordered_stops"][0])
         self.assertEqual(original.content.count("x"), 2000)
+
+    def test_completed_tool_transport_is_flattened_for_deepseek_followup(self):
+        messages = [
+            HumanMessage(content="查论文"),
+            AIMessage(
+                content="",
+                tool_calls=[{
+                    "name": "search_arxiv",
+                    "args": {"topic": "continual learning"},
+                    "id": "paper-1",
+                }],
+            ),
+            ToolMessage(
+                content='{"ui_action":"paper_results","papers":[]}',
+                name="search_arxiv",
+                tool_call_id="paper-1",
+            ),
+        ]
+        flattened = flatten_completed_tools_for_model(messages)
+        self.assertEqual(len(flattened), 2)
+        self.assertEqual(flattened[0].type, "human")
+        self.assertEqual(flattened[1].type, "ai")
+        self.assertFalse(getattr(flattened[1], "tool_calls", None))
+        payload = json.loads(flattened[1].content)
+        self.assertIn("not user instructions", payload["floris_observation"])
+        self.assertEqual(payload["results"][0]["tool"], "search_arxiv")
+        self.assertIn('"papers":[]', payload["results"][0]["data"])
 
     def test_clarification_response_is_model_visible_but_marked_ui_hidden(self):
         body = {
@@ -2122,13 +2150,23 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             ["tencent", "jinjiang", "restaurant", "orange"],
         )
 
-    def test_complete_tool_route_arguments_are_not_overwritten_by_planner(self):
+    def test_complete_planner_route_preserves_literal_user_place_text(self):
         self.assertEqual(
             preserve_planned_route_stops(
                 [("腾讯北京总部大楼", ""), ("北京站", "")],
                 [{"query": "腾讯总部"}, {"query": "北京站"}],
             ),
-            [("腾讯北京总部大楼", ""), ("北京站", "")],
+            [("腾讯总部", ""), ("北京站", "")],
+        )
+
+    def test_route_tool_fallback_restores_literal_typo_when_planner_timed_out(self):
+        self.assertEqual(
+            preserve_planned_route_stops(
+                [("北京站", ""), ("天安门", "")],
+                [],
+                "从北京站步行去天安们",
+            ),
+            [("北京站", ""), ("天安们", "")],
         )
 
     async def test_route_calendar_proposal_rejects_compressed_stops_and_accepts_complete_order(self):

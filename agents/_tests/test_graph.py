@@ -3,7 +3,13 @@ import unittest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 
-from agents.chat._graph import blocked_capability_response, build_graph, tool_result_fallback
+from agents.chat._graph import (
+    _linked_trip_result_answer,
+    _route_result_answer,
+    blocked_capability_response,
+    build_graph,
+    tool_result_fallback,
+)
 
 
 class _BoundModel:
@@ -94,7 +100,11 @@ def search_arxiv(
     year: int = 0,
 ) -> str:
     """Return structured arXiv papers."""
-    return f"{topic}|{limit}|{author}|{year}"
+    return (
+        '{"ui_action":"paper_results","papers":['
+        f'{{"title":"{topic}","year":{year}}}'
+        f'],"limit":{limit},"author":"{author}"}}'
+    )
 
 
 class _ClarificationChoiceBoundModel:
@@ -278,6 +288,96 @@ class _BurstPlaceModel(_RepeatingPlaceModel):
 
 
 class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
+    def test_linked_trip_answer_uses_action_counts_without_inventing_schedule(self):
+        route_id = "routeplan-1"
+        answer = _linked_trip_result_answer(
+            {
+                "ui_action": "map_action",
+                "route_plan_id": route_id,
+                "ordered_stops": [
+                    {"name": "北京站"},
+                    {"name": "天安门"},
+                    {"name": "故宫博物院"},
+                ],
+                "route": {
+                    "mode": "driving",
+                    "distance_kilometers": 8.2,
+                    "duration_minutes": 42,
+                },
+            },
+            {
+                "ui_action": "calendar_action",
+                "action": {
+                    "payload": {
+                        "source_route_plan_id": route_id,
+                        "changes": [
+                            {"operation": "create"},
+                            {"operation": "create"},
+                            {"operation": "create"},
+                        ],
+                        "warnings": ["间隔不足"],
+                    },
+                },
+            },
+        )
+        self.assertIn("按原顺序核实 3 个地点", answer)
+        self.assertIn("约 8.2 公里", answer)
+        self.assertIn("包含 3 项变更", answer)
+        self.assertIn("尚未写入日程", answer)
+        self.assertIn("1 条时间或通勤提醒", answer)
+
+    def test_route_result_answer_discloses_verified_correction_and_facts(self):
+        answer = _route_result_answer({
+            "ui_action": "map_action",
+            "ordered_stops": [
+                {"name": "北京站"},
+                {
+                    "name": "天安门",
+                    "query_correction": {
+                        "original_query": "天安们",
+                        "corrected_name": "天安门",
+                        "evidence": "tencent_place_suggestion",
+                    },
+                },
+            ],
+            "route": {
+                "mode": "walking",
+                "distance_kilometers": 4.1,
+                "duration_minutes": 62,
+            },
+        })
+        self.assertIn("腾讯地点候选证据", answer)
+        self.assertIn("“天安们”纠正为“天安门”", answer)
+        self.assertIn("步行约 4.1 公里", answer)
+        self.assertIn("预计 62 分钟", answer)
+        self.assertIn("不会自动写入日程", answer)
+
+    async def test_paper_only_result_skips_redundant_public_model_round(self):
+        model = _RecordingModel()
+        public_model = _RecordingModel()
+        graph = build_graph(
+            model,
+            [search_arxiv],
+            "tool system",
+            required_tools=["search_arxiv"],
+            public_answer_model=public_model,
+            planned_tool_arguments={
+                "search_arxiv": {
+                    "topic": "route planning",
+                    "limit": 1,
+                    "author": "",
+                    "year": 2024,
+                },
+            },
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="找一篇相关论文")],
+        })
+        final = result["messages"][-1]
+        self.assertIn("论文卡片已经准备好", final.content)
+        self.assertEqual(model.bound_calls, 0)
+        self.assertEqual(public_model.unbound_calls, 0)
+
     async def test_planned_arxiv_arguments_skip_redundant_tool_model_round(self):
         model = _RecordingModel()
         public_model = _RecordingModel()
@@ -307,7 +407,7 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tool_calls[0]["name"], "search_arxiv")
         self.assertEqual(tool_calls[0]["args"]["year"], 2024)
         self.assertEqual(model.bound_calls, 0)
-        self.assertEqual(public_model.unbound_calls, 1)
+        self.assertEqual(public_model.unbound_calls, 0)
 
     async def test_fixed_route_schema_uses_fast_tool_model(self):
         reasoning_model = _LinkedRouteCalendarModel()
@@ -343,6 +443,7 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         await graph.ainvoke({"messages": [HumanMessage(content="创建日程提案")]})
         self.assertEqual(len(reasoning_model.decisions), 1)
         self.assertEqual(len(fast_model.decisions), 0)
+        self.assertEqual(reasoning_model.decisions[0][1], "")
 
     async def test_public_answer_can_use_a_non_thinking_sibling_model(self):
         tool_model = _RecordingModel()

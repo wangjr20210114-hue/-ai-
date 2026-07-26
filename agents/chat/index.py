@@ -762,6 +762,7 @@ async def handler(ctx):
         parallel_image_search=parallel_image_search,
         enabled_skills=enabled_skills,
         planned_route_stops=capability_plan.get("route_stops") or [],
+        route_user_message=message,
         planned_route_city=str(capability_plan.get("route_city") or "全国"),
         planned_route_mode=str(capability_plan.get("route_mode") or "default"),
         planned_route_strategy=str(
@@ -869,10 +870,12 @@ async def handler(ctx):
         response_language=response_language,
         public_answer_model=fast_model,
         fast_tool_model=fast_model,
-        # Calendar proposals can update or delete real user state and linked
-        # trips require multi-event arithmetic. Keep reasoning only there;
-        # every other fixed tool schema uses Flash in non-thinking mode.
-        reasoning_tools={"propose_calendar_changes"},
+        # Tool arguments are an intermediate fixed schema, including calendar
+        # proposals. Use Flash without thinking here; the calendar adapter
+        # independently validates event completeness, order, time windows,
+        # verified place ids, conflicts, and the final confirmation boundary.
+        # Public wording and genuinely open-ended reasoning remain separate.
+        reasoning_tools=set(),
         stage_system_prompts=stage_system_prompts,
         public_system_prompt=public_system_prompt,
         planned_tool_arguments={

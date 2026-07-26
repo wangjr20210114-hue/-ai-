@@ -170,13 +170,15 @@ class RoutePlanInput(BaseModel):
 def preserve_planned_route_stops(
     model_stops: list[tuple[str, str]],
     planned_stops: list[dict[str, str]] | None,
+    user_message: str = "",
 ) -> list[tuple[str, str]]:
-    """Restore stops dropped between two semantic LangChain model calls.
+    """Keep the capability planner's ordered, user-authored stop handoff.
 
     The capability model sees the original user goal and records its ordered
-    stop list. The full-history tool model may improve aliases, so its list wins
-    when it is at least as complete. A shorter list is structurally incomplete
-    and is replaced wholesale rather than patched by keyword heuristics.
+    stop list. The later fixed-schema model may otherwise silently correct a
+    typo or choose a branch before the location provider sees the literal
+    query. A complete planner handoff therefore wins wholesale; Tencent search
+    remains the only component allowed to resolve aliases and corrections.
     """
     normalized_plan = [
         (
@@ -186,9 +188,51 @@ def preserve_planned_route_stops(
         for item in (planned_stops or [])
         if isinstance(item, dict) and str(item.get("query") or "").strip()
     ][:12]
-    if len(normalized_plan) >= 2 and len(model_stops) < len(normalized_plan):
+    if len(normalized_plan) >= 2:
         return normalized_plan
-    return model_stops
+
+    source = str(user_message or "")
+
+    def literal(value: str) -> str:
+        query = str(value or "").strip()
+        if not query or not source or query in source:
+            return query
+        if (
+            not 2 <= len(query) <= 24
+            or not re.fullmatch(r"[\w\u4e00-\u9fff]+", query)
+            or not re.search(r"[\u4e00-\u9fff]", query)
+        ):
+            return query
+        candidates = []
+        for chunk_match in re.finditer(r"[\w\u4e00-\u9fff]+", source):
+            chunk = chunk_match.group(0)
+            if len(chunk) < len(query):
+                continue
+            for index in range(len(chunk) - len(query) + 1):
+                candidate = chunk[index:index + len(query)]
+                score = difflib.SequenceMatcher(None, query, candidate).ratio()
+                aligned = sum(
+                    left == right for left, right in zip(query, candidate)
+                ) / len(query)
+                candidates.append((
+                    score,
+                    aligned,
+                    chunk_match.start() + index,
+                    candidate,
+                ))
+        if not candidates:
+            return query
+        score, _aligned, _position, candidate = max(
+            candidates,
+            key=lambda item: (item[0], item[1], -item[2]),
+        )
+        threshold = 0.64 if len(query) == 3 else 0.72
+        return candidate if score >= threshold else query
+
+    return [
+        (literal(query), literal(near_query))
+        for query, near_query in model_stops
+    ]
 
 
 def _parse_datetime(value: str) -> datetime:
@@ -244,6 +288,21 @@ def _verified_candidate_matches(
         return False
     matcher = difflib.SequenceMatcher(None, clean_query, clean_name)
     edits = {tag for tag, *_rest in matcher.get_opcodes() if tag != "equal"}
+    correction = place.get("query_correction")
+    correction_query = (
+        _normalized_place_name(correction.get("original_query"))
+        if isinstance(correction, dict)
+        else ""
+    )
+    correction_evidence = (
+        str(correction.get("evidence") or "")
+        if isinstance(correction, dict)
+        else ""
+    )
+    verified_correction = bool(
+        correction_query == clean_query
+        and correction_evidence.startswith("tencent_")
+    )
     query_bigrams = {
         clean_query[index:index + 2]
         for index in range(max(0, len(clean_query) - 1))
@@ -267,7 +326,8 @@ def _verified_candidate_matches(
             and descriptive_coverage >= 0.65
         )
         or (
-            not likely_semantic_insertion
+            verified_correction
+            and not likely_semantic_insertion
             and matcher.ratio() >= typo_threshold
         )
     ):
@@ -320,7 +380,21 @@ def _rank_verified_workspace_matches(
             else 3
         )
         similarity = difflib.SequenceMatcher(None, clean_query, clean_name).ratio()
-        ranked.append((exact_rank, -similarity, str(place_id), raw_place))
+        current_place = copy.deepcopy(raw_place)
+        if (
+            isinstance(current_place.get("query_correction"), dict)
+            and corrected_from != clean_query
+        ):
+            # Correction evidence describes one specific spelling. A canonical
+            # POI may be reused by later exact queries, but that must not make
+            # the old typo appear in the new answer.
+            current_place.pop("query_correction", None)
+        ranked.append((
+            exact_rank,
+            -similarity,
+            str(place_id),
+            current_place,
+        ))
     ranked.sort(key=lambda item: (item[0], item[1], item[2]))
     return [item[3] for item in ranked[:max(1, min(12, int(limit or 6)))]]
 
@@ -460,6 +534,7 @@ def build_production_tools(
     parallel_image_search: bool = True,
     enabled_skills: set[str] | None = None,
     planned_route_stops: list[dict[str, str]] | None = None,
+    route_user_message: str = "",
     planned_route_city: str = "全国",
     planned_route_mode: str = "default",
     planned_route_strategy: str = "default",
@@ -1278,6 +1353,7 @@ def build_production_tools(
         requested_stops = preserve_planned_route_stops(
             requested_stops,
             planned_route_stops,
+            route_user_message,
         )
         if len(requested_stops) > map_route_stop_limit:
             raise ValueError(
@@ -1385,7 +1461,23 @@ def build_production_tools(
             )
         provider_places = route.get("places")
         if isinstance(provider_places, list) and len(provider_places) == len(resolved_stops):
-            resolved_stops = [copy.deepcopy(item) for item in provider_places if isinstance(item, dict)]
+            current_resolution = list(resolved_stops)
+            resolved_stops = [
+                copy.deepcopy(item)
+                for item in provider_places
+                if isinstance(item, dict)
+            ]
+            # A cached road route is keyed by canonical provider place ids and
+            # intentionally ignores how the user spelled a stop. Preserve the
+            # current lookup's Tencent-backed correction evidence when cached
+            # normalized places replace this turn's resolved candidates.
+            if len(resolved_stops) == len(current_resolution):
+                for resolved, current in zip(resolved_stops, current_resolution):
+                    correction = current.get("query_correction")
+                    if isinstance(correction, dict):
+                        resolved["query_correction"] = copy.deepcopy(correction)
+                    else:
+                        resolved.pop("query_correction", None)
             await save_route_cache(
                 store,
                 user_id,
