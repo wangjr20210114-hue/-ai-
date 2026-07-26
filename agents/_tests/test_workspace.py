@@ -550,6 +550,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             required_tools_for_plan(plan),
             ("recommend_nearby_places_on_map",),
         )
+        self.assertEqual(plan["nearby_query"], "餐厅")
 
     async def test_location_guard_does_not_hijack_non_location_question(self):
         model = StructuredPlannerModel(delay=10)

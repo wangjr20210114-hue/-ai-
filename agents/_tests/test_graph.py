@@ -568,6 +568,21 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(model.calls, 2)
         self.assertEqual(result["messages"][-1].content, "")
 
+    async def test_required_capability_never_exposes_premature_plain_answer(self):
+        model = _RecordingModel()
+        graph = build_graph(
+            model,
+            [ask_user_clarification],
+            "system",
+            required_tools=["ask_user_clarification"],
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="帮我完成一个缺必要信息的任务")],
+        })
+        self.assertEqual(model.bound_calls, 2)
+        self.assertIn("没有生成任何卡片", result["messages"][-1].content)
+        self.assertNotIn("bound answer", result["messages"][-1].content)
+
     async def test_unavailable_required_tool_is_not_treated_as_completed(self):
         model = _UnavailableRequiredModel()
         graph = build_graph(

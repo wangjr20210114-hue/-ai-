@@ -13,6 +13,7 @@ from ._graph import build_graph
 from ._llm import get_model
 from ._ui_tools import build_production_tools
 from ._capability_plan import (
+    explicit_nearby_query,
     explicit_location_intent,
     media_enabled_for_plan,
     plan_capabilities_bounded,
@@ -693,6 +694,7 @@ async def handler(ctx):
         timeout_seconds=planner_timeout,
     )
     location_card_arguments: dict = {}
+    nearby_tool_arguments: dict = {}
     location_intent = explicit_location_intent(message)
     if (
         not browser_current_location
@@ -739,6 +741,23 @@ async def handler(ctx):
                 "placeholder": "例如：北京市海淀区中关村，或吉林大学前卫南区",
             }],
         }
+    elif (
+        browser_current_location
+        and not silent_clarification
+        and location_intent == "nearby"
+        and bool(capability_plan.get("needs_nearby_places"))
+        and not str(capability_plan.get("blocked_skill") or "").strip()
+    ):
+        nearby_query = (
+            str(capability_plan.get("nearby_query") or "").strip()
+            or explicit_nearby_query(message)
+        )
+        if nearby_query:
+            nearby_tool_arguments = {
+                "anchor_query": "当前位置",
+                "query": nearby_query,
+                "use_current_location_as_anchor": True,
+            }
     if planner_timed_out:
         logging.warning(
             "chat capability planning timed out after %.1fs; main semantic model retains all tools",
@@ -939,6 +958,9 @@ async def handler(ctx):
             **({
                 "ask_user_clarification": location_card_arguments,
             } if location_card_arguments else {}),
+            **({
+                "recommend_nearby_places_on_map": nearby_tool_arguments,
+            } if nearby_tool_arguments else {}),
             **({
                 "search_arxiv": {
                     "topic": str(capability_plan.get("search_query") or "")[:240],

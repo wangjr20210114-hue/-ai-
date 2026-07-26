@@ -36,6 +36,7 @@ DEFAULT_PLAN = {
     "needs_papers": False,
     "search_query": "",
     "image_query": "",
+    "nearby_query": "",
     "paper_author": "",
     "paper_year": 0,
     "paper_limit": 0,
@@ -116,6 +117,13 @@ class CapabilityPlan(BaseModel):
     needs_papers: bool = False
     search_query: str = ""
     image_query: str = ""
+    nearby_query: str = Field(
+        default="",
+        description=(
+            "For a nearby-place request, the short provider category to find, "
+            "such as 餐厅、景点、咖啡馆、酒店. Empty otherwise."
+        ),
+    )
     paper_author: str = ""
     paper_year: int = 0
     paper_limit: int = 0
@@ -191,6 +199,7 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
     plan = {key: bool(raw.get(key, False)) for key in BOOLEAN_KEYS}
     plan["search_query"] = str(raw.get("search_query") or "").strip()[:160]
     plan["image_query"] = str(raw.get("image_query") or "").strip()[:160]
+    plan["nearby_query"] = str(raw.get("nearby_query") or "").strip()[:80]
     plan["paper_author"] = str(raw.get("paper_author") or "").strip()[:120]
     blocked_skill = str(raw.get("blocked_skill") or "").strip()
     plan["blocked_skill"] = blocked_skill if blocked_skill in KNOWN_SKILLS else ""
@@ -235,6 +244,8 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
     )
     if plan.get("needs_calendar_action"):
         plan["needs_calendar_context"] = True
+    if not plan.get("needs_nearby_places"):
+        plan["nearby_query"] = ""
     # A real-world place ambiguity is resolvable only after provider lookup.
     # Restore the deterministic tool chain even if the semantic planner also
     # marked generic clarification. Missing dates/times keep target=none and
@@ -395,6 +406,27 @@ def explicit_location_intent(user_message: str) -> str:
     return "nearby" if first_person_nearby and place_discovery else ""
 
 
+def explicit_nearby_query(user_message: str) -> str:
+    """Return a conservative provider category for obvious nearby requests."""
+    normalized = "".join(str(user_message or "").lower().split())
+    categories = (
+        (("好吃", "美食", "吃饭", "餐厅", "饭店", "餐馆", "小吃"), "餐厅"),
+        (("咖啡",), "咖啡馆"),
+        (("好玩", "景点", "游玩"), "景点"),
+        (("公园",), "公园"),
+        (("酒店", "宾馆", "住宿"), "酒店"),
+        (("商场", "购物"), "商场"),
+        (("超市",), "超市"),
+        (("医院",), "医院"),
+        (("厕所", "卫生间"), "公共厕所"),
+        (("充电",), "充电站"),
+    )
+    for terms, category in categories:
+        if any(term in normalized for term in terms):
+            return category
+    return ""
+
+
 def _preserve_explicit_location_intent(
     plan: dict[str, Any],
     user_message: str,
@@ -420,6 +452,8 @@ def _preserve_explicit_location_intent(
         plan["needs_nearby_places"] = True
         plan["needs_places"] = False
         plan["needs_map_action"] = False
+        if not str(plan.get("nearby_query") or "").strip():
+            plan["nearby_query"] = explicit_nearby_query(user_message)
     return plan
 
 
@@ -542,7 +576,7 @@ async def plan_capabilities(
 - rich_answer/images 表示富媒体素材可能有帮助，不规定最终版式；模型可以采用、穿插、重排或完全舍弃素材。
 - 旅行目的地介绍、第一次去某城市、请介绍当地有什么好玩/好吃/值得去，回答天然会包含多个可到访点，所以 needs_places 和 needs_map_action 都必须为 true；不能因为用户没说“地图”就关掉地图能力。
 - 单一地点的历史、文化或原理解说不需要 map_action，除非用户同时要求周边或路线。
-- 用户要找某个已知地点、当前位置或日程地点“附近/周边”的餐馆、早餐店、酒店、商店、景点等真实地点时，needs_nearby_places=true；该组合能力会复用工作区内已核实的参照地点并调用真实附近检索，同时生成仅含核实结果的地图。用户给出多个备选参照点时仍只需要这一项能力，主模型会把全部备选点一次交给组合工具，不能在规划阶段擅自缩成一个。不要仅为了发现附近地点设置 needs_web_search；只有用户还要求点评、营业时间、新闻等地图服务之外的时效事实时才同时设置 web_search。needs_nearby_places 已包含地点核验和地图 Action，不必再设置 needs_places 或 needs_map_action。
+- 用户要找某个已知地点、当前位置或日程地点“附近/周边”的餐馆、早餐店、酒店、商店、景点等真实地点时，needs_nearby_places=true，并把要找的简短腾讯地点类别写入 nearby_query（如餐厅、景点、咖啡馆、酒店）；该组合能力会复用工作区内已核实的参照地点并调用真实附近检索，同时生成仅含核实结果的地图。用户给出多个备选参照点时仍只需要这一项能力，主模型会把全部备选点一次交给组合工具，不能在规划阶段擅自缩成一个。不要仅为了发现附近地点设置 needs_web_search；只有用户还要求点评、营业时间、新闻等地图服务之外的时效事实时才同时设置 web_search。needs_nearby_places 已包含地点核验和地图 Action，不必再设置 needs_places 或 needs_map_action。
   - 用户询问两个地点之间“多远、多久、怎么走、打车多少钱”，明确要求道路路线，或给出出发地与一个/多个依次停靠地点并要求规划出行/行程时，needs_route=true。“我想去/带我去/怎么去某地”这类明确移动意图，即使只给了目的地，只要下方说明有新鲜且已授权的浏览器当前位置，也要设置 needs_route=true 并使用该位置作为隐式起点，不要追问起点。多段行程仍只调用一次路线能力，并严格保留用户给出的停靠顺序。真实距离由地点与路线服务核验，不要为了距离本身设置 needs_web_search，也不要用网页结果估算；只有用户还要求沿途新闻、实时政策等额外事实时才同时设置 web_search。needs_route 已包含全部端点与中途站的地点核验，不必为了同一批地点再额外设置 needs_places 或 map_action。
   - needs_route=true 时，route_stops 必须包含用户明确要求经过的全部文本地点，第一项通常是起点，最后一项是终点，中间项按原顺序保留，不能因为某个地点可能有多个候选而省略。地点文字必须逐字保留用户原文，不得在规划器中改正错字、替换同义名称或补写具体分店；只有后续地点工具能依据腾讯候选纠正或要求选择。若使用已授权当前位置作为隐式起点，不要把坐标或“当前位置”伪造为普通地点搜索词；只把用户说出的目的地/途经地写入 route_stops，并设置 route_uses_current_location=true。浏览器当前位置不可用时 route_uses_current_location=false，缺少起点且无法安全继续才需要澄清。普通地点写 query；“某参照点附近的某品牌/类别”拆成 query=品牌或类别、near_query=参照地点。对话中的“那个店、那里、这个酒店”等指代应结合提供的原始目标与上下文原样保留或解析，不得擅自删除。route_city 填已明确的共同城市，无法确定时填“全国”。非路线请求 route_stops 为空。
   - route_mode 只记录用户明确指定的出行方式：驾车=driving、公交/地铁/公共交通=transit、步行=walking、骑行/自行车=bicycling；用户未指定时填 default，由用户设置决定。不能把“怎么去”擅自理解成驾车。
@@ -570,7 +604,7 @@ async def plan_capabilities(
 能力：
 - 时效事实、用户要求查证或来源：needs_web_search=true；只在明确要求“今天发布”时 strict_today_only=true。search_query 合并为一次简洁查询并使用 {today} 解析相对日期。图片明显帮助理解时 needs_images=true 并填写 image_query。
 - 用户直接问“我现在在哪、当前位置是什么、你能否读到我的位置”：needs_current_location=true，由腾讯逆地址解析把本轮浏览器坐标转为可读地址；不要设置 web_search 或把坐标写入查询。没有浏览器定位时仍设置该能力，由工具如实返回不可用。
-- 旅行目的地介绍或多地点推荐：needs_places=true、needs_map_action=true；找已知地点/当前位置/日程地点周边真实商家：只设 needs_nearby_places=true。说“我附近/当前位置附近”时只能使用下方浏览器状态；不可用时不得把“当前位置”当普通地点词，也不得声称已定位或已搜索。
+- 旅行目的地介绍或多地点推荐：needs_places=true、needs_map_action=true；找已知地点/当前位置/日程地点周边真实商家：只设 needs_nearby_places=true，并把简短地点类别写入 nearby_query。说“我附近/当前位置附近”时只能使用下方浏览器状态；不可用时不得把“当前位置”当普通地点词，也不得声称已定位或已搜索。
 - 真实道路距离、耗时、费用或有序行程：needs_route=true。route_stops 必须按原顺序逐字保留用户说出的地点，不得在规划器中纠错、改名或选择分店；普通地点写 query，“参照点附近的品牌/类别”只拆为 query 与 near_query。浏览器有新鲜授权位置且用户没给起点时 route_uses_current_location=true，否则缺起点才澄清。只记录用户明确指定的 route_mode 和 route_strategy，未指定填 default。
 - 查询、汇总当前日程：needs_calendar_context=true。新增、修改、删除日程：同时设置 needs_calendar_context=true、needs_calendar_action=true。明确未来日期/出发时刻的多站可执行行程在日程 Skill 开启时，同时需要 route、calendar_context、calendar_action。
 - 新增或修改日程含未核实现实地点时：place_resolution_target=calendar、needs_places=true、needs_calendar_action=true；只有缺日期、时间、标题等非地点必要参数时才澄清。

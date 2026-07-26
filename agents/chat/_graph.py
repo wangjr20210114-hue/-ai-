@@ -893,6 +893,15 @@ def build_graph(
             normalized = dsml_tool_calls(getattr(response, "content", ""), allowed_tool_names)
             if normalized:
                 response = AIMessage(content="", tool_calls=normalized)
+        if required_name and not getattr(response, "tool_calls", None):
+            # Some compatible gateways may ignore tool_choice even after the
+            # explicit retry. Never expose their premature prose as if the
+            # required search, card, route, or side effect had completed.
+            return {"messages": [AIMessage(content=blocked_capability_response(
+                [required_name],
+                response_language,
+                configured=True,
+            ))]}
         response_tool_calls = list(getattr(response, "tool_calls", None) or [])
         if not tools_closed and response_tool_calls:
             filtered_tool_calls = []
