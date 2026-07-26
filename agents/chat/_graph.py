@@ -45,6 +45,11 @@ TURN_SINGLE_USE_TOOLS = {
     "search_arxiv",
     "ask_user_clarification",
 }
+# An argument-validation error occurs before an Action is created. Two bounded
+# correction passes are enough to repair dependent fixed-schema payloads (for
+# example, first fixing a time window and then restoring a required route stop)
+# without turning provider/runtime failures into retry loops.
+MAX_REQUIRED_VALIDATION_ATTEMPTS = 3
 
 SKILL_DISPLAY_NAMES = {
     "web-search": {"zh-CN": "联网搜索", "zh-TW": "聯網搜尋", "en": "Web Search"},
@@ -644,7 +649,8 @@ def build_graph(
                     )
                     required_tool_failed = required_tool_failed or (
                         not retryable
-                        or retryable_required_failures[name] >= 2
+                        or retryable_required_failures[name]
+                        >= MAX_REQUIRED_VALIDATION_ATTEMPTS
                     )
                 emitted_clarification = (
                     isinstance(payload, dict)
@@ -683,12 +689,13 @@ def build_graph(
                     name in required_sequence
                     and isinstance(tool_error, dict)
                     and bool(tool_error.get("retry_same_call"))
-                    and retryable_required_failures.get(name, 0) < 2
+                    and retryable_required_failures.get(name, 0)
+                    < MAX_REQUIRED_VALIDATION_ATTEMPTS
                 ):
                     # Do not mark a validation-only attempt complete. The next
                     # pass sees the exact structured error and may correct the
-                    # required tool arguments once; identical calls are still
-                    # blocked by the signature guard below.
+                    # required tool arguments within the bounded budget;
+                    # identical calls are still blocked by the signature guard.
                     continue
                 if not crossed_clarification_answer:
                     tools_this_turn += 1

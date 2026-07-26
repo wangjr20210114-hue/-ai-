@@ -665,7 +665,7 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(model.bound_calls, 0)
         self.assertEqual(model.unbound_calls, 0)
 
-    async def test_retryable_validation_failure_gets_one_corrected_required_call(self):
+    async def test_retryable_validation_failure_gets_a_corrected_required_call(self):
         model = _LinkedRouteCalendarModel()
         graph = build_graph(
             model,
@@ -701,6 +701,41 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(calendar_results), 2)
         self.assertEqual(len(model.decisions), 1)
         self.assertEqual(result["messages"][-1].content, "路线和日程提案已准备好。")
+
+    async def test_required_validation_corrections_stop_at_bounded_budget(self):
+        model = _RecordingModel()
+        messages = [HumanMessage(content="生成路线日程提案")]
+        for attempt in range(1, 4):
+            call_id = f"calendar-invalid-{attempt}"
+            messages.extend([
+                AIMessage(content="", tool_calls=[{
+                    "name": "propose_calendar_changes",
+                    "args": {"summary": f"无效参数 {attempt}"},
+                    "id": call_id,
+                }]),
+                ToolMessage(
+                    content=json.dumps({
+                        "tool_error": {
+                            "kind": "validation",
+                            "detail": f"第 {attempt} 次校验失败",
+                            "retry_same_call": True,
+                        },
+                    }, ensure_ascii=False),
+                    name="propose_calendar_changes",
+                    tool_call_id=call_id,
+                ),
+            ])
+        graph = build_graph(
+            model,
+            [propose_calendar_changes],
+            "system",
+            required_tools=["propose_calendar_changes"],
+        )
+        result = await graph.ainvoke({"messages": messages})
+
+        self.assertIn("第 3 次校验失败", result["messages"][-1].content)
+        self.assertEqual(model.bound_calls, 0)
+        self.assertEqual(model.unbound_calls, 0)
 
     async def test_linked_calendar_stage_suppresses_unbound_place_tool(self):
         model = _CalendarStageGuardModel()
