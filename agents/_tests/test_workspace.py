@@ -42,12 +42,15 @@ from agents.chat._calendar_context import calendar_context, latest_route_context
 from agents.chat._graph import action_completion_fallback, tool_failure_fallback, tool_result_fallback
 from agents.chat.index import (
     SYSTEM_PROMPT,
+    SYSTEM_PROMPT_SECTIONS,
+    SYSTEM_PROMPT_SECTION_ORDER,
     capability_planning_message,
     checkpoint_clarification_answers,
     checkpoint_clarification_state,
     checkpoint_final_answer,
     clarification_response_answers,
     clarification_response_id,
+    direct_paper_tool_arguments,
     empty_generation_error,
     graph_user_message,
     dynamic_system_prompt,
@@ -1291,14 +1294,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_system_prompt_formats_without_accidental_placeholders(self):
-        module = ast.parse((Path(__file__).parents[1] / "chat" / "index.py").read_text(encoding="utf-8"))
-        prompt_node = next(
-            node.value for node in module.body
-            if isinstance(node, ast.Assign)
-            and any(isinstance(target, ast.Name) and target.id == "SYSTEM_PROMPT" for target in node.targets)
-        )
-        prompt = ast.literal_eval(prompt_node)
-        rendered = prompt.format(
+        rendered = SYSTEM_PROMPT.format(
             now="2026-07-15 12:00:00 UTC+08:00",
             response_language_instruction="使用简体中文。",
             capability_plan='{"needs_places": true}',
@@ -1307,6 +1303,48 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             document_context="无",
         )
         self.assertIn("2026-07-15", rendered)
+
+    def test_system_prompt_sections_are_named_complete_and_ordered(self):
+        self.assertEqual(
+            tuple(SYSTEM_PROMPT_SECTIONS),
+            SYSTEM_PROMPT_SECTION_ORDER,
+        )
+        self.assertEqual(
+            SYSTEM_PROMPT,
+            "\n".join(SYSTEM_PROMPT_SECTIONS.values()),
+        )
+        self.assertEqual(len(SYSTEM_PROMPT_SECTIONS), 32)
+        self.assertIn(
+            "plan_route_between_places",
+            SYSTEM_PROMPT_SECTIONS["route"],
+        )
+        self.assertIn(
+            "propose_calendar_changes",
+            SYSTEM_PROMPT_SECTIONS["calendar"],
+        )
+
+    def test_paper_chain_skips_only_redundant_argument_model_rounds(self):
+        direct = direct_paper_tool_arguments({
+            "needs_papers": True,
+            "needs_web_search": False,
+            "search_query": "retrieval augmented generation",
+            "paper_author": "",
+            "paper_year": 2025,
+            "paper_limit": 6,
+        })
+        self.assertEqual(
+            direct["search_arxiv"]["topic"],
+            "retrieval augmented generation",
+        )
+        self.assertEqual(direct["search_arxiv"]["limit"], 6)
+        self.assertEqual(
+            direct_paper_tool_arguments({
+                "needs_papers": True,
+                "needs_web_search": True,
+                "search_query": "retrieval augmented generation",
+            }),
+            {},
+        )
 
     def test_dynamic_prompt_injects_only_the_current_skill_policy(self):
         common = {
