@@ -15,6 +15,7 @@ from ._ui_tools import build_production_tools
 from ._capability_plan import (
     explicit_nearby_query,
     explicit_location_intent,
+    explicit_route_destination,
     media_enabled_for_plan,
     plan_capabilities_bounded,
     required_tools_for_plan,
@@ -695,7 +696,9 @@ async def handler(ctx):
     )
     location_card_arguments: dict = {}
     nearby_tool_arguments: dict = {}
+    route_tool_arguments: dict = {}
     location_intent = explicit_location_intent(message)
+    direct_route_destination = explicit_route_destination(message)
     if (
         not browser_current_location
         and not silent_clarification
@@ -758,6 +761,30 @@ async def handler(ctx):
                 "query": nearby_query,
                 "use_current_location_as_anchor": True,
             }
+    if (
+        direct_route_destination
+        and not silent_clarification
+        and not str(capability_plan.get("blocked_skill") or "").strip()
+    ):
+        capability_plan["needs_clarification"] = False
+        capability_plan["needs_route"] = True
+        capability_plan["needs_current_location"] = False
+        capability_plan["needs_nearby_places"] = False
+        capability_plan["needs_places"] = False
+        capability_plan["needs_map_action"] = False
+        capability_plan["route_stops"] = [{
+            "query": direct_route_destination,
+            "near_query": "",
+        }]
+        capability_plan["route_uses_current_location"] = bool(
+            browser_current_location
+        )
+        route_tool_arguments = {
+            "destination_query": direct_route_destination,
+            # The route adapter turns a missing fresh fix into the same
+            # product-wide origin card; it never searches "当前位置" as a POI.
+            "use_current_location_as_origin": True,
+        }
     if planner_timed_out:
         logging.warning(
             "chat capability planning timed out after %.1fs; main semantic model retains all tools",
@@ -961,6 +988,9 @@ async def handler(ctx):
             **({
                 "recommend_nearby_places_on_map": nearby_tool_arguments,
             } if nearby_tool_arguments else {}),
+            **({
+                "plan_route_between_places": route_tool_arguments,
+            } if route_tool_arguments else {}),
             **({
                 "search_arxiv": {
                     "topic": str(capability_plan.get("search_query") or "")[:240],

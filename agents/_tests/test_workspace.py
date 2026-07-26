@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, patch
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agents.chat._capability_plan import (
+    explicit_route_destination,
     media_enabled_for_plan,
     parse_capability_plan,
     plan_capabilities,
@@ -562,6 +563,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(timed_out)
         self.assertFalse(plan["needs_current_location"])
         self.assertFalse(plan["needs_nearby_places"])
+
+    def test_direct_route_destination_guard_is_narrow(self):
+        self.assertEqual(explicit_route_destination("带我去颐和园"), "颐和园")
+        self.assertEqual(explicit_route_destination("请导航到北京西站"), "北京西站")
+        self.assertEqual(explicit_route_destination("从北京站怎么去颐和园"), "")
+        self.assertEqual(explicit_route_destination("我想去理解这篇论文"), "")
 
     async def test_message_restore_keeps_rich_search_metadata(self):
         metadata = {"total": 1, "results": [{"title": "故宫", "url": "https://example.com"}], "media": []}

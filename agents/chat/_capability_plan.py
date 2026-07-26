@@ -427,6 +427,24 @@ def explicit_nearby_query(user_message: str) -> str:
     return ""
 
 
+def explicit_route_destination(user_message: str) -> str:
+    """Extract only a complete, single-destination movement command."""
+    normalized = " ".join(str(user_message or "").strip().split())
+    match = re.fullmatch(
+        r"(?:请)?(?:带我去|我想去|我要去|怎么去|如何去|导航到|导航去)"
+        r"(?P<destination>[^？?。！!\n]{1,80})[？?。！!]*",
+        normalized,
+    )
+    if not match:
+        return ""
+    destination = match.group("destination").strip(" ，,")
+    if destination.startswith((
+        "理解", "学习", "掌握", "实现", "处理", "解决", "解释", "分析", "使用",
+    )):
+        return ""
+    return destination
+
+
 def _preserve_explicit_location_intent(
     plan: dict[str, Any],
     user_message: str,
