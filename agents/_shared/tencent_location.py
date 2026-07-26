@@ -311,7 +311,11 @@ async def search_verified_places_bounded(
         try:
             primary = await asyncio.wait_for(
                 search_places(key, query, city=city, limit=limit),
-                timeout=min(8.0, timeout),
+                # search_places owns one bounded retry after a transient
+                # network failure. Its two 8 s attempts can legitimately
+                # take a little over 16 s, so an 8 s outer timeout cancelled
+                # the retry before it could ever succeed.
+                timeout=min(17.0, timeout),
             )
             ranked_primary = sorted(
                 (
@@ -338,7 +342,9 @@ async def search_verified_places_bounded(
                 search_place_suggestions(
                     key, query, city=city, limit=max(limit, 6),
                 ),
-                timeout=min(6.0, remaining),
+                # Keep this stage inside the shared deadline while allowing
+                # the adapter's bounded retry when enough budget remains.
+                timeout=min(17.0, remaining),
             )
             ranked_suggestions = sorted(
                 (

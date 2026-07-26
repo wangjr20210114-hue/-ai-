@@ -1,3 +1,4 @@
+import asyncio
 import json
 import unittest
 from pathlib import Path
@@ -337,6 +338,56 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             ),
             [],
         )
+
+    def test_single_short_fuzzy_workspace_candidate_requires_fresh_provider_evidence(self):
+        cached_restaurant = {
+            **PLACE,
+            "name": "京宴·鸭儿季烤鸭·北京菜(王府井店)",
+            "place_id": "poi-wangfujing-restaurant",
+            "category": "美食:中餐厅:北京菜",
+        }
+        self.assertEqual(
+            _rank_verified_workspace_matches(
+                "王府井",
+                {cached_restaurant["place_id"]: cached_restaurant},
+                "北京",
+            ),
+            [],
+        )
+        self.assertEqual(
+            _rank_verified_workspace_matches(
+                "京宴鸭儿季烤鸭北京菜王府井店",
+                {cached_restaurant["place_id"]: cached_restaurant},
+                "北京",
+            ),
+            [cached_restaurant],
+        )
+
+    async def test_primary_tencent_stage_allows_adapter_retry_budget(self):
+        place = {**PLACE, "name": "王府井", "place_id": "poi-wangfujing"}
+        observed_timeouts = []
+        real_wait_for = asyncio.wait_for
+
+        async def capture_wait_for(awaitable, timeout):
+            observed_timeouts.append(timeout)
+            return await real_wait_for(awaitable, timeout=timeout)
+
+        with (
+            patch(
+                "agents._shared.tencent_location.search_places",
+                AsyncMock(return_value=[place]),
+            ),
+            patch(
+                "agents._shared.tencent_location.asyncio.wait_for",
+                side_effect=capture_wait_for,
+            ),
+        ):
+            places = await search_verified_places_bounded(
+                "key", "王府井", city="北京", limit=3, timeout_seconds=30,
+            )
+
+        self.assertEqual([item["place_id"] for item in places], ["poi-wangfujing"])
+        self.assertEqual(observed_timeouts[0], 17.0)
 
     async def test_calendar_place_lookup_enforces_choice_and_fill_cards(self):
         tools = build_production_tools(

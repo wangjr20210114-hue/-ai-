@@ -396,6 +396,17 @@ def _rank_verified_workspace_matches(
             current_place,
         ))
     ranked.sort(key=lambda item: (item[0], item[1], item[2]))
+    if (
+        len(ranked) == 1
+        and ranked[0][0] == 3
+        and len(clean_query) <= 4
+    ):
+        # A short area/landmark query can be a substring of an unrelated
+        # branch cached by an earlier nearby search (for example, a venue
+        # whose branch suffix contains the area name). One such fuzzy hit is
+        # not evidence of uniqueness: force a fresh provider lookup so the
+        # user sees all real candidates, or a fill-in prompt when none exist.
+        return []
     return [item[3] for item in ranked[:max(1, min(12, int(limit or 6)))]]
 
 
