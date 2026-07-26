@@ -7,12 +7,16 @@ browser session or chat request is required for a scheduled tick.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import hashlib
+import json
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 from .data_version import namespace
 from .workspace import USER_WORKSPACE_ID, load_user_workspace, recover_stale_actions, save_user_workspace
@@ -24,6 +28,69 @@ SCHEMA_VERSION = 1
 BEIJING = timezone(timedelta(hours=8))
 STATE_KEY = "state"
 TERMINAL_RUNS = {"succeeded", "skipped", "failed", "cancelled"}
+
+
+class WeatherRiskDecision(BaseModel):
+    """Semantic assessment over provider weather facts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actionable: bool = False
+    priority: str = "normal"
+
+
+async def classify_weather_risk(
+    model: Any,
+    weather: dict[str, Any],
+    *,
+    schedule: dict[str, Any] | None = None,
+    timeout_seconds: float = 6,
+) -> dict[str, Any]:
+    """Classify practical weather risk without a condition-word list."""
+    if model is None:
+        return {"actionable": False, "priority": "normal"}
+    gate = model.with_structured_output(
+        WeatherRiskDecision,
+        method="function_calling",
+        include_raw=True,
+    )
+    prompt = (
+        "Assess the supplied provider weather facts in the context of the "
+        "optional schedule. Do not answer the user. actionable=true only when "
+        "the conditions create a practical travel, safety, comfort, or "
+        "preparation issue worth proactively notifying the user. Ordinary "
+        "conditions that need no preparation are false. priority must be "
+        "normal or high."
+    )
+    try:
+        response = await asyncio.wait_for(
+            gate.ainvoke([
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": json.dumps({
+                        "weather": copy.deepcopy(weather),
+                        "schedule": copy.deepcopy(schedule) if schedule else None,
+                    }, ensure_ascii=False, default=str),
+                },
+            ]),
+            timeout=max(1.0, min(15.0, float(timeout_seconds))),
+        )
+        parsed = response.get("parsed") if isinstance(response, dict) else response
+        if isinstance(parsed, BaseModel):
+            parsed = parsed.model_dump()
+        if isinstance(parsed, dict):
+            return {
+                "actionable": bool(parsed.get("actionable")),
+                "priority": (
+                    str(parsed.get("priority") or "normal")
+                    if str(parsed.get("priority") or "normal") in {"normal", "high"}
+                    else "normal"
+                ),
+            }
+    except Exception:
+        pass
+    return {"actionable": False, "priority": "normal"}
 
 
 def _stable_id(prefix: str, value: str) -> str:
@@ -351,6 +418,7 @@ async def collect_provider_signals(
     now: int,
     lookahead_hours: int = 24,
     preferences: dict[str, Any] | None = None,
+    semantic_model: Any = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Collect bounded weather/route risks; provider failures stay observations."""
     settings = _merge_preferences(preferences)
@@ -371,7 +439,6 @@ async def collect_provider_signals(
         "route_facts": [],
         "errors": [],
     }
-    weather_keywords = ("雨", "雪", "雷", "暴", "台风", "大风", "沙尘", "雾", "冰雹", "冻")
     for schedule in future[:min(3, provider_schedule_limit)]:
         place = _verified_place(schedule)
         if not place:
@@ -389,13 +456,18 @@ async def collect_provider_signals(
                 "humidity": weather.get("humidity"),
                 "observed_at": now,
             })
-            if condition and any(keyword in condition for keyword in weather_keywords):
+            risk = await classify_weather_risk(
+                semantic_model,
+                weather,
+                schedule=schedule,
+            )
+            if risk["actionable"]:
                 schedule_id = str(schedule.get("id") or "")
                 start = int(schedule.get("start_time") or 0)
                 signals.append({
                     "type": "weather_risk",
                     "dedup_key": f"weather_risk:{schedule_id}:{start}:{condition}",
-                    "priority": "high",
+                    "priority": risk["priority"],
                     "subject_ids": [schedule_id],
                     "title": "行程天气需要关注",
                     "detail": f"“{schedule.get('title') or '日程'}”所在地当前天气为{condition}",
@@ -936,6 +1008,7 @@ async def run_proactive_tick(
     memory_signals: list[dict[str, Any]] | None = None,
     memory_checked: bool = False,
     collect_scheduled: bool = True,
+    semantic_model: Any = None,
 ) -> tuple[dict[str, Any], dict[str, int]]:
     timestamp = int(now or time.time())
     state = await load_proactive_state(store, user_id)
@@ -981,6 +1054,7 @@ async def run_proactive_tick(
             timestamp,
             int(preferences["lookahead_hours"]),
             preferences,
+            semantic_model,
         )
         # Realtime weather uses geocoding plus weather (two Tencent requests);
         # a successful Tencent route contributes one route request. Fallback

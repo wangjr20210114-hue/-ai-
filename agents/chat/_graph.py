@@ -184,18 +184,18 @@ def tool_failure_fallback(messages: Iterable) -> str:
         if getattr(message, "type", "") != "tool":
             continue
         content = str(getattr(message, "content", "") or "").strip()
-        if not content.startswith("操作未完成："):
+        try:
+            payload = json.loads(content)
+        except (TypeError, json.JSONDecodeError):
             continue
-        detail = content[len("操作未完成："):].split("。请自然说明", 1)[0].strip("。 ")
+        failure = payload.get("tool_error") if isinstance(payload, dict) else None
+        if not isinstance(failure, dict):
+            continue
+        detail = str(failure.get("detail") or "").strip()
         if detail:
             if getattr(message, "name", "") == "get_current_location":
                 return f"腾讯地图这次没有完成当前位置的地址解析：{detail}。请稍后重试。"
             if getattr(message, "name", "") == "recommend_nearby_places_on_map":
-                if detail.startswith("本轮没有收到浏览器定位坐标"):
-                    return (
-                        "我目前没有拿到你的定位，所以没有搜索你附近的地点。"
-                        "请先在地图中允许定位并等待定位成功，然后再让我推荐附近地点。"
-                    )
                 return f"地点服务这次没有找到可展示的附近地点：{detail}。你可以扩大范围或调整餐厅类别后重试。"
             if getattr(message, "name", "") == "plan_route_between_places":
                 return f"这次没有完成路线规划：{detail}。请检查地点名称或从候选地点中选择后重试。"
@@ -276,13 +276,16 @@ def tool_result_fallback(messages: Iterable) -> str:
         }:
             continue
         raw_content = str(getattr(message, "content", "") or "")
-        if tool_name == "recommend_nearby_places_on_map" and raw_content.startswith(
-            ("操作未完成：", "工具暂时没有完成")
-        ):
-            nearby_failure = True
         try:
             payload = json.loads(raw_content)
         except (TypeError, json.JSONDecodeError):
+            continue
+        if (
+            tool_name == "recommend_nearby_places_on_map"
+            and isinstance(payload, dict)
+            and isinstance(payload.get("tool_error"), dict)
+        ):
+            nearby_failure = True
             continue
         candidates = payload.get("places") if isinstance(payload, dict) else []
         if not isinstance(candidates, list):
@@ -521,8 +524,17 @@ def _tool_failure_message(exc: Exception) -> str:
     """Keep safe validation feedback so the model can answer naturally."""
     if isinstance(exc, ValueError):
         detail = str(exc).strip()[:500] or "输入不符合要求"
-        return f"操作未完成：{detail}。请自然说明原因和下一步，不要声称已经成功。"
-    return TOOL_FAILURE_MESSAGE
+        kind = "validation"
+    else:
+        detail = TOOL_FAILURE_MESSAGE
+        kind = "runtime"
+    return json.dumps({
+        "tool_error": {
+            "kind": kind,
+            "detail": detail,
+            "retry_same_call": False,
+        },
+    }, ensure_ascii=False)
 
 
 def _retry_model_node(error: Exception) -> bool:

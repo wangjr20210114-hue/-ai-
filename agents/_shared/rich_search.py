@@ -159,10 +159,7 @@ def _filter_for_target_date(
     mismatched = 0
     for item in results:
         raw_date = str(item.get("date") or "")
-        if re.search(r"今天|今日|刚刚|\d+\s*(?:分钟|小时)前", raw_date):
-            published = target.isoformat()
-        else:
-            published = _date_from_text(raw_date, target.year)
+        published = _date_from_text(raw_date, target.year)
         if not published:
             published = _date_from_text(
                 f"{item.get('title') or ''} {item.get('snippet') or ''}", target.year,
@@ -281,9 +278,6 @@ def _review_image(
         if reviewed.get("relevant") is True:
             description = str(reviewed.get("description") or "").strip()[:240]
             return (description, "approved") if description else ("", "missing_description")
-        description = str(reviewed.get("description") or "")
-        if any(marker in description for marker in ("未提供图片", "没有图片", "无法描述图片", "看不到图片")):
-            return "", "image_not_seen"
         return "", "irrelevant"
     except (KeyError, IndexError, TypeError, json.JSONDecodeError):
         return "", "invalid_response"

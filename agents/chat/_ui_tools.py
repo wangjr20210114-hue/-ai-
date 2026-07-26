@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import difflib
 import hashlib
 import json
 import logging
@@ -248,8 +247,6 @@ def _verified_candidate_matches(
     clean_name = _normalized_place_name(place.get("name"))
     if not clean_query or not clean_name:
         return False
-    matcher = difflib.SequenceMatcher(None, clean_query, clean_name)
-    edits = {tag for tag, *_rest in matcher.get_opcodes() if tag != "equal"}
     correction = place.get("query_correction")
     correction_query = (
         _normalized_place_name(correction.get("original_query"))
@@ -265,33 +262,9 @@ def _verified_candidate_matches(
         correction_query == clean_query
         and correction_evidence.startswith("tencent_")
     )
-    query_bigrams = {
-        clean_query[index:index + 2]
-        for index in range(max(0, len(clean_query) - 1))
-    }
-    descriptive_coverage = (
-        sum(part in clean_name for part in query_bigrams) / len(query_bigrams)
-        if query_bigrams
-        else 0.0
-    )
-    typo_threshold = (
-        0.64 if len(clean_query) == 3
-        else 0.72 if len(clean_query) == 4
-        else 0.76
-    )
-    likely_semantic_insertion = bool(edits and edits <= {"insert", "delete"})
     if not (
-        clean_query in clean_name
-        or clean_name in clean_query
-        or (
-            len(clean_query) >= 5
-            and descriptive_coverage >= 0.65
-        )
-        or (
-            verified_correction
-            and not likely_semantic_insertion
-            and matcher.ratio() >= typo_threshold
-        )
+        clean_query == clean_name
+        or verified_correction
     ):
         return False
     clean_city = _normalized_place_name(city)
@@ -317,7 +290,7 @@ def _rank_verified_workspace_matches(
     id and still passes the same city/name validation as a fresh lookup.
     """
     clean_query = _normalized_place_name(query)
-    ranked: list[tuple[int, float, str, dict[str, Any]]] = []
+    ranked: list[tuple[int, str, dict[str, Any]]] = []
     for place_id, raw_place in candidates.items():
         if not isinstance(raw_place, dict) or not str(raw_place.get("place_id") or place_id):
             continue
@@ -341,7 +314,6 @@ def _rank_verified_workspace_matches(
             else 2 if clean_query == corrected_from
             else 3
         )
-        similarity = difflib.SequenceMatcher(None, clean_query, clean_name).ratio()
         current_place = copy.deepcopy(raw_place)
         if (
             isinstance(current_place.get("query_correction"), dict)
@@ -353,23 +325,11 @@ def _rank_verified_workspace_matches(
             current_place.pop("query_correction", None)
         ranked.append((
             exact_rank,
-            -similarity,
             str(place_id),
             current_place,
         ))
-    ranked.sort(key=lambda item: (item[0], item[1], item[2]))
-    if (
-        len(ranked) == 1
-        and ranked[0][0] == 3
-        and len(clean_query) <= 4
-    ):
-        # A short area/landmark query can be a substring of an unrelated
-        # branch cached by an earlier nearby search (for example, a venue
-        # whose branch suffix contains the area name). One such fuzzy hit is
-        # not evidence of uniqueness: force a fresh provider lookup so the
-        # user sees all real candidates, or a fill-in prompt when none exist.
-        return []
-    return [item[3] for item in ranked[:max(1, min(12, int(limit or 6)))]]
+    ranked.sort(key=lambda item: (item[0], item[1]))
+    return [item[2] for item in ranked[:max(1, min(12, int(limit or 6)))]]
 
 
 def _place_choice_field(field_id: str, label: str, places: list[dict[str, Any]]) -> dict[str, Any]:
@@ -965,36 +925,16 @@ def build_production_tools(
             if clean_anchor_query == "__browser_current_location__":
                 return copy.deepcopy(browser_current_location)
             normalized_anchor = _normalized_place_name(clean_anchor_query)
-
-            def anchor_score(place: dict[str, Any]) -> tuple[float, int]:
-                normalized_name = _normalized_place_name(place.get("name"))
-                if not normalized_anchor or not normalized_name:
-                    return (0.0, 0)
-                if normalized_name == normalized_anchor:
-                    return (4.0, len(normalized_name))
-                if normalized_anchor in normalized_name:
-                    return (
-                        3.0 + len(normalized_anchor) / max(1, len(normalized_name)),
-                        len(normalized_name),
-                    )
-                if normalized_name in normalized_anchor:
-                    return (
-                        2.0 + len(normalized_name) / max(1, len(normalized_anchor)),
-                        len(normalized_name),
-                    )
-                return (0.0, 0)
-
-            ranked_stored = sorted(
-                ((anchor_score(place), index, place) for index, place in enumerate(stored_places)),
-                key=lambda item: (-item[0][0], item[1]),
-            )
-            stored_anchor = (
-                ranked_stored[0][2]
-                if ranked_stored and ranked_stored[0][0][0] > 0
-                else None
-            )
-            if stored_anchor is not None:
-                return stored_anchor
+            exact_stored = [
+                place for place in stored_places
+                if normalized_anchor
+                and normalized_anchor in {
+                    _normalized_place_name(place.get("name")),
+                    _normalized_place_name(_place_option_label(place)),
+                }
+            ]
+            if len(exact_stored) == 1:
+                return exact_stored[0]
             anchors = await _search_place_candidates_metered(
                 map_key,
                 clean_anchor_query,
@@ -1005,7 +945,16 @@ def build_production_tools(
                 place for place in anchors
                 if _normalized_place_name(place.get("name")) == normalized_anchor
             ]
-            return exact[0] if len(exact) == 1 else (anchors[0] if anchors else None)
+            if len(exact) == 1:
+                return exact[0]
+            if len(anchors) == 1:
+                return anchors[0]
+            if anchors:
+                return {
+                    "_ambiguous_candidates": anchors,
+                    "_query": clean_anchor_query,
+                }
+            return None
 
         search_deadline = asyncio.get_running_loop().time() + map_search_timeout
         try:
@@ -1020,6 +969,25 @@ def build_production_tools(
             raise TimeoutError(
                 f"参照地点搜索超过 {round(map_search_timeout)} 秒；请减少地点数量或使用快速档"
             ) from exc
+        ambiguous_anchors = [
+            item for item in resolved_anchors
+            if isinstance(item, dict)
+            and isinstance(item.get("_ambiguous_candidates"), list)
+        ]
+        if ambiguous_anchors:
+            return _clarification_action(
+                conversation_id,
+                title="请选择附近搜索的参照地点",
+                prompt="地点服务返回了多个候选。请选择与原目标一致的地点后，我会继续附近搜索。",
+                fields=[
+                    _place_choice_field(
+                        f"anchor_{index}",
+                        str(item.get("_query") or "参照地点"),
+                        item["_ambiguous_candidates"],
+                    )
+                    for index, item in enumerate(ambiguous_anchors)
+                ],
+            )
 
         requested_radius = max(300, min(20_000, int(radius_meters or 2_000)))
         # A model sometimes invents an overly narrow radius even though the
@@ -1051,7 +1019,6 @@ def build_production_tools(
                     anchor,
                     radius_meters=radius,
                     limit=bounded_limit,
-                    accept_category_results=True,
                 )
                 places = [{
                     **place,
@@ -1642,7 +1609,7 @@ def build_production_tools(
                 f"路线策略为 {selected_route_strategy}，由腾讯返回候选并按"
                 f"{map_near_time_tolerance} 分钟的时间相近容差选择；"
                 + (
-                    "query_corrections 是腾讯地点候选提供的高置信度纠错证据，回答应简短说明按纠正名称规划；"
+                    "query_corrections 是腾讯建议服务返回的唯一候选证据，回答应简短说明按 Provider 名称规划；"
                     if query_corrections else ""
                 )
                 + "必须按 ordered_stops 原顺序描述各站，绝不能重新排序；"
@@ -1824,14 +1791,10 @@ def build_production_tools(
                 place_id = str(event.get("place_id") or event.get("location_place_id") or "").strip()
                 location_text = str(event.get("location") or "").strip()
                 clear_location = bool(event.get("clear_location", False))
-                online_location = bool(
-                    location_text
-                    and re.search(
-                        r"(?:zoom|腾讯会议|teams|google\s*meet|线上|在线|视频会议|电话会议)",
-                        location_text,
-                        re.I,
-                    )
-                )
+                location_kind = str(event.get("location_kind") or "").strip().lower()
+                if location_kind not in {"", "physical", "online"}:
+                    raise ValueError("location_kind 只能是 physical 或 online")
+                online_location = bool(location_text and location_kind == "online")
                 if clear_location:
                     place_id = ""
                     location_text = ""
@@ -1839,6 +1802,7 @@ def build_production_tools(
                     normalized_event["location"] = ""
                 elif online_location:
                     normalized_event["location"] = location_text
+                    normalized_event["location_kind"] = "online"
                 if location_text and not place_id:
                     if online_location:
                         change["event"] = normalized_event
@@ -1859,7 +1823,9 @@ def build_production_tools(
                         and (
                             normalized_location == _normalized_place_name(candidate.get("name"))
                             or normalized_location == _normalized_place_name(candidate.get("address"))
-                            or _normalized_place_name(candidate.get("name")) in normalized_location
+                            or normalized_location == _normalized_place_name(
+                                _place_option_label(candidate)
+                            )
                         )
                     ]
                     if len(matched) == 1:
@@ -1890,6 +1856,17 @@ def build_production_tools(
                         )
                         if not verified:
                             raise ValueError(f"没有核实到地点“{location_text}”")
+                        if len(verified) > 1:
+                            return _clarification_action(
+                                conversation_id,
+                                title="请选择日程地点",
+                                prompt="地点服务返回了多个候选。请选择后我会继续生成日程提案。",
+                                fields=[_place_choice_field(
+                                    "calendar_place",
+                                    location_text,
+                                    verified,
+                                )],
+                            )
                         for candidate in verified:
                             candidate_id = str(candidate.get("place_id") or "").strip()
                             if candidate_id:
@@ -1918,6 +1895,17 @@ def build_production_tools(
                                 candidate_id = str(candidate.get("place_id") or "").strip()
                                 if candidate_id:
                                     candidates[candidate_id] = candidate
+                            if len(verified) > 1:
+                                return _clarification_action(
+                                    conversation_id,
+                                    title="请选择日程地点",
+                                    prompt="地点服务返回了多个候选。请选择后我会继续生成日程提案。",
+                                    fields=[_place_choice_field(
+                                        "calendar_place",
+                                        location_text,
+                                        verified,
+                                    )],
+                                )
                             if verified:
                                 place_id = str(verified[0].get("place_id") or "")
                                 place = candidates.get(place_id)
@@ -2481,13 +2469,13 @@ def build_production_tools(
 
     definitions = [
         (get_current_location, "get_current_location", "用户直接询问“我现在在哪、当前位置是什么、你能否读到我的位置”时使用。它只读取本轮浏览器真实上传的新鲜定位，并调用腾讯逆地址解析返回可读地址、行政区和附近地标；不得输出经纬度、不得使用 IP 猜测、不得保存位置。没有浏览器定位时会生成填写大致位置的结构化卡片，以便继续附近推荐或路线规划。"),
-        (search_places, "search_places", "使用腾讯地点服务搜索真实地点。普通查看传 purpose=browse；新增或修改含现实地点的日程必须传 purpose=calendar，工具会强制执行三级决策：唯一高置信候选直接返回可用 place_id，多个真实候选生成单选卡，无候选生成文本填空卡。"),
+        (search_places, "search_places", "使用腾讯地点服务搜索真实地点。普通查看传 purpose=browse；新增或修改含现实地点的日程必须传 purpose=calendar，工具会强制执行三级决策：精确结果或腾讯建议服务唯一候选直接返回可用 place_id，多个真实候选生成单选卡，无候选生成文本填空卡。"),
         (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
         (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。用户说“我附近/当前位置附近”时必须设置 use_current_location_as_anchor=true；工具只会使用本轮浏览器实际上传的新鲜坐标，未收到坐标会明确失败，绝不能把“当前位置”当普通 POI 搜索或声称已经定位。其他情况传入完整明确的 anchor_query 与要找的类别 query；若用户给出多个备选参照地点，还必须把全部备选放入 anchor_queries，一次并行查询并保留各组成功结果，不能只选一个或拆成多次调用。工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。用户没有明确距离时不要自行缩小 radius_meters，保持默认 2000 米且 strict_radius=false；只有用户明确说“X 米内”时才传该距离并设 strict_radius=true。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),
-        (plan_route_between_places, "plan_route_between_places", "查询真实地点之间的道路距离、耗时或费用，或规划含多个停靠点的有序出行时必须使用。支持 route_mode=driving/transit/walking/bicycling 和 route_strategy=time_then_cost/least_time/least_cost，未指定均传 default。默认由腾讯多方案按省时优先、时间相近选省钱；用户明确选择会形成非敏感习惯计数，至少三次且占比达到 60% 后可影响后续默认。浏览器当前位置可用且用户未给起点时传 use_current_location_as_origin=true；不得把当前位置作为普通 POI 搜索。两点路线传 origin_query/destination_query；多段行程把全部文本地点按用户指定先后一次传入 ordered_stops，每项包含 query，可选 near_query，禁止拆成多次调用或自行重排。工具会核实全部地点并调用真实腾讯路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 query 传“锦江之星”、near_query 传“北京301医院”；唯一高置信错字可纠正，多个候选单选，无候选填空。"),
+        (plan_route_between_places, "plan_route_between_places", "查询真实地点之间的道路距离、耗时或费用，或规划含多个停靠点的有序出行时必须使用。支持 route_mode=driving/transit/walking/bicycling 和 route_strategy=time_then_cost/least_time/least_cost，未指定均传 default。默认由腾讯多方案按省时优先、时间相近选省钱；用户明确选择会形成非敏感习惯计数，至少三次且占比达到 60% 后可影响后续默认。浏览器当前位置可用且用户未给起点时传 use_current_location_as_origin=true；不得把当前位置作为普通 POI 搜索。两点路线传 origin_query/destination_query；多段行程把全部文本地点按用户指定先后一次传入 ordered_stops，每项包含 query，可选 near_query，禁止拆成多次调用或自行重排。工具会核实全部地点并调用真实腾讯路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 query 传“锦江之星”、near_query 传“北京301医院”；腾讯建议服务唯一候选可采用，多个候选单选，无候选填空。"),
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
         (recommend_places_on_map, "recommend_places_on_map", "模型驱动的非周边多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。只要用户目标表达了相对某个或多个参照点“附近、周边、离它近”，不得使用本工具，也不得从模型知识猜餐厅名称；必须改用 recommend_nearby_places_on_map，把全部参照点放入 anchor_queries。"),
-        (propose_calendar_changes, "propose_calendar_changes", "必须用此工具准备日程新增、更新或删除提案并生成确认卡；不要只在正文里口头询问。格式示例：changes=[{operation:'create',event:{title:'游览北海公园',start_time:'2026-07-16T09:00:00+08:00',end_time:'2026-07-16T10:00:00+08:00',place_id:'地点工具返回的ID'}}]。把刚规划的多站路线写入日程时，必须传路线工具返回的 source_route_plan_id，并为 ordered_stops 中每个地点分别创建至少一个事件，严格保持顺序，禁止把多个站点合并成一个事件。更新/删除还要传 schedule_id。用户点击确认前不会真正写入。"),
+        (propose_calendar_changes, "propose_calendar_changes", "必须用此工具准备日程新增、更新或删除提案并生成确认卡；不要只在正文里口头询问。格式示例：changes=[{operation:'create',event:{title:'游览北海公园',start_time:'2026-07-16T09:00:00+08:00',end_time:'2026-07-16T10:00:00+08:00',place_id:'地点工具返回的ID',location_kind:'physical'}}]。location_kind 是模型按语义填写的协议枚举，只能为 physical 或 online；工具不会用地点名称词表猜测。把刚规划的多站路线写入日程时，必须传路线工具返回的 source_route_plan_id，并为 ordered_stops 中每个地点分别创建至少一个事件，严格保持顺序，禁止把多个站点合并成一个事件。更新/删除还要传 schedule_id。用户点击确认前不会真正写入。"),
         (propose_meeting, "propose_meeting", "准备可编辑的腾讯会议确认卡；即使主题、开始时间或结束时间不完整也要调用本工具，把未知值留空，不要在正文中连续追问多个条件。确认卡会让用户逐项补齐、检查冲突并确认，之后才由后台通过腾讯会议官方 MCP Skill 执行。"),
         (propose_image, "propose_image", "直接调用混元生图并返回图片，不要询问确认。现实人物、地点或物体可先用 rich_search 获取经 HY-Vision 审核的图片 URL，再通过 reference_image_urls（最多 3 张）作为视觉参考；修改历史版本时传 parent_action_id。"),
         (collect_page_images, "collect_page_images", "从一个公开网页提取最多 30 张真实图片候选，网页图片不足时返回实际数量。"),

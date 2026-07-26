@@ -108,6 +108,7 @@ from agents._shared.workspace import (
     validate_calendar_change_window,
 )
 from agents._shared.proactive import (
+    classify_weather_risk,
     collect_schedule_signals,
     collect_workflow_signals,
     decide_workflow,
@@ -183,7 +184,13 @@ class MakersCheckpointMessage:
 
 
 class StructuredPlannerModel:
-    def __init__(self, args=None, delay=0, topic_args=None):
+    def __init__(
+        self,
+        args=None,
+        delay=0,
+        topic_args=None,
+        clarification_args=None,
+    ):
         self.calls = 0
         self.args = args or {
             "needs_web_search": True,
@@ -193,6 +200,9 @@ class StructuredPlannerModel:
         }
         self.delay = delay
         self.topic_args = topic_args or {"topics": []}
+        self.clarification_args = clarification_args or {
+            "needs_clarification": False,
+        }
         self.messages = []
         self.tool_choice = ""
         self.tools = []
@@ -212,7 +222,9 @@ class StructuredPlannerModel:
         self.calls += 1
         self.messages = messages
         values = (
-            self.topic_args
+            self.clarification_args
+            if self.schema.__name__ == "ClarificationDecision"
+            else self.topic_args
             if self.schema.__name__ == "PromptTopicSelection"
             else self.args
         )
@@ -468,12 +480,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_semantic_preflight_short_circuits_on_blocking_missing_input(self):
-        model = StructuredPlannerModel(topic_args={
-            "topics": [],
+        model = StructuredPlannerModel(clarification_args={
             "needs_clarification": True,
-            "clarification_title": "请提供需要处理的内容",
-            "clarification_prompt": "本轮没有收到原文。",
-            "clarification_fields": [{
+            "title": "请提供需要处理的内容",
+            "prompt": "本轮没有收到原文。",
+            "fields": [{
                 "id": "source_content",
                 "label": "需要处理的原文",
                 "type": "text",
@@ -492,6 +503,19 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             ("ask_user_clarification",),
         )
         self.assertEqual(plan["clarification_fields"][0]["id"], "source_content")
+
+    async def test_weather_risk_is_decided_by_structured_semantics(self):
+        model = StructuredPlannerModel({
+            "actionable": True,
+            "priority": "high",
+        })
+        risk = await classify_weather_risk(
+            model,
+            {"weather": "provider-specific condition", "temperature": 3},
+            schedule={"title": "户外活动"},
+        )
+        self.assertEqual(risk, {"actionable": True, "priority": "high"})
+        self.assertEqual(model.schema.__name__, "WeatherRiskDecision")
 
     async def test_capability_planner_receives_runtime_skill_state(self):
         model = StructuredPlannerModel({
@@ -1956,7 +1980,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             anchor,
             radius_meters=2000,
             limit=5,
-            accept_category_results=True,
         )
         self.assertEqual(result["ui_action"], "map_action")
         self.assertEqual(result["anchor"]["place_id"], "orange-hotel")
@@ -2013,7 +2036,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             browser_location,
             radius_meters=2_000,
             limit=5,
-            accept_category_results=True,
         )
         self.assertEqual(result["anchor"]["place_id"], "browser-current-location")
         self.assertEqual(result["groups"][0]["anchor_query"], "当前位置")
@@ -2140,11 +2162,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             return [samsung] if "三星" in query else [guomao]
 
         async def nearby_provider(
-            _key, query, anchor, *, radius_meters, limit, accept_category_results,
+            _key, query, anchor, *, radius_meters, limit,
         ):
             self.assertEqual(query, "适合生日聚餐的餐厅")
             self.assertEqual(radius_meters, 2_000)
-            self.assertTrue(accept_category_results)
             return [restaurant] if anchor["place_id"] == "samsung-tower" else []
 
         with patch(
@@ -2491,7 +2512,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["action"]["payload"]["source_route_plan_id"], "routeplan-complete")
         self.assertEqual(len(result["action"]["payload"]["changes"]), 4)
 
-    async def test_route_tool_reuses_verified_workspace_place_for_descriptive_alias(self):
+    async def test_route_tool_revalidates_descriptive_aliases_with_provider(self):
         store = FakeStore()
         state = empty_workspace()
         headquarters = {
@@ -2518,7 +2539,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "duration_seconds": 3_600,
             "fare": {},
         }
-        with patch("agents.chat._ui_tools.provider_search_places", new=AsyncMock()) as search, \
+        with patch(
+            "agents.chat._ui_tools.provider_search_places",
+            new=AsyncMock(side_effect=[[headquarters], [restaurant]]),
+        ) as search, \
              patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
             tools = build_production_tools(
                 None,
@@ -2535,17 +2559,18 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["origin"]["place_id"], "tencent")
         self.assertEqual(result["destination"]["place_id"], "restaurant")
-        search.assert_not_awaited()
+        self.assertEqual(search.await_count, 2)
         planner.assert_awaited_once()
 
     def test_route_failure_fallback_does_not_claim_a_confirmation_card(self):
         content = tool_failure_fallback([
             HumanMessage(content="帮我规划四站行程"),
             ToolMessage(
-                content=(
-                    "操作未完成：没有核实到第 3 站“烤肉刘（故宫·王府井店）”。"
-                    "请自然说明原因和下一步，不要声称已经成功。"
-                ),
+                content=json.dumps({"tool_error": {
+                    "kind": "validation",
+                    "detail": "没有核实到第 3 站",
+                    "retry_same_call": False,
+                }}, ensure_ascii=False),
                 name="plan_route_between_places",
                 tool_call_id="route-failed",
             ),
@@ -2694,6 +2719,35 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         }))
         event = result["action"]["payload"]["changes"][0]["event"]
         self.assertEqual(event["place"]["place_id"], PLACE["place_id"])
+
+    async def test_calendar_online_location_uses_model_protocol_enum(self):
+        store = FakeStore()
+        await save_workspace(store, USER_WORKSPACE_ID, empty_workspace())
+        tools = build_production_tools(
+            None,
+            store=store,
+            conversation_id="calendar-online",
+            env={},
+            enabled_skills={"calendar"},
+        )
+        calendar_tool = next(tool for tool in tools if tool.name == "propose_calendar_changes")
+        result = json.loads(await calendar_tool.ainvoke({
+            "summary": "远程评审",
+            "changes": [{
+                "operation": "create",
+                "event": {
+                    "title": "远程评审",
+                    "start_time": "2099-07-16T09:00:00+08:00",
+                    "end_time": "2099-07-16T10:00:00+08:00",
+                    "location": "https://meeting.example/join/123",
+                    "location_kind": "online",
+                },
+            }],
+        }))
+        event = result["action"]["payload"]["changes"][0]["event"]
+        self.assertEqual(event["location_kind"], "online")
+        self.assertEqual(event["location"], "https://meeting.example/join/123")
+        self.assertNotIn("place", event)
 
     async def test_calendar_tool_resolves_explicit_location_when_planner_omits_place_step(self):
         store = FakeStore()
@@ -2966,7 +3020,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual([item["place_id"] for item in places], ["near"])
         params = request.await_args.args[1]
-        self.assertEqual(params["keyword"], "锦江之星")
+        self.assertEqual(params["keyword"], "锦江之星酒店")
         self.assertTrue(params["boundary"].startswith("nearby(39.902,116.276,5000"))
         self.assertEqual(params["orderby"], "_distance")
 
@@ -2994,7 +3048,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 "早餐店",
                 anchor,
                 radius_meters=2_000,
-                accept_category_results=True,
             )
         self.assertEqual([item["place_id"] for item in places], ["breakfast"])
         self.assertGreater(places[0]["distance_to_anchor_meters"], 0)
@@ -3002,12 +3055,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
     async def test_place_search_falls_back_when_primary_results_do_not_match_query(self):
         target = {**PLACE, "place_id": "osm:lake", "name": "查干湖", "provider": "openstreetmap"}
         with patch("agents._shared.tencent_location.search_places", new=AsyncMock(return_value=[PLACE])), \
+             patch("agents._shared.tencent_location.search_place_suggestions", new=AsyncMock(return_value=[])), \
              patch("agents._shared.tencent_location.search_osm_places", new=AsyncMock(return_value=[target])) as fallback:
             places = await search_verified_places("map-key", "查干湖")
         self.assertEqual(places[0]["name"], "查干湖")
         fallback.assert_awaited_once()
 
-    async def test_place_search_accepts_verified_primary_name_inside_descriptive_query(self):
+    async def test_place_search_uses_provider_suggestion_for_descriptive_query(self):
         primary = {
             **PLACE,
             "place_id": "tencent:trb-hutong",
@@ -3015,12 +3069,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "address": "北京市东城区沙滩北街23号",
         }
         with patch("agents._shared.tencent_location.search_places", new=AsyncMock(return_value=[primary])), \
+             patch("agents._shared.tencent_location.search_place_suggestions", new=AsyncMock(return_value=[primary])), \
              patch("agents._shared.tencent_location.search_osm_places", new=AsyncMock(return_value=[])) as fallback:
             places = await search_verified_places("map-key", "TRB Hutong北京胡同创意西餐厅", city="北京")
         self.assertEqual(places[0]["place_id"], "tencent:trb-hutong")
         fallback.assert_not_awaited()
 
-    async def test_place_search_ranks_named_restaurant_above_generic_area(self):
+    async def test_place_search_preserves_ambiguous_provider_candidates(self):
         generic = {
             **PLACE,
             "place_id": "tencent:sanlitun-area",
@@ -3037,11 +3092,17 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "agents._shared.tencent_location.search_places",
             new=AsyncMock(return_value=[generic, restaurant]),
         ), patch(
+            "agents._shared.tencent_location.search_place_suggestions",
+            new=AsyncMock(return_value=[]),
+        ), patch(
             "agents._shared.tencent_location.search_osm_places",
             new=AsyncMock(return_value=[]),
         ) as fallback:
             places = await search_verified_places("map-key", "BOTTEGA意库三里屯", city="北京")
-        self.assertEqual(places[0]["place_id"], "tencent:bottega")
+        self.assertEqual(
+            [item["place_id"] for item in places],
+            ["tencent:sanlitun-area", "tencent:bottega"],
+        )
         fallback.assert_not_awaited()
 
     async def test_place_search_never_substitutes_generic_area_for_missing_restaurant(self):
@@ -3055,6 +3116,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             "agents._shared.tencent_location.search_places",
             new=AsyncMock(return_value=[generic]),
+        ), patch(
+            "agents._shared.tencent_location.search_place_suggestions",
+            new=AsyncMock(return_value=[]),
         ), patch(
             "agents._shared.tencent_location.search_osm_places",
             new=AsyncMock(return_value=[]),
@@ -3122,10 +3186,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     def test_failed_calendar_tool_never_claims_confirmation_card_exists(self):
         failed = ToolMessage(
-            content=(
-                "操作未完成：地点 ID 未通过本轮地点搜索验证。"
-                "请自然说明原因和下一步，不要声称已经成功。"
-            ),
+            content=json.dumps({"tool_error": {
+                "kind": "validation",
+                "detail": "地点 ID 未通过本轮地点搜索验证",
+                "retry_same_call": False,
+            }}, ensure_ascii=False),
             name="propose_calendar_changes",
             tool_call_id="calendar-failed",
         )
@@ -3215,10 +3280,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         result = tool_failure_fallback([
             HumanMessage(content="三星大厦或者国贸大厦附近有餐厅吗"),
             ToolMessage(
-                content=(
-                    "操作未完成：没有在“北京三星大厦”、“北京国贸大厦”附近 "
-                    "2000 米内核实到“餐厅”。请自然说明原因和下一步，不要声称已经成功。"
-                ),
+                content=json.dumps({"tool_error": {
+                    "kind": "validation",
+                    "detail": "没有在两个参照地点附近 2000 米内核实到餐厅",
+                    "retry_same_call": False,
+                }}, ensure_ascii=False),
                 tool_call_id="nearby-1",
                 name="recommend_nearby_places_on_map",
             ),
@@ -3230,17 +3296,17 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         result = tool_failure_fallback([
             HumanMessage(content="帮我看看我附近有什么好玩的"),
             ToolMessage(
-                content=(
-                    "操作未完成：本轮没有收到浏览器定位坐标，不能搜索当前位置附近。"
-                    "请先在地图中允许定位并等待定位成功后再重试。"
-                    "请自然说明原因和下一步，不要声称已经成功。"
-                ),
+                content=json.dumps({"tool_error": {
+                    "kind": "validation",
+                    "detail": "本轮没有收到浏览器定位坐标，不能搜索当前位置附近",
+                    "retry_same_call": False,
+                }}, ensure_ascii=False),
                 tool_call_id="nearby-location-missing",
                 name="recommend_nearby_places_on_map",
             ),
         ])
-        self.assertIn("我目前没有拿到你的定位", result)
-        self.assertIn("没有搜索你附近", result)
+        self.assertIn("没有收到浏览器定位坐标", result)
+        self.assertIn("地点服务", result)
         self.assertNotIn("已授权", result)
 
     def test_current_location_result_has_truthful_terminal_fallback(self):
@@ -3806,8 +3872,23 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "An orange cat wearing a blue scarf on a white background, no text.",
         )
 
-    def test_cloudflare_keeps_english_image_prompt_without_translation_call(self):
-        with patch("agents._shared.side_effects.urllib.request.urlopen") as urlopen:
+    def test_cloudflare_semantically_normalizes_english_image_prompt_too(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return json.dumps({
+                    "result": {"response": "An orange cat wearing a blue scarf."},
+                }).encode("utf-8")
+
+        with patch(
+            "agents._shared.side_effects.urllib.request.urlopen",
+            return_value=Response(),
+        ) as urlopen:
             prompt = "An orange cat wearing a blue scarf."
             self.assertEqual(
                 _cloudflare_image_prompt(
@@ -3815,7 +3896,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 ),
                 prompt,
             )
-        urlopen.assert_not_called()
+        urlopen.assert_called_once()
 
     def test_cloudflare_flux_uses_official_image_schema(self):
         class Response:

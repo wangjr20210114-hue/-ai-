@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import difflib
 import json
 import math
 import re
@@ -232,103 +231,36 @@ def _normalized_lookup_text(value: Any) -> str:
     return "".join(re.findall(r"[\w\u4e00-\u9fff]+", str(value or "").lower()))
 
 
-def _nearby_brand_keyword(value: str) -> str:
-    """Drop a generic category suffix only when a substantial brand remains."""
-    clean = str(value or "").strip()
-    for suffix in ("酒店", "宾馆", "餐厅", "餐馆"):
-        if clean.endswith(suffix):
-            brand = clean[:-len(suffix)].strip()
-            if len(_normalized_lookup_text(brand)) >= 4:
-                return brand
-    return clean
-
-
-def _primary_place_match_score(item: dict[str, Any], normalized_query: str) -> float:
-    normalized_name = _normalized_lookup_text(item.get("name"))
-    normalized_record = _normalized_lookup_text(f"{item.get('name', '')}{item.get('address', '')}")
-    if not normalized_query or not normalized_name:
-        return 0.0
-    if normalized_query in normalized_record:
-        return 3.0 + min(1.0, len(normalized_query) / max(1, len(normalized_record)))
-    # A short insertion can identify a genuinely different POI: 北京西站 is
-    # not a descriptive spelling of 北京站. Only accept a candidate name
-    # embedded in a substantially longer free-form description.
-    extra_length = len(normalized_query) - len(normalized_name)
-    if (
-        len(normalized_name) >= 3
-        and normalized_name in normalized_query
-        and extra_length >= 3
-    ):
-        coverage = len(normalized_name) / max(1, len(normalized_query))
-        if coverage > 0.25:
-            return 2.0 + coverage
-    return 0.0
-
-
-def _typo_match_score(item: dict[str, Any], normalized_query: str) -> float:
-    """Return evidence strength for a likely one- or two-character place typo."""
-    normalized_name = _normalized_lookup_text(item.get("name"))
-    if len(normalized_query) < 3 or not normalized_name:
-        return 0.0
-    # Substring additions often carry semantic identity (北京西站/北京站,
-    # 大雁塔北广场/大雁塔), so they are unsafe as automatic typo corrections.
-    matcher = difflib.SequenceMatcher(None, normalized_query, normalized_name)
-    edits = {tag for tag, *_rest in matcher.get_opcodes() if tag != "equal"}
-    if (
-        normalized_query in normalized_name
-        or normalized_name in normalized_query
-        or (edits and edits <= {"insert", "delete"})
-    ):
-        return 0.0
-    ratio = matcher.ratio()
-    threshold = 0.64 if len(normalized_query) == 3 else 0.72 if len(normalized_query) == 4 else 0.76
-    if ratio < threshold:
-        return 0.0
-    # A weak match to a very long venue name is usually a category collision,
-    # not a safe correction.
-    coverage = min(len(normalized_query), len(normalized_name)) / max(
-        len(normalized_query), len(normalized_name),
-    )
-    return ratio if coverage >= 0.55 else 0.0
-
-
-def _verified_typo_candidates(
+def _provider_place_candidates(
     candidates: list[dict[str, Any]],
     query: str,
-    city: str,
     *,
     limit: int,
-    evidence: str = "tencent_place_suggestion",
+    evidence: str,
 ) -> list[dict[str, Any]]:
+    """Preserve provider ranking and expose non-exact names as evidence.
+
+    The adapter deliberately does not infer typo similarity, strip category
+    suffixes, or collapse aliases. Tencent's ordered response is the evidence;
+    downstream code may continue only for one candidate and otherwise asks the
+    user to choose.
+    """
     normalized_query = _normalized_lookup_text(query)
-    requested_city = _normalized_lookup_text(city)
-    ranked: list[tuple[float, int, dict[str, Any]]] = []
-    for index, item in enumerate(candidates):
-        locality = _normalized_lookup_text(f"{item.get('city', '')}{item.get('address', '')}")
-        if requested_city and requested_city not in {
-            _normalized_lookup_text("全国"), _normalized_lookup_text("中国"),
-        } and requested_city not in locality:
+    output: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in candidates:
+        place_id = str(item.get("place_id") or "")
+        if not place_id or place_id in seen:
             continue
-        score = _typo_match_score(item, normalized_query)
-        if score > 0:
-            ranked.append((score, index, item))
-    ranked.sort(key=lambda value: (-value[0], value[1]))
-    if not ranked:
-        return []
-    top_score = ranked[0][0]
-    output = []
-    for score, _index, item in ranked:
-        if score < top_score - 0.04:
-            break
-        output.append({
-            **item,
-            "query_correction": {
+        seen.add(place_id)
+        current = dict(item)
+        if _normalized_lookup_text(item.get("name")) != normalized_query:
+            current["query_correction"] = {
                 "original_query": str(query or "").strip()[:120],
                 "corrected_name": str(item.get("name") or "")[:120],
-                "confidence": round(score, 3),
                 "evidence": evidence,
-            },
-        })
+            }
+        output.append(current)
         if len(output) >= max(1, min(20, int(limit))):
             break
     return output
@@ -369,7 +301,7 @@ async def search_verified_places_bounded(
     timeout = max(3.0, min(55.0, float(timeout_seconds)))
     deadline = asyncio.get_running_loop().time() + timeout
     normalized_query = _normalized_lookup_text(query)
-    primary: list[dict[str, Any]] = []
+    unresolved_primary: list[dict[str, Any]] = []
     if key:
         try:
             primary = await asyncio.wait_for(
@@ -380,22 +312,16 @@ async def search_verified_places_bounded(
                 # the retry before it could ever succeed.
                 timeout=min(17.0, timeout),
             )
-            ranked_primary = sorted(
-                (
-                    (_primary_place_match_score(item, normalized_query), index, item)
-                    for index, item in enumerate(primary)
-                ),
-                key=lambda candidate: (-candidate[0], candidate[1]),
-            )
-            matched_primary = [item for score, _index, item in ranked_primary if score > 0]
-            if matched_primary:
-                return matched_primary
-            typo_primary = _verified_typo_candidates(
-                primary, query, city, limit=limit,
-                evidence="tencent_place_search",
-            )
-            if typo_primary:
-                return typo_primary
+            exact_primary = [
+                item for item in primary
+                if _normalized_lookup_text(item.get("name")) == normalized_query
+            ]
+            if exact_primary:
+                return _provider_place_candidates(
+                    exact_primary, query, limit=limit,
+                    evidence="tencent_place_search",
+                )
+            unresolved_primary = primary
         except Exception:
             pass
     remaining = deadline - asyncio.get_running_loop().time()
@@ -409,25 +335,24 @@ async def search_verified_places_bounded(
                 # the adapter's bounded retry when enough budget remains.
                 timeout=min(17.0, remaining),
             )
-            ranked_suggestions = sorted(
-                (
-                    (_primary_place_match_score(item, normalized_query), index, item)
-                    for index, item in enumerate(suggestions)
-                ),
-                key=lambda candidate: (-candidate[0], candidate[1]),
-            )
-            matched_suggestions = [
-                item for score, _index, item in ranked_suggestions if score > 0
-            ]
-            if matched_suggestions:
-                return matched_suggestions[:max(1, min(20, int(limit)))]
-            typo_suggestions = _verified_typo_candidates(
-                suggestions, query, city, limit=limit,
-            )
-            if typo_suggestions:
-                return typo_suggestions
+            if suggestions:
+                exact_suggestions = [
+                    item for item in suggestions
+                    if _normalized_lookup_text(item.get("name")) == normalized_query
+                ]
+                return _provider_place_candidates(
+                    exact_suggestions or suggestions, query, limit=limit,
+                    evidence="tencent_place_suggestion",
+                )
         except Exception:
             pass
+    if len(unresolved_primary) > 1:
+        return _provider_place_candidates(
+            unresolved_primary,
+            query,
+            limit=limit,
+            evidence="tencent_place_search",
+        )
     remaining = deadline - asyncio.get_running_loop().time()
     if remaining <= 0:
         raise TimeoutError(f"地点搜索超过 {round(timeout)} 秒，请减少候选数量或使用快速档")
@@ -480,14 +405,11 @@ async def search_verified_places_nearby(
     *,
     radius_meters: int = 5_000,
     limit: int = 10,
-    accept_category_results: bool = False,
 ) -> list[dict[str, Any]]:
     """Resolve POIs only when they are physically near a verified anchor.
 
-    Named POIs retain strict text matching. For a category discovery request,
-    Tencent's nearby boundary is itself the verification source, so callers may
-    accept the provider-ranked results even when a venue name does not repeat
-    the category word (for example, a breakfast shop named after its brand).
+    Tencent's nearby boundary and ordered results are the evidence source.
+    The adapter does not infer categories or aliases from local word lists.
     """
     query = str(query or "").strip()
     if not query:
@@ -499,9 +421,7 @@ async def search_verified_places_nearby(
         raise ValueError("周边搜索锚点缺少已验证坐标") from None
     radius = max(200, min(50_000, int(radius_meters or 5_000)))
     bounded_limit = max(1, min(20, int(limit)))
-    search_keyword = _nearby_brand_keyword(query)
-    normalized_query = _normalized_lookup_text(search_keyword)
-
+    search_keyword = query
     if key:
         try:
             data = await _get(
@@ -519,28 +439,26 @@ async def search_verified_places_nearby(
                 place for place in (_place(item) for item in data.get("data", []) if isinstance(item, dict))
                 if place is not None
             ]
-            ranked = sorted((
+            provider_candidates = _provider_place_candidates(
+                candidates,
+                query,
+                limit=bounded_limit,
+                evidence="tencent_nearby_search",
+            )
+            ranked = sorted(
                 (
-                    _primary_place_match_score(item, normalized_query),
-                    place_distance_meters(anchor, item),
-                    index,
-                    item,
-                )
-                for index, item in enumerate(candidates)
-            ), key=lambda candidate: (candidate[1], -candidate[0], candidate[2]))
-            matched = [
+                    (place_distance_meters(anchor, item), index, item)
+                    for index, item in enumerate(provider_candidates)
+                ),
+                key=lambda candidate: (candidate[0], candidate[1]),
+            )
+            nearby = [
                 {**item, "distance_to_anchor_meters": round(distance, 1)}
-                for score, distance, _index, item in ranked
-                if score > 0 and distance <= radius
+                for distance, _index, item in ranked
+                if distance <= radius
             ]
-            if matched:
-                return matched[:bounded_limit]
-            if accept_category_results:
-                return [
-                    {**item, "distance_to_anchor_meters": round(distance, 1)}
-                    for _score, distance, _index, item in ranked
-                    if distance <= radius
-                ][:bounded_limit]
+            if nearby:
+                return nearby[:bounded_limit]
         except Exception:
             pass
 

@@ -8,7 +8,6 @@ import binascii
 from datetime import datetime
 import json
 import logging
-import re
 import socket
 import time
 import urllib.error
@@ -352,16 +351,14 @@ def _cloudflare_image_prompt(
     model: str,
     prompt: str,
 ) -> str:
-    """Translate CJK image instructions for image models that follow English best."""
-    if not re.search(r"[\u3400-\u9fff]", prompt):
-        return prompt
+    """Normalize image instructions for image models that follow English best."""
     endpoint = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}"
     payload = {
         "messages": [
             {
                 "role": "system",
                 "content": (
-                    "Translate Chinese image-generation or image-editing instructions into one precise "
+                    "Normalize the image-generation or image-editing instructions into one precise "
                     "English diffusion prompt. Preserve every subject, color, layout, background, exclusion, "
                     "and edit constraint. Output only the English prompt, without quotes or explanation."
                 ),
@@ -392,8 +389,8 @@ def _cloudflare_image_prompt(
             message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
             translated = str(message.get("content") or choice.get("text") or "").strip()
     translated = translated.strip().strip("`").strip().strip('"').strip()
-    if not translated or re.search(r"[\u3400-\u9fff]", translated):
-        raise RuntimeError("Workers AI 未返回纯英文图片提示词")
+    if not translated:
+        raise RuntimeError("Workers AI 未返回图片提示词")
     return translated[:2048]
 
 

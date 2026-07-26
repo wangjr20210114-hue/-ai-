@@ -555,7 +555,7 @@ PROMPT_TOPIC_SUMMARIES = {
 
 
 class PromptTopicSelection(BaseModel):
-    """Semantic preflight for prompt retrieval and blocking missing inputs."""
+    """Semantic retrieval result for second-stage prompt fragments."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -566,19 +566,17 @@ class PromptTopicSelection(BaseModel):
             "Choose only from web, maps, calendar, image, paper, meeting, proactive."
         ),
     )
-    needs_clarification: bool = Field(
-        default=False,
-        description=(
-            "True only when missing information blocks every safe useful result "
-            "or a real side-effect target cannot be uniquely identified."
-        ),
-    )
-    clarification_title: str = ""
-    clarification_prompt: str = ""
-    clarification_fields: list[PlannedClarificationField] = Field(
-        default_factory=list,
-        description="The minimum fields needed to resume; empty unless clarification is required",
-    )
+
+
+class ClarificationDecision(BaseModel):
+    """Product-wide semantic readiness decision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    needs_clarification: bool = False
+    title: str = ""
+    prompt: str = ""
+    fields: list[PlannedClarificationField] = Field(default_factory=list)
 
 
 def _normalize_prompt_topics(values: Iterable[Any]) -> tuple[str, ...]:
@@ -590,6 +588,70 @@ def _normalize_prompt_topics(values: Iterable[Any]) -> tuple[str, ...]:
     ))
 
 
+async def plan_required_clarification(
+    model,
+    user_message: str,
+    *,
+    has_reference_images: bool = False,
+    has_document_context: bool = False,
+) -> dict[str, Any]:
+    """Decide required-input readiness semantically, without phrase rules."""
+    prompt = (
+        "You are the product-wide required-input gate. Do not answer the user. "
+        "Build the task's dependency graph from meaning: identify every source "
+        "object, target object, or field the user explicitly makes necessary, "
+        "then determine whether each is actually present in the current message, "
+        "attached image/document context, or clarification supplement. Do not "
+        "mistake the instruction sentence itself for a source object it merely "
+        "refers to. Set needs_clarification=true only when an absent dependency "
+        "blocks every safe useful result, or when a real side-effect target cannot "
+        "be uniquely identified. If a safe default, assumptions, or useful options "
+        "can satisfy the request, return false. When true, provide one compact card "
+        "with only the minimum fields: finite choices before free text, and no "
+        "optional preference questions."
+        f"\nReference images attached: {bool(has_reference_images)}"
+        f"\nDocument context attached: {bool(has_document_context)}"
+    )
+    messages = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": str(user_message or "")[:7000]},
+    ]
+    try:
+        gate = model.with_structured_output(
+            ClarificationDecision,
+            method="function_calling",
+            include_raw=True,
+        )
+        response = await gate.ainvoke(messages)
+        parsed = response.get("parsed") if isinstance(response, dict) else response
+        if isinstance(parsed, BaseModel):
+            parsed = parsed.model_dump()
+        if isinstance(parsed, dict):
+            normalized = _decode_capability_plan({
+                "needs_clarification": bool(parsed.get("needs_clarification")),
+                "clarification_title": parsed.get("title"),
+                "clarification_prompt": parsed.get("prompt"),
+                "clarification_fields": parsed.get("fields") or [],
+            }) or dict(DEFAULT_PLAN)
+            return {
+                "needs_clarification": bool(
+                    normalized.get("needs_clarification")
+                    and normalized.get("clarification_fields")
+                ),
+                "clarification_title": normalized.get("clarification_title") or "",
+                "clarification_prompt": normalized.get("clarification_prompt") or "",
+                "clarification_fields": normalized.get("clarification_fields") or [],
+            }
+    except Exception:
+        pass
+    return {
+        "needs_clarification": False,
+        "clarification_title": "",
+        "clarification_prompt": "",
+        "clarification_fields": [],
+    }
+
+
 async def select_prompt_context(
     model,
     user_message: str,
@@ -598,7 +660,7 @@ async def select_prompt_context(
     has_reference_images: bool = False,
     has_document_context: bool = False,
 ) -> dict[str, Any]:
-    """Run semantic prompt retrieval and global clarification preflight."""
+    """Run semantic prompt-fragment retrieval."""
     catalog = "\n".join(
         f"- {topic}: {summary}"
         for topic, summary in PROMPT_TOPIC_SUMMARIES.items()
@@ -608,12 +670,7 @@ async def select_prompt_context(
         "Read the complete user goal semantically; do not answer it. Select every "
         "topic whose operational boundary may be needed, including combinations, "
         "and omit unrelated topics. An unfamiliar phrasing must still be classified "
-        "by meaning rather than literal words. In the same pass, decide whether "
-        "the request lacks information without which no safe useful result can "
-        "be produced. If so, set needs_clarification and provide one compact card "
-        "with only the minimum fields; do not ask optional preferences. An "
-        "explicitly referenced source object that is absent is blocking, while "
-        "an open-ended request that can use safe defaults is not.\n"
+        "by meaning rather than literal words.\n"
         f"Available topics:\n{catalog}\n"
         f"Reference images attached: {bool(has_reference_images)}\n"
         f"Document context attached: {bool(has_document_context)}"
@@ -640,32 +697,11 @@ async def select_prompt_context(
             parsed = parsed.model_dump()
         if isinstance(parsed, dict):
             topics = _normalize_prompt_topics(parsed.get("topics") or [])
-            clarification = _decode_capability_plan({
-                "needs_clarification": bool(parsed.get("needs_clarification")),
-                "clarification_title": parsed.get("clarification_title"),
-                "clarification_prompt": parsed.get("clarification_prompt"),
-                "clarification_fields": parsed.get("clarification_fields") or [],
-            }) or dict(DEFAULT_PLAN)
-            return {
-                "topics": topics,
-                "needs_clarification": bool(
-                    clarification.get("needs_clarification")
-                    and clarification.get("clarification_fields")
-                ),
-                "clarification_title": clarification.get("clarification_title") or "",
-                "clarification_prompt": clarification.get("clarification_prompt") or "",
-                "clarification_fields": clarification.get("clarification_fields") or [],
-            }
+            return {"topics": topics}
     except Exception:
         pass
     # Failure must preserve completeness, never fall back to phrase matching.
-    return {
-        "topics": tuple(PLANNER_PROMPT_DETAILS),
-        "needs_clarification": False,
-        "clarification_title": "",
-        "clarification_prompt": "",
-        "clarification_fields": [],
-    }
+    return {"topics": tuple(PLANNER_PROMPT_DETAILS)}
 
 
 async def select_prompt_topics(
@@ -820,8 +856,31 @@ async def plan_capabilities_bounded(
     out, only the model-selected topic tools remain available for recovery.
     """
     total_timeout = max(0.02, float(timeout_seconds))
+    gate_timeout = min(6.0, max(0.01, total_timeout * 0.30))
     try:
-        topic_timeout = min(6.0, max(0.01, total_timeout * 0.35))
+        clarification = await asyncio.wait_for(
+            plan_required_clarification(
+                model,
+                user_message,
+                has_reference_images=has_reference_images,
+                has_document_context=has_document_context,
+            ),
+            timeout=gate_timeout,
+        )
+    except asyncio.TimeoutError:
+        clarification = {"needs_clarification": False}
+    if clarification.get("needs_clarification"):
+        plan = dict(DEFAULT_PLAN)
+        plan.update({
+            "needs_clarification": True,
+            "clarification_title": clarification.get("clarification_title") or "",
+            "clarification_prompt": clarification.get("clarification_prompt") or "",
+            "clarification_fields": clarification.get("clarification_fields") or [],
+            "_prompt_topics": [],
+        })
+        return plan, False
+    topic_timeout = min(5.0, max(0.01, total_timeout * 0.25))
+    try:
         prompt_context = await asyncio.wait_for(
             select_prompt_context(
                 model,
@@ -833,28 +892,10 @@ async def plan_capabilities_bounded(
             timeout=topic_timeout,
         )
     except asyncio.TimeoutError:
-        prompt_context = {
-            "topics": tuple(PLANNER_PROMPT_DETAILS),
-            "needs_clarification": False,
-            "clarification_title": "",
-            "clarification_prompt": "",
-            "clarification_fields": [],
-        }
+        prompt_context = {"topics": tuple(PLANNER_PROMPT_DETAILS)}
     topics = tuple(prompt_context.get("topics") or ())
-    if prompt_context.get("needs_clarification"):
-        plan = dict(DEFAULT_PLAN)
-        plan.update({
-            "needs_clarification": True,
-            "clarification_title": prompt_context.get("clarification_title") or "",
-            "clarification_prompt": prompt_context.get("clarification_prompt") or "",
-            "clarification_fields": prompt_context.get("clarification_fields") or [],
-            "_prompt_topics": list(topics),
-        })
-        return plan, False
     try:
-        plan_timeout = max(0.01, total_timeout - min(
-            6.0, max(0.01, total_timeout * 0.35),
-        ))
+        plan_timeout = max(0.01, total_timeout - gate_timeout - topic_timeout)
         plan = await asyncio.wait_for(
             plan_capabilities(
                 model,

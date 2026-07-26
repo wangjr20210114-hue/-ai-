@@ -1,6 +1,6 @@
 /**
  * PDF 段落提取服务（从 paper-reader-ai 移植）。
- * 核心：extractParagraphs + detectColumns + detectFormula
+ * 核心：extractParagraphs + detectColumns
  */
 import * as pdfjsLib from 'pdfjs-dist';
 import { translate } from '../i18n';
@@ -153,7 +153,7 @@ export async function extractParagraphs(page: PDFPageProxy): Promise<Paragraph[]
         paragraphs.push({
           page: page.pageNumber, index: pageIdx++, text: txt, rects,
           bbox: { x: minX, y: minY, w: maxX - minX, h: maxY - minY },
-          fontSize, isFormula: detectFormula(txt),
+          fontSize, isFormula: false,
         });
       }
       current = [];
@@ -274,36 +274,8 @@ function detectColumns(items: TextItem[], pageWidth: number): { left: number; ri
   return [{ left: 0, right: maxRightOfLeft }, { left: minLeftOfRight, right: pageWidth }];
 }
 
-function detectFormula(text: string): boolean {
-  const t = text.trim();
-  if (!t || t.length > 600) return false;
-  const mathUnicodeRe = /[\u0370-\u03FF\u2200-\u22FF\u2A00-\u2AFF\u27C0-\u27EF\u2190-\u21FF]/g;
-  const mathUni = (t.match(mathUnicodeRe) || []).length;
-  const mathAscii = (t.match(/[=+\-*/^_<>{}|·×÷≈≠≤≥∞]/g) || []).length;
-  const proseWords = (t.match(/[A-Za-z\u4e00-\u9fa5]{3,}/g) || []).length;
-  const sentencePunct = (t.match(/[.。!?！？]/g) || []).length;
-  const totalLen = t.length;
-  const mathRatio = (mathUni + mathAscii) / Math.max(1, totalLen);
-  const hasSubSup = /[A-Za-z\u0370-\u03FF][_^]\s*[\w{(]/.test(t);
-  const hasBackslashCmd = /\\[A-Za-z]+/.test(t);
-  if (mathRatio > 0.18 && proseWords < 5) return true;
-  if (hasSubSup && proseWords < 8) return true;
-  if (hasBackslashCmd && proseWords < 8) return true;
-  if (/^\(?\d+[a-z]?\)?$/.test(t)) return true;
-  if (/^(algorithm|procedure)\s+\d/i.test(t)) return true;
-  if (totalLen < 80 && sentencePunct === 0 && mathAscii > 3) return true;
-  return false;
-}
-
-/** 判断段落是否为"不可交互"类型（表格、图、参考文献、算法） */
+/** All extracted paragraphs remain interactive; semantic type is model-owned. */
 export function isNonInteractiveParagraph(para: Paragraph): boolean {
-  const t = para.text.trim();
-  if (/^(Figure|Fig\.?|图)\s*\d/i.test(t)) return true;
-  if (/^(Table|表)\s*\d/i.test(t)) return true;
-  if (/^(Algorithm|算法)\s*\d/i.test(t)) return true;
-  if (/^\[\d+\]/.test(t)) return true;
-  if (/^(References|参考文献|Bibliography)\s*$/i.test(t)) return true;
-  if (para.isFormula) return true;
-  if (t.length < 15 && para.fontSize < 8) return true;
+  void para;
   return false;
 }

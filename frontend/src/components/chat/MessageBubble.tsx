@@ -1022,7 +1022,7 @@ export default function MessageBubble({ message, client, assistantChainPosition 
             fileId={message.paperFileId}
             fileName={message.paperFileName || t('pdfDocument')}
             title={message.paperTitle || message.paperFileName || t('pdfReading')}
-            assistantEnabled={message.paperIsPaper ?? message.content.includes('已识别为论文')}
+            assistantEnabled={Boolean(message.paperIsPaper)}
           />
         )}
 

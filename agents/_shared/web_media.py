@@ -109,8 +109,6 @@ def _collect_media(page_url: str, limit: int) -> list[dict[str, str]]:
         # TokenHub vision accepts raster JPG/PNG/WebP, not SVG/GIF/icon assets.
         if not url.startswith(("http://", "https://")) or path.endswith((".svg", ".gif", ".ico")):
             return
-        if re.search(r"(?:^|[/_.-])(logo|icon|avatar|sprite|loading|placeholder)(?:[/_.-]|$)", path):
-            return
         candidates.append({"url": url, "alt": unescape(alt)[:160], "context": unescape(context)[:300]})
 
     for match in re.finditer(r'<meta[^>]*(?:property|name)=["\'](?:og:image|twitter:image)["\'][^>]*content=["\']([^"\']+)', html, re.I):

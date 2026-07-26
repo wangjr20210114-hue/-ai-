@@ -9,7 +9,7 @@ export interface PdfInspection {
   preview: string;
 }
 
-/** Classify from PDF structure/text, not only the filename. */
+/** Inspect a PDF without guessing its semantic document type from word lists. */
 export async function inspectPdf(file: File): Promise<PdfInspection> {
   const document = await loadPdf(await file.arrayBuffer());
   const pageTexts: string[] = [];
@@ -19,18 +19,11 @@ export async function inspectPdf(file: File): Promise<PdfInspection> {
     pageTexts.push(paragraphs.map((paragraph) => paragraph.text).join('\n'));
   }
   const text = pageTexts.join('\n');
-  const lower = text.toLowerCase();
-  const signals = [
-    /\babstract\b/.test(lower),
-    /\bkeywords?\b/.test(lower),
-    /\bdoi\b|arxiv[:.]/.test(lower),
-    /\bintroduction\b/.test(lower),
-    /\breferences\b|bibliography/.test(lower),
-    /\b(university|institute|laboratory|department)\b/.test(lower),
-  ].filter(Boolean).length;
   const firstLine = text.split('\n').map((line) => line.trim()).find((line) => line.length >= 8 && line.length <= 240);
   return {
-    isPaper: signals >= 2,
+    // The assistant can read any PDF. Academic intent is decided by the
+    // semantic chat plan, not by English section-name heuristics.
+    isPaper: true,
     pageCount: document.numPages,
     title: firstLine || file.name.replace(/\.pdf$/i, ''),
     preview: text.replace(/\s+/g, ' ').slice(0, 1000),

@@ -1,3 +1,4 @@
+import json
 import unittest
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -933,7 +934,13 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
     def test_failed_nearby_lookup_has_truthful_terminal_fallback(self):
         content = tool_result_fallback([
             ToolMessage(
-                content="操作未完成：没有在酒店附近核实到早餐店。请自然说明原因和下一步，不要声称已经成功。",
+                content=json.dumps({
+                    "tool_error": {
+                        "kind": "validation",
+                        "detail": "没有在酒店附近核实到早餐店",
+                        "retry_same_call": False,
+                    },
+                }, ensure_ascii=False),
                 name="recommend_nearby_places_on_map",
                 tool_call_id="nearby-fallback",
             ),

@@ -1,7 +1,6 @@
 """Small dependency-free arXiv search adapter; not an Agent route."""
 from __future__ import annotations
 import asyncio
-import difflib
 import re
 import ssl
 import urllib.parse
@@ -55,19 +54,14 @@ def _normalized_title(value: str) -> str:
 
 def _best_title_match(requested: str, candidates: list[dict]) -> dict | None:
     requested_normalized = _normalized_title(requested)
-    ranked = sorted(
-        candidates,
-        key=lambda paper: difflib.SequenceMatcher(None, requested_normalized, _normalized_title(paper.get("title", ""))).ratio(),
-        reverse=True,
+    return next(
+        (
+            paper for paper in candidates
+            if requested_normalized
+            and _normalized_title(paper.get("title", "")) == requested_normalized
+        ),
+        None,
     )
-    if not ranked:
-        return None
-    best = ranked[0]
-    similarity = difflib.SequenceMatcher(None, requested_normalized, _normalized_title(best.get("title", ""))).ratio()
-    if similarity < 0.72:
-        return None
-    best["title_match"] = round(similarity, 3)
-    return best
 
 async def search_arxiv(
     topic: str = "",
@@ -76,15 +70,6 @@ async def search_arxiv(
     author: str = "",
     year: int = 0,
 ) -> list[dict]:
-    if not year:
-        year_match = re.search(r"\b(20\d{2})\b", topic)
-        if year_match:
-            year = int(year_match.group(1))
-            topic = (topic[:year_match.start()] + topic[year_match.end():]).strip()
-    if not author:
-        tokens = topic.split()
-        if 2 <= len(tokens) <= 5 and all(re.fullmatch(r"[A-Z][A-Za-z.-]*", token) for token in tokens):
-            author, topic = topic, ""
     if titles:
         semaphore = asyncio.Semaphore(3)
         async def lookup(title: str):

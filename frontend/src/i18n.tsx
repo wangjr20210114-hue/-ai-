@@ -197,7 +197,7 @@ const catalog = {
   referenceImageTooLarge: ['参考图片处理后仍过大，请换一张较小的图片', '參考圖片處理後仍過大，請更換較小的圖片', 'The processed reference image is still too large. Choose a smaller image', '这张图还是太大啦，换一张小些的喵', '参考图片仍过大。请更换较小图片'],
   attachedReference: ['📎 已附参考图片：{name}', '📎 已附參考圖片：{name}', '📎 Reference image attached: {name}', '📎 参考图片挂好啦：{name}', '📎 已附参考图片：{name}'],
   uploadedDocument: ['已上传文档：{name}', '已上傳文件：{name}', 'Document uploaded: {name}', '文档上传好啦：{name}', '已上传文档：{name}'],
-  paperOpened: ['已识别为论文并加入“我的阅读”，已在下方打开论文助读。', '已辨識為論文並加入「我的閱讀」，已在下方開啟論文助讀。', 'Recognized as a paper and added to My Reading. Paper assistance is open below.', '认出是论文啦，已放进“我的阅读”并在下面打开助读喵。', '已识别为论文并加入“我的阅读”。论文助读已打开。'],
+  paperOpened: ['PDF 已加入“我的阅读”，已在下方打开文档助读。', 'PDF 已加入「我的閱讀」，已在下方開啟文件助讀。', 'The PDF was added to My Reading. Document assistance is open below.', 'PDF 已放进“我的阅读”，下面可以直接助读喵。', 'PDF 已加入“我的阅读”。文档助读已打开。'],
   pdfOpened: ['PDF 已加入“我的阅读”，已在下方打开阅读器。', 'PDF 已加入「我的閱讀」，已在下方開啟閱讀器。', 'The PDF was added to My Reading and opened below.', 'PDF 已放进“我的阅读”，阅读器在下面喵。', 'PDF 已加入“我的阅读”。阅读器已打开。'],
   paperAdded: ['论文已加入我的阅读', '論文已加入我的閱讀', 'Paper added to My Reading', '论文放进阅读小窝啦喵', '论文已加入我的阅读'],
   pdfAdded: ['PDF 已加入我的阅读', 'PDF 已加入我的閱讀', 'PDF added to My Reading', 'PDF 放进阅读小窝啦喵', 'PDF 已加入我的阅读'],

@@ -42,6 +42,17 @@ from .._shared.workspace import (
     verify_action_snapshot,
     USER_WORKSPACE_ID,
 )
+from ..chat._llm import get_model
+
+
+def _semantic_model(env: dict | None):
+    if not env or not env.get("AI_GATEWAY_API_KEY") or not env.get("AI_GATEWAY_BASE_URL"):
+        return None
+    return get_model(
+        env or {},
+        thinking_mode="disabled",
+        fallback_profile="fast",
+    )
 
 
 def _response(state, action=None, **extra):
@@ -118,6 +129,7 @@ async def _record_calendar_signal(store, changed: list[dict], source: str, user_
         signals = collect_schedule_signals(schedules, now, lookahead)
         provider_signals, provider_diagnostics = await collect_provider_signals(
             env or {}, schedules, now, lookahead, preferences,
+            _semantic_model(env),
         )
         signals.extend(provider_signals)
         affected_ids = {str(item.get("id") or "") for item in changed if str(item.get("id") or "")}
@@ -154,7 +166,8 @@ async def _record_route_signal(store, source: str, user_id: str, env: dict | Non
         lookahead = int(preferences.get("lookahead_hours") or 24)
         signals = collect_schedule_signals(schedules, now, lookahead)
         provider_signals, provider_diagnostics = await collect_provider_signals(
-            env or {}, schedules, now, lookahead, preferences
+            env or {}, schedules, now, lookahead, preferences,
+            _semantic_model(env),
         )
         signals.extend(provider_signals)
         affected_ids = {str(item.get("id") or "") for item in schedules if str(item.get("id") or "")}

@@ -18,6 +18,7 @@ from .._shared.proactive import (
     propose_workflow,
     process_schedule_signals,
     ingest_workspace_signal,
+    classify_weather_risk,
 )
 from .._shared.opportunities import (
     detect_uploaded_file_opportunity,
@@ -45,6 +46,13 @@ def _fast_model(ctx):
         thinking_mode="disabled",
         fallback_profile="fast",
     )
+
+
+def _optional_semantic_model(ctx):
+    try:
+        return _fast_model(ctx)
+    except Exception:
+        return None
 
 
 async def _run_tick_with_memory(
@@ -88,6 +96,7 @@ async def _run_tick_with_memory(
         memory_signals=memory_signals,
         memory_checked=memory_due,
         collect_scheduled=not memory_only,
+        semantic_model=_optional_semantic_model(ctx),
     )
 
 
@@ -297,8 +306,11 @@ async def handler(ctx):
                         "expires_at": now + 6 * 3600,
                     })
                     condition = str(weather.get("weather") or "")
-                    weather_keywords = ("雨", "雪", "雷", "暴", "台风", "大风", "沙尘", "雾", "冰雹", "冻")
-                    if condition and any(keyword in condition for keyword in weather_keywords):
+                    risk = await classify_weather_risk(
+                        _optional_semantic_model(ctx),
+                        weather,
+                    )
+                    if risk["actionable"]:
                         place_name = "".join(
                             part for part in (
                                 str(weather.get("city") or ""),
@@ -308,7 +320,7 @@ async def handler(ctx):
                         signal = {
                             "type": "weather_risk",
                             "dedup_key": f"browser_weather_risk:{weather.get('adcode')}:{dedup_key}:{condition}",
-                            "priority": "normal",
+                            "priority": risk["priority"],
                             "subject_ids": [],
                             "title": "当前位置天气需要关注",
                             "detail": f"{place_name}当前天气为{condition}，出门前可以提前准备",
