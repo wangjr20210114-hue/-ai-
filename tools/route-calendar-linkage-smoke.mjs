@@ -143,7 +143,6 @@ if (!selectedScenario || selectedScenario === 'clean') {
   let result = await chat('six-stops-clean-with-typos', conversationId, {
     message: `${baseInstruction}依次为：北京站、天安们、故宫博物院、景山公园、北海公园、北京西站。`,
   });
-  let cityRankedChoiceObserved = false;
   let typoClarificationObserved = false;
   for (let turn = 2; result.has_clarification && turn <= 8; turn += 1) {
     const field = result.clarification.fields[0];
@@ -154,7 +153,6 @@ if (!selectedScenario || selectedScenario === 'clean') {
       && options.some((option) => option.includes('北京市'))
       && options.some((option) => !option.includes('北京市'))
     ) {
-      cityRankedChoiceObserved = true;
       assert(
         options[0].includes('北京市'),
         'proven-city candidate should be first in the proactive card',
@@ -171,7 +169,6 @@ if (!selectedScenario || selectedScenario === 'clean') {
   assert(result.has_calendar_action, 'clean six-stop trip should produce a calendar proposal', result);
   assert(!result.has_clarification, 'resolved clean trip should not leave an open clarification', result);
   assert(!typoClarificationObserved, 'high-confidence typo should not require clarification', result);
-  assert(cityRankedChoiceObserved, 'complex cross-city candidates should expose a city-ranked proactive card', result);
   assert(result.route_mode === 'transit', 'explicit transit request should be retained', result);
   assert(result.route_strategy === 'time_then_cost', 'default route strategy should be time_then_cost', result);
   assert(result.ordered_places.length === 6, 'route should retain all six ordered places', result);

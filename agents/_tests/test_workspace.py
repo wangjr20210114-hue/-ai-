@@ -2729,6 +2729,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         saved = await load_user_workspace(store)
         self.assertEqual(saved["latest_route_plan"]["id"], result["route_plan_id"])
         self.assertEqual(
+            saved["route_plans"][result["route_plan_id"]]["id"],
+            result["route_plan_id"],
+        )
+        self.assertEqual(
             [item["place_id"] for item in saved["latest_route_plan"]["ordered_stops"]],
             ["tencent", "jinjiang", "restaurant", "orange"],
         )
@@ -2850,6 +2854,14 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "browser-current-location",
             saved["place_candidates"],
         )
+        persisted_origin = saved["latest_route_plan"]["ordered_stops"][0]
+        self.assertEqual(
+            set(persisted_origin),
+            {"place_id", "name", "provider", "ephemeral"},
+        )
+        self.assertNotIn("latitude", persisted_origin)
+        self.assertNotIn("longitude", persisted_origin)
+        self.assertNotIn("address", persisted_origin)
 
     async def test_route_ambiguity_card_identifies_intermediate_stop(self):
         places = {
@@ -3152,7 +3164,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             )
         ]
         state["place_candidates"] = {item["place_id"]: item for item in stops}
-        state["latest_route_plan"] = {
+        route_plan = {
             "id": "routeplan-instant-markers",
             "created_at": int(time.time()),
             "ordered_stops": stops,
@@ -3160,6 +3172,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "duration_seconds": 4_200,
             "mode": "transit",
         }
+        state["latest_route_plan"] = route_plan
+        state["route_plans"] = {route_plan["id"]: route_plan}
         await save_user_workspace(store, state)
         tools = build_production_tools(
             None,
@@ -3187,13 +3201,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                     "end_time": (
                         event_start + timedelta(minutes=duration_minutes)
                     ).isoformat(),
-                    "place_id": stops[index]["place_id"],
                     "location_kind": "physical",
                 },
             }
 
         result = json.loads(await calendar_tool.ainvoke({
             "summary": "含瞬时出发和抵达提醒的三站行程",
+            "source_route_plan_id": "routeplan-instant-markers",
             "changes": [
                 event(0, start, 0),
                 event(1, start + timedelta(minutes=40), 45),
@@ -3213,8 +3227,107 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             ],
             [1, 45, 1],
         )
+        self.assertEqual(
+            [
+                change["event"]["place"]["place_id"]
+                for change in payload["changes"]
+            ],
+            [stop["place_id"] for stop in stops],
+        )
         self.assertTrue(
             any("最小粒度" in warning for warning in payload["warnings"])
+        )
+        self.assertTrue(
+            any("站点顺序补齐" in warning for warning in payload["warnings"])
+        )
+
+    async def test_route_calendar_keeps_recent_source_when_another_route_is_latest(self):
+        store = FakeStore()
+        state = empty_workspace()
+        intended_stops = [
+            {
+                **PLACE,
+                "place_id": f"intended-{index}",
+                "name": name,
+                "address": f"北京市{name}地址",
+            }
+            for index, name in enumerate(("北京站", "故宫博物院", "北京西站"), 1)
+        ]
+        other_stops = [
+            {
+                **PLACE,
+                "place_id": f"other-{index}",
+                "name": name,
+            }
+            for index, name in enumerate(("上海站", "外滩"), 1)
+        ]
+        intended_route = {
+            "id": "routeplan-intended",
+            "created_at": int(time.time()) - 10,
+            "ordered_stops": intended_stops,
+            "duration_seconds": 4_200,
+        }
+        latest_route = {
+            "id": "routeplan-other",
+            "created_at": int(time.time()),
+            "ordered_stops": other_stops,
+            "duration_seconds": 1_800,
+        }
+        state["place_candidates"] = {
+            stop["place_id"]: stop
+            for stop in other_stops
+        }
+        state["latest_route_plan"] = latest_route
+        state["route_plans"] = {
+            intended_route["id"]: intended_route,
+            latest_route["id"]: latest_route,
+        }
+        await save_user_workspace(store, state)
+        tools = build_production_tools(
+            None,
+            store=store,
+            conversation_id="route-calendar-recent-source",
+            env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+        )
+        calendar_tool = next(
+            item for item in tools if item.name == "propose_calendar_changes"
+        )
+        start = datetime.now(timezone(timedelta(hours=8))).replace(
+            minute=0, second=0, microsecond=0,
+        ) + timedelta(days=1)
+        changes = [
+            {
+                "operation": "create",
+                "event": {
+                    "title": stop["name"],
+                    "start_time": (
+                        start + timedelta(minutes=index * 60)
+                    ).isoformat(),
+                    "end_time": (
+                        start + timedelta(minutes=index * 60 + 45)
+                    ).isoformat(),
+                },
+            }
+            for index, stop in enumerate(intended_stops)
+        ]
+
+        result = json.loads(await calendar_tool.ainvoke({
+            "summary": "把先前核实的北京路线加入日程",
+            "source_route_plan_id": intended_route["id"],
+            "changes": changes,
+        }))
+
+        payload = result["action"]["payload"]
+        self.assertEqual(
+            payload["source_route_plan_id"],
+            intended_route["id"],
+        )
+        self.assertEqual(
+            [
+                change["event"]["place"]["place_id"]
+                for change in payload["changes"]
+            ],
+            [stop["place_id"] for stop in intended_stops],
         )
 
     async def test_route_calendar_does_not_persist_implicit_browser_origin(self):

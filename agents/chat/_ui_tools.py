@@ -1766,10 +1766,23 @@ def build_production_tools(
                 + f":{time.time_ns()}"
             ).encode()
         ).hexdigest()[:16]
-        state["latest_route_plan"] = {
+        persisted_route_stops = [
+            (
+                {
+                    "place_id": str(place.get("place_id") or ""),
+                    "name": str(place.get("name") or ""),
+                    "provider": str(place.get("provider") or "browser"),
+                    "ephemeral": True,
+                }
+                if place.get("ephemeral")
+                else copy.deepcopy(place)
+            )
+            for place in resolved_stops
+        ]
+        route_plan = {
             "id": route_plan_id,
             "created_at": int(time.time()),
-            "ordered_stops": resolved_stops,
+            "ordered_stops": persisted_route_stops,
             "implicit_browser_origin": should_use_current_location,
             "query_corrections": query_corrections,
             "distance_meters": round(distance_meters),
@@ -1778,6 +1791,18 @@ def build_production_tools(
             "strategy": selected_route_strategy,
             "selection": copy.deepcopy(route.get("selection") or {}),
         }
+        state["latest_route_plan"] = route_plan
+        route_plans = state.setdefault("route_plans", {})
+        route_plans[route_plan_id] = copy.deepcopy(route_plan)
+        state["route_plans"] = dict(sorted(
+            (
+                (plan_id, plan)
+                for plan_id, plan in route_plans.items()
+                if isinstance(plan, dict) and str(plan.get("id") or "") == plan_id
+            ),
+            key=lambda item: int(item[1].get("created_at") or 0),
+            reverse=True,
+        )[:8])
         map_action = new_action(
             "map_recommendation",
             {
@@ -1956,6 +1981,7 @@ def build_production_tools(
         state = await _load_state()
         candidates = state.get("place_candidates", {})
         latest_route = state.get("latest_route_plan")
+        route_plans = state.get("route_plans", {})
         route_source_id = str(source_route_plan_id or "").strip()
         if not route_source_id and isinstance(latest_route, dict):
             # Infer the route link before normalizing event durations. This
@@ -1990,13 +2016,33 @@ def build_production_tools(
                 and len(route_place_ids & submitted_place_ids) >= 2
             ):
                 route_source_id = str(latest_route.get("id") or "")
+        linked_route = (
+            route_plans.get(route_source_id)
+            if route_source_id and isinstance(route_plans, dict)
+            else None
+        )
+        if (
+            not isinstance(linked_route, dict)
+            and route_source_id
+            and isinstance(latest_route, dict)
+            and route_source_id == str(latest_route.get("id") or "")
+        ):
+            # Workspaces created before route history was introduced still
+            # expose one valid route through latest_route_plan.
+            linked_route = latest_route
+        if isinstance(linked_route, dict):
+            for stop in linked_route.get("ordered_stops") or []:
+                if not isinstance(stop, dict) or stop.get("ephemeral"):
+                    continue
+                stop_id = str(stop.get("place_id") or "").strip()
+                if stop_id:
+                    candidates.setdefault(stop_id, copy.deepcopy(stop))
         implicit_route_origin = (
-            (latest_route.get("ordered_stops") or [None])[0]
+            (linked_route.get("ordered_stops") or [None])[0]
             if (
-                isinstance(latest_route, dict)
-                and latest_route.get("implicit_browser_origin")
-                and route_source_id == str(latest_route.get("id") or "")
-                and (latest_route.get("ordered_stops") or [])
+                isinstance(linked_route, dict)
+                and linked_route.get("implicit_browser_origin")
+                and (linked_route.get("ordered_stops") or [])
             )
             else None
         )
@@ -2008,15 +2054,39 @@ def build_production_tools(
         linked_route_place_ids = {
             str(place.get("place_id") or "")
             for place in (
-                (latest_route.get("ordered_stops") or [])
-                if (
-                    isinstance(latest_route, dict)
-                    and route_source_id == str(latest_route.get("id") or "")
-                )
+                (linked_route.get("ordered_stops") or [])
+                if isinstance(linked_route, dict)
                 else []
             )
             if isinstance(place, dict) and str(place.get("place_id") or "")
         }
+        linked_calendar_stops = [
+            stop
+            for stop in (
+                (linked_route.get("ordered_stops") or [])
+                if isinstance(linked_route, dict)
+                else []
+            )
+            if isinstance(stop, dict) and str(stop.get("place_id") or "")
+        ]
+        if (
+            isinstance(linked_route, dict)
+            and linked_route.get("implicit_browser_origin")
+            and linked_calendar_stops
+        ):
+            linked_calendar_stops = linked_calendar_stops[1:]
+        submitted_create_count = sum(
+            1
+            for raw_change in changes
+            if isinstance(raw_change, dict)
+            and str(raw_change.get("operation") or "create") == "create"
+        )
+        can_bind_route_order = bool(
+            route_source_id
+            and linked_calendar_stops
+            and submitted_create_count == len(linked_calendar_stops)
+        )
+        linked_create_index = 0
         normalization_warnings: list[str] = []
         normalized = []
         for raw in changes:
@@ -2042,6 +2112,22 @@ def build_production_tools(
                 start_value = str(event.get("start_time") or event.get("start") or "").strip()
                 if operation == "create" and (not title or not start_value):
                     raise ValueError("新增日程必须包含标题和开始时间")
+                event_place_id = str(
+                    event.get("place_id") or event.get("location_place_id") or ""
+                ).strip()
+                if operation == "create" and can_bind_route_order:
+                    expected_stop = linked_calendar_stops[linked_create_index]
+                    linked_create_index += 1
+                    expected_place_id = str(expected_stop.get("place_id") or "")
+                    if event_place_id != expected_place_id:
+                        # The route id and complete event count freeze the
+                        # provider-backed station sequence. Repairing transport
+                        # omissions here avoids a second model round without
+                        # inferring anything from titles or place-language rules.
+                        event_place_id = expected_place_id
+                        warning = "路线日程地点已按最近核实的站点顺序补齐，可在确认前编辑"
+                        if warning not in normalization_warnings:
+                            normalization_warnings.append(warning)
                 normalized_event: dict[str, Any] = {}
                 if title:
                     normalized_event["title"] = title
@@ -2057,9 +2143,6 @@ def build_production_tools(
                         )
                     else:
                         end = start + timedelta(hours=1)
-                    event_place_id = str(
-                        event.get("place_id") or event.get("location_place_id") or ""
-                    ).strip()
                     if (
                         end == start
                         and operation == "create"
@@ -2088,7 +2171,7 @@ def build_production_tools(
                 for key in ("category", "description", "done"):
                     if key in event:
                         normalized_event[key] = event[key]
-                place_id = str(event.get("place_id") or event.get("location_place_id") or "").strip()
+                place_id = event_place_id
                 location_text = str(event.get("location") or "").strip()
                 if place_id and place_id in ephemeral_place_ids:
                     # Browser coordinates are request-scoped routing input.
@@ -2257,20 +2340,18 @@ def build_production_tools(
             }
             if 0 <= route_age <= 10_800 and len(route_place_ids & proposed_place_ids) >= 2:
                 route_source_id = str(latest_route.get("id") or "")
+                linked_route = latest_route
 
         if route_source_id:
-            if (
-                not isinstance(latest_route, dict)
-                or route_source_id != str(latest_route.get("id") or "")
-            ):
+            if not isinstance(linked_route, dict):
                 raise ValueError("引用的路线规划已经变化，请根据最近一次已核实路线重新生成日程提案")
             route_stops = [
-                item for item in (latest_route.get("ordered_stops") or [])
+                item for item in (linked_route.get("ordered_stops") or [])
                 if isinstance(item, dict) and str(item.get("place_id") or "")
             ]
             required_stops = (
                 route_stops[1:]
-                if latest_route.get("implicit_browser_origin") and route_stops
+                if linked_route.get("implicit_browser_origin") and route_stops
                 else route_stops
             )
             required_ids = [str(item.get("place_id") or "") for item in required_stops]

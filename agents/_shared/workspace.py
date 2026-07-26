@@ -47,6 +47,7 @@ def empty_workspace() -> dict[str, Any]:
         "provider_calls": {},
         "active_map_action_id": "",
         "latest_route_plan": {},
+        "route_plans": {},
     }
 
 
@@ -70,7 +71,14 @@ async def load_workspace(store: Any, conversation_id: str) -> dict[str, Any]:
         return empty_workspace()
     state = empty_workspace()
     state.update(copy.deepcopy(value))
-    for key in ("schedules", "travel_plans", "actions", "place_candidates", "provider_calls"):
+    for key in (
+        "schedules",
+        "travel_plans",
+        "actions",
+        "place_candidates",
+        "provider_calls",
+        "route_plans",
+    ):
         if not isinstance(state.get(key), dict):
             state[key] = {}
     if not isinstance(state.get("latest_route_plan"), dict):
