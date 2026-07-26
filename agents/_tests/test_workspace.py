@@ -27,6 +27,10 @@ from agents.chat._capability_plan import (
     required_tools_for_plan,
 )
 from agents.chat._followups import generate_followups, parse_followups
+from agents.chat._location_intent import (
+    has_explicit_current_location_origin,
+    is_browser_current_location_reference,
+)
 from agents.chat._llm import _model_timeout
 from agents.chat._history import (
     bounded_history,
@@ -423,7 +427,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(planner_prompt_topics("解释一下快速排序"), ("core",))
         route_topics = planner_prompt_topics("从当前位置坐公交去颐和园")
         self.assertIn("maps", route_topics)
+        self.assertNotIn("web", route_topics)
         self.assertNotIn("paper", route_topics)
+        reminder_topics = planner_prompt_topics("今天下午三点提醒我喝水")
+        self.assertIn("calendar", reminder_topics)
+        self.assertNotIn("web", reminder_topics)
+        self.assertIn("web", planner_prompt_topics("查证今天的金价来源"))
+        self.assertNotIn("web", planner_prompt_topics("current location"))
         paper_topics = planner_prompt_topics("找三篇 transformer 论文")
         self.assertIn("paper", paper_topics)
         self.assertNotIn("calendar", paper_topics)
@@ -431,6 +441,27 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             fallback_tools_for_prompt_topics("找三篇 transformer 论文"),
             ("rich_search", "search_arxiv"),
         )
+
+    def test_current_location_reference_is_centralized_and_bounded(self):
+        for value in (
+            "当前位置",
+            "我现在的位置",
+            "我这边",
+            "从我的实时位置出发",
+            "以我当前所在位置作为起点",
+        ):
+            self.assertTrue(is_browser_current_location_reference(value), value)
+        for value in ("北京当前位置酒店", "当前位置博物馆", "我公司"):
+            self.assertFalse(is_browser_current_location_reference(value), value)
+        self.assertTrue(has_explicit_current_location_origin(
+            "明天上午十点从我这边出发去颐和园",
+        ))
+        self.assertTrue(has_explicit_current_location_origin(
+            "以我当前所在位置作为起点，坐公交去故宫",
+        ))
+        self.assertFalse(has_explicit_current_location_origin(
+            "看看当前位置附近有什么餐厅",
+        ))
 
     async def test_capability_planner_receives_runtime_skill_state(self):
         model = StructuredPlannerModel({

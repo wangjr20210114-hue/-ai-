@@ -609,6 +609,41 @@ def _linked_trip_fallback(user_message: str) -> dict[str, Any]:
     return _finalize_plan(plan, user_message)
 
 
+PROMPT_DETAIL_HINTS = {
+    # These are prompt-fragment retrieval hints, not capability decisions.
+    # Avoid generic time words here: "今天提醒我喝水" needs calendar details,
+    # but it does not need the web-search fragment.
+    "web": (
+        r"最新|新闻|进展|价格|查证|来源|搜索|检索|官网|网页|链接|"
+        r"(?:今天|今日).{0,8}(?:新闻|消息|价格|天气|比赛|政策)|"
+        r"latest|news|search|source|price|(?:current|live).{0,8}(?:price|news|status)"
+    ),
+    "maps": (
+        r"位置|附近|周边|地点|地图|路线|路程|导航|怎么去|多远|多久|打车|"
+        r"公交|地铁|步行|骑行|景点|餐厅|酒店|商场|公园|旅行|行程|"
+        r"location|nearby|map|route|drive|transit|walk|bike|travel"
+    ),
+    "calendar": (
+        r"日程|日历|安排|议程|提醒|几点|上午|下午|今晚|明天|后天|"
+        r"创建|新增|修改|删除|改到|推迟|提前|calendar|schedule|agenda|remind"
+    ),
+    "image": (
+        r"图片|照片|图像|画一|画张|生图|生成图|海报|插画|视觉|"
+        r"附图|这张图|image|photo|draw|poster|illustration"
+    ),
+    "paper": (
+        r"论文|文献|学术|研究成果|arxiv|paper|literature|research"
+    ),
+    "meeting": (
+        r"会议|开会|腾讯会议|视频会|线上会|meeting|conference"
+    ),
+    "proactive": (
+        r"工作流|持续|每隔|定时|自动提醒|分步骤|长期跟进|主动通知|"
+        r"workflow|recurring|proactive|followup"
+    ),
+}
+
+
 def planner_prompt_topics(user_message: str) -> tuple[str, ...]:
     """Select prompt detail, never the final capability decision.
 
@@ -619,36 +654,7 @@ def planner_prompt_topics(user_message: str) -> tuple[str, ...]:
     text = str(user_message or "").casefold()
     compact = "".join(text.split())
     topics: list[str] = ["core"]
-    topic_patterns = {
-        "web": (
-            r"最新|今天|今日|新闻|进展|价格|查证|来源|搜索|检索|官网|网页|链接|"
-            r"latest|news|search|source|price|current"
-        ),
-        "maps": (
-            r"位置|附近|周边|地点|地图|路线|路程|导航|怎么去|多远|多久|打车|"
-            r"公交|地铁|步行|骑行|景点|餐厅|酒店|商场|公园|旅行|行程|"
-            r"location|nearby|map|route|drive|transit|walk|bike|travel"
-        ),
-        "calendar": (
-            r"日程|日历|安排|议程|提醒|几点|上午|下午|今晚|明天|后天|"
-            r"创建|新增|修改|删除|改到|推迟|提前|calendar|schedule|agenda|remind"
-        ),
-        "image": (
-            r"图片|照片|图像|画一|画张|生图|生成图|海报|插画|视觉|"
-            r"附图|这张图|image|photo|draw|poster|illustration"
-        ),
-        "paper": (
-            r"论文|文献|学术|研究成果|arxiv|paper|literature|research"
-        ),
-        "meeting": (
-            r"会议|开会|腾讯会议|视频会|线上会|meeting|conference"
-        ),
-        "proactive": (
-            r"工作流|持续|每隔|定时|自动提醒|分步骤|长期跟进|主动通知|"
-            r"workflow|recurring|proactive|followup"
-        ),
-    }
-    for topic, pattern in topic_patterns.items():
+    for topic, pattern in PROMPT_DETAIL_HINTS.items():
         if re.search(pattern, compact, re.I):
             topics.append(topic)
     return tuple(topics)

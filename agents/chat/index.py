@@ -12,6 +12,10 @@ from datetime import datetime, timedelta, timezone
 from ._graph import build_graph
 from ._llm import get_model
 from ._ui_tools import build_production_tools
+from ._location_intent import (
+    has_explicit_current_location_origin,
+    is_browser_current_location_reference,
+)
 from ._capability_plan import (
     DEFAULT_PLAN,
     explicit_nearby_query,
@@ -786,10 +790,7 @@ async def handler(ctx):
     )))
     location_intent = explicit_location_intent(message)
     direct_route_destination = explicit_route_destination(message)
-    explicit_current_route_origin = bool(re.search(
-        r"(?:从|以)(?:我的)?(?:当前位置|当前地点|这里|这儿|我这)(?:出发|为起点)",
-        message,
-    ))
+    explicit_current_route_origin = has_explicit_current_location_origin(message)
     simple_nearby_turn = bool(
         location_intent == "nearby"
         and not re.search(
@@ -844,9 +845,9 @@ async def handler(ctx):
     if capability_plan.get("needs_route") and explicit_current_route_origin:
         capability_plan["route_stops"] = [
             stop for stop in (capability_plan.get("route_stops") or [])
-            if str((stop or {}).get("query") or "").strip() not in {
-                "当前位置", "当前地点", "这里", "这儿", "我这",
-            }
+            if not is_browser_current_location_reference(
+                (stop or {}).get("query"),
+            )
         ]
         capability_plan["route_uses_current_location"] = bool(
             browser_current_location

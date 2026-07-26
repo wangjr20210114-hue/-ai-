@@ -49,6 +49,7 @@ from .._shared.workspace import (
     start_provider_call,
     validate_calendar_change_window,
 )
+from ._location_intent import is_browser_current_location_reference
 
 
 class ClarificationFieldInput(BaseModel):
@@ -277,28 +278,13 @@ def _normalized_place_name(value: Any) -> str:
     return "".join(re.findall(r"[\w\u4e00-\u9fff]+", str(value or "").lower()))
 
 
-_BROWSER_CURRENT_LOCATION_ANCHORS = {
-    "当前位置",
-    "我的位置",
-    "我当前位置",
-    "当前地点",
-    "我的当前位置",
-    "我所在位置",
-    "我附近",
-    "我这里",
-    "我这儿",
-    "这里",
-    "这儿",
-}
-
-
 def _is_browser_current_location_anchor(value: Any) -> bool:
     """Recognize only explicit first-person/current-position map anchors.
 
     The value is never sent to Tencent as a POI query. It is either replaced
     with the fresh, request-scoped browser fix or rejected truthfully.
     """
-    return _normalized_place_name(value) in _BROWSER_CURRENT_LOCATION_ANCHORS
+    return is_browser_current_location_reference(value)
 
 
 def _verified_candidate_matches(
