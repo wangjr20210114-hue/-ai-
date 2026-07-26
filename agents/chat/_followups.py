@@ -7,6 +7,41 @@ import re
 from typing import Any
 
 
+_FOLLOWUP_RESULT_CAPABILITIES = (
+    "needs_web_search",
+    "needs_images",
+    "needs_places",
+    "needs_current_location",
+    "needs_nearby_places",
+    "needs_route",
+    "needs_map_action",
+    "needs_calendar_context",
+    "needs_image_generation",
+    "needs_papers",
+)
+
+
+def should_generate_followups(
+    capability_plan: dict[str, Any],
+    *,
+    blocked_skill: str = "",
+) -> bool:
+    """Select useful result turns from semantic state, never message keywords.
+
+    The planner's explicit judgment remains authoritative for ordinary chat.
+    Result-producing Skills get a safe fallback because their natural next
+    steps are part of the product experience and older/partial planner outputs
+    may omit the optional flag. Clarification and blocked turns never receive
+    competing suggestions.
+    """
+    if blocked_skill or capability_plan.get("needs_clarification"):
+        return False
+    return bool(
+        capability_plan.get("needs_followups")
+        or any(capability_plan.get(key) for key in _FOLLOWUP_RESULT_CAPABILITIES)
+    )
+
+
 def _text(content: Any) -> str:
     if isinstance(content, str):
         return content

@@ -14,7 +14,7 @@ import MarkdownRenderer from '../common/MarkdownRenderer';
 import { followUpDraftAction } from './followUps';
 import { generatedImageOpportunitySignal, nextWholeHourRange, usableMapPlaces } from './workspaceUi';
 import { hasTextSelectionInside } from './scrollSelection';
-import { streamingMarkdownAnswer } from './streamingAnswer';
+import { publicAssistantMarkdown, streamingMarkdownAnswer } from './streamingAnswer';
 import { clarificationRequestPayload, clarificationSubmissionText } from './clarificationSubmission';
 import { loadProactiveDocumentContext } from '../../services/proactiveDocument';
 import type { ProactiveNotification } from '../../types';
@@ -432,7 +432,10 @@ export default function MessageBubble({ message, client, assistantChainPosition 
   };
 
   const copyAnswerText = async () => {
-    const plainText = markdownToPlainText(message.content, message.searchResults?.results || []);
+    const plainText = markdownToPlainText(
+      publicAssistantMarkdown(message.content),
+      message.searchResults?.results || [],
+    );
     if (!plainText) {
       MessagePlugin.warning(t('noPlainText'));
       return;
@@ -739,7 +742,9 @@ export default function MessageBubble({ message, client, assistantChainPosition 
     : searchStatus;
   const isImageCreation = Boolean(message.streaming && message.skill?.intent === 'image');
   const markdownRender = {
-    content: message.streaming ? streamingMarkdownAnswer(message.content) : message.content,
+    content: publicAssistantMarkdown(
+      message.streaming ? streamingMarkdownAnswer(message.content) : message.content,
+    ),
     searchMeta: message.searchResults,
     streaming: Boolean(message.streaming),
   };
@@ -753,13 +758,13 @@ export default function MessageBubble({ message, client, assistantChainPosition 
       <div className="msg-content-wrap">
         <div
           ref={bubbleRef}
-          className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''} ${isImageCreation ? 'is-image-generation' : ''} ${!isUser && !message.streaming && message.content.trim() && isAssistantChainTail ? 'has-copy-action' : ''}${isAssistantChain ? ` assistant-chain-bubble assistant-chain-bubble-${assistantChainPosition}` : ''}`}
+          className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''} ${isImageCreation ? 'is-image-generation' : ''} ${!isUser && !message.streaming && markdownRender.content.trim() && isAssistantChainTail ? 'has-copy-action' : ''}${isAssistantChain ? ` assistant-chain-bubble assistant-chain-bubble-${assistantChainPosition}` : ''}`}
         >
           {isUser ? (
             message.content
           ) : (
             <>
-              {!message.streaming && message.content.trim() && isAssistantChainTail && <div className="answer-action-group">
+              {!message.streaming && markdownRender.content.trim() && isAssistantChainTail && <div className="answer-action-group">
                 <button type="button" className="answer-action-button" title={t('saveImage')} aria-label={t('saveImage')} disabled={answerSaving} onPointerDown={(event) => event.stopPropagation()} onClick={() => { void saveAnswerImage(); }}>
                   <ImageIcon aria-hidden="true" />
                 </button>
@@ -775,7 +780,7 @@ export default function MessageBubble({ message, client, assistantChainPosition 
                   <span className="image-generating-dots"><span>.</span><span>.</span><span>.</span></span>
                 </div>
               )}
-              {message.content && <MarkdownRenderer
+              {markdownRender.content && <MarkdownRenderer
                 content={markdownRender.content}
                 searchMeta={markdownRender.searchMeta}
                 streaming={markdownRender.streaming}

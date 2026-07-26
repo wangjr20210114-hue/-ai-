@@ -26,7 +26,11 @@ from agents.chat._capability_plan import (
     required_tool_for_plan,
     required_tools_for_plan,
 )
-from agents.chat._followups import generate_followups, parse_followups
+from agents.chat._followups import (
+    generate_followups,
+    parse_followups,
+    should_generate_followups,
+)
 from agents.chat._llm import _model_timeout
 from agents.chat._history import (
     bounded_history,
@@ -1498,6 +1502,24 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             ["故宫为什么叫紫禁城？", "明清皇帝如何使用故宫？", "故宫有哪些必看建筑？"],
         )
         self.assertEqual(parse_followups("不是 JSON"), [])
+
+    def test_follow_up_generation_uses_semantic_result_state(self):
+        self.assertTrue(should_generate_followups({
+            "needs_nearby_places": True,
+            "needs_followups": False,
+        }))
+        self.assertTrue(should_generate_followups({
+            "needs_followups": True,
+        }))
+        self.assertFalse(should_generate_followups({
+            "needs_clarification": True,
+            "needs_nearby_places": True,
+        }))
+        self.assertFalse(should_generate_followups(
+            {"needs_nearby_places": True},
+            blocked_skill="maps",
+        ))
+        self.assertFalse(should_generate_followups({}))
 
     async def test_follow_up_generator_uses_the_selected_output_language(self):
         model = SimpleNamespace(ainvoke=AsyncMock(

@@ -153,7 +153,11 @@ class CapabilityPlan(BaseModel):
     )
     needs_followups: bool = Field(
         default=False,
-        description="True only when suggested next questions add concrete user value.",
+        description=(
+            "True for a substantive answer when two or three natural adjacent "
+            "questions would help the user continue. False for clarification, "
+            "errors, pure acknowledgements, greetings, or exhausted tasks."
+        ),
     )
     needs_memory_extraction: bool = Field(
         default=False,
@@ -918,7 +922,8 @@ async def plan_capabilities(
   但 schema 中任何能力仍可按完整语义选择，不能把提示词片段选择当作最终路由。
 - needs_deep_reasoning 只用于确实需要多步开放推理的最终回答；能力路由、固定 JSON、工具参数、
   Action 确认、简单问答都保持 false，使用 Flash 即可。
-- needs_followups 只在“猜你想问”确有具体价值时为 true；needs_memory_extraction 只在用户明确陈述
+- 正常的实质性回答只要存在自然、具体且不重复原问题的下一步，needs_followups 就应为 true；
+  只有澄清、错误、纯确认/寒暄或任务已经完全穷尽时才为 false。needs_memory_extraction 只在用户明确陈述
   可长期复用的非敏感事实或稳定偏好时为 true；needs_opportunity_review 只在主动服务已开启且本轮
   可能产生有价值主动下一步时为 true；use_memory_context 只在长期记忆与本轮目标直接相关时为 true。
 严格只输出 schema 对应 JSON。"""

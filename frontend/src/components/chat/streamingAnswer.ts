@@ -1,4 +1,5 @@
 const MEDIA_SLOT_PREFIX = '[[YUANBAO_MEDIA';
+const INTERNAL_ACTION_BUTTON = /<button\b[^>]*\bdata-action(?:-id)?\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>[\s\S]*?<\/button\s*>/gi;
 
 function hideUnclosedDelimiterTail(content: string, delimiter: string): string {
   let count = 0;
@@ -12,6 +13,26 @@ function hideUnclosedDelimiterTail(content: string, delimiter: string): string {
     cursor = next + delimiter.length;
   }
   return count % 2 === 1 && last >= 0 ? content.slice(0, last) : content;
+}
+
+/**
+ * Structured workspace actions are rendered by MessageBubble, never by model
+ * authored HTML. Hide leaked legacy action markup without stripping ordinary
+ * HTML examples that a user may legitimately ask the assistant to discuss.
+ */
+export function publicAssistantMarkdown(content: string): string {
+  let visible = String(content || '').replace(INTERNAL_ACTION_BUTTON, '');
+  const openButton = visible.toLowerCase().lastIndexOf('<button');
+  if (openButton >= 0) {
+    const suffix = visible.slice(openButton);
+    if (
+      /\bdata-action(?:-id)?\s*=/i.test(suffix)
+      && !/<\/button\s*>/i.test(suffix)
+    ) {
+      visible = visible.slice(0, openButton);
+    }
+  }
+  return visible.replace(/\n{3,}/g, '\n\n').trimEnd();
 }
 
 /**

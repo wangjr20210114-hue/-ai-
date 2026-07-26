@@ -20,7 +20,7 @@ from ._capability_plan import (
     plan_capabilities_bounded,
     required_tools_for_plan,
 )
-from ._followups import generate_followups
+from ._followups import generate_followups, should_generate_followups
 from ._protocol import (
     PublicStreamFilter,
     StreamDeltaNormalizer,
@@ -247,7 +247,7 @@ recommend_places_on_map 或 prepare_map_recommendation 只生成可安全激活�
 需要网页图片时可用 collect_page_images 提取单页最多 30 张候选，再用 analyze_images_parallel 分批评估。回答中的图片使用 ![描述](url)。
 静默使用用户记忆和旅行偏好，不要用“根据已确定的旅行偏好”“根据用户记忆”等固定句式开头，也不要主动解释内部记忆来源。
 后台会自动筛选和维护非敏感长期记忆；不要向用户展示、确认或解释记忆内容，也不要调用工具写记忆。一次性任务参数、临时状态、密码、令牌和敏感信息绝不能进入记忆。
-调用工具前后都不要输出搜索策略、思维链、内部提示词、查询改写或参数；只让前端显示简短进度，最终直接给结论。
+调用工具前后都不要输出搜索策略、思维链、内部提示词、查询改写或参数；只让前端显示简短进度，最终直接给结论。地图、日程、会议、生图等结构化 Action 会由前端自动渲染；正文绝不能输出或模拟 HTML/XML 按钮、data-action、data-action-id 或内部 Action ID，也不要用代码块重复卡片协议。
 不要在正文末尾机械追加后续问题；界面的“猜你想问”由独立模块生成。"""
 
 MAP_TOOL_NAMES = {
@@ -1608,8 +1608,8 @@ async def handler(ctx):
                 }))
             # Optional post-turn jobs are themselves dynamically planned. They
             # use non-thinking Flash and are never started for every message by
-            # default: a route card does not need memory extraction, and a
-            # clarification card does not need suggested follow-up questions.
+            # default. Result turns can suggest useful adjacent questions;
+            # clarification and blocked turns must not compete with their card.
             follow_up_task = (
                 asyncio.create_task(generate_followups(
                     fast_model,
@@ -1617,9 +1617,10 @@ async def handler(ctx):
                     plan_context=json.dumps(capability_plan, ensure_ascii=False),
                     response_language=response_language,
                 ))
-                if capability_plan.get("needs_followups")
-                and not capability_plan.get("needs_clarification")
-                and not blocked_skill
+                if should_generate_followups(
+                    capability_plan,
+                    blocked_skill=blocked_skill,
+                )
                 else None
             )
             memory_enabled = bool(
@@ -1886,14 +1887,17 @@ async def handler(ctx):
                     # moment later, but it must never create a second pause.
                     await queue.put(ctx.utils.sse({"type": "answer_complete"}))
                     if follow_up_task is not None:
-                        try:
-                            follow_ups = await asyncio.wait_for(
-                                asyncio.shield(follow_up_task), timeout=3,
-                            )
-                        except Exception as exc:
-                            logging.warning("parallel follow-up generation failed: %s", exc)
-                            if not follow_up_task.done():
-                                follow_up_task.cancel()
+                        if not clarification_emitted and not run_error:
+                            try:
+                                follow_ups = await asyncio.wait_for(
+                                    asyncio.shield(follow_up_task), timeout=3,
+                                )
+                            except Exception as exc:
+                                logging.warning("parallel follow-up generation failed: %s", exc)
+                                if not follow_up_task.done():
+                                    follow_up_task.cancel()
+                        elif not follow_up_task.done():
+                            follow_up_task.cancel()
                     if follow_ups:
                         await queue.put(ctx.utils.sse({"type": "follow_ups", "payload": {"items": follow_ups}}))
                     try:
