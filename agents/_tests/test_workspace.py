@@ -618,6 +618,60 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             plan["route_stops"],
         )
 
+    def test_resume_protocol_applies_nearby_anchor_choice(self):
+        plan, arguments = resume_capability_protocol(
+            {"needs_nearby_places": False},
+            {
+                "version": 1,
+                "required_tools": ["recommend_nearby_places_on_map"],
+                "planned_tool_arguments": {
+                    "recommend_nearby_places_on_map": {
+                        "anchor_query": "北京天安门",
+                        "anchor_queries": [],
+                        "query": "景点",
+                        "use_current_location_as_anchor": False,
+                    },
+                },
+            },
+            [{
+                "id": "anchor_0",
+                "value": "天安门广场｜北京市东城区东长安街",
+            }],
+        )
+        expected_anchor = "天安门广场｜北京市东城区东长安街"
+        self.assertTrue(plan["needs_nearby_places"])
+        self.assertEqual(plan["nearby_anchor_query"], expected_anchor)
+        self.assertEqual(plan["nearby_query"], "景点")
+        self.assertEqual(
+            arguments["recommend_nearby_places_on_map"]["anchor_query"],
+            expected_anchor,
+        )
+
+    def test_resume_protocol_turns_manual_location_into_nearby_anchor(self):
+        plan, arguments = resume_capability_protocol(
+            {"needs_nearby_places": False},
+            {
+                "version": 1,
+                "required_tools": ["recommend_nearby_places_on_map"],
+                "planned_tool_arguments": {
+                    "recommend_nearby_places_on_map": {
+                        "anchor_query": "",
+                        "anchor_queries": [],
+                        "query": "公园",
+                        "use_current_location_as_anchor": True,
+                    },
+                },
+            },
+            [{
+                "id": "nearby_anchor",
+                "value": "北京市海淀区中关村",
+            }],
+        )
+        nearby = arguments["recommend_nearby_places_on_map"]
+        self.assertEqual(nearby["anchor_query"], "北京市海淀区中关村")
+        self.assertFalse(nearby["use_current_location_as_anchor"])
+        self.assertFalse(plan["nearby_uses_current_location"])
+
     async def test_capability_planner_uses_langchain_structured_output(self):
         model = StructuredPlannerModel()
         plan = await plan_capabilities(model, "能给我讲讲故宫的历史吗")

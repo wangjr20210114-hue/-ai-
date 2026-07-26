@@ -738,6 +738,45 @@ def _apply_route_protocol_answers(
     return updated
 
 
+def _apply_nearby_protocol_answers(
+    arguments: dict,
+    answers: list[dict],
+) -> dict:
+    """Apply selected nearby anchors to the original tool arguments."""
+    updated = copy.deepcopy(arguments)
+    requested_anchors = list(dict.fromkeys(
+        str(value or "").strip()
+        for value in [
+            updated.get("anchor_query"),
+            *(updated.get("anchor_queries") or []),
+        ]
+        if str(value or "").strip()
+    ))
+    for answer in answers:
+        field_id = str(answer.get("id") or "")
+        match = re.fullmatch(
+            r"(nearby_anchor|anchor_(\d+))(?:_[0-9a-f]{6})?",
+            field_id,
+        )
+        value = _clarification_scalar(answer)
+        if not match or not value:
+            continue
+        if match.group(1) == "nearby_anchor":
+            if requested_anchors:
+                requested_anchors[0] = value
+            else:
+                requested_anchors.append(value)
+            updated["use_current_location_as_anchor"] = False
+            continue
+        index = int(match.group(2) or 0)
+        if 0 <= index < len(requested_anchors):
+            requested_anchors[index] = value
+    if requested_anchors:
+        updated["anchor_query"] = requested_anchors[0]
+        updated["anchor_queries"] = requested_anchors[1:]
+    return updated
+
+
 def resume_capability_protocol(
     capability_plan: dict,
     resume: dict | None,
@@ -767,6 +806,31 @@ def resume_capability_protocol(
         if isinstance(raw_arguments, dict)
         else {}
     )
+    nearby_arguments = planned_arguments.get(
+        "recommend_nearby_places_on_map"
+    )
+    if isinstance(nearby_arguments, dict):
+        nearby_arguments = _apply_nearby_protocol_answers(
+            nearby_arguments,
+            clarification_answers or [],
+        )
+        planned_arguments[
+            "recommend_nearby_places_on_map"
+        ] = nearby_arguments
+        plan["nearby_anchor_query"] = str(
+            nearby_arguments.get("anchor_query") or ""
+        ).strip()[:160]
+        plan["nearby_anchor_queries"] = [
+            str(value or "").strip()[:160]
+            for value in (nearby_arguments.get("anchor_queries") or [])[:4]
+            if str(value or "").strip()
+        ]
+        plan["nearby_query"] = str(
+            nearby_arguments.get("query") or ""
+        ).strip()[:80]
+        plan["nearby_uses_current_location"] = bool(
+            nearby_arguments.get("use_current_location_as_anchor")
+        )
     route_arguments = planned_arguments.get("plan_route_between_places")
     if isinstance(route_arguments, dict):
         route_arguments = _apply_route_protocol_answers(
@@ -1228,7 +1292,12 @@ async def handler(ctx):
                 "placeholder": "例如：北京市海淀区中关村，或吉林大学前卫南区",
             }],
         }
-    if capability_plan.get("needs_nearby_places"):
+    resumed_nearby_arguments = resumed_planned_arguments.get(
+        "recommend_nearby_places_on_map"
+    )
+    if isinstance(resumed_nearby_arguments, dict):
+        nearby_tool_arguments = copy.deepcopy(resumed_nearby_arguments)
+    elif capability_plan.get("needs_nearby_places"):
         nearby_tool_arguments = {
             "anchor_query": str(
                 capability_plan.get("nearby_anchor_query") or ""

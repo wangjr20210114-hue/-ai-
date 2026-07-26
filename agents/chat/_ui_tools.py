@@ -1208,11 +1208,34 @@ def build_production_tools(
                 f"参照地点搜索超过 {round(map_search_timeout)} 秒；请减少地点数量或使用快速档"
             ) from exc
         ambiguous_anchors = [
-            item for item in resolved_anchors
+            (index, item)
+            for index, item in enumerate(resolved_anchors)
             if isinstance(item, dict)
             and isinstance(item.get("_ambiguous_candidates"), list)
         ]
         if ambiguous_anchors:
+            candidates = state.setdefault("place_candidates", {})
+            for resolved_anchor in resolved_anchors:
+                if not isinstance(resolved_anchor, dict):
+                    continue
+                candidate_items = (
+                    resolved_anchor.get("_ambiguous_candidates")
+                    if isinstance(
+                        resolved_anchor.get("_ambiguous_candidates"), list
+                    )
+                    else [resolved_anchor]
+                )
+                for candidate in candidate_items:
+                    if not isinstance(candidate, dict):
+                        continue
+                    place_id = str(candidate.get("place_id") or "").strip()
+                    if place_id:
+                        candidates[place_id] = candidate
+            if len(candidates) > 200:
+                state["place_candidates"] = dict(
+                    list(candidates.items())[-200:]
+                )
+            await _save_state(state)
             return _clarification_action(
                 conversation_id,
                 title="请选择附近搜索的参照地点",
@@ -1226,7 +1249,7 @@ def build_production_tools(
                         str(item.get("_query") or "参照地点"),
                         item["_ambiguous_candidates"],
                     )
-                    for index, item in enumerate(ambiguous_anchors)
+                    for index, item in ambiguous_anchors
                 ],
             )
 
