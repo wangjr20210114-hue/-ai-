@@ -237,13 +237,16 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         defaults = normalize_map_preferences({})
         self.assertEqual(defaults["route_strategy"], "time_then_cost")
         self.assertEqual(defaults["near_time_tolerance_minutes"], 10)
+        self.assertEqual(defaults["semantic_colocation_radius_meters"], 2_000)
         bounded = normalize_map_preferences({
             "route_strategy": "least_cost",
             "near_time_tolerance_minutes": 99,
+            "semantic_colocation_radius_meters": 99_999,
             "learn_route_preferences": False,
         })
         self.assertEqual(bounded["route_strategy"], "least_cost")
         self.assertEqual(bounded["near_time_tolerance_minutes"], 30)
+        self.assertEqual(bounded["semantic_colocation_radius_meters"], 5_000)
         self.assertFalse(bounded["learn_route_preferences"])
 
     async def test_tencent_suggestion_is_evidence_for_high_confidence_typo(self):

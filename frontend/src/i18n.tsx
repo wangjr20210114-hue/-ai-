@@ -74,6 +74,8 @@ const catalog = {
   routeStrategyLeastCost: ['费用最低', '費用最低', 'Lowest cost', '费用最低喵', '费用最低'],
   nearTimeTolerance: ['“时间相近”容差', '「時間相近」容差', 'Similar-time tolerance', '差几分钟算接近喵', '“时间相近”容差'],
   routeToleranceMinutes: ['{{value}} 分钟', '{{value}} 分鐘', '{{value}} min', '{{value}} 分钟喵', '{{value}} 分钟'],
+  semanticColocationRadius: ['同一地标自动消歧范围', '同一地標自動消歧範圍', 'Auto-resolve co-location radius', '多近才算同一个地方喵', '同一地标消歧范围'],
+  metersValue: ['{{value}} 米', '{{value}} 公尺', '{{value}} m', '{{value}} 米喵', '{{value}} 米'],
   learnRoutePreferences: ['根据明确选择学习出行习惯', '根據明確選擇學習出行習慣', 'Learn from explicit travel choices', '记住明确出行习惯喵', '根据明确选择学习出行习惯'],
   routeModeDriving: ['驾车', '駕車', 'Driving', '驾车喵', '驾车'],
   routeModeTransit: ['公交 / 地铁', '公車 / 地鐵', 'Transit', '公交地铁喵', '公交 / 地铁'],

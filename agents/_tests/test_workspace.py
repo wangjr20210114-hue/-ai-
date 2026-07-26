@@ -2940,6 +2940,36 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             route_role="第 4 站",
         ))
 
+    async def test_semantic_candidate_adjudicator_rejects_distant_false_unique(self):
+        candidates = [
+            {
+                **PLACE,
+                "place_id": "wanda-cbd",
+                "name": "北京CBD万达广场",
+                "latitude": 39.909,
+                "longitude": 116.473,
+            },
+            {
+                **PLACE,
+                "place_id": "wanda-fengtai",
+                "name": "北京丰台万达广场",
+                "latitude": 39.863,
+                "longitude": 116.286,
+            },
+        ]
+        model = StructuredPlannerModel(candidate_args={
+            "unique_intent": True,
+            "selected_place_id": "wanda-cbd",
+            "reason": "Incorrectly treated the first result as canonical.",
+        })
+        self.assertIsNone(await choose_semantically_unique_place(
+            model,
+            "万达广场",
+            candidates,
+            route_role="第 4 站",
+            max_colocation_radius_meters=2_000,
+        ))
+
     async def test_route_uses_semantic_provider_candidate_when_near_certain(self):
         origin = {**PLACE, "place_id": "station", "name": "北京站"}
         candidates = [

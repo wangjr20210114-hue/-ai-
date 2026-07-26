@@ -17,6 +17,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .._shared.tencent_location import (
+    place_distance_meters,
     plan_verified_route as provider_plan_route,
     reverse_geocode as provider_reverse_geocode,
     search_verified_places_bounded as provider_search_places,
@@ -193,6 +194,7 @@ async def choose_semantically_unique_place(
     near_query: str = "",
     route_role: str = "",
     timeout_seconds: float = 10.0,
+    max_colocation_radius_meters: float = 2_000,
 ) -> dict[str, Any] | None:
     """Choose only a near-certain provider candidate; otherwise ask the user."""
     if model is None or len(candidates) < 2:
@@ -267,6 +269,30 @@ async def choose_semantically_unique_place(
             ),
             None,
         )
+        if selected:
+            radius = max(
+                100.0,
+                min(5_000.0, float(max_colocation_radius_meters)),
+            )
+            try:
+                all_colocated = all(
+                    place_distance_meters(selected, candidate) <= radius
+                    for candidate in candidates
+                    if str(candidate.get("place_id") or "")
+                    != str(selected.get("place_id") or "")
+                )
+            except (KeyError, TypeError, ValueError):
+                # Missing or malformed provider coordinates are not enough
+                # evidence to silently collapse several real POIs.
+                all_colocated = False
+            if not all_colocated:
+                logging.info(
+                    "semantic place adjudication rejected geographically distinct candidates "
+                    "radius_meters=%s candidates=%s",
+                    round(radius),
+                    len(evidence),
+                )
+                selected = None
         logging.info(
             "semantic place adjudication completed unique=%s elapsed_ms=%s candidates=%s",
             bool(selected),
@@ -624,6 +650,16 @@ def build_production_tools(
     map_near_time_tolerance = max(
         0, min(30, int(map_scope.get("near_time_tolerance_minutes", 10) or 0)),
     )
+    map_semantic_colocation_radius = max(
+        100.0,
+        min(
+            5_000.0,
+            float(
+                map_scope.get("semantic_colocation_radius_meters", 2_000)
+                or 2_000
+            ),
+        ),
+    )
     map_learn_route_preferences = bool(
         map_scope.get("learn_route_preferences", True)
     )
@@ -843,6 +879,7 @@ def build_production_tools(
                 query,
                 places,
                 route_role="日程地点",
+                max_colocation_radius_meters=map_semantic_colocation_radius,
             )
             if semantic_choice:
                 decision = "auto_use"
@@ -1079,6 +1116,7 @@ def build_production_tools(
                     clean_anchor_query,
                     anchors,
                     route_role="附近搜索参照地点",
+                    max_colocation_radius_meters=map_semantic_colocation_radius,
                 )
                 if semantic_choice:
                     return semantic_choice
@@ -1456,6 +1494,7 @@ def build_production_tools(
                         clean_near,
                         anchors,
                         route_role=f"{endpoint_label}附近参照地点",
+                        max_colocation_radius_meters=map_semantic_colocation_radius,
                     )
                     if not anchor:
                         return None, _clarification_action(
@@ -1519,6 +1558,7 @@ def build_production_tools(
                     matches,
                     near_query=clean_near,
                     route_role=endpoint_label,
+                    max_colocation_radius_meters=map_semantic_colocation_radius,
                 )
                 if semantic_choice:
                     return semantic_choice, None
@@ -1546,6 +1586,7 @@ def build_production_tools(
                     matches,
                     near_query=clean_near,
                     route_role=endpoint_label,
+                    max_colocation_radius_meters=map_semantic_colocation_radius,
                 )
                 if semantic_choice:
                     return semantic_choice, None

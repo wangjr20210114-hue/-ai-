@@ -28,6 +28,7 @@ const DEFAULT_MAP_PREFERENCES: NonNullable<MakersIntelligenceState['map_preferen
   preferred_route_mode: 'driving',
   route_strategy: 'time_then_cost',
   near_time_tolerance_minutes: 10,
+  semantic_colocation_radius_meters: 2000,
   learn_route_preferences: true,
 };
 
@@ -367,6 +368,9 @@ export default function AppSettingsButton() {
             </select></label>
             <label><span>{t('nearTimeTolerance')}</span><select value={mapPreferences.near_time_tolerance_minutes} disabled={busy === 'maps'} onChange={(event) => void saveMap({ near_time_tolerance_minutes: Number(event.target.value) })}>
               {[0, 5, 10, 15, 20, 30].map((value) => <option key={value} value={value}>{t('routeToleranceMinutes', { value })}</option>)}
+            </select></label>
+            <label><span>{t('semanticColocationRadius')}</span><select value={mapPreferences.semantic_colocation_radius_meters} disabled={busy === 'maps'} onChange={(event) => void saveMap({ semantic_colocation_radius_meters: Number(event.target.value) })}>
+              {[100, 500, 1000, 2000, 5000].map((value) => <option key={value} value={value}>{t('metersValue', { value })}</option>)}
             </select></label>
             <label><span>{t('learnRoutePreferences')}</span><input type="checkbox" checked={mapPreferences.learn_route_preferences !== false} disabled={busy === 'maps'} onChange={(event) => void saveMap({ learn_route_preferences: event.target.checked })} /></label>
           </div>
