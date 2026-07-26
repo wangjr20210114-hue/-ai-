@@ -1018,6 +1018,7 @@ async def handler(ctx):
     # Production UI tools are local LangGraph tools; web search remains Makers-native.
     all_tools = build_production_tools(
         model,
+        place_disambiguation_model=fast_model,
         store=ctx.store.langgraph_store,
         conversation_id=conversation_id,
         env=ctx.env,

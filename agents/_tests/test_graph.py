@@ -539,6 +539,50 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(model.bound_calls, 0)
         self.assertEqual(model.unbound_calls, 0)
 
+    async def test_failed_required_route_cannot_advance_or_invent_prose(self):
+        model = _RecordingModel()
+        graph = build_graph(
+            model,
+            [plan_route_between_places, propose_calendar_changes],
+            "system",
+            required_tools=[
+                "plan_route_between_places",
+                "propose_calendar_changes",
+            ],
+        )
+        result = await graph.ainvoke({"messages": [
+            HumanMessage(content="规划路线并生成日程提案"),
+            AIMessage(content="", tool_calls=[{
+                "name": "plan_route_between_places",
+                "args": {
+                    "origin_query": "北京站",
+                    "destination_query": "不存在的地点",
+                },
+                "id": "failed-route",
+            }]),
+            ToolMessage(
+                content=json.dumps({
+                    "tool_error": {
+                        "kind": "validation",
+                        "detail": "路线地点搜索超过时间预算",
+                        "retry_same_call": False,
+                    },
+                }, ensure_ascii=False),
+                name="plan_route_between_places",
+                tool_call_id="failed-route",
+            ),
+        ]})
+
+        self.assertIn("没有完成路线规划", result["messages"][-1].content)
+        self.assertIn("超过时间预算", result["messages"][-1].content)
+        self.assertFalse(any(
+            isinstance(message, ToolMessage)
+            and message.name == "propose_calendar_changes"
+            for message in result["messages"]
+        ))
+        self.assertEqual(model.bound_calls, 0)
+        self.assertEqual(model.unbound_calls, 0)
+
     async def test_every_required_qa_tool_can_yield_to_structured_clarification(self):
         model = _ClarificationChoiceModel()
         graph = build_graph(

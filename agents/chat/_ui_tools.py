@@ -167,6 +167,97 @@ class RoutePlanInput(BaseModel):
         return self
 
 
+class PlaceCandidateDecision(BaseModel):
+    """Semantic judgment over provider-backed candidates."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    unique_intent: bool = Field(
+        default=False,
+        description=(
+            "True only when the user's intended real-world destination is "
+            "near-certain despite multiple provider POI records."
+        ),
+    )
+    selected_place_id: str = Field(
+        default="",
+        description="One exact place_id from the supplied candidates, or empty.",
+    )
+    reason: str = ""
+
+
+async def choose_semantically_unique_place(
+    model,
+    query: str,
+    candidates: list[dict[str, Any]],
+    *,
+    near_query: str = "",
+    route_role: str = "",
+    timeout_seconds: float = 5.0,
+) -> dict[str, Any] | None:
+    """Choose only a near-certain provider candidate; otherwise ask the user."""
+    if model is None or len(candidates) < 2:
+        return None
+    evidence = [
+        {
+            "place_id": str(item.get("place_id") or ""),
+            "name": str(item.get("name") or "")[:160],
+            "address": str(item.get("address") or "")[:240],
+            "city": str(item.get("city") or "")[:80],
+            "category": str(item.get("category") or "")[:120],
+        }
+        for item in candidates[:8]
+        if isinstance(item, dict) and str(item.get("place_id") or "")
+    ]
+    if len(evidence) < 2:
+        return None
+    prompt = (
+        "You adjudicate Tencent Maps candidates for one user-authored place. "
+        "Do not answer the user and never invent a place. Decide by meaning and "
+        "provider evidence, not edit distance, keywords, or a local alias list. "
+        "Set unique_intent=true only when the intended real-world destination is "
+        "near-certain: multiple records may be entrances, squares, stations, or "
+        "subfeatures around one unmistakable landmark, and one candidate is the "
+        "best canonical representative. Set false when candidates are genuinely "
+        "different branches, venues, cities, or plausible destinations. When true, "
+        "select exactly one supplied place_id that best represents the user's "
+        "destination; confidence must be high enough that asking would add no "
+        "meaningful safety."
+        f"\nRoute role: {str(route_role or 'place')[:80]}"
+        f"\nUser-authored query: {str(query or '')[:160]}"
+        f"\nUser-authored nearby anchor: {str(near_query or '')[:160]}"
+        "\nTencent candidates:\n"
+        f"{json.dumps(evidence, ensure_ascii=False)[:7000]}"
+    )
+    try:
+        decider = model.with_structured_output(
+            PlaceCandidateDecision,
+            method="function_calling",
+            include_raw=True,
+        )
+        response = await asyncio.wait_for(
+            decider.ainvoke([{"role": "system", "content": prompt}]),
+            timeout=max(1.0, min(8.0, float(timeout_seconds))),
+        )
+        parsed = response.get("parsed") if isinstance(response, dict) else response
+        if isinstance(parsed, BaseModel):
+            parsed = parsed.model_dump()
+        selected_id = (
+            str(parsed.get("selected_place_id") or "").strip()
+            if isinstance(parsed, dict) and parsed.get("unique_intent")
+            else ""
+        )
+        return next(
+            (
+                item for item in candidates
+                if str(item.get("place_id") or "") == selected_id
+            ),
+            None,
+        )
+    except Exception:
+        return None
+
+
 def preserve_planned_route_stops(
     model_stops: list[tuple[str, str]],
     planned_stops: list[dict[str, str]] | None,
@@ -450,6 +541,7 @@ async def verify_place_queries_parallel(
 
 def build_production_tools(
     model, *, store=None, conversation_id: str = "", env: dict | None = None,
+    place_disambiguation_model=None,
     paper_constraints: dict | None = None,
     temporal_context: dict[str, Any] | None = None,
     progressive_media: bool = False,
@@ -1256,6 +1348,44 @@ def build_production_tools(
             if isinstance(place, dict) and str(place.get("place_id") or ""):
                 candidates[str(place["place_id"])] = place
 
+        def unresolved_place_card(
+            endpoint_id: str,
+            endpoint_label: str,
+            query: str,
+            near_query: str = "",
+            *,
+            timed_out: bool = False,
+        ) -> str:
+            qualifier = (
+                f"（{near_query}附近 {radius} 米内）"
+                if str(near_query or "").strip()
+                else ""
+            )
+            evidence_state = (
+                "在本次时间预算内没有足够证据核实"
+                if timed_out
+                else "没有足够证据确认"
+            )
+            return _clarification_action(
+                conversation_id,
+                title=f"请确认{endpoint_label}",
+                prompt=(
+                    f"地点服务{evidence_state}“{query}”{qualifier}。"
+                    "可能是名称有误、存在同名地点或缺少城市，请补充更完整名称。"
+                ),
+                fields=[{
+                    "id": (
+                        f"{endpoint_id}_"
+                        f"{hashlib.sha256(str(query).encode()).hexdigest()[:6]}"
+                    ),
+                    "label": f"{endpoint_label}的正确名称或城市是什么？",
+                    "type": "text",
+                    "required": True,
+                    "options": [],
+                    "placeholder": f"例如：城市 + {query}",
+                }],
+            )
+
         async def resolve(
             endpoint_id: str,
             endpoint_label: str,
@@ -1278,7 +1408,12 @@ def build_production_tools(
                         map_key, clean_near, city=city or "全国", limit=5,
                     )
                 if not anchors:
-                    raise ValueError(f"没有核实到{endpoint_label}参照地点“{clean_near}”")
+                    return None, unresolved_place_card(
+                        endpoint_id,
+                        endpoint_label,
+                        clean_query,
+                        clean_near,
+                    )
                 anchor_exact = [
                     item for item in anchors
                     if _normalized_place_name(item.get("name")) == _normalized_place_name(clean_near)
@@ -1303,22 +1438,11 @@ def build_production_tools(
                         map_key, clean_query, city=city or "全国", limit=6,
                     )
             if not matches:
-                qualifier = f"（{clean_near}附近 {radius} 米内）" if clean_near else ""
-                return None, _clarification_action(
-                    conversation_id,
-                    title=f"请确认{endpoint_label}",
-                    prompt=(
-                        f"地点服务没有足够证据确认“{clean_query}”{qualifier}。"
-                        "可能是错别字、同名地点或缺少城市，请补充更完整名称。"
-                    ),
-                    fields=[{
-                        "id": f"{endpoint_id}_{hashlib.sha256(clean_query.encode()).hexdigest()[:6]}",
-                        "label": f"{endpoint_label}的正确名称或城市是什么？",
-                        "type": "text",
-                        "required": True,
-                        "options": [],
-                        "placeholder": f"例如：城市 + {clean_query}",
-                    }],
+                return None, unresolved_place_card(
+                    endpoint_id,
+                    endpoint_label,
+                    clean_query,
+                    clean_near,
                 )
             for match in matches:
                 place_id = str(match.get("place_id") or "").strip()
@@ -1332,6 +1456,15 @@ def build_production_tools(
             # silently would be arbitrary; let the user pick from real nearby
             # candidates instead.
             if clean_near and len(matches) > 1:
+                semantic_choice = await choose_semantically_unique_place(
+                    place_disambiguation_model,
+                    clean_query,
+                    matches,
+                    near_query=clean_near,
+                    route_role=endpoint_label,
+                )
+                if semantic_choice:
+                    return semantic_choice, None
                 field = _place_choice_field(
                     endpoint_id,
                     f"请选择具体{endpoint_label}",
@@ -1350,6 +1483,15 @@ def build_production_tools(
             if len(exact) == 1:
                 return exact[0], None
             if len(matches) > 1:
+                semantic_choice = await choose_semantically_unique_place(
+                    place_disambiguation_model,
+                    clean_query,
+                    matches,
+                    near_query=clean_near,
+                    route_role=endpoint_label,
+                )
+                if semantic_choice:
+                    return semantic_choice, None
                 field = _place_choice_field(
                     endpoint_id,
                     f"请选择具体{endpoint_label}",
@@ -1415,6 +1557,13 @@ def build_production_tools(
             city = str(planned_route_city).strip()[:80]
 
         route_search_semaphore = asyncio.Semaphore(map_parallelism)
+        resolution_timeout = max(
+            3.0,
+            min(
+                map_search_timeout + 8.0,
+                route_operation_deadline - asyncio.get_running_loop().time() - 9.0,
+            ),
+        )
 
         async def resolve_indexed(
             index: int, query: str, near_query: str,
@@ -1424,24 +1573,33 @@ def build_production_tools(
                 else ("route_destination", "终点") if index == len(requested_stops)
                 else (f"route_stop_{index}", f"第 {index} 站")
             )
-            async with route_search_semaphore:
-                return await resolve(
-                    endpoint_id, endpoint_label, query, near_query,
+
+            async def resolve_with_capacity():
+                async with route_search_semaphore:
+                    return await resolve(
+                        endpoint_id, endpoint_label, query, near_query,
+                    )
+
+            try:
+                # The deadline includes time waiting for a search slot. This
+                # keeps a large stop list inside the route-wide 58 s budget.
+                return await asyncio.wait_for(
+                    resolve_with_capacity(),
+                    timeout=resolution_timeout,
+                )
+            except TimeoutError:
+                return None, unresolved_place_card(
+                    endpoint_id,
+                    endpoint_label,
+                    query,
+                    near_query,
+                    timed_out=True,
                 )
 
-        try:
-            resolution_results = await asyncio.wait_for(
-                asyncio.gather(*(
-                    resolve_indexed(index, query, near_query)
-                    for index, (query, near_query) in enumerate(requested_stops, 1)
-                )),
-                timeout=map_search_timeout,
-            )
-        except asyncio.TimeoutError as exc:
-            raise TimeoutError(
-                f"路线地点搜索超过 {round(map_search_timeout)} 秒；"
-                "请减少站点或在设置中选择快速档"
-            ) from exc
+        resolution_results = await asyncio.gather(*(
+            resolve_indexed(index, query, near_query)
+            for index, (query, near_query) in enumerate(requested_stops, 1)
+        ))
 
         resolved_stops: list[dict[str, Any]] = []
         for index, (place, clarification) in enumerate(resolution_results, 1):

@@ -605,6 +605,7 @@ def build_graph(
         paper_result_payload = None
         route_result_payload = None
         calendar_result_payload = None
+        required_tool_failed = False
         for message in reversed(state["messages"]):
             if getattr(message, "type", "") in {"human", "user"}:
                 # A structured-card answer is a continuation of the original
@@ -624,6 +625,11 @@ def build_graph(
                     payload = json.loads(str(getattr(message, "content", "") or ""))
                 except (TypeError, json.JSONDecodeError):
                     pass
+                required_tool_failed = required_tool_failed or (
+                    name in required_sequence
+                    and isinstance(payload, dict)
+                    and isinstance(payload.get("tool_error"), dict)
+                )
                 emitted_clarification = (
                     isinstance(payload, dict)
                     and payload.get("ui_action") == "clarification_action"
@@ -672,6 +678,14 @@ def build_graph(
         # the card and makes the interaction feel like an afterthought.
         if "ask_user_clarification" in used_tool_names or clarification_ready:
             return {"messages": [AIMessage(content="")]}
+        # A failed required capability is terminal for this logical turn.
+        # Never advance to dependent tools or let an answer model replace
+        # missing provider evidence with plausible-looking prose.
+        if required_tool_failed:
+            return {"messages": [AIMessage(content=(
+                tool_failure_fallback(state["messages"])
+                or "这次所需能力没有成功完成，因此我没有生成或猜测结果。请稍后重试。"
+            ))]}
         # Current-location lookup has a fixed privacy-preserving presentation.
         # Once Tencent reverse geocoding succeeds (or truthfully reports
         # unavailable), another model round cannot add facts and may only

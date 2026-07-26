@@ -50,6 +50,7 @@ from agents.chat.index import (
 )
 from agents.chat._ui_tools import (
     build_production_tools,
+    choose_semantically_unique_place,
     preserve_planned_route_stops,
     verify_place_queries_parallel,
 )
@@ -192,6 +193,7 @@ class StructuredPlannerModel:
         topic_args=None,
         clarification_args=None,
         review_args=None,
+        candidate_args=None,
     ):
         self.calls = 0
         self.args = args or {
@@ -208,6 +210,11 @@ class StructuredPlannerModel:
         self.review_args = review_args or {
             "approved": True,
             "reason": "The dependency is genuinely blocking.",
+        }
+        self.candidate_args = candidate_args or {
+            "unique_intent": False,
+            "selected_place_id": "",
+            "reason": "Candidates remain genuinely different.",
         }
         self.messages = []
         self.tool_choice = ""
@@ -232,6 +239,8 @@ class StructuredPlannerModel:
             if self.schema.__name__ == "ClarificationDecision"
             else self.review_args
             if self.schema.__name__ == "ClarificationReview"
+            else self.candidate_args
+            if self.schema.__name__ == "PlaceCandidateDecision"
             else self.topic_args
             if self.schema.__name__ == "PromptTopicSelection"
             else self.args
@@ -2663,6 +2672,126 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(field["id"], "route_stop_3")
         self.assertEqual(field["label"], "请选择具体第 3 站")
         self.assertIn("第 3 站", result["clarification"]["prompt"])
+        planner.assert_not_awaited()
+
+    async def test_semantic_candidate_adjudicator_can_choose_one_landmark(self):
+        candidates = [
+            {**PLACE, "place_id": "square", "name": "天安门广场"},
+            {**PLACE, "place_id": "gate", "name": "天安门"},
+            {**PLACE, "place_id": "station", "name": "天安门东[地铁站]"},
+        ]
+        model = StructuredPlannerModel(candidate_args={
+            "unique_intent": True,
+            "selected_place_id": "gate",
+            "reason": "One canonical landmark is near-certain.",
+        })
+        selected = await choose_semantically_unique_place(
+            model,
+            "天安们",
+            candidates,
+            route_role="第 2 站",
+        )
+        self.assertEqual(selected["place_id"], "gate")
+        self.assertEqual(model.schema.__name__, "PlaceCandidateDecision")
+        self.assertIn("not edit distance", model.messages[0]["content"])
+
+    async def test_semantic_candidate_adjudicator_keeps_real_branches_ambiguous(self):
+        candidates = [
+            {**PLACE, "place_id": "wanda-a", "name": "北京通州万达广场"},
+            {**PLACE, "place_id": "wanda-b", "name": "北京五棵松万达广场"},
+        ]
+        model = StructuredPlannerModel(candidate_args={
+            "unique_intent": False,
+            "selected_place_id": "",
+            "reason": "These are different venues.",
+        })
+        self.assertIsNone(await choose_semantically_unique_place(
+            model,
+            "万达广场",
+            candidates,
+            route_role="第 4 站",
+        ))
+
+    async def test_route_uses_semantic_provider_candidate_when_near_certain(self):
+        origin = {**PLACE, "place_id": "station", "name": "北京站"}
+        candidates = [
+            {**PLACE, "place_id": "square", "name": "天安门广场"},
+            {**PLACE, "place_id": "gate", "name": "天安门"},
+            {**PLACE, "place_id": "subway", "name": "天安门东[地铁站]"},
+        ]
+
+        async def place_provider(_key, query, *, city, limit):
+            return [origin] if query == "北京站" else candidates
+
+        route = {
+            "provider": "tencent",
+            "mode": "walking",
+            "distance_meters": 2_000,
+            "duration_seconds": 1_800,
+            "fare": {},
+        }
+        model = StructuredPlannerModel(candidate_args={
+            "unique_intent": True,
+            "selected_place_id": "gate",
+            "reason": "One canonical landmark is near-certain.",
+        })
+        with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
+             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
+            tools = build_production_tools(
+                None,
+                place_disambiguation_model=model,
+                store=FakeStore(),
+                conversation_id="semantic-candidate-route",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+            )
+            route_tool = next(
+                item for item in tools if item.name == "plan_route_between_places"
+            )
+            result = json.loads(await route_tool.ainvoke({
+                "origin_query": "北京站",
+                "destination_query": "天安们",
+                "route_mode": "walking",
+            }))
+
+        self.assertEqual(result["ui_action"], "map_action")
+        self.assertEqual(result["destination"]["place_id"], "gate")
+        planner.assert_awaited_once()
+
+    async def test_route_search_timeout_returns_fill_in_card(self):
+        async def place_provider(_key, _query, *, city, limit):
+            raise TimeoutError("provider deadline")
+
+        with patch(
+            "agents.chat._ui_tools.provider_search_places",
+            new=place_provider,
+        ), patch(
+            "agents.chat._ui_tools.load_place_cache",
+            new=AsyncMock(return_value=None),
+        ), patch(
+            "agents.chat._ui_tools.provider_plan_route",
+            new=AsyncMock(),
+        ) as planner:
+            tools = build_production_tools(
+                None,
+                store=FakeStore(),
+                conversation_id="route-timeout-fill-card",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+                map_preferences={"search_timeout_seconds": 3},
+            )
+            route_tool = next(
+                item for item in tools if item.name == "plan_route_between_places"
+            )
+            result = json.loads(await route_tool.ainvoke({
+                "origin_query": "起点",
+                "destination_query": "无法核实的终点",
+            }))
+
+        self.assertEqual(result["ui_action"], "clarification_action")
+        self.assertEqual(
+            result["clarification"]["fields"][0]["type"],
+            "text",
+        )
+        self.assertIn("时间预算", result["clarification"]["prompt"])
         planner.assert_not_awaited()
 
     def test_complete_planner_route_preserves_literal_user_place_text(self):
