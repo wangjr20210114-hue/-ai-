@@ -1957,6 +1957,39 @@ def build_production_tools(
         candidates = state.get("place_candidates", {})
         latest_route = state.get("latest_route_plan")
         route_source_id = str(source_route_plan_id or "").strip()
+        if not route_source_id and isinstance(latest_route, dict):
+            # Infer the route link before normalizing event durations. This
+            # lets the adapter safely represent an instantaneous verified
+            # departure/arrival marker even if the model omitted only the
+            # redundant source id. Identity still comes exclusively from the
+            # recent provider-backed route and submitted place ids.
+            route_age = int(time.time()) - int(latest_route.get("created_at") or 0)
+            route_place_ids = {
+                str(item.get("place_id") or "")
+                for item in (latest_route.get("ordered_stops") or [])
+                if isinstance(item, dict) and str(item.get("place_id") or "")
+            }
+            submitted_place_ids = set()
+            for raw_change in changes:
+                if not isinstance(raw_change, dict):
+                    continue
+                raw_event = (
+                    raw_change.get("event")
+                    if isinstance(raw_change.get("event"), dict)
+                    else raw_change
+                )
+                raw_place_id = str(
+                    raw_event.get("place_id")
+                    or raw_event.get("location_place_id")
+                    or ""
+                ).strip()
+                if raw_place_id:
+                    submitted_place_ids.add(raw_place_id)
+            if (
+                0 <= route_age <= 10_800
+                and len(route_place_ids & submitted_place_ids) >= 2
+            ):
+                route_source_id = str(latest_route.get("id") or "")
         implicit_route_origin = (
             (latest_route.get("ordered_stops") or [None])[0]
             if (
@@ -1972,6 +2005,19 @@ def build_production_tools(
             for place in (browser_current_location, implicit_route_origin)
             if isinstance(place, dict) and str(place.get("place_id") or "")
         }
+        linked_route_place_ids = {
+            str(place.get("place_id") or "")
+            for place in (
+                (latest_route.get("ordered_stops") or [])
+                if (
+                    isinstance(latest_route, dict)
+                    and route_source_id == str(latest_route.get("id") or "")
+                )
+                else []
+            )
+            if isinstance(place, dict) and str(place.get("place_id") or "")
+        }
+        normalization_warnings: list[str] = []
         normalized = []
         for raw in changes:
             if not isinstance(raw, dict):
@@ -2011,6 +2057,23 @@ def build_production_tools(
                         )
                     else:
                         end = start + timedelta(hours=1)
+                    event_place_id = str(
+                        event.get("place_id") or event.get("location_place_id") or ""
+                    ).strip()
+                    if (
+                        end == start
+                        and operation == "create"
+                        and event_place_id in linked_route_place_ids
+                    ):
+                        # Calendar storage requires a positive interval, while
+                        # route-derived departure/arrival markers are naturally
+                        # instantaneous. Preserve the selected timestamp and
+                        # verified stop at the minimum calendar granularity.
+                        # The proposal remains editable and still needs consent.
+                        end = start + timedelta(minutes=1)
+                        normalization_warnings.append(
+                            "路线中的瞬时出发或抵达提醒已按日历最小粒度记为 1 分钟，可在确认前编辑"
+                        )
                     if end <= start:
                         raise ValueError(f"日程结束时间必须晚于开始时间：{title}")
                     normalized_event["duration_minutes"] = max(1, int((end - start).total_seconds() // 60))
@@ -2224,6 +2287,8 @@ def build_production_tools(
 
         validate_calendar_change_window(state, normalized)
         warnings = calendar_change_warnings(state, normalized)
+        warnings.extend(normalization_warnings)
+        warnings = list(dict.fromkeys(warnings))[:8]
 
         # Preview route feasibility before confirmation. The mutation remains
         # independent: route failure never writes or cancels the calendar

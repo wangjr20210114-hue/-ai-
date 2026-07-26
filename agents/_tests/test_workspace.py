@@ -3195,6 +3195,88 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["action"]["payload"]["source_route_plan_id"], "routeplan-complete")
         self.assertEqual(len(result["action"]["payload"]["changes"]), 4)
 
+    async def test_route_calendar_normalizes_instant_verified_stop_markers(self):
+        store = FakeStore()
+        state = empty_workspace()
+        stops = [
+            {
+                **PLACE,
+                "place_id": place_id,
+                "name": name,
+                "address": f"北京市{name}地址",
+            }
+            for place_id, name in (
+                ("beijing-station", "北京站"),
+                ("forbidden-city", "故宫博物院"),
+                ("beijing-west", "北京西站"),
+            )
+        ]
+        state["place_candidates"] = {item["place_id"]: item for item in stops}
+        state["latest_route_plan"] = {
+            "id": "routeplan-instant-markers",
+            "created_at": int(time.time()),
+            "ordered_stops": stops,
+            "distance_meters": 18_000,
+            "duration_seconds": 4_200,
+            "mode": "transit",
+        }
+        await save_user_workspace(store, state)
+        tools = build_production_tools(
+            None,
+            store=store,
+            conversation_id="route-calendar-instant-markers",
+            env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+        )
+        calendar_tool = next(
+            item for item in tools if item.name == "propose_calendar_changes"
+        )
+        start = datetime.now(timezone(timedelta(hours=8))).replace(
+            minute=0, second=0, microsecond=0,
+        ) + timedelta(days=1)
+
+        def event(
+            index: int,
+            event_start: datetime,
+            duration_minutes: int,
+        ) -> dict:
+            return {
+                "operation": "create",
+                "event": {
+                    "title": stops[index]["name"],
+                    "start_time": event_start.isoformat(),
+                    "end_time": (
+                        event_start + timedelta(minutes=duration_minutes)
+                    ).isoformat(),
+                    "place_id": stops[index]["place_id"],
+                    "location_kind": "physical",
+                },
+            }
+
+        result = json.loads(await calendar_tool.ainvoke({
+            "summary": "含瞬时出发和抵达提醒的三站行程",
+            "changes": [
+                event(0, start, 0),
+                event(1, start + timedelta(minutes=40), 45),
+                event(2, start + timedelta(minutes=120), 0),
+            ],
+        }))
+
+        payload = result["action"]["payload"]
+        self.assertEqual(
+            payload["source_route_plan_id"],
+            "routeplan-instant-markers",
+        )
+        self.assertEqual(
+            [
+                change["event"]["duration_minutes"]
+                for change in payload["changes"]
+            ],
+            [1, 45, 1],
+        )
+        self.assertTrue(
+            any("最小粒度" in warning for warning in payload["warnings"])
+        )
+
     async def test_route_calendar_does_not_persist_implicit_browser_origin(self):
         store = FakeStore()
         state = empty_workspace()
