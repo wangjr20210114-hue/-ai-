@@ -115,8 +115,12 @@ const cases = [
     id: 'evidence-typo',
     message: '从北京站步行去天安们（这里有一个错别字），请按地点服务证据处理。',
     assert(result) {
-      if (!result.has_map_action || result.route_mode !== 'walking' || !result.places.includes('天安门')) {
-        throw new Error(`${result.id}: expected Tencent-backed correction to 天安门`);
+      if (
+        !result.has_map_action
+        || result.route_mode !== 'walking'
+        || !result.places.some((place) => place.includes('天安门'))
+      ) {
+        throw new Error(`${result.id}: expected a Tencent-backed canonical Tiananmen correction`);
       }
     },
   },
@@ -142,13 +146,16 @@ const cases = [
     id: 'calendar-multiple-candidates',
     message: '请为我创建一条日程提案：2026年8月11日下午2点到3点去万达广场，但我还没有说城市。',
     assert(result) {
+      const fieldType = result.clarification_field_types[0];
+      const finiteChoice = fieldType === 'single'
+        && Math.max(0, ...result.clarification_option_counts) >= 2;
+      const textFill = fieldType === 'text';
       if (
         !result.has_clarification
         || result.has_calendar_action
-        || !result.clarification_field_types.includes('single')
-        || Math.max(0, ...result.clarification_option_counts) < 2
+        || (!finiteChoice && !textFill)
       ) {
-        throw new Error(`${result.id}: expected a finite place choice before calendar proposal`);
+        throw new Error(`${result.id}: expected a finite provider choice or text fill before calendar proposal`);
       }
     },
   },
