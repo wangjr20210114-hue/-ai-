@@ -19,7 +19,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .._shared.tencent_location import (
     plan_verified_route as provider_plan_route,
     reverse_geocode as provider_reverse_geocode,
-    search_places as provider_search_place_candidates,
     search_verified_places_bounded as provider_search_places,
     search_verified_places_nearby as provider_search_places_nearby,
 )
@@ -498,17 +497,10 @@ def _place_resolution(
 ) -> tuple[str, dict[str, Any] | None, str]:
     """Return the deterministic three-level decision for a side-effect place.
 
-    Auto-use is deliberately limited to one exact provider match or one unique
-    verified candidate. Multiple real POIs always require a finite choice;
-    no candidates require free text.
+    Auto-use is deliberately limited to one provider-verified candidate.
+    Multiple real POIs require semantic adjudication by the caller before a
+    finite choice; no candidates require free text.
     """
-    clean_query = _normalized_place_name(query)
-    exact = [
-        place for place in places
-        if _normalized_place_name(place.get("name")) == clean_query
-    ]
-    if len(exact) == 1:
-        return "auto_use", exact[0], "unique_exact_provider_match"
     if len(places) == 1:
         correction = places[0].get("query_correction")
         return (
@@ -717,16 +709,6 @@ def build_production_tools(
         await save_place_cache(store, user_id, query, city, limit, places)
         return places
 
-    async def _search_place_candidates_metered(map_key: str, *args, **kwargs):
-        try:
-            return await _traced_map_call(
-                "maps.tencent_place_candidates",
-                "tencent_place_candidates",
-                lambda: provider_search_place_candidates(map_key, *args, **kwargs),
-            )
-        finally:
-            await _record_map_call("chat_place_candidates", map_key)
-
     async def _search_places_nearby_metered(map_key: str, *args, **kwargs):
         try:
             return await _traced_map_call(
@@ -855,6 +837,17 @@ def build_production_tools(
         if effective_purpose != "calendar":
             return json.dumps({"places": places, "count": len(places)}, ensure_ascii=False)
         decision, selected, reason = _place_resolution(query, places)
+        if decision == "choose":
+            semantic_choice = await choose_semantically_unique_place(
+                place_disambiguation_model,
+                query,
+                places,
+                route_role="日程地点",
+            )
+            if semantic_choice:
+                decision = "auto_use"
+                selected = semantic_choice
+                reason = "semantically_unique_provider_candidate"
         if decision == "auto_use" and isinstance(selected, dict):
             return json.dumps({
                 "places": [selected],
@@ -1072,21 +1065,23 @@ def build_production_tools(
             ]
             if len(exact_stored) == 1:
                 return exact_stored[0]
-            anchors = await _search_place_candidates_metered(
+            anchors = await _search_places_metered(
                 map_key,
                 clean_anchor_query,
                 city=city or "全国",
                 limit=5,
             )
-            exact = [
-                place for place in anchors
-                if _normalized_place_name(place.get("name")) == normalized_anchor
-            ]
-            if len(exact) == 1:
-                return exact[0]
             if len(anchors) == 1:
                 return anchors[0]
             if anchors:
+                semantic_choice = await choose_semantically_unique_place(
+                    place_disambiguation_model,
+                    clean_anchor_query,
+                    anchors,
+                    route_role="附近搜索参照地点",
+                )
+                if semantic_choice:
+                    return semantic_choice
                 return {
                     "_ambiguous_candidates": anchors,
                     "_query": clean_anchor_query,
@@ -1444,14 +1439,9 @@ def build_production_tools(
             if not clean_query:
                 raise ValueError(f"{endpoint_label}地点不能为空")
             if clean_near:
-                try:
-                    anchors = await _search_place_candidates_metered(
-                        map_key, clean_near, city=city or "全国", limit=5,
-                    )
-                except Exception:
-                    anchors = await _search_places_metered(
-                        map_key, clean_near, city=city or "全国", limit=5,
-                    )
+                anchors = await _search_places_metered(
+                    map_key, clean_near, city=city or "全国", limit=5,
+                )
                 if not anchors:
                     return None, unresolved_place_card(
                         endpoint_id,
@@ -1459,11 +1449,28 @@ def build_production_tools(
                         clean_query,
                         clean_near,
                     )
-                anchor_exact = [
-                    item for item in anchors
-                    if _normalized_place_name(item.get("name")) == _normalized_place_name(clean_near)
-                ]
-                anchor = anchor_exact[0] if len(anchor_exact) == 1 else anchors[0]
+                anchor = anchors[0]
+                if len(anchors) > 1:
+                    anchor = await choose_semantically_unique_place(
+                        place_disambiguation_model,
+                        clean_near,
+                        anchors,
+                        route_role=f"{endpoint_label}附近参照地点",
+                    )
+                    if not anchor:
+                        return None, _clarification_action(
+                            conversation_id,
+                            title="请选择附近参照地点",
+                            prompt=(
+                                f"腾讯地点服务查到多个“{clean_near}”。"
+                                f"请先选择用于查找{endpoint_label}“{clean_query}”的参照地点。"
+                            ),
+                            fields=[_place_choice_field(
+                                f"{endpoint_id}_anchor",
+                                "附近搜索以哪个地点为参照？",
+                                anchors,
+                            )],
+                        )
                 matches = await _search_places_nearby_metered(
                     map_key,
                     clean_query,

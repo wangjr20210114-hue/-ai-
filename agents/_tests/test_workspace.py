@@ -2327,7 +2327,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         with patch(
-            "agents.chat._ui_tools.provider_search_place_candidates",
+            "agents.chat._ui_tools.provider_search_places",
             new=AsyncMock(),
         ) as anchor_provider, patch(
             "agents.chat._ui_tools.provider_search_places_nearby",
@@ -2385,7 +2385,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "distance_to_anchor_meters": 180.0,
         }
         with patch(
-            "agents.chat._ui_tools.provider_search_place_candidates",
+            "agents.chat._ui_tools.provider_search_places",
             new=AsyncMock(),
         ) as place_search, patch(
             "agents.chat._ui_tools.provider_search_places_nearby",
@@ -2480,7 +2480,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_nearby_current_location_without_browser_fix_never_searches_provider(self):
         with patch(
-            "agents.chat._ui_tools.provider_search_place_candidates",
+            "agents.chat._ui_tools.provider_search_places",
             new=AsyncMock(),
         ) as place_search, patch(
             "agents.chat._ui_tools.provider_search_places_nearby",
@@ -2545,7 +2545,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             return [restaurant] if anchor["place_id"] == "samsung-tower" else []
 
         with patch(
-            "agents.chat._ui_tools.provider_search_place_candidates",
+            "agents.chat._ui_tools.provider_search_places",
             new=AsyncMock(side_effect=anchor_provider),
         ) as anchor_lookup, patch(
             "agents.chat._ui_tools.provider_search_places_nearby",
@@ -2648,7 +2648,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "fare": {"taxi_fare": 46},
         }
         with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
-             patch("agents.chat._ui_tools.provider_search_place_candidates", new=place_provider), \
              patch("agents.chat._ui_tools.provider_search_places_nearby", new=AsyncMock(return_value=[hotel])) as nearby, \
              patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
             tools = build_production_tools(
@@ -3355,7 +3354,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             return [station] if query == "北京站" else [hospital]
 
         with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
-             patch("agents.chat._ui_tools.provider_search_place_candidates", new=place_provider), \
              patch("agents.chat._ui_tools.provider_search_places_nearby", new=AsyncMock(return_value=hotels)), \
              patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock()) as planner:
             tools = build_production_tools(
@@ -3375,6 +3373,65 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["ui_action"], "clarification_action")
         self.assertEqual(result["clarification"]["fields"][0]["type"], "single")
         self.assertEqual(len(result["clarification"]["fields"][0]["options"]), 2)
+        planner.assert_not_awaited()
+
+    async def test_route_tool_never_silently_picks_one_of_multiple_nearby_anchors(self):
+        station = {**PLACE, "place_id": "station", "name": "北京站"}
+        anchors = [
+            {
+                **PLACE,
+                "place_id": "wanda-cbd",
+                "name": "万达广场",
+                "address": "北京市朝阳区建国路93号",
+            },
+            {
+                **PLACE,
+                "place_id": "wanda-fengtai",
+                "name": "万达广场(丰台店)",
+                "address": "北京市丰台区",
+            },
+        ]
+
+        async def place_provider(_key, query, *, city, limit):
+            return [station] if query == "北京站" else anchors
+
+        with (
+            patch(
+                "agents.chat._ui_tools.provider_search_places",
+                new=place_provider,
+            ),
+            patch(
+                "agents.chat._ui_tools.provider_search_places_nearby",
+                new=AsyncMock(),
+            ) as nearby,
+            patch(
+                "agents.chat._ui_tools.provider_plan_route",
+                new=AsyncMock(),
+            ) as planner,
+        ):
+            tools = build_production_tools(
+                None,
+                store=FakeStore(),
+                conversation_id="ambiguous-nearby-anchor",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+            )
+            route_tool = next(
+                item for item in tools
+                if item.name == "plan_route_between_places"
+            )
+            result = json.loads(await route_tool.ainvoke({
+                "origin_query": "北京站",
+                "destination_query": "锦江之星",
+                "destination_near_query": "万达广场",
+                "city": "北京",
+            }))
+
+        self.assertEqual(result["ui_action"], "clarification_action")
+        field = result["clarification"]["fields"][0]
+        self.assertEqual(field["id"], "route_destination_anchor")
+        self.assertEqual(field["type"], "single")
+        self.assertEqual(len(field["options"]), 2)
+        nearby.assert_not_awaited()
         planner.assert_not_awaited()
 
     async def test_clarification_tool_converts_finite_text_options_to_single_choice(self):

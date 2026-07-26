@@ -179,9 +179,14 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         decision, selected, reason = _place_resolution("故宫博物院", [PLACE])
         self.assertEqual(decision, "auto_use")
         self.assertEqual(selected["place_id"], PLACE["place_id"])
-        self.assertEqual(reason, "unique_exact_provider_match")
+        self.assertEqual(reason, "unique_verified_candidate")
 
-        other = {**PLACE, "place_id": "poi-gugong-north", "address": "北门"}
+        other = {
+            **PLACE,
+            "place_id": "poi-gugong-north",
+            "name": "故宫博物院-北门",
+            "address": "北门",
+        }
         decision, selected, reason = _place_resolution(
             "故宫博物院", [PLACE, other],
         )
@@ -620,6 +625,41 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             }))
         self.assertEqual(fill["ui_action"], "clarification_action")
         self.assertEqual(fill["clarification"]["fields"][0]["type"], "text")
+
+    async def test_calendar_multiple_candidates_can_auto_use_semantic_unique_landmark(self):
+        entrance = {
+            **PLACE,
+            "place_id": "poi-gugong-entrance",
+            "name": "故宫博物院-午门",
+            "address": "北京市东城区景山前街4号",
+        }
+        tools = build_production_tools(
+            object(),
+            store=FakeStore(),
+            conversation_id="calendar-semantic-landmark",
+            env={"TENCENT_MAP_KEY": "key"},
+            enabled_skills={"maps", "calendar"},
+            planned_calendar_place_resolution=True,
+        )
+        search_tool = next(tool for tool in tools if tool.name == "search_places")
+        with (
+            patch(
+                "agents.chat._ui_tools.provider_search_places",
+                AsyncMock(return_value=[PLACE, entrance]),
+            ),
+            patch(
+                "agents.chat._ui_tools.choose_semantically_unique_place",
+                AsyncMock(return_value=PLACE),
+            ) as adjudicator,
+        ):
+            result = json.loads(await search_tool.ainvoke({
+                "query": "故宫博物院",
+                "city": "北京",
+            }))
+
+        self.assertEqual(result["resolution"]["decision"], "auto_use")
+        self.assertEqual(result["resolution"]["selected_place_id"], PLACE["place_id"])
+        adjudicator.assert_awaited_once()
 
     async def test_calendar_unique_verified_correction_skips_extra_question(self):
         corrected = {
