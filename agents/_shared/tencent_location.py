@@ -124,6 +124,69 @@ async def search_place_suggestions(
     return [item for item in places if item is not None]
 
 
+async def reverse_geocode(key: str, location: dict[str, Any]) -> dict[str, Any]:
+    """Resolve a request-scoped browser fix into user-readable Tencent address data."""
+    if not key:
+        raise RuntimeError("未配置 TENCENT_MAP_KEY")
+    try:
+        latitude = float(location.get("latitude"))
+        longitude = float(location.get("longitude"))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("当前位置坐标无效") from exc
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        raise ValueError("当前位置坐标超出有效范围")
+    coordinate_type = str(location.get("coordinate_type") or "").lower()
+    data = await _get(
+        f"{API_ROOT}/geocoder/v1",
+        {
+            "key": key,
+            "location": f"{latitude:.7f},{longitude:.7f}",
+            "coord_type": 1 if coordinate_type == "wgs84" else 5,
+            "get_poi": 1,
+        },
+    )
+    result = data.get("result") if isinstance(data.get("result"), dict) else {}
+    components = (
+        result.get("address_component")
+        if isinstance(result.get("address_component"), dict)
+        else {}
+    )
+    formatted = (
+        result.get("formatted_addresses")
+        if isinstance(result.get("formatted_addresses"), dict)
+        else {}
+    )
+    address = str(
+        formatted.get("recommend")
+        or result.get("address")
+        or formatted.get("rough")
+        or ""
+    ).strip()[:240]
+    nearby_landmark = ""
+    for raw_poi in result.get("pois") or []:
+        if not isinstance(raw_poi, dict):
+            continue
+        title = str(raw_poi.get("title") or "").strip()
+        poi_address = str(raw_poi.get("address") or "").strip()
+        if title:
+            nearby_landmark = (
+                f"{title}（{poi_address}）" if poi_address else title
+            )[:240]
+            break
+    if not address and not any(str(value or "").strip() for value in components.values()):
+        raise RuntimeError("腾讯位置服务未返回可读地址")
+    return {
+        "provider": "tencent",
+        "address": address,
+        "province": str(components.get("province") or "").strip()[:80],
+        "city": str(components.get("city") or "").strip()[:80],
+        "district": str(components.get("district") or "").strip()[:80],
+        "street": str(components.get("street") or "").strip()[:120],
+        "street_number": str(components.get("street_number") or "").strip()[:80],
+        "nearby_landmark": nearby_landmark,
+    }
+
+
 async def search_osm_places(query: str, *, city: str = "", limit: int = 10) -> list[dict[str, Any]]:
     global _osm_last_request_at
     terms = " ".join(part for part in (str(query or "").strip(), str(city or "").strip()) if part and part != "全国")

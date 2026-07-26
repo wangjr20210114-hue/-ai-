@@ -31,6 +31,7 @@ TOOL_FAILURE_MESSAGE = (
 # is therefore retry churn, not additional reasoning. The LLM still plans the
 # tool and its arguments; this is only a runtime safety budget.
 TURN_SINGLE_USE_TOOLS = {
+    "get_current_location",
     "rich_search",
     "search_places",
     "search_places_batch",
@@ -57,6 +58,7 @@ SKILL_DISPLAY_NAMES = {
 }
 
 TOOL_CAPABILITIES = {
+    "get_current_location": "maps",
     "rich_search": "web-search",
     "collect_page_images": "web-search",
     "analyze_images_parallel": "vision",
@@ -186,6 +188,8 @@ def tool_failure_fallback(messages: Iterable) -> str:
             continue
         detail = content[len("操作未完成："):].split("。请自然说明", 1)[0].strip("。 ")
         if detail:
+            if getattr(message, "name", "") == "get_current_location":
+                return f"腾讯地图这次没有完成当前位置的地址解析：{detail}。请稍后重试。"
             if getattr(message, "name", "") == "recommend_nearby_places_on_map":
                 if detail.startswith("本轮没有收到浏览器定位坐标"):
                     return (
@@ -207,6 +211,37 @@ def tool_result_fallback(messages: Iterable) -> str:
     lookup from collapsing into the generic empty-answer error.
     """
     logical_turn_messages = _logical_turn_messages(messages)
+
+    for message in logical_turn_messages:
+        if (
+            getattr(message, "type", "") != "tool"
+            or getattr(message, "name", "") != "get_current_location"
+        ):
+            continue
+        try:
+            payload = json.loads(str(getattr(message, "content", "") or ""))
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if not payload.get("location_available"):
+            return (
+                "我目前没有拿到你的浏览器定位。请先在地图中允许定位并等待定位成功，"
+                "然后再问我“我现在在哪”。"
+            )
+        location = payload.get("location")
+        if not isinstance(location, dict):
+            continue
+        address = str(location.get("address") or "").strip()
+        locality = "".join(
+            str(location.get(key) or "").strip()
+            for key in ("province", "city", "district", "street", "street_number")
+        )
+        landmark = str(location.get("nearby_landmark") or "").strip()
+        readable = address or locality
+        if readable:
+            suffix = f"，附近地标是 {landmark}" if landmark else ""
+            return f"腾讯地图将你当前的位置解析为：{readable}{suffix}。"
 
     paper_payload = None
     for message in logical_turn_messages:

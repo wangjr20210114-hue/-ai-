@@ -24,6 +24,7 @@ DEFAULT_PLAN = {
     "needs_rich_answer": False,
     "needs_images": False,
     "needs_places": False,
+    "needs_current_location": False,
     "needs_nearby_places": False,
     "needs_route": False,
     "needs_map_action": False,
@@ -91,6 +92,13 @@ class CapabilityPlan(BaseModel):
     needs_rich_answer: bool = False
     needs_images: bool = False
     needs_places: bool = False
+    needs_current_location: bool = Field(
+        default=False,
+        description=(
+            "True when the user directly asks where they currently are or asks "
+            "the assistant to identify the fresh browser location."
+        ),
+    )
     needs_nearby_places: bool = False
     needs_route: bool = False
     needs_map_action: bool = False
@@ -265,6 +273,8 @@ def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
     required: list[str] = []
     if bool(plan.get("needs_web_search")):
         required.append("rich_search")
+    if bool(plan.get("needs_current_location")):
+        required.append("get_current_location")
 
     # The composite map tool verifies every model-selected place and prepares
     # the terminal map Action in one call.  For a single non-map location (most
@@ -497,6 +507,7 @@ async def plan_capabilities(
 - 现实地点可能有错字、同名或缺城市时，不得在调用地点服务之前设置 needs_clarification。先选择地点/路线能力；地点工具会根据真实腾讯候选决定直接采用、单选或填空。
 能力：
 - 时效事实、用户要求查证或来源：needs_web_search=true；只在明确要求“今天发布”时 strict_today_only=true。search_query 合并为一次简洁查询并使用 {today} 解析相对日期。图片明显帮助理解时 needs_images=true 并填写 image_query。
+- 用户直接问“我现在在哪、当前位置是什么、你能否读到我的位置”：needs_current_location=true，由腾讯逆地址解析把本轮浏览器坐标转为可读地址；不要设置 web_search 或把坐标写入查询。没有浏览器定位时仍设置该能力，由工具如实返回不可用。
 - 旅行目的地介绍或多地点推荐：needs_places=true、needs_map_action=true；找已知地点/当前位置/日程地点周边真实商家：只设 needs_nearby_places=true。说“我附近/当前位置附近”时只能使用下方浏览器状态；不可用时不得把“当前位置”当普通地点词，也不得声称已定位或已搜索。
 - 真实道路距离、耗时、费用或有序行程：needs_route=true。route_stops 必须按原顺序逐字保留用户说出的地点，不得在规划器中纠错、改名或选择分店；普通地点写 query，“参照点附近的品牌/类别”只拆为 query 与 near_query。浏览器有新鲜授权位置且用户没给起点时 route_uses_current_location=true，否则缺起点才澄清。只记录用户明确指定的 route_mode 和 route_strategy，未指定填 default。
 - 查询、汇总当前日程：needs_calendar_context=true。新增、修改、删除日程：同时设置 needs_calendar_context=true、needs_calendar_action=true。明确未来日期/出发时刻的多站可执行行程在日程 Skill 开启时，同时需要 route、calendar_context、calendar_action。

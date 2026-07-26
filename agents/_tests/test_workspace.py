@@ -32,7 +32,7 @@ from agents.chat._history import (
     valid_model_history,
 )
 from agents.chat._calendar_context import calendar_context, latest_route_context
-from agents.chat._graph import action_completion_fallback, tool_failure_fallback
+from agents.chat._graph import action_completion_fallback, tool_failure_fallback, tool_result_fallback
 from agents.chat.index import (
     SYSTEM_PROMPT,
     capability_planning_message,
@@ -80,6 +80,7 @@ from agents._shared.arxiv import _best_title_match
 from agents._shared.tencent_location import (
     decode_polyline,
     place_distance_meters,
+    reverse_geocode,
     search_verified_places,
     search_verified_places_nearby,
 )
@@ -954,6 +955,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ordered_stops", SYSTEM_PROMPT)
         self.assertIn("不要再问用户“是否需要写入日程”", SYSTEM_PROMPT)
         self.assertIn("source_route_plan_id", SYSTEM_PROMPT)
+
+    def test_current_location_plan_uses_tencent_reverse_geocode_tool(self):
+        self.assertEqual(
+            required_tools_for_plan({"needs_current_location": True}),
+            ("get_current_location",),
+        )
 
     def test_nearby_plan_uses_one_native_location_composite(self):
         self.assertEqual(
@@ -1909,6 +1916,66 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["anchor"]["place_id"], "browser-current-location")
         self.assertEqual(result["groups"][0]["anchor_query"], "当前位置")
         self.assertEqual(result["places"][0]["place_id"], "nearby-park")
+
+    async def test_current_location_tool_returns_tencent_address_without_coordinates(self):
+        browser_location = {
+            "place_id": "browser-current-location",
+            "provider": "browser-wgs84",
+            "name": "当前位置",
+            "address": "",
+            "latitude": 43.8171,
+            "longitude": 125.3235,
+            "coordinate_type": "wgs84",
+            "accuracy_meters": 18,
+        }
+        resolved = {
+            "provider": "tencent",
+            "address": "吉林省长春市朝阳区前进大街2699号",
+            "province": "吉林省",
+            "city": "长春市",
+            "district": "朝阳区",
+            "street": "前进大街",
+            "street_number": "2699号",
+            "nearby_landmark": "吉林大学前卫南区",
+        }
+        with patch(
+            "agents.chat._ui_tools.provider_reverse_geocode",
+            new=AsyncMock(return_value=resolved),
+        ) as provider:
+            tools = build_production_tools(
+                None,
+                store=FakeStore(),
+                conversation_id="current-location-address",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+                browser_current_location=browser_location,
+            )
+            tool = next(item for item in tools if item.name == "get_current_location")
+            result = json.loads(await tool.ainvoke({}))
+
+        provider.assert_awaited_once_with("map-key", browser_location)
+        self.assertTrue(result["location_available"])
+        self.assertEqual(result["location"]["city"], "长春市")
+        self.assertNotIn("latitude", result["location"])
+        self.assertNotIn("longitude", result["location"])
+
+    async def test_current_location_tool_without_browser_fix_skips_provider(self):
+        with patch(
+            "agents.chat._ui_tools.provider_reverse_geocode",
+            new=AsyncMock(),
+        ) as provider:
+            tools = build_production_tools(
+                None,
+                store=FakeStore(),
+                conversation_id="current-location-unavailable",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+                browser_current_location=None,
+            )
+            tool = next(item for item in tools if item.name == "get_current_location")
+            result = json.loads(await tool.ainvoke({}))
+
+        provider.assert_not_awaited()
+        self.assertFalse(result["location_available"])
+        self.assertIn("没有收到浏览器定位", result["message"])
 
     async def test_nearby_current_location_without_browser_fix_never_searches_provider(self):
         with patch(
@@ -3071,6 +3138,63 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("我目前没有拿到你的定位", result)
         self.assertIn("没有搜索你附近", result)
         self.assertNotIn("已授权", result)
+
+    def test_current_location_result_has_truthful_terminal_fallback(self):
+        content = tool_result_fallback([
+            HumanMessage(content="我现在在哪"),
+            ToolMessage(
+                content=json.dumps({
+                    "location_available": True,
+                    "location": {
+                        "address": "吉林省长春市朝阳区前进大街2699号",
+                        "city": "长春市",
+                        "district": "朝阳区",
+                        "nearby_landmark": "吉林大学前卫南区",
+                    },
+                }, ensure_ascii=False),
+                name="get_current_location",
+                tool_call_id="location-1",
+            ),
+        ])
+        self.assertIn("前进大街2699号", content)
+        self.assertIn("吉林大学前卫南区", content)
+        self.assertNotIn("经纬度", content)
+
+    async def test_tencent_reverse_geocode_uses_wgs84_and_sanitizes_result(self):
+        response = {
+            "status": 0,
+            "result": {
+                "address": "吉林省长春市朝阳区前进大街2699号",
+                "formatted_addresses": {"recommend": "朝阳区前进大街2699号"},
+                "address_component": {
+                    "province": "吉林省",
+                    "city": "长春市",
+                    "district": "朝阳区",
+                    "street": "前进大街",
+                    "street_number": "2699号",
+                },
+                "pois": [{
+                    "title": "吉林大学前卫南区",
+                    "address": "前进大街2699号",
+                    "location": {"lat": 43.817, "lng": 125.324},
+                }],
+            },
+        }
+        with patch(
+            "agents._shared.tencent_location._get",
+            new=AsyncMock(return_value=response),
+        ) as provider:
+            result = await reverse_geocode("map-key", {
+                "latitude": 43.8171,
+                "longitude": 125.3235,
+                "coordinate_type": "wgs84",
+            })
+
+        self.assertTrue(provider.await_args.args[0].endswith("/geocoder/v1"))
+        self.assertEqual(provider.await_args.args[1]["coord_type"], 1)
+        self.assertEqual(result["city"], "长春市")
+        self.assertEqual(result["nearby_landmark"], "吉林大学前卫南区（前进大街2699号）")
+        self.assertNotIn("latitude", result)
 
     def test_today_filter_requires_a_verifiable_matching_publication_date(self):
         results = [
