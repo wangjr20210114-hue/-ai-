@@ -63,7 +63,8 @@ export function makersConversationHeaders(conversationId: string): Record<string
  * cards during restore, leaving a false user-only tail that the UI mistakes
  * for an interrupted generation.
  */
-export function hasDurableAssistantPayload(message: ChatMessage): boolean {
+export function hasDurableAssistantPayload(message?: ChatMessage): boolean {
+  if (!message) return false;
   return message.role === 'ai' && (
     Boolean(message.content.trim())
     || Boolean(message.clarification)

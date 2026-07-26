@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../types';
-import { clearLocalApplicationData, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
+import { clearLocalApplicationData, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, durableMessageCount, getOrCreateConversationId, hasDurableAssistantPayload, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
 import { CONVERSATION_PREFIX, isCurrentConversationId } from './dataVersion';
 
 describe('getOrCreateConversationId', () => {
@@ -71,6 +71,10 @@ describe('getOrCreateConversationId', () => {
 });
 
 describe('mergeMessages', () => {
+  it('treats an empty conversation tail as non-durable', () => {
+    expect(hasDurableAssistantPayload(undefined)).toBe(false);
+  });
+
   it('drops stale local failure prompts before the latest Makers match', () => {
     const local: ChatMessage[] = [
       { id: 'u1', role: 'user', content: '失败一', ts: 1 },
