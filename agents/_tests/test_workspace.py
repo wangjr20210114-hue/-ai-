@@ -657,6 +657,88 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(required_tools_for_plan(plan), ())
         self.assertEqual(plan["nearby_query"], "")
 
+    def test_chat_entry_never_branches_on_user_phrase_literals(self):
+        """Keep natural-language intent in structured models, not source-code phrases."""
+        chat_dir = Path(__file__).parents[1] / "chat"
+        user_text_names = {"message", "user_message", "planning_message"}
+        violations: list[str] = []
+
+        def references_user_text(node: ast.AST) -> bool:
+            return any(
+                isinstance(item, ast.Name) and item.id in user_text_names
+                for item in ast.walk(node)
+            )
+
+        def has_string_literal(node: ast.AST) -> bool:
+            return any(
+                isinstance(item, ast.Constant)
+                and isinstance(item.value, str)
+                and bool(item.value)
+                for item in ast.walk(node)
+            )
+
+        def is_message_role_protocol(node: ast.AST) -> bool:
+            values = {
+                item.value
+                for item in ast.walk(node)
+                if isinstance(item, ast.Constant) and isinstance(item.value, str)
+            }
+            return bool(values) and values <= {
+                "", "type", "human", "user", "ai", "assistant",
+            }
+
+        for filename in ("index.py", "_capability_plan.py"):
+            source = (chat_dir / filename).read_text(encoding="utf-8")
+            module = ast.parse(source)
+            for condition in (
+                item.test
+                for item in ast.walk(module)
+                if isinstance(item, (ast.If, ast.IfExp, ast.While))
+            ):
+                for comparison in (
+                    item for item in ast.walk(condition)
+                    if isinstance(item, ast.Compare)
+                ):
+                    operands = [comparison.left, *comparison.comparators]
+                    if (
+                        references_user_text(comparison)
+                        and any(has_string_literal(operand) for operand in operands)
+                        and not is_message_role_protocol(comparison)
+                    ):
+                        violations.append(
+                            f"{filename}:{comparison.lineno}:"
+                            f"{ast.get_source_segment(source, comparison)}"
+                        )
+                for call in (
+                    item for item in ast.walk(condition)
+                    if isinstance(item, ast.Call)
+                ):
+                    method_name = (
+                        call.func.attr
+                        if isinstance(call.func, ast.Attribute)
+                        else call.func.id
+                        if isinstance(call.func, ast.Name)
+                        else ""
+                    )
+                    if (
+                        method_name in {
+                            "search", "match", "fullmatch",
+                            "startswith", "endswith",
+                        }
+                        and references_user_text(call)
+                        and has_string_literal(call)
+                    ):
+                        violations.append(
+                            f"{filename}:{call.lineno}:"
+                            f"{ast.get_source_segment(source, call)}"
+                        )
+
+        self.assertEqual(
+            violations,
+            [],
+            "用户意图必须由 LangChain 结构化语义链决定，不能新增短语、正则或同义词分支",
+        )
+
     async def test_location_guard_does_not_hijack_non_location_question(self):
         model = StructuredPlannerModel(delay=10)
         plan, timed_out = await plan_capabilities_bounded(
