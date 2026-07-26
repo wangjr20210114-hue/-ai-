@@ -654,16 +654,6 @@ def build_production_tools(
     map_near_time_tolerance = max(
         0, min(30, int(map_scope.get("near_time_tolerance_minutes", 10) or 0)),
     )
-    map_semantic_colocation_radius = max(
-        100.0,
-        min(
-            5_000.0,
-            float(
-                map_scope.get("semantic_colocation_radius_meters", 1_000)
-                or 1_000
-            ),
-        ),
-    )
     map_learn_route_preferences = bool(
         map_scope.get("learn_route_preferences", True)
     )
@@ -877,18 +867,6 @@ def build_production_tools(
         if effective_purpose != "calendar":
             return json.dumps({"places": places, "count": len(places)}, ensure_ascii=False)
         decision, selected, reason = _place_resolution(query, places)
-        if decision == "choose":
-            semantic_choice = await choose_semantically_unique_place(
-                place_disambiguation_model,
-                query,
-                places,
-                route_role="日程地点",
-                max_colocation_radius_meters=map_semantic_colocation_radius,
-            )
-            if semantic_choice:
-                decision = "auto_use"
-                selected = semantic_choice
-                reason = "semantically_unique_provider_candidate"
         if decision == "auto_use" and isinstance(selected, dict):
             return json.dumps({
                 "places": [selected],
@@ -903,7 +881,10 @@ def build_production_tools(
             return _clarification_action(
                 conversation_id,
                 title="请选择日程地点",
-                prompt=f"查到多个符合“{query}”的真实地点。请选择要写入日程的地点。",
+                prompt=(
+                    f"查到多个符合“{query}”的真实地点，候选已按腾讯地图相关度排序。"
+                    "请选择要写入日程的地点，提交后我会继续安排。"
+                ),
                 fields=[_place_choice_field(
                     "calendar_place",
                     "日程安排在哪个地点？",
@@ -1115,15 +1096,6 @@ def build_production_tools(
             if len(anchors) == 1:
                 return anchors[0]
             if anchors:
-                semantic_choice = await choose_semantically_unique_place(
-                    place_disambiguation_model,
-                    clean_anchor_query,
-                    anchors,
-                    route_role="附近搜索参照地点",
-                    max_colocation_radius_meters=map_semantic_colocation_radius,
-                )
-                if semantic_choice:
-                    return semantic_choice
                 return {
                     "_ambiguous_candidates": anchors,
                     "_query": clean_anchor_query,
@@ -1152,7 +1124,10 @@ def build_production_tools(
             return _clarification_action(
                 conversation_id,
                 title="请选择附近搜索的参照地点",
-                prompt="地点服务返回了多个候选。请选择与原目标一致的地点后，我会继续附近搜索。",
+                prompt=(
+                    "地点服务返回了多个候选，已按腾讯地图相关度排序。"
+                    "请选择与原目标一致的地点后，我会继续附近搜索。"
+                ),
                 fields=[
                     _place_choice_field(
                         f"anchor_{index}",
@@ -1493,27 +1468,19 @@ def build_production_tools(
                     )
                 anchor = anchors[0]
                 if len(anchors) > 1:
-                    anchor = await choose_semantically_unique_place(
-                        place_disambiguation_model,
-                        clean_near,
-                        anchors,
-                        route_role=f"{endpoint_label}附近参照地点",
-                        max_colocation_radius_meters=map_semantic_colocation_radius,
+                    return None, _clarification_action(
+                        conversation_id,
+                        title="请选择附近参照地点",
+                        prompt=(
+                            f"腾讯地点服务查到多个“{clean_near}”，候选已按相关度排序。"
+                            f"请先选择用于查找{endpoint_label}“{clean_query}”的参照地点。"
+                        ),
+                        fields=[_place_choice_field(
+                            f"{endpoint_id}_anchor",
+                            "附近搜索以哪个地点为参照？",
+                            anchors,
+                        )],
                     )
-                    if not anchor:
-                        return None, _clarification_action(
-                            conversation_id,
-                            title="请选择附近参照地点",
-                            prompt=(
-                                f"腾讯地点服务查到多个“{clean_near}”。"
-                                f"请先选择用于查找{endpoint_label}“{clean_query}”的参照地点。"
-                            ),
-                            fields=[_place_choice_field(
-                                f"{endpoint_id}_anchor",
-                                "附近搜索以哪个地点为参照？",
-                                anchors,
-                            )],
-                        )
                 matches = await _search_places_nearby_metered(
                     map_key,
                     clean_query,
@@ -1556,16 +1523,6 @@ def build_production_tools(
             # silently would be arbitrary; let the user pick from real nearby
             # candidates instead.
             if clean_near and len(matches) > 1:
-                semantic_choice = await choose_semantically_unique_place(
-                    place_disambiguation_model,
-                    clean_query,
-                    matches,
-                    near_query=clean_near,
-                    route_role=endpoint_label,
-                    max_colocation_radius_meters=map_semantic_colocation_radius,
-                )
-                if semantic_choice:
-                    return semantic_choice, None
                 field = _place_choice_field(
                     endpoint_id,
                     f"请选择具体{endpoint_label}",
@@ -1574,26 +1531,13 @@ def build_production_tools(
                 return None, _clarification_action(
                     conversation_id,
                     title="请选择具体地点",
-                    prompt=f"查到多个位于“{clean_near}”附近的“{clean_query}”。为避免算错距离，请先选择具体{endpoint_label}。",
+                    prompt=(
+                        f"查到多个位于“{clean_near}”附近的“{clean_query}”，候选已按相关度排序。"
+                        f"请选择具体{endpoint_label}，提交后我会继续规划。"
+                    ),
                     fields=[field],
                 )
             if len(matches) > 1:
-                # One exact-looking bare name among several Tencent results is
-                # not enough evidence that the user meant that branch. A mall,
-                # hotel or hospital can have one canonical record plus several
-                # materially different branches. Let the semantic adjudicator
-                # use all provider evidence; if intent is not near-certain the
-                # user receives the finite Tencent candidate list.
-                semantic_choice = await choose_semantically_unique_place(
-                    place_disambiguation_model,
-                    clean_query,
-                    matches,
-                    near_query=clean_near,
-                    route_role=endpoint_label,
-                    max_colocation_radius_meters=map_semantic_colocation_radius,
-                )
-                if semantic_choice:
-                    return semantic_choice, None
                 field = _place_choice_field(
                     endpoint_id,
                     f"请选择具体{endpoint_label}",
@@ -1602,7 +1546,10 @@ def build_production_tools(
                 return None, _clarification_action(
                     conversation_id,
                     title="请选择具体地点",
-                    prompt=f"查到多个符合“{clean_query}”的地点。为避免算错距离，请先选择具体{endpoint_label}。",
+                    prompt=(
+                        f"查到多个符合“{clean_query}”的地点，候选已按相关度返回。"
+                        f"请选择具体{endpoint_label}，提交后我会继续规划。"
+                    ),
                     fields=[field],
                 )
             return matches[0], None

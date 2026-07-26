@@ -237,7 +237,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         defaults = normalize_map_preferences({})
         self.assertEqual(defaults["route_strategy"], "time_then_cost")
         self.assertEqual(defaults["near_time_tolerance_minutes"], 10)
-        self.assertEqual(defaults["semantic_colocation_radius_meters"], 1_000)
+        self.assertNotIn("semantic_colocation_radius_meters", defaults)
         bounded = normalize_map_preferences({
             "route_strategy": "least_cost",
             "near_time_tolerance_minutes": 99,
@@ -246,7 +246,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         })
         self.assertEqual(bounded["route_strategy"], "least_cost")
         self.assertEqual(bounded["near_time_tolerance_minutes"], 30)
-        self.assertEqual(bounded["semantic_colocation_radius_meters"], 5_000)
+        self.assertNotIn("semantic_colocation_radius_meters", bounded)
         self.assertFalse(bounded["learn_route_preferences"])
 
     async def test_tencent_suggestion_is_evidence_for_high_confidence_typo(self):
@@ -629,7 +629,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fill["ui_action"], "clarification_action")
         self.assertEqual(fill["clarification"]["fields"][0]["type"], "text")
 
-    async def test_calendar_multiple_candidates_can_auto_use_semantic_unique_landmark(self):
+    async def test_calendar_multiple_candidates_are_shown_in_ranked_choice_card(self):
         entrance = {
             **PLACE,
             "place_id": "poi-gugong-entrance",
@@ -660,9 +660,11 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 "city": "北京",
             }))
 
-        self.assertEqual(result["resolution"]["decision"], "auto_use")
-        self.assertEqual(result["resolution"]["selected_place_id"], PLACE["place_id"])
-        adjudicator.assert_awaited_once()
+        self.assertEqual(result["ui_action"], "clarification_action")
+        field = result["clarification"]["fields"][0]
+        self.assertEqual(field["type"], "single")
+        self.assertGreaterEqual(len(field["options"]), 2)
+        adjudicator.assert_not_awaited()
 
     async def test_calendar_unique_verified_correction_skips_extra_question(self):
         corrected = {

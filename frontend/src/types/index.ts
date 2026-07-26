@@ -153,7 +153,6 @@ export interface MakersIntelligenceState {
     preferred_route_mode: MakersRouteMode;
     route_strategy: 'time_then_cost' | 'least_time' | 'least_cost';
     near_time_tolerance_minutes: number;
-    semantic_colocation_radius_meters: number;
     learn_route_preferences: boolean;
   };
   skill_preferences?: Record<string, boolean>;

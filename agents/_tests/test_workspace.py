@@ -2970,7 +2970,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             max_colocation_radius_meters=2_000,
         ))
 
-    async def test_route_uses_semantic_provider_candidate_when_near_certain(self):
+    async def test_route_shows_ranked_candidates_without_extra_semantic_round(self):
         origin = {**PLACE, "place_id": "station", "name": "北京站"}
         candidates = [
             {**PLACE, "place_id": "square", "name": "天安门广场"},
@@ -2981,20 +2981,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         async def place_provider(_key, query, *, city, limit):
             return [origin] if query == "北京站" else candidates
 
-        route = {
-            "provider": "tencent",
-            "mode": "walking",
-            "distance_meters": 2_000,
-            "duration_seconds": 1_800,
-            "fare": {},
-        }
         model = StructuredPlannerModel(candidate_args={
             "unique_intent": True,
             "selected_place_id": "gate",
             "reason": "One canonical landmark is near-certain.",
         })
         with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
-             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
+             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock()) as planner:
             tools = build_production_tools(
                 None,
                 place_disambiguation_model=model,
@@ -3011,9 +3004,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 "route_mode": "walking",
             }))
 
-        self.assertEqual(result["ui_action"], "map_action")
-        self.assertEqual(result["destination"]["place_id"], "gate")
-        planner.assert_awaited_once()
+        self.assertEqual(result["ui_action"], "clarification_action")
+        field = result["clarification"]["fields"][0]
+        self.assertEqual(field["type"], "single")
+        self.assertGreaterEqual(len(field["options"]), 2)
+        self.assertIn("天安门", field["options"][0])
+        planner.assert_not_awaited()
+        self.assertEqual(model.messages, [])
 
     async def test_route_search_timeout_returns_fill_in_card(self):
         async def place_provider(_key, _query, *, city, limit):
