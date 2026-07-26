@@ -2442,6 +2442,95 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             ["tencent", "jinjiang", "restaurant", "orange"],
         )
 
+    async def test_route_tool_preserves_browser_origin_before_planned_stops(self):
+        destinations = {
+            "颐和园": {**PLACE, "place_id": "summer-palace", "name": "颐和园"},
+            "故宫": {**PLACE, "place_id": "forbidden-city", "name": "故宫"},
+        }
+
+        async def place_provider(_key, query, *, city, limit):
+            return [destinations[query]]
+
+        browser_origin = {
+            **PLACE,
+            "place_id": "browser-current-location",
+            "name": "当前位置",
+            "provider": "browser-wgs84",
+            "coordinate_type": "wgs84",
+        }
+        route = {
+            "provider": "tencent",
+            "mode": "driving",
+            "distance_meters": 30_000,
+            "duration_seconds": 3_600,
+            "fare": {},
+        }
+        planned_stops = [{"query": "颐和园"}, {"query": "故宫"}]
+        with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
+             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
+            tools = build_production_tools(
+                None,
+                store=FakeStore(),
+                conversation_id="browser-origin-planned-stops",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+                planned_route_stops=planned_stops,
+                planned_route_uses_current_location=True,
+                browser_current_location=browser_origin,
+            )
+            route_tool = next(item for item in tools if item.name == "plan_route_between_places")
+            result = json.loads(await route_tool.ainvoke({
+                "ordered_stops": planned_stops,
+                "use_current_location_as_origin": True,
+            }))
+
+        self.assertEqual(
+            [item["place_id"] for item in result["ordered_stops"]],
+            ["browser-current-location", "summer-palace", "forbidden-city"],
+        )
+        self.assertEqual(
+            [item["place_id"] for item in planner.await_args.args[1]],
+            ["browser-current-location", "summer-palace", "forbidden-city"],
+        )
+
+    async def test_route_ambiguity_card_identifies_intermediate_stop(self):
+        places = {
+            "起点公园": [{**PLACE, "place_id": "origin", "name": "起点公园"}],
+            "第一站博物馆": [{**PLACE, "place_id": "museum", "name": "第一站博物馆"}],
+            "同名餐厅": [
+                {**PLACE, "place_id": "restaurant-a", "name": "同名餐厅 A 店"},
+                {**PLACE, "place_id": "restaurant-b", "name": "同名餐厅 B 店"},
+            ],
+            "终点车站": [{**PLACE, "place_id": "destination", "name": "终点车站"}],
+        }
+
+        async def place_provider(_key, query, *, city, limit):
+            return places[query]
+
+        with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
+             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock()) as planner:
+            tools = build_production_tools(
+                None,
+                store=FakeStore(),
+                conversation_id="intermediate-stop-ambiguity",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+            )
+            route_tool = next(item for item in tools if item.name == "plan_route_between_places")
+            result = json.loads(await route_tool.ainvoke({
+                "ordered_stops": [
+                    {"query": "起点公园"},
+                    {"query": "第一站博物馆"},
+                    {"query": "同名餐厅"},
+                    {"query": "终点车站"},
+                ],
+            }))
+
+        field = result["clarification"]["fields"][0]
+        self.assertEqual(result["ui_action"], "clarification_action")
+        self.assertEqual(field["id"], "route_stop_3")
+        self.assertEqual(field["label"], "请选择具体第 3 站")
+        self.assertIn("第 3 站", result["clarification"]["prompt"])
+        planner.assert_not_awaited()
+
     def test_complete_planner_route_preserves_literal_user_place_text(self):
         self.assertEqual(
             preserve_planned_route_stops(

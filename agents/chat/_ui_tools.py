@@ -1257,7 +1257,8 @@ def build_production_tools(
                 candidates[str(place["place_id"])] = place
 
         async def resolve(
-            endpoint: str,
+            endpoint_id: str,
+            endpoint_label: str,
             query: str,
             near_query: str,
         ) -> tuple[dict[str, Any] | None, str | None]:
@@ -1266,7 +1267,7 @@ def build_production_tools(
             if clean_query == "__browser_current_location__":
                 return copy.deepcopy(browser_current_location), None
             if not clean_query:
-                raise ValueError(f"{endpoint}地点不能为空")
+                raise ValueError(f"{endpoint_label}地点不能为空")
             if clean_near:
                 try:
                     anchors = await _search_place_candidates_metered(
@@ -1277,7 +1278,7 @@ def build_production_tools(
                         map_key, clean_near, city=city or "全国", limit=5,
                     )
                 if not anchors:
-                    raise ValueError(f"没有核实到{endpoint}参照地点“{clean_near}”")
+                    raise ValueError(f"没有核实到{endpoint_label}参照地点“{clean_near}”")
                 anchor_exact = [
                     item for item in anchors
                     if _normalized_place_name(item.get("name")) == _normalized_place_name(clean_near)
@@ -1305,14 +1306,14 @@ def build_production_tools(
                 qualifier = f"（{clean_near}附近 {radius} 米内）" if clean_near else ""
                 return None, _clarification_action(
                     conversation_id,
-                    title=f"请确认{endpoint}",
+                    title=f"请确认{endpoint_label}",
                     prompt=(
                         f"地点服务没有足够证据确认“{clean_query}”{qualifier}。"
                         "可能是错别字、同名地点或缺少城市，请补充更完整名称。"
                     ),
                     fields=[{
-                        "id": f"route_{endpoint}_{hashlib.sha256(clean_query.encode()).hexdigest()[:6]}",
-                        "label": f"{endpoint}的正确名称或城市是什么？",
+                        "id": f"{endpoint_id}_{hashlib.sha256(clean_query.encode()).hexdigest()[:6]}",
+                        "label": f"{endpoint_label}的正确名称或城市是什么？",
                         "type": "text",
                         "required": True,
                         "options": [],
@@ -1332,14 +1333,14 @@ def build_production_tools(
             # candidates instead.
             if clean_near and len(matches) > 1:
                 field = _place_choice_field(
-                    f"route_{'origin' if endpoint == '起点' else 'destination'}",
-                    f"请选择具体{endpoint}",
+                    endpoint_id,
+                    f"请选择具体{endpoint_label}",
                     matches,
                 )
                 return None, _clarification_action(
                     conversation_id,
                     title="请选择具体地点",
-                    prompt=f"查到多个位于“{clean_near}”附近的“{clean_query}”。为避免算错距离，请先选择具体{endpoint}。",
+                    prompt=f"查到多个位于“{clean_near}”附近的“{clean_query}”。为避免算错距离，请先选择具体{endpoint_label}。",
                     fields=[field],
                 )
             exact = [
@@ -1350,14 +1351,14 @@ def build_production_tools(
                 return exact[0], None
             if len(matches) > 1:
                 field = _place_choice_field(
-                    f"route_{'origin' if endpoint == '起点' else 'destination'}",
-                    f"请选择具体{endpoint}",
+                    endpoint_id,
+                    f"请选择具体{endpoint_label}",
                     matches,
                 )
                 return None, _clarification_action(
                     conversation_id,
                     title="请选择具体地点",
-                    prompt=f"查到多个符合“{clean_query}”的地点。为避免算错距离，请先选择具体{endpoint}。",
+                    prompt=f"查到多个符合“{clean_query}”的地点。为避免算错距离，请先选择具体{endpoint_label}。",
                     fields=[field],
                 )
             return matches[0], None
@@ -1388,17 +1389,17 @@ def build_production_tools(
                 (str(origin_query or "").strip(), str(origin_near_query or "").strip()),
                 (str(destination_query or "").strip(), str(destination_near_query or "").strip()),
             ]
-        if should_use_current_location:
-            requested_stops = [
-                ("__browser_current_location__", ""),
-                *[item for item in requested_stops if item[0]],
-            ]
         model_stop_count = len(requested_stops)
         requested_stops = preserve_planned_route_stops(
             requested_stops,
             planned_route_stops,
             route_user_message,
         )
+        if should_use_current_location:
+            requested_stops = [
+                ("__browser_current_location__", ""),
+                *[item for item in requested_stops if item[0]],
+            ]
         if len(requested_stops) > map_route_stop_limit:
             raise ValueError(
                 f"当前地图设置允许单条路线最多 {map_route_stop_limit} 个地点，"
@@ -1418,13 +1419,15 @@ def build_production_tools(
         async def resolve_indexed(
             index: int, query: str, near_query: str,
         ) -> tuple[dict[str, Any] | None, str | None]:
-            endpoint = (
-                "起点" if index == 1
-                else "终点" if index == len(requested_stops)
-                else f"第 {index} 站"
+            endpoint_id, endpoint_label = (
+                ("route_origin", "起点") if index == 1
+                else ("route_destination", "终点") if index == len(requested_stops)
+                else (f"route_stop_{index}", f"第 {index} 站")
             )
             async with route_search_semaphore:
-                return await resolve(endpoint, query, near_query)
+                return await resolve(
+                    endpoint_id, endpoint_label, query, near_query,
+                )
 
         try:
             resolution_results = await asyncio.wait_for(
