@@ -592,6 +592,7 @@ async def plan_required_clarification(
     model,
     user_message: str,
     *,
+    location_context: str = "",
     has_reference_images: bool = False,
     has_document_context: bool = False,
 ) -> dict[str, Any]:
@@ -608,7 +609,10 @@ async def plan_required_clarification(
         "be uniquely identified. If a safe default, assumptions, or useful options "
         "can satisfy the request, return false. When true, provide one compact card "
         "with only the minimum fields: finite choices before free text, and no "
-        "optional preference questions."
+        "optional preference questions. The request-scoped location context below "
+        "is authoritative: when it says a browser location is available, that "
+        "already satisfies a current-location dependency; never ask for it again."
+        f"\nRequest-scoped location context: {str(location_context or 'not supplied')[:1000]}"
         f"\nReference images attached: {bool(has_reference_images)}"
         f"\nDocument context attached: {bool(has_document_context)}"
     )
@@ -862,6 +866,7 @@ async def plan_capabilities_bounded(
             plan_required_clarification(
                 model,
                 user_message,
+                location_context=location_context,
                 has_reference_images=has_reference_images,
                 has_document_context=has_document_context,
             ),

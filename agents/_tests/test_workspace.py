@@ -20,6 +20,7 @@ from agents.chat._capability_plan import (
     parse_capability_plan,
     plan_capabilities,
     plan_capabilities_bounded,
+    plan_required_clarification,
     select_prompt_topics,
     next_required_tool,
     required_tool_for_plan,
@@ -503,6 +504,19 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             ("ask_user_clarification",),
         )
         self.assertEqual(plan["clarification_fields"][0]["id"], "source_content")
+
+    async def test_required_input_gate_receives_request_location_context(self):
+        model = StructuredPlannerModel()
+        result = await plan_required_clarification(
+            model,
+            "用我本轮的位置继续完成请求",
+            location_context="浏览器位置已授权且新鲜，可作为本轮起点",
+        )
+        self.assertFalse(result["needs_clarification"])
+        self.assertIn(
+            "浏览器位置已授权且新鲜",
+            model.messages[0]["content"],
+        )
 
     async def test_weather_risk_is_decided_by_structured_semantics(self):
         model = StructuredPlannerModel({
