@@ -515,6 +515,55 @@ async def _recent_user_questions(store, conversation_id: str, current_message: s
     return questions
 
 
+async def checkpoint_clarification_answers(
+    checkpointer,
+    conversation_id: str,
+) -> list[str]:
+    """Recover prior hidden card answers for the current logical user goal."""
+    if checkpointer is None or not hasattr(checkpointer, "aget_tuple"):
+        return []
+    try:
+        checkpoint_tuple = await checkpointer.aget_tuple({
+            "configurable": {"thread_id": conversation_id},
+        })
+        checkpoint = _field(checkpoint_tuple, "checkpoint", {}) or {}
+        channels = (
+            checkpoint.get("channel_values", {})
+            if isinstance(checkpoint, dict)
+            else {}
+        )
+        messages = (
+            channels.get("messages", [])
+            if isinstance(channels, dict)
+            else []
+        )
+    except Exception:
+        return []
+    answers: list[str] = []
+    for item in reversed(list(messages or [])):
+        try:
+            role = str(
+                _field(item, "type", _field(item, "role", "")) or ""
+            ).lower()
+            if role not in {"human", "user"}:
+                continue
+            additional = _field(item, "additional_kwargs", {}) or {}
+            if not (
+                isinstance(additional, dict)
+                and additional.get("floris_interaction") == "clarification"
+            ):
+                break
+            content = _text_content(_field(item, "content", "")).strip()
+        except Exception:
+            continue
+        if content:
+            answers.append(content[:500])
+        if len(answers) >= 8:
+            break
+    answers.reverse()
+    return answers
+
+
 def clarification_response_id(body: dict) -> str:
     response = body.get("clarification_response")
     if body.get("interaction_mode") != "clarification" or not isinstance(response, dict):
@@ -555,6 +604,7 @@ def capability_planning_message(
     message: str,
     clarification_id: str = "",
     recent_user_messages: list[str] | None = None,
+    prior_clarification_answers: list[str] | None = None,
 ) -> str:
     """Keep a structured-card answer attached to the user's original goal."""
     current = str(message or "").strip()
@@ -565,10 +615,25 @@ def capability_planning_message(
     ]
     if not clarification_id or not recent:
         return current
+    prior_answers = [
+        str(item or "").strip()[:500]
+        for item in (prior_clarification_answers or [])
+        if str(item or "").strip()
+    ][-8:]
+    prior_context = (
+        "\n".join(
+            f"先前已提交的补充答案 {index}：{answer}"
+            for index, answer in enumerate(prior_answers, 1)
+        )
+        + "\n"
+        if prior_answers
+        else ""
+    )
     return (
         "[这是用户对上一轮结构化问题的补充答案，请结合原始目标规划尚未完成的能力；"
-        "不要把答案误判为一个独立的新问题。]\n"
+        "所有先前补充答案仍然有效，不要把答案误判为独立新问题或重复询问。]\n"
         f"上一轮原始目标：{recent[0][:600]}\n"
+        f"{prior_context}"
         f"本次补充答案：{current}"
     )
 
@@ -771,14 +836,20 @@ async def handler(ctx):
             )
     document_context = _document_context(body)
     clarification_context: list[str] = []
+    prior_clarification_answers: list[str] = []
     if silent_clarification:
-        clarification_context = await _recent_user_questions(
-            ctx.store, conversation_id, message,
+        clarification_context, prior_clarification_answers = await asyncio.gather(
+            _recent_user_questions(ctx.store, conversation_id, message),
+            checkpoint_clarification_answers(
+                getattr(ctx.store, "langgraph_checkpointer", None),
+                conversation_id,
+            ),
         )
     planning_message = capability_planning_message(
         message,
         clarification_id,
         clarification_context,
+        prior_clarification_answers,
     )
     if reference_images and "vision" not in enabled_skills:
         reference_image_context = "用户附带了图片，但视觉理解 Skill 已关闭；不要声称看见图片内容，应建议到 Skills 广场开启视觉理解。"
@@ -1058,7 +1129,7 @@ async def handler(ctx):
         parallel_image_search=parallel_image_search,
         enabled_skills=enabled_skills,
         planned_route_stops=capability_plan.get("route_stops") or [],
-        route_user_message=message,
+        route_user_message=planning_message,
         planned_route_city=str(capability_plan.get("route_city") or "全国"),
         planned_route_mode=str(capability_plan.get("route_mode") or "default"),
         planned_route_strategy=str(

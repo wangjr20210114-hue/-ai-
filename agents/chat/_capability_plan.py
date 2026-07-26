@@ -568,8 +568,8 @@ class PromptTopicSelection(BaseModel):
     )
 
 
-class ClarificationDecision(BaseModel):
-    """Product-wide semantic readiness decision."""
+class SemanticPreflight(BaseModel):
+    """One semantic pass for readiness and dynamic prompt retrieval."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -577,6 +577,13 @@ class ClarificationDecision(BaseModel):
     title: str = ""
     prompt: str = ""
     fields: list[PlannedClarificationField] = Field(default_factory=list)
+    topics: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Every prompt topic whose operational details may be needed. "
+            "Choose only from web, maps, calendar, image, paper, meeting, proactive."
+        ),
+    )
 
 
 class ClarificationReview(BaseModel):
@@ -605,9 +612,15 @@ async def plan_required_clarification(
     has_reference_images: bool = False,
     has_document_context: bool = False,
 ) -> dict[str, Any]:
-    """Decide required-input readiness semantically, without phrase rules."""
+    """Jointly decide readiness and retrieve prompt topics without phrase rules."""
+    catalog = "\n".join(
+        f"- {topic}: {summary}"
+        for topic, summary in PROMPT_TOPIC_SUMMARIES.items()
+    )
     prompt = (
-        "You are the product-wide required-input gate. Do not answer the user. "
+        "You are the product-wide semantic preflight. Do not answer the user. "
+        "In this single pass, both evaluate required-input readiness and select "
+        "the dynamic prompt topics needed by the later capability planner. "
         "Build the task's dependency graph from meaning: identify every source "
         "object, target object, or field the user explicitly makes necessary, "
         "then determine whether each is actually present in the current message, "
@@ -625,6 +638,10 @@ async def plan_required_clarification(
         "optional preference questions. The request-scoped location context below "
         "is authoritative: when it says a browser location is available, that "
         "already satisfies a current-location dependency; never ask for it again."
+        "\nSelect every relevant topic from the catalog, including combinations, "
+        "and omit unrelated topics. Classification is semantic, never based on "
+        "literal keyword or phrase matching.\n"
+        f"Available prompt topics:\n{catalog}"
         f"\nRequest-scoped location context: {str(location_context or 'not supplied')[:1000]}"
         f"\nReference images attached: {bool(has_reference_images)}"
         f"\nDocument context attached: {bool(has_document_context)}"
@@ -635,7 +652,7 @@ async def plan_required_clarification(
     ]
     try:
         gate = model.with_structured_output(
-            ClarificationDecision,
+            SemanticPreflight,
             method="function_calling",
             include_raw=True,
         )
@@ -658,6 +675,9 @@ async def plan_required_clarification(
                 "clarification_title": normalized.get("clarification_title") or "",
                 "clarification_prompt": normalized.get("clarification_prompt") or "",
                 "clarification_fields": normalized.get("clarification_fields") or [],
+                "_prompt_topics": list(
+                    _normalize_prompt_topics(parsed.get("topics") or [])
+                ),
             }
     except Exception:
         pass
@@ -666,6 +686,7 @@ async def plan_required_clarification(
         "clarification_title": "",
         "clarification_prompt": "",
         "clarification_fields": [],
+        "_prompt_topics": list(PLANNER_PROMPT_DETAILS),
     }
 
 
@@ -920,7 +941,8 @@ async def plan_capabilities_bounded(
     out, only the model-selected topic tools remain available for recovery.
     """
     total_timeout = max(0.02, float(timeout_seconds))
-    gate_timeout = min(6.0, max(0.01, total_timeout * 0.30))
+    deadline = asyncio.get_running_loop().time() + total_timeout
+    gate_timeout = min(8.0, max(0.01, total_timeout * 0.45))
     try:
         clarification = await asyncio.wait_for(
             plan_required_clarification(
@@ -933,9 +955,16 @@ async def plan_capabilities_bounded(
             timeout=gate_timeout,
         )
     except asyncio.TimeoutError:
-        clarification = {"needs_clarification": False}
+        clarification = {
+            "needs_clarification": False,
+            "_prompt_topics": list(PLANNER_PROMPT_DETAILS),
+        }
+    topics = tuple(clarification.get("_prompt_topics") or ())
     if clarification.get("needs_clarification"):
-        review_timeout = min(4.0, max(0.01, total_timeout * 0.20))
+        review_timeout = min(
+            4.0,
+            max(0.01, deadline - asyncio.get_running_loop().time()),
+        )
         try:
             approved = await asyncio.wait_for(
                 review_required_clarification(
@@ -957,26 +986,14 @@ async def plan_capabilities_bounded(
                 "clarification_title": clarification.get("clarification_title") or "",
                 "clarification_prompt": clarification.get("clarification_prompt") or "",
                 "clarification_fields": clarification.get("clarification_fields") or [],
-                "_prompt_topics": [],
+                "_prompt_topics": list(topics),
             })
             return plan, False
-    topic_timeout = min(5.0, max(0.01, total_timeout * 0.25))
     try:
-        prompt_context = await asyncio.wait_for(
-            select_prompt_context(
-                model,
-                user_message,
-                skill_state=skill_state,
-                has_reference_images=has_reference_images,
-                has_document_context=has_document_context,
-            ),
-            timeout=topic_timeout,
+        plan_timeout = max(
+            0.01,
+            deadline - asyncio.get_running_loop().time(),
         )
-    except asyncio.TimeoutError:
-        prompt_context = {"topics": tuple(PLANNER_PROMPT_DETAILS)}
-    topics = tuple(prompt_context.get("topics") or ())
-    try:
-        plan_timeout = max(0.01, total_timeout - gate_timeout - topic_timeout)
         plan = await asyncio.wait_for(
             plan_capabilities(
                 model,

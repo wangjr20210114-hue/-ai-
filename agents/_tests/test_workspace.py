@@ -39,6 +39,7 @@ from agents.chat._graph import action_completion_fallback, tool_failure_fallback
 from agents.chat.index import (
     SYSTEM_PROMPT,
     capability_planning_message,
+    checkpoint_clarification_answers,
     checkpoint_final_answer,
     clarification_response_id,
     empty_generation_error,
@@ -194,6 +195,7 @@ class StructuredPlannerModel:
         clarification_args=None,
         review_args=None,
         candidate_args=None,
+        preflight_args=None,
     ):
         self.calls = 0
         self.args = args or {
@@ -216,6 +218,10 @@ class StructuredPlannerModel:
             "selected_place_id": "",
             "reason": "Candidates remain genuinely different.",
         }
+        self.preflight_args = preflight_args or {
+            **self.clarification_args,
+            "topics": list(self.topic_args.get("topics") or []),
+        }
         self.messages = []
         self.tool_choice = ""
         self.tools = []
@@ -235,8 +241,8 @@ class StructuredPlannerModel:
         self.calls += 1
         self.messages = messages
         values = (
-            self.clarification_args
-            if self.schema.__name__ == "ClarificationDecision"
+            self.preflight_args
+            if self.schema.__name__ == "SemanticPreflight"
             else self.review_args
             if self.schema.__name__ == "ClarificationReview"
             else self.candidate_args
@@ -429,11 +435,50 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             ),
             (
                 "[这是用户对上一轮结构化问题的补充答案，请结合原始目标规划尚未完成的能力；"
-                "不要把答案误判为一个独立的新问题。]\n"
+                "所有先前补充答案仍然有效，不要把答案误判为独立新问题或重复询问。]\n"
                 "上一轮原始目标：从桔子酒店出发，先去北京站，再去锦江并写入日程\n"
                 "本次补充答案：明天出发时间：07:04"
             ),
         )
+
+    async def test_route_clarification_planning_keeps_all_prior_card_answers(self):
+        messages = [
+            HumanMessage(content="规划六站路线"),
+            AIMessage(content=""),
+            HumanMessage(
+                content="第 4 站：北京通州万达广场",
+                additional_kwargs={
+                    "floris_interaction": "clarification",
+                    "clarification_id": "route-stop-4",
+                },
+            ),
+            AIMessage(content=""),
+            HumanMessage(
+                content="终点：北京西站",
+                additional_kwargs={
+                    "floris_interaction": "clarification",
+                    "clarification_id": "route-stop-6",
+                },
+            ),
+            AIMessage(content=""),
+        ]
+        answers = await checkpoint_clarification_answers(
+            FakeCheckpointer(messages),
+            "route-clarification-context",
+        )
+        self.assertEqual(
+            answers,
+            ["第 4 站：北京通州万达广场", "终点：北京西站"],
+        )
+        planning = capability_planning_message(
+            "第 5 站：中国人民解放军总医院第一医学中心",
+            "route-stop-5",
+            ["规划六站路线"],
+            answers,
+        )
+        self.assertIn("北京通州万达广场", planning)
+        self.assertIn("北京西站", planning)
+        self.assertIn("中国人民解放军总医院第一医学中心", planning)
 
     async def test_capability_planner_uses_langchain_structured_output(self):
         model = StructuredPlannerModel()
@@ -557,7 +602,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(plan["needs_clarification"])
         self.assertTrue(plan["needs_route"])
         self.assertTrue(plan["needs_calendar_action"])
-        self.assertEqual(model.calls, 4)
+        self.assertEqual(model.calls, 3)
 
     async def test_required_input_gate_receives_request_location_context(self):
         model = StructuredPlannerModel()
@@ -2795,6 +2840,95 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "text",
         )
         self.assertIn("时间预算", result["clarification"]["prompt"])
+        planner.assert_not_awaited()
+
+    async def test_route_choice_keeps_provider_alias_evidence_across_cards(self):
+        origin = {**PLACE, "place_id": "origin", "name": "北京站"}
+        branches = [
+            {
+                **PLACE,
+                "place_id": "branch-a",
+                "name": "北京通州万达广场",
+                "address": "新华西街58号",
+                "query_correction": {
+                    "original_query": "万达广场",
+                    "corrected_name": "北京通州万达广场",
+                    "evidence": "tencent_place_search",
+                },
+            },
+            {
+                **PLACE,
+                "place_id": "branch-b",
+                "name": "北京五棵松万达广场",
+                "address": "复兴路69号",
+                "query_correction": {
+                    "original_query": "万达广场",
+                    "corrected_name": "北京五棵松万达广场",
+                    "evidence": "tencent_place_search",
+                },
+            },
+        ]
+        destination = {
+            **PLACE,
+            "place_id": "destination",
+            "name": "北京西站",
+        }
+
+        async def place_provider(_key, query, *, city, limit):
+            return {
+                "北京站": [origin],
+                "万达广场": branches,
+                "不存在终点": [],
+                "北京西站": [destination],
+            }[query]
+
+        store = FakeStore()
+        with patch(
+            "agents.chat._ui_tools.provider_search_places",
+            new=place_provider,
+        ), patch(
+            "agents.chat._ui_tools.provider_plan_route",
+            new=AsyncMock(),
+        ) as planner:
+            tools = build_production_tools(
+                None,
+                store=store,
+                conversation_id="route-multiple-card-state",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+            )
+            route_tool = next(
+                item for item in tools if item.name == "plan_route_between_places"
+            )
+            first = json.loads(await route_tool.ainvoke({
+                "ordered_stops": [
+                    {"query": "北京站"},
+                    {"query": "万达广场"},
+                    {"query": "不存在终点"},
+                ],
+            }))
+            selected_label = first["clarification"]["fields"][0]["options"][0]
+            second = json.loads(await route_tool.ainvoke({
+                "ordered_stops": [
+                    {"query": "北京站"},
+                    {"query": selected_label},
+                    {"query": "不存在终点"},
+                ],
+            }))
+            third = json.loads(await route_tool.ainvoke({
+                "ordered_stops": [
+                    {"query": "北京站"},
+                    {"query": "万达广场"},
+                    {"query": "北京西站"},
+                ],
+            }))
+
+        self.assertEqual(first["clarification"]["fields"][0]["type"], "single")
+        self.assertEqual(second["clarification"]["fields"][0]["type"], "text")
+        self.assertEqual(third["clarification"]["fields"][0]["type"], "single")
+        self.assertIn(
+            selected_label,
+            third["clarification"]["fields"][0]["options"],
+        )
         planner.assert_not_awaited()
 
     def test_complete_planner_route_preserves_literal_user_place_text(self):

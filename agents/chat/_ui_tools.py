@@ -1460,10 +1460,14 @@ def build_production_tools(
                     city or "全国",
                     limit=6,
                 )
+                reused_workspace_candidates = bool(matches)
                 if not matches:
                     matches = await _search_places_metered(
                         map_key, clean_query, city=city or "全国", limit=6,
                     )
+                    reused_workspace_candidates = False
+            if clean_near:
+                reused_workspace_candidates = False
             if not matches:
                 return None, unresolved_place_card(
                     endpoint_id,
@@ -1471,10 +1475,11 @@ def build_production_tools(
                     clean_query,
                     clean_near,
                 )
-            for match in matches:
-                place_id = str(match.get("place_id") or "").strip()
-                if place_id:
-                    candidates[place_id] = match
+            if not reused_workspace_candidates:
+                for match in matches:
+                    place_id = str(match.get("place_id") or "").strip()
+                    if place_id:
+                        candidates[place_id] = match
             if len(candidates) > 200:
                 state["place_candidates"] = dict(list(candidates.items())[-200:])
 
