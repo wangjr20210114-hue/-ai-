@@ -11,7 +11,6 @@ import { translate, type TranslationKey } from '../i18n';
 import {
   browserLocationRequestContext,
   currentBrowserLocation,
-  messageNeedsBrowserLocation,
   requestBrowserLocationForChat,
 } from '../services/browserLocation';
 
@@ -23,6 +22,17 @@ const MANUAL_STOP_PREFIX = 'floris:manual-stop:';
 
 export function canStartChatTransport(active: boolean): boolean {
   return !active;
+}
+
+export function locationRetryMessage(
+  message: { type?: string; payload?: Record<string, unknown> },
+) {
+  const payload: Record<string, unknown> = {
+    ...(message.payload || {}),
+    _location_retry: true,
+  };
+  delete payload.client_message;
+  return { type: message.type, payload };
 }
 
 function manualStopKey(conversationId: string): string {
@@ -212,6 +222,7 @@ class SSEChatClient {
     let protocolDone = false;
     let idleWatchdog: number | undefined;
     let watchdogTriggered = false;
+    let locationRetryRequested = false;
     const armWatchdog = () => {
       if (idleWatchdog) window.clearTimeout(idleWatchdog);
       idleWatchdog = window.setTimeout(() => {
@@ -247,11 +258,6 @@ class SSEChatClient {
 
     try {
       armWatchdog();
-      const messageText = String(message.payload?.text || '');
-      const needsBrowserLocation = messageNeedsBrowserLocation(messageText);
-      if (!currentBrowserLocation() && needsBrowserLocation) {
-        await requestBrowserLocationForChat();
-      }
       const browserLocation = currentBrowserLocation();
       const locationRequest = browserLocationRequestContext();
       const response = await fetch(withEdgeOneAuth('/chat'), {
@@ -263,7 +269,7 @@ class SSEChatClient {
         body: JSON.stringify({
           ...(message.payload || {}),
           ...(browserLocation ? { current_location: browserLocation } : {}),
-          ...(needsBrowserLocation ? { location_request: locationRequest } : {}),
+          location_request: locationRequest,
           ...(allowAfterStop ? { _allow_after_stop: true } : {}),
         }),
         signal,
@@ -362,6 +368,10 @@ class SSEChatClient {
                     id: streamId,
                   },
                 });
+                break;
+              case 'browser_location_request':
+                await requestBrowserLocationForChat();
+                locationRetryRequested = true;
                 break;
               case 'search_results':
                 this.emit({
@@ -463,6 +473,9 @@ class SSEChatClient {
     } finally {
       if (idleWatchdog) window.clearTimeout(idleWatchdog);
       if (this.controller?.signal === signal) this.controller = null;
+      if (locationRetryRequested && !this.manualStopIntent) {
+        void this.send(locationRetryMessage(message));
+      }
     }
   }
 

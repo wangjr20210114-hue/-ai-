@@ -8,7 +8,6 @@ from agents._shared.route_cache import route_cache_key
 from agents._shared.intelligence import normalize_map_preferences
 from agents._shared.tencent_location import plan_verified_route, search_verified_places_bounded
 from agents.chat._capability_plan import (
-    _restore_literal_route_queries,
     parse_capability_plan,
 )
 from agents.chat._ui_tools import (
@@ -52,20 +51,16 @@ class FakeStore:
 
 
 class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
-    def test_route_plan_cannot_silently_correct_user_place_spelling(self):
-        plan = {
+    def test_route_plan_decoder_never_rewrites_place_spelling(self):
+        plan = parse_capability_plan({
             "needs_route": True,
             "route_stops": [
                 {"query": "北京站", "near_query": ""},
-                {"query": "天安门", "near_query": ""},
+                {"query": "天安们", "near_query": ""},
             ],
-        }
-        restored = _restore_literal_route_queries(
-            plan,
-            "从北京站步行去天安们",
-        )
+        })
         self.assertEqual(
-            [item["query"] for item in restored["route_stops"]],
+            [item["query"] for item in plan["route_stops"]],
             ["北京站", "天安们"],
         )
 

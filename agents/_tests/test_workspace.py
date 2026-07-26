@@ -15,22 +15,17 @@ from unittest.mock import AsyncMock, patch
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agents.chat._capability_plan import (
-    explicit_route_destination,
     fallback_tools_for_prompt_topics,
     media_enabled_for_plan,
     parse_capability_plan,
     plan_capabilities,
     plan_capabilities_bounded,
-    planner_prompt_topics,
+    select_prompt_topics,
     next_required_tool,
     required_tool_for_plan,
     required_tools_for_plan,
 )
 from agents.chat._followups import generate_followups, parse_followups
-from agents.chat._location_intent import (
-    has_explicit_current_location_origin,
-    is_browser_current_location_reference,
-)
 from agents.chat._llm import _model_timeout
 from agents.chat._history import (
     bounded_history,
@@ -48,7 +43,6 @@ from agents.chat.index import (
     empty_generation_error,
     graph_user_message,
     dynamic_system_prompt,
-    missing_source_content_clarification,
     runtime_datetime_context,
     should_persist_user_message,
     tools_for_capability_stage,
@@ -189,7 +183,7 @@ class MakersCheckpointMessage:
 
 
 class StructuredPlannerModel:
-    def __init__(self, args=None, delay=0):
+    def __init__(self, args=None, delay=0, topic_args=None):
         self.calls = 0
         self.args = args or {
             "needs_web_search": True,
@@ -198,6 +192,7 @@ class StructuredPlannerModel:
             "image_query": "故宫建筑",
         }
         self.delay = delay
+        self.topic_args = topic_args or {"topics": []}
         self.messages = []
         self.tool_choice = ""
         self.tools = []
@@ -216,8 +211,13 @@ class StructuredPlannerModel:
             await asyncio.sleep(self.delay)
         self.calls += 1
         self.messages = messages
+        values = (
+            self.topic_args
+            if self.schema.__name__ == "PromptTopicSelection"
+            else self.args
+        )
         return {
-            "parsed": self.schema(**self.args),
+            "parsed": self.schema(**values),
             "raw": SimpleNamespace(content=""),
             "parsing_error": None,
         }
@@ -424,68 +424,47 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("喜欢安静的博物馆", system_prompt)
         self.assertIn("不得把姓名、联系方式", system_prompt)
 
-    def test_capability_planner_prompt_sections_are_request_scoped(self):
-        self.assertEqual(planner_prompt_topics("解释一下快速排序"), ("core",))
-        route_topics = planner_prompt_topics("从当前位置坐公交去颐和园")
-        self.assertIn("maps", route_topics)
-        self.assertNotIn("web", route_topics)
-        self.assertNotIn("paper", route_topics)
-        reminder_topics = planner_prompt_topics("今天下午三点提醒我喝水")
-        self.assertIn("calendar", reminder_topics)
-        self.assertNotIn("web", reminder_topics)
-        self.assertIn("web", planner_prompt_topics("查证今天的金价来源"))
-        self.assertNotIn("web", planner_prompt_topics("current location"))
-        paper_topics = planner_prompt_topics("找三篇 transformer 论文")
-        self.assertIn("paper", paper_topics)
-        self.assertNotIn("calendar", paper_topics)
+    async def test_prompt_sections_are_selected_by_structured_semantics(self):
+        model = StructuredPlannerModel(topic_args={"topics": ["maps", "calendar"]})
+        topics = await select_prompt_topics(
+            model,
+            "请处理这个跨领域目标",
+            skill_state='{"enabled":["maps","calendar"]}',
+        )
+        self.assertEqual(topics, ("maps", "calendar"))
+        self.assertEqual(model.schema.__name__, "PromptTopicSelection")
+        self.assertEqual(model.method, "function_calling")
+        self.assertNotIn("关键词", model.messages[0]["content"])
         self.assertEqual(
-            fallback_tools_for_prompt_topics("找三篇 transformer 论文"),
+            fallback_tools_for_prompt_topics(("paper",)),
             ("rich_search", "search_arxiv"),
         )
 
-    def test_current_location_reference_is_centralized_and_bounded(self):
-        for value in (
-            "当前位置",
-            "我现在的位置",
-            "我这边",
-            "从我的实时位置出发",
-            "以我当前所在位置作为起点",
-        ):
-            self.assertTrue(is_browser_current_location_reference(value), value)
-        for value in ("北京当前位置酒店", "当前位置博物馆", "我公司"):
-            self.assertFalse(is_browser_current_location_reference(value), value)
-        self.assertTrue(has_explicit_current_location_origin(
-            "明天上午十点从我这边出发去颐和园",
-        ))
-        self.assertTrue(has_explicit_current_location_origin(
-            "以我当前所在位置作为起点，坐公交去故宫",
-        ))
-        self.assertFalse(has_explicit_current_location_origin(
-            "看看当前位置附近有什么餐厅",
-        ))
-
-    def test_missing_source_content_uses_global_clarification_card(self):
-        card = missing_source_content_clarification(
+    async def test_missing_source_content_is_planned_as_structured_card(self):
+        model = StructuredPlannerModel({
+            "needs_clarification": True,
+            "clarification_title": "请提供需要处理的内容",
+            "clarification_prompt": "本轮没有收到原文。",
+            "clarification_fields": [{
+                "id": "source_content",
+                "label": "需要处理的原文",
+                "type": "text",
+                "required": True,
+                "placeholder": "请粘贴文字内容",
+            }],
+        })
+        plan = await plan_capabilities(
+            model,
             "把下面这段文字翻译成英文",
-        )
-        self.assertEqual(card["fields"][0]["id"], "source_content")
-        self.assertEqual(card["fields"][0]["type"], "text")
-        self.assertEqual(
-            missing_source_content_clarification(
-                "把下面这段文字翻译成英文：你好，世界",
-            ),
-            {},
+            prompt_topics=(),
         )
         self.assertEqual(
-            missing_source_content_clarification(
-                "总结这份文档",
-                document_context="文档正文",
-            ),
-            {},
+            required_tools_for_plan(plan),
+            ("ask_user_clarification",),
         )
         self.assertEqual(
-            missing_source_content_clarification("帮我写一封商务邮件"),
-            {},
+            plan["clarification_fields"][0]["id"],
+            "source_content",
         )
 
     async def test_capability_planner_receives_runtime_skill_state(self):
@@ -526,7 +505,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(plan["route_stops"][1]["near_query"], "北京301医院")
 
-    async def test_explicit_calendar_proposal_survives_route_planner_omission(self):
+    async def test_capability_plan_is_not_mutated_by_phrase_rules(self):
         model = StructuredPlannerModel({
             "needs_route": True,
             "needs_calendar_action": False,
@@ -540,10 +519,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "请规划北京站到北京西站的路线，并生成待确认的日程提案",
         )
         self.assertTrue(plan["needs_route"])
-        self.assertTrue(plan["needs_calendar_action"])
+        self.assertFalse(plan["needs_calendar_action"])
         self.assertEqual(
             required_tools_for_plan(plan),
-            ("plan_route_between_places", "propose_calendar_changes"),
+            ("plan_route_between_places",),
         )
 
     async def test_route_planning_does_not_imply_calendar_side_effect(self):
@@ -554,32 +533,26 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         plan = await plan_capabilities(model, "请帮我规划明天的六站行程")
         self.assertFalse(plan["needs_calendar_action"])
 
-    async def test_failed_structured_planner_leaves_linked_trip_to_main_model(self):
+    async def test_failed_structured_planner_does_not_guess_from_phrases(self):
         model = FailingStructuredPlannerModel()
         plan = await plan_capabilities(
             model,
             "请规划北京六个地点的路线，并生成待确认的日程提案",
         )
         self.assertEqual(model.calls, 1)
-        self.assertTrue(plan["needs_route"])
-        self.assertTrue(plan["needs_calendar_action"])
-        self.assertEqual(
-            required_tools_for_plan(plan),
-            ("plan_route_between_places", "propose_calendar_changes"),
-        )
+        self.assertFalse(plan["needs_route"])
+        self.assertFalse(plan["needs_calendar_action"])
+        self.assertEqual(required_tools_for_plan(plan), ())
 
-    async def test_failed_structured_planner_respects_calendar_only_request(self):
+    async def test_failed_structured_planner_has_no_keyword_fallback(self):
         model = FailingStructuredPlannerModel()
         plan = await plan_capabilities(
             model,
             "只要日程提案，不需要规划路线",
         )
         self.assertFalse(plan["needs_route"])
-        self.assertTrue(plan["needs_calendar_action"])
-        self.assertEqual(
-            required_tools_for_plan(plan),
-            ("propose_calendar_changes",),
-        )
+        self.assertFalse(plan["needs_calendar_action"])
+        self.assertEqual(required_tools_for_plan(plan), ())
 
     def test_capability_plan_rejects_unknown_blocked_skill(self):
         plan = parse_capability_plan(json.dumps({
@@ -599,7 +572,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(timed_out)
         self.assertFalse(any(plan[key] for key in plan if key.startswith("needs_")))
 
-    async def test_capability_planner_timeout_preserves_direct_current_location(self):
+    async def test_capability_planner_timeout_never_uses_location_phrases(self):
         model = StructuredPlannerModel(delay=10)
         plan, timed_out = await plan_capabilities_bounded(
             model,
@@ -607,9 +580,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             timeout_seconds=0.01,
         )
         self.assertTrue(timed_out)
-        self.assertEqual(required_tools_for_plan(plan), ("get_current_location",))
+        self.assertEqual(required_tools_for_plan(plan), ())
 
-    async def test_capability_planner_timeout_preserves_first_person_nearby_search(self):
+    async def test_capability_planner_timeout_never_infers_nearby_category(self):
         model = StructuredPlannerModel(delay=10)
         plan, timed_out = await plan_capabilities_bounded(
             model,
@@ -617,11 +590,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             timeout_seconds=0.01,
         )
         self.assertTrue(timed_out)
-        self.assertEqual(
-            required_tools_for_plan(plan),
-            ("recommend_nearby_places_on_map",),
-        )
-        self.assertEqual(plan["nearby_query"], "餐厅")
+        self.assertEqual(required_tools_for_plan(plan), ())
+        self.assertEqual(plan["nearby_query"], "")
 
     async def test_location_guard_does_not_hijack_non_location_question(self):
         model = StructuredPlannerModel(delay=10)
@@ -633,12 +603,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(timed_out)
         self.assertFalse(plan["needs_current_location"])
         self.assertFalse(plan["needs_nearby_places"])
-
-    def test_direct_route_destination_guard_is_narrow(self):
-        self.assertEqual(explicit_route_destination("带我去颐和园"), "颐和园")
-        self.assertEqual(explicit_route_destination("请导航到北京西站"), "北京西站")
-        self.assertEqual(explicit_route_destination("从北京站怎么去颐和园"), "")
-        self.assertEqual(explicit_route_destination("我想去理解这篇论文"), "")
 
     async def test_message_restore_keeps_rich_search_metadata(self):
         metadata = {"total": 1, "results": [{"title": "故宫", "url": "https://example.com"}], "media": []}
@@ -2011,7 +1975,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             )
             tool = next(item for item in tools if item.name == "recommend_nearby_places_on_map")
             result = json.loads(await tool.ainvoke({
-                "anchor_query": "当前位置",
+                "anchor_query": "",
                 "query": "公园",
                 "use_current_location_as_anchor": True,
             }))
@@ -2107,7 +2071,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             )
             tool = next(item for item in tools if item.name == "recommend_nearby_places_on_map")
             result = json.loads(await tool.ainvoke({
-                "anchor_query": "当前位置",
+                "anchor_query": "",
                 "query": "好玩的地方",
                 "use_current_location_as_anchor": True,
             }))
@@ -2426,14 +2390,14 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             [("腾讯总部", ""), ("北京站", "")],
         )
 
-    def test_route_tool_fallback_restores_literal_typo_when_planner_timed_out(self):
+    def test_route_tool_fallback_does_not_rewrite_place_text(self):
         self.assertEqual(
             preserve_planned_route_stops(
                 [("北京站", ""), ("天安门", "")],
                 [],
                 "从北京站步行去天安们",
             ),
-            [("北京站", ""), ("天安们", "")],
+            [("北京站", ""), ("天安门", "")],
         )
 
     async def test_route_calendar_proposal_rejects_compressed_stops_and_accepts_complete_order(self):

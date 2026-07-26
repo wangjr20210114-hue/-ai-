@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   actionOnlyFallback,
   canStartChatTransport,
+  locationRetryMessage,
   mergeSearchMeta,
   progressTextForTool,
   terminalGenerationError,
@@ -88,5 +89,21 @@ describe('chat transport ownership', () => {
   it('rejects a second send while the current stream owns the conversation', () => {
     expect(canStartChatTransport(false)).toBe(true);
     expect(canStartChatTransport(true)).toBe(false);
+  });
+
+  it('retries a semantic location request without duplicating the user bubble', () => {
+    expect(locationRetryMessage({
+      type: 'chat',
+      payload: {
+        text: '任意自然语言表达',
+        client_message: { id: 'user-1' },
+      },
+    })).toEqual({
+      type: 'chat',
+      payload: {
+        text: '任意自然语言表达',
+        _location_retry: true,
+      },
+    });
   });
 });

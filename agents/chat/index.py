@@ -12,15 +12,8 @@ from datetime import datetime, timedelta, timezone
 from ._graph import build_graph
 from ._llm import get_model
 from ._ui_tools import build_production_tools
-from ._location_intent import (
-    has_explicit_current_location_origin,
-    is_browser_current_location_reference,
-)
 from ._capability_plan import (
     DEFAULT_PLAN,
-    explicit_nearby_query,
-    explicit_location_intent,
-    explicit_route_destination,
     fallback_tools_for_prompt_topics,
     media_enabled_for_plan,
     plan_capabilities_bounded,
@@ -134,6 +127,7 @@ def normalize_browser_location_request(value: object) -> str:
 
 def location_clarification_copy(intent: str, request_state: str) -> tuple[str, str]:
     nearby = intent == "nearby"
+    route = intent == "route"
     if request_state == "denied":
         return (
             "定位权限未开启",
@@ -155,61 +149,19 @@ def location_clarification_copy(intent: str, request_state: str) -> tuple[str, s
             + ("附近搜索的起点。" if nearby else "大致位置或出发地。"),
         )
     return (
-        "需要附近搜索的起点" if nearby else "需要你的位置",
+        "需要附近搜索的起点"
+        if nearby
+        else "需要路线起点"
+        if route
+        else "需要你的位置",
         "浏览器没有提供当前位置。请填写你所在的区域或附近地标，"
         "提交后我会自动继续查找，不需要重新描述需求。"
         if nearby
+        else "浏览器没有提供当前位置。请填写路线起点，提交后我会自动继续规划。"
+        if route
         else "浏览器没有提供当前位置。你可以填写大致位置，"
         "我会用它继续附近推荐、路线规划或日程安排。",
     )
-
-
-def missing_source_content_clarification(
-    message: str,
-    *,
-    document_context: str = "",
-    has_reference_images: bool = False,
-) -> dict:
-    """Return a card for an unmistakable operation whose source is absent.
-
-    This is a high-confidence completeness guard, not a general intent router.
-    It avoids spending a model call only to say "please send the text" and
-    leaves ambiguous or open-ended writing requests to the semantic planner.
-    """
-    text = str(message or "").strip()
-    if not text or document_context.strip() or has_reference_images:
-        return {}
-    if re.search(r"[:：]\s*\S{2,}", text) or re.search(
-        r"[“\"]\s*\S{2,}?\s*[”\"]", text,
-    ):
-        return {}
-    operation = re.search(
-        r"翻译|译成|总结|摘要|概括|润色|改写|校对|解释|提炼|"
-        r"translate|summari[sz]e|rewrite|proofread",
-        text,
-        re.I,
-    )
-    absent_reference = re.search(
-        r"下面|以下|上述|上面|这(?:一)?段|这(?:一)?篇|这(?:一)?份|"
-        r"(?:这|该)(?:些)?(?:文字|文本|内容|文章|文档)|"
-        r"below|following|this\s+(?:text|content|article|document)",
-        text,
-        re.I,
-    )
-    if not operation or not absent_reference:
-        return {}
-    return {
-        "title": "请提供需要处理的内容",
-        "prompt": "本轮没有收到你所指的文字或文档。填写后我会自动继续原来的任务。",
-        "fields": [{
-            "id": "source_content",
-            "label": "需要处理的原文",
-            "type": "text",
-            "required": True,
-            "options": [],
-            "placeholder": "请粘贴文字内容",
-        }],
-    }
 
 
 def run_cancelled(value: object) -> bool:
@@ -833,56 +785,11 @@ async def handler(ctx):
         planning_message += f"\n\n[附图视觉事实，仅用于能力规划]\n{reference_image_context[:1600]}"
     if document_context:
         planning_message += f"\n\n[用户已选择的上传文档，仅用于能力规划]\n{document_context[:6000]}"
-    required_input_card = missing_source_content_clarification(
-        message,
-        document_context=document_context,
-        has_reference_images=bool(reference_images),
-    )
     planner_timeout = max(8.0, min(20.0, float(
         ctx.env.get("CAPABILITY_PLAN_TIMEOUT_SECONDS") or 12
     )))
-    location_intent = explicit_location_intent(message)
-    direct_route_destination = explicit_route_destination(message)
-    explicit_current_route_origin = has_explicit_current_location_origin(message)
-    simple_nearby_turn = bool(
-        location_intent == "nearby"
-        and not re.search(
-            r"营业|评价|点评|新闻|最新|日程|日历|安排|会议|同时|并且|还要|"
-            r"hours|review|news|calendar|schedule|meeting",
-            message,
-            re.I,
-        )
-    )
-    direct_map_turn = bool(
-        location_intent == "current"
-        or simple_nearby_turn
-        or direct_route_destination
-    )
     if direct_public_answer:
         capability_plan = dict(DEFAULT_PLAN)
-        planner_timed_out = False
-    elif required_input_card:
-        capability_plan = dict(DEFAULT_PLAN)
-        capability_plan["needs_clarification"] = True
-        planner_timed_out = False
-    elif direct_map_turn:
-        capability_plan = dict(DEFAULT_PLAN)
-        if "maps" not in enabled_skills:
-            capability_plan["blocked_skill"] = "maps"
-        elif location_intent == "current":
-            capability_plan["needs_current_location"] = True
-        elif simple_nearby_turn:
-            capability_plan["needs_nearby_places"] = True
-            capability_plan["nearby_query"] = explicit_nearby_query(message)
-        else:
-            capability_plan["needs_route"] = True
-            capability_plan["route_stops"] = [{
-                "query": direct_route_destination,
-                "near_query": "",
-            }]
-            capability_plan["route_uses_current_location"] = bool(
-                browser_current_location
-            )
         planner_timed_out = False
     else:
         capability_plan, planner_timed_out = await plan_capabilities_bounded(
@@ -894,105 +801,123 @@ async def handler(ctx):
                 "disabled": disabled_skills,
             }, ensure_ascii=False),
             location_context=current_location_context,
+            has_reference_images=bool(reference_images),
+            has_document_context=bool(document_context),
             timeout_seconds=planner_timeout,
         )
-    clarification_tool_arguments: dict = dict(required_input_card)
+    clarification_tool_arguments: dict = {}
+    if (
+        capability_plan.get("needs_clarification")
+        and capability_plan.get("clarification_fields")
+    ):
+        clarification_tool_arguments = {
+            "title": str(
+                capability_plan.get("clarification_title")
+                or "请补充必要信息"
+            ),
+            "prompt": str(
+                capability_plan.get("clarification_prompt")
+                or "缺少以下信息时无法继续处理。"
+            ),
+            "fields": capability_plan.get("clarification_fields") or [],
+        }
     nearby_tool_arguments: dict = {}
     route_tool_arguments: dict = {}
-    if capability_plan.get("needs_route") and explicit_current_route_origin:
-        capability_plan["route_stops"] = [
-            stop for stop in (capability_plan.get("route_stops") or [])
-            if not is_browser_current_location_reference(
-                (stop or {}).get("query"),
-            )
+    nearby_explicit_anchors = [
+        str(value or "").strip()
+        for value in [
+            capability_plan.get("nearby_anchor_query"),
+            *(capability_plan.get("nearby_anchor_queries") or []),
         ]
-        capability_plan["route_uses_current_location"] = bool(
-            browser_current_location
-        )
+        if str(value or "").strip()
+    ]
+    nearby_needs_browser_location = bool(
+        capability_plan.get("needs_nearby_places")
+        and capability_plan.get("nearby_uses_current_location")
+        and not nearby_explicit_anchors
+    )
+    route_needs_browser_location = bool(
+        capability_plan.get("needs_route")
+        and capability_plan.get("route_uses_current_location")
+    )
+    needs_browser_location = bool(
+        capability_plan.get("needs_current_location")
+        or nearby_needs_browser_location
+        or route_needs_browser_location
+    )
+    if (
+        needs_browser_location
+        and not browser_current_location
+        and not silent_clarification
+        and browser_location_request in {"idle", "not_attempted"}
+        and not bool(body.get("_location_retry"))
+        and not str(capability_plan.get("blocked_skill") or "").strip()
+    ):
+        async def request_browser_location():
+            yield ctx.utils.sse({
+                "type": "browser_location_request",
+                "payload": {"reason": "semantic_capability_plan"},
+            })
+            yield b"data: [DONE]\n\n"
+
+        return ctx.utils.stream_sse(request_browser_location())
     if (
         not browser_current_location
         and not silent_clarification
-        and location_intent in {"current", "nearby"}
+        and needs_browser_location
         and not str(capability_plan.get("blocked_skill") or "").strip()
     ):
-        # A native permission request has already been attempted by the
-        # frontend for this narrow class of turns. If no fresh fix reached the
-        # request, bypass another probabilistic model decision and emit the
-        # product-wide clarification card directly. Card submissions skip this
-        # guard so the supplied textual anchor can continue the original goal.
         for key in list(capability_plan):
             if key.startswith("needs_"):
                 capability_plan[key] = False
         capability_plan["needs_clarification"] = True
+        location_intent = (
+            "nearby"
+            if nearby_needs_browser_location
+            else "route"
+            if route_needs_browser_location
+            else "current"
+        )
         location_title, location_prompt = location_clarification_copy(
             location_intent, browser_location_request,
         )
+        field_id = {
+            "nearby": "nearby_anchor",
+            "route": "route_origin",
+            "current": "manual_location",
+        }[location_intent]
+        field_label = {
+            "nearby": "你现在在哪里？",
+            "route": "从哪里出发？",
+            "current": "你目前所在的位置或出发地",
+        }[location_intent]
         clarification_tool_arguments = {
             "title": location_title,
             "prompt": location_prompt,
             "fields": [{
-                "id": (
-                    "nearby_anchor"
-                    if location_intent == "nearby"
-                    else "manual_location"
-                ),
-                "label": (
-                    "你现在在哪里？"
-                    if location_intent == "nearby"
-                    else "你目前所在的位置或出发地"
-                ),
+                "id": field_id,
+                "label": field_label,
                 "type": "text",
                 "required": True,
                 "options": [],
                 "placeholder": "例如：北京市海淀区中关村，或吉林大学前卫南区",
             }],
         }
-    elif (
-        browser_current_location
-        and not silent_clarification
-        and location_intent == "nearby"
-        and bool(capability_plan.get("needs_nearby_places"))
-        and not str(capability_plan.get("blocked_skill") or "").strip()
-    ):
-        nearby_query = (
-            str(capability_plan.get("nearby_query") or "").strip()
-            or explicit_nearby_query(message)
-        )
-        if nearby_query:
-            nearby_tool_arguments = {
-                "anchor_query": "当前位置",
-                "query": nearby_query,
-                "use_current_location_as_anchor": True,
-            }
-    if (
-        direct_route_destination
-        and not silent_clarification
-        and not str(capability_plan.get("blocked_skill") or "").strip()
-    ):
-        capability_plan["needs_clarification"] = False
-        capability_plan["needs_route"] = True
-        capability_plan["needs_current_location"] = False
-        capability_plan["needs_nearby_places"] = False
-        capability_plan["needs_places"] = False
-        capability_plan["needs_map_action"] = False
-        capability_plan["route_stops"] = [{
-            "query": direct_route_destination,
-            "near_query": "",
-        }]
-        capability_plan["route_uses_current_location"] = bool(
-            browser_current_location
-        )
-        route_tool_arguments = {
-            "destination_query": direct_route_destination,
-            # The route adapter turns a missing fresh fix into the same
-            # product-wide origin card; it never searches "当前位置" as a POI.
-            "use_current_location_as_origin": True,
+    if capability_plan.get("needs_nearby_places"):
+        nearby_tool_arguments = {
+            "anchor_query": str(
+                capability_plan.get("nearby_anchor_query") or ""
+            ),
+            "anchor_queries": (
+                capability_plan.get("nearby_anchor_queries") or []
+            ),
+            "query": str(capability_plan.get("nearby_query") or ""),
+            "use_current_location_as_anchor": bool(
+                capability_plan.get("nearby_uses_current_location")
+            ),
         }
-    elif capability_plan.get("needs_route") and capability_plan.get("route_stops"):
-        # The structured planner already emitted the exact fixed-schema route
-        # arguments. Calling another model merely to restate the same ordered
-        # stops is duplicate work; the route adapter still validates every
-        # field and resolves all places through Tencent.
+    if capability_plan.get("needs_route") and capability_plan.get("route_stops"):
+        route_stops = capability_plan.get("route_stops") or []
         route_tool_arguments = {
             "city": str(capability_plan.get("route_city") or "全国"),
             "route_mode": str(capability_plan.get("route_mode") or "default"),
@@ -1001,12 +926,21 @@ async def handler(ctx):
             ),
             "use_current_location_as_origin": bool(
                 capability_plan.get("route_uses_current_location")
-                or explicit_current_route_origin
             ),
-            "ordered_stops": capability_plan.get("route_stops") or [],
         }
+        if capability_plan.get("route_uses_current_location") and len(route_stops) == 1:
+            route_tool_arguments.update({
+                "destination_query": str(route_stops[0].get("query") or ""),
+                "destination_near_query": str(
+                    route_stops[0].get("near_query") or ""
+                ),
+            })
+        else:
+            route_tool_arguments["ordered_stops"] = route_stops
     timeout_fallback_names = (
-        fallback_tools_for_prompt_topics(message)
+        fallback_tools_for_prompt_topics(
+            capability_plan.get("_prompt_topics") or [],
+        )
         if planner_timed_out
         else ()
     )
@@ -1143,7 +1077,9 @@ async def handler(ctx):
     blocked_skill = str(capability_plan.get("blocked_skill") or "").strip()
     required_tool_names = required_tools_for_plan(capability_plan)
     fallback_tool_names = (
-        fallback_tools_for_prompt_topics(message)
+        fallback_tools_for_prompt_topics(
+            capability_plan.get("_prompt_topics") or [],
+        )
         if planner_timed_out and not required_tool_names
         else ()
     )

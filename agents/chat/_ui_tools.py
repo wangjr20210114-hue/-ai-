@@ -49,7 +49,6 @@ from .._shared.workspace import (
     start_provider_call,
     validate_calendar_change_window,
 )
-from ._location_intent import is_browser_current_location_reference
 
 
 class ClarificationFieldInput(BaseModel):
@@ -172,15 +171,14 @@ class RoutePlanInput(BaseModel):
 def preserve_planned_route_stops(
     model_stops: list[tuple[str, str]],
     planned_stops: list[dict[str, str]] | None,
-    user_message: str = "",
+    _user_message: str = "",
 ) -> list[tuple[str, str]]:
     """Keep the capability planner's ordered, user-authored stop handoff.
 
-    The capability model sees the original user goal and records its ordered
-    stop list. The later fixed-schema model may otherwise silently correct a
-    typo or choose a branch before the location provider sees the literal
-    query. A complete planner handoff therefore wins wholesale; Tencent search
-    remains the only component allowed to resolve aliases and corrections.
+    The semantic capability model sees the original goal and records the exact
+    ordered list. That structured handoff wins wholesale; Tencent remains the
+    only component allowed to resolve aliases and corrections. No phrase or
+    fuzzy-matching rule rewrites the user's place names.
     """
     normalized_plan = [
         (
@@ -190,50 +188,12 @@ def preserve_planned_route_stops(
         for item in (planned_stops or [])
         if isinstance(item, dict) and str(item.get("query") or "").strip()
     ][:12]
-    if len(normalized_plan) >= 2:
+    if normalized_plan:
         return normalized_plan
-
-    source = str(user_message or "")
-
-    def literal(value: str) -> str:
-        query = str(value or "").strip()
-        if not query or not source or query in source:
-            return query
-        if (
-            not 2 <= len(query) <= 24
-            or not re.fullmatch(r"[\w\u4e00-\u9fff]+", query)
-            or not re.search(r"[\u4e00-\u9fff]", query)
-        ):
-            return query
-        candidates = []
-        for chunk_match in re.finditer(r"[\w\u4e00-\u9fff]+", source):
-            chunk = chunk_match.group(0)
-            if len(chunk) < len(query):
-                continue
-            for index in range(len(chunk) - len(query) + 1):
-                candidate = chunk[index:index + len(query)]
-                score = difflib.SequenceMatcher(None, query, candidate).ratio()
-                aligned = sum(
-                    left == right for left, right in zip(query, candidate)
-                ) / len(query)
-                candidates.append((
-                    score,
-                    aligned,
-                    chunk_match.start() + index,
-                    candidate,
-                ))
-        if not candidates:
-            return query
-        score, _aligned, _position, candidate = max(
-            candidates,
-            key=lambda item: (item[0], item[1], -item[2]),
-        )
-        threshold = 0.64 if len(query) == 3 else 0.72
-        return candidate if score >= threshold else query
-
     return [
-        (literal(query), literal(near_query))
+        (str(query or "").strip(), str(near_query or "").strip())
         for query, near_query in model_stops
+        if str(query or "").strip()
     ]
 
 
@@ -276,15 +236,6 @@ def _clarification_action(
 
 def _normalized_place_name(value: Any) -> str:
     return "".join(re.findall(r"[\w\u4e00-\u9fff]+", str(value or "").lower()))
-
-
-def _is_browser_current_location_anchor(value: Any) -> bool:
-    """Recognize only explicit first-person/current-position map anchors.
-
-    The value is never sent to Tencent as a POI query. It is either replaced
-    with the fresh, request-scoped browser fix or rejected truthfully.
-    """
-    return is_browser_current_location_reference(value)
 
 
 def _verified_candidate_matches(
@@ -937,18 +888,8 @@ def build_production_tools(
             for value in [anchor_query, *(anchor_queries or [])]
             if str(value or "").strip()
         ))
-        current_location_requested = bool(
-            use_current_location_as_anchor
-            or any(
-                _is_browser_current_location_anchor(value)
-                for value in requested_anchor_queries
-            )
-        )
-        clean_anchor_queries = [
-            value
-            for value in requested_anchor_queries
-            if not _is_browser_current_location_anchor(value)
-        ]
+        current_location_requested = bool(use_current_location_as_anchor)
+        clean_anchor_queries = requested_anchor_queries
         if current_location_requested:
             clean_anchor_queries.insert(0, "__browser_current_location__")
         clean_query = str(query or "").strip()
@@ -1456,9 +1397,13 @@ def build_production_tools(
 
         requested_stops: list[tuple[str, str]] = []
         if ordered_stops:
-            if not isinstance(ordered_stops, list) or not 2 <= len(ordered_stops) <= map_route_stop_limit:
+            minimum_stops = 1 if should_use_current_location else 2
+            if (
+                not isinstance(ordered_stops, list)
+                or not minimum_stops <= len(ordered_stops) <= map_route_stop_limit
+            ):
                 raise ValueError(
-                    f"有序行程必须包含 2 到 {map_route_stop_limit} 个地点；"
+                    f"有序行程必须包含 {minimum_stops} 到 {map_route_stop_limit} 个地点；"
                     "可在设置的“地图与路线”中调整上限"
                 )
             for index, raw_stop in enumerate(ordered_stops, 1):

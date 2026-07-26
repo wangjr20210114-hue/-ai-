@@ -3,7 +3,6 @@ import {
   browserLocationRequestContext,
   clearBrowserLocation,
   currentBrowserLocation,
-  messageNeedsBrowserLocation,
   publishBrowserLocation,
   requestBrowserLocationForChat,
 } from './browserLocation';
@@ -31,16 +30,6 @@ describe('ephemeral browser location', () => {
       coordinate_type: 'wgs84',
     });
     expect(currentBrowserLocation(10 * 60 * 1000 + 1_001)).toBeNull();
-  });
-
-  it('recognizes only turns that clearly need the browser position', () => {
-    expect(messageNeedsBrowserLocation('我现在在哪')).toBe(true);
-    expect(messageNeedsBrowserLocation('这附近有什么好吃的？')).toBe(true);
-    expect(messageNeedsBrowserLocation('带我去颐和园')).toBe(true);
-    expect(messageNeedsBrowserLocation('明天上午10点从当前位置出发去颐和园')).toBe(true);
-    expect(messageNeedsBrowserLocation('颐和园离我多远')).toBe(true);
-    expect(messageNeedsBrowserLocation('我现在在哪个步骤修改论文标题？')).toBe(false);
-    expect(messageNeedsBrowserLocation('介绍一下北京')).toBe(false);
   });
 
   it('requests permission and publishes an allowed position before chat', async () => {

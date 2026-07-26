@@ -46,30 +46,6 @@ function broadcastBrowserLocation(): void {
   }));
 }
 
-function normalizedMessage(value: string): string {
-  return String(value || '').toLowerCase().replace(/\s+/g, '');
-}
-
-/**
- * Only request the privacy-sensitive browser permission for unmistakably
- * location-grounded turns. The backend semantic planner remains authoritative;
- * this guard merely ensures the native permission prompt is opened while the
- * user's send gesture is still active.
- */
-export function messageNeedsBrowserLocation(value: string): boolean {
-  const text = normalizedMessage(value);
-  if (!text) return false;
-  if (/^(?:请)?(?:告诉我)?我(?:现在|当前)?(?:具体)?在哪(?:里|儿)?[？?。！!]*$/.test(text)) return true;
-  if (/^(?:请)?(?:告诉我)?(?:我的)?当前位置(?:是|在哪(?:里|儿)?)?[？?。！!]*$/.test(text)) return true;
-  if (/(?:我|这|当前位置|当前地点)(?:这边|这里|这儿)?(?:附近|周边)/.test(text)) return true;
-  if (/^(?:这|我这|这里|这儿)?附近(?:有|哪|找|推荐|什么)/.test(text)) return true;
-  if (/(?:从|以)(?:我的)?(?:当前位置|当前地点|这里|这儿|我这)(?:出发|为起点)/.test(text)) return true;
-  if (/(?:当前位置|当前地点|这里|这儿|我这).*(?:路线|路程|导航|怎么走|多远|多久)/.test(text)) return true;
-  if (/(?:离|距)(?:我|这里|这儿|当前位置).*(?:多远|多久)/.test(text)) return true;
-  if (/(?:我想去|我要去|带我去|怎么去|如何去|导航到|导航去).+/.test(text)) return true;
-  return false;
-}
-
 export async function requestBrowserLocationForChat(): Promise<BrowserLocationRequestResult> {
   if (currentBrowserLocation()) {
     latestRequest = { state: 'available', attempted_at: Date.now() };
