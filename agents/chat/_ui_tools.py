@@ -175,7 +175,7 @@ class PlaceCandidateDecision(BaseModel):
     unique_intent: bool = Field(
         default=False,
         description=(
-            "True only when the user's intended real-world destination is "
+            "True only when the user's practical route destination is "
             "near-certain despite multiple provider POI records."
         ),
     )
@@ -216,8 +216,11 @@ async def choose_semantically_unique_place(
         return None
     prompt = (
         "You adjudicate Tencent Maps candidates for one user-authored place. "
-        "Do not answer the user and never invent a place. Decide by meaning and "
-        "provider evidence, not edit distance, keywords, or a local alias list. "
+        "Do not answer the user and never invent a place. Decide by language "
+        "understanding and provider evidence, without any local keyword rule, "
+        "edit-distance threshold, or alias list. You may recognize an evident "
+        "typing mistake semantically; the selected result must still be one of "
+        "the supplied Tencent candidates. "
         "Judge practical route intent, not whether every POI record is the exact "
         "same physical feature. Set unique_intent=true when the query is evidently "
         "aiming at one dominant landmark and the alternatives are its square, "
@@ -229,12 +232,13 @@ async def choose_semantically_unique_place(
         "different branches, venues, cities, or route destinations. When true, "
         "select exactly one supplied place_id; confidence must be high enough that "
         "asking would add no meaningful safety."
-        f"\nRoute role: {str(route_role or 'place')[:80]}"
-        f"\nUser-authored query: {str(query or '')[:160]}"
-        f"\nUser-authored nearby anchor: {str(near_query or '')[:160]}"
-        "\nTencent candidates:\n"
-        f"{json.dumps(evidence, ensure_ascii=False)[:7000]}"
     )
+    request_evidence = json.dumps({
+        "route_role": str(route_role or "place")[:80],
+        "user_authored_query": str(query or "")[:160],
+        "user_authored_nearby_anchor": str(near_query or "")[:160],
+        "tencent_candidates": evidence,
+    }, ensure_ascii=False, default=str)[:8000]
     started_at = time.monotonic()
     try:
         decider = model.with_structured_output(
@@ -243,7 +247,10 @@ async def choose_semantically_unique_place(
             include_raw=True,
         )
         response = await asyncio.wait_for(
-            decider.ainvoke([{"role": "system", "content": prompt}]),
+            decider.ainvoke([
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": request_evidence},
+            ]),
             timeout=max(1.0, min(12.0, float(timeout_seconds))),
         )
         parsed = response.get("parsed") if isinstance(response, dict) else response
