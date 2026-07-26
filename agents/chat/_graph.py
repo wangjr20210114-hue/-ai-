@@ -864,6 +864,16 @@ def build_graph(
             or planned_sequence_complete
             or (finalize_after_rich_search and not remaining_tools)
         )
+        route_verified_for_calendar = bool(
+            required_name == "propose_calendar_changes"
+            and "plan_route_between_places" in used_tool_names
+            and "plan_route_between_places" in required_sequence
+            and not required_tool_failed
+        )
+        allow_stage_clarification = bool(
+            "ask_user_clarification" in allowed_tool_names
+            and not route_verified_for_calendar
+        )
         linked_trip_step = False
         reasoning_tool_step = False
         if force_finalize:
@@ -884,10 +894,25 @@ def build_graph(
             # supplied every blocking parameter. This applies uniformly to
             # writing, translation, image, place, route, calendar, meeting and
             # other tool-backed Q&A—not to a hard-coded task category.
+            #
+            # A linked calendar stage is different after its route Action has
+            # already succeeded: every physical stop is provider-verified and
+            # the semantic preflight has already checked the user-level
+            # dependencies before any provider work. Re-exposing the generic
+            # clarification tool here lets the JSON argument model second-guess
+            # settled Tencent results, producing a route Action and a
+            # contradictory place card in the same response. Close that one
+            # redundant branch and require the dependent calendar proposal to
+            # consume the verified route instead.
             required_or_question_tools = [
                 tool for tool in tools
                 if getattr(tool, "name", "") in {
-                    required_name, "ask_user_clarification",
+                    required_name,
+                    *(
+                        set()
+                        if not allow_stage_clarification
+                        else {"ask_user_clarification"}
+                    ),
                 }
             ]
             # Some OpenAI-compatible gateways reject a complex multi-stop
@@ -1005,7 +1030,7 @@ def build_graph(
                     required_name,
                     *(
                         {"ask_user_clarification"}
-                        if "ask_user_clarification" in allowed_tool_names
+                        if allow_stage_clarification
                         else set()
                     ),
                 }

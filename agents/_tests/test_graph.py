@@ -909,7 +909,7 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tool_names.count("propose_calendar_changes"), 1)
         self.assertEqual(
             model.first_tool_names,
-            {"propose_calendar_changes", "ask_user_clarification"},
+            {"propose_calendar_changes"},
         )
         self.assertEqual(result["messages"][-1].content, "日程确认卡已经准备好。")
 
@@ -949,7 +949,7 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             model.decisions[1],
             (
-                {"propose_calendar_changes", "ask_user_clarification"},
+                {"propose_calendar_changes"},
                 "",
             ),
         )
