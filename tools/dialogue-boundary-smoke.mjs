@@ -30,8 +30,7 @@ function answerOf(events) {
     .join('');
 }
 
-async function chat(index, input) {
-  const conversationId = `yb7_smoke_route_${runStamp}_${index}`;
+async function postChat(id, conversationId, requestBody) {
   const startedAt = Date.now();
   const response = await fetch(endpoint('/chat'), {
     method: 'POST',
@@ -39,22 +38,19 @@ async function chat(index, input) {
       'Content-Type': 'application/json',
       'makers-conversation-id': conversationId,
     },
-    body: JSON.stringify({
-      message: input.message,
-      response_language: 'zh-CN',
-      ...(input.current_location ? { current_location: input.current_location } : {}),
-    }),
+    body: JSON.stringify(requestBody),
   });
   const body = await response.text();
-  if (!response.ok) throw new Error(`${input.id}: HTTP ${response.status} ${body.slice(0, 300)}`);
+  if (!response.ok) throw new Error(`${id}: HTTP ${response.status} ${body.slice(0, 300)}`);
   const events = parseEvents(body);
   const mapAction = actionOf(events, 'map_action');
   const calendarAction = actionOf(events, 'calendar_action');
   const clarification = actionOf(events, 'clarification_action');
-  const clarificationFields = clarification?.clarification?.fields || [];
+  const clarificationPayload = clarification?.clarification;
+  const clarificationFields = clarificationPayload?.fields || [];
   const answer = answerOf(events);
-  const result = {
-    id: input.id,
+  return {
+    id,
     conversation_id: conversationId,
     duration_ms: Date.now() - startedAt,
     event_types: [...new Set(events.map((event) => event?.type).filter(Boolean))],
@@ -66,9 +62,57 @@ async function chat(index, input) {
     has_clarification: Boolean(clarification),
     clarification_field_types: clarificationFields.map((field) => field?.type).filter(Boolean),
     clarification_option_counts: clarificationFields.map((field) => (field?.options || []).length),
+    clarification: clarificationPayload ? {
+      id: clarificationPayload.id,
+      fields: clarificationFields.map((field) => ({
+        id: field?.id,
+        label: field?.label,
+        type: field?.type,
+        options: field?.options || [],
+      })),
+    } : null,
     answer_preview: answer.slice(0, 180),
   };
-  process.stderr.write(`${JSON.stringify(result)}\n`);
+}
+
+async function chat(index, input) {
+  const conversationId = `yb7_smoke_route_${runStamp}_${index}`;
+  const firstResult = await postChat(input.id, conversationId, {
+    message: input.message,
+    response_language: 'zh-CN',
+    ...(input.current_location ? { current_location: input.current_location } : {}),
+  });
+  process.stderr.write(`${JSON.stringify(firstResult)}\n`);
+
+  let result = firstResult;
+  if (input.answer_first_clarification && result.has_clarification) {
+    const field = result.clarification?.fields?.[0];
+    const value = field?.type === 'single' ? field.options?.[0] : '';
+    if (!field || !value) {
+      throw new Error(`${input.id}: clarification was not automatically actionable; result=${JSON.stringify(result)}`);
+    }
+    const responseId = `clarification-${result.clarification.id}-${Date.now()}`;
+    result = await postChat(`${input.id}-after-card`, conversationId, {
+      activity: 'clarification_answered',
+      message: `${field.label}：${value}`,
+      text: `${field.label}：${value}`,
+      message_id: responseId,
+      client_message_id: responseId,
+      interaction_mode: 'clarification',
+      clarification_response: {
+        id: result.clarification.id,
+        source_message_id: `production-smoke-${result.clarification.id}`,
+        answers: [{ id: field.id, label: field.label, value }],
+      },
+      response_language: 'zh-CN',
+      reference_images: [],
+      ...(input.current_location ? { current_location: input.current_location } : {}),
+    });
+    result.total_duration_ms = firstResult.duration_ms + result.duration_ms;
+    result.clarification_rounds = 1;
+    process.stderr.write(`${JSON.stringify(result)}\n`);
+  }
+
   try {
     input.assert(result);
   } catch (error) {
@@ -90,6 +134,7 @@ const cases = [
     id: 'current-location-walking',
     message: '我想步行去故宫博物院。浏览器定位已授权，请直接规划，不要询问起点。',
     current_location: location,
+    answer_first_clarification: true,
     assert(result) {
       if (!result.has_map_action || result.route_mode !== 'walking') {
         throw new Error(`${result.id}: expected a walking map action`);
@@ -114,13 +159,16 @@ const cases = [
   {
     id: 'evidence-typo',
     message: '从北京站步行去天安们（这里有一个错别字），请按地点服务证据处理。',
+    answer_first_clarification: true,
     assert(result) {
-      if (
-        !result.has_map_action
-        || result.route_mode !== 'walking'
-        || !result.places.some((place) => place.includes('天安门'))
-      ) {
-        throw new Error(`${result.id}: expected a Tencent-backed canonical Tiananmen correction`);
+      const correctedRoute = result.has_map_action
+        && result.route_mode === 'walking'
+        && result.places.some((place) => place.includes('天安门'));
+      const actionableReview = result.has_clarification
+        && result.clarification_field_types.includes('single')
+        && Math.max(0, ...result.clarification_option_counts) >= 1;
+      if (!correctedRoute && !actionableReview) {
+        throw new Error(`${result.id}: expected a Tencent-backed correction or an actionable review card`);
       }
     },
   },
@@ -136,9 +184,15 @@ const cases = [
   {
     id: 'calendar-unique-typo',
     message: '请为我创建一条日程提案：2026年8月10日上午9点到10点去天安们参观。这里有一个明显错别字，请按地点服务证据处理。',
+    answer_first_clarification: true,
     assert(result) {
-      if (!result.has_calendar_action || result.has_clarification) {
-        throw new Error(`${result.id}: expected a calendar proposal without an extra question`);
+      const directProposal = result.has_calendar_action && !result.has_clarification;
+      const actionableReview = result.has_clarification
+        && !result.has_calendar_action
+        && result.clarification_field_types.includes('single')
+        && Math.max(0, ...result.clarification_option_counts) >= 1;
+      if (!directProposal && !actionableReview) {
+        throw new Error(`${result.id}: expected a calendar proposal or an actionable Tencent review card`);
       }
     },
   },

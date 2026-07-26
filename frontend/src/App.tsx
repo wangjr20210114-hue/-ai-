@@ -8,6 +8,7 @@ import type { ChatClient } from './services/chatClient';
 import type { RefObject } from 'react';
 import ConversationSidebar from './components/conversation/ConversationSidebar';
 import { useLanguage } from './i18n';
+import { OPEN_RIGHT_WORKSPACE_EVENT } from './services/workspaceEvents';
 
 const LEFT_PANE_MIN = 190;
 const LEFT_PANE_MAX = 420;
@@ -56,6 +57,12 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
     };
     compactWorkspace.addEventListener('change', closePanelForCompactLayout);
     return () => compactWorkspace.removeEventListener('change', closePanelForCompactLayout);
+  }, []);
+
+  useEffect(() => {
+    const openRightWorkspace = () => setRightPanelOpen(true);
+    window.addEventListener(OPEN_RIGHT_WORKSPACE_EVENT, openRightWorkspace);
+    return () => window.removeEventListener(OPEN_RIGHT_WORKSPACE_EVENT, openRightWorkspace);
   }, []);
 
   useEffect(() => {

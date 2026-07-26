@@ -21,6 +21,7 @@ import type { ProactiveNotification } from '../../types';
 import { markdownToPlainText } from '../common/richContent';
 import { getStoredLanguage, translate, useLanguage } from '../../i18n';
 import type { AssistantChainPosition } from './assistantMessageChain';
+import { requestRightWorkspaceOpen } from '../../services/workspaceEvents';
 
 interface Props {
   message: ChatMessage;
@@ -637,6 +638,7 @@ export default function MessageBubble({ message, client, assistantChainPosition 
           reveal: true,
         },
       });
+      requestRightWorkspaceOpen(window);
     }
     setWorkspaceBusy(action.id);
     try {
@@ -657,6 +659,7 @@ export default function MessageBubble({ message, client, assistantChainPosition 
             reveal: true,
           },
         });
+        requestRightWorkspaceOpen(window);
         MessagePlugin.success(t('mapShown'));
       } else if (operation === 'activate_map') {
         if (!mapSnapshot.length) throw new Error(t('mapSnapshotUnavailable'));
