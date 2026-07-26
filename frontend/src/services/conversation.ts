@@ -68,7 +68,8 @@ export function canReusePendingConversation(
 ): boolean {
   return Boolean(candidate.pending)
     && !candidate.messageCount
-    && (candidate.id !== currentConversationId || durableMessageCount(currentMessages) === 0);
+    && candidate.id === currentConversationId
+    && durableMessageCount(currentMessages) === 0;
 }
 
 export function settleStoppedMessages(messages: ChatMessage[]): ChatMessage[] {

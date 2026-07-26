@@ -293,6 +293,14 @@ describe('pending conversation reuse', () => {
   it('reuses a genuinely empty pending conversation', () => {
     expect(canReusePendingConversation(pending, 'current', [])).toBe(true);
   });
+
+  it('never reuses a different remotely pending conversation', () => {
+    expect(canReusePendingConversation(
+      { ...pending, id: 'stale-remote-pending' },
+      'current',
+      [],
+    )).toBe(false);
+  });
 });
 
 describe('stopped stream settlement', () => {
