@@ -276,6 +276,30 @@ def _normalized_place_name(value: Any) -> str:
     return "".join(re.findall(r"[\w\u4e00-\u9fff]+", str(value or "").lower()))
 
 
+_BROWSER_CURRENT_LOCATION_ANCHORS = {
+    "当前位置",
+    "我的位置",
+    "我当前位置",
+    "当前地点",
+    "我的当前位置",
+    "我所在位置",
+    "我附近",
+    "我这里",
+    "我这儿",
+    "这里",
+    "这儿",
+}
+
+
+def _is_browser_current_location_anchor(value: Any) -> bool:
+    """Recognize only explicit first-person/current-position map anchors.
+
+    The value is never sent to Tencent as a POI query. It is either replaced
+    with the fresh, request-scoped browser fix or rejected truthfully.
+    """
+    return _normalized_place_name(value) in _BROWSER_CURRENT_LOCATION_ANCHORS
+
+
 def _verified_candidate_matches(
     query: str,
     place: dict[str, Any],
@@ -844,6 +868,7 @@ def build_production_tools(
         anchor_query: str,
         query: str,
         anchor_queries: list[str] | None = None,
+        use_current_location_as_anchor: bool = False,
         city: str = "全国",
         radius_meters: int = 2_000,
         strict_radius: bool = False,
@@ -861,11 +886,25 @@ def build_production_tools(
         the location provider. Each nearby lookup is one Tencent boundary query
         rather than a web search plus repeated relative-name lookups.
         """
-        clean_anchor_queries = list(dict.fromkeys(
+        requested_anchor_queries = list(dict.fromkeys(
             str(value or "").strip()
             for value in [anchor_query, *(anchor_queries or [])]
             if str(value or "").strip()
         ))
+        current_location_requested = bool(
+            use_current_location_as_anchor
+            or any(
+                _is_browser_current_location_anchor(value)
+                for value in requested_anchor_queries
+            )
+        )
+        clean_anchor_queries = [
+            value
+            for value in requested_anchor_queries
+            if not _is_browser_current_location_anchor(value)
+        ]
+        if current_location_requested:
+            clean_anchor_queries.insert(0, "__browser_current_location__")
         clean_query = str(query or "").strip()
         if not clean_anchor_queries:
             raise ValueError("附近搜索缺少参照地点")
@@ -873,6 +912,20 @@ def build_production_tools(
             raise ValueError("一次附近搜索最多支持 4 个备选参照地点")
         if not clean_query:
             raise ValueError("附近搜索缺少要查找的地点类别")
+        if current_location_requested and browser_current_location is None:
+            if len(clean_anchor_queries) == 1:
+                raise ValueError(
+                    "本轮没有收到浏览器定位坐标，不能搜索当前位置附近。"
+                    "请先在地图中允许定位并等待定位成功后再重试"
+                )
+            # Keep explicit alternative anchors useful even when the browser
+            # branch is unavailable. The response reports only anchors that
+            # were actually resolved and never claims a current-position scan.
+            clean_anchor_queries = [
+                value
+                for value in clean_anchor_queries
+                if value != "__browser_current_location__"
+            ]
 
         state = await _load_state()
         stored_places: list[dict[str, Any]] = []
@@ -910,6 +963,8 @@ def build_production_tools(
         )
 
         async def resolve_anchor(clean_anchor_query: str) -> dict[str, Any] | None:
+            if clean_anchor_query == "__browser_current_location__":
+                return copy.deepcopy(browser_current_location)
             normalized_anchor = _normalized_place_name(clean_anchor_query)
 
             def anchor_score(place: dict[str, Any]) -> tuple[float, int]:
@@ -978,12 +1033,17 @@ def build_production_tools(
             clean_anchor_query: str,
             anchor: dict[str, Any] | None,
         ) -> dict[str, Any]:
+            display_anchor_query = (
+                "当前位置"
+                if clean_anchor_query == "__browser_current_location__"
+                else clean_anchor_query
+            )
             if anchor is None:
                 return {
-                    "anchor_query": clean_anchor_query,
+                    "anchor_query": display_anchor_query,
                     "anchor": None,
                     "places": [],
-                    "error": f"没有核实到参照地点“{clean_anchor_query}”",
+                    "error": f"没有核实到参照地点“{display_anchor_query}”",
                 }
             try:
                 found = await _search_places_nearby_metered(
@@ -996,20 +1056,20 @@ def build_production_tools(
                 )
                 places = [{
                     **place,
-                    "nearby_anchor_query": clean_anchor_query,
-                    "nearby_anchor_name": str(anchor.get("name") or clean_anchor_query),
+                    "nearby_anchor_query": display_anchor_query,
+                    "nearby_anchor_name": str(anchor.get("name") or display_anchor_query),
                     "nearby_anchor_place_id": str(anchor.get("place_id") or ""),
                 } for place in found]
                 logging.info(
                     "nearby place lookup anchor=%s query=%s radius=%s strict=%s results=%s",
-                    str(anchor.get("name") or clean_anchor_query)[:120],
+                    str(anchor.get("name") or display_anchor_query)[:120],
                     clean_query[:120],
                     radius,
                     bool(strict_radius),
                     len(places),
                 )
                 return {
-                    "anchor_query": clean_anchor_query,
+                    "anchor_query": display_anchor_query,
                     "anchor": anchor,
                     "places": places,
                     "error": "",
@@ -1017,12 +1077,12 @@ def build_production_tools(
             except Exception as exc:
                 logging.warning(
                     "nearby place lookup failed anchor=%s query=%s error=%s",
-                    clean_anchor_query[:120],
+                    display_anchor_query[:120],
                     clean_query[:120],
                     exc,
                 )
                 return {
-                    "anchor_query": clean_anchor_query,
+                    "anchor_query": display_anchor_query,
                     "anchor": anchor,
                     "places": [],
                     "error": str(exc)[:200],
@@ -1065,7 +1125,10 @@ def build_production_tools(
             if len(places) >= map_place_result_limit:
                 break
         if not places:
-            anchors_text = "、".join(f"“{value}”" for value in clean_anchor_queries)
+            anchors_text = "、".join(
+                "“当前位置”" if value == "__browser_current_location__" else f"“{value}”"
+                for value in clean_anchor_queries
+            )
             raise ValueError(
                 f"没有在{anchors_text}附近 {radius} 米内核实到“{clean_query}”"
             )
@@ -2416,7 +2479,7 @@ def build_production_tools(
     definitions = [
         (search_places, "search_places", "使用腾讯地点服务搜索真实地点。普通查看传 purpose=browse；新增或修改含现实地点的日程必须传 purpose=calendar，工具会强制执行三级决策：唯一高置信候选直接返回可用 place_id，多个真实候选生成单选卡，无候选生成文本填空卡。"),
         (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
-        (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。传入完整明确的 anchor_query 与要找的类别 query；若用户给出多个备选参照地点，还必须把全部备选放入 anchor_queries，一次并行查询并保留各组成功结果，不能只选一个或拆成多次调用。工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。用户没有明确距离时不要自行缩小 radius_meters，保持默认 2000 米且 strict_radius=false；只有用户明确说“X 米内”时才传该距离并设 strict_radius=true。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),
+        (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。用户说“我附近/当前位置附近”时必须设置 use_current_location_as_anchor=true；工具只会使用本轮浏览器实际上传的新鲜坐标，未收到坐标会明确失败，绝不能把“当前位置”当普通 POI 搜索或声称已经定位。其他情况传入完整明确的 anchor_query 与要找的类别 query；若用户给出多个备选参照地点，还必须把全部备选放入 anchor_queries，一次并行查询并保留各组成功结果，不能只选一个或拆成多次调用。工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。用户没有明确距离时不要自行缩小 radius_meters，保持默认 2000 米且 strict_radius=false；只有用户明确说“X 米内”时才传该距离并设 strict_radius=true。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),
         (plan_route_between_places, "plan_route_between_places", "查询真实地点之间的道路距离、耗时或费用，或规划含多个停靠点的有序出行时必须使用。支持 route_mode=driving/transit/walking/bicycling 和 route_strategy=time_then_cost/least_time/least_cost，未指定均传 default。默认由腾讯多方案按省时优先、时间相近选省钱；用户明确选择会形成非敏感习惯计数，至少三次且占比达到 60% 后可影响后续默认。浏览器当前位置可用且用户未给起点时传 use_current_location_as_origin=true；不得把当前位置作为普通 POI 搜索。两点路线传 origin_query/destination_query；多段行程把全部文本地点按用户指定先后一次传入 ordered_stops，每项包含 query，可选 near_query，禁止拆成多次调用或自行重排。工具会核实全部地点并调用真实腾讯路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 query 传“锦江之星”、near_query 传“北京301医院”；唯一高置信错字可纠正，多个候选单选，无候选填空。"),
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
         (recommend_places_on_map, "recommend_places_on_map", "模型驱动的非周边多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。只要用户目标表达了相对某个或多个参照点“附近、周边、离它近”，不得使用本工具，也不得从模型知识猜餐厅名称；必须改用 recommend_nearby_places_on_map，把全部参照点放入 anchor_queries。"),

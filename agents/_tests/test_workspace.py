@@ -786,6 +786,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("should-not-leak", calendar_prompt)
         self.assertNotIn("rich_search 始终是可用能力", calendar_prompt)
 
+        plain_prompt = dynamic_system_prompt(
+            selected_tools=set(),
+            **common,
+        )
+        self.assertIn("浏览器当前位置状态：不可用", plain_prompt)
+        self.assertIn("禁止声称已授权、已定位或已搜索当前位置附近", plain_prompt)
+
     def test_successful_capability_plan_hides_unrelated_tool_schemas(self):
         tools = [
             SimpleNamespace(name="rich_search"),
@@ -1849,6 +1856,85 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             [place["place_id"] for place in result["action"]["payload"]["places"]],
             ["breakfast-1", "breakfast-2"],
         )
+
+    async def test_nearby_current_location_uses_request_scoped_browser_fix(self):
+        browser_location = {
+            "place_id": "browser-current-location",
+            "provider": "browser-wgs84",
+            "name": "当前位置",
+            "address": "",
+            "latitude": 39.913,
+            "longitude": 116.456,
+            "coordinate_type": "wgs84",
+        }
+        park = {
+            **PLACE,
+            "place_id": "nearby-park",
+            "name": "测试公园",
+            "address": "北京市朝阳区",
+            "latitude": 39.914,
+            "longitude": 116.455,
+            "distance_to_anchor_meters": 180.0,
+        }
+        with patch(
+            "agents.chat._ui_tools.provider_search_place_candidates",
+            new=AsyncMock(),
+        ) as place_search, patch(
+            "agents.chat._ui_tools.provider_search_places_nearby",
+            new=AsyncMock(return_value=[park]),
+        ) as nearby_search:
+            tools = build_production_tools(
+                None,
+                store=FakeStore(),
+                conversation_id="nearby-browser-location",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+                browser_current_location=browser_location,
+            )
+            tool = next(item for item in tools if item.name == "recommend_nearby_places_on_map")
+            result = json.loads(await tool.ainvoke({
+                "anchor_query": "当前位置",
+                "query": "公园",
+                "use_current_location_as_anchor": True,
+            }))
+
+        place_search.assert_not_awaited()
+        nearby_search.assert_awaited_once_with(
+            "map-key",
+            "公园",
+            browser_location,
+            radius_meters=2_000,
+            limit=5,
+            accept_category_results=True,
+        )
+        self.assertEqual(result["anchor"]["place_id"], "browser-current-location")
+        self.assertEqual(result["groups"][0]["anchor_query"], "当前位置")
+        self.assertEqual(result["places"][0]["place_id"], "nearby-park")
+
+    async def test_nearby_current_location_without_browser_fix_never_searches_provider(self):
+        with patch(
+            "agents.chat._ui_tools.provider_search_place_candidates",
+            new=AsyncMock(),
+        ) as place_search, patch(
+            "agents.chat._ui_tools.provider_search_places_nearby",
+            new=AsyncMock(),
+        ) as nearby_search:
+            tools = build_production_tools(
+                None,
+                store=FakeStore(),
+                conversation_id="nearby-browser-location-missing",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+                browser_current_location=None,
+            )
+            tool = next(item for item in tools if item.name == "recommend_nearby_places_on_map")
+            with self.assertRaisesRegex(ValueError, "本轮没有收到浏览器定位坐标"):
+                await tool.ainvoke({
+                    "anchor_query": "当前位置",
+                    "query": "好玩的地方",
+                    "use_current_location_as_anchor": True,
+                })
+
+        place_search.assert_not_awaited()
+        nearby_search.assert_not_awaited()
 
     async def test_nearby_recommendation_keeps_successful_alternative_anchor(self):
         samsung = {
@@ -2946,6 +3032,23 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         ])
         self.assertIn("地点服务这次没有找到", result)
         self.assertNotIn("确认卡", result)
+
+    def test_missing_browser_location_failure_fallback_never_claims_search(self):
+        result = tool_failure_fallback([
+            HumanMessage(content="帮我看看我附近有什么好玩的"),
+            ToolMessage(
+                content=(
+                    "操作未完成：本轮没有收到浏览器定位坐标，不能搜索当前位置附近。"
+                    "请先在地图中允许定位并等待定位成功后再重试。"
+                    "请自然说明原因和下一步，不要声称已经成功。"
+                ),
+                tool_call_id="nearby-location-missing",
+                name="recommend_nearby_places_on_map",
+            ),
+        ])
+        self.assertIn("我目前没有拿到你的定位", result)
+        self.assertIn("没有搜索你附近", result)
+        self.assertNotIn("已授权", result)
 
     def test_today_filter_requires_a_verifiable_matching_publication_date(self):
         results = [

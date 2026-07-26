@@ -497,7 +497,7 @@ async def plan_capabilities(
 - 现实地点可能有错字、同名或缺城市时，不得在调用地点服务之前设置 needs_clarification。先选择地点/路线能力；地点工具会根据真实腾讯候选决定直接采用、单选或填空。
 能力：
 - 时效事实、用户要求查证或来源：needs_web_search=true；只在明确要求“今天发布”时 strict_today_only=true。search_query 合并为一次简洁查询并使用 {today} 解析相对日期。图片明显帮助理解时 needs_images=true 并填写 image_query。
-- 旅行目的地介绍或多地点推荐：needs_places=true、needs_map_action=true；找已知地点/当前位置/日程地点周边真实商家：只设 needs_nearby_places=true。
+- 旅行目的地介绍或多地点推荐：needs_places=true、needs_map_action=true；找已知地点/当前位置/日程地点周边真实商家：只设 needs_nearby_places=true。说“我附近/当前位置附近”时只能使用下方浏览器状态；不可用时不得把“当前位置”当普通地点词，也不得声称已定位或已搜索。
 - 真实道路距离、耗时、费用或有序行程：needs_route=true。route_stops 必须按原顺序逐字保留用户说出的地点，不得在规划器中纠错、改名或选择分店；普通地点写 query，“参照点附近的品牌/类别”只拆为 query 与 near_query。浏览器有新鲜授权位置且用户没给起点时 route_uses_current_location=true，否则缺起点才澄清。只记录用户明确指定的 route_mode 和 route_strategy，未指定填 default。
 - 查询、汇总当前日程：needs_calendar_context=true。新增、修改、删除日程：同时设置 needs_calendar_context=true、needs_calendar_action=true。明确未来日期/出发时刻的多站可执行行程在日程 Skill 开启时，同时需要 route、calendar_context、calendar_action。
 - 新增或修改日程含未核实现实地点时：place_resolution_target=calendar、needs_places=true、needs_calendar_action=true；只有缺日期、时间、标题等非地点必要参数时才澄清。
@@ -523,7 +523,7 @@ async def plan_capabilities(
     safe_location_context = str(location_context or "").strip()[:600]
     if safe_location_context:
         prompt += (
-            "\n以下是浏览器本轮提供的隐私受限位置状态。它只表示能否作为路线起点，"
+            "\n以下是浏览器本轮提供的隐私受限位置状态。它表示能否作为路线起点或“我附近”搜索参照点，"
             "不得要求输出、复述或保存精确坐标。"
             f"\n{safe_location_context}"
         )

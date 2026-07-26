@@ -187,6 +187,11 @@ def tool_failure_fallback(messages: Iterable) -> str:
         detail = content[len("操作未完成："):].split("。请自然说明", 1)[0].strip("。 ")
         if detail:
             if getattr(message, "name", "") == "recommend_nearby_places_on_map":
+                if detail.startswith("本轮没有收到浏览器定位坐标"):
+                    return (
+                        "我目前没有拿到你的定位，所以没有搜索你附近的地点。"
+                        "请先在地图中允许定位并等待定位成功，然后再让我推荐附近地点。"
+                    )
                 return f"地点服务这次没有找到可展示的附近地点：{detail}。你可以扩大范围或调整餐厅类别后重试。"
             if getattr(message, "name", "") == "plan_route_between_places":
                 return f"这次没有完成路线规划：{detail}。请检查地点名称或从候选地点中选择后重试。"
