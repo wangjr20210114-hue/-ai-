@@ -2902,7 +2902,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("第 3 站", result["clarification"]["prompt"])
         planner.assert_not_awaited()
 
-    async def test_route_shows_ranked_candidates_without_extra_semantic_round(self):
+    async def test_route_shows_ranked_candidates_when_provider_has_no_correction(self):
         origin = {**PLACE, "place_id": "station", "name": "北京站"}
         candidates = [
             {**PLACE, "place_id": "square", "name": "天安门广场"},

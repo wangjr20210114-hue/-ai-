@@ -2,7 +2,7 @@ import asyncio
 import json
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from agents._shared.route_cache import route_cache_key
 from agents._shared.intelligence import normalize_map_preferences
@@ -14,6 +14,7 @@ from agents.chat._ui_tools import (
     RoutePlanInput,
     _learned_route_preference,
     _place_resolution,
+    _place_resolution_with_provider_review,
     _prioritize_clarification_options_for_city,
     _prioritize_provider_candidates_for_city,
     _provider_city_consensus,
@@ -200,7 +201,6 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             _place_resolution("不存在的地点", []),
             ("fill", None, "no_verified_candidate"),
         )
-
         corrected_square = {
             **PLACE,
             "place_id": "poi-tiananmen-square",
@@ -254,6 +254,96 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             _place_resolution("天安们", search_aliases),
             ("choose", None, "multiple_verified_candidates"),
+        )
+
+    async def test_fast_provider_review_selects_only_a_supplied_unique_place(self):
+        candidates = [
+            {
+                **PLACE,
+                "place_id": "poi-main",
+                "name": "天安门",
+                "query_correction": {
+                    "original_query": "天安们",
+                    "corrected_name": "天安门",
+                    "evidence": "tencent_place_suggestion",
+                },
+            },
+            {
+                **PLACE,
+                "place_id": "poi-access",
+                "name": "天安门东[地铁站]",
+                "query_correction": {
+                    "original_query": "天安们",
+                    "corrected_name": "天安门东[地铁站]",
+                    "evidence": "tencent_place_suggestion",
+                },
+            },
+        ]
+        reviewer = AsyncMock()
+        reviewer.ainvoke.return_value = {
+            "parsed": {
+                "unique_intent": True,
+                "selected_place_id": "poi-main",
+            },
+        }
+        model = MagicMock()
+        model.with_structured_output.return_value = reviewer
+
+        decision, selected, reason = await _place_resolution_with_provider_review(
+            model,
+            "天安们",
+            candidates,
+            context="第 2 站",
+        )
+
+        self.assertEqual(decision, "auto_use")
+        self.assertEqual(selected["place_id"], "poi-main")
+        self.assertEqual(reason, "fast_semantic_provider_review")
+        reviewer.ainvoke.assert_awaited_once()
+
+    async def test_fast_provider_review_keeps_distinct_branches_in_choice_card(self):
+        candidates = [
+            {
+                **PLACE,
+                "place_id": "poi-wanda-cbd",
+                "name": "北京CBD万达广场",
+                "query_correction": {
+                    "original_query": "万达广场",
+                    "corrected_name": "北京CBD万达广场",
+                    "evidence": "tencent_place_suggestion",
+                },
+            },
+            {
+                **PLACE,
+                "place_id": "poi-wanda-tongzhou",
+                "name": "北京通州万达广场",
+                "query_correction": {
+                    "original_query": "万达广场",
+                    "corrected_name": "北京通州万达广场",
+                    "evidence": "tencent_place_suggestion",
+                },
+            },
+        ]
+        reviewer = AsyncMock()
+        reviewer.ainvoke.return_value = {
+            "parsed": {
+                "unique_intent": False,
+                "selected_place_id": "",
+            },
+        }
+        model = MagicMock()
+        model.with_structured_output.return_value = reviewer
+
+        result = await _place_resolution_with_provider_review(
+            model,
+            "万达广场",
+            candidates,
+            context="第 4 站",
+        )
+
+        self.assertEqual(
+            result,
+            ("choose", None, "provider_review_requires_choice"),
         )
 
     def test_provider_candidates_keep_rank_but_prioritize_proven_city(self):
@@ -561,7 +651,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             [],
         )
 
-    def test_workspace_candidates_reuse_only_provider_backed_correction(self):
+    def test_workspace_candidates_never_reuse_unconfirmed_correction(self):
         corrected = {
             **PLACE,
             "name": "天安门",
@@ -577,7 +667,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             _rank_verified_workspace_matches(
                 "天安们", {corrected["place_id"]: corrected}, "北京",
             ),
-            [corrected],
+            [],
         )
         exact_reuse = _rank_verified_workspace_matches(
             "天安门", {corrected["place_id"]: corrected}, "北京",

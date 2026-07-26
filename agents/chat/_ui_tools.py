@@ -176,6 +176,24 @@ class RoutePlanInput(BaseModel):
         return self
 
 
+class ProviderPlaceDecision(BaseModel):
+    """Bounded semantic review of one Tencent candidate set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    unique_intent: bool = Field(
+        default=False,
+        description=(
+            "True only when one supplied Tencent POI is a near-certain "
+            "interpretation of the user's place text."
+        ),
+    )
+    selected_place_id: str = Field(
+        default="",
+        description="One exact supplied place_id when unique_intent is true.",
+    )
+
+
 def preserve_planned_route_stops(
     model_stops: list[tuple[str, str]],
     planned_stops: list[dict[str, str]] | None,
@@ -388,12 +406,12 @@ def _rank_verified_workspace_matches(
     *,
     limit: int = 6,
 ) -> list[dict[str, Any]]:
-    """Reuse only an explicit prior choice or provider-backed correction.
+    """Reuse only an explicit prior choice.
 
     A bare canonical name may still have multiple real branches. Reusing one
-    workspace record by name would silently collapse that ambiguity across
-    conversations. Exact card option labels and Tencent correction evidence
-    are safe protocol-level identities; other names go through the provider
+    workspace record by name—or a prior unconfirmed correction—would silently
+    collapse that ambiguity across conversations. Exact card option labels are
+    stable user selections; every other name goes through the provider
     search/cache again.
     """
     clean_query = _normalized_place_name(query)
@@ -401,40 +419,17 @@ def _rank_verified_workspace_matches(
     for place_id, raw_place in candidates.items():
         if not isinstance(raw_place, dict) or not str(raw_place.get("place_id") or place_id):
             continue
-        correction = raw_place.get("query_correction")
-        corrected_from = (
-            _normalized_place_name(correction.get("original_query"))
-            if isinstance(correction, dict)
-            else ""
-        )
         clean_option = _normalized_place_name(_place_option_label(raw_place))
         clean_choice_option = _normalized_place_name(
             _place_choice_option(raw_place)
         )
-        verified_correction = bool(
-            corrected_from
-            and clean_query == corrected_from
-            and str(correction.get("evidence") or "").startswith("tencent_")
-        ) if isinstance(correction, dict) else False
-        if not (
-            clean_query in {clean_option, clean_choice_option}
-            or verified_correction
-        ):
+        if clean_query not in {clean_option, clean_choice_option}:
             continue
         exact_rank = (
             0 if clean_query == clean_choice_option
-            else 1 if clean_query == clean_option
-            else 2
+            else 1
         )
         current_place = copy.deepcopy(raw_place)
-        if (
-            isinstance(current_place.get("query_correction"), dict)
-            and corrected_from != clean_query
-        ):
-            # Correction evidence describes one specific spelling. A canonical
-            # POI may be reused by later exact queries, but that must not make
-            # the old typo appear in the new answer.
-            current_place.pop("query_correction", None)
         ranked.append((
             exact_rank,
             str(place_id),
@@ -485,11 +480,10 @@ def _place_resolution(
 ) -> tuple[str, dict[str, Any] | None, str]:
     """Return the deterministic three-level decision for a side-effect place.
 
-    A single provider candidate is safe to use. Multiple records are accepted
-    only when every record carries Tencent's native suggestion evidence for the
-    same user query; the provider-ranked first result is then used. All other
-    multi-candidate cases remain a finite user choice, and no candidates require
-    free text.
+    A single provider candidate is safe to use. Multiple records carrying
+    Tencent's native suggestion evidence are eligible for the caller's bounded
+    semantic review; other multi-candidate cases remain a finite user choice,
+    and no candidates require free text.
     """
     if len(places) == 1:
         correction = places[0].get("query_correction")
@@ -522,6 +516,114 @@ def _place_resolution(
     if places:
         return "choose", None, "multiple_verified_candidates"
     return "fill", None, "no_verified_candidate"
+
+
+async def _place_resolution_with_provider_review(
+    model,
+    query: str,
+    places: list[dict[str, Any]],
+    *,
+    context: str = "",
+    enabled: bool = True,
+    timeout_seconds: float = 8.0,
+) -> tuple[str, dict[str, Any] | None, str]:
+    """Review only ambiguous Tencent suggestion sets with a fast model.
+
+    Provider lookup remains authoritative. The model can select only one
+    supplied place id and cannot invent or rewrite a POI. A failed or
+    non-unique review falls back to the provider candidate card.
+    """
+    decision, selected, reason = _place_resolution(query, places)
+    if (
+        not enabled
+        or model is None
+        or decision != "auto_use"
+        or reason != "tencent_provider_ranked_correction"
+        or len(places) < 2
+    ):
+        return decision, selected, reason
+
+    evidence = [
+        {
+            "provider_rank": index,
+            "place_id": str(place.get("place_id") or ""),
+            "name": str(place.get("name") or "")[:160],
+            "address": str(place.get("address") or "")[:240],
+            "city": str(place.get("city") or "")[:80],
+            "category": str(place.get("category") or "")[:120],
+            "latitude": place.get("latitude"),
+            "longitude": place.get("longitude"),
+        }
+        for index, place in enumerate(places[:8], 1)
+        if isinstance(place, dict) and str(place.get("place_id") or "")
+    ]
+    if len(evidence) < 2:
+        return decision, selected, reason
+
+    prompt = (
+        "You review one user-authored place against Tencent Maps candidates. "
+        "Return only the fixed schema; never answer the user and never invent "
+        "or rewrite a place. Set unique_intent=true only when the user's "
+        "practical destination is near-certain and one supplied candidate is "
+        "the clear canonical destination. An evident typo may resolve to a "
+        "main landmark while nearby entrances, transit access points, or minor "
+        "subfeatures remain alternatives. Prefer the main venue for a general "
+        "place request. Set unique_intent=false whenever candidates represent "
+        "materially different branches, businesses, venues, cities, or trip "
+        "destinations, even if Tencent ranked one first. Uncertainty must become "
+        "a user choice card, so false is the safe result when asking could "
+        "materially change the route."
+    )
+    payload = json.dumps({
+        "context": str(context or "place")[:120],
+        "user_query": str(query or "")[:160],
+        "tencent_candidates": evidence,
+    }, ensure_ascii=False, default=str)[:8_000]
+    started_at = time.monotonic()
+    try:
+        reviewer = model.with_structured_output(
+            ProviderPlaceDecision,
+            method="function_calling",
+            include_raw=True,
+        )
+        response = await asyncio.wait_for(
+            reviewer.ainvoke([
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": payload},
+            ]),
+            timeout=max(1.0, min(10.0, float(timeout_seconds))),
+        )
+        parsed = response.get("parsed") if isinstance(response, dict) else response
+        if isinstance(parsed, BaseModel):
+            parsed = parsed.model_dump()
+        selected_id = (
+            str(parsed.get("selected_place_id") or "").strip()
+            if isinstance(parsed, dict) and parsed.get("unique_intent")
+            else ""
+        )
+        reviewed = next(
+            (
+                place for place in places
+                if str(place.get("place_id") or "") == selected_id
+            ),
+            None,
+        )
+        logging.info(
+            "provider place review unique=%s candidates=%s elapsed_ms=%s",
+            bool(reviewed),
+            len(evidence),
+            round((time.monotonic() - started_at) * 1000),
+        )
+        if isinstance(reviewed, dict):
+            return "auto_use", reviewed, "fast_semantic_provider_review"
+    except Exception as exc:
+        logging.warning(
+            "provider place review unavailable error_type=%s candidates=%s elapsed_ms=%s",
+            type(exc).__name__,
+            len(evidence),
+            round((time.monotonic() - started_at) * 1000),
+        )
+    return "choose", None, "provider_review_requires_choice"
 
 
 def _learned_route_preference(
@@ -587,6 +689,7 @@ async def verify_place_queries_parallel(
 
 def build_production_tools(
     model, *, store=None, conversation_id: str = "", env: dict | None = None,
+    place_disambiguation_model=None,
     paper_constraints: dict | None = None,
     temporal_context: dict[str, Any] | None = None,
     progressive_media: bool = False,
@@ -623,6 +726,10 @@ def build_production_tools(
     map_place_result_limit = max(3, min(12, int(map_scope.get("place_result_limit") or 6)))
     map_route_stop_limit = max(2, min(12, int(map_scope.get("route_stop_limit") or 8)))
     map_search_timeout = max(10.0, min(55.0, float(map_scope.get("search_timeout_seconds") or 30)))
+    provider_place_review_enabled = bool(
+        place_disambiguation_model is not None
+        and map_service_mode != "fast"
+    )
     map_preferred_route_mode = str(map_scope.get("preferred_route_mode") or "driving")
     if map_preferred_route_mode not in {"driving", "transit", "walking", "bicycling"}:
         map_preferred_route_mode = "driving"
@@ -844,7 +951,14 @@ def build_production_tools(
         await _save_state(state)
         if effective_purpose != "calendar":
             return json.dumps({"places": places, "count": len(places)}, ensure_ascii=False)
-        decision, selected, reason = _place_resolution(query, places)
+        decision, selected, reason = await _place_resolution_with_provider_review(
+            place_disambiguation_model,
+            query,
+            places,
+            context="calendar place lookup",
+            enabled=provider_place_review_enabled,
+            timeout_seconds=min(8.0, map_search_timeout),
+        )
         if decision == "auto_use" and isinstance(selected, dict):
             return json.dumps({
                 "places": [selected],
@@ -1520,7 +1634,14 @@ def build_production_tools(
                     fields=[field],
                 )
             if len(matches) > 1:
-                decision, selected, _reason = _place_resolution(clean_query, matches)
+                decision, selected, _reason = await _place_resolution_with_provider_review(
+                    place_disambiguation_model,
+                    clean_query,
+                    matches,
+                    context=endpoint_label,
+                    enabled=provider_place_review_enabled,
+                    timeout_seconds=min(8.0, map_search_timeout),
+                )
                 if decision == "auto_use" and isinstance(selected, dict):
                     return selected, None
                 field = _place_choice_field(
@@ -2251,9 +2372,13 @@ def build_production_tools(
                             if candidate_id:
                                 candidates[candidate_id] = candidate
                         if len(verified) > 1:
-                            decision, selected, _reason = _place_resolution(
+                            decision, selected, _reason = await _place_resolution_with_provider_review(
+                                place_disambiguation_model,
                                 location_text,
                                 verified,
+                                context="calendar event location",
+                                enabled=provider_place_review_enabled,
+                                timeout_seconds=min(8.0, map_search_timeout),
                             )
                             if decision == "auto_use" and isinstance(selected, dict):
                                 place_id = str(selected.get("place_id") or "")
@@ -2294,9 +2419,13 @@ def build_production_tools(
                                 if candidate_id:
                                     candidates[candidate_id] = candidate
                             if len(verified) > 1:
-                                decision, selected, _reason = _place_resolution(
+                                decision, selected, _reason = await _place_resolution_with_provider_review(
+                                    place_disambiguation_model,
                                     location_text,
                                     verified,
+                                    context="calendar event location",
+                                    enabled=provider_place_review_enabled,
+                                    timeout_seconds=min(8.0, map_search_timeout),
                                 )
                                 if decision == "choose":
                                     return _clarification_action(
@@ -2878,10 +3007,10 @@ def build_production_tools(
 
     definitions = [
         (get_current_location, "get_current_location", "用户直接询问“我现在在哪、当前位置是什么、你能否读到我的位置”时使用。它只读取本轮浏览器真实上传的新鲜定位，并调用腾讯逆地址解析返回可读地址、行政区和附近地标；不得输出经纬度、不得使用 IP 猜测、不得保存位置。没有浏览器定位时会生成填写大致位置的结构化卡片，以便继续附近推荐或路线规划。"),
-        (search_places, "search_places", "使用腾讯地点服务搜索真实地点。普通查看传 purpose=browse；新增或修改含现实地点的日程必须传 purpose=calendar。唯一候选直接返回可用 place_id；多候选只有在全部记录都带同一用户查询的腾讯关键词输入提示纠错证据时采用 Provider 首选，其余生成按可靠城市证据优先的单选卡；无候选生成文本填空卡。"),
+        (search_places, "search_places", "使用腾讯地点服务搜索真实地点。普通查看传 purpose=browse；新增或修改含现实地点的日程必须传 purpose=calendar。唯一候选直接返回可用 place_id；多个腾讯建议只在无深度思考的结构化语义复核判定实际目的地近乎唯一时采用一个已提供的 place_id，否则生成按可靠城市证据优先的单选卡；无候选生成文本填空卡。快速地图模式跳过该额外复核并采用 Provider 首选。"),
         (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
         (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。用户说“我附近/当前位置附近”时必须设置 use_current_location_as_anchor=true；工具只会使用本轮浏览器实际上传的新鲜坐标，未收到坐标会明确失败，绝不能把“当前位置”当普通 POI 搜索或声称已经定位。其他情况传入完整明确的 anchor_query 与要找的类别 query；若用户给出多个备选参照地点，还必须把全部备选放入 anchor_queries，一次并行查询并保留各组成功结果，不能只选一个或拆成多次调用。工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。用户没有明确距离时不要自行缩小 radius_meters，保持默认 2000 米且 strict_radius=false；只有用户明确说“X 米内”时才传该距离并设 strict_radius=true。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),
-        (plan_route_between_places, "plan_route_between_places", "查询真实地点之间的道路距离、耗时或费用，或规划含多个停靠点的有序出行时必须使用。支持 route_mode=driving/transit/walking/bicycling 和 route_strategy=time_then_cost/least_time/least_cost，未指定均传 default。默认由腾讯多方案按省时优先、时间相近选省钱；用户明确选择会形成非敏感习惯计数，至少三次且占比达到 60% 后可影响后续默认。浏览器当前位置可用且用户未给起点时传 use_current_location_as_origin=true；不得把当前位置作为普通 POI 搜索。两点路线传 origin_query/destination_query；多段行程把全部文本地点按用户指定先后一次传入 ordered_stops，每项包含 query，可选 near_query，禁止拆成多次调用或自行重排。若地点序列或已核实地点已经给出城市，必须把该城市传入 city，以约束后续地点搜索；只有没有可靠城市证据时才传全国。工具会核实全部地点并调用真实腾讯路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 query 传“锦江之星”、near_query 传“北京301医院”。唯一候选直接采用；多候选只有在全部记录都带同一用户查询的腾讯关键词输入提示纠错证据时采用 Provider 首选，其余生成按可靠城市证据优先的单选卡；无候选生成填空卡。"),
+        (plan_route_between_places, "plan_route_between_places", "查询真实地点之间的道路距离、耗时或费用，或规划含多个停靠点的有序出行时必须使用。支持 route_mode=driving/transit/walking/bicycling 和 route_strategy=time_then_cost/least_time/least_cost，未指定均传 default。默认由腾讯多方案按省时优先、时间相近选省钱；用户明确选择会形成非敏感习惯计数，至少三次且占比达到 60% 后可影响后续默认。浏览器当前位置可用且用户未给起点时传 use_current_location_as_origin=true；不得把当前位置作为普通 POI 搜索。两点路线传 origin_query/destination_query；多段行程把全部文本地点按用户指定先后一次传入 ordered_stops，每项包含 query，可选 near_query，禁止拆成多次调用或自行重排。若地点序列或已核实地点已经给出城市，必须把该城市传入 city，以约束后续地点搜索；只有没有可靠城市证据时才传全国。工具会核实全部地点并调用真实腾讯路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 query 传“锦江之星”、near_query 传“北京301医院”。唯一候选直接采用；多个腾讯建议只在无深度思考的结构化语义复核判定实际目的地近乎唯一时采用一个已提供的 place_id，否则生成按可靠城市证据优先的单选卡；无候选生成填空卡。快速地图模式跳过该额外复核并采用 Provider 首选。"),
         (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
         (recommend_places_on_map, "recommend_places_on_map", "模型驱动的非周边多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。只要用户目标表达了相对某个或多个参照点“附近、周边、离它近”，不得使用本工具，也不得从模型知识猜餐厅名称；必须改用 recommend_nearby_places_on_map，把全部参照点放入 anchor_queries。"),
         (propose_calendar_changes, "propose_calendar_changes", "必须用此工具准备日程新增、更新或删除提案并生成确认卡；不要只在正文里口头询问。格式示例：changes=[{operation:'create',event:{title:'游览北海公园',start_time:'2026-07-16T09:00:00+08:00',end_time:'2026-07-16T10:00:00+08:00',place_id:'地点工具返回的ID',location_kind:'physical'}}]。location_kind 是模型按语义填写的协议枚举，只能为 physical 或 online；工具不会用地点名称词表猜测。把刚规划的多站路线写入日程时，必须传路线工具返回的 source_route_plan_id，并为 ordered_stops 中每个地点分别创建至少一个事件，严格保持顺序，禁止把多个站点合并成一个事件。更新/删除还要传 schedule_id。用户点击确认前不会真正写入。"),

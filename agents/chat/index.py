@@ -1355,6 +1355,10 @@ async def handler(ctx):
     # Production UI tools are local LangGraph tools; web search remains Makers-native.
     all_tools = build_production_tools(
         model,
+        # Only multi-candidate Tencent suggestion sets need semantic review.
+        # This fixed-schema pass uses the non-thinking Flash profile; unique
+        # Provider results and ordinary turns pay no extra model round.
+        place_disambiguation_model=fast_model,
         store=ctx.store.langgraph_store,
         conversation_id=conversation_id,
         env=ctx.env,
