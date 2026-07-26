@@ -61,17 +61,6 @@ export function durableMessageCount(messages: ChatMessage[]): number {
   )).length;
 }
 
-export function canReusePendingConversation(
-  candidate: ConversationSummary,
-  currentConversationId: string,
-  currentMessages: ChatMessage[],
-): boolean {
-  return Boolean(candidate.pending)
-    && !candidate.messageCount
-    && candidate.id === currentConversationId
-    && durableMessageCount(currentMessages) === 0;
-}
-
 export function settleStoppedMessages(messages: ChatMessage[]): ChatMessage[] {
   return messages
     .filter((message) => !message.streaming || message.role === 'user' || Boolean(message.content.trim()))

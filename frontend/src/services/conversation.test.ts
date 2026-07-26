@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../types';
-import { canReusePendingConversation, clearLocalApplicationData, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, durableMessageCount, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
+import { clearLocalApplicationData, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, getOrCreateConversationId, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
 import { CONVERSATION_PREFIX, isCurrentConversationId } from './dataVersion';
 
 describe('getOrCreateConversationId', () => {
@@ -275,31 +275,6 @@ describe('reconcileCompletedMessage', () => {
     expect(reconciled[1].id).toBe('checkpoint-ai');
     expect(reconciled[1].content).toBe('故宫博物院已完成真实地点核实。');
     expect(reconciled[1].workspaceActions).toEqual([action]);
-  });
-});
-
-describe('pending conversation reuse', () => {
-  const pending = { id: 'current', title: '新对话', createdAt: 1, updatedAt: 1, messageCount: 0, pending: true };
-
-  it('does not reuse the active pending summary after real messages exist locally', () => {
-    const messages: ChatMessage[] = [
-      { id: 'u1', role: 'user', content: '最近有什么 AI 进展', ts: 1 },
-      { id: 'a1', role: 'ai', content: '这是搜索后的回答', ts: 2 },
-    ];
-    expect(durableMessageCount(messages)).toBe(2);
-    expect(canReusePendingConversation(pending, 'current', messages)).toBe(false);
-  });
-
-  it('reuses a genuinely empty pending conversation', () => {
-    expect(canReusePendingConversation(pending, 'current', [])).toBe(true);
-  });
-
-  it('never reuses a different remotely pending conversation', () => {
-    expect(canReusePendingConversation(
-      { ...pending, id: 'stale-remote-pending' },
-      'current',
-      [],
-    )).toBe(false);
   });
 });
 
