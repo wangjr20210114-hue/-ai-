@@ -1554,6 +1554,7 @@ def build_production_tools(
             "id": route_plan_id,
             "created_at": int(time.time()),
             "ordered_stops": resolved_stops,
+            "implicit_browser_origin": should_use_current_location,
             "query_corrections": query_corrections,
             "distance_meters": round(distance_meters),
             "duration_seconds": round(duration_seconds),
@@ -1946,10 +1947,15 @@ def build_production_tools(
                 or route_source_id != str(latest_route.get("id") or "")
             ):
                 raise ValueError("引用的路线规划已经变化，请根据最近一次已核实路线重新生成日程提案")
-            required_stops = [
+            route_stops = [
                 item for item in (latest_route.get("ordered_stops") or [])
                 if isinstance(item, dict) and str(item.get("place_id") or "")
             ]
+            required_stops = (
+                route_stops[1:]
+                if latest_route.get("implicit_browser_origin") and route_stops
+                else route_stops
+            )
             required_ids = [str(item.get("place_id") or "") for item in required_stops]
             created = [
                 change for change in normalized if change.get("operation") == "create"

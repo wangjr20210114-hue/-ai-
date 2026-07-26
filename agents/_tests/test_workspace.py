@@ -2742,6 +2742,67 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["action"]["payload"]["source_route_plan_id"], "routeplan-complete")
         self.assertEqual(len(result["action"]["payload"]["changes"]), 4)
 
+    async def test_route_calendar_does_not_persist_implicit_browser_origin(self):
+        store = FakeStore()
+        state = empty_workspace()
+        browser_origin = {
+            **PLACE,
+            "place_id": "browser-current-location",
+            "provider": "browser-tencent",
+            "name": "当前位置",
+        }
+        destination = {
+            **PLACE,
+            "place_id": "summer-palace",
+            "name": "颐和园",
+            "address": "北京市海淀区新建宫门路19号",
+        }
+        state["place_candidates"] = {
+            destination["place_id"]: destination,
+        }
+        state["latest_route_plan"] = {
+            "id": "routeplan-browser-origin",
+            "created_at": int(time.time()),
+            "ordered_stops": [browser_origin, destination],
+            "implicit_browser_origin": True,
+            "distance_meters": 7_884,
+            "duration_seconds": 1_380,
+        }
+        await save_user_workspace(store, state)
+        tools = build_production_tools(
+            None,
+            store=store,
+            conversation_id="route-calendar-browser-origin",
+            env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+        )
+        calendar_tool = next(
+            item for item in tools if item.name == "propose_calendar_changes"
+        )
+        start = datetime.now(timezone(timedelta(hours=8))) + timedelta(days=1)
+        result = json.loads(await calendar_tool.ainvoke({
+            "summary": "从当前位置去颐和园",
+            "source_route_plan_id": "routeplan-browser-origin",
+            "changes": [{
+                "operation": "create",
+                "event": {
+                    "title": "游览颐和园",
+                    "start_time": start.isoformat(),
+                    "end_time": (start + timedelta(hours=2)).isoformat(),
+                    "place_id": destination["place_id"],
+                },
+            }],
+        }))
+
+        self.assertEqual(result["ui_action"], "calendar_action")
+        payload = result["action"]["payload"]
+        self.assertEqual(payload["source_route_plan_id"], "routeplan-browser-origin")
+        self.assertEqual(len(payload["changes"]), 1)
+        self.assertEqual(
+            payload["changes"][0]["event"]["place"]["place_id"],
+            "summer-palace",
+        )
+        self.assertNotIn("browser-current-location", json.dumps(payload))
+
     async def test_route_tool_revalidates_descriptive_aliases_with_provider(self):
         store = FakeStore()
         state = empty_workspace()
