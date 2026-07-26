@@ -142,8 +142,8 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
             )
             route_tool = next(tool for tool in tools if tool.name == "plan_route_between_places")
             result = json.loads(await route_tool.ainvoke({
-                "origin_query": "起点",
-                "destination_query": "终点",
+                "origin_query": "起点｜北京市起点路",
+                "destination_query": "终点｜北京市终点路",
                 "city": "北京",
             }))
         self.assertEqual(result["ui_action"], "map_action")

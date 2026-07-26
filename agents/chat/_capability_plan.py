@@ -587,6 +587,15 @@ class SemanticPreflight(BaseModel):
             "Choose only from web, maps, calendar, image, paper, meeting, proactive."
         ),
     )
+    capabilities: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Every user-required capability, independently of prompt topics. "
+            "Choose only from web_search, current_location, nearby_places, "
+            "places, map_action, route, calendar_context, calendar_action, "
+            "meeting_action, workflow_action, image_generation, papers."
+        ),
+    )
 
 
 class ClarificationReview(BaseModel):
@@ -607,6 +616,45 @@ def _normalize_prompt_topics(values: Iterable[Any]) -> tuple[str, ...]:
     ))
 
 
+_PREFLIGHT_CAPABILITY_FLAGS = {
+    # Fixed structured protocol values; natural-language routing stays in the model.
+    "web_search": ("needs_web_search",),
+    "current_location": ("needs_current_location",),
+    "nearby_places": ("needs_nearby_places",),
+    "places": ("needs_places",),
+    "map_action": ("needs_places", "needs_map_action"),
+    "route": ("needs_route",),
+    "calendar_context": ("needs_calendar_context",),
+    "calendar_action": ("needs_calendar_context", "needs_calendar_action"),
+    "meeting_action": ("needs_meeting_action",),
+    "workflow_action": ("needs_workflow_action",),
+    "image_generation": ("needs_image_generation",),
+    "papers": ("needs_papers",),
+}
+
+
+def _normalize_preflight_capabilities(values: Iterable[Any]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(
+        str(value or "").strip().lower()
+        for value in values
+        if str(value or "").strip().lower() in _PREFLIGHT_CAPABILITY_FLAGS
+    ))
+
+
+def apply_preflight_capabilities(
+    plan: dict[str, Any],
+    capabilities: Iterable[Any],
+) -> dict[str, Any]:
+    """Monotonically preserve user-required capabilities from semantic preflight."""
+    merged = dict(plan or {})
+    normalized = _normalize_preflight_capabilities(capabilities)
+    for capability in normalized:
+        for flag in _PREFLIGHT_CAPABILITY_FLAGS[capability]:
+            merged[flag] = True
+    merged["_preflight_capabilities"] = list(normalized)
+    return merged
+
+
 async def plan_required_clarification(
     model,
     user_message: str,
@@ -623,7 +671,10 @@ async def plan_required_clarification(
     prompt = (
         "You are the product-wide semantic preflight. Do not answer the user. "
         "In this single pass, both evaluate required-input readiness and select "
-        "the dynamic prompt topics needed by the later capability planner. "
+        "the dynamic prompt topics needed by the later capability planner. Also "
+        "return every user-required capability in the fixed capabilities list; "
+        "topics retrieve instructions, while capabilities preserve the complete "
+        "goal if the later argument planner is slow or omits a dependent action. "
         "Build the task's dependency graph from meaning: identify every source "
         "object, target object, or field the user explicitly makes necessary, "
         "then determine whether each is actually present in the current message, "
@@ -640,7 +691,13 @@ async def plan_required_clarification(
         "with only the minimum fields: finite choices before free text, and no "
         "optional preference questions. The request-scoped location context below "
         "is authoritative: when it says a browser location is available, that "
-        "already satisfies a current-location dependency; never ask for it again."
+        "already satisfies a current-location dependency; never ask for it again. "
+        "A real-world place spelling, alias, same-name branch, or uncertain POI "
+        "is not a missing user dependency before the place provider runs: select "
+        "the maps topic and return needs_clarification=false so the Tencent-backed "
+        "place/route tool can resolve it, auto-use near-certain evidence, offer "
+        "finite provider candidates, or request free text when no evidence exists. "
+        "Do not ask the user to pre-correct or pre-disambiguate a supplied place."
         "\nSelect every relevant topic from the catalog, including combinations, "
         "and omit unrelated topics. Classification is semantic, never based on "
         "literal keyword or phrase matching.\n"
@@ -681,6 +738,11 @@ async def plan_required_clarification(
                 "_prompt_topics": list(
                     _normalize_prompt_topics(parsed.get("topics") or [])
                 ),
+                "_preflight_capabilities": list(
+                    _normalize_preflight_capabilities(
+                        parsed.get("capabilities") or []
+                    )
+                ),
             }
     except Exception:
         pass
@@ -690,6 +752,7 @@ async def plan_required_clarification(
         "clarification_prompt": "",
         "clarification_fields": [],
         "_prompt_topics": list(PLANNER_PROMPT_DETAILS),
+        "_preflight_capabilities": [],
     }
 
 
@@ -974,6 +1037,9 @@ async def plan_capabilities_bounded(
         )
         timings_ms["semantic_preflight_timed_out"] = gate_timed_out
     topics = tuple(clarification.get("_prompt_topics") or ())
+    preflight_capabilities = tuple(
+        clarification.get("_preflight_capabilities") or ()
+    )
     if clarification.get("needs_clarification"):
         review_timeout = min(
             4.0,
@@ -1040,7 +1106,9 @@ async def plan_capabilities_bounded(
             timings_ms["capability_planning_total"] = round(
                 (loop.time() - started_at) * 1000
             )
-        return plan, False
+        return apply_preflight_capabilities(
+            plan, preflight_capabilities,
+        ), False
     except asyncio.TimeoutError:
         fallback = dict(DEFAULT_PLAN)
         fallback["_prompt_topics"] = list(topics)
@@ -1052,4 +1120,6 @@ async def plan_capabilities_bounded(
             timings_ms["capability_planning_total"] = round(
                 (loop.time() - started_at) * 1000
             )
-        return fallback, True
+        return apply_preflight_capabilities(
+            fallback, preflight_capabilities,
+        ), True

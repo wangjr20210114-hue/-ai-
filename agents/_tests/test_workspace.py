@@ -752,6 +752,39 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(plan["needs_calendar_action"])
         self.assertEqual(model.calls, 3)
 
+    async def test_preflight_preserves_dependent_route_calendar_chain(self):
+        model = StructuredPlannerModel(
+            args={
+                "needs_route": True,
+                "route_stops": [
+                    {"query": "北京站"},
+                    {"query": "北京西站"},
+                ],
+            },
+            preflight_args={
+                "needs_clarification": False,
+                "topics": ["maps", "calendar"],
+                "capabilities": [
+                    "route",
+                    "calendar_context",
+                    "calendar_action",
+                ],
+            },
+        )
+        plan, timed_out = await plan_capabilities_bounded(
+            model,
+            "一种没有固定短语的跨能力行程请求",
+            timeout_seconds=2,
+        )
+        self.assertFalse(timed_out)
+        self.assertTrue(plan["needs_route"])
+        self.assertTrue(plan["needs_calendar_context"])
+        self.assertTrue(plan["needs_calendar_action"])
+        self.assertEqual(
+            required_tools_for_plan(plan),
+            ("plan_route_between_places", "propose_calendar_changes"),
+        )
+
     async def test_required_input_gate_receives_request_location_context(self):
         model = StructuredPlannerModel()
         result = await plan_required_clarification(

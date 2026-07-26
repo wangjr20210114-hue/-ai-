@@ -401,18 +401,19 @@ def _rank_verified_workspace_matches(
     *,
     limit: int = 6,
 ) -> list[dict[str, Any]]:
-    """Reuse provider-verified POIs for aliases before spending another call.
+    """Reuse only an explicit prior choice or provider-backed correction.
 
-    This is generic name matching over existing Makers workspace records. It
-    does not invent a place: every returned item already has a provider place
-    id and still passes the same city/name validation as a fresh lookup.
+    A bare canonical name may still have multiple real branches. Reusing one
+    workspace record by name would silently collapse that ambiguity across
+    conversations. Exact card option labels and Tencent correction evidence
+    are safe protocol-level identities; other names go through the provider
+    search/cache again.
     """
     clean_query = _normalized_place_name(query)
     ranked: list[tuple[int, str, dict[str, Any]]] = []
     for place_id, raw_place in candidates.items():
         if not isinstance(raw_place, dict) or not str(raw_place.get("place_id") or place_id):
             continue
-        clean_name = _normalized_place_name(raw_place.get("name"))
         correction = raw_place.get("query_correction")
         corrected_from = (
             _normalized_place_name(correction.get("original_query"))
@@ -420,17 +421,23 @@ def _rank_verified_workspace_matches(
             else ""
         )
         clean_option = _normalized_place_name(_place_option_label(raw_place))
+        clean_choice_option = _normalized_place_name(
+            _place_choice_option(raw_place)
+        )
+        verified_correction = bool(
+            corrected_from
+            and clean_query == corrected_from
+            and str(correction.get("evidence") or "").startswith("tencent_")
+        ) if isinstance(correction, dict) else False
         if not (
-            _verified_candidate_matches(query, raw_place, city)
-            or clean_query == clean_option
-            or clean_query == corrected_from
+            clean_query in {clean_option, clean_choice_option}
+            or verified_correction
         ):
             continue
         exact_rank = (
-            0 if clean_query == clean_option
-            else 1 if clean_query == clean_name
-            else 2 if clean_query == corrected_from
-            else 3
+            0 if clean_query == clean_choice_option
+            else 1 if clean_query == clean_option
+            else 2
         )
         current_place = copy.deepcopy(raw_place)
         if (
@@ -453,9 +460,7 @@ def _rank_verified_workspace_matches(
 def _place_choice_field(field_id: str, label: str, places: list[dict[str, Any]]) -> dict[str, Any]:
     options = []
     for place in places[:6]:
-        distance = place.get("distance_to_anchor_meters")
-        distance_text = f" · 距参照地点约 {max(1, round(float(distance)))} 米" if isinstance(distance, (int, float)) else ""
-        option = f"{place.get('name') or '未命名地点'}｜{place.get('address') or '地址未提供'}{distance_text}"
+        option = _place_choice_option(place)
         if option not in options:
             options.append(option[:240])
     return {
@@ -465,6 +470,19 @@ def _place_choice_field(field_id: str, label: str, places: list[dict[str, Any]])
         "required": True,
         "options": options,
     }
+
+
+def _place_choice_option(place: dict[str, Any]) -> str:
+    distance = place.get("distance_to_anchor_meters")
+    distance_text = (
+        f" · 距参照地点约 {max(1, round(float(distance)))} 米"
+        if isinstance(distance, (int, float))
+        else ""
+    )
+    return (
+        f"{place.get('name') or '未命名地点'}｜"
+        f"{place.get('address') or '地址未提供'}{distance_text}"
+    )[:240]
 
 
 def _place_option_label(place: dict[str, Any]) -> str:

@@ -34,12 +34,19 @@ function summarize(id, conversationId, durationMs, events) {
     .filter((event) => event?.type === 'error_message')
     .map((event) => event?.content || event?.payload?.message || event?.payload?.content || '')
     .filter(Boolean);
+  const toolResults = events
+    .filter((event) => event?.type === 'tool_result')
+    .map((event) => ({
+      name: event?.name || event?.payload?.name || '',
+      content: event?.content || event?.payload?.content || '',
+    }));
   return {
     id,
     conversation_id: conversationId,
     duration_ms: durationMs,
     event_types: [...new Set(events.map((event) => event?.type).filter(Boolean))],
     error_messages: errorMessages,
+    tool_results: toolResults,
     has_map_action: Boolean(mapAction),
     has_calendar_action: Boolean(calendarAction),
     has_clarification: Boolean(clarification),

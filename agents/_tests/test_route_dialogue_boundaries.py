@@ -80,6 +80,10 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             "不得在规划器中纠错、改名或选择分店",
             source,
         )
+        self.assertIn(
+            "Do not ask the user to pre-correct or pre-disambiguate a supplied place",
+            source,
+        )
 
     def test_place_resolution_target_overrides_premature_generic_clarification(self):
         plan = parse_capability_plan(json.dumps({
@@ -323,6 +327,14 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             _rank_verified_workspace_matches("北京站", candidates, "北京"),
+            [],
+        )
+        self.assertEqual(
+            _rank_verified_workspace_matches(
+                "北京站｜北京市东城区景山前街4号",
+                candidates,
+                "北京",
+            ),
             [east_station],
         )
         west_station_hotel = {
@@ -360,8 +372,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         exact_reuse = _rank_verified_workspace_matches(
             "天安门", {corrected["place_id"]: corrected}, "北京",
         )
-        self.assertEqual(exact_reuse[0]["name"], "天安门")
-        self.assertNotIn("query_correction", exact_reuse[0])
+        self.assertEqual(exact_reuse, [])
         unproven = {
             key: value for key, value in corrected.items()
             if key != "query_correction"
@@ -394,7 +405,39 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 {cached_restaurant["place_id"]: cached_restaurant},
                 "北京",
             ),
+            [],
+        )
+        self.assertEqual(
+            _rank_verified_workspace_matches(
+                "京宴·鸭儿季烤鸭·北京菜(王府井店)｜北京市东城区景山前街4号",
+                {cached_restaurant["place_id"]: cached_restaurant},
+                "北京",
+            ),
             [cached_restaurant],
+        )
+
+    def test_bare_branch_name_never_collapses_to_one_workspace_candidate(self):
+        wanda = {
+            **PLACE,
+            "name": "万达广场",
+            "place_id": "poi-wanda-cbd",
+            "address": "北京市朝阳区建国路93号",
+        }
+        self.assertEqual(
+            _rank_verified_workspace_matches(
+                "万达广场",
+                {wanda["place_id"]: wanda},
+                "北京",
+            ),
+            [],
+        )
+        self.assertEqual(
+            _rank_verified_workspace_matches(
+                "万达广场｜北京市朝阳区建国路93号",
+                {wanda["place_id"]: wanda},
+                "北京",
+            ),
+            [wanda],
         )
 
     async def test_primary_tencent_stage_allows_adapter_retry_budget(self):
