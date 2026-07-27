@@ -95,6 +95,7 @@ from agents._shared.rich_search import (
 from agents._shared.arxiv import (
     _best_title_match,
     _canonical_arxiv_id,
+    _dblp_profile,
     search_arxiv,
 )
 from agents._shared.tencent_location import (
@@ -850,7 +851,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             # Reproduce the observed gateway inconsistency: the semantic
             # capability is present while its detailed boolean was omitted.
             "needs_papers": False,
-            "search_query": "recent software engineering papers",
+            "paper_topic": "",
             "paper_author": "Xin Peng",
             "paper_institution": "Fudan University",
             "paper_year_from": 2025,
@@ -869,6 +870,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             direct_paper_tool_arguments(plan)["search_arxiv"]["limit"],
             2,
+        )
+        self.assertEqual(
+            direct_paper_tool_arguments(plan)["search_arxiv"]["topic"],
+            "",
         )
 
     def test_paper_prompt_topic_is_a_provider_evidence_invariant(self):
@@ -1372,7 +1377,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         direct = direct_paper_tool_arguments({
             "needs_papers": True,
             "needs_web_search": False,
-            "search_query": "retrieval augmented generation",
+            "paper_topic": "retrieval augmented generation",
             "paper_author": "Xin Peng",
             "paper_institution": "Fudan University",
             "paper_year_from": 2025,
@@ -1392,7 +1397,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             direct_paper_tool_arguments({
                 "needs_papers": True,
                 "needs_web_search": True,
-                "search_query": "retrieval augmented generation",
+                "paper_topic": "retrieval augmented generation",
             }),
             {},
         )
@@ -4589,6 +4594,25 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             crossref.call_args.args,
             ("", 2, "Xin Peng", "Fudan University", 2025, 2026),
         )
+
+    def test_dblp_identity_resolution_accepts_two_token_signature_order(self):
+        verified_root = object()
+        with patch(
+            "agents._shared.arxiv._dblp_profile_cached",
+            side_effect=[
+                ("", None),
+                ("14/6370-1", verified_root),
+            ],
+        ) as cached:
+            pid, root = _dblp_profile("Peng Xin", "Fudan University")
+        self.assertEqual(pid, "14/6370-1")
+        self.assertIs(root, verified_root)
+        self.assertEqual(cached.call_args_list[0].args[:2], (
+            "Peng Xin", "Fudan University",
+        ))
+        self.assertEqual(cached.call_args_list[1].args[:2], (
+            "Xin Peng", "Fudan University",
+        ))
 
     def test_model_arxiv_identifiers_are_strictly_sanitized(self):
         self.assertEqual(_canonical_arxiv_id("arXiv:2604.10767v2"), "2604.10767v2")

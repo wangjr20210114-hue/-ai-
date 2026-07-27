@@ -45,6 +45,7 @@ DEFAULT_PLAN = {
     "nearby_uses_current_location": False,
     "paper_author": "",
     "paper_institution": "",
+    "paper_topic": "",
     "paper_year": 0,
     "paper_year_from": 0,
     "paper_year_to": 0,
@@ -244,6 +245,14 @@ class CapabilityPlan(BaseModel):
             "to identify an author; empty when no institution was supplied."
         ),
     )
+    paper_topic: str = Field(
+        default="",
+        description=(
+            "Only an explicitly requested research subject used to filter paper "
+            "titles. Empty for an author/institution/date/count-only request; "
+            "never copy the whole user request into this field."
+        ),
+    )
     paper_year: int = 0
     paper_year_from: int = Field(
         default=0,
@@ -365,6 +374,7 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
     plan["paper_institution"] = str(
         raw.get("paper_institution") or ""
     ).strip()[:160]
+    plan["paper_topic"] = str(raw.get("paper_topic") or "").strip()[:160]
     blocked_skill = str(raw.get("blocked_skill") or "").strip()
     plan["blocked_skill"] = blocked_skill if blocked_skill in KNOWN_SKILLS else ""
     try:
@@ -594,7 +604,8 @@ PLANNER_PROMPT_DETAILS = {
         "没有参考图时，才同时选择 web_search+images；纯幻想、抽象画面或已有附图不搜索。"
     ),
     "paper": (
-        "【论文】检索论文、文献或 arXiv 用 needs_papers，search_query 写研究主题；"
+        "【论文】检索论文、文献或 arXiv 用 needs_papers；paper_topic 只写用户明确指定的研究主题，"
+        "只有作者、单位、年份、数量而没有主题时必须留空，不能复制整句请求；"
         "只有还要求普通网页、新闻或跨来源综述时才同时 web_search。作者、年份、数量分别"
         "写入 paper_author、paper_year/paper_year_from/paper_year_to、paper_limit。"
         "中文作者名要在 paper_author 中给出最可能的英文论文署名；用户用单位限定作者时，"

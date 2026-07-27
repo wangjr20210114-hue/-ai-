@@ -280,25 +280,38 @@ def _dblp_profile_cached(
 ) -> tuple[str, ET.Element | None]:
     """Resolve one identity and retain the already downloaded profile XML."""
     exact_terms = " ".join(f"{term}$" for term in str(author or "").split())
-    params = urllib.parse.urlencode({
-        "q": exact_terms or author,
-        "format": "json",
-        "h": 30,
-        "c": 0,
-    })
-    request = urllib.request.Request(
-        f"https://dblp.org/search/author/api?{params}",
-        headers={"User-Agent": "Floris/1.0 (academic discovery)"},
-    )
-    with urllib.request.urlopen(
-        request,
-        timeout=18,
-        context=_ssl_context(),
-    ) as response:
-        payload = json.loads(response.read(2 * 1024 * 1024))
+    hits: list[dict[str, Any]] = []
+    # DBLP's exact-term syntax occasionally returns a transient 5xx even while
+    # the normal author endpoint is healthy. Retry with the ordinary author
+    # query only when needed; affiliation verification below remains strict.
+    for query in dict.fromkeys((exact_terms, str(author or "").strip())):
+        if not query:
+            continue
+        params = urllib.parse.urlencode({
+            "q": query,
+            "format": "json",
+            "h": 30,
+            "c": 0,
+        })
+        request = urllib.request.Request(
+            f"https://dblp.org/search/author/api?{params}",
+            headers={"User-Agent": "Floris/1.0 (academic discovery)"},
+        )
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=18,
+                context=_ssl_context(),
+            ) as response:
+                payload = json.loads(response.read(2 * 1024 * 1024))
+        except Exception:
+            continue
+        hits.extend(_dblp_json_hits(payload))
+        if hits:
+            break
     requested_name = _normalized_title(author)
     exact_profiles: list[str] = []
-    for hit in _dblp_json_hits(payload):
+    for hit in hits:
         info = hit.get("info") if isinstance(hit.get("info"), dict) else {}
         candidate = re.sub(
             r"\s+\d{4}$",
@@ -313,12 +326,15 @@ def _dblp_profile_cached(
             f"https://dblp.org/pid/{profile_pid}.xml",
             headers={"User-Agent": "Floris/1.0 (academic discovery)"},
         )
-        with urllib.request.urlopen(
-            request,
-            timeout=18,
-            context=_ssl_context(),
-        ) as response:
-            root = ET.fromstring(response.read(4 * 1024 * 1024))
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=18,
+                context=_ssl_context(),
+            ) as response:
+                root = ET.fromstring(response.read(4 * 1024 * 1024))
+        except Exception:
+            continue
         people = [
             node
             for node in root.findall("./person")
@@ -362,11 +378,25 @@ def _dblp_profile(
 ) -> tuple[str, ET.Element | None]:
     # A warm Edge function can be reused for a long time. Keep the speed
     # benefit without making "recent papers" stale for the process lifetime.
-    return _dblp_profile_cached(
-        author,
-        institution,
-        int(time.time() // (15 * 60)),
+    clean_author = " ".join(
+        str(author or "").replace(",", " ").replace(";", " ").split()
     )
+    signatures = [clean_author]
+    tokens = clean_author.split()
+    if len(tokens) == 2:
+        signatures.append(" ".join(reversed(tokens)))
+    cache_bucket = int(time.time() // (15 * 60))
+    for signature in dict.fromkeys(signatures):
+        if not signature:
+            continue
+        pid, root = _dblp_profile_cached(
+            signature,
+            institution,
+            cache_bucket,
+        )
+        if pid and root is not None:
+            return pid, root
+    return "", None
 
 
 def _dblp_profile_pid(author: str, institution: str) -> str:

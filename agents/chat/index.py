@@ -399,14 +399,14 @@ def direct_paper_tool_arguments(capability_plan: dict) -> dict[str, dict]:
         not capability_plan.get("needs_papers")
         or capability_plan.get("needs_web_search")
         or not (
-            capability_plan.get("search_query")
+            capability_plan.get("paper_topic")
             or capability_plan.get("paper_author")
         )
     ):
         return {}
     return {
         "search_arxiv": {
-            "topic": str(capability_plan.get("search_query") or "")[:240],
+            "topic": str(capability_plan.get("paper_topic") or "")[:240],
             "limit": max(
                 1,
                 min(8, int(capability_plan.get("paper_limit") or 5)),
