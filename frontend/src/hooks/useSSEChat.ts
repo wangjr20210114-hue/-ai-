@@ -17,6 +17,7 @@ import {
 type ClientEvent = { type: string; payload: Record<string, unknown> };
 
 const STREAM_IDLE_TIMEOUT_MS = 20_000;
+export const CHAT_INITIAL_RESPONSE_TIMEOUT_MS = 55_000;
 const STOP_TIMEOUT_MS = 4_000;
 const MANUAL_STOP_PREFIX = 'floris:manual-stop:';
 
@@ -234,12 +235,12 @@ class SSEChatClient {
     let idleWatchdog: number | undefined;
     let watchdogTriggered = false;
     let locationRetryRequested = false;
-    const armWatchdog = () => {
+    const armWatchdog = (timeoutMs = STREAM_IDLE_TIMEOUT_MS) => {
       if (idleWatchdog) window.clearTimeout(idleWatchdog);
       idleWatchdog = window.setTimeout(() => {
         watchdogTriggered = true;
         this.controller?.abort();
-      }, STREAM_IDLE_TIMEOUT_MS);
+      }, timeoutMs);
     };
 
     const clientMessage = message.payload?.client_message;
@@ -268,7 +269,11 @@ class SSEChatClient {
     this.emit({ type: 'stream_start', payload: { id: streamId, intent: 'chat' } });
 
     try {
-      armWatchdog();
+      // Semantic planning and the runtime Skill gate run before the HTTP body
+      // starts streaming. Give that first response a bounded window matching
+      // the product's one-minute ceiling; once headers/data arrive, return to
+      // the shorter idle watchdog so a stalled stream still stops quickly.
+      armWatchdog(CHAT_INITIAL_RESPONSE_TIMEOUT_MS);
       const browserLocation = currentBrowserLocation();
       const locationRequest = browserLocationRequestContext();
       const response = await fetch(withEdgeOneAuth('/chat'), {

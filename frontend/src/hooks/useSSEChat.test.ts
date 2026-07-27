@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CHAT_INITIAL_RESPONSE_TIMEOUT_MS,
   actionOnlyFallback,
   canStartChatTransport,
   locationRetryMessage,
@@ -87,6 +88,11 @@ describe('terminal generation failure', () => {
 });
 
 describe('chat transport ownership', () => {
+  it('allows bounded semantic preflight before the stream idle watchdog', () => {
+    expect(CHAT_INITIAL_RESPONSE_TIMEOUT_MS).toBeGreaterThan(20_000);
+    expect(CHAT_INITIAL_RESPONSE_TIMEOUT_MS).toBeLessThan(60_000);
+  });
+
   it('rejects a second send while the current stream owns the conversation', () => {
     expect(canStartChatTransport(false)).toBe(true);
     expect(canStartChatTransport(true)).toBe(false);
