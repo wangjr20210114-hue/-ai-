@@ -455,8 +455,9 @@ def _linked_trip_result_answer(
         if isinstance(action_payload, dict)
         else ""
     )
-    if route_id and source_route_id and route_id != source_route_id:
-        return ""
+    route_link_mismatch = bool(
+        route_id and source_route_id and route_id != source_route_id
+    )
 
     correction_lines = []
     for stop in stops:
@@ -513,6 +514,11 @@ def _linked_trip_result_answer(
         f"已生成一张可编辑的日程确认提案，包含 {len(changes)} 项变更，"
         f"目前尚未写入日程。{warning_text}"
     )
+    if route_link_mismatch:
+        lines.append(
+            "本轮路线与日程提案的关联标识不一致；路线数据仍来自本轮腾讯结果，"
+            "日程卡可独立编辑或确认，请在确认前核对其中的出发与到达安排。"
+        )
     lines.append(
         "路线卡与日程提案保持独立；你可以查看路线，并单独编辑或确认日程提案。"
     )

@@ -109,10 +109,47 @@ def verified_route_action(origin_query: str, destination_query: str) -> str:
         },
     }, ensure_ascii=False)
 
+
+@tool("plan_route_between_places")
+def linked_verified_route_action(origin_query: str, destination_query: str) -> str:
+    """Return one structured verified Tencent route with an identity."""
+    return json.dumps({
+        "ui_action": "map_action",
+        "route_plan_id": "current-route",
+        "ordered_stops": [
+            {"name": origin_query},
+            {"name": destination_query},
+        ],
+        "route": {
+            "mode": "transit",
+            "distance_kilometers": 5.0,
+            "duration_minutes": 50,
+        },
+    }, ensure_ascii=False)
+
+
 @tool
 def propose_calendar_changes(summary: str) -> str:
     """Return one calendar proposal."""
     return summary
+
+
+@tool("propose_calendar_changes")
+def mismatched_linked_calendar_action(summary: str) -> str:
+    """Return a real proposal whose stale route identity must not unground prose."""
+    return json.dumps({
+        "ui_action": "calendar_action",
+        "action": {
+            "payload": {
+                "summary": summary,
+                "source_route_plan_id": "stale-route",
+                "changes": [
+                    {"operation": "create"},
+                    {"operation": "create"},
+                ],
+            },
+        },
+    }, ensure_ascii=False)
 
 
 @tool
@@ -484,6 +521,30 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("主要线路：地铁2号线内环、60路", final)
         self.assertNotIn("45 分钟", final)
         self.assertEqual(model.calls, 1)
+
+    async def test_linked_route_id_mismatch_still_uses_verified_route_facts(self):
+        model = _LinkedRouteCalendarModel()
+        graph = build_graph(
+            model,
+            [
+                linked_verified_route_action,
+                mismatched_linked_calendar_action,
+                ask_user_clarification,
+            ],
+            "system",
+            required_tools=[
+                "plan_route_between_places",
+                "propose_calendar_changes",
+            ],
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="规划路线并生成日程提案")],
+        })
+
+        final = result["messages"][-1].content
+        self.assertIn("腾讯公交路线约 5 公里，预计 50 分钟", final)
+        self.assertIn("关联标识不一致", final)
+        self.assertNotIn("45 分钟", final)
 
     async def test_paper_only_result_skips_redundant_public_model_round(self):
         model = _RecordingModel()
