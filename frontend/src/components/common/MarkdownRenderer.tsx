@@ -186,9 +186,7 @@ function MarkdownRenderer({
     ),
     a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
       const url = typeof href === 'string' ? href : '';
-      // Chat answers keep web evidence compact and readable. Dedicated
-      // paper/location surfaces can still use InfoCard, but a Markdown
-      // citation inside prose should remain a normal inline link.
+      // Keep citations inside prose as compact, readable inline links.
       if (!isSafeRemoteUrl(url)) return <>{children}</>;
       const label = linkLabel(children);
       const urlOnly = sameUrl(label.replace(/^<|>$/g, ''), url);

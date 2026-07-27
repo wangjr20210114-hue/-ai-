@@ -214,7 +214,6 @@ class StructuredPlannerModel:
         delay=0,
         topic_args=None,
         clarification_args=None,
-        review_args=None,
         preflight_args=None,
     ):
         self.calls = 0
@@ -228,10 +227,6 @@ class StructuredPlannerModel:
         self.topic_args = topic_args or {"topics": []}
         self.clarification_args = clarification_args or {
             "needs_clarification": False,
-        }
-        self.review_args = review_args or {
-            "approved": True,
-            "reason": "The dependency is genuinely blocking.",
         }
         self.preflight_args = preflight_args or {
             **self.clarification_args,
@@ -258,8 +253,6 @@ class StructuredPlannerModel:
         values = (
             self.preflight_args
             if self.schema.__name__ == "SemanticPreflight"
-            else self.review_args
-            if self.schema.__name__ == "ClarificationReview"
             else self.topic_args
             if self.schema.__name__ == "PromptTopicSelection"
             else self.args

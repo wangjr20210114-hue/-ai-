@@ -36,7 +36,7 @@ describe('MarkdownRenderer', () => {
     expect(html).toContain('<table>');
   });
 
-  it('keeps ordinary web evidence as a compact Markdown link instead of an InfoCard', () => {
+  it('keeps ordinary web evidence as a compact Markdown link', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer content={'参考 [AI 新闻](https://news.example/ai)。'} searchMeta={searchMeta} />,
     );

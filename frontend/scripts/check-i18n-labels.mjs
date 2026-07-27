@@ -29,7 +29,6 @@ const allowedRuntimeLiterals = new Map([
   ['services/reading.ts', ['第 ${pageNumber} 页']],
   ['components/paper/PaperFullReader.tsx', ['第 ${page.pageNum} 页']],
   ['components/chat/MessageBubble.tsx', ['生成图片', '绘制', '已识别为论文']],
-  ['components/common/InfoCard.tsx', ['微', '知']],
 ]);
 
 function sourceFiles(directory) {

@@ -405,11 +405,6 @@ def _dblp_profile(
     return "", None
 
 
-def _dblp_profile_pid(author: str, institution: str) -> str:
-    """Compatibility wrapper used by diagnostics and focused unit tests."""
-    return _dblp_profile(author, institution)[0]
-
-
 def _search_dblp_sync(
     topic: str,
     limit: int,

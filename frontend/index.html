@@ -18,7 +18,7 @@
       // 首屏即应用已保存的主题，避免闪烁
       (function () {
         try {
-          var t = localStorage.getItem('yuanbao-theme');
+          var t = localStorage.getItem('travel-theme');
           document.documentElement.setAttribute('theme-mode', t === 'dark' ? 'dark' : 'light');
         } catch (e) {
           document.documentElement.setAttribute('theme-mode', 'light');

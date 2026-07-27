@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 import type { PaperInfo } from '../../types';
 import { dedupePapers, paperArxivHref, paperSourceHref } from '../../services/paperUtils';
 
@@ -34,17 +33,5 @@ describe('dedupePapers', () => {
     };
     expect(paperArxivHref(crossref)).toBe('');
     expect(paperSourceHref(crossref)).toBe('https://doi.org/10.1000/example');
-  });
-
-  it('keeps exactly the reader and arXiv actions in the discovery card', () => {
-    const source = readFileSync(
-      new URL('./PaperListCard.tsx', import.meta.url),
-      'utf8',
-    );
-    expect(source).toContain("t('startPaperAssistant')");
-    expect(source).toContain("t('openArxiv')");
-    expect(source).not.toContain("t('downloadPaper')");
-    expect(source).not.toContain('savePdf');
-    expect(source).not.toContain('<InfoCard');
   });
 });

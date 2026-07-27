@@ -839,15 +839,6 @@ class SemanticPreflight(BaseModel):
     )
 
 
-class ClarificationReview(BaseModel):
-    """Independent semantic review before a blocking card reaches the user."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    approved: bool = False
-    reason: str = ""
-
-
 def _normalize_prompt_topics(values: Iterable[Any]) -> tuple[str, ...]:
     allowed = set(PLANNER_PROMPT_DETAILS)
     return tuple(dict.fromkeys(
@@ -920,21 +911,6 @@ def reconcile_capability_contract(plan: dict[str, Any]) -> dict[str, Any]:
     if merged.get("needs_calendar_action"):
         merged["needs_calendar_context"] = True
     return merged
-
-
-def apply_preflight_capabilities(
-    plan: dict[str, Any],
-    capabilities: Iterable[Any],
-) -> dict[str, Any]:
-    """Monotonically preserve user-required capabilities from semantic preflight."""
-    merged = dict(plan or {})
-    normalized = _normalize_preflight_capabilities(capabilities)
-    merged["_preflight_capabilities"] = list(normalized)
-    merged["_capabilities"] = list(dict.fromkeys([
-        *(merged.get("_capabilities") or []),
-        *normalized,
-    ]))
-    return reconcile_capability_contract(merged)
 
 
 async def plan_required_clarification(
@@ -1047,53 +1023,6 @@ async def plan_required_clarification(
         "_prompt_topics": list(PLANNER_PROMPT_DETAILS),
         "_preflight_capabilities": [],
     }
-
-
-async def review_required_clarification(
-    model,
-    user_message: str,
-    clarification: dict[str, Any],
-    *,
-    location_context: str = "",
-    has_reference_images: bool = False,
-    has_document_context: bool = False,
-) -> bool:
-    """Reject optional or invented questions without phrase-based rules."""
-    prompt = (
-        "You are an independent adversarial reviewer for a proposed blocking "
-        "clarification card. Do not answer the user and do not rewrite the card. "
-        "Approve only when the original goal entails the missing dependency and "
-        "every safe useful result is impossible without the requested field. "
-        "Reject when the card asks for an optional preference, account, provider, "
-        "output format, implementation detail, or any value that has a safe "
-        "default; reject when the user message, attachments, prior clarification "
-        "supplement, or authoritative request-scoped location already supplies it. "
-        "A side effect may remain a proposal for user confirmation, so editable "
-        "proposal fields do not automatically block planning. Judge meaning, not "
-        "keywords or fixed phrases."
-        f"\nAuthoritative location context: {str(location_context or 'not supplied')[:1000]}"
-        f"\nReference images attached: {bool(has_reference_images)}"
-        f"\nDocument context attached: {bool(has_document_context)}"
-        "\nProposed card:\n"
-        f"{json.dumps(clarification, ensure_ascii=False, default=str)[:5000]}"
-    )
-    messages = [
-        {"role": "system", "content": prompt},
-        {"role": "user", "content": str(user_message or "")[:7000]},
-    ]
-    try:
-        reviewer = model.with_structured_output(
-            ClarificationReview,
-            method="function_calling",
-            include_raw=True,
-        )
-        response = await reviewer.ainvoke(messages)
-        parsed = response.get("parsed") if isinstance(response, dict) else response
-        if isinstance(parsed, BaseModel):
-            parsed = parsed.model_dump()
-        return bool(isinstance(parsed, dict) and parsed.get("approved"))
-    except Exception:
-        return False
 
 
 async def select_prompt_context(
