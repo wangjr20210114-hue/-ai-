@@ -136,7 +136,12 @@ class CapabilityPlan(BaseModel):
             "Always return this field, even when empty. Choose only from "
             "web_search, current_location, nearby_places, places, map_action, "
             "route, calendar_context, calendar_action, meeting_action, "
-            "workflow_action, image_generation, papers. This list and the "
+            "workflow_action, image_generation, papers. A request to calculate "
+            "or plan real travel always includes route, including when embedded "
+            "inside a schedule request. Asking for an editable calendar proposal "
+            "or card includes calendar_context and calendar_action even when the "
+            "user says not to write it without confirmation, because the action "
+            "creates the proposal rather than committing it. This list and the "
             "needs_* fields must describe the same complete goal."
         ),
     )
@@ -669,7 +674,12 @@ class SemanticPreflight(BaseModel):
             "Every user-required capability, independently of prompt topics. "
             "Choose only from web_search, current_location, nearby_places, "
             "places, map_action, route, calendar_context, calendar_action, "
-            "meeting_action, workflow_action, image_generation, papers."
+            "meeting_action, workflow_action, image_generation, papers. Include "
+            "route for every request to calculate or plan real travel, even when "
+            "it is part of a schedule request. Include calendar_context and "
+            "calendar_action when the user asks for an editable calendar proposal "
+            "or card; 'do not write yet' means propose for confirmation, not omit "
+            "the calendar capability."
         ),
     )
 
@@ -790,6 +800,10 @@ async def plan_required_clarification(
         "return every user-required capability in the fixed capabilities list; "
         "topics retrieve instructions, while capabilities preserve the complete "
         "goal if the later argument planner is slow or omits a dependent action. "
+        "Planning or calculating real travel requires route even when combined "
+        "with a schedule. An editable calendar proposal or card requires both "
+        "calendar_context and calendar_action even when the user says not to "
+        "commit it yet; the action is itself the confirmation proposal. "
         "Build the task's dependency graph from meaning: identify every source "
         "object, target object, or field the user explicitly makes necessary, "
         "then determine whether each is actually present in the current message, "

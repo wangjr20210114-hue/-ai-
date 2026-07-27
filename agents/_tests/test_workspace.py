@@ -62,6 +62,7 @@ from agents.chat.index import (
 )
 from agents.chat._ui_tools import (
     _paper_candidate_ids_from_model,
+    _paper_candidates_from_searchpro,
     build_production_tools,
     preserve_planned_route_stops,
     verify_place_queries_parallel,
@@ -4740,6 +4741,105 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         loader = provider.await_args.kwargs["candidate_ids_loader"]
         self.assertEqual(await loader(), ["2604.10767"])
         self.assertEqual(discovery_model.calls, 1)
+
+    async def test_searchpro_paper_fallback_is_bound_to_supplied_source(self):
+        class EvidenceModel:
+            def with_structured_output(self, schema, **_kwargs):
+                self.schema = schema
+                return self
+
+            async def ainvoke(self, _messages):
+                return {
+                    "parsed": self.schema(candidates=[{
+                        "source_id": "source-1",
+                        "title": "TraceLLM: Scalable and Explainable Traceability Recovery",
+                        "authors": ["Xin Peng"],
+                        "year": 2026,
+                        "arxiv_id": "",
+                    }]),
+                }
+
+        papers = await _paper_candidates_from_searchpro(
+            EvidenceModel(),
+            metadata={"results": [{
+                "id": "source-1",
+                "title": "TraceLLM publication record",
+                "snippet": "Xin Peng, Fudan University, 2026.",
+                "url": "https://dblp.org/rec/conf/icse/example",
+                "date": "2026",
+            }]},
+            topic="",
+            author="Xin Peng",
+            institution="Fudan University",
+            year=0,
+            year_from=2025,
+            year_to=2026,
+            limit=2,
+        )
+
+        self.assertEqual(len(papers), 1)
+        self.assertEqual(papers[0]["source"], "DBLP")
+        self.assertEqual(
+            papers[0]["source_url"],
+            "https://dblp.org/rec/conf/icse/example",
+        )
+        self.assertEqual(papers[0]["arxiv_url"], "")
+
+    async def test_author_institution_tool_uses_makers_search_in_parallel(self):
+        class EvidenceModel:
+            def with_structured_output(self, schema, **_kwargs):
+                self.schema = schema
+                return self
+
+            async def ainvoke(self, _messages):
+                if self.schema.__name__ == "PaperSearchEvidenceCandidates":
+                    return {
+                        "parsed": self.schema(candidates=[{
+                            "source_id": "source-1",
+                            "title": "Verified Makers Paper",
+                            "authors": ["Xin Peng"],
+                            "year": 2026,
+                            "arxiv_id": "2604.10767",
+                        }]),
+                    }
+                return {"parsed": self.schema(candidates=[])}
+
+        tools = build_production_tools(
+            None,
+            store=FakeStore(),
+            conversation_id="paper-makers-fallback",
+            env={"WSA_API_KEY": "test-key"},
+            paper_discovery_model=EvidenceModel(),
+        )
+        tool = next(item for item in tools if item.name == "search_arxiv")
+        search_metadata = {"results": [{
+            "id": "source-1",
+            "title": "Verified Makers Paper arXiv:2604.10767",
+            "snippet": "Xin Peng, Fudan University, 2026, arXiv 2604.10767.",
+            "url": "https://arxiv.org/abs/2604.10767",
+            "date": "2026",
+        }]}
+        with patch(
+            "agents.chat._ui_tools.provider_search_arxiv",
+            new=AsyncMock(return_value=[]),
+        ), patch(
+            "agents.chat._ui_tools.provider_rich_search",
+            new=AsyncMock(return_value=search_metadata),
+        ) as search, patch(
+            "agents.chat._ui_tools.record_provider_usage",
+            new=AsyncMock(),
+        ):
+            result = json.loads(await tool.ainvoke({
+                "author": "Xin Peng",
+                "institution": "Fudan University",
+                "year_from": 2025,
+                "year_to": 2026,
+                "limit": 2,
+            }))
+
+        self.assertEqual(len(result["papers"]), 1)
+        self.assertEqual(result["papers"][0]["arxiv_id"], "2604.10767")
+        search.assert_awaited_once()
 
     async def test_author_and_institution_disable_broad_arxiv_homonym_search(self):
         verified = {

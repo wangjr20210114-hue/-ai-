@@ -228,6 +228,40 @@ class PaperKnowledgeCandidates(BaseModel):
     )
 
 
+class PaperSearchEvidenceCandidate(BaseModel):
+    """A paper selected from one exact Makers SearchPro source record."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str = Field(
+        default="",
+        max_length=80,
+        description="Exact source id from the supplied SearchPro evidence.",
+    )
+    title: str = Field(default="", max_length=300)
+    authors: list[str] = Field(default_factory=list, max_length=20)
+    year: int = Field(default=0, ge=0, le=2200)
+    arxiv_id: str = Field(
+        default="",
+        max_length=80,
+        description=(
+            "Exact arXiv identifier only when it appears verbatim in the supplied "
+            "source URL, title, or snippet; empty otherwise."
+        ),
+    )
+
+
+class PaperSearchEvidenceCandidates(BaseModel):
+    """Bounded source-grounded fallback extraction."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidates: list[PaperSearchEvidenceCandidate] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+
+
 async def _paper_candidate_ids_from_model(
     model,
     *,
@@ -305,6 +339,153 @@ async def _paper_candidate_ids_from_model(
             round((time.monotonic() - started_at) * 1000),
         )
         return []
+
+
+async def _paper_candidates_from_searchpro(
+    model,
+    *,
+    metadata: dict[str, Any],
+    topic: str,
+    author: str,
+    institution: str,
+    year: int,
+    year_from: int,
+    year_to: int,
+    limit: int,
+    timeout_seconds: float = 6.0,
+) -> list[dict[str, Any]]:
+    """Convert native Makers search evidence into strictly source-bound cards."""
+    if model is None:
+        return []
+    raw_sources = metadata.get("results") if isinstance(metadata, dict) else None
+    sources = [
+        {
+            "id": str(source.get("id") or "")[:80],
+            "title": str(source.get("title") or "")[:300],
+            "snippet": str(source.get("snippet") or "")[:700],
+            "url": str(source.get("url") or "")[:1000],
+            "date": str(source.get("date") or "")[:40],
+        }
+        for source in (raw_sources if isinstance(raw_sources, list) else [])
+        if (
+            isinstance(source, dict)
+            and str(source.get("id") or "").strip()
+            and str(source.get("url") or "").startswith("https://")
+        )
+    ][:18]
+    if not sources:
+        return []
+    source_by_id = {source["id"]: source for source in sources}
+    prompt = (
+        "Select academic papers only from the supplied Makers SearchPro evidence. "
+        "Return the fixed schema and no prose. Every candidate must match the "
+        "named author identity, institution, topic and year constraints. Use an "
+        "exact supplied source_id; never invent a source, title, author, year, or "
+        "identifier. The source may be an arXiv, DBLP, DOI, publisher, or official "
+        "research page. Include arxiv_id only if the exact identifier is visibly "
+        "present in that source record. Omit uncertain or merely related records."
+    )
+    payload = json.dumps({
+        "constraints": {
+            "topic": topic,
+            "author": author,
+            "institution": institution,
+            "year": year,
+            "year_from": year_from,
+            "year_to": year_to,
+            "limit": max(1, min(8, int(limit or 5))),
+        },
+        "sources": sources,
+    }, ensure_ascii=False)[:16_000]
+    try:
+        chain = model.with_structured_output(
+            PaperSearchEvidenceCandidates,
+            method="function_calling",
+            include_raw=True,
+        )
+        response = await asyncio.wait_for(
+            chain.ainvoke([
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": payload},
+            ]),
+            timeout=max(1.0, min(8.0, float(timeout_seconds))),
+        )
+        parsed = response.get("parsed") if isinstance(response, dict) else response
+        if isinstance(parsed, BaseModel):
+            parsed = parsed.model_dump()
+        candidates = (
+            parsed.get("candidates")
+            if isinstance(parsed, dict) and isinstance(parsed.get("candidates"), list)
+            else []
+        )
+    except Exception as exc:
+        logging.warning(
+            "paper SearchPro evidence extraction unavailable error_type=%s",
+            type(exc).__name__,
+        )
+        return []
+
+    output: list[dict[str, Any]] = []
+    for candidate in candidates[:8]:
+        if not isinstance(candidate, dict):
+            continue
+        source = source_by_id.get(str(candidate.get("source_id") or "").strip())
+        if not source:
+            continue
+        title = " ".join(str(candidate.get("title") or "").split())[:300]
+        normalized_source_evidence = " ".join(
+            (source["url"], source["title"], source["snippet"], source["date"])
+        ).casefold()
+        if not title or " ".join(title.casefold().split()) not in " ".join(
+            normalized_source_evidence.split()
+        ):
+            title = source["title"]
+        arxiv_id = str(candidate.get("arxiv_id") or "").strip()
+        if (
+            arxiv_id
+            and (
+                not re.fullmatch(
+                    r"(?:[a-z-]+(?:\.[A-Z]{2})?/\d{7}|\d{4}\.\d{4,5})(?:v\d+)?",
+                    arxiv_id,
+                    flags=re.I,
+                )
+                or arxiv_id.casefold() not in normalized_source_evidence
+            )
+        ):
+            arxiv_id = ""
+        arxiv_url = f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else ""
+        source_url = source["url"]
+        source_name = (
+            "arXiv"
+            if "arxiv.org/" in source_url
+            else ("DBLP" if "dblp.org/" in source_url else "Makers SearchPro")
+        )
+        authors = ", ".join(value for value in (
+            str(raw_value or "").strip()
+            for raw_value in (candidate.get("authors") or [])[:12]
+        ) if value and value.casefold() in normalized_source_evidence)
+        paper_year = int(candidate.get("year") or 0)
+        if paper_year and str(paper_year) not in normalized_source_evidence:
+            paper_year = 0
+        output.append({
+            "title": title,
+            "arxiv_id": arxiv_id,
+            "authors": authors,
+            "year": paper_year,
+            "abstract_zh": source["snippet"],
+            "key_contribution": "",
+            "citations": f"{source_name} · Makers 原生检索核实",
+            "source": source_name,
+            "source_url": source_url,
+            "arxiv_url": arxiv_url,
+            "pdf_url": (
+                f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+                if arxiv_id else ""
+            ),
+        })
+        if len(output) >= max(1, min(8, int(limit or 5))):
+            break
+    return output
 
 
 def preserve_planned_route_stops(
@@ -750,7 +931,11 @@ async def _place_resolution_with_provider_review(
         "the clear canonical destination. An evident typo may resolve to a "
         "main landmark while nearby entrances, transit access points, or minor "
         "subfeatures remain alternatives. Prefer the main venue for a general "
-        "place request. Set unique_intent=false whenever candidates represent "
+        "place request. When the high-ranked results are the same landmark "
+        "complex and differ only by its main area, entrance, internal feature, "
+        "or transit access, treat the practical destination as unique if those "
+        "differences would not materially change the trip; choose the provider's "
+        "highest-ranked canonical venue. Set unique_intent=false whenever candidates represent "
         "materially different branches, businesses, venues, cities, or trip "
         "destinations, even if Tencent ranked one first. Uncertainty must become "
         "a user choice card, so false is the safe result when asking could "
@@ -3163,43 +3348,143 @@ def build_production_tools(
             limit = min(max(1, int(limit or requested_limit)), requested_limit)
         if not clean_topic and not clean_titles and not clean_author:
             raise ValueError("论文主题、准确标题或作者至少需要一项")
-        try:
-            candidate_loader = (
-                (
-                    lambda: _paper_candidate_ids_from_model(
-                        paper_discovery_model,
-                        topic=clean_topic,
-                        author=clean_author,
-                        institution=clean_institution,
-                        year=clean_year,
-                        year_from=clean_year_from,
-                        year_to=clean_year_to,
-                        limit=limit,
-                    )
+        candidate_loader = (
+            (
+                lambda: _paper_candidate_ids_from_model(
+                    paper_discovery_model,
+                    topic=clean_topic,
+                    author=clean_author,
+                    institution=clean_institution,
+                    year=clean_year,
+                    year_from=clean_year_from,
+                    year_to=clean_year_to,
+                    limit=limit,
                 )
-                if paper_discovery_model is not None and not clean_titles
-                else None
             )
-            provider_args = (
-                clean_topic,
-                limit,
-                clean_titles,
-                clean_author,
-                clean_year,
-                clean_institution,
-                clean_year_from,
-                clean_year_to,
-            )
+            if paper_discovery_model is not None and not clean_titles
+            else None
+        )
+        provider_args = (
+            clean_topic,
+            limit,
+            clean_titles,
+            clean_author,
+            clean_year,
+            clean_institution,
+            clean_year_from,
+            clean_year_to,
+        )
+
+        async def academic_lookup() -> list[dict[str, Any]]:
             if candidate_loader is None:
-                papers = await provider_search_arxiv(*provider_args)
-            else:
-                papers = await provider_search_arxiv(
-                    *provider_args,
-                    candidate_ids_loader=candidate_loader,
+                return await provider_search_arxiv(*provider_args)
+            return await provider_search_arxiv(
+                *provider_args,
+                candidate_ids_loader=candidate_loader,
+            )
+
+        async def makers_search_fallback() -> list[dict[str, Any]]:
+            if not (
+                paper_discovery_model is not None
+                and clean_author
+                and clean_institution
+                and str(runtime_env.get("WSA_API_KEY") or "").strip()
+            ):
+                return []
+            bounds = " ".join(
+                str(value)
+                for value in (clean_year or clean_year_from, clean_year_to)
+                if int(value or 0)
+            )
+            query = " ".join(
+                value for value in (
+                    clean_author,
+                    clean_institution,
+                    clean_topic,
+                    bounds,
+                    "academic papers publications arXiv DBLP",
+                ) if value
+            )
+            try:
+                try:
+                    metadata = await provider_rich_search(
+                        runtime_env,
+                        query,
+                        depth="basic",
+                        result_limit=max(8, min(18, int(limit or 5) * 4)),
+                        image_limit=0,
+                        include_media=False,
+                    )
+                finally:
+                    await record_provider_usage(
+                        store,
+                        user_id,
+                        "wsa",
+                        "requests",
+                        1,
+                        source="paper_search_fallback",
+                    )
+                return await _paper_candidates_from_searchpro(
+                    paper_discovery_model,
+                    metadata=metadata,
+                    topic=clean_topic,
+                    author=clean_author,
+                    institution=clean_institution,
+                    year=clean_year,
+                    year_from=clean_year_from,
+                    year_to=clean_year_to,
+                    limit=limit,
                 )
-            provider_error = ""
+            except Exception as exc:
+                logging.warning(
+                    "paper Makers search fallback failed error_type=%s",
+                    type(exc).__name__,
+                )
+                return []
+
+        provider_error = ""
+        academic_timeout = max(
+            8.0,
+            min(
+                24.0,
+                float(runtime_env.get("PAPER_SEARCH_TIMEOUT_SECONDS") or 16),
+            ),
+        )
+        try:
+            academic_rows, makers_rows = await asyncio.gather(
+                asyncio.wait_for(academic_lookup(), timeout=academic_timeout),
+                makers_search_fallback(),
+                return_exceptions=True,
+            )
+            if isinstance(academic_rows, Exception):
+                logging.warning(
+                    "academic provider cascade failed error_type=%s",
+                    type(academic_rows).__name__,
+                )
+                academic_rows = []
+            if isinstance(makers_rows, Exception):
+                makers_rows = []
+            papers = []
+            seen_papers: set[str] = set()
+            for paper in [*academic_rows, *makers_rows]:
+                identity = (
+                    str(paper.get("arxiv_id") or "").strip().lower()
+                    or re.sub(
+                        r"\W+",
+                        " ",
+                        str(paper.get("title") or "").lower(),
+                    ).strip()
+                )
+                if not identity or identity in seen_papers:
+                    continue
+                seen_papers.add(identity)
+                papers.append(paper)
+                if len(papers) >= max(1, min(8, int(limit or 5))):
+                    break
+            if not papers:
+                provider_error = "学术索引与 Makers 原生检索本轮没有返回可核实结果"
         except Exception as exc:
-            logging.warning("academic provider cascade failed: %s", exc)
+            logging.warning("academic discovery failed: %s", exc)
             papers = []
             provider_error = "学术索引本轮没有返回结果"
         return json.dumps({
