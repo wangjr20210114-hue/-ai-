@@ -26,5 +26,10 @@ MANIFEST = {
     "planner": {
         "topic": "image",
         "summary": "Generate or edit an image from text or visual references.",
+        "instructions": (
+            "【视觉与生图】生成新图片用 needs_image_generation。现实主体需要外观准确且用户"
+            "没有参考图时，才同时选择 web_search+images；纯幻想、抽象画面或已有附图不搜索。"
+        ),
+        "recovery_tools": ["propose_image", "rich_search"],
     },
 }

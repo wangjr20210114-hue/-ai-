@@ -37,6 +37,7 @@ from .._shared.auth import require_user
 from .._shared.http import error
 from .._shared.tencent_location import get_current_weather
 from .._shared.provider_metering import record_provider_usage
+from .._shared.skill_registry import capability_is_enabled
 from ..chat._llm import get_model
 
 
@@ -108,8 +109,8 @@ async def handler(ctx):
     store = ctx.store.langgraph_store
     try:
         intelligence_state = await load_intelligence_state(store, user_id)
-        proactive_skill_enabled = bool(
-            (intelligence_state.get("skill_preferences") or {}).get("proactive-agent", True)
+        proactive_skill_enabled = capability_is_enabled(
+            "workflow_action", intelligence_state.get("skill_preferences")
         )
         if not proactive_skill_enabled and operation in {"refresh", "memory_refresh", "page_open", "tick"}:
             disabled_state = await load_proactive_state(store, user_id)

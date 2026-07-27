@@ -13,7 +13,11 @@ from datetime import datetime, timedelta, timezone
 from ._graph import build_graph, grounded_route_stream_answer
 from ._llm import get_model
 from ._ui_tools import build_production_tools
-from .._shared.skill_registry import known_skill_ids, resolve_enabled_skills
+from .._shared.skill_registry import (
+    capability_is_enabled,
+    enabled_skills_from_preferences,
+    known_skill_ids,
+)
 from ._capability_plan import (
     DEFAULT_PLAN,
     apply_runtime_skill_policy,
@@ -1377,16 +1381,15 @@ async def handler(ctx):
     parallel_image_search = bool(search_preferences.get("parallel_image_search", True))
     map_preferences = intelligence.get("map_preferences") or {}
     skill_preferences = intelligence.get("skill_preferences") or {}
-    enabled_skills = set(resolve_enabled_skills(
-        skill_id
-        for skill_id, enabled in skill_preferences.items()
-        if enabled
-    ))
+    enabled_skills = set(enabled_skills_from_preferences(skill_preferences))
     disabled_skills = sorted(known_skill_ids() - enabled_skills)
+    vision_enabled = capability_is_enabled(
+        "vision_analysis", skill_preferences
+    )
     current_calendar_context = "[]"
     current_route_context = "无"
     reference_image_context = ""
-    if reference_images and "vision" in enabled_skills:
+    if reference_images and vision_enabled:
         reference_image_context, vision_diagnostics = await describe_reference_images(
             ctx.env,
             reference_images,
@@ -1442,7 +1445,7 @@ async def handler(ctx):
         prior_clarification_answers,
         recent_dialogue,
     )
-    if reference_images and "vision" not in enabled_skills:
+    if reference_images and not vision_enabled:
         reference_image_context = "用户附带了图片，但视觉理解 Skill 已关闭；不要声称看见图片内容，应建议到 Skills 广场开启视觉理解。"
     if reference_image_context:
         planning_message += f"\n\n[附图视觉事实，仅用于能力规划]\n{reference_image_context[:1600]}"
@@ -1746,7 +1749,7 @@ async def handler(ctx):
         # owns routing. Keep media available so a later model-selected
         # rich_search can use SearchPro article images; simple turns do not pay
         # any cost because no search tool is called.
-        media_enabled=("vision" in enabled_skills and media_enabled_for_plan(
+        media_enabled=(vision_enabled and media_enabled_for_plan(
             capability_plan, search_image_limit, planner_timed_out=planner_timed_out,
         )),
         planned_search_query=str(capability_plan.get("search_query") or ""),
@@ -1985,7 +1988,7 @@ async def handler(ctx):
                 else None
             )
             opportunity_enabled = bool(
-                "proactive-agent" in enabled_skills
+                capability_is_enabled("workflow_action", skill_preferences)
                 and capability_plan.get("needs_opportunity_review")
             )
             recent_questions_task = (

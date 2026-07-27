@@ -9,6 +9,7 @@ from .._shared.auth import require_user, scoped_conversation_id
 from .._shared.http import error
 from .._shared.intelligence import load_intelligence_state
 from .._shared.provider_metering import record_provider_usage
+from .._shared.skill_registry import capability_is_enabled
 from .._shared.workspace import (
     USER_WORKSPACE_ID,
     begin_action_execution,
@@ -37,7 +38,9 @@ async def handler(ctx):
 
     store = ctx.store.langgraph_store
     intelligence = await load_intelligence_state(store, user_id)
-    if not (intelligence.get("skill_preferences") or {}).get("image-studio", True):
+    if not capability_is_enabled(
+        "image_generation", intelligence.get("skill_preferences")
+    ):
         return error("图片工坊 Skill 已关闭，请先到 Skills 广场开启", 403, code="SKILL_DISABLED")
     state = await load_user_workspace(store, conversation_id, user_id)
     parent = get_action(state, parent_id)

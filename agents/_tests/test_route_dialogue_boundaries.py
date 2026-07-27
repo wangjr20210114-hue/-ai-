@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from agents._shared.route_cache import route_cache_key
 from agents._shared.intelligence import normalize_map_preferences
+from agents._shared.skill_registry import planner_topic_instructions
 from agents._shared.tencent_location import plan_verified_route, search_verified_places_bounded
 from agents.chat._capability_plan import (
     parse_capability_plan,
@@ -82,7 +83,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(
             "不得在规划器中纠错、改名或选择分店",
-            source,
+            planner_topic_instructions()["maps"],
         )
         self.assertIn(
             "Do not ask the user to pre-correct or pre-disambiguate a supplied place",

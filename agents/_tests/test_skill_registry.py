@@ -11,6 +11,7 @@ from agents._shared.skill_registry import (
     SkillRuntimeContext,
     build_adapter_tools,
     default_skill_preferences,
+    locked_skill_ids,
     parse_skill_manifests,
     planner_topic_tools,
     public_skill_catalog,
@@ -71,6 +72,7 @@ class SkillRegistryContractTests(unittest.TestCase):
             {manifest.id for manifest in manifests},
         )
         self.assertTrue(default_skill_preferences()["core"])
+        self.assertEqual(locked_skill_ids(), {"core"})
 
     def test_edgeone_runtime_package_name_is_resolved_for_dynamic_entrypoints(self):
         with patch.object(

@@ -16,6 +16,15 @@ Provider calls, validation, confirmation Actions, persistence, and UI payloads
 remain in their existing modules. The manifest is an integration boundary, not
 a replacement for that business logic.
 
+## Localized catalog metadata is not a model prompt
+
+`ui.name` and `ui.description` carry `zh-CN`, `zh-TW`, and `en` so an installed
+Skill can describe itself in the three supported interface languages without a
+central frontend catalog. The browser renders only the current locale (with a
+small fallback); these strings are not injected into LangChain or sent to the
+model. Planner text belongs under `planner.summary` and
+`planner.instructions`, and is selected only for a semantically relevant turn.
+
 ## Minimal Skill
 
 Create `agents/skills/weather_alerts/__init__.py` and

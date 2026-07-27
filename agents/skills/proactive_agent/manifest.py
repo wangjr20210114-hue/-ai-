@@ -26,5 +26,11 @@ MANIFEST = {
     "planner": {
         "topic": "proactive",
         "summary": "Recurring, scheduled or multi-step workflows and proactive follow-up.",
+        "instructions": (
+            "【主动服务】跨时间、多步骤、持续推进或定时主动触达用 needs_workflow_action；"
+            "单次提醒仍是 calendar_action。只有回答完成后确实可能产生有价值的主动下一步，"
+            "才设 needs_opportunity_review。"
+        ),
+        "recovery_tools": ["propose_workflow"],
     },
 }

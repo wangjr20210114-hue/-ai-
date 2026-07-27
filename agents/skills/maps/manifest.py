@@ -47,5 +47,22 @@ MANIFEST = {
     "planner": {
         "topic": "maps",
         "summary": "Real places, browser location, nearby discovery, ordered stops and road routes.",
+        "instructions": (
+            "【地图与路线】直接问当前位置用 needs_current_location；周边商家只用 "
+            "needs_nearby_places，并填写 nearby_query、明确参照地或 "
+            "nearby_uses_current_location；目的地介绍/多地点推荐用 "
+            "needs_places+needs_map_action；真实道路距离、耗时、费用或有序停靠用 needs_route。"
+            "route_stops 逐字、按原顺序保留，不得在规划器中纠错、改名或选择分店；若使用浏览器"
+            "当前位置作起点，route_uses_current_location=true 且 route_stops 只列目的地；"
+            "错字/同名交给腾讯地点服务处理，不得提前澄清。只有用户明确优先最短耗时才设置 "
+            "route_strategy=least_time；询问真实耗时或要求按路程安排日程不代表该偏好，保持 default。"
+        ),
+        "recovery_tools": [
+            "get_current_location",
+            "search_places",
+            "recommend_nearby_places_on_map",
+            "recommend_places_on_map",
+            "plan_route_between_places",
+        ],
     },
 }

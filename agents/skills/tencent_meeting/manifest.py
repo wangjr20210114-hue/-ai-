@@ -30,5 +30,10 @@ MANIFEST = {
     "planner": {
         "topic": "meeting",
         "summary": "Prepare a Tencent Meeting proposal linked to a calendar item.",
+        "instructions": (
+            "【会议】创建腾讯会议用 needs_meeting_action；会议依赖日程 Skill。只创建普通"
+            "日程而不需要会议链接时不要选择 meeting。"
+        ),
+        "recovery_tools": ["propose_meeting"],
     },
 }

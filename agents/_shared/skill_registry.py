@@ -74,6 +74,7 @@ class SkillManifest:
     action_kinds: tuple[str, ...]
     requires: tuple[str, ...]
     recommends: tuple[str, ...]
+    degrade_when_capabilities: tuple[str, ...]
     permissions: frozenset[str]
     env_keys: tuple[str, ...]
     adapter: str
@@ -87,6 +88,7 @@ class SkillManifest:
     planner_summary: str
     prompt_topic: str
     prompt_instructions: str
+    prompt_recovery_tools: tuple[str, ...]
 
     def public_dict(self, env: Mapping[str, Any] | None = None) -> dict[str, Any]:
         runtime_env = env or {}
@@ -286,6 +288,9 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         if isinstance(raw.get("planner"), Mapping)
         else {}
     )
+    recovery_tools = _string_tuple(planner.get("recovery_tools"))
+    if any(not _TOOL_ID.fullmatch(item) for item in recovery_tools):
+        raise ValueError(f"{source}: invalid planner recovery tool")
     return SkillManifest(
         id=skill_id,
         order=max(-10_000, min(10_000, int(raw.get("order") or 0))),
@@ -297,6 +302,9 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         action_kinds=action_kinds,
         requires=_string_tuple(raw.get("requires")),
         recommends=_string_tuple(raw.get("recommends")),
+        degrade_when_capabilities=_string_tuple(
+            raw.get("degrade_when_capabilities")
+        ),
         permissions=permissions,
         env_keys=_string_tuple(raw.get("env_keys")),
         adapter=str(raw.get("adapter") or "").strip(),
@@ -310,6 +318,7 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         planner_summary=str(planner.get("summary") or "").strip()[:600],
         prompt_topic=str(planner.get("topic") or "").strip()[:64],
         prompt_instructions=str(planner.get("instructions") or "").strip()[:4000],
+        prompt_recovery_tools=recovery_tools,
     )
 
 
@@ -346,6 +355,14 @@ def _validate_registry(manifests: Iterable[SkillManifest]) -> tuple[SkillManifes
         if missing:
             raise ValueError(
                 f"Skill {manifest.id} references missing dependencies {sorted(missing)}"
+            )
+        missing_capabilities = (
+            set(manifest.degrade_when_capabilities) - set(capability_owner)
+        )
+        if missing_capabilities:
+            raise ValueError(
+                f"Skill {manifest.id} references missing degradation "
+                f"capabilities {sorted(missing_capabilities)}"
             )
 
     visiting: set[str] = set()
@@ -425,6 +442,12 @@ def default_skill_preferences() -> dict[str, bool]:
     }
 
 
+def locked_skill_ids() -> frozenset[str]:
+    return frozenset(
+        manifest.id for manifest in skill_manifests() if manifest.locked
+    )
+
+
 def resolve_enabled_skills(values: Iterable[str]) -> frozenset[str]:
     """Remove Skills whose required dependencies are not enabled."""
     active = {
@@ -443,6 +466,27 @@ def resolve_enabled_skills(values: Iterable[str]) -> frozenset[str]:
     return frozenset(active)
 
 
+def enabled_skills_from_preferences(
+    preferences: Mapping[str, Any] | None,
+) -> frozenset[str]:
+    supplied = preferences or {}
+    enabled = {
+        manifest.id
+        for manifest in skill_manifests()
+        if manifest.locked
+        or bool(supplied.get(manifest.id, manifest.default_enabled))
+    }
+    return resolve_enabled_skills(enabled)
+
+
+def capability_is_enabled(
+    capability: str,
+    preferences: Mapping[str, Any] | None,
+) -> bool:
+    owner = capability_skill_map().get(str(capability or "").strip())
+    return bool(owner and owner in enabled_skills_from_preferences(preferences))
+
+
 def capability_skill_map() -> dict[str, str]:
     return {
         capability: manifest.id
@@ -456,6 +500,14 @@ def skill_plan_flags() -> dict[str, tuple[str, ...]]:
         manifest.id: manifest.plan_flags
         for manifest in skill_manifests()
         if manifest.plan_flags
+    }
+
+
+def skill_degradation_capabilities() -> dict[str, tuple[str, ...]]:
+    return {
+        manifest.id: manifest.degrade_when_capabilities
+        for manifest in skill_manifests()
+        if manifest.degrade_when_capabilities
     }
 
 
@@ -483,12 +535,7 @@ def unavailable_skills_for_action(
     owner = action_skill_map().get(str(action_kind or "").strip())
     if not owner:
         return ()
-    enabled = {
-        skill_id
-        for skill_id, default in default_skill_preferences().items()
-        if bool(preferences.get(skill_id, default))
-    }
-    effective = resolve_enabled_skills(enabled)
+    effective = enabled_skills_from_preferences(preferences)
     manifest = skill_manifest(owner)
     required = [owner, *(manifest.requires if manifest else ())]
     return tuple(skill_id for skill_id in required if skill_id not in effective)
@@ -570,9 +617,10 @@ def planner_topic_tools() -> dict[str, tuple[str, ...]]:
     for manifest in skill_manifests():
         if not manifest.prompt_topic:
             continue
-        for binding in manifest.tools:
-            if binding.required:
-                result.setdefault(manifest.prompt_topic, []).append(binding.name)
+        recovery_tools = manifest.prompt_recovery_tools or tuple(
+            binding.name for binding in manifest.tools if binding.required
+        )
+        result.setdefault(manifest.prompt_topic, []).extend(recovery_tools)
     return {
         topic: tuple(dict.fromkeys(names))
         for topic, names in result.items()

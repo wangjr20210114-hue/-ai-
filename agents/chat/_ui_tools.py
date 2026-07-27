@@ -34,7 +34,9 @@ from .._shared.place_cache import load_place_cache, save_place_cache
 from .._shared.route_cache import load_route_cache, save_route_cache
 from .._shared.skill_registry import (
     build_adapter_tools,
+    capability_skill_map,
     default_skill_preferences,
+    locked_skill_ids,
     resolve_enabled_skills,
     skill_is_configured,
     tool_skill_map,
@@ -1138,6 +1140,7 @@ def build_production_tools(
     makers_checkpointer: Any = None,
 ) -> list[StructuredTool]:
     runtime_env = env or {}
+    place_skill_id = capability_skill_map().get("places", "")
     paper_scope = paper_constraints or {}
     time_scope = temporal_context or {}
     map_scope = map_preferences or {}
@@ -2817,7 +2820,10 @@ def build_production_tools(
                         # optional hint omits needs_places: the calendar tool
                         # safely reuses the same Tencent/OSM adapter once,
                         # rather than failing and leaving a phantom card.
-                        maps_enabled = enabled_skills is None or "maps" in enabled_skills
+                        maps_enabled = (
+                            enabled_skills is None
+                            or place_skill_id in enabled_skills
+                        )
                         if not maps_enabled:
                             raise ValueError(
                                 f"“{location_text}”需要地图 Skill 核实，请先到 Skills 广场开启地图"
@@ -2869,7 +2875,10 @@ def build_production_tools(
                         # Tool-calling models occasionally copy a display id
                         # incorrectly. Resolve the explicit user-visible
                         # location instead of accepting or persisting that id.
-                        maps_enabled = enabled_skills is None or "maps" in enabled_skills
+                        maps_enabled = (
+                            enabled_skills is None
+                            or place_skill_id in enabled_skills
+                        )
                         if maps_enabled:
                             verified = await _search_places_metered(
                                 str(
@@ -3656,15 +3665,16 @@ def build_production_tools(
         }
     )
     active = set(resolve_enabled_skills(active))
+    locked_skills = locked_skill_ids()
     tool_skills = {
         **tool_skill_map(),
-        "ask_user_clarification": "core",
+        "ask_user_clarification": next(iter(sorted(locked_skills)), ""),
     }
     definitions = [
         definition
         for definition in definitions
         if (
-            tool_skills.get(definition[1]) == "core"
+            tool_skills.get(definition[1]) in locked_skills
             or (
                 tool_skills.get(definition[1]) in active
                 and skill_is_configured(

@@ -22,5 +22,11 @@ MANIFEST = {
     "planner": {
         "topic": "web",
         "summary": "Current external facts, verification, sources, news, prices and public web media.",
+        "instructions": (
+            "【联网搜索】时效事实、用户要求查证或来源时 needs_web_search=true；"
+            "search_query 合并为一次简洁事实查询。只有明确要求今天发布的内容才设 "
+            "strict_today_only=true。图片确实帮助理解时再设 needs_images 并填写 image_query。"
+        ),
+        "recovery_tools": ["rich_search"],
     },
 }

@@ -8,6 +8,7 @@ MANIFEST = {
     "tools": [{"name": "propose_calendar_changes", "capability": "calendar_action"}],
     "action_kinds": ["calendar_changes"],
     "recommends": ["maps"],
+    "degrade_when_capabilities": ["route"],
     "permissions": [
         "makers.state",
         "makers.checkpointer",
@@ -27,5 +28,16 @@ MANIFEST = {
     "planner": {
         "topic": "calendar",
         "summary": "Read schedules or prepare confirmed calendar create, update and delete proposals.",
+        "instructions": (
+            "【日程】只读/汇总当前日程用 needs_calendar_context；新增、修改、删除还要 "
+            "needs_calendar_action。要求生成可编辑的日程提案或确认卡、但暂不直接写入时，"
+            "同样必须用 needs_calendar_context+needs_calendar_action，因为该工具生成的"
+            "正是待用户确认的提案，并不会自动提交。现实地点未核实时先 needs_places 且 "
+            "place_resolution_target=calendar。用户明确要求写入/安排日程，或给出精确钟点并要求"
+            "生成可执行日程时，才同时选择 route、calendar_context、calendar_action；只有“明天"
+            "下午、周末”等宽泛时段并要求规划游玩路线时，选择 route 即可。日程始终是独立提案，"
+            "非必要的日程增强不得阻断已经可以完成的地点或路线规划。"
+        ),
+        "recovery_tools": ["search_places", "propose_calendar_changes"],
     },
 }

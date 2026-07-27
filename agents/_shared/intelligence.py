@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .data_version import namespace
-from .skill_registry import default_skill_preferences
+from .skill_registry import default_skill_preferences, locked_skill_ids
 from .workspace import USER_WORKSPACE_ID
 
 
@@ -21,6 +21,7 @@ STATE_KEY = "state"
 BEIJING = timezone(timedelta(hours=8))
 
 DEFAULT_SKILL_PREFERENCES = default_skill_preferences()
+LOCKED_SKILL_IDS = locked_skill_ids()
 
 DEFAULT_MAP_PREFERENCES = {
     # Fast/balanced/complete control the provider concurrency and total search
@@ -157,7 +158,9 @@ async def load_intelligence_state(store: Any, user_id: str = USER_WORKSPACE_ID) 
     if not isinstance(skill_preferences, dict):
         skill_preferences = {}
     state["skill_preferences"] = {
-        skill_id: True if skill_id == "core" else bool(skill_preferences.get(skill_id, enabled))
+        skill_id: True if skill_id in LOCKED_SKILL_IDS else bool(
+            skill_preferences.get(skill_id, enabled)
+        )
         for skill_id, enabled in DEFAULT_SKILL_PREFERENCES.items()
     }
     prune_automatic_memories(state)

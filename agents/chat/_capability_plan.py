@@ -23,6 +23,7 @@ from .._shared.skill_registry import (
     planner_topic_instructions,
     planner_topic_summaries,
     planner_topic_tools,
+    skill_degradation_capabilities,
     skill_plan_flags,
 )
 
@@ -80,6 +81,7 @@ BOOLEAN_KEYS = tuple(key for key, value in DEFAULT_PLAN.items() if isinstance(va
 KNOWN_SKILLS = known_skill_ids()
 _CAPABILITY_SKILLS = capability_skill_map()
 _SKILL_PLAN_FLAGS = skill_plan_flags()
+_SKILL_DEGRADATION_CAPABILITIES = skill_degradation_capabilities()
 
 
 def apply_runtime_skill_policy(
@@ -117,18 +119,30 @@ def apply_runtime_skill_policy(
     if not required_skills:
         return reconciled
 
-    # A route remains fully useful without writing a calendar proposal. This
-    # is the only partial degradation here because the two Actions are
-    # explicitly independent product surfaces.
-    if required_skills == ["calendar"] and reconciled.get("needs_route"):
-        for flag in _SKILL_PLAN_FLAGS["calendar"]:
+    # A Skill may declare that it is an independent enhancement of another
+    # capability. When only that enhancement is disabled, preserve the useful
+    # primary result and remove the disabled Skill from this turn.
+    if len(required_skills) == 1:
+        omitted_skill = required_skills[0]
+        active_capabilities = set(_normalize_preflight_capabilities(
+            reconciled.get("_capabilities") or []
+        ))
+        degradable = bool(
+            active_capabilities
+            & set(_SKILL_DEGRADATION_CAPABILITIES.get(omitted_skill, ()))
+        )
+    else:
+        omitted_skill = ""
+        degradable = False
+    if degradable:
+        for flag in _SKILL_PLAN_FLAGS.get(omitted_skill, ()):
             reconciled[flag] = False
         reconciled["_capabilities"] = [
             capability
             for capability in (reconciled.get("_capabilities") or [])
-            if _CAPABILITY_SKILLS.get(str(capability)) != "calendar"
+            if _CAPABILITY_SKILLS.get(str(capability)) != omitted_skill
         ]
-        reconciled["_runtime_omitted_skills"] = ["calendar"]
+        reconciled["_runtime_omitted_skills"] = [omitted_skill]
         return reconciled
 
     reconciled["blocked_skill"] = required_skills[0]
@@ -660,68 +674,8 @@ def next_required_tool(
     return ""
 
 
-PLANNER_PROMPT_DETAILS = {
-    "web": (
-        "【联网搜索】时效事实、用户要求查证或来源时 needs_web_search=true；"
-        "search_query 合并为一次简洁事实查询。只有明确要求今天发布的内容才设 "
-        "strict_today_only=true。图片确实帮助理解时再设 needs_images 并填写 image_query。"
-    ),
-    "maps": (
-        "【地图与路线】直接问当前位置用 needs_current_location；周边商家只用 "
-        "needs_nearby_places，并填写 nearby_query、明确参照地或 "
-        "nearby_uses_current_location；目的地介绍/多地点推荐用 "
-        "needs_places+needs_map_action；真实道路距离、耗时、费用或有序停靠用 needs_route。"
-        "route_stops 逐字、按原顺序保留，不得在规划器中纠错、改名或选择分店；若使用浏览器"
-        "当前位置作起点，route_uses_current_location=true 且 route_stops 只列目的地；"
-        "错字/同名交给腾讯地点服务处理，不得提前澄清。只有用户明确优先最短耗时才设置 "
-        "route_strategy=least_time；询问真实耗时或要求按路程安排日程不代表该偏好，保持 default。"
-    ),
-    "calendar": (
-        "【日程】只读/汇总当前日程用 needs_calendar_context；新增、修改、删除还要 "
-        "needs_calendar_action。要求生成可编辑的日程提案或确认卡、但暂不直接写入时，"
-        "同样必须用 needs_calendar_context+needs_calendar_action，因为该工具生成的"
-        "正是待用户确认的提案，并不会自动提交。现实地点未核实时先 needs_places 且 "
-        "place_resolution_target=calendar。用户明确要求写入/安排日程，或给出精确钟点并要求"
-        "生成可执行日程时，才同时选择 route、calendar_context、calendar_action；只有“明天"
-        "下午、周末”等宽泛时段并要求规划游玩路线时，选择 route 即可。日程始终是独立提案，"
-        "非必要的日程增强不得阻断已经可以完成的地点或路线规划。"
-    ),
-    "image": (
-        "【视觉与生图】生成新图片用 needs_image_generation。现实主体需要外观准确且用户"
-        "没有参考图时，才同时选择 web_search+images；纯幻想、抽象画面或已有附图不搜索。"
-    ),
-    "paper": (
-        "【论文】检索论文、文献或 arXiv 用 needs_papers；paper_topic 只写用户明确指定的研究主题，"
-        "只有作者、单位、年份、数量而没有主题时必须留空，不能复制整句请求；"
-        "只有还要求普通网页、新闻或跨来源综述时才同时 web_search。作者、年份、数量分别"
-        "写入 paper_author、paper_year/paper_year_from/paper_year_to、paper_limit。"
-        "中文作者名要在 paper_author 中给出最可能的英文论文署名；用户用单位限定作者时，"
-        "把规范英文单位名写入 paper_institution。近 N 年按当前北京时间换算为包含首尾的年份范围。"
-    ),
-    "meeting": (
-        "【会议】创建腾讯会议用 needs_meeting_action；会议依赖日程 Skill。只创建普通"
-        "日程而不需要会议链接时不要选择 meeting。"
-    ),
-    "proactive": (
-        "【主动服务】跨时间、多步骤、持续推进或定时主动触达用 needs_workflow_action；"
-        "单次提醒仍是 calendar_action。只有回答完成后确实可能产生有价值的主动下一步，"
-        "才设 needs_opportunity_review。"
-    ),
-}
-
-PROMPT_TOPIC_SUMMARIES = {
-    "web": "current external facts, verification, sources and web media",
-    "maps": "real places, current location, nearby discovery and routes",
-    "calendar": "personal schedules, reminders and calendar mutations",
-    "image": "understanding attached images or generating/editing images",
-    "paper": "verifiable paper discovery, author filtering and arXiv search",
-    "meeting": "creating a Tencent Meeting linked to a schedule",
-    "proactive": "recurring or multi-step workflows and proactive follow-up",
-}
-PROMPT_TOPIC_SUMMARIES.update(planner_topic_summaries())
-for _topic, _instructions in planner_topic_instructions().items():
-    if _instructions:
-        PLANNER_PROMPT_DETAILS[_topic] = _instructions
+PROMPT_TOPIC_SUMMARIES = planner_topic_summaries()
+PLANNER_PROMPT_DETAILS = planner_topic_instructions()
 for _topic, _summary in PROMPT_TOPIC_SUMMARIES.items():
     PLANNER_PROMPT_DETAILS.setdefault(
         _topic,
@@ -1090,26 +1044,7 @@ async def select_prompt_topics(
 
 def fallback_tools_for_prompt_topics(topics: Iterable[Any]) -> tuple[str, ...]:
     """Map model-selected prompt topics to a bounded recovery tool surface."""
-    topic_tools = {
-        "web": ("rich_search",),
-        "maps": (
-            "get_current_location",
-            "search_places",
-            "recommend_nearby_places_on_map",
-            "recommend_places_on_map",
-            "plan_route_between_places",
-        ),
-        "calendar": ("search_places", "propose_calendar_changes"),
-        "image": ("propose_image", "rich_search"),
-        "paper": ("rich_search", "search_arxiv"),
-        "meeting": ("propose_meeting",),
-        "proactive": ("propose_workflow",),
-    }
-    for topic, tools in planner_topic_tools().items():
-        topic_tools[topic] = tuple(dict.fromkeys([
-            *topic_tools.get(topic, ()),
-            *tools,
-        ]))
+    topic_tools = planner_topic_tools()
     names: list[str] = []
     for topic in _normalize_prompt_topics(topics):
         names.extend(topic_tools.get(topic, ()))

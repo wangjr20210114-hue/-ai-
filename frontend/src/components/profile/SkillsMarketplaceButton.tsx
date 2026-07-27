@@ -15,26 +15,33 @@ export default function SkillsMarketplaceButton() {
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState('');
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<boolean> => {
     setLoading(true);
     try {
       const result = await skillsOperation(conversationId);
       setPreferences(result.preferences);
       setCatalog(result.catalog);
+      return true;
     } catch {
       MessagePlugin.error(t('skillsReadFailed'));
+      return false;
     } finally { setLoading(false); }
   }, [conversationId, t]);
 
-  useEffect(() => { if (visible) void refresh(); }, [refresh, visible]);
-  useEffect(() => {
-    const open = () => {
-      setLoading(true);
+  const openMarketplace = useCallback(async () => {
+    if (catalog.length) {
       setVisible(true);
-    };
+      void refresh();
+      return;
+    }
+    if (await refresh()) setVisible(true);
+  }, [catalog.length, refresh]);
+
+  useEffect(() => {
+    const open = () => { void openMarketplace(); };
     window.addEventListener('yuanbao:open-skills', open);
     return () => window.removeEventListener('yuanbao:open-skills', open);
-  }, []);
+  }, [openMarketplace]);
 
   const enabledCount = useMemo(
     () => catalog.filter((skill) => skill.locked || preferences[skill.id] !== false).length,
@@ -48,11 +55,6 @@ export default function SkillsMarketplaceButton() {
     const skill = catalog.find((item) => item.id === skillId);
     return skill ? skillText(skill.name, skill.id) : skillId;
   }, [catalog, skillText]);
-  const openMarketplace = () => {
-    setLoading(true);
-    setVisible(true);
-  };
-
   const save = async (skillId: string, enabled: boolean) => {
     const skill = catalog.find((item) => item.id === skillId);
     if (!skill || skill.locked) return;
@@ -80,7 +82,14 @@ export default function SkillsMarketplaceButton() {
   };
 
   return <>
-    <Button className="sidebar-settings-button" block variant="text" icon={<AppIcon />} onClick={openMarketplace}>{t('skillsMarketplace')}</Button>
+    <Button
+      className="sidebar-settings-button"
+      block
+      variant="text"
+      icon={<AppIcon />}
+      loading={loading && !visible}
+      onClick={() => void openMarketplace()}
+    >{t('skillsMarketplace')}</Button>
     <Dialog
       visible={visible}
       header={t('skillsMarketplace')}

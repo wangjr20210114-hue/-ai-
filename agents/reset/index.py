@@ -9,6 +9,7 @@ from .._shared.auth import require_user
 from .._shared.http import error
 from .._shared.intelligence import (
     DEFAULT_SKILL_PREFERENCES,
+    LOCKED_SKILL_IDS,
     empty_intelligence_state,
     load_intelligence_state,
     save_intelligence_state,
@@ -106,7 +107,7 @@ async def handler(ctx):
     langgraph_store = ctx.store.langgraph_store
     current = await load_intelligence_state(langgraph_store, user_id)
     skills = {
-        skill_id: True if skill_id == "core" else bool(
+        skill_id: True if skill_id in LOCKED_SKILL_IDS else bool(
             (current.get("skill_preferences") or {}).get(skill_id, enabled)
         )
         for skill_id, enabled in DEFAULT_SKILL_PREFERENCES.items()
