@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ClarificationPrompt } from '../../types';
 import {
+  clarificationDisplayValue,
+  clarificationOptionValue,
   clarificationRequestPayload,
   clarificationResponse,
   clarificationSubmissionText,
@@ -69,5 +71,36 @@ describe('clarification submission', () => {
     expect(payload.interaction_mode).toBe('clarification');
     expect(payload.clarification_response).toEqual(response);
     expect(payload).not.toHaveProperty('client_message');
+  });
+
+  it('submits a stable provider choice while keeping readable continuation text', () => {
+    const visible = '桃花源景区｜北京市海淀区';
+    const wireValue = 'floris-place:poi-taohuayuan';
+    const clarification: ClarificationPrompt = {
+      id: 'clarify-place',
+      title: '请确认地点',
+      prompt: '请选择',
+      fields: [{
+        id: 'route_stop_5',
+        label: '请选择具体第 5 站',
+        type: 'single',
+        required: true,
+        options: [visible],
+        option_values: { [visible]: wireValue },
+      }],
+    };
+
+    expect(clarificationOptionValue(clarification.fields[0], visible)).toBe(wireValue);
+    expect(clarificationDisplayValue(clarification.fields[0], wireValue)).toBe(visible);
+    expect(clarificationResponse(
+      clarification,
+      { route_stop_5: wireValue },
+      'ai-card-place',
+    ).answers[0].value).toBe(wireValue);
+    expect(clarificationSubmissionText(
+      clarification,
+      { route_stop_5: wireValue },
+      '已补充：',
+    )).toContain(`请选择具体第 5 站：${visible}`);
   });
 });

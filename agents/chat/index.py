@@ -956,13 +956,14 @@ def _apply_route_protocol_answers(
     for answer in answers:
         field_id = str(answer.get("id") or "")
         match = re.fullmatch(
-            r"(route_origin|route_destination|route_stop_(\d+))(?:_[0-9a-f]{6})?",
+            r"(route_origin|route_destination|route_stop_(\d+))(_anchor)?(?:_[0-9a-f]{6})?",
             field_id,
         )
         value = _clarification_scalar(answer)
         if not match or not value:
             continue
         target = match.group(1)
+        is_anchor = bool(match.group(3))
         if ordered_stops:
             if target == "route_origin":
                 index = 0
@@ -971,7 +972,20 @@ def _apply_route_protocol_answers(
             else:
                 index = int(match.group(2) or 0) - 1
             if 0 <= index < len(ordered_stops):
-                ordered_stops[index] = {"query": value, "near_query": ""}
+                ordered_stops[index] = (
+                    {
+                        "query": str(ordered_stops[index].get("query") or ""),
+                        "near_query": value,
+                    }
+                    if is_anchor
+                    else {"query": value, "near_query": ""}
+                )
+            continue
+        if is_anchor:
+            if target == "route_origin":
+                updated["origin_near_query"] = value
+            elif target == "route_destination":
+                updated["destination_near_query"] = value
             continue
         if target == "route_origin":
             updated["origin_query"] = value

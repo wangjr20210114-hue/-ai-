@@ -763,6 +763,38 @@ def _verified_candidate_matches(
     return clean_city in locality
 
 
+_PLACE_CHOICE_VALUE_PREFIX = "floris-place:"
+
+
+def _place_choice_value(place: dict[str, Any]) -> str:
+    """Return the opaque wire value for an already verified place candidate."""
+    place_id = str(place.get("place_id") or "").strip()
+    return (
+        f"{_PLACE_CHOICE_VALUE_PREFIX}{place_id}"[:240]
+        if place_id
+        else _place_choice_option(place)
+    )
+
+
+def _selected_place_candidate(
+    value: Any,
+    candidates: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Resolve a card answer by stable provider identity without searching again."""
+    clean_value = str(value or "").strip()
+    if not clean_value.startswith(_PLACE_CHOICE_VALUE_PREFIX):
+        return None
+    place_id = clean_value[len(_PLACE_CHOICE_VALUE_PREFIX):].strip()
+    candidate = candidates.get(place_id)
+    if (
+        not place_id
+        or not isinstance(candidate, dict)
+        or str(candidate.get("place_id") or "").strip() != place_id
+    ):
+        return None
+    return copy.deepcopy(candidate)
+
+
 def _rank_verified_workspace_matches(
     query: str,
     candidates: dict[str, Any],
@@ -774,10 +806,13 @@ def _rank_verified_workspace_matches(
 
     A bare canonical name may still have multiple real branches. Reusing one
     workspace record by name—or a prior unconfirmed correction—would silently
-    collapse that ambiguity across conversations. Exact card option labels are
-    stable user selections; every other name goes through the provider
-    search/cache again.
+    collapse that ambiguity across conversations. New cards submit an opaque
+    provider-backed value; exact legacy option labels remain compatible. Every
+    other name goes through the provider search/cache again.
     """
+    selected = _selected_place_candidate(query, candidates)
+    if selected is not None:
+        return [selected]
     clean_query = _normalized_place_name(query)
     ranked: list[tuple[int, str, dict[str, Any]]] = []
     for place_id, raw_place in candidates.items():
@@ -804,17 +839,25 @@ def _rank_verified_workspace_matches(
 
 
 def _place_choice_field(field_id: str, label: str, places: list[dict[str, Any]]) -> dict[str, Any]:
-    options = []
+    options: list[str] = []
+    option_values: dict[str, str] = {}
     for place in places[:6]:
-        option = _place_choice_option(place)
-        if option not in options:
-            options.append(option[:240])
+        base_option = _place_choice_option(place)
+        option = base_option
+        duplicate_index = 2
+        while option in option_values:
+            suffix = f"（候选 {duplicate_index}）"
+            option = f"{base_option[:max(1, 240 - len(suffix))]}{suffix}"
+            duplicate_index += 1
+        options.append(option)
+        option_values[option] = _place_choice_value(place)
     return {
         "id": field_id,
         "label": label,
         "type": "single",
         "required": True,
         "options": options,
+        "option_values": option_values,
     }
 
 
@@ -1286,14 +1329,17 @@ def build_production_tools(
         )
         state = await _load_state()
         candidates = state.setdefault("place_candidates", {})
-        selected_option = next(
-            (
-                place for place in candidates.values()
-                if isinstance(place, dict)
-                and _normalized_place_name(_place_option_label(place))
-                == _normalized_place_name(query)
-            ),
-            None,
+        selected_option = (
+            _selected_place_candidate(query, candidates)
+            or next(
+                (
+                    place for place in candidates.values()
+                    if isinstance(place, dict)
+                    and _normalized_place_name(_place_option_label(place))
+                    == _normalized_place_name(query)
+                ),
+                None,
+            )
         )
         if effective_purpose == "calendar" and isinstance(selected_option, dict):
             return json.dumps({
@@ -1536,6 +1582,12 @@ def build_production_tools(
         async def resolve_anchor(clean_anchor_query: str) -> dict[str, Any] | None:
             if clean_anchor_query == "__browser_current_location__":
                 return copy.deepcopy(browser_current_location)
+            selected_anchor = _selected_place_candidate(
+                clean_anchor_query,
+                state.get("place_candidates") or {},
+            )
+            if selected_anchor is not None:
+                return selected_anchor
             normalized_anchor = _normalized_place_name(clean_anchor_query)
             exact_stored = [
                 place for place in stored_places
@@ -1939,8 +1991,16 @@ def build_production_tools(
             if not clean_query:
                 raise ValueError(f"{endpoint_label}地点不能为空")
             if clean_near:
-                anchors = await _search_places_metered(
-                    map_key, clean_near, city=city or "全国", limit=5,
+                selected_anchor = _selected_place_candidate(
+                    clean_near,
+                    candidates,
+                )
+                anchors = (
+                    [selected_anchor]
+                    if selected_anchor is not None
+                    else await _search_places_metered(
+                        map_key, clean_near, city=city or "全国", limit=5,
+                    )
                 )
                 if not anchors:
                     return None, unresolved_place_card(

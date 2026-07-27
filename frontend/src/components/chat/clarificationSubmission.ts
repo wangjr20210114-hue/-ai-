@@ -1,9 +1,25 @@
-import type { ClarificationPrompt } from '../../types';
+import type { ClarificationField, ClarificationPrompt } from '../../types';
 
 export interface ClarificationResponse {
   id: string;
   source_message_id: string;
   answers: Array<{ id: string; label: string; value: string | string[] }>;
+}
+
+export function clarificationOptionValue(
+  field: ClarificationField,
+  option: string,
+): string {
+  return field.option_values?.[option] || option;
+}
+
+export function clarificationDisplayValue(
+  field: ClarificationField,
+  value: string,
+): string {
+  return (field.options || []).find(
+    (option) => clarificationOptionValue(field, option) === value,
+  ) || value;
 }
 
 export function clarificationResponse(
@@ -55,7 +71,11 @@ export function clarificationSubmissionText(
 ): string {
   const answers = clarification.fields.flatMap((field) => {
     const value = values[field.id];
-    const text = Array.isArray(value) ? value.map(String).filter(Boolean).join('、') : String(value || '').trim();
+    const text = Array.isArray(value)
+      ? value.map(String).filter(Boolean).map(
+        (item) => clarificationDisplayValue(field, item),
+      ).join('、')
+      : clarificationDisplayValue(field, String(value || '').trim());
     return text ? [`${field.label}：${text}`] : [];
   });
   return [

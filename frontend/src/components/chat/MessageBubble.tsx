@@ -15,7 +15,11 @@ import { followUpDraftAction } from './followUps';
 import { generatedImageOpportunitySignal, nextWholeHourRange, usableMapPlaces } from './workspaceUi';
 import { hasTextSelectionInside } from './scrollSelection';
 import { publicAssistantMarkdown, streamingMarkdownAnswer } from './streamingAnswer';
-import { clarificationRequestPayload, clarificationSubmissionText } from './clarificationSubmission';
+import {
+  clarificationOptionValue,
+  clarificationRequestPayload,
+  clarificationSubmissionText,
+} from './clarificationSubmission';
 import { loadProactiveDocumentContext } from '../../services/proactiveDocument';
 import type { ProactiveNotification } from '../../types';
 import { markdownToPlainText } from '../common/richContent';
@@ -180,18 +184,22 @@ function ClarificationCard({
         const options = field.type === 'boolean' ? [t('yes'), t('no')] : (field.options || []);
         return <fieldset className="clarification-field" key={field.id}>
           <legend>{field.label}{field.required ? t('requiredSingle') : ''}</legend>
-          <div className="clarification-option-list">{options.map((option) => <label key={option} className="clarification-option">
-            <input type="radio" name={`${clarification.id}-${field.id}`} checked={value === option} onChange={() => chooseAndAdvance(field.id, option)} />{option}
-          </label>)}</div>
+          <div className="clarification-option-list">{options.map((option) => {
+            const optionValue = clarificationOptionValue(field, option);
+            return <label key={option} className="clarification-option">
+              <input type="radio" name={`${clarification.id}-${field.id}`} checked={value === optionValue} onChange={() => chooseAndAdvance(field.id, optionValue)} />{option}
+            </label>;
+          })}</div>
         </fieldset>;
       }
       if (field.type === 'multi') return <fieldset className="clarification-field" key={field.id}>
         <legend>{field.label}{field.required ? t('requiredMulti') : ''}</legend>
         <div className="clarification-option-list">{(field.options || []).map((option) => {
-          const selected = Array.isArray(value) && value.includes(option);
+          const optionValue = clarificationOptionValue(field, option);
+          const selected = Array.isArray(value) && value.includes(optionValue);
           return <label key={option} className="clarification-option"><input type="checkbox" checked={selected} onChange={(event) => {
             const current = Array.isArray(value) ? value : [];
-            setValue(field.id, event.target.checked ? [...current, option] : current.filter((item) => item !== option));
+            setValue(field.id, event.target.checked ? [...current, optionValue] : current.filter((item) => item !== optionValue));
           }} />{option}</label>;
         })}</div>
       </fieldset>;

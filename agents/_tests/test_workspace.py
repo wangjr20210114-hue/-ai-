@@ -3766,7 +3766,156 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["ui_action"], "clarification_action")
         self.assertEqual(result["clarification"]["fields"][0]["type"], "single")
         self.assertEqual(len(result["clarification"]["fields"][0]["options"]), 2)
+        self.assertEqual(
+            set(result["clarification"]["fields"][0]["option_values"].values()),
+            {"floris-place:hotel-1", "floris-place:hotel-2"},
+        )
         planner.assert_not_awaited()
+
+    async def test_route_card_choices_resume_by_place_id_without_repeated_search(self):
+        station = {
+            **PLACE,
+            "place_id": "station",
+            "name": "北京站",
+            "address": "北京市东城区毛家湾胡同甲13号",
+        }
+        peach_places = [
+            {
+                **PLACE,
+                "place_id": f"peach-{index}",
+                "name": name,
+                "address": address,
+            }
+            for index, (name, address) in enumerate((
+                ("桃花源景区", "北京市海淀区黑山扈北口19号"),
+                ("桃花湾", "北京市门头沟区妙峰山镇"),
+            ), 1)
+        ]
+        park_places = [
+            {
+                **PLACE,
+                "place_id": f"park-{index}",
+                "name": name,
+                "address": address,
+            }
+            for index, (name, address) in enumerate((
+                ("百望山森林公园", "北京市海淀区黑山扈北口19号"),
+                ("百望公园", "北京市海淀区西北旺镇"),
+            ), 1)
+        ]
+
+        async def place_provider(_key, query, *, city, limit):
+            if query == "北京站":
+                return [station]
+            if query == "桃花源景区":
+                return peach_places
+            if query == "Baiwang Park":
+                return park_places
+            raise AssertionError(f"confirmed candidate must not be searched again: {query}")
+
+        route = {
+            "provider": "tencent",
+            "mode": "driving",
+            "distance_meters": 28_000,
+            "duration_seconds": 3_600,
+            "fare": {},
+        }
+        store = FakeStore()
+        search = AsyncMock(side_effect=place_provider)
+        planner = AsyncMock(return_value=route)
+        with patch("agents.chat._ui_tools.provider_search_places", new=search), \
+             patch("agents.chat._ui_tools.provider_plan_route", new=planner):
+            tools = build_production_tools(
+                None,
+                store=store,
+                conversation_id="resume-route-place-ids",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+            )
+            route_tool = next(
+                item for item in tools
+                if item.name == "plan_route_between_places"
+            )
+            original_arguments = {
+                "city": "北京",
+                "ordered_stops": [
+                    {"query": "北京站", "near_query": ""},
+                    {"query": "桃花源景区", "near_query": ""},
+                    {"query": "Baiwang Park", "near_query": ""},
+                ],
+            }
+            first = json.loads(await route_tool.ainvoke(original_arguments))
+            self.assertEqual(first["ui_action"], "clarification_action")
+            fields = first["clarification"]["fields"]
+            self.assertEqual(
+                [field["id"] for field in fields],
+                ["route_stop_2", "route_destination"],
+            )
+            answers = [
+                {
+                    "id": field["id"],
+                    "value": field["option_values"][field["options"][0]],
+                }
+                for field in fields
+            ]
+            plan, resumed_arguments = resume_capability_protocol(
+                {"needs_route": False},
+                {
+                    "version": "1",
+                    "required_tools": ["plan_route_between_places"],
+                    "planned_tool_arguments": {
+                        "plan_route_between_places": original_arguments,
+                    },
+                },
+                answers,
+            )
+            resumed_route = resumed_arguments["plan_route_between_places"]
+            resumed_tools = build_production_tools(
+                None,
+                store=store,
+                conversation_id="resume-route-place-ids",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+                planned_route_stops=plan["route_stops"],
+                planned_route_city="北京",
+            )
+            resumed_tool = next(
+                item for item in resumed_tools
+                if item.name == "plan_route_between_places"
+            )
+            second = json.loads(await resumed_tool.ainvoke(resumed_route))
+
+        self.assertEqual(second["ui_action"], "map_action")
+        self.assertEqual(
+            [place["place_id"] for place in second["ordered_stops"]],
+            ["station", "peach-1", "park-1"],
+        )
+        self.assertEqual(search.await_count, 3)
+        planner.assert_awaited_once()
+
+    def test_resume_protocol_applies_selected_nearby_anchor_by_stable_field_id(self):
+        _plan, arguments = resume_capability_protocol(
+            {"needs_route": False},
+            {
+                "version": "1",
+                "required_tools": ["plan_route_between_places"],
+                "planned_tool_arguments": {
+                    "plan_route_between_places": {
+                        "origin_query": "北京站",
+                        "destination_query": "锦江之星",
+                        "destination_near_query": "万达广场",
+                    },
+                },
+            },
+            [{
+                "id": "route_destination_anchor",
+                "value": "floris-place:wanda-cbd",
+            }],
+        )
+        route = arguments["plan_route_between_places"]
+        self.assertEqual(route["destination_query"], "锦江之星")
+        self.assertEqual(
+            route["destination_near_query"],
+            "floris-place:wanda-cbd",
+        )
 
     async def test_route_tool_never_silently_picks_one_of_multiple_nearby_anchors(self):
         station = {**PLACE, "place_id": "station", "name": "北京站"}

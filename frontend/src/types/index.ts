@@ -325,6 +325,8 @@ export interface ClarificationField {
   label: string;
   type: ClarificationFieldType;
   options?: string[];
+  /** Wire values keyed by visible option label; used for stable provider-backed choices. */
+  option_values?: Record<string, string>;
   required?: boolean;
   placeholder?: string;
 }
