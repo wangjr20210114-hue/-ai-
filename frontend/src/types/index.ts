@@ -223,6 +223,8 @@ export interface PaperInfo {
   citations: string;
   arxiv_url: string;
   pdf_url: string;
+  source?: string;
+  source_url?: string;
 }
 
 // ============ 搜索结果 ============

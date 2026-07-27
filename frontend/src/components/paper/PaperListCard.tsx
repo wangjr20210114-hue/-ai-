@@ -7,7 +7,7 @@ import { Button, MessagePlugin } from 'tdesign-react';
 import { BookOpenIcon, JumpIcon } from 'tdesign-icons-react';
 import type { ChatMessage, PaperInfo } from '../../types';
 import { downloadPaper } from '../../services/paperApi';
-import { dedupePapers, paperArxivHref } from '../../services/paperUtils';
+import { dedupePapers, paperArxivHref, paperSourceHref } from '../../services/paperUtils';
 import PaperFullReader from './PaperFullReader';
 import { useLanguage } from '../../i18n';
 
@@ -74,12 +74,17 @@ export default function PaperListCard({ message }: Props) {
       <div className="paper-results-list">
         {papers.map((paper, index) => {
           const arxivHref = paperArxivHref(paper);
+          const sourceHref = paperSourceHref(paper);
+          const readerAvailable = Boolean(
+            paper.arxiv_id
+            && (paper.pdf_url || !paper.arxiv_id.startsWith('webpdf-')),
+          );
           return (
-            <article className="paper-discovery-card" key={`${paper.arxiv_id}-${index}`}>
+            <article className="paper-discovery-card" key={`${paper.arxiv_id || paper.source_url || paper.title}-${index}`}>
               <div className="paper-discovery-meta">
-                <span className="paper-discovery-source">arXiv</span>
+                <span className="paper-discovery-source">{paper.source || 'arXiv'}</span>
                 {paper.year > 0 && <span>{paper.year}</span>}
-                <span className="paper-discovery-id">{paper.arxiv_id}</span>
+                {paper.arxiv_id && !paper.arxiv_id.startsWith('webpdf-') && <span className="paper-discovery-id">{paper.arxiv_id}</span>}
               </div>
 
               <h3>{paper.title}</h3>
@@ -95,25 +100,26 @@ export default function PaperListCard({ message }: Props) {
                   className="paper-assistant-button"
                   theme="primary"
                   loading={downloadingId === paper.arxiv_id}
+                  disabled={!readerAvailable}
                   icon={<BookOpenIcon />}
                   onClick={() => void openReader(paper)}
                 >
                   {t('startPaperAssistant')}
                 </Button>
-                {arxivHref ? (
+                {sourceHref ? (
                   <a
                     className="paper-arxiv-button"
-                    href={arxivHref}
+                    href={sourceHref}
                     target="_blank"
                     rel="noreferrer"
                   >
                     <JumpIcon />
-                    <span>{t('openArxiv')}</span>
+                    <span>{arxivHref ? t('openArxiv') : t('openPaper')}</span>
                   </a>
                 ) : (
                   <span className="paper-arxiv-button is-disabled" aria-disabled="true">
                     <JumpIcon />
-                    <span>{t('openArxiv')}</span>
+                    <span>{t('openPaper')}</span>
                   </span>
                 )}
               </footer>

@@ -242,7 +242,7 @@ recommend_places_on_map 或 prepare_map_recommendation 只生成可安全激活�
 仅当本轮工具列表包含 propose_meeting 时才可创建腾讯会议，并等待网页确认；若没有该工具，说明可选连接器尚未配置，可以先创建普通日程，不能暗示用户需要自行申请企业 API。用户要求生图时立即调用 propose_image，不要先询问确认；修改之前的生成图时把对应版本的 action id 作为 parent_action_id。若主体是需要外观准确的现实人物、地点或物体，先调用一次 rich_search 获取经 HY-Vision 验证的真实图片，再把最多 3 个图片 URL 作为 reference_image_urls 交给 propose_image；原创或幻想画面不要无意义搜索。
 生图工具返回后不要在 Markdown 正文再次插入生成图片或图片 URL，前端只通过一个“图片工坊”展示结果与版本。
 最终回答不要提及搜索过真实照片、使用了参考图、分析了面部特征或内部生成策略；自然告知图片已完成和可以在图片工坊继续修改即可。
-用户只要求检索论文、文献或 arXiv 时直接调用一次 search_arxiv，不要先做无必要的网页搜索；按作者和年份查找时分别传 author 与 year，并把用户原始研究主题传入 topic。只有用户还要求普通网页、新闻、当前进展或跨来源综述时才同时使用 rich_search；若富搜索已经确认准确论文但缺少直接 PDF，再把准确标题列表一次传给 search_arxiv 的 titles，topic 只用于补足用户要求的数量，不得用无关宽泛词凑数。搜到可下载论文后前端会自动提供助读入口。
+用户只要求检索论文、文献或 arXiv 时直接调用一次 search_arxiv，不要先做无必要的网页搜索；按作者、单位和时间范围查找时分别传 author、institution、year/year_from/year_to，并把真正的研究主题传入 topic，没有主题时保持空。工具会让非深度思考模型用自身知识提名精确 arXiv ID，再经官方 arXiv 核验，并用 DBLP 单位档案锁定作者身份；结果不足时才使用严格过滤的 Crossref 元数据，不得用同名作者或无关宽泛词凑数。只有用户还要求普通网页、新闻、当前进展或跨来源综述时才同时使用 rich_search；若富搜索已经确认准确论文但缺少直接 PDF，再把准确标题列表一次传给 search_arxiv 的 titles。搜到可下载论文后前端会自动提供助读入口。
 同一轮不要用同样的查询重复调用同一个搜索工具；拿到证据后直接综合回答。工具失败时说明边界，不要无限换措辞重试。
 需要网页图片时可用 collect_page_images 提取单页最多 30 张候选，再用 analyze_images_parallel 分批评估。回答中的图片使用 ![描述](url)。
 静默使用用户记忆和旅行偏好，不要用“根据已确定的旅行偏好”“根据用户记忆”等固定句式开头，也不要主动解释内部记忆来源。
@@ -412,7 +412,12 @@ def direct_paper_tool_arguments(capability_plan: dict) -> dict[str, dict]:
                 min(8, int(capability_plan.get("paper_limit") or 5)),
             ),
             "author": str(capability_plan.get("paper_author") or "")[:160],
+            "institution": str(
+                capability_plan.get("paper_institution") or ""
+            )[:160],
             "year": int(capability_plan.get("paper_year") or 0),
+            "year_from": int(capability_plan.get("paper_year_from") or 0),
+            "year_to": int(capability_plan.get("paper_year_to") or 0),
         },
     }
 
@@ -688,6 +693,65 @@ async def _recent_user_questions(store, conversation_id: str, current_message: s
         if len(questions) >= 6:
             break
     return questions
+
+
+async def checkpoint_dialogue_context(
+    checkpointer,
+    conversation_id: str,
+    current_message: str = "",
+    *,
+    limit: int = 8,
+) -> list[dict[str, str]]:
+    """Read a small visible dialogue slice for reference resolution.
+
+    The capability planner normally sees only the current turn so it can stay
+    fast. That made ordinal/anaphoric requests such as selecting an earlier
+    fourth recommendation look like a literal POI. A bounded visible slice is
+    enough to resolve the reference without injecting tool traces or the full
+    conversation into every prompt.
+    """
+    if checkpointer is None or not hasattr(checkpointer, "aget_tuple"):
+        return []
+    try:
+        checkpoint_tuple = await checkpointer.aget_tuple({
+            "configurable": {"thread_id": conversation_id},
+        })
+        checkpoint = _field(checkpoint_tuple, "checkpoint", {}) or {}
+        channels = checkpoint.get("channel_values", {}) if isinstance(checkpoint, dict) else {}
+        messages = channels.get("messages", []) if isinstance(channels, dict) else []
+    except Exception:
+        return []
+    current = " ".join(str(current_message or "").split())
+    output: list[dict[str, str]] = []
+    total_chars = 0
+    for item in reversed(list(messages or [])):
+        role = str(_field(item, "type", _field(item, "role", "")) or "").lower()
+        if role not in {"human", "user", "ai", "assistant"}:
+            continue
+        additional = _field(item, "additional_kwargs", {}) or {}
+        if isinstance(additional, dict) and (
+            additional.get("floris_ui_hidden")
+            or additional.get("floris_interaction") == "clarification"
+        ):
+            continue
+        content = " ".join(
+            _text_content(_field(item, "content", "")).replace("\x00", "").split()
+        )
+        if not content or (role in {"human", "user"} and content == current):
+            continue
+        normalized_role = "user" if role in {"human", "user"} else "assistant"
+        per_message_limit = 500 if normalized_role == "user" else 1800
+        content = content[:per_message_limit]
+        remaining = 5000 - total_chars
+        if remaining <= 0:
+            break
+        content = content[:remaining]
+        output.append({"role": normalized_role, "content": content})
+        total_chars += len(content)
+        if len(output) >= max(1, min(12, int(limit or 8))):
+            break
+    output.reverse()
+    return output
 
 
 def clarification_response_answers(body: dict) -> list[dict]:
@@ -1064,16 +1128,31 @@ def capability_planning_message(
     clarification_id: str = "",
     recent_user_messages: list[str] | None = None,
     prior_clarification_answers: list[str] | None = None,
+    recent_dialogue: list[dict[str, str]] | None = None,
 ) -> str:
-    """Keep a structured-card answer attached to the user's original goal."""
+    """Attach only the history needed for continuation and reference resolution."""
     current = str(message or "").strip()
     recent = [
         str(item or "").strip()
         for item in (recent_user_messages or [])
         if str(item or "").strip()
     ]
+    dialogue_lines = [
+        f"{'用户' if item.get('role') == 'user' else 'Floris'}：{str(item.get('content') or '')}"
+        for item in (recent_dialogue or [])
+        if isinstance(item, dict) and str(item.get("content") or "").strip()
+    ]
+    dialogue_context = ""
+    if dialogue_lines:
+        dialogue_context = (
+            "[最近对话仅用于解析省略、代词、序号和对上一轮候选的选择。"
+            "当前消息拥有最高优先级；必须把引用解析成候选的真实名称，"
+            "不要把“第几个/那个/它”当作地点名称交给工具。]\n"
+            + "\n".join(dialogue_lines)
+            + "\n[当前用户消息]\n"
+        )
     if not clarification_id or not recent:
-        return current
+        return f"{dialogue_context}{current}"
     prior_answers = [
         str(item or "").strip()[:500]
         for item in (prior_clarification_answers or [])
@@ -1088,13 +1167,14 @@ def capability_planning_message(
         if prior_answers
         else ""
     )
-    return (
+    continuation = (
         "[这是用户对上一轮结构化问题的补充答案，请结合原始目标规划尚未完成的能力；"
         "所有先前补充答案仍然有效，不要把答案误判为独立新问题或重复询问。]\n"
         f"上一轮原始目标：{recent[0][:600]}\n"
         f"{prior_context}"
         f"本次补充答案：{current}"
     )
+    return f"{dialogue_context}{continuation}"
 
 
 async def handler(ctx):
@@ -1306,26 +1386,36 @@ async def handler(ctx):
             )
     document_context = _document_context(body)
     clarification_context: list[str] = []
+    recent_dialogue: list[dict[str, str]] = []
     prior_clarification_answers: list[str] = []
     checkpoint_clarification = {
         "answer_texts": [],
         "answers": [],
         "resume": {},
     }
+    recent_dialogue_task = checkpoint_dialogue_context(
+        getattr(ctx.store, "langgraph_checkpointer", None),
+        conversation_id,
+        message,
+    )
     if silent_clarification:
-        clarification_context, checkpoint_clarification = await asyncio.gather(
+        clarification_context, checkpoint_clarification, recent_dialogue = await asyncio.gather(
             _recent_user_questions(ctx.store, conversation_id, message),
             checkpoint_clarification_state(
                 getattr(ctx.store, "langgraph_checkpointer", None),
                 conversation_id,
             ),
+            recent_dialogue_task,
         )
         prior_clarification_answers = checkpoint_clarification["answer_texts"]
+    else:
+        recent_dialogue = await recent_dialogue_task
     planning_message = capability_planning_message(
         message,
         clarification_id,
         clarification_context,
         prior_clarification_answers,
+        recent_dialogue,
     )
     if reference_images and "vision" not in enabled_skills:
         reference_image_context = "用户附带了图片，但视觉理解 Skill 已关闭；不要声称看见图片内容，应建议到 Skills 广场开启视觉理解。"
@@ -1602,12 +1692,19 @@ async def handler(ctx):
         # This fixed-schema pass uses the non-thinking Flash profile; unique
         # Provider results and ordinary turns pay no extra model round.
         place_disambiguation_model=fast_model,
+        # The same non-thinking profile may recall exact arXiv identities.
+        # It only proposes candidates while official metadata providers verify
+        # them, and it runs concurrently with the DBLP identity lookup.
+        paper_discovery_model=fast_model,
         store=ctx.store.langgraph_store,
         conversation_id=conversation_id,
         env=ctx.env,
         paper_constraints={
             "author": capability_plan.get("paper_author") or "",
+            "institution": capability_plan.get("paper_institution") or "",
             "year": capability_plan.get("paper_year") or 0,
+            "year_from": capability_plan.get("paper_year_from") or 0,
+            "year_to": capability_plan.get("paper_year_to") or 0,
             "limit": capability_plan.get("paper_limit") or 0,
         },
         temporal_context=temporal_context,

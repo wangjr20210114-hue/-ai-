@@ -3,7 +3,7 @@ import { Button } from 'tdesign-react';
 import { ChevronLeftIcon, ChevronRightIcon, LogoGithubIcon, MenuIcon, ModeDarkIcon, ModeLightIcon, NotificationIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
-import { activeProactiveNotifications, proactiveFallbackLines, proactiveReminderLines } from '../profile/proactiveNotifications';
+import { activeProactiveNotifications, proactiveFallbackLines, proactiveHeaderLines, proactiveReminderLines } from '../profile/proactiveNotifications';
 import { useLanguage } from '../../i18n';
 
 const THEME_KEY = 'travel-theme';
@@ -34,9 +34,13 @@ export default function Header({
     () => proactiveFallbackLines(proactive?.preferences.fallback_mottos || []),
     [proactive?.preferences.fallback_mottos],
   );
-  const displayLines = reminderLines.length ? reminderLines : fallbackLines;
+  const displayLines = useMemo(
+    () => proactiveHeaderLines(reminderLines, fallbackLines, 10),
+    [fallbackLines, reminderLines],
+  );
   const notificationKey = displayLines.map((item) => item.id).join('|');
   const [reminderIndex, setReminderIndex] = useState(0);
+  const activeLine = displayLines[reminderIndex % Math.max(1, displayLines.length)];
 
   useEffect(() => {
     setReminderIndex(0);
@@ -103,13 +107,13 @@ export default function Header({
         {connected && proactive?.preferences.enabled !== false && (
           <button
             type="button"
-            className={`header-proactive-ticker${reminderLines.length ? '' : ' is-fallback'}`}
+            className={`header-proactive-ticker${activeLine?.notificationId ? '' : ' is-fallback'}`}
             aria-label={displayLines.length
-              ? (reminderLines.length
-                ? t('viewReminder', { text: displayLines[reminderIndex % displayLines.length].text })
-                : displayLines[reminderIndex % displayLines.length].text)
+              ? (activeLine?.notificationId
+                ? t('viewReminder', { text: activeLine.text })
+                : activeLine.text)
               : t('proactiveNoNew')}
-            onClick={reminderLines.length ? onToggleSidebar : undefined}
+            onClick={activeLine?.notificationId ? onToggleSidebar : undefined}
           >
             <NotificationIcon size="14px" aria-hidden="true" />
             <span
@@ -117,7 +121,7 @@ export default function Header({
               className="header-proactive-ticker-text"
             >
               {displayLines.length
-                ? displayLines[reminderIndex % displayLines.length].text
+                ? activeLine.text
                 : t('proactiveNoNew')}
             </span>
           </button>

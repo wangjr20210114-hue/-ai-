@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import type { PaperInfo } from '../../types';
-import { dedupePapers, paperArxivHref } from '../../services/paperUtils';
+import { dedupePapers, paperArxivHref, paperSourceHref } from '../../services/paperUtils';
 
 const paper = (id: string, title: string): PaperInfo => ({
   arxiv_id: id, title, authors: 'Author', year: 2026, abstract_zh: '',
@@ -23,6 +23,17 @@ describe('dedupePapers', () => {
     expect(paperArxivHref(paper('2601.00001v2', 'A Useful Paper')))
       .toBe('https://arxiv.org/abs/2601.00001v2');
     expect(paperArxivHref(paper('webpdf-1', 'Public PDF'))).toBe('');
+  });
+
+  it('uses a scholarly source page for non-arXiv fallback results', () => {
+    const crossref = {
+      ...paper('webpdf-1', 'Public PDF'),
+      source: 'Crossref',
+      source_url: 'https://doi.org/10.1000/example',
+      pdf_url: 'https://publisher.example/paper.pdf',
+    };
+    expect(paperArxivHref(crossref)).toBe('');
+    expect(paperSourceHref(crossref)).toBe('https://doi.org/10.1000/example');
   });
 
   it('keeps exactly the reader and arXiv actions in the discovery card', () => {

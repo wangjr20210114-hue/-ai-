@@ -875,7 +875,7 @@ export function useSSEChat() {
   useEffect(() => {
     // Makers Schedule currently supports a minimum interval of one day.
     // While the product is open, this bounded browser wake-up asks the
-    // Makers Agent to perform the memory-first window check every 10 minutes;
+    // Makers Agent to perform the memory-first window check every 5 minutes;
     // all state and policy decisions remain in Makers Store.
     let lastCheckedAt = Date.now();
     let refreshing = false;
@@ -888,9 +888,9 @@ export function useSSEChat() {
         .catch((error) => console.warn('proactive memory-window refresh failed', error))
         .finally(() => { refreshing = false; });
     };
-    const timer = window.setInterval(refreshMemoryWindow, 10 * 60 * 1000);
+    const timer = window.setInterval(refreshMemoryWindow, 5 * 60 * 1000);
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && Date.now() - lastCheckedAt >= 10 * 60 * 1000) {
+      if (document.visibilityState === 'visible' && Date.now() - lastCheckedAt >= 5 * 60 * 1000) {
         refreshMemoryWindow();
       }
     };

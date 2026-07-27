@@ -336,12 +336,18 @@ def _paper_result_answer(payload: dict | None) -> str:
     ]
     if not paper_titles:
         return (
-            "这次没有找到符合条件的 arXiv 论文，我没有用不相关结果凑数。"
-            "你可以调整主题、作者或年份后重试。"
+            "这次在学术索引中没有核实到符合作者、单位和时间范围的论文，"
+            "我没有用同名作者或无关结果凑数。你可以补充作者英文署名、研究方向或更宽的年份范围。"
         )
+    sources = {
+        str(paper.get("source") or "arXiv")
+        for paper in papers
+        if isinstance(paper, dict)
+    }
+    source_copy = "、".join(sorted(sources))
     return (
-        f"已找到 {len(paper_titles)} 篇符合条件的 arXiv 论文，论文卡片已经准备好。"
-        "你可以直接启动论文助读器，或前往 arXiv 查看原文。"
+        f"已从 {source_copy} 核实到 {len(paper_titles)} 篇符合条件的论文，论文卡片已经准备好。"
+        "有可下载 PDF 的结果可以直接启动论文助读器，也可以前往来源页查看原文。"
     )
 
 

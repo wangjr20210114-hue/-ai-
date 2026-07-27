@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeProactiveNotifications, proactiveFallbackLines, proactiveReminderLines } from './proactiveNotifications';
+import { activeProactiveNotifications, proactiveFallbackLines, proactiveHeaderLines, proactiveReminderLines } from './proactiveNotifications';
 import type { ProactiveNotification } from '../../types';
 
 function notification(id: string, patch: Partial<ProactiveNotification> = {}): ProactiveNotification {
@@ -11,7 +11,7 @@ function notification(id: string, patch: Partial<ProactiveNotification> = {}): P
 }
 
 describe('activeProactiveNotifications', () => {
-  it('keeps only actionable fresh reminders and prioritizes high urgency', () => {
+  it('keeps only actionable fresh reminders in server FCFS order', () => {
     const items = activeProactiveNotifications([
       notification('read', { status: 'read' }),
       notification('expired', { status: 'snoozed', snoozed_until: 99 }),
@@ -19,7 +19,7 @@ describe('activeProactiveNotifications', () => {
       notification('high', { priority: 'high', updated_at: 90 }),
       notification('future', { status: 'snoozed', snoozed_until: 200 }),
     ], 100);
-    expect(items.map((item) => item.id)).toEqual(['high', 'normal', 'future']);
+    expect(items.map((item) => item.id)).toEqual(['normal', 'high', 'future']);
   });
 });
 
@@ -57,9 +57,21 @@ describe('proactiveReminderLines', () => {
 });
 
 describe('proactiveFallbackLines', () => {
-  it('keeps at most five unique, non-empty presentation fallbacks', () => {
+  it('fills up to ten unique presentation fallbacks with default prose', () => {
     const lines = proactiveFallbackLines([' 星光会找到夜路。 ', '', '星光会找到夜路。', '二', '三', '四', '五', '六']);
-    expect(lines.map((item) => item.text)).toEqual(['星光会找到夜路。', '二', '三', '四', '五']);
+    expect(lines).toHaveLength(10);
+    expect(lines.slice(0, 6).map((item) => item.text)).toEqual(['星光会找到夜路。', '二', '三', '四', '五', '六']);
     expect(lines.every((item) => item.notificationId === '')).toBe(true);
+  });
+
+  it('fills vacant Header slots without splitting or inventing notifications', () => {
+    const reminders = proactiveReminderLines([
+      notification('first', { body: '第一条真实提醒。' }),
+      notification('second', { body: '第二条真实提醒。' }),
+    ]);
+    const window = proactiveHeaderLines(reminders, proactiveFallbackLines([]), 10);
+    expect(window).toHaveLength(10);
+    expect(window.slice(0, 2).map((item) => item.notificationId)).toEqual(['first', 'second']);
+    expect(window.slice(2).every((item) => item.notificationId === '')).toBe(true);
   });
 });

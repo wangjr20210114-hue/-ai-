@@ -7,10 +7,25 @@ export interface ProactiveReminderLine {
   text: string;
 }
 
+function defaultProactiveFallbacks(): string[] {
+  return [
+  translate('defaultMotto1'),
+  translate('defaultMotto2'),
+  translate('defaultMotto3'),
+  translate('defaultMotto4'),
+  translate('defaultMotto5'),
+  translate('defaultMotto6'),
+  translate('defaultMotto7'),
+  translate('defaultMotto8'),
+  translate('defaultMotto9'),
+  translate('defaultMotto10'),
+  ];
+}
+
 /** Build presentation-only fallbacks without creating fake notifications. */
 export function proactiveFallbackLines(items: string[]): ProactiveReminderLine[] {
   const seen = new Set<string>();
-  return items.flatMap((item, index) => {
+  return [...items, ...defaultProactiveFallbacks()].flatMap((item, index) => {
     const text = String(item || '').replace(/\s+/g, ' ').trim().slice(0, 80);
     if (!text || seen.has(text)) return [];
     seen.add(text);
@@ -19,7 +34,7 @@ export function proactiveFallbackLines(items: string[]): ProactiveReminderLine[]
       notificationId: '',
       text,
     }];
-  }).slice(0, 5);
+  }).slice(0, 10);
 }
 
 export function activeProactiveNotifications(
@@ -28,11 +43,7 @@ export function activeProactiveNotifications(
 ): ProactiveNotification[] {
   return items
     .filter((item) => item.status === 'unread' || (item.status === 'snoozed' && Number(item.snoozed_until || 0) > now))
-    .sort((left, right) => {
-      const rank = { high: 0, normal: 1, low: 2 };
-      return rank[left.priority] - rank[right.priority] || right.updated_at - left.updated_at;
-    })
-    .slice(0, 4);
+    .slice(0, 10);
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -69,42 +80,41 @@ function weatherSentence(item: ProactiveNotification): string {
   return finishSentence(translate('weatherReminder', { location, condition, advice }));
 }
 
-function splitReminder(text: string, maxLength = 36): string[] {
-  const sentences = text.match(/[^。！？；]+[。！？；]?/gu) || [text];
-  const output: string[] = [];
-  sentences.forEach((sentence) => {
-    const clean = sentence.trim();
-    if (!clean) return;
-    if (clean.length <= maxLength) {
-      output.push(finishSentence(clean));
-      return;
-    }
-    const clauses = clean.split(/[，,]/u).map((part) => part.trim()).filter(Boolean);
-    let current = '';
-    clauses.forEach((clause) => {
-      const next = current ? `${current}，${clause}` : clause;
-      if (current && next.length > maxLength) {
-        output.push(finishSentence(current));
-        current = clause;
-      } else {
-        current = next;
-      }
-    });
-    if (current) output.push(finishSentence(current));
-  });
-  return output.filter(Boolean);
+function compactReminder(text: string, maxLength = 80): string {
+  const natural = finishSentence(text);
+  if (natural.length <= maxLength) return natural;
+  const punctuation = translate('sentencePeriod');
+  return `${natural.slice(0, Math.max(1, maxLength - punctuation.length - 1)).trim()}…${punctuation}`;
 }
 
-/** Convert structured notifications into short, conversational Header lines. */
+/** Convert every structured event into exactly one compact Header line. */
 export function proactiveReminderLines(items: ProactiveNotification[]): ProactiveReminderLine[] {
   return items.flatMap((item) => {
     const natural = item.type === 'weather_risk'
       ? weatherSentence(item)
       : finishSentence(item.body || item.title);
-    return splitReminder(natural).map((text, index) => ({
-      id: `${item.id}:${index}`,
+    const text = compactReminder(natural);
+    return text ? [{
+      id: item.id,
       notificationId: item.id,
       text,
-    }));
+    }] : [];
   });
+}
+
+/** Fill the ten-slot Header window without turning fallback prose into events. */
+export function proactiveHeaderLines(
+  reminders: ProactiveReminderLine[],
+  fallbacks: ProactiveReminderLine[],
+  limit = 10,
+): ProactiveReminderLine[] {
+  const output = reminders.slice(0, limit);
+  const used = new Set(output.map((item) => item.text));
+  for (const fallback of fallbacks) {
+    if (output.length >= limit) break;
+    if (!fallback.text || used.has(fallback.text)) continue;
+    used.add(fallback.text);
+    output.push(fallback);
+  }
+  return output;
 }

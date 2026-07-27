@@ -64,11 +64,11 @@ async def _run_tick_with_memory(
     memory_only: bool = False,
     force_memory: bool = False,
 ):
-    """Use Makers state as the source of truth for the 10-minute memory scan."""
+    """Use Makers state as the source of truth for the 5-minute memory scan."""
     now = int(time.time())
     current = await load_proactive_state(store, user_id)
     checkpoint = (current.get("checkpoints") or {}).get("memory_window_scan") or {}
-    memory_due = force_memory or now - int(checkpoint.get("checked_at") or 0) >= 10 * 60
+    memory_due = force_memory or now - int(checkpoint.get("checked_at") or 0) >= 5 * 60
     memory_signals: list[dict] = []
     if memory_due and confirmed_memory_context(intelligence_state, limit=1):
         location = (current.get("checkpoints") or {}).get("location_context") or {}

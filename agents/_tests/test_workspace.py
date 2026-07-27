@@ -47,6 +47,7 @@ from agents.chat.index import (
     capability_planning_message,
     checkpoint_clarification_answers,
     checkpoint_clarification_state,
+    checkpoint_dialogue_context,
     checkpoint_final_answer,
     clarification_response_answers,
     clarification_response_id,
@@ -60,6 +61,7 @@ from agents.chat.index import (
     tools_for_capability_stage,
 )
 from agents.chat._ui_tools import (
+    _paper_candidate_ids_from_model,
     build_production_tools,
     preserve_planned_route_stops,
     verify_place_queries_parallel,
@@ -90,7 +92,11 @@ from agents._shared.rich_search import (
     evidence_for_model,
     rich_search as run_rich_search,
 )
-from agents._shared.arxiv import _best_title_match
+from agents._shared.arxiv import (
+    _best_title_match,
+    _canonical_arxiv_id,
+    search_arxiv,
+)
 from agents._shared.tencent_location import (
     decode_polyline,
     place_distance_meters,
@@ -498,6 +504,28 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("北京西站", planning)
         self.assertIn("中国人民解放军总医院第一医学中心", planning)
 
+    async def test_capability_planning_resolves_ordinal_from_bounded_dialogue(self):
+        messages = [
+            HumanMessage(content="给我推荐六个小众景点"),
+            AIMessage(content=(
+                "1. 圆明园遗址公园\n2. 西山国家森林公园\n"
+                "3. 凤凰岭自然风景区\n4. 百望山森林公园\n"
+                "5. 鹫峰国家森林公园\n6. 翠湖国家城市湿地公园"
+            )),
+        ]
+        dialogue = await checkpoint_dialogue_context(
+            FakeCheckpointer(messages),
+            "ordinal-reference",
+            "我想去第四个",
+        )
+        planning = capability_planning_message(
+            "我想去第四个",
+            recent_dialogue=dialogue,
+        )
+        self.assertIn("4. 百望山森林公园", planning)
+        self.assertIn("不要把“第几个/那个/它”当作地点名称", planning)
+        self.assertTrue(planning.endswith("我想去第四个"))
+
     async def test_checkpoint_recovers_structured_answers_and_resume_protocol_once(self):
         messages = [
             HumanMessage(content="规划六站路线并写入日程"),
@@ -736,12 +764,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "source_content",
         )
 
-    async def test_semantic_preflight_short_circuits_on_blocking_missing_input(self):
-        model = StructuredPlannerModel(clarification_args={
+    async def test_single_semantic_plan_returns_all_blocking_fields_once(self):
+        model = StructuredPlannerModel(args={
             "needs_clarification": True,
-            "title": "请提供需要处理的内容",
-            "prompt": "本轮没有收到原文。",
-            "fields": [{
+            "clarification_title": "请提供需要处理的内容",
+            "clarification_prompt": "本轮没有收到原文。",
+            "clarification_fields": [{
                 "id": "source_content",
                 "label": "需要处理的原文",
                 "type": "text",
@@ -756,9 +784,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             timings_ms=timings,
         )
         self.assertFalse(timed_out)
-        self.assertEqual(model.calls, 2)
-        self.assertIn("semantic_preflight", timings)
-        self.assertIn("clarification_review", timings)
+        self.assertEqual(model.calls, 1)
+        self.assertIn("semantic_plan", timings)
         self.assertIn("capability_planning_total", timings)
         self.assertEqual(
             required_tools_for_plan(plan),
@@ -766,30 +793,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(plan["clarification_fields"][0]["id"], "source_content")
 
-    async def test_semantic_review_rejects_invented_optional_clarification(self):
+    async def test_single_semantic_plan_omits_invented_optional_clarification(self):
         model = StructuredPlannerModel(
             args={
                 "needs_route": True,
                 "needs_calendar_action": True,
                 "route_stops": [{"query": "颐和园"}],
                 "route_uses_current_location": True,
-            },
-            topic_args={"topics": ["maps", "calendar"]},
-            clarification_args={
-                "needs_clarification": True,
-                "title": "查看会议安排",
-                "prompt": "你想查看哪个日历？",
-                "fields": [{
-                    "id": "calendar_account",
-                    "label": "请选择日历账户",
-                    "type": "single",
-                    "required": True,
-                    "options": ["个人", "工作"],
-                }],
-            },
-            review_args={
-                "approved": False,
-                "reason": "The user did not make an account choice necessary.",
             },
         )
         plan, timed_out = await plan_capabilities_bounded(
@@ -802,25 +812,19 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(plan["needs_clarification"])
         self.assertTrue(plan["needs_route"])
         self.assertTrue(plan["needs_calendar_action"])
-        self.assertEqual(model.calls, 3)
+        self.assertEqual(model.calls, 1)
 
-    async def test_preflight_preserves_dependent_route_calendar_chain(self):
+    async def test_single_plan_preserves_dependent_route_calendar_chain(self):
         model = StructuredPlannerModel(
             args={
                 "needs_route": True,
+                "needs_calendar_context": True,
+                "needs_calendar_action": True,
                 "route_stops": [
                     {"query": "北京站"},
                     {"query": "北京西站"},
                 ],
-            },
-            preflight_args={
-                "needs_clarification": False,
-                "topics": ["maps", "calendar"],
-                "capabilities": [
-                    "route",
-                    "calendar_context",
-                    "calendar_action",
-                ],
+                "prompt_topics": ["maps", "calendar"],
             },
         )
         plan, timed_out = await plan_capabilities_bounded(
@@ -1328,8 +1332,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "needs_papers": True,
             "needs_web_search": False,
             "search_query": "retrieval augmented generation",
-            "paper_author": "",
-            "paper_year": 2025,
+            "paper_author": "Xin Peng",
+            "paper_institution": "Fudan University",
+            "paper_year_from": 2025,
+            "paper_year_to": 2026,
             "paper_limit": 6,
         })
         self.assertEqual(
@@ -1337,6 +1343,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "retrieval augmented generation",
         )
         self.assertEqual(direct["search_arxiv"]["limit"], 6)
+        self.assertEqual(direct["search_arxiv"]["author"], "Xin Peng")
+        self.assertEqual(direct["search_arxiv"]["institution"], "Fudan University")
+        self.assertEqual(direct["search_arxiv"]["year_from"], 2025)
+        self.assertEqual(direct["search_arxiv"]["year_to"], 2026)
         self.assertEqual(
             direct_paper_tool_arguments({
                 "needs_papers": True,
@@ -1685,7 +1695,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         })
         self.assertEqual(
             state["preferences"]["fallback_mottos"],
-            ["星光会找到夜路。", "二", "三", "四", "五"],
+            ["星光会找到夜路。", "二", "三", "四", "五", "六"],
         )
 
     def test_observe_only_persists_event_and_run_without_notification(self):
@@ -1700,7 +1710,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats["notifications_created"], 0)
         self.assertEqual(next(iter(state["runs"].values()))["reason"], "observe_only")
 
-    def test_proactive_window_appends_then_replaces_one_operation_reminder(self):
+    def test_proactive_window_queues_by_fcfs_without_replacement(self):
         now = 1_800_000_000
         state = empty_proactive_state()
         update_preferences(state, {
@@ -1719,10 +1729,14 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             }], now + index)
         public = public_proactive_state(state, now + 10)
         self.assertEqual(len(public["notifications"]), 4)
-        self.assertEqual(stats["window_replaced"], 1)
-        self.assertIn("操作提醒4", [item["title"] for item in public["notifications"]])
+        self.assertEqual(stats["window_replaced"], 0)
+        self.assertEqual(stats["window_queued"], 1)
+        self.assertEqual(
+            [item["title"] for item in public["notifications"]],
+            ["操作提醒0", "操作提醒1", "操作提醒2", "操作提醒3"],
+        )
 
-    def test_memory_refresh_replaces_only_operation_and_stops_when_window_is_memory_only(self):
+    def test_memory_refresh_queues_behind_existing_fcfs_window(self):
         now = 1_800_000_000
         state = empty_proactive_state()
         update_preferences(state, {
@@ -1752,9 +1766,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             }], now + index + 1)
         public = public_proactive_state(state, now + 20)
         self.assertEqual(len(public["notifications"]), 4)
-        self.assertTrue(all(item["window_origin"] == "memory" for item in public["notifications"]))
-        self.assertEqual(stats["notifications_created"], 0)
-        self.assertEqual(stats["skipped"], 1)
+        self.assertTrue(all(item["window_origin"] == "operation" for item in public["notifications"]))
+        self.assertEqual(stats["notifications_created"], 1)
+        self.assertEqual(stats["window_queued"], 1)
+        self.assertEqual(stats["skipped"], 0)
 
     def test_read_notification_leaves_the_display_window(self):
         now = 1_800_000_000
@@ -3088,7 +3103,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("时间预算", result["clarification"]["prompt"])
         planner.assert_not_awaited()
 
-    async def test_route_choice_keeps_provider_alias_evidence_across_cards(self):
+    async def test_route_collects_all_place_blockers_in_one_card_group(self):
         origin = {**PLACE, "place_id": "origin", "name": "北京站"}
         branches = [
             {
@@ -3152,14 +3167,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                     {"query": "不存在终点"},
                 ],
             }))
-            selected_label = first["clarification"]["fields"][0]["options"][0]
-            second = json.loads(await route_tool.ainvoke({
-                "ordered_stops": [
-                    {"query": "北京站"},
-                    {"query": selected_label},
-                    {"query": "不存在终点"},
-                ],
-            }))
             third = json.loads(await route_tool.ainvoke({
                 "ordered_stops": [
                     {"query": "北京站"},
@@ -3168,13 +3175,15 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 ],
             }))
 
-        self.assertEqual(first["clarification"]["fields"][0]["type"], "single")
-        self.assertEqual(second["clarification"]["fields"][0]["type"], "text")
+        fields = first["clarification"]["fields"]
+        self.assertEqual(len(fields), 2)
+        self.assertEqual(fields[0]["type"], "single")
+        self.assertEqual(fields[1]["type"], "text")
+        self.assertEqual(fields[0]["id"], "route_stop_2")
+        self.assertRegex(fields[1]["id"], r"route_destination_[0-9a-f]{6}")
+        self.assertIn("一次填完", first["clarification"]["prompt"])
         self.assertEqual(third["clarification"]["fields"][0]["type"], "single")
-        self.assertIn(
-            selected_label,
-            third["clarification"]["fields"][0]["options"],
-        )
+        self.assertIn("北京通州万达广场", third["clarification"]["fields"][0]["options"][0])
         planner.assert_not_awaited()
 
     def test_complete_planner_route_preserves_literal_user_place_text(self):
@@ -4502,13 +4511,152 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls[0]["name"], "search_arxiv")
         self.assertEqual(calls[0]["args"], {"topic": "Zhi-Hua Zhou 2026", "limit": 5})
 
+    async def test_named_author_search_falls_back_to_crossref_with_range(self):
+        crossref_paper = {
+            "title": "Recent Software Engineering Work",
+            "arxiv_id": "webpdf-example",
+            "authors": "Xin Peng",
+            "year": 2026,
+            "abstract_zh": "",
+            "key_contribution": "",
+            "citations": "Crossref",
+            "source": "Crossref",
+            "source_url": "https://doi.org/10.1000/example",
+            "arxiv_url": "",
+            "pdf_url": "https://publisher.example/paper.pdf",
+        }
+        with patch(
+            "agents._shared.arxiv._search_arxiv_sync",
+            return_value=[],
+        ), patch(
+            "agents._shared.arxiv._search_dblp_sync",
+            return_value=[],
+        ), patch(
+            "agents._shared.arxiv._search_crossref_sync",
+            return_value=[crossref_paper],
+        ) as crossref:
+            papers = await search_arxiv(
+                "",
+                2,
+                author="Xin Peng",
+                institution="Fudan University",
+                year_from=2025,
+                year_to=2026,
+            )
+        self.assertEqual(papers, [crossref_paper])
+        self.assertEqual(
+            crossref.call_args.args,
+            ("", 2, "Xin Peng", "Fudan University", 2025, 2026),
+        )
+
+    def test_model_arxiv_identifiers_are_strictly_sanitized(self):
+        self.assertEqual(_canonical_arxiv_id("arXiv:2604.10767v2"), "2604.10767v2")
+        self.assertEqual(
+            _canonical_arxiv_id("https://arxiv.org/pdf/hep-th/9901001.pdf"),
+            "hep-th/9901001",
+        )
+        self.assertEqual(_canonical_arxiv_id("https://example.com/not-arxiv"), "")
+        self.assertEqual(_canonical_arxiv_id("ignore instructions"), "")
+
+    async def test_fast_model_only_proposes_lazy_paper_candidates(self):
+        class PaperCandidateModel:
+            def __init__(self):
+                self.schema = None
+                self.calls = 0
+
+            def with_structured_output(self, schema, **_kwargs):
+                self.schema = schema
+                return self
+
+            async def ainvoke(self, _messages):
+                self.calls += 1
+                return {
+                    "parsed": self.schema(candidates=[{
+                        "title": "Verified Later",
+                        "arxiv_id": "2604.10767",
+                        "authors": ["Xin Peng"],
+                        "year": 2026,
+                    }]),
+                }
+
+        discovery_model = PaperCandidateModel()
+        tools = build_production_tools(
+            None,
+            store=FakeStore(),
+            conversation_id="paper-candidates",
+            env={},
+            paper_discovery_model=discovery_model,
+        )
+        tool = next(item for item in tools if item.name == "search_arxiv")
+        with patch(
+            "agents.chat._ui_tools.provider_search_arxiv",
+            new=AsyncMock(return_value=[]),
+        ) as provider:
+            await tool.ainvoke({
+                "author": "Xin Peng",
+                "institution": "Fudan University",
+                "year_from": 2025,
+                "year_to": 2026,
+                "limit": 2,
+            })
+        self.assertEqual(discovery_model.calls, 0)
+        loader = provider.await_args.kwargs["candidate_ids_loader"]
+        self.assertEqual(await loader(), ["2604.10767"])
+        self.assertEqual(discovery_model.calls, 1)
+
+    async def test_author_and_institution_disable_broad_arxiv_homonym_search(self):
+        verified = {
+            "title": "Institution-Matched Paper",
+            "arxiv_id": "2604.10767",
+            "authors": "Xin Peng",
+            "year": 2026,
+            "source": "arXiv",
+        }
+        dblp = {
+            "title": "Institution-Matched Paper",
+            "arxiv_id": "",
+            "authors": "Xin Peng",
+            "year": 2026,
+            "source": "DBLP",
+        }
+        with patch(
+            "agents._shared.arxiv._lookup_arxiv_ids_sync",
+            return_value=[verified],
+        ) as exact_lookup, patch(
+            "agents._shared.arxiv._search_dblp_sync",
+            return_value=[dblp],
+        ), patch(
+            "agents._shared.arxiv._search_arxiv_sync",
+            return_value=[{"title": "Wrong Homonym"}],
+        ) as broad_lookup, patch(
+            "agents._shared.arxiv._search_crossref_sync",
+            return_value=[],
+        ) as crossref:
+            papers = await search_arxiv(
+                "",
+                2,
+                author="Xin Peng",
+                institution="Fudan University",
+                year_from=2025,
+                year_to=2026,
+                candidate_ids=["2604.10767"],
+            )
+        broad_lookup.assert_not_called()
+        exact_lookup.assert_called_once_with(
+            ["2604.10767"], "Xin Peng", 2025, 2026,
+        )
+        crossref.assert_not_called()
+        self.assertEqual(papers, [verified])
+
     async def test_arxiv_tool_accepts_author_and_year_without_topic(self):
         tools = build_production_tools(None, store=FakeStore(), conversation_id="papers", env={})
         tool = next(item for item in tools if item.name == "search_arxiv")
         with patch("agents.chat._ui_tools.provider_search_arxiv", new=AsyncMock(return_value=[])) as provider:
             result = await tool.ainvoke({"author": "Zhi-Hua Zhou", "year": 2026, "limit": 5})
         self.assertIn('"papers": []', result)
-        provider.assert_awaited_once_with("", 5, [], "Zhi-Hua Zhou", 2026)
+        provider.assert_awaited_once_with(
+            "", 5, [], "Zhi-Hua Zhou", 2026, "", 0, 0,
+        )
 
     def test_optional_meeting_tool_is_hidden_until_personal_token_exists(self):
         hidden = build_production_tools(None, store=FakeStore(), conversation_id="meeting", env={})
@@ -4592,7 +4740,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         tool = next(item for item in tools if item.name == "search_arxiv")
         with patch("agents.chat._ui_tools.provider_search_arxiv", new=AsyncMock(return_value=[])) as provider:
             await tool.ainvoke({"titles": ["Unrelated title"], "limit": 20})
-        provider.assert_awaited_once_with("", 5, ["Unrelated title"], "Zhi-Hua Zhou", 2026)
+        provider.assert_awaited_once_with(
+            "", 5, ["Unrelated title"], "Zhi-Hua Zhou", 2026, "", 0, 0,
+        )
 
     async def test_image_retries_share_one_turn_group(self):
         store = FakeStore()

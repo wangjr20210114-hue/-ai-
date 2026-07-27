@@ -20,3 +20,7 @@ export function paperArxivHref(paper: PaperInfo): string {
   }
   return '';
 }
+
+export function paperSourceHref(paper: PaperInfo): string {
+  return paperArxivHref(paper) || paper.source_url || '';
+}

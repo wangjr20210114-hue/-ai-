@@ -189,7 +189,7 @@ export default function AppSettingsButton() {
     fallback_mottos: mottoDrafts
       .map((item) => item.replace(/\s+/g, ' ').trim())
       .filter(Boolean)
-      .slice(0, 5),
+      .slice(0, 10),
   });
   const clearAllData = async () => {
     if (!resetPassword) {
@@ -428,7 +428,7 @@ export default function AppSettingsButton() {
               <Button
                 size="small"
                 variant="outline"
-                disabled={busy === 'proactive' || mottoDrafts.length >= 5}
+                disabled={busy === 'proactive' || mottoDrafts.length >= 10}
                 icon={<AddIcon />}
                 onClick={() => setMottoDrafts((items) => [...items, ''])}
               >{t('addMotto')}</Button>

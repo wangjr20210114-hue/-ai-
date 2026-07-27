@@ -106,7 +106,7 @@ def default_preferences() -> dict[str, Any]:
         "quiet_hours": {"enabled": True, "start": "22:00", "end": "08:00"},
         "daily_limit": 5,
         "lookahead_hours": 24,
-        "window_limit": 4,
+        "window_limit": 10,
         "provider_schedule_limit": 6,
         "route_gap_hours": 3,
         "travel_buffer_minutes": 15,
@@ -116,6 +116,13 @@ def default_preferences() -> dict[str, Any]:
             "鱼儿水中游，永远不会回首～",
             "风会记得每一片认真生长的叶子。",
             "慢一点也没关系，星光总会找到夜路。",
+            "把今天走稳，远方自然会靠近。",
+            "云有云的方向，你也有自己的节奏。",
+            "认真生活的人，总会遇见温柔的回声。",
+            "不必追赶所有风，只选一阵与你同行。",
+            "把小事做好，时间会替你铺成路。",
+            "灯火再远，也从脚下这一程开始。",
+            "留一点从容，给正在发生的好事。",
         ],
         "types": {
             "schedule_conflict": True,
@@ -180,7 +187,7 @@ def _merge_preferences(value: Any) -> dict[str, Any]:
             text = " ".join(str(item or "").replace("\x00", "").split()).strip()[:80]
             if text and text not in mottos:
                 mottos.append(text)
-            if len(mottos) >= 5:
+            if len(mottos) >= 10:
                 break
         base["fallback_mottos"] = mottos
     base["enabled"] = bool(base["enabled"])
@@ -188,7 +195,7 @@ def _merge_preferences(value: Any) -> dict[str, Any]:
         base["autonomy_mode"] = "propose"
     base["daily_limit"] = max(0, min(50, int(base["daily_limit"] or 0)))
     base["lookahead_hours"] = max(1, min(168, int(base["lookahead_hours"] or 24)))
-    base["window_limit"] = max(1, min(8, int(base["window_limit"] or 4)))
+    base["window_limit"] = max(1, min(10, int(base["window_limit"] or 10)))
     base["provider_schedule_limit"] = max(2, min(12, int(base["provider_schedule_limit"] or 6)))
     base["route_gap_hours"] = max(1, min(8, int(base["route_gap_hours"] or 3)))
     base["travel_buffer_minutes"] = max(0, min(120, int(
@@ -235,20 +242,12 @@ def _active_notification(item: Any, now: int) -> bool:
 
 
 def _normalize_reminder_window(state: dict[str, Any], now: int) -> list[str]:
-    """Keep one bounded, durable display window over notification history."""
+    """Keep a bounded first-come-first-served view over active notifications."""
     notifications = state.setdefault("notifications", {})
-    limit = int(_merge_preferences(state.get("preferences")).get("window_limit") or 4)
+    limit = int(_merge_preferences(state.get("preferences")).get("window_limit") or 10)
     raw_window = state.get("reminder_window")
     if not isinstance(raw_window, list):
-        candidates = sorted(
-            (
-                item for item in notifications.values()
-                if _active_notification(item, now)
-            ),
-            key=lambda item: int(item.get("created_at") or 0),
-            reverse=True,
-        )[:limit]
-        raw_window = [str(item.get("id") or "") for item in reversed(candidates)]
+        raw_window = []
     normalized: list[str] = []
     for raw_id in raw_window:
         notification_id = str(raw_id or "")
@@ -258,46 +257,37 @@ def _normalize_reminder_window(state: dict[str, Any], now: int) -> list[str]:
             and _active_notification(notifications.get(notification_id), now)
         ):
             normalized.append(notification_id)
-    state["reminder_window"] = normalized[-limit:]
+    queued = sorted(
+        (
+            item for item in notifications.values()
+            if _active_notification(item, now)
+            and str(item.get("id") or "") not in normalized
+        ),
+        key=lambda item: (
+            int(item.get("created_at") or 0),
+            str(item.get("id") or ""),
+        ),
+    )
+    normalized.extend(
+        str(item.get("id") or "")
+        for item in queued
+        if str(item.get("id") or "")
+    )
+    state["reminder_window"] = normalized[:limit]
     return state["reminder_window"]
-
-
-def _window_choice(candidates: list[str], notification_id: str, now: int) -> str:
-    digest = hashlib.sha256(f"{notification_id}:{now // 600}".encode("utf-8")).digest()
-    return candidates[int.from_bytes(digest[:4], "big") % len(candidates)]
 
 
 def _place_in_reminder_window(
     state: dict[str, Any], notification: dict[str, Any], now: int, *, memory_refresh: bool,
 ) -> tuple[bool, bool]:
-    """Append or replace according to the memory-first bounded-window policy."""
+    """Place by FCFS; a full window queues new work without replacing history."""
     window = _normalize_reminder_window(state, now)
-    limit = int(_merge_preferences(state.get("preferences")).get("window_limit") or 4)
     notification_id = str(notification["id"])
     notification["window_origin"] = "memory" if memory_refresh else "operation"
     if notification_id in window:
         return True, False
-    if len(window) < limit:
-        window.append(notification_id)
-        return True, False
-    notifications = state.setdefault("notifications", {})
-    candidates = (
-        [
-            item_id for item_id in window
-            if str((notifications.get(item_id) or {}).get("window_origin") or "operation") == "operation"
-        ]
-        if memory_refresh else list(window)
-    )
-    if not candidates:
-        return False, False
-    replaced_id = _window_choice(candidates, notification_id, now)
-    replaced_index = window.index(replaced_id)
-    window[replaced_index] = notification_id
-    replaced = notifications.get(replaced_id)
-    if isinstance(replaced, dict):
-        replaced["window_replaced_at"] = now
-        replaced["updated_at"] = now
-    return True, True
+    notification["window_queued_at"] = now
+    return False, False
 
 
 def _prune(state: dict[str, Any]) -> None:
@@ -846,6 +836,7 @@ def process_schedule_signals(state: dict[str, Any], signals: list[dict[str, Any]
         "runs_created": 0,
         "notifications_created": 0,
         "window_replaced": 0,
+        "window_queued": 0,
         "skipped": 0,
     }
     daily_count = sum(1 for item in state.get("notifications", {}).values() if _created_today(item, now))
@@ -938,14 +929,12 @@ def process_schedule_signals(state: dict[str, Any], signals: list[dict[str, Any]
             state, notification, now, memory_refresh=memory_refresh,
         )
         if not placed:
-            state["notifications"].pop(notification_id, None)
-            run.update({"status": "skipped", "reason": "memory_window_saturated", "updated_at": now})
-            stats["skipped"] += 1
+            stats["window_queued"] += 1
+            run.update({"status": "succeeded", "reason": "notification_queued", "updated_at": now})
             _observation(
-                state, run_id, "skipped", "memory_window_saturated", now,
+                state, run_id, "succeeded", "notification_queued", now,
                 notification_id=notification_id,
             )
-            continue
         if not memory_refresh:
             daily_count += 1
         stats["notifications_created"] += 1

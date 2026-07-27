@@ -194,6 +194,119 @@ class ProviderPlaceDecision(BaseModel):
     )
 
 
+class PaperKnowledgeCandidate(BaseModel):
+    """A paper identity recalled by the fast model, pending official verification."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(
+        default="",
+        max_length=300,
+        description="Exact paper title if confidently known.",
+    )
+    arxiv_id: str = Field(
+        default="",
+        max_length=80,
+        description="Exact arXiv identifier only; empty when it is not confidently known.",
+    )
+    authors: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Known authors, used only as supporting context.",
+    )
+    year: int = Field(default=0, ge=0, le=2200)
+
+
+class PaperKnowledgeCandidates(BaseModel):
+    """Bounded internal-knowledge proposal; candidates are not yet facts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidates: list[PaperKnowledgeCandidate] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+
+
+async def _paper_candidate_ids_from_model(
+    model,
+    *,
+    topic: str,
+    author: str,
+    institution: str,
+    year: int,
+    year_from: int,
+    year_to: int,
+    limit: int,
+    timeout_seconds: float = 8.0,
+) -> list[str]:
+    """Ask a fast model for high-confidence identities, never final metadata."""
+    if model is None:
+        return []
+    current_year = datetime.now(timezone.utc).year
+    prompt = (
+        "Use only your pretrained/internal scholarly knowledge. Do not search, "
+        "browse, call tools, or explain your reasoning. Propose at most the "
+        "requested number of exact arXiv paper identities matching every "
+        "constraint. A named scholar must be the scholar at the requested "
+        "institution, not a homonym. Include an arXiv identifier only when you "
+        "know the exact ID with high confidence; omit uncertain papers and "
+        "return an empty list when necessary. These are only candidates: the "
+        "application will verify every ID against official arXiv metadata."
+    )
+    payload = json.dumps({
+        "topic": topic,
+        "author": author,
+        "institution": institution,
+        "year": year,
+        "year_from": year_from,
+        "year_to": year_to,
+        "result_limit": max(1, min(8, int(limit or 5))),
+        "current_year": current_year,
+    }, ensure_ascii=False)
+    started_at = time.monotonic()
+    try:
+        chain = model.with_structured_output(
+            PaperKnowledgeCandidates,
+            method="function_calling",
+            include_raw=True,
+        )
+        response = await asyncio.wait_for(
+            chain.ainvoke([
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": payload},
+            ]),
+            timeout=max(1.0, min(10.0, float(timeout_seconds))),
+        )
+        parsed = response.get("parsed") if isinstance(response, dict) else response
+        if isinstance(parsed, BaseModel):
+            parsed = parsed.model_dump()
+        raw_candidates = (
+            parsed.get("candidates")
+            if isinstance(parsed, dict) and isinstance(parsed.get("candidates"), list)
+            else []
+        )
+        candidate_ids = list(dict.fromkeys(
+            str(candidate.get("arxiv_id") or "").strip()[:80]
+            for candidate in raw_candidates[:8]
+            if isinstance(candidate, dict)
+            and str(candidate.get("arxiv_id") or "").strip()
+        ))
+        logging.info(
+            "paper knowledge candidates=%s elapsed_ms=%s",
+            len(candidate_ids),
+            round((time.monotonic() - started_at) * 1000),
+        )
+        return candidate_ids
+    except Exception as exc:
+        logging.warning(
+            "paper knowledge proposal unavailable error_type=%s elapsed_ms=%s",
+            type(exc).__name__,
+            round((time.monotonic() - started_at) * 1000),
+        )
+        return []
+
+
 def preserve_planned_route_stops(
     model_stops: list[tuple[str, str]],
     planned_stops: list[dict[str, str]] | None,
@@ -255,9 +368,79 @@ def _clarification_action(
             "id": f"clarify-{prompt_id}",
             "title": str(title).strip()[:120],
             "prompt": str(prompt).strip()[:300],
-            "fields": fields[:8],
+            "fields": fields[:12],
         },
     }, ensure_ascii=False)
+
+
+def _merge_clarification_actions(
+    conversation_id: str,
+    clarifications: list[str],
+    *,
+    title: str = "请一次确认这些地点",
+) -> str:
+    """Merge independently discovered blockers into one resumable card group.
+
+    Place resolution is intentionally parallel. Returning the first ambiguous
+    stop discarded the other completed lookups and forced the user through one
+    interruption per stop. This adapter keeps every provider-backed field and
+    lets the frontend submit the complete answer set in one protocol message.
+    """
+    fields: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    source_titles: list[str] = []
+    source_prompts: list[str] = []
+    for clarification in clarifications:
+        try:
+            payload = json.loads(str(clarification or ""))
+        except (TypeError, ValueError):
+            continue
+        card = payload.get("clarification") if isinstance(payload, dict) else None
+        if not isinstance(card, dict):
+            continue
+        card_title = str(card.get("title") or "").strip()
+        card_prompt = str(card.get("prompt") or "").strip()
+        if card_title and card_title not in source_titles:
+            source_titles.append(card_title)
+        if card_prompt and card_prompt not in source_prompts:
+            source_prompts.append(card_prompt)
+        for raw in card.get("fields") or []:
+            if not isinstance(raw, dict):
+                continue
+            field_id = str(raw.get("id") or "").strip()
+            if not field_id or field_id in seen_ids:
+                continue
+            seen_ids.add(field_id)
+            fields.append(copy.deepcopy(raw))
+            if len(fields) >= 12:
+                break
+        if len(fields) >= 12:
+            break
+    if not fields:
+        raise ValueError("地点核实未完成，请稍后重试")
+    count = len(fields)
+    if count == 1:
+        return _clarification_action(
+            conversation_id,
+            title=source_titles[0] if source_titles else "请确认地点",
+            prompt=(
+                source_prompts[0]
+                if source_prompts
+                else "这个地点还需要你确认，提交后我会直接继续规划。"
+            ),
+            fields=fields,
+        )
+    evidence = " ".join(source_prompts)[:190]
+    return _clarification_action(
+        conversation_id,
+        title=title,
+        prompt=(
+            f"有 {count} 个地点还需要你确认。一次填完后我会直接继续规划，"
+            "不会逐项重新思考或重复搜索。"
+            + (f" {evidence}" if evidence else "")
+        ),
+        fields=fields,
+    )
 
 
 def _normalized_place_name(value: Any) -> str:
@@ -690,6 +873,7 @@ async def verify_place_queries_parallel(
 def build_production_tools(
     model, *, store=None, conversation_id: str = "", env: dict | None = None,
     place_disambiguation_model=None,
+    paper_discovery_model=None,
     paper_constraints: dict | None = None,
     temporal_context: dict[str, Any] | None = None,
     progressive_media: bool = False,
@@ -1802,11 +1986,20 @@ def build_production_tools(
                 for place, clarification in resolution_results
             ]
 
+        unresolved_cards = [
+            clarification
+            for _place, clarification in resolution_results
+            if clarification
+        ]
+        if unresolved_cards:
+            await _save_state(state)
+            return _merge_clarification_actions(
+                conversation_id,
+                unresolved_cards,
+            )
+
         resolved_stops: list[dict[str, Any]] = []
         for index, (place, clarification) in enumerate(resolution_results, 1):
-            if clarification:
-                await _save_state(state)
-                return clarification
             endpoint = (
                 "起点" if index == 1
                 else "终点" if index == len(requested_stops)
@@ -2947,20 +3140,75 @@ def build_production_tools(
         limit: int = 5,
         titles: list[str] | None = None,
         author: str = "",
+        institution: str = "",
         year: int = 0,
+        year_from: int = 0,
+        year_to: int = 0,
     ) -> str:
-        """Search structured academic papers from arXiv."""
+        """Search structured academic papers with an arXiv-first provider cascade."""
         clean_topic = str(topic or "").strip()[:240]
         clean_titles = [str(title).strip()[:240] for title in (titles or []) if str(title).strip()][:8]
         clean_author = str(paper_scope.get("author") or author or "").strip()[:160]
+        clean_institution = str(
+            paper_scope.get("institution") or institution or ""
+        ).strip()[:160]
         clean_year = int(paper_scope.get("year") or year or 0)
+        clean_year_from = int(
+            paper_scope.get("year_from") or year_from or 0
+        )
+        clean_year_to = int(
+            paper_scope.get("year_to") or year_to or 0
+        )
         requested_limit = int(paper_scope.get("limit") or 0)
         if requested_limit:
             limit = min(max(1, int(limit or requested_limit)), requested_limit)
         if not clean_topic and not clean_titles and not clean_author:
             raise ValueError("论文主题、准确标题或作者至少需要一项")
-        papers = await provider_search_arxiv(clean_topic, limit, clean_titles, clean_author, clean_year)
-        return json.dumps({"ui_action": "paper_results", "papers": papers, "topic": clean_topic}, ensure_ascii=False)
+        try:
+            candidate_loader = (
+                (
+                    lambda: _paper_candidate_ids_from_model(
+                        paper_discovery_model,
+                        topic=clean_topic,
+                        author=clean_author,
+                        institution=clean_institution,
+                        year=clean_year,
+                        year_from=clean_year_from,
+                        year_to=clean_year_to,
+                        limit=limit,
+                    )
+                )
+                if paper_discovery_model is not None and not clean_titles
+                else None
+            )
+            provider_args = (
+                clean_topic,
+                limit,
+                clean_titles,
+                clean_author,
+                clean_year,
+                clean_institution,
+                clean_year_from,
+                clean_year_to,
+            )
+            if candidate_loader is None:
+                papers = await provider_search_arxiv(*provider_args)
+            else:
+                papers = await provider_search_arxiv(
+                    *provider_args,
+                    candidate_ids_loader=candidate_loader,
+                )
+            provider_error = ""
+        except Exception as exc:
+            logging.warning("academic provider cascade failed: %s", exc)
+            papers = []
+            provider_error = "学术索引本轮没有返回结果"
+        return json.dumps({
+            "ui_action": "paper_results",
+            "papers": papers,
+            "topic": clean_topic,
+            **({"notice": provider_error} if provider_error else {}),
+        }, ensure_ascii=False)
 
     async def propose_workflow(title: str, steps: list[dict[str, Any]], reason: str) -> str:
         """Create a user-confirmable persistent multi-step workflow."""
@@ -3017,7 +3265,7 @@ def build_production_tools(
             elif field_type == "text":
                 item["placeholder"] = str(raw.get("placeholder") or "请填写").strip()[:120]
             normalized.append(item)
-            if len(normalized) >= 8:
+            if len(normalized) >= 12:
                 break
         if not normalized:
             raise ValueError("至少需要一个有效的澄清字段")
@@ -3042,7 +3290,7 @@ def build_production_tools(
         (collect_page_images, "collect_page_images", "从一个公开网页提取最多 30 张真实图片候选，网页图片不足时返回实际数量。"),
         (rich_search, "rich_search", "项目 v4.2 富搜索。搜索前的独立 LLM 规划器已经合并本轮事实查询，并判断图片是否有助于理解；同一轮无论怎样改写参数都只执行一次 Provider 搜索。"),
         (analyze_images_parallel, "analyze_images_parallel", "并行视觉评估最多 30 张图片；单张失败不影响其他图片。"),
-        (search_arxiv, "search_arxiv", "补充获取 arXiv 可下载结果。富搜索已找到论文时，把准确标题列表一次性传给 titles；按作者和年份查找时分别传 author（英文署名）与 year，不要把作者年份混在宽泛 topic 中。工具会严格过滤作者/年份与标题，每轮最多调用一次。"),
+        (search_arxiv, "search_arxiv", "检索结构化学术论文。富搜索已找到论文时，把准确标题列表一次性传给 titles；按作者、单位和时间范围查找时分别传 author（英文论文署名）、institution（英文规范名）与 year/year_from/year_to，不要把这些条件混在宽泛 topic 中。工具会并行利用轻量模型自身知识提名精确 arXiv ID、用官方 arXiv 核验，并用 DBLP 的单位档案锁定作者身份；不足时再使用严格过滤的 Crossref 元数据。模型候选未经官方核验绝不会展示，同名作者的宽泛 arXiv 结果也不会凑数；每轮最多调用一次。"),
         (propose_workflow, "propose_workflow", "用户明确要求建立跨时间、多步骤的持续提醒或计划时创建工作流提案。steps 每项包含 offset_minutes、title、body、action_prompt，可用 depends_on=['step_1'] 建立 DAG 依赖；失败时需要回退提示的步骤可增加 compensation={title,body,action_prompt}。默认按顺序依赖。必须由用户确认后才会激活，依赖步骤需用户标记完成后才推进。"),
         (ask_user_clarification, "ask_user_clarification", "所有问答场景统一的必要信息收集入口。只有缺少该字段会阻断所有安全有用的回答，或无法唯一确定真实副作用对象时才能调用；“知道后更好”、可选偏好和用户尚未决定都不得调用，应直接在正文给出 2–3 套带假设与取舍的方案。这条边界适用于所有主题，禁止套用固定画像问题。本轮最多调用一次并只收最少必要字段；能由当前上下文、已核实结果、其他字段或安全默认值推导出的字段不得再问。有限候选优先 single/multi，能用是/否表达就用 boolean，只缺日期用 date、日期已知只缺时刻用 time、两者都缺才用 datetime，仅答案无法枚举时用 text。卡片提交后由前端自动把答案作为对话补充信息继续推理，不要要求用户再次发送，也不要重复询问已提交字段。"),
     ]

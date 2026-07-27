@@ -18,12 +18,16 @@ function relocateAcceptanceAssets() {
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Keep Vite's root and multi-page inputs in the same path namespace. This
+  // matters in CI/sandbox environments where process.cwd() is a mapped path
+  // while the config file resolves to the physical workspace.
+  root: __dirname,
   plugins: [react(), relocateAcceptanceAssets()],
   build: {
     rollupOptions: {
       input: {
-        app: 'index.html',
-        acceptance: 'test-cases-entry.html',
+        app: resolve(__dirname, 'index.html'),
+        acceptance: resolve(__dirname, 'test-cases-entry.html'),
       },
     },
   },

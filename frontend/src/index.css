@@ -3059,6 +3059,10 @@ html.is-resizing-workspace * {
 }
 .clarification-card > strong { display: block; font-size: 14px; }
 .clarification-card > p { margin: 5px 0 12px; color: var(--app-text-2); font-size: 13px; }
+.clarification-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.clarification-heading > strong { font-size: 14px; }
+.clarification-heading > span { color: var(--app-text-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+.clarification-complete { margin: 12px 0 4px; color: var(--td-success-color); font-size: 13px; }
 .clarification-field { display: grid; gap: 7px; margin: 10px 0; border: 0; padding: 0; min-width: 0; }
 .clarification-field > span, .clarification-field legend { color: var(--app-text-2); font-size: 12px; font-weight: 600; }
 .clarification-field input[type='text'], .clarification-field input[type='date'], .clarification-field input[type='time'], .clarification-field input[type='datetime-local'] {
@@ -3086,7 +3090,7 @@ html.is-resizing-workspace * {
 .clarification-option-list { display: flex; flex-wrap: wrap; gap: 7px; }
 .clarification-option { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border: 1px solid var(--app-border); border-radius: 8px; color: var(--app-text); font-size: 12px; cursor: pointer; }
 .clarification-option:has(input:checked) { border-color: var(--td-brand-color); background: color-mix(in srgb, var(--td-brand-color) 9%, transparent); }
-.clarification-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+.clarification-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .followup-section {
   margin-top: 10px;
   padding-left: 2px;
