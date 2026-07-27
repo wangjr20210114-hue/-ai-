@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { PaperInfo } from '../../types';
-import { dedupePapers, paperArxivHref, paperSourceHref } from '../../services/paperUtils';
+import {
+  dedupePapers,
+  paperArxivHref,
+  paperDownloadId,
+  paperSourceHref,
+} from '../../services/paperUtils';
 
 const paper = (id: string, title: string): PaperInfo => ({
   arxiv_id: id, title, authors: 'Author', year: 2026, abstract_zh: '',
@@ -22,6 +27,7 @@ describe('dedupePapers', () => {
     expect(paperArxivHref(paper('2601.00001v2', 'A Useful Paper')))
       .toBe('https://arxiv.org/abs/2601.00001v2');
     expect(paperArxivHref(paper('webpdf-1', 'Public PDF'))).toBe('');
+    expect(paperArxivHref(paper('webpaper-1', 'Resolvable paper'))).toBe('');
   });
 
   it('uses a scholarly source page for non-arXiv fallback results', () => {
@@ -33,5 +39,16 @@ describe('dedupePapers', () => {
     };
     expect(paperArxivHref(crossref)).toBe('');
     expect(paperSourceHref(crossref)).toBe('https://doi.org/10.1000/example');
+  });
+
+  it('keeps a source-only paper eligible for lazy reader resolution', () => {
+    const openAlex = {
+      ...paper('', 'Source-only paper'),
+      source: 'OpenAlex',
+      source_url: 'https://doi.org/10.1000/source-only',
+      pdf_url: '',
+    };
+    expect(paperDownloadId(openAlex)).toMatch(/^webpaper-[a-f0-9]+$/);
+    expect(paperDownloadId(openAlex)).toBe(paperDownloadId(openAlex));
   });
 });

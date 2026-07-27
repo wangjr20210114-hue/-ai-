@@ -6,8 +6,8 @@ import { getStoredLanguage } from '../i18n';
  * 论文助读 API：搜索 → 下载 → 流式 LLM 调用。
  */
 
-/** 下载论文 PDF（后端自动从 arXiv 下载） */
-export async function downloadPaper(arxivId: string, title: string, pdfUrl = ''): Promise<{
+/** 下载论文 PDF；后端会解析 arXiv、公开 PDF、DOI 或学术来源页。 */
+export async function downloadPaper(arxivId: string, title: string, pdfUrl = '', sourceUrl = ''): Promise<{
   file_id: string;
   filename: string;
   title: string;
@@ -15,11 +15,22 @@ export async function downloadPaper(arxivId: string, title: string, pdfUrl = '')
   total_chars: number;
   preview: string;
   error?: string;
+  code?: string;
 }> {
   const resp = await authorizedFetch('/papers', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ arxiv_id: arxivId, title, pdf_url: pdfUrl }),
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      arxiv_id: arxivId,
+      title,
+      pdf_url: pdfUrl,
+      source_url: sourceUrl,
+    }),
   });
-  const data = await resp.json();
+  const data = await resp.json().catch(() => ({
+    error: translate('paperInvalidResponse', { status: resp.status }),
+    code: 'invalid_response',
+  }));
   if (resp.ok) window.dispatchEvent(new CustomEvent('yuanbao:library-changed'));
   return data;
 }

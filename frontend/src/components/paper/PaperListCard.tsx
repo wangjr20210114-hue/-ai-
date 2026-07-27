@@ -1,13 +1,18 @@
 /**
- * Compact arXiv discovery cards. The only actions are entering the in-app
- * paper assistant and opening the canonical arXiv page.
+ * Compact scholarly discovery cards. The only actions are entering the in-app
+ * paper assistant and opening the canonical source page.
  */
 import { useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { BookOpenIcon, JumpIcon } from 'tdesign-icons-react';
 import type { ChatMessage, PaperInfo } from '../../types';
 import { downloadPaper } from '../../services/paperApi';
-import { dedupePapers, paperArxivHref, paperSourceHref } from '../../services/paperUtils';
+import {
+  dedupePapers,
+  paperArxivHref,
+  paperDownloadId,
+  paperSourceHref,
+} from '../../services/paperUtils';
 import PaperFullReader from './PaperFullReader';
 import { useLanguage } from '../../i18n';
 
@@ -20,17 +25,6 @@ interface DownloadedPaper {
   title: string;
   fileName: string;
   arxivId?: string;
-}
-
-function paperDownloadId(paper: PaperInfo): string {
-  if (paper.arxiv_id) return paper.arxiv_id;
-  if (!paper.pdf_url) return '';
-  let hash = 2166136261;
-  for (const character of paper.pdf_url) {
-    hash ^= character.charCodeAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `webpdf-${(hash >>> 0).toString(16)}`;
 }
 
 export default function PaperListCard({ message }: Props) {
@@ -46,16 +40,31 @@ export default function PaperListCard({ message }: Props) {
     if (downloaded[downloadId]) return downloaded[downloadId];
     setDownloadingId(downloadId);
     try {
-      const result = await downloadPaper(downloadId, paper.title, paper.pdf_url);
+      const result = await downloadPaper(
+        downloadId,
+        paper.title,
+        paper.pdf_url,
+        paper.source_url || paper.arxiv_url,
+      );
       if (result.error) {
-        MessagePlugin.warning(t('downloadFailed'));
+        if (result.code === 'public_pdf_unavailable') {
+          MessagePlugin.warning(t('paperPublicPdfUnavailable'));
+        } else if (result.code === 'paper_download_failed') {
+          MessagePlugin.warning(t('paperDownloadUnavailable'));
+        } else if (result.code === 'paper_timeout') {
+          MessagePlugin.warning(t('paperResolveTimedOut'));
+        } else {
+          MessagePlugin.warning(t('paperStartFailed', {
+            reason: result.error || t('downloadFailed'),
+          }));
+        }
         return null;
       }
       const stored = {
         fileId: result.file_id,
         title: result.title,
         fileName: result.filename,
-        arxivId: paper.arxiv_id,
+        arxivId: result.arxiv_id || paper.arxiv_id,
       };
       setDownloaded((previous) => ({
         ...previous,
@@ -89,10 +98,6 @@ export default function PaperListCard({ message }: Props) {
           const arxivHref = paperArxivHref(paper);
           const sourceHref = paperSourceHref(paper);
           const downloadId = paperDownloadId(paper);
-          const readerAvailable = Boolean(
-            downloadId
-            && (paper.pdf_url || !downloadId.startsWith('webpdf-')),
-          );
           return (
             <article className="paper-discovery-card" key={`${paper.arxiv_id || paper.source_url || paper.title}-${index}`}>
               <div className="paper-discovery-meta">
@@ -114,7 +119,7 @@ export default function PaperListCard({ message }: Props) {
                   className="paper-assistant-button"
                   theme="primary"
                   loading={downloadingId === downloadId}
-                  disabled={!readerAvailable}
+                  disabled={!downloadId}
                   icon={<BookOpenIcon />}
                   onClick={() => void openReader(paper)}
                 >
