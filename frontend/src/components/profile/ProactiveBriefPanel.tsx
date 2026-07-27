@@ -87,7 +87,7 @@ export default function ProactiveBriefPanel() {
   };
 
   return (
-    <section className="sidebar-reminders" aria-label={t('proactiveReminders')}>
+    <section className="sidebar-reminders" data-onboarding="reminders" aria-label={t('proactiveReminders')}>
       <div className="sidebar-reminders-heading">
         <span><NotificationIcon size="15px" /> {t('reminders')}</span>
         {notifications.length > 0 && <b>{notifications.length}</b>}

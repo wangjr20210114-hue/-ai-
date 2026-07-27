@@ -364,7 +364,7 @@ export default function EdgeOnePlatformPanel() {
 
   return (
     <aside className="my-panel makers-workspace">
-      <div className="my-panel-card makers-map-card">
+      <div className="my-panel-card makers-map-card" data-onboarding="map">
         {mapsEnabled
           ? <MakersMap
             conversationId={conversationId}
@@ -378,7 +378,7 @@ export default function EdgeOnePlatformPanel() {
           : <div className="workspace-skill-disabled"><span>⌖</span><strong>{t('mapSkillDisabled')}</strong><small>{t('mapSkillDisabledDetail')}</small><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('yuanbao:open-skills'))}>{t('enableInSkills')}</button></div>}
       </div>
 
-      <div className={`my-panel-card calendar-panel calendar-workspace-card ${dayViewOpen ? 'is-day-view' : ''}`}>
+      <div className={`my-panel-card calendar-panel calendar-workspace-card ${dayViewOpen ? 'is-day-view' : ''}`} data-onboarding="calendar">
         {calendarPulse && (
           <div key={calendarPulse.token} className="calendar-write-notice">
             {t('schedulesWritten', { count: calendarPulse.count })}

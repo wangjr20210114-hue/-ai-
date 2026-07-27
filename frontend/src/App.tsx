@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { useSSEChat } from './hooks/useSSEChat';
 import { useAppState } from './store/appState';
 import Header from './components/common/Header';
@@ -9,6 +9,7 @@ import type { RefObject } from 'react';
 import ConversationSidebar from './components/conversation/ConversationSidebar';
 import { useLanguage } from './i18n';
 import { OPEN_RIGHT_WORKSPACE_EVENT } from './services/workspaceEvents';
+import FlorisOnboarding from './components/onboarding/FlorisOnboarding';
 
 const LEFT_PANE_MIN = 190;
 const LEFT_PANE_MAX = 420;
@@ -45,6 +46,23 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
     }
   });
   const bodyRef = useRef<HTMLDivElement>(null);
+  const revealOnboardingArea = useCallback((area: 'sidebar' | 'workspace' | 'header') => {
+    const compact = window.matchMedia(COMPACT_WORKSPACE_QUERY).matches;
+    if (area === 'sidebar') {
+      setSidebarOpen(true);
+      if (compact) setRightPanelOpen(false);
+      return;
+    }
+    if (area === 'workspace') {
+      setSidebarOpen(false);
+      setRightPanelOpen(true);
+      return;
+    }
+    if (compact) {
+      setSidebarOpen(false);
+      setRightPanelOpen(false);
+    }
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute('theme-mode', theme);
@@ -170,6 +188,7 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
           <span>{t('connectingLock')}</span>
         </div>
       )}
+      <FlorisOnboarding connected={connected} revealArea={revealOnboardingArea} />
     </div>
   );
 }

@@ -83,7 +83,7 @@ export default function ReadingLibraryPanel() {
     finally { setBusyFolder(''); }
   };
 
-  return <div className="my-panel-card reading-library-card">
+  return <div className="my-panel-card reading-library-card" data-onboarding="reading">
     <div className="section-title">
       <FileIcon size="16px" /> {t('myReading')} <span className="reading-library-count">{items.length}</span>
       <Button shape="circle" variant="text" size="small" icon={<AddIcon />} aria-label={t('newFolder')} title={t('newFolder')} onClick={() => void createFolder()} />

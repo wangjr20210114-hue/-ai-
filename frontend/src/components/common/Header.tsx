@@ -107,6 +107,7 @@ export default function Header({
         {connected && proactive?.preferences.enabled !== false && (
           <button
             type="button"
+            data-onboarding="header-reminder"
             className={`header-proactive-ticker${activeLine?.notificationId ? '' : ' is-fallback'}`}
             aria-label={displayLines.length
               ? (activeLine?.notificationId
@@ -129,6 +130,7 @@ export default function Header({
       </div>
       <div className="header-actions">
         <a
+          data-onboarding="github"
           className="header-icon-link"
           href={FEATURE_DOCUMENT_URL}
           target="_blank"
@@ -154,6 +156,7 @@ export default function Header({
           />
         )}
         <Button
+          data-onboarding="theme"
           className="theme-toggle"
           shape="circle"
           variant="text"

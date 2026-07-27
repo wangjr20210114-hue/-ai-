@@ -111,6 +111,7 @@ export default function SkillsMarketplaceButton() {
 
   return <>
     <Button
+      data-onboarding="skills"
       className="sidebar-settings-button"
       block
       variant="text"

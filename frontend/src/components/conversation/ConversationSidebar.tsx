@@ -122,12 +122,12 @@ export default function ConversationSidebar({ open, onClose }: Props) {
           <button type="button" className="conversation-sidebar-close" onClick={onClose} aria-label={t('close')} title={t('close')}>×</button>
         </div>
 
-        <Button block theme="primary" loading={creating} onClick={() => { void create(); }}>
+        <Button data-onboarding="new-conversation" block theme="primary" loading={creating} onClick={() => { void create(); }}>
           ＋ {t('newConversation')}
         </Button>
 
         <div className="conversation-history-label">{t('history')}</div>
-        <div className="conversation-list">
+        <div className="conversation-list" data-onboarding="conversation-history">
           {loading && conversations.length === 0 && (
             <div className="conversation-list-empty">{t('loading')}</div>
           )}
