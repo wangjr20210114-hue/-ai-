@@ -9,6 +9,8 @@ from agents.chat._graph import (
     _route_result_answer,
     blocked_capability_response,
     build_graph,
+    grounded_route_action_answer,
+    grounded_route_stream_answer,
     tool_result_fallback,
 )
 
@@ -458,6 +460,49 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("包含 3 项变更", answer)
         self.assertIn("尚未写入日程", answer)
         self.assertIn("1 条时间或通勤提醒", answer)
+
+    def test_output_boundary_prefers_verified_actions_over_model_prose(self):
+        actions = [
+            json.loads(linked_verified_route_action.invoke({
+                "origin_query": "北京站",
+                "destination_query": "故宫博物院",
+            })),
+            json.loads(mismatched_linked_calendar_action.invoke({
+                "summary": "明日上午行程",
+            })),
+        ]
+        answer = grounded_route_action_answer(actions)
+
+        self.assertIn("腾讯公交路线约 5 公里，预计 50 分钟", answer)
+        self.assertIn("包含 2 项变更", answer)
+        self.assertNotIn("45 分钟", answer)
+        self.assertEqual(
+            grounded_route_stream_answer(
+                actions[:1],
+                calendar_required=True,
+                clarification_emitted=False,
+                run_error="",
+            ),
+            "",
+        )
+        self.assertEqual(
+            grounded_route_stream_answer(
+                actions,
+                calendar_required=True,
+                clarification_emitted=True,
+                run_error="",
+            ),
+            "",
+        )
+        self.assertIn(
+            "预计 50 分钟",
+            grounded_route_stream_answer(
+                actions,
+                calendar_required=True,
+                clarification_emitted=False,
+                run_error="",
+            ),
+        )
 
     def test_route_result_answer_discloses_verified_correction_and_facts(self):
         answer = _route_result_answer({

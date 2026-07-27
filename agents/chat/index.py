@@ -10,7 +10,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 
-from ._graph import build_graph
+from ._graph import build_graph, grounded_route_stream_answer
 from ._llm import get_model
 from ._ui_tools import build_production_tools
 from ._capability_plan import (
@@ -1924,7 +1924,10 @@ async def handler(ctx):
             final_answer_parts: list[str] = []
             public_stream = PublicStreamFilter()
             stream_delta = StreamDeltaNormalizer()
-            buffer_public_answer = bool(capability_plan.get("needs_image_generation"))
+            buffer_public_answer = bool(
+                capability_plan.get("needs_image_generation")
+                or capability_plan.get("needs_route")
+            )
             run_error = ""
             cancelled = False
             clarification_emitted = False
@@ -2175,6 +2178,17 @@ async def handler(ctx):
                     except Exception as exc:
                         logging.warning("final checkpoint answer recovery failed: %s", exc)
                 if buffer_public_answer:
+                    grounded_route_answer = grounded_route_stream_answer(
+                        pending_actions,
+                        calendar_required=bool(
+                            capability_plan.get("needs_calendar_action")
+                        ),
+                        clarification_emitted=clarification_emitted,
+                        run_error=run_error,
+                    )
+                    if grounded_route_answer:
+                        pending_ai_content[:] = [grounded_route_answer]
+                        final_answer_parts[:] = [grounded_route_answer]
                     final_content = "".join(pending_ai_content)
                     if any(action.get("action", {}).get("kind") == "image_generate" for action in pending_actions):
                         final_content = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", final_content).strip()

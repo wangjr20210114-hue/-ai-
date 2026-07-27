@@ -525,6 +525,59 @@ def _linked_trip_result_answer(
     return "\n\n".join(lines)
 
 
+def grounded_route_action_answer(actions: list[dict]) -> str:
+    """Render the last verified route, optionally with its real calendar card.
+
+    This pure output-boundary helper is shared by the graph and the SSE
+    adapter. The graph normally finalizes structured route turns itself; the
+    adapter remains the final guard if a runtime still streams a later model
+    answer after the structured Actions have completed.
+    """
+    route_payload = next((
+        item
+        for item in reversed(actions)
+        if isinstance(item, dict)
+        and item.get("ui_action") == "map_action"
+        and isinstance(item.get("route"), dict)
+    ), None)
+    calendar_payload = next((
+        item
+        for item in reversed(actions)
+        if isinstance(item, dict)
+        and item.get("ui_action") == "calendar_action"
+        and isinstance(item.get("action"), dict)
+    ), None)
+    if route_payload is None:
+        return ""
+    if calendar_payload is not None:
+        linked_answer = _linked_trip_result_answer(
+            route_payload,
+            calendar_payload,
+        )
+        if linked_answer:
+            return linked_answer
+    return _route_result_answer(route_payload)
+
+
+def grounded_route_stream_answer(
+    actions: list[dict],
+    *,
+    calendar_required: bool,
+    clarification_emitted: bool,
+    run_error: str,
+) -> str:
+    """Apply the completion rules before replacing buffered route prose."""
+    if clarification_emitted or str(run_error or "").strip():
+        return ""
+    if calendar_required and not any(
+        isinstance(action, dict)
+        and action.get("ui_action") == "calendar_action"
+        for action in actions
+    ):
+        return ""
+    return grounded_route_action_answer(actions)
+
+
 def _tool_call_signature(tool_call: dict) -> str:
     name = str(tool_call.get("name") or "")
     args = tool_call.get("args") if isinstance(tool_call, dict) else {}
@@ -793,10 +846,10 @@ def build_graph(
                 "propose_calendar_changes",
             }.issubset({name for name in used_tool_names if name})
         ):
-            linked_answer = _linked_trip_result_answer(
+            linked_answer = grounded_route_action_answer([
                 route_result_payload,
                 calendar_result_payload,
-            )
+            ])
             if linked_answer:
                 logging.info(
                     "finalized linked route-calendar turn from structured actions"
