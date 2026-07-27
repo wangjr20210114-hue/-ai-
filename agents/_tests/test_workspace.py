@@ -858,6 +858,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "paper_topic": "",
             "paper_author": "Xin Peng",
             "paper_institution": "Fudan University",
+            "paper_identity_evidence_supplied": True,
             "paper_year_from": 2025,
             "paper_year_to": 2026,
             "paper_limit": 2,
@@ -880,12 +881,61 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "",
         )
 
+    async def test_ambiguous_paper_author_is_stopped_before_search(self):
+        model = StructuredPlannerModel(args={
+            "capabilities": ["papers"],
+            "prompt_topics": ["paper"],
+            "needs_papers": True,
+            "paper_author": "Xin Peng",
+            "paper_limit": 2,
+            "paper_identity_evidence_supplied": False,
+            "paper_identity_globally_unambiguous": False,
+        })
+        plan, timed_out = await plan_capabilities_bounded(
+            model,
+            "Find two papers by the professor I named.",
+            timeout_seconds=2,
+        )
+        self.assertFalse(timed_out)
+        self.assertTrue(plan["needs_clarification"])
+        self.assertFalse(plan["needs_papers"])
+        self.assertEqual(
+            required_tools_for_plan(plan),
+            ("ask_user_clarification",),
+        )
+        self.assertEqual(
+            plan["clarification_fields"][0]["id"],
+            "paper-author-identity",
+        )
+
+    async def test_user_supplied_paper_identity_reaches_search(self):
+        model = StructuredPlannerModel(args={
+            "capabilities": ["papers"],
+            "prompt_topics": ["paper"],
+            "needs_papers": True,
+            "paper_author": "Xin Peng",
+            "paper_institution": "Fudan University",
+            "paper_identity_evidence_supplied": True,
+            "paper_identity_globally_unambiguous": False,
+            "paper_limit": 2,
+        })
+        plan, timed_out = await plan_capabilities_bounded(
+            model,
+            "Find two papers by the identified professor.",
+            timeout_seconds=2,
+        )
+        self.assertFalse(timed_out)
+        self.assertFalse(plan["needs_clarification"])
+        self.assertTrue(plan["needs_papers"])
+        self.assertEqual(required_tools_for_plan(plan), ("search_arxiv",))
+
     def test_paper_prompt_topic_is_a_provider_evidence_invariant(self):
         plan = parse_capability_plan({
             "capabilities": [],
             "prompt_topics": ["paper"],
             "needs_papers": False,
             "paper_author": "Xin Peng",
+            "paper_identity_globally_unambiguous": True,
         })
         self.assertTrue(plan["needs_papers"])
         self.assertEqual(plan["_capabilities"], ["papers"])

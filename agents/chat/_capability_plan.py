@@ -58,6 +58,8 @@ DEFAULT_PLAN = {
     "paper_author": "",
     "paper_institution": "",
     "paper_topic": "",
+    "paper_identity_evidence_supplied": False,
+    "paper_identity_globally_unambiguous": False,
     "paper_year": 0,
     "paper_year_from": 0,
     "paper_year_to": 0,
@@ -358,7 +360,27 @@ class CapabilityPlan(BaseModel):
         default="",
         description=(
             "Canonical English institution name when the user uses affiliation "
-            "to identify an author; empty when no institution was supplied."
+            "to identify an author; empty when no institution was explicitly "
+            "supplied in the current request or established dialogue. Never fill "
+            "this from model knowledge, cached papers, or search popularity."
+        ),
+    )
+    paper_identity_evidence_supplied: bool = Field(
+        default=False,
+        description=(
+            "True only when the user explicitly supplied, or the established "
+            "dialogue explicitly contains, identity evidence that distinguishes "
+            "the requested academic author, such as an institution, laboratory, "
+            "research field, profile URL, or publication title. Model knowledge, "
+            "cached papers, and a guessed affiliation do not count."
+        ),
+    )
+    paper_identity_globally_unambiguous: bool = Field(
+        default=False,
+        description=(
+            "True only for an academic identity that is effectively unique "
+            "worldwide even without any user-supplied qualifier. Keep false when "
+            "plausible scholarly namesakes may exist; popularity is not uniqueness."
         ),
     )
     paper_topic: str = Field(
@@ -630,7 +652,35 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
         plan["needs_clarification"] = False
         plan["needs_places"] = True
         plan["needs_calendar_action"] = True
-    return reconcile_capability_contract(plan)
+    plan = reconcile_capability_contract(plan)
+    if (
+        plan.get("needs_papers")
+        and plan.get("paper_author")
+        and not plan.get("paper_identity_evidence_supplied")
+        and not plan.get("paper_identity_globally_unambiguous")
+        and not plan.get("needs_clarification")
+    ):
+        # This is a protocol invariant over semantic planner fields, not a
+        # name/keyword rule. Search must not convert a popular namesake into
+        # identity evidence. One compact card collects the minimum qualifier,
+        # then the normal planner resumes the paper capability.
+        for key in BOOLEAN_KEYS:
+            if key.startswith("needs_"):
+                plan[key] = False
+        plan["needs_clarification"] = True
+        plan["clarification_title"] = "请确认论文作者"
+        plan["clarification_prompt"] = (
+            f"“{plan['paper_author']}”可能对应多位研究者，请补充一条身份线索后我再检索。"
+        )
+        plan["clarification_fields"] = [{
+            "id": "paper-author-identity",
+            "label": "作者的单位、研究方向或个人主页",
+            "type": "text",
+            "required": True,
+            "options": [],
+            "placeholder": "例如：复旦大学、软件工程，或个人主页链接",
+        }]
+    return plan
 
 
 def parse_capability_plan(content: Any) -> dict[str, Any]:
