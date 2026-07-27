@@ -40,6 +40,21 @@ _PERMISSIONS = {
 }
 
 
+def _runtime_root_package() -> str:
+    """Return ``agents`` locally and EdgeOne's ``pages_agents`` after bundling."""
+    return str(__package__ or "agents._shared").rsplit(".", 1)[0]
+
+
+def _runtime_module_name(module_name: str) -> str:
+    """Translate source entry points into the package name chosen by Makers."""
+    clean_name = str(module_name or "").strip()
+    if clean_name == "agents":
+        return _runtime_root_package()
+    if clean_name.startswith("agents."):
+        return f"{_runtime_root_package()}{clean_name[len('agents'):]}"
+    return clean_name
+
+
 @dataclass(frozen=True)
 class SkillToolBinding:
     name: str
@@ -366,7 +381,7 @@ def parse_skill_manifests(
 
 @lru_cache(maxsize=1)
 def skill_manifests() -> tuple[SkillManifest, ...]:
-    package = importlib.import_module("agents.skills")
+    package = importlib.import_module(f"{_runtime_root_package()}.skills")
     discovered: list[SkillManifest] = []
     prefix = f"{package.__name__}."
     for module_info in sorted(
@@ -592,7 +607,10 @@ def build_adapter_tools(
             raise ValueError(
                 f"Skill {manifest.id} adapter must be package.module:function"
             )
-        builder = getattr(importlib.import_module(module_name), attribute)
+        builder = getattr(
+            importlib.import_module(_runtime_module_name(module_name)),
+            attribute,
+        )
         if not callable(builder):
             raise TypeError(f"Skill {manifest.id} adapter is not callable")
         context = SkillRuntimeContext(manifest, runtime)
@@ -629,7 +647,10 @@ async def run_preference_hooks(
             raise ValueError(
                 f"Skill {manifest.id} preference_hook must be package.module:function"
             )
-        hook = getattr(importlib.import_module(module_name), attribute)
+        hook = getattr(
+            importlib.import_module(_runtime_module_name(module_name)),
+            attribute,
+        )
         if not callable(hook):
             raise TypeError(f"Skill {manifest.id} preference hook is not callable")
         result = hook(SkillRuntimeContext(manifest, runtime), after)

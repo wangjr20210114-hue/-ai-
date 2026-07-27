@@ -6,6 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import agents._shared.skill_registry as registry_module
 from agents._shared.skill_registry import (
     SkillRuntimeContext,
     build_adapter_tools,
@@ -18,6 +19,7 @@ from agents._shared.skill_registry import (
     tool_skill_map,
     unavailable_skills_for_action,
 )
+from agents.skills.index import handler as skills_handler
 from agents.chat._capability_plan import required_tools_for_plan
 from agents.chat._ui_tools import build_production_tools
 
@@ -69,6 +71,19 @@ class SkillRegistryContractTests(unittest.TestCase):
             {manifest.id for manifest in manifests},
         )
         self.assertTrue(default_skill_preferences()["core"])
+
+    def test_edgeone_runtime_package_name_is_resolved_for_dynamic_entrypoints(self):
+        with patch.object(
+            registry_module,
+            "__package__",
+            "pages_agents._shared",
+        ):
+            self.assertEqual(
+                registry_module._runtime_module_name(
+                    "agents.skills.proactive_agent.lifecycle"
+                ),
+                "pages_agents.skills.proactive_agent.lifecycle",
+            )
 
     def test_public_catalog_and_provider_readiness_are_manifest_driven(self):
         disconnected = public_skill_catalog({})
@@ -196,6 +211,18 @@ class SkillRegistryContractTests(unittest.TestCase):
             "capabilities": ["papers"],
         }
         self.assertIn("search_arxiv", required_tools_for_plan(plan))
+
+
+class SkillCatalogRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_packaging_entry_point_exposes_the_same_read_only_catalog(self):
+        response = await skills_handler(SimpleNamespace(
+            request=SimpleNamespace(body={}),
+            env={},
+        ))
+        self.assertEqual(
+            [item["id"] for item in response["skills"]],
+            [manifest.id for manifest in skill_manifests()],
+        )
 
 
 if __name__ == "__main__":

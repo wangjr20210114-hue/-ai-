@@ -6,6 +6,11 @@ in the Skills marketplace, applies its dependencies before graph construction,
 and registers its optional LangChain tools. Adding a Skill does not require
 editing the central chat graph or a keyword router.
 
+`agents/skills/index.py` is also a read-only catalog endpoint. Its main purpose
+is to make EdgeOne Makers include the whole Skill tree when it converts the
+source package from `agents` to `pages_agents`; the registry resolves either
+runtime package name automatically.
+
 Existing FLORIS Skills use manifests to claim their current business tools.
 Provider calls, validation, confirmation Actions, persistence, and UI payloads
 remain in their existing modules. The manifest is an integration boundary, not
