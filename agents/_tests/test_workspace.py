@@ -376,6 +376,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                     "longitude": 116.4,
                 }],
                 "route": {"duration_minutes": 30},
+                "evidence_contract": {
+                    "strict": True,
+                    "unknown_fields": ["operating_hours"],
+                },
                 "action": {
                     "id": "map-1",
                     "kind": "map_recommendation",
@@ -389,6 +393,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(compacted.content)
         self.assertEqual(payload["ordered_stops"][0]["place_id"], "poi-1")
         self.assertNotIn("address", payload["ordered_stops"][0])
+        self.assertTrue(payload["evidence_contract"]["strict"])
+        self.assertEqual(
+            payload["evidence_contract"]["unknown_fields"],
+            ["operating_hours"],
+        )
         self.assertEqual(original.content.count("x"), 2000)
 
     def test_completed_tool_transport_is_flattened_for_deepseek_followup(self):

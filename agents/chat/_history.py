@@ -132,6 +132,7 @@ def compact_tool_results_for_model(messages):
                     "ui_action",
                     "route_plan_id",
                     "route",
+                    "evidence_contract",
                     "response_constraint",
                 )
                 if payload.get(key) is not None
