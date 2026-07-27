@@ -84,6 +84,35 @@ test('static acceptance site covers every release capability with executable det
   assert.deepEqual(new Set(authoredIds), new Set(cases.map((item) => item.id)));
   assert.match(procedures, /具体怎么操作|点击|输入/);
   assert.match(procedures, /expected/);
+  const acceptanceById = new Map(cases.map((item) => [item.id, item]));
+  for (const id of ['TRAVEL-13', 'CORE-10', 'READ-08', 'PRO-12']) {
+    assert.equal(acceptanceById.get(id)?.implementation, 'implemented', `${id} must be executable`);
+    assert.equal(acceptanceById.get(id)?.releaseBlocker, true, `${id} must gate releases`);
+  }
+  const groupedRoute = JSON.stringify(acceptanceById.get('TRAVEL-13'));
+  assert.match(groupedRoute, /一次展示全部未解决字段|一张卡片组/);
+  assert.match(groupedRoute, /只点击一次确认并继续|一次提交/);
+  assert.match(groupedRoute, /刷新|Makers 会话恢复/);
+  const ordinalMemory = JSON.stringify(acceptanceById.get('CORE-10'));
+  assert.match(ordinalMemory, /第四个/);
+  assert.match(ordinalMemory, /不把“第四个”交给地点服务/);
+  assert.match(ordinalMemory, /一次语义计划|未启动不相关 Skill/);
+  const verifiedPaper = JSON.stringify(acceptanceById.get('READ-08'));
+  assert.match(verifiedPaper, /复旦大学彭鑫/);
+  assert.match(verifiedPaper, /模型记忆输出只是候选/);
+  assert.match(verifiedPaper, /官方 arXiv ID、作者和时间核验/);
+  const proactiveWindow = JSON.stringify(acceptanceById.get('PRO-12'));
+  assert.match(proactiveWindow, /先来先服务/);
+  assert.match(proactiveWindow, /超过 10 条|第 11 条/);
+  assert.match(proactiveWindow, /五分钟|每五分钟/);
+  for (const id of ['TRAVEL-05', 'TRAVEL-09']) {
+    const start = procedures.indexOf(`  '${id}': [`);
+    const end = procedures.indexOf("\n  '", start + 1);
+    const procedure = procedures.slice(start, end);
+    assert.match(procedure, /确认并继续/);
+    assert.match(procedure, /自动续跑/);
+    assert.match(procedure, /不新增用户气泡/);
+  }
   const acceptanceCopy = rawCases + procedures;
   assert.match(acceptanceCopy, /Request conditions\/请求条件/);
   assert.match(acceptanceCopy, /Block request\/屏蔽请求/);
