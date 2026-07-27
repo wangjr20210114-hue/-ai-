@@ -15,6 +15,8 @@ from unittest.mock import AsyncMock, patch
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agents.chat._capability_plan import (
+    CapabilityPlan,
+    apply_runtime_skill_policy,
     fallback_tools_for_prompt_topics,
     media_enabled_for_plan,
     parse_capability_plan,
@@ -731,7 +733,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         topics = await select_prompt_topics(
             model,
             "请处理这个跨领域目标",
-            skill_state='{"enabled":["maps","calendar"]}',
         )
         self.assertEqual(topics, ("maps", "calendar"))
         self.assertEqual(model.schema.__name__, "PromptTopicSelection")
@@ -915,21 +916,68 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(risk, {"actionable": True, "priority": "high"})
         self.assertEqual(model.schema.__name__, "WeatherRiskDecision")
 
-    async def test_capability_planner_receives_runtime_skill_state(self):
+    async def test_capability_planner_never_receives_skill_switches(self):
         model = StructuredPlannerModel({
-            "blocked_skill": "calendar",
-            "needs_places": False,
-            "needs_calendar_action": False,
+            "needs_route": True,
+            "route_stops": [
+                {"query": "海淀百旺公园"},
+                {"query": "百望山森林公园"},
+            ],
         })
-        plan = await plan_capabilities(
-            model,
-            "26号早8点安排北京天安门日程",
-            skill_state='{"enabled":["maps"],"disabled":["calendar"]}',
-        )
+        plan = await plan_capabilities(model, "规划这两个地点的路线")
         system_prompt = model.messages[0]["content"]
-        self.assertIn('"disabled":["calendar"]', system_prompt)
-        self.assertEqual(plan["blocked_skill"], "calendar")
-        self.assertEqual(required_tools_for_plan(plan), ())
+        self.assertNotIn("enabled", system_prompt)
+        self.assertNotIn("disabled", system_prompt)
+        self.assertNotIn("blocked_skill", CapabilityPlan.model_json_schema()["properties"])
+        self.assertTrue(plan["needs_route"])
+
+    def test_runtime_skill_policy_runs_after_planning(self):
+        enabled_plan = apply_runtime_skill_policy(
+            {
+                "needs_route": True,
+                "route_stops": [
+                    {"query": "海淀百旺公园"},
+                    {"query": "百望山森林公园"},
+                ],
+            },
+            disabled_skills={"vision"},
+        )
+        self.assertEqual(enabled_plan["blocked_skill"], "")
+        self.assertEqual(
+            required_tools_for_plan(enabled_plan),
+            ("plan_route_between_places",),
+        )
+
+        route_without_calendar = apply_runtime_skill_policy(
+            {
+                "needs_route": True,
+                "needs_calendar_context": True,
+                "needs_calendar_action": True,
+                "_capabilities": [
+                    "route",
+                    "calendar_context",
+                    "calendar_action",
+                ],
+            },
+            disabled_skills={"calendar"},
+        )
+        self.assertEqual(route_without_calendar["blocked_skill"], "")
+        self.assertFalse(route_without_calendar["needs_calendar_action"])
+        self.assertEqual(
+            required_tools_for_plan(route_without_calendar),
+            ("plan_route_between_places",),
+        )
+
+        disabled_plan = apply_runtime_skill_policy(
+            {
+                "needs_calendar_context": True,
+                "needs_calendar_action": True,
+                "_capabilities": ["calendar_context", "calendar_action"],
+            },
+            disabled_skills={"calendar"},
+        )
+        self.assertEqual(disabled_plan["blocked_skill"], "calendar")
+        self.assertEqual(required_tools_for_plan(disabled_plan), ())
 
     async def test_capability_planner_preserves_every_ordered_route_stop(self):
         model = StructuredPlannerModel({
@@ -1429,7 +1477,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "document_context": "无",
             "current_location_context": "不可用",
             "current_route_context": "无",
-            "skill_context": "地图已开启。",
             "memory_context": "",
         }
         route_prompt = dynamic_system_prompt(

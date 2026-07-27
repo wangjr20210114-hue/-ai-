@@ -419,6 +419,18 @@ def _route_result_answer(payload: dict | None) -> str:
     return "\n\n".join(lines)
 
 
+def _route_result_with_calendar_degraded(payload: dict | None) -> str:
+    """Preserve a completed route when its independent calendar stage fails."""
+    route_answer = _route_result_answer(payload)
+    if not route_answer:
+        return ""
+    return (
+        f"{route_answer}\n\n"
+        "路线规划已经完成；本轮没有生成日程提案。路线与日程相互独立，"
+        "你仍可先查看路线，之后再让我把它整理成可确认的日程卡。"
+    )
+
+
 def _linked_trip_result_answer(
     route_payload: dict | None,
     calendar_payload: dict | None,
@@ -791,10 +803,18 @@ def build_graph(
                     },
                 },
             )]}
-        # A failed required capability is terminal for this logical turn.
-        # Never advance to dependent tools or let an answer model replace
-        # missing provider evidence with plausible-looking prose.
+        # Preserve an earlier verified route if only its independent calendar
+        # enhancement failed. Never tell the user that nothing ran after a real
+        # Tencent map Action was already emitted.
         if required_tool_failed:
+            route_only_answer = _route_result_with_calendar_degraded(
+                route_result_payload
+            )
+            if (
+                route_only_answer
+                and "propose_calendar_changes" in required_sequence
+            ):
+                return {"messages": [AIMessage(content=route_only_answer)]}
             return {"messages": [AIMessage(content=(
                 tool_failure_fallback(state["messages"])
                 or "这次所需能力没有成功完成，因此我没有生成或猜测结果。请稍后重试。"
@@ -881,15 +901,28 @@ def build_graph(
             name for name in required_sequence
             if name not in allowed_tool_names and name not in used_tool_names
         ]
-        if unavailable_required_tools:
+        next_available_required = next_required_tool(
+            required_sequence, used_tool_names, allowed_tool_names,
+        )
+        # Execute every available prefix before degrading on a later missing
+        # capability. This is what lets a verified route survive an unavailable
+        # independent calendar proposal.
+        if unavailable_required_tools and not next_available_required:
+            route_only_answer = _route_result_with_calendar_degraded(
+                route_result_payload
+            )
+            if (
+                route_only_answer
+                and set(unavailable_required_tools)
+                == {"propose_calendar_changes"}
+            ):
+                return {"messages": [AIMessage(content=route_only_answer)]}
             return {"messages": [AIMessage(content=blocked_capability_response(
                 unavailable_required_tools,
                 response_language,
                 configured=True,
             ))]}
-        required_name = "" if force_finalize else next_required_tool(
-            required_sequence, used_tool_names, allowed_tool_names,
-        )
+        required_name = "" if force_finalize else next_available_required
         planned_sequence_complete = bool(required_sequence) and not required_name
         planned_arguments = direct_tool_arguments.get(required_name)
         if (
@@ -1076,6 +1109,14 @@ def build_graph(
             # Some compatible gateways may ignore tool_choice even after the
             # explicit retry. Never expose their premature prose as if the
             # required search, card, route, or side effect had completed.
+            route_only_answer = _route_result_with_calendar_degraded(
+                route_result_payload
+            )
+            if (
+                route_only_answer
+                and required_name == "propose_calendar_changes"
+            ):
+                return {"messages": [AIMessage(content=route_only_answer)]}
             return {"messages": [AIMessage(content=blocked_capability_response(
                 [required_name],
                 response_language,

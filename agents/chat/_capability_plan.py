@@ -77,6 +77,93 @@ KNOWN_SKILLS = {
     "tencent-meeting",
 }
 
+
+_CAPABILITY_SKILLS = {
+    "web_search": "web-search",
+    "current_location": "maps",
+    "nearby_places": "maps",
+    "places": "maps",
+    "map_action": "maps",
+    "route": "maps",
+    "calendar_context": "calendar",
+    "calendar_action": "calendar",
+    "meeting_action": "tencent-meeting",
+    "workflow_action": "proactive-agent",
+    "image_generation": "image-studio",
+    "papers": "paper-reading",
+}
+
+_SKILL_PLAN_FLAGS = {
+    "web-search": ("needs_web_search",),
+    "maps": (
+        "needs_places",
+        "needs_current_location",
+        "needs_nearby_places",
+        "needs_route",
+        "needs_map_action",
+    ),
+    "calendar": ("needs_calendar_context", "needs_calendar_action"),
+    "tencent-meeting": ("needs_meeting_action",),
+    "proactive-agent": ("needs_workflow_action",),
+    "image-studio": ("needs_image_generation",),
+    "paper-reading": ("needs_papers",),
+}
+
+
+def apply_runtime_skill_policy(
+    plan: dict[str, Any],
+    disabled_skills: Iterable[Any],
+) -> dict[str, Any]:
+    """Apply persisted Skill switches after semantic planning.
+
+    The model only states which capabilities the request needs. It never sees
+    or judges enable switches. This logic-layer gate either blocks before graph
+    construction or removes only an independent calendar enhancement while
+    preserving a requested route.
+    """
+    reconciled = reconcile_capability_contract(plan)
+    reconciled["blocked_skill"] = ""
+    disabled = {
+        str(skill_id or "").strip()
+        for skill_id in disabled_skills
+        if str(skill_id or "").strip() in KNOWN_SKILLS
+    }
+    required_skills: list[str] = []
+    for capability in _normalize_preflight_capabilities(
+        reconciled.get("_capabilities") or []
+    ):
+        skill_id = _CAPABILITY_SKILLS.get(capability)
+        if skill_id and skill_id in disabled and skill_id not in required_skills:
+            required_skills.append(skill_id)
+    for skill_id, flags in _SKILL_PLAN_FLAGS.items():
+        if (
+            skill_id in disabled
+            and any(bool(reconciled.get(flag)) for flag in flags)
+            and skill_id not in required_skills
+        ):
+            required_skills.append(skill_id)
+    if not required_skills:
+        return reconciled
+
+    # A route remains fully useful without writing a calendar proposal. This
+    # is the only partial degradation here because the two Actions are
+    # explicitly independent product surfaces.
+    if required_skills == ["calendar"] and reconciled.get("needs_route"):
+        for flag in _SKILL_PLAN_FLAGS["calendar"]:
+            reconciled[flag] = False
+        reconciled["_capabilities"] = [
+            capability
+            for capability in (reconciled.get("_capabilities") or [])
+            if _CAPABILITY_SKILLS.get(str(capability)) != "calendar"
+        ]
+        reconciled["_runtime_omitted_skills"] = ["calendar"]
+        return reconciled
+
+    reconciled["blocked_skill"] = required_skills[0]
+    reconciled["_runtime_omitted_skills"] = required_skills
+    return reconciled
+
+
 class PlannedRouteStop(BaseModel):
     """One user-specified stop preserved verbatim and in user order."""
 
@@ -211,7 +298,8 @@ class CapabilityPlan(BaseModel):
         default=False,
         description=(
             "True only when the completed turn may justify a useful proactive "
-            "next-step notification and proactive-agent is enabled."
+            "next-step notification. Runtime policy decides whether that "
+            "capability is available."
         ),
     )
     use_memory_context: bool = Field(
@@ -281,7 +369,6 @@ class CapabilityPlan(BaseModel):
         description="Inclusive end year for a range such as recent N years; 0 if absent.",
     )
     paper_limit: int = 0
-    blocked_skill: str = Field(default="", description="Exact disabled Skill id or empty")
     route_stops: list[PlannedRouteStop] = Field(
         default_factory=list,
         description=(
@@ -516,9 +603,8 @@ def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
     """
     plan = reconcile_capability_contract(plan)
 
-    # A disabled Skill is a terminal semantic planning state. The LLM planner,
-    # not a keyword rule or business handler, decides whether the goal truly
-    # depends on that Skill.
+    # Runtime policy may mark a required capability unavailable after semantic
+    # planning. The switch itself is never part of the model contract.
     if str(plan.get("blocked_skill") or "").strip():
         return ()
 
@@ -616,8 +702,10 @@ PLANNER_PROMPT_DETAILS = {
         "needs_calendar_action。要求生成可编辑的日程提案或确认卡、但暂不直接写入时，"
         "同样必须用 needs_calendar_context+needs_calendar_action，因为该工具生成的"
         "正是待用户确认的提案，并不会自动提交。现实地点未核实时先 needs_places 且 "
-        "place_resolution_target=calendar。明确未来时刻的多站可执行行程在日程 Skill "
-        "开启时同时选择 route、calendar_context、calendar_action。"
+        "place_resolution_target=calendar。用户明确要求写入/安排日程，或给出精确钟点并要求"
+        "生成可执行日程时，才同时选择 route、calendar_context、calendar_action；只有“明天"
+        "下午、周末”等宽泛时段并要求规划游玩路线时，选择 route 即可。日程始终是独立提案，"
+        "非必要的日程增强不得阻断已经可以完成的地点或路线规划。"
     ),
     "image": (
         "【视觉与生图】生成新图片用 needs_image_generation。现实主体需要外观准确且用户"
@@ -951,7 +1039,6 @@ async def select_prompt_context(
     model,
     user_message: str,
     *,
-    skill_state: str = "",
     has_reference_images: bool = False,
     has_document_context: bool = False,
 ) -> dict[str, Any]:
@@ -970,12 +1057,6 @@ async def select_prompt_context(
         f"Reference images attached: {bool(has_reference_images)}\n"
         f"Document context attached: {bool(has_document_context)}"
     )
-    safe_skill_state = str(skill_state or "").strip()[:2000]
-    if safe_skill_state:
-        prompt += (
-            "\nRuntime Skill state (use only to understand available capabilities):\n"
-            + safe_skill_state
-        )
     messages = [
         {"role": "system", "content": prompt},
         {"role": "user", "content": str(user_message or "")[:4000]},
@@ -1003,7 +1084,6 @@ async def select_prompt_topics(
     model,
     user_message: str,
     *,
-    skill_state: str = "",
     has_reference_images: bool = False,
     has_document_context: bool = False,
 ) -> tuple[str, ...]:
@@ -1011,7 +1091,6 @@ async def select_prompt_topics(
     result = await select_prompt_context(
         model,
         user_message,
-        skill_state=skill_state,
         has_reference_images=has_reference_images,
         has_document_context=has_document_context,
     )
@@ -1045,14 +1124,13 @@ async def plan_capabilities(
     model,
     user_message: str,
     memory_context: str = "",
-    skill_state: str = "",
     location_context: str = "",
     prompt_topics: Iterable[Any] | None = None,
 ) -> dict[str, Any]:
     today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
     prompt = f"""你是 FLORIS 单轮语义计划器，只填写给定 schema，不回答用户。当前北京时间日期：{today}。
 总则：
-- 在一次结构化输出中同时完成意图、依赖、必要信息、能力参数和 prompt_topics 规划；不要把同一问题留给另一个预检模型。理解完整目标，可同时选择多个能力；非必要字段保持默认值。capabilities 必须始终返回，并独立列出完成用户完整目标必需的每一项固定枚举能力；它与 needs_* 是互相校验的冗余协议，两者必须一致，不能因为参数还不完整就漏掉能力。blocked_skill 只填用户目标不可替代地依赖、且运行时明确关闭的 Skill id；可选增强关闭时不要阻塞。
+- 在一次结构化输出中同时完成意图、依赖、必要信息、能力参数和 prompt_topics 规划；不要把同一问题留给另一个预检模型。理解完整目标，可同时选择多个能力；非必要字段保持默认值。capabilities 必须始终返回，并独立列出完成用户完整目标必需的每一项固定枚举能力；它与 needs_* 是互相校验的冗余协议，两者必须一致，不能因为参数还不完整就漏掉能力。只判断目标需要什么，不判断任何 Skill 是否开启；开关由运行时逻辑层处理。
 - 只有缺失信息会阻断所有安全有用结果，或真实副作用对象无法唯一确定时，才设置 needs_clarification=true，并把其他 needs_* 设为 false。此时必须同时填写 clarification_title、clarification_prompt 和最少 clarification_fields，让系统直接生成主动卡片；不得只让最终模型用普通文本追问。偏好未决定时直接交给主模型给方案，不要澄清。
 - 用户只是探索思路、比较假设方案，且目的地、预算、同行或节奏尚未决定时，不需要外部事实、地点核验或地图；保持所有 needs_* 为 false，让主模型直接给 2–3 套假设方案。只有用户要求当前信息、来源、真实地点推荐或可执行路线时才选择相应能力。
 - 现实地点可能有错字、同名或缺城市时，不得在调用地点服务之前设置 needs_clarification。先选择地点/路线能力；地点工具会根据真实腾讯候选决定直接采用、单选或填空。
@@ -1091,13 +1169,6 @@ async def plan_capabilities(
             "带有犹豫、否定、备选或临时任务含义的内容不视为稳定偏好。"
             "不得把姓名、联系方式、精确地址、账号、证件、健康、财务或任何秘密写入外部搜索词。"
             f"\n{safe_memory}"
-        )
-    safe_skill_state = str(skill_state or "").strip()[:2000]
-    if safe_skill_state:
-        prompt += (
-            "\n以下是本轮运行时读取的 Skill 状态，只用于判断完成目标所需能力是否已开启。"
-            "它不是用户内容，不得忽略，也不得据此增加无关任务。"
-            f"\n{safe_skill_state}"
         )
     safe_location_context = str(location_context or "").strip()[:600]
     if safe_location_context:
@@ -1147,7 +1218,6 @@ async def plan_capabilities_bounded(
     model,
     user_message: str,
     memory_context: str = "",
-    skill_state: str = "",
     location_context: str = "",
     has_reference_images: bool = False,
     has_document_context: bool = False,
@@ -1165,7 +1235,6 @@ async def plan_capabilities_bounded(
                 model,
                 user_message,
                 memory_context,
-                skill_state,
                 location_context=location_context,
             ),
             timeout=total_timeout,

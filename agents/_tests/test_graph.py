@@ -1167,6 +1167,32 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
             "路线和日程提案已准备好。",
         )
 
+    async def test_completed_route_survives_unavailable_calendar_stage(self):
+        model = _LinkedRouteCalendarModel()
+        graph = build_graph(
+            model,
+            [linked_verified_route_action],
+            "system",
+            required_tools=[
+                "plan_route_between_places",
+                "propose_calendar_changes",
+            ],
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="明天下午去这几个地方逛逛")],
+        })
+        tool_names = [
+            message.name for message in result["messages"]
+            if isinstance(message, ToolMessage)
+        ]
+        self.assertEqual(tool_names, ["plan_route_between_places"])
+        answer = result["messages"][-1].content
+        self.assertIn("北京站 → 北京西站", answer)
+        self.assertIn("路线规划已经完成", answer)
+        self.assertIn("本轮没有生成日程提案", answer)
+        self.assertNotIn("Skills 广场", answer)
+        self.assertNotIn("没有执行", answer)
+
     async def test_domain_tool_clarification_does_not_mark_required_route_complete(self):
         model = _RouteChainModel()
         graph = build_graph(

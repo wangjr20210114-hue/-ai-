@@ -15,6 +15,7 @@ from ._llm import get_model
 from ._ui_tools import build_production_tools
 from ._capability_plan import (
     DEFAULT_PLAN,
+    apply_runtime_skill_policy,
     fallback_tools_for_prompt_topics,
     media_enabled_for_plan,
     plan_capabilities_bounded,
@@ -231,7 +232,7 @@ SYSTEM_PROMPT = """你是 FLORIS:一只有温度的大橘，一个可靠、主�
 当前北京时间是 {now}。weekday 是后端日期库计算的权威结果；回答涉及“今天周几”、营业日、周末或出行日期时必须直接采用，禁止自行重新推算或改写。
 当前用户日程（每轮从 Makers 用户 Workspace 实时读取；更新或删除只能使用这里仍存在的 id）：{calendar_context}
 浏览器当前位置只可作为本轮路线的隐式起点、“我附近”搜索的参照点，或由 get_current_location 调用腾讯逆地址解析得到可读地址；不得复述精确坐标，不得写入日程、长期记忆或外部搜索词。任何关于“我在哪、是否已定位、我附近”的回答，都必须以本轮“浏览器当前位置状态”和 get_current_location 的真实结果为唯一事实来源：直接问“我现在在哪”时调用 get_current_location；状态不可用时由位置或附近工具生成填写位置的结构化卡片，禁止声称已授权、已定位或已搜索当前位置附近，也不要只用普通文字让用户自己另开地图。若本轮状态为可用，用户说“我想去/带我去/怎么去某地”且没有另给起点时，直接以当前位置规划，不要再问起点；若用户明确给了起点，以用户表达为准。
-本轮主动模块建议（由独立模型做语义判断，不是关键词规则）：{capability_plan}。它只提示可用能力，不规定你的措辞或回答结构；不要在回答中提及它。需要搜索时可优先采用其中的 search_query 和 image_query，也可以根据上下文自然调整。若 blocked_skill 非空，表示独立规划模型判断用户当前目标不可替代地依赖该已关闭 Skill；本轮不得调用其他能力拼凑半成品，也不得复用旧工具结果，应自然说明本次请求尚未执行并建议用户到 Skills 广场开启它。
+本轮主动模块建议（由独立模型做语义判断，不是关键词规则）：{capability_plan}。它只描述本轮已经通过运行时能力门控的执行目标，不规定你的措辞或回答结构；不要在回答中提及它。需要搜索时可优先采用其中的 search_query 和 image_query，也可以根据上下文自然调整。
 当前用户消息对本轮范围、地点、时间和备选条件的更新优先于此前回答与旧工具结果。用户放宽、替换或否定旧范围时，不得继续把已被替换的旧地点混入新结果，也不得用旧地图 Action 冒充本轮已完成。
 本轮用户附图的视觉理解（由配置的多模态 Provider 一次性提取；没有附图时为“无”）：{reference_image_context}
 本轮用户明确选择的已上传文档内容（没有时为“无”）：{document_context}
@@ -442,7 +443,6 @@ def dynamic_system_prompt(
     document_context: str,
     current_location_context: str,
     current_route_context: str,
-    skill_context: str,
     memory_context: str,
     public_answer: bool = False,
     full_prompt: bool = False,
@@ -566,7 +566,12 @@ def dynamic_system_prompt(
     rendered = template.format(
         now=now,
         response_language_instruction=response_language_instruction,
-        capability_plan=json.dumps(capability_plan, ensure_ascii=False),
+        capability_plan=json.dumps({
+            key: value
+            for key, value in capability_plan.items()
+            if key != "blocked_skill"
+            and not key.startswith("_runtime_")
+        }, ensure_ascii=False),
         calendar_context=calendar_context,
         reference_image_context=reference_image_context or "无",
         document_context=document_context or "无",
@@ -575,8 +580,6 @@ def dynamic_system_prompt(
     # “我现在在哪” may legitimately have no map tool selected, but must never
     # hallucinate a permission grant or a successful location lookup.
     tails = []
-    if full_prompt or selected_tools or capability_plan.get("blocked_skill"):
-        tails.append(skill_context)
     if (
         full_prompt
         or uses_maps
@@ -1375,12 +1378,6 @@ async def handler(ctx):
     skill_preferences = intelligence.get("skill_preferences") or {}
     enabled_skills = {skill_id for skill_id, enabled in skill_preferences.items() if enabled}
     disabled_skills = sorted(skill_id for skill_id, enabled in skill_preferences.items() if not enabled)
-    skill_context = (
-        f"本轮已开启 Skills：{', '.join(sorted(enabled_skills)) or '仅核心对话'}。"
-        f"已关闭 Skills：{', '.join(disabled_skills) or '无'}。"
-        "绝不能声称或模拟已关闭能力。若用户请求受关闭能力影响，要自然说明受限，并建议到 Skills 广场开启对应能力；"
-        "日程在地图关闭时仍可创建无地点日程，但涉及真实地点时应建议开启地图；腾讯会议依赖日程写入。"
-    )
     current_calendar_context = "[]"
     current_route_context = "无"
     reference_image_context = ""
@@ -1460,16 +1457,16 @@ async def handler(ctx):
             fast_model,
             planning_message,
             memory_context,
-            skill_state=json.dumps({
-                "enabled": sorted(enabled_skills),
-                "disabled": disabled_skills,
-            }, ensure_ascii=False),
             location_context=current_location_context,
             has_reference_images=bool(reference_images),
             has_document_context=bool(document_context),
             timeout_seconds=planner_timeout,
             timings_ms=stage_timings_ms,
         )
+    capability_plan = apply_runtime_skill_policy(
+        capability_plan,
+        disabled_skills,
+    )
     post_plan_started_at = time.monotonic()
     resumed_planned_arguments: dict = {}
     if silent_clarification:
@@ -1798,7 +1795,7 @@ async def handler(ctx):
     )
     if blocked_skill:
         logging.info(
-            "semantic planner blocked turn on disabled skill=%s",
+            "runtime skill policy blocked turn before graph model skill=%s",
             blocked_skill,
         )
     # Structured clarification is a product-wide interaction capability. The
@@ -1824,7 +1821,6 @@ async def handler(ctx):
         document_context=document_context or "无",
         current_location_context=current_location_context,
         current_route_context=current_route_context,
-        skill_context=skill_context,
         memory_context=memory_context,
         full_prompt=False,
     )
@@ -1839,7 +1835,6 @@ async def handler(ctx):
             document_context=document_context or "无",
             current_location_context=current_location_context,
             current_route_context=current_route_context,
-            skill_context=skill_context,
             memory_context=memory_context,
         )
         for tool_name in required_tool_names
@@ -1854,7 +1849,6 @@ async def handler(ctx):
         document_context=document_context or "无",
         current_location_context=current_location_context,
         current_route_context=current_route_context,
-        skill_context=skill_context,
         memory_context=memory_context,
         public_answer=True,
     )
