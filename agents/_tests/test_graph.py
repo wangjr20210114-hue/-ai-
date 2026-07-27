@@ -82,6 +82,33 @@ def plan_route_between_places(origin_query: str, destination_query: str) -> str:
     """Return one verified route."""
     return f"{origin_query}->{destination_query}:13.8km"
 
+
+@tool("plan_route_between_places")
+def verified_route_action(origin_query: str, destination_query: str) -> str:
+    """Return one structured verified Tencent route."""
+    return json.dumps({
+        "ui_action": "map_action",
+        "ordered_stops": [
+            {"name": origin_query},
+            {"name": destination_query},
+        ],
+        "route": {
+            "mode": "transit",
+            "distance_kilometers": 5.0,
+            "duration_minutes": 50,
+            "transit": {
+                "lines": ["地铁2号线内环", "60路"],
+                "walking_distance_meters": 1596,
+            },
+            "fare": {
+                "transit": {
+                    "provider_estimate": True,
+                    "estimate": 5,
+                },
+            },
+        },
+    }, ensure_ascii=False)
+
 @tool
 def propose_calendar_changes(summary: str) -> str:
     """Return one calendar proposal."""
@@ -420,6 +447,43 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("步行约 4.1 公里", answer)
         self.assertIn("预计 62 分钟", answer)
         self.assertIn("不会自动写入日程", answer)
+
+    async def test_voluntary_verified_route_cannot_be_rewritten_by_answer_model(self):
+        class VoluntaryRouteModel:
+            def __init__(self):
+                self.calls = 0
+
+            def bind_tools(self, _tools, **_kwargs):
+                return self
+
+            async def ainvoke(self, _messages, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    return AIMessage(content="", tool_calls=[{
+                        "name": "plan_route_between_places",
+                        "args": {
+                            "origin_query": "北京站",
+                            "destination_query": "故宫博物院",
+                        },
+                        "id": "voluntary-route-1",
+                    }])
+                return AIMessage(content="模型猜测约 45 分钟")
+
+        model = VoluntaryRouteModel()
+        graph = build_graph(
+            model,
+            [verified_route_action],
+            "system",
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="帮我规划路线")],
+        })
+
+        final = result["messages"][-1].content
+        self.assertIn("公交约 5 公里，预计 50 分钟", final)
+        self.assertIn("主要线路：地铁2号线内环、60路", final)
+        self.assertNotIn("45 分钟", final)
+        self.assertEqual(model.calls, 1)
 
     async def test_paper_only_result_skips_redundant_public_model_round(self):
         model = _RecordingModel()

@@ -158,9 +158,22 @@ class CapabilityPlan(BaseModel):
         ),
     )
     needs_nearby_places: bool = False
-    needs_route: bool = False
+    needs_route: bool = Field(
+        default=False,
+        description=(
+            "True for every request to calculate or plan real travel between "
+            "places, including a route embedded inside a calendar proposal."
+        ),
+    )
     needs_map_action: bool = False
-    needs_calendar_action: bool = False
+    needs_calendar_action: bool = Field(
+        default=False,
+        description=(
+            "True when the user asks to create, edit, delete, or prepare an "
+            "editable calendar proposal/card. A request not to write before "
+            "confirmation still requires this proposal action."
+        ),
+    )
     needs_calendar_context: bool = Field(
         default=False,
         description=(
@@ -600,7 +613,9 @@ PLANNER_PROMPT_DETAILS = {
     ),
     "calendar": (
         "【日程】只读/汇总当前日程用 needs_calendar_context；新增、修改、删除还要 "
-        "needs_calendar_action。现实地点未核实时先 needs_places 且 "
+        "needs_calendar_action。要求生成可编辑的日程提案或确认卡、但暂不直接写入时，"
+        "同样必须用 needs_calendar_context+needs_calendar_action，因为该工具生成的"
+        "正是待用户确认的提案，并不会自动提交。现实地点未核实时先 needs_places 且 "
         "place_resolution_target=calendar。明确未来时刻的多站可执行行程在日程 Skill "
         "开启时同时选择 route、calendar_context、calendar_action。"
     ),

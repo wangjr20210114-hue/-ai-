@@ -780,28 +780,12 @@ def build_graph(
         # calendar independent. Linked route+calendar plans intentionally
         # continue to their next required capability.
         if (
-            tuple(required_sequence) == ("plan_route_between_places",)
-            and {name for name in used_tool_names if name}
-            == {"plan_route_between_places"}
-        ):
-            route_answer = _route_result_answer(route_result_payload)
-            if route_answer:
-                logging.info(
-                    "finalized route-only turn from structured Tencent result stops=%s",
-                    len(route_result_payload.get("ordered_stops") or []),
-                )
-                return {"messages": [AIMessage(content=route_answer)]}
-        if (
-            set(required_sequence)
-            == {
+            route_result_payload is not None
+            and calendar_result_payload is not None
+            and {
                 "plan_route_between_places",
                 "propose_calendar_changes",
-            }
-            and {name for name in used_tool_names if name}
-            == {
-                "plan_route_between_places",
-                "propose_calendar_changes",
-            }
+            }.issubset({name for name in used_tool_names if name})
         ):
             linked_answer = _linked_trip_result_answer(
                 route_result_payload,
@@ -812,6 +796,22 @@ def build_graph(
                     "finalized linked route-calendar turn from structured actions"
                 )
                 return {"messages": [AIMessage(content=linked_answer)]}
+        if (
+            route_result_payload is not None
+            and calendar_result_payload is None
+            and "propose_calendar_changes" not in required_sequence
+        ):
+            # A model may voluntarily call the verified route tool even when a
+            # degraded semantic preflight omitted the route capability. Never
+            # hand those facts back to a prose model: it can contradict the
+            # Tencent payload while still emitting the genuine map Action.
+            route_answer = _route_result_answer(route_result_payload)
+            if route_answer:
+                logging.info(
+                    "finalized verified route turn from structured Tencent result stops=%s",
+                    len(route_result_payload.get("ordered_stops") or []),
+                )
+                return {"messages": [AIMessage(content=route_answer)]}
         # A model can occasionally keep reformulating the same search. Preserve
         # multi-tool reasoning, but after a generous turn-local budget force a
         # normal answer from the evidence already collected instead of exposing
