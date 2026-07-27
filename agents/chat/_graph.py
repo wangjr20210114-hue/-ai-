@@ -18,6 +18,7 @@ from ._history import (
 )
 from ._protocol import action_fallback_content, dsml_tool_calls, public_content
 from ._capability_plan import next_required_tool
+from .._shared.skill_registry import skill_manifests, tool_skill_map
 from ._llm import _is_quota_error, _is_transient_gateway_error
 
 
@@ -52,33 +53,11 @@ TURN_SINGLE_USE_TOOLS = {
 MAX_REQUIRED_VALIDATION_ATTEMPTS = 3
 
 SKILL_DISPLAY_NAMES = {
-    "web-search": {"zh-CN": "联网搜索", "zh-TW": "聯網搜尋", "en": "Web Search"},
-    "vision": {"zh-CN": "视觉理解", "zh-TW": "視覺理解", "en": "Vision"},
-    "image-studio": {"zh-CN": "图片工坊", "zh-TW": "圖片工坊", "en": "Image Studio"},
-    "maps": {"zh-CN": "地图", "zh-TW": "地圖", "en": "Maps"},
-    "calendar": {"zh-CN": "日程管理", "zh-TW": "日程管理", "en": "Calendar"},
-    "proactive-agent": {"zh-CN": "主动式 Agent", "zh-TW": "主動式 Agent", "en": "Proactive Agent"},
-    "paper-reading": {"zh-CN": "论文阅读", "zh-TW": "論文閱讀", "en": "Paper Reading"},
-    "tencent-meeting": {"zh-CN": "腾讯会议", "zh-TW": "騰訊會議", "en": "Tencent Meeting"},
+    manifest.id: dict(manifest.names)
+    for manifest in skill_manifests()
 }
 
-TOOL_CAPABILITIES = {
-    "get_current_location": "maps",
-    "rich_search": "web-search",
-    "collect_page_images": "web-search",
-    "analyze_images_parallel": "vision",
-    "search_places": "maps",
-    "search_places_batch": "maps",
-    "plan_route_between_places": "maps",
-    "prepare_map_recommendation": "maps",
-    "recommend_places_on_map": "maps",
-    "recommend_nearby_places_on_map": "maps",
-    "propose_calendar_changes": "calendar",
-    "propose_meeting": "tencent-meeting",
-    "propose_workflow": "proactive-agent",
-    "propose_image": "image-studio",
-    "search_arxiv": "paper-reading",
-}
+TOOL_CAPABILITIES = tool_skill_map()
 
 
 def _capability_names(capability_ids: Iterable[str], response_language: str) -> str:

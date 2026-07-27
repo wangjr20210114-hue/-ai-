@@ -1,4 +1,4 @@
-import type { ChatMessage, ConversationSummary, TravelPlan, ScheduleItem, StoredFileInfo, MakersMapPlace, MakersRouteMode, MakersRouteStrategy, MakersRoutePlan, WorkspaceAction, ProactiveState, MakersIntelligenceState, ProviderUsageSummary } from '../types';
+import type { ChatMessage, ConversationSummary, TravelPlan, ScheduleItem, StoredFileInfo, MakersMapPlace, MakersRouteMode, MakersRouteStrategy, MakersRoutePlan, WorkspaceAction, ProactiveState, MakersIntelligenceState, ProviderUsageSummary, InstalledSkill } from '../types';
 
 import { authorizedFetch, withEdgeOneAuth } from './auth';
 import { createConversationId, makersConversationHeaders } from './conversation';
@@ -180,7 +180,11 @@ export async function getProviderUsage(conversationId: string): Promise<Provider
 export async function skillsOperation(
   conversationId: string,
   preferences?: Record<string, boolean>,
-): Promise<{ preferences: Record<string, boolean>; providers: { meeting: boolean } }> {
+): Promise<{
+  preferences: Record<string, boolean>;
+  providers: Record<string, boolean>;
+  catalog: InstalledSkill[];
+}> {
   const intelligence = await intelligenceOperation(
     conversationId,
     preferences ? 'update_skill_preferences' : 'get',
@@ -188,7 +192,8 @@ export async function skillsOperation(
   );
   return {
     preferences: intelligence.skill_preferences || {},
-    providers: { meeting: Boolean(intelligence.providers?.meeting) },
+    providers: intelligence.providers || {},
+    catalog: intelligence.skill_catalog || [],
   };
 }
 

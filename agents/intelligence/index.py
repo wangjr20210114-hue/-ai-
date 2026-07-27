@@ -18,12 +18,21 @@ from .._shared.intelligence import (
 from .._shared.proactive import load_proactive_state, save_proactive_state, update_preferences
 from .._shared.auth import require_user
 from .._shared.http import error
+from .._shared.skill_registry import (
+    public_skill_catalog,
+    run_preference_hooks,
+    skill_manifest,
+)
 
 
 def _public_state(state, env):
     public = public_intelligence_state(state)
+    catalog = public_skill_catalog(env)
+    public["skill_catalog"] = catalog
     public["providers"] = {
-        "meeting": bool(env.get("TENCENT_MEETING_TOKEN")),
+        item["id"]: bool(item["configured"])
+        for item in catalog
+        if item.get("external")
     }
     return public
 
@@ -92,17 +101,44 @@ async def handler(ctx):
             requested = body.get("preferences") or {}
             if not isinstance(requested, dict):
                 raise ValueError("Skills 设置格式无效")
-            current = dict(state.get("skill_preferences") or DEFAULT_SKILL_PREFERENCES)
+            previous = dict(
+                state.get("skill_preferences") or DEFAULT_SKILL_PREFERENCES
+            )
+            current = dict(previous)
             for skill_id in DEFAULT_SKILL_PREFERENCES:
-                if skill_id == "core":
+                manifest = skill_manifest(skill_id)
+                if manifest and manifest.locked:
                     current[skill_id] = True
                 elif skill_id in requested:
                     current[skill_id] = bool(requested[skill_id])
+            # Enabling a Skill is atomic with all hard dependencies declared by
+            # its manifest. Disabling a dependency does not destroy a user's
+            # preference for dependants; runtime resolution simply withholds
+            # those tools until the requirement is enabled again.
+            pending = [
+                skill_id
+                for skill_id, enabled in requested.items()
+                if bool(enabled)
+            ]
+            while pending:
+                skill_id = pending.pop()
+                manifest = skill_manifest(skill_id)
+                if manifest is None:
+                    continue
+                for dependency in manifest.requires:
+                    if not current.get(dependency, False):
+                        current[dependency] = True
+                        pending.append(dependency)
             state["skill_preferences"] = current
-            if "proactive-agent" in requested:
-                proactive = await load_proactive_state(store, user_id)
-                update_preferences(proactive, {"enabled": bool(current["proactive-agent"])})
-                await save_proactive_state(store, proactive, user_id)
+            await run_preference_hooks(
+                {
+                    "state_store": store,
+                    "user_id": user_id,
+                    "env": getattr(ctx, "env", {}) or {},
+                },
+                previous,
+                current,
+            )
         elif operation == "clear_memories":
             state["memories"] = {}
             state["memory_proposals"] = {}

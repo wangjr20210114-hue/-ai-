@@ -170,17 +170,23 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
 });
 
 test('Tencent Meeting uses only the optional personal official MCP Skill', async () => {
-  const [provider, tools, envExample, skillsApi] = await Promise.all([
+  const [provider, tools, envExample, skillsApi, manifest, registry] = await Promise.all([
     read('agents/_shared/side_effects.py'),
     read('agents/chat/_ui_tools.py'),
     read('.env.example'),
     read('frontend/src/services/api.ts'),
+    read('agents/skills/tencent_meeting/manifest.py'),
+    read('agents/_shared/skill_registry.py'),
   ]);
   assert.match(provider, /mcp\.meeting\.tencent\.com/);
   assert.match(provider, /X-Tencent-Meeting-Token/);
   assert.match(envExample, /TENCENT_MEETING_TOKEN/);
   assert.doesNotMatch(provider + envExample, /TENCENT_MEETING_SECRET_ID|X-TC-Signature/);
-  assert.match(tools, /if not meeting_ready/);
+  assert.match(manifest, /"external": True/);
+  assert.match(manifest, /"provider_env": \["TENCENT_MEETING_TOKEN"\]/);
+  assert.match(manifest, /"requires": \["calendar"\]/);
+  assert.match(tools, /skill_is_configured/);
+  assert.match(registry, /def skill_is_configured/);
   assert.match(skillsApi, /intelligenceOperation/);
   assert.match(skillsApi, /makersConversationHeaders\(conversationId\)/);
   assert.doesNotMatch(skillsApi, /skillsOperation[\s\S]{0,800}authorizedFetch\('\/system(?:_internal)?'/);
@@ -188,7 +194,7 @@ test('Tencent Meeting uses only the optional personal official MCP Skill', async
 });
 
 test('settings and Skills open on lightweight configuration reads', async () => {
-  const [settings, skills, api, intelligence, library, paperApi, input, catalog] = await Promise.all([
+  const [settings, skills, api, intelligence, library, paperApi, input, registry] = await Promise.all([
     read('frontend/src/components/profile/AppSettingsButton.tsx'),
     read('frontend/src/components/profile/SkillsMarketplaceButton.tsx'),
     read('frontend/src/services/api.ts'),
@@ -196,7 +202,7 @@ test('settings and Skills open on lightweight configuration reads', async () => 
     read('cloud-functions/library/index.js'),
     read('frontend/src/services/paperApi.ts'),
     read('frontend/src/components/chat/InputBar.tsx'),
-    read('frontend/src/components/profile/skillsCatalog.ts'),
+    read('agents/_shared/skill_registry.py'),
   ]);
   const settingsOpenEffects = settings.slice(0, settings.indexOf('const setPreferences'));
   assert.doesNotMatch(settingsOpenEffects, /proactiveOperation\(conversationId,\s*['"]refresh['"]/);
@@ -207,9 +213,11 @@ test('settings and Skills open on lightweight configuration reads', async () => 
   assert.match(library, /searchParams\.get\('view'\) === 'settings'/);
   assert.doesNotMatch(skills, /skill-market-skeleton/);
   assert.doesNotMatch(api, /skillsOperation[\s\S]{0,800}system_internal/);
-  assert.match(intelligence, /"providers"[\s\S]{0,120}"meeting"/);
+  assert.match(intelligence, /public_skill_catalog/);
+  assert.match(skills, /setCatalog\(result\.catalog\)/);
+  assert.doesNotMatch(skills, /skillsCatalog/);
+  assert.match(registry, /pkgutil\.iter_modules/);
   assert.doesNotMatch(input, /web_search|webSearch|Checkbox/);
-  assert.match(catalog, /id:\s*'web-search'/);
 });
 
 test('runtime does not reimplement generic tracing, queue or cron services', async () => {

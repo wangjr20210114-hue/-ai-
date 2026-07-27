@@ -15,6 +15,17 @@ from typing import Any, Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .._shared.skill_registry import (
+    capability_skill_map,
+    capability_tools_map,
+    known_skill_ids,
+    planner_skill_index,
+    planner_topic_instructions,
+    planner_topic_summaries,
+    planner_topic_tools,
+    skill_plan_flags,
+)
+
 
 DEFAULT_PLAN = {
     "needs_clarification": False,
@@ -66,48 +77,9 @@ DEFAULT_PLAN = {
 }
 
 BOOLEAN_KEYS = tuple(key for key, value in DEFAULT_PLAN.items() if isinstance(value, bool))
-KNOWN_SKILLS = {
-    "web-search",
-    "vision",
-    "image-studio",
-    "maps",
-    "calendar",
-    "proactive-agent",
-    "paper-reading",
-    "tencent-meeting",
-}
-
-
-_CAPABILITY_SKILLS = {
-    "web_search": "web-search",
-    "current_location": "maps",
-    "nearby_places": "maps",
-    "places": "maps",
-    "map_action": "maps",
-    "route": "maps",
-    "calendar_context": "calendar",
-    "calendar_action": "calendar",
-    "meeting_action": "tencent-meeting",
-    "workflow_action": "proactive-agent",
-    "image_generation": "image-studio",
-    "papers": "paper-reading",
-}
-
-_SKILL_PLAN_FLAGS = {
-    "web-search": ("needs_web_search",),
-    "maps": (
-        "needs_places",
-        "needs_current_location",
-        "needs_nearby_places",
-        "needs_route",
-        "needs_map_action",
-    ),
-    "calendar": ("needs_calendar_context", "needs_calendar_action"),
-    "tencent-meeting": ("needs_meeting_action",),
-    "proactive-agent": ("needs_workflow_action",),
-    "image-studio": ("needs_image_generation",),
-    "paper-reading": ("needs_papers",),
-}
+KNOWN_SKILLS = known_skill_ids()
+_CAPABILITY_SKILLS = capability_skill_map()
+_SKILL_PLAN_FLAGS = skill_plan_flags()
 
 
 def apply_runtime_skill_policy(
@@ -214,16 +186,15 @@ class CapabilityPlan(BaseModel):
         default_factory=list,
         description=(
             "Only later execution-policy topics needed for this turn. Choose "
-            "from web, maps, calendar, image, paper, meeting, proactive."
+            "only topic IDs declared by the runtime Skill index in the system prompt."
         ),
     )
     capabilities: list[str] = Field(
         description=(
             "Independent semantic checksum of every user-required capability. "
-            "Always return this field, even when empty. Choose only from "
-            "web_search, current_location, nearby_places, places, map_action, "
-            "route, calendar_context, calendar_action, meeting_action, "
-            "workflow_action, image_generation, papers. A request to calculate "
+            "Always return this field, even when empty. Choose only capability "
+            "IDs declared by the runtime Skill index in the system prompt. "
+            "A request to calculate "
             "or plan real travel always includes route, including when embedded "
             "inside a schedule request. Asking for an editable calendar proposal "
             "or card includes calendar_context and calendar_action even when the "
@@ -642,6 +613,14 @@ def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
         required.append("propose_image")
     if bool(plan.get("needs_papers")):
         required.append("search_arxiv")
+    # Plug-in capabilities do not need new central booleans. Their manifests
+    # map capability ids directly to required adapter tools; built-in tools are
+    # deduplicated against the compatibility chain above.
+    registered_tools = capability_tools_map()
+    for capability in _normalize_preflight_capabilities(
+        plan.get("_capabilities") or []
+    ):
+        required.extend(registered_tools.get(capability, ()))
     return tuple(dict.fromkeys(required))
 
 
@@ -739,6 +718,18 @@ PROMPT_TOPIC_SUMMARIES = {
     "meeting": "creating a Tencent Meeting linked to a schedule",
     "proactive": "recurring or multi-step workflows and proactive follow-up",
 }
+PROMPT_TOPIC_SUMMARIES.update(planner_topic_summaries())
+for _topic, _instructions in planner_topic_instructions().items():
+    if _instructions:
+        PLANNER_PROMPT_DETAILS[_topic] = _instructions
+for _topic, _summary in PROMPT_TOPIC_SUMMARIES.items():
+    PLANNER_PROMPT_DETAILS.setdefault(
+        _topic,
+        f"【{_topic}】Use only the installed Skill capability boundaries: {_summary}",
+    )
+
+_PROMPT_TOPIC_IDS = ", ".join(PROMPT_TOPIC_SUMMARIES)
+_CAPABILITY_IDS = ", ".join(capability_skill_map())
 
 
 class PromptTopicSelection(BaseModel):
@@ -750,7 +741,7 @@ class PromptTopicSelection(BaseModel):
         default_factory=list,
         description=(
             "Every prompt topic whose operational details may be needed. "
-            "Choose only from web, maps, calendar, image, paper, meeting, proactive."
+            f"Choose only from the installed topic IDs: {_PROMPT_TOPIC_IDS}."
         ),
     )
 
@@ -768,16 +759,14 @@ class SemanticPreflight(BaseModel):
         default_factory=list,
         description=(
             "Every prompt topic whose operational details may be needed. "
-            "Choose only from web, maps, calendar, image, paper, meeting, proactive."
+            f"Choose only from the installed topic IDs: {_PROMPT_TOPIC_IDS}."
         ),
     )
     capabilities: list[str] = Field(
         default_factory=list,
         description=(
             "Every user-required capability, independently of prompt topics. "
-            "Choose only from web_search, current_location, nearby_places, "
-            "places, map_action, route, calendar_context, calendar_action, "
-            "meeting_action, workflow_action, image_generation, papers. Include "
+            f"Choose only from installed capability IDs: {_CAPABILITY_IDS}. Include "
             "route for every request to calculate or plan real travel, even when "
             "it is part of a schedule request. Include calendar_context and "
             "calendar_action when the user asks for an editable calendar proposal "
@@ -820,6 +809,8 @@ _PREFLIGHT_CAPABILITY_FLAGS = {
     "image_generation": ("needs_image_generation",),
     "papers": ("needs_papers",),
 }
+for _registered_capability in capability_skill_map():
+    _PREFLIGHT_CAPABILITY_FLAGS.setdefault(_registered_capability, ())
 
 # These prompt fragments have exactly one provider-backed execution meaning.
 # Treating the model-selected topic as a second semantic checksum prevents a
@@ -1114,6 +1105,11 @@ def fallback_tools_for_prompt_topics(topics: Iterable[Any]) -> tuple[str, ...]:
         "meeting": ("propose_meeting",),
         "proactive": ("propose_workflow",),
     }
+    for topic, tools in planner_topic_tools().items():
+        topic_tools[topic] = tuple(dict.fromkeys([
+            *topic_tools.get(topic, ()),
+            *tools,
+        ]))
     names: list[str] = []
     for topic in _normalize_prompt_topics(topics):
         names.extend(topic_tools.get(topic, ()))
@@ -1134,10 +1130,8 @@ async def plan_capabilities(
 - 只有缺失信息会阻断所有安全有用结果，或真实副作用对象无法唯一确定时，才设置 needs_clarification=true，并把其他 needs_* 设为 false。此时必须同时填写 clarification_title、clarification_prompt 和最少 clarification_fields，让系统直接生成主动卡片；不得只让最终模型用普通文本追问。偏好未决定时直接交给主模型给方案，不要澄清。
 - 用户只是探索思路、比较假设方案，且目的地、预算、同行或节奏尚未决定时，不需要外部事实、地点核验或地图；保持所有 needs_* 为 false，让主模型直接给 2–3 套假设方案。只有用户要求当前信息、来源、真实地点推荐或可执行路线时才选择相应能力。
 - 现实地点可能有错字、同名或缺城市时，不得在调用地点服务之前设置 needs_clarification。先选择地点/路线能力；地点工具会根据真实腾讯候选决定直接采用、单选或填空。
-- 能力语义索引：web-search=时效事实/查证；vision=理解附图或审核检索图片；image-studio=生图；
-  maps=真实地点/附近/道路路线；calendar=个人日程；proactive-agent=持续工作流和主动提醒；
-  paper-reading=论文检索与助读；tencent-meeting=创建会议。下面只附本轮候选能力的详细边界，
-  但 schema 中任何能力仍可按完整语义选择，不能把提示词片段选择当作最终路由。
+- 能力语义索引由已安装 Skill 的 Manifest 动态提供。只能选择索引中声明的 capability id；
+  下面只附本轮候选能力的详细边界，但不能把提示词片段选择当作最终路由。
 - needs_deep_reasoning 只用于确实需要多步开放推理的最终回答；能力路由、固定 JSON、工具参数、
   Action 确认、简单问答都保持 false，使用 Flash 即可。
 - 正常的实质性回答只要存在自然、具体且不重复原问题的下一步，needs_followups 就应为 true；
@@ -1145,6 +1139,7 @@ async def plan_capabilities(
   可长期复用的非敏感事实或稳定偏好时为 true；needs_opportunity_review 只在主动服务已开启且本轮
   可能产生有价值主动下一步时为 true；use_memory_context 只在长期记忆与本轮目标直接相关时为 true。
 严格只输出 schema 对应 JSON。"""
+    prompt += "\n\n已安装 Skill 能力索引：\n" + planner_skill_index()
     prompt += "\n\n可按语义选择的执行提示主题：\n" + "\n".join(
         f"- {topic}: {summary}"
         for topic, summary in PROMPT_TOPIC_SUMMARIES.items()

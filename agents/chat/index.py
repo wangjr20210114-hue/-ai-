@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from ._graph import build_graph, grounded_route_stream_answer
 from ._llm import get_model
 from ._ui_tools import build_production_tools
+from .._shared.skill_registry import known_skill_ids, resolve_enabled_skills
 from ._capability_plan import (
     DEFAULT_PLAN,
     apply_runtime_skill_policy,
@@ -1376,8 +1377,12 @@ async def handler(ctx):
     parallel_image_search = bool(search_preferences.get("parallel_image_search", True))
     map_preferences = intelligence.get("map_preferences") or {}
     skill_preferences = intelligence.get("skill_preferences") or {}
-    enabled_skills = {skill_id for skill_id, enabled in skill_preferences.items() if enabled}
-    disabled_skills = sorted(skill_id for skill_id, enabled in skill_preferences.items() if not enabled)
+    enabled_skills = set(resolve_enabled_skills(
+        skill_id
+        for skill_id, enabled in skill_preferences.items()
+        if enabled
+    ))
+    disabled_skills = sorted(known_skill_ids() - enabled_skills)
     current_calendar_context = "[]"
     current_route_context = "无"
     reference_image_context = ""
@@ -1775,6 +1780,7 @@ async def handler(ctx):
         map_preferences=map_preferences,
         proactive_preferences=proactive_state.get("preferences") or {},
         tracer=getattr(ctx, "tracer", None),
+        makers_checkpointer=ctx.store.langgraph_checkpointer,
     )
     blocked_skill = str(capability_plan.get("blocked_skill") or "").strip()
     required_tool_names = required_tools_for_plan(capability_plan)

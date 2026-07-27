@@ -32,6 +32,13 @@ from .._shared.proactive import load_proactive_state, propose_workflow as create
 from .._shared.provider_metering import record_provider_usage, record_vision_diagnostics
 from .._shared.place_cache import load_place_cache, save_place_cache
 from .._shared.route_cache import load_route_cache, save_route_cache
+from .._shared.skill_registry import (
+    build_adapter_tools,
+    default_skill_preferences,
+    resolve_enabled_skills,
+    skill_is_configured,
+    tool_skill_map,
+)
 from .._shared.workspace import (
     begin_action_execution,
     apply_calendar_changes,
@@ -1128,6 +1135,7 @@ def build_production_tools(
     map_preferences: dict[str, Any] | None = None,
     proactive_preferences: dict[str, Any] | None = None,
     tracer: Any = None,
+    makers_checkpointer: Any = None,
 ) -> list[StructuredTool]:
     runtime_env = env or {}
     paper_scope = paper_constraints or {}
@@ -3638,36 +3646,35 @@ def build_production_tools(
         (propose_workflow, "propose_workflow", "用户明确要求建立跨时间、多步骤的持续提醒或计划时创建工作流提案。steps 每项包含 offset_minutes、title、body、action_prompt，可用 depends_on=['step_1'] 建立 DAG 依赖；失败时需要回退提示的步骤可增加 compensation={title,body,action_prompt}。默认按顺序依赖。必须由用户确认后才会激活，依赖步骤需用户标记完成后才推进。"),
         (ask_user_clarification, "ask_user_clarification", "所有问答场景统一的必要信息收集入口。只有缺少该字段会阻断所有安全有用的回答，或无法唯一确定真实副作用对象时才能调用；“知道后更好”、可选偏好和用户尚未决定都不得调用，应直接在正文给出 2–3 套带假设与取舍的方案。这条边界适用于所有主题，禁止套用固定画像问题。本轮最多调用一次并只收最少必要字段；能由当前上下文、已核实结果、其他字段或安全默认值推导出的字段不得再问。有限候选优先 single/multi，能用是/否表达就用 boolean，只缺日期用 date、日期已知只缺时刻用 time、两者都缺才用 datetime，仅答案无法枚举时用 text。卡片提交后由前端自动把答案作为对话补充信息继续推理，不要要求用户再次发送，也不要重复询问已提交字段。"),
     ]
-    meeting_ready = bool(str(runtime_env.get("TENCENT_MEETING_TOKEN") or "").strip())
-    if not meeting_ready:
-        definitions = [definition for definition in definitions if definition[1] != "propose_meeting"]
-    active = enabled_skills if enabled_skills is not None else {
-        "web-search", "vision", "image-studio", "maps", "calendar",
-        "proactive-agent", "paper-reading", "tencent-meeting",
-    }
-    active = set(active)
-    if "calendar" not in active:
-        active.discard("tencent-meeting")
+    active = (
+        enabled_skills
+        if enabled_skills is not None
+        else {
+            skill_id
+            for skill_id, enabled in default_skill_preferences().items()
+            if enabled
+        }
+    )
+    active = set(resolve_enabled_skills(active))
     tool_skills = {
-        "get_current_location": "maps",
-        "search_places": "maps",
-        "search_places_batch": "maps",
-        "recommend_nearby_places_on_map": "maps",
-        "plan_route_between_places": "maps",
-        "prepare_map_recommendation": "maps",
-        "recommend_places_on_map": "maps",
-        "propose_calendar_changes": "calendar",
-        "propose_meeting": "tencent-meeting",
-        "propose_image": "image-studio",
-        "collect_page_images": "web-search",
-        "rich_search": "web-search",
-        "analyze_images_parallel": "vision",
-        "search_arxiv": "paper-reading",
-        "propose_workflow": "proactive-agent",
+        **tool_skill_map(),
         "ask_user_clarification": "core",
     }
-    definitions = [definition for definition in definitions if tool_skills.get(definition[1]) == "core" or tool_skills.get(definition[1]) in active]
-    return [
+    definitions = [
+        definition
+        for definition in definitions
+        if (
+            tool_skills.get(definition[1]) == "core"
+            or (
+                tool_skills.get(definition[1]) in active
+                and skill_is_configured(
+                    str(tool_skills.get(definition[1]) or ""),
+                    runtime_env,
+                )
+            )
+        )
+    ]
+    built_in_tools = [
         StructuredTool.from_function(
             coroutine=fn,
             name=name,
@@ -3676,3 +3683,25 @@ def build_production_tools(
         )
         for fn, name, description in definitions
     ]
+    adapter_tools = build_adapter_tools({
+        "state_store": store,
+        "checkpointer": makers_checkpointer,
+        "model": model,
+        "tracer": tracer,
+        "conversation_id": conversation_id,
+        "user_id": user_id,
+        "env": runtime_env,
+        "browser_location": browser_current_location,
+    }, active)
+    built_in_names = {tool.name for tool in built_in_tools}
+    adapter_names = [str(getattr(tool, "name", "") or "") for tool in adapter_tools]
+    duplicate_names = built_in_names.intersection(adapter_names)
+    duplicate_adapter_names = {
+        name for name in adapter_names if adapter_names.count(name) > 1
+    }
+    if duplicate_names or len(adapter_names) != len(set(adapter_names)):
+        raise ValueError(
+            "Skill adapter tool names must be globally unique: "
+            f"{sorted(duplicate_names or duplicate_adapter_names)}"
+        )
+    return [*built_in_tools, *adapter_tools]

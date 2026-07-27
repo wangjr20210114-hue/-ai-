@@ -156,7 +156,8 @@ export interface MakersIntelligenceState {
     learn_route_preferences: boolean;
   };
   skill_preferences?: Record<string, boolean>;
-  providers?: { meeting?: boolean };
+  skill_catalog?: InstalledSkill[];
+  providers?: Record<string, boolean>;
   rule_proposals: ProactiveRuleProposal[];
   feedback_count: number;
   usage: {
@@ -165,6 +166,21 @@ export interface MakersIntelligenceState {
     preferences: { daily_token_limit: number; monthly_token_limit: number; enforcement: 'off' | 'soft' | 'hard' };
     alerts: { daily: boolean; monthly: boolean };
   };
+}
+
+export interface InstalledSkill {
+  id: string;
+  order: number;
+  default_enabled: boolean;
+  locked: boolean;
+  requires: string[];
+  recommends: string[];
+  external: boolean;
+  configured: boolean;
+  connect_url: string;
+  icon: string;
+  name: Record<string, string>;
+  description: Record<string, string>;
 }
 
 export interface ProviderBalance {

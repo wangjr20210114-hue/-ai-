@@ -3,15 +3,15 @@ import { Button, Dialog, MessagePlugin, Tag } from 'tdesign-react';
 import { AppIcon } from 'tdesign-icons-react';
 import { useAppState } from '../../store/appState';
 import { skillsOperation } from '../../services/api';
-import { SKILLS_CATALOG } from './skillsCatalog';
 import { useLanguage } from '../../i18n';
+import type { InstalledSkill } from '../../types';
 
 export default function SkillsMarketplaceButton() {
   const { conversationId } = useAppState();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [visible, setVisible] = useState(false);
   const [preferences, setPreferences] = useState<Record<string, boolean>>({});
-  const [meetingConfigured, setMeetingConfigured] = useState(false);
+  const [catalog, setCatalog] = useState<InstalledSkill[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState('');
 
@@ -20,7 +20,7 @@ export default function SkillsMarketplaceButton() {
     try {
       const result = await skillsOperation(conversationId);
       setPreferences(result.preferences);
-      setMeetingConfigured(result.providers.meeting);
+      setCatalog(result.catalog);
     } catch {
       MessagePlugin.error(t('skillsReadFailed'));
     } finally { setLoading(false); }
@@ -37,16 +37,24 @@ export default function SkillsMarketplaceButton() {
   }, []);
 
   const enabledCount = useMemo(
-    () => SKILLS_CATALOG.filter((skill) => skill.locked || preferences[skill.id] !== false).length,
-    [preferences],
+    () => catalog.filter((skill) => skill.locked || preferences[skill.id] !== false).length,
+    [catalog, preferences],
   );
+  const skillText = useCallback((
+    values: Record<string, string> | undefined,
+    fallback: string,
+  ) => values?.[language] || values?.['zh-CN'] || values?.en || fallback, [language]);
+  const skillName = useCallback((skillId: string) => {
+    const skill = catalog.find((item) => item.id === skillId);
+    return skill ? skillText(skill.name, skill.id) : skillId;
+  }, [catalog, skillText]);
   const openMarketplace = () => {
     setLoading(true);
     setVisible(true);
   };
 
   const save = async (skillId: string, enabled: boolean) => {
-    const skill = SKILLS_CATALOG.find((item) => item.id === skillId);
+    const skill = catalog.find((item) => item.id === skillId);
     if (!skill || skill.locked) return;
     const next = { ...preferences, [skillId]: enabled };
     const autoEnabled = enabled
@@ -57,15 +65,14 @@ export default function SkillsMarketplaceButton() {
     try {
       const result = await skillsOperation(conversationId, next);
       setPreferences(result.preferences);
-      setMeetingConfigured(result.providers.meeting);
+      setCatalog(result.catalog);
       window.dispatchEvent(new CustomEvent('yuanbao:skills-changed', { detail: result.preferences }));
       if (autoEnabled.length) {
         MessagePlugin.success(t('skillsDependenciesEnabled', { names: autoEnabled.map((id) => {
-          const dependency = SKILLS_CATALOG.find((item) => item.id === id);
-          return dependency ? t(dependency.nameKey) : id;
+          return skillName(id);
         }).join('、') }));
       } else {
-        MessagePlugin.success(t('skillStateChanged', { name: t(skill.nameKey), state: enabled ? t('enabled') : t('disabled') }));
+        MessagePlugin.success(t('skillStateChanged', { name: skillText(skill.name, skill.id), state: enabled ? t('enabled') : t('disabled') }));
       }
     } catch {
       MessagePlugin.error(t('skillsSaveFailed'));
@@ -86,48 +93,45 @@ export default function SkillsMarketplaceButton() {
     >
       <div className="skills-marketplace-head">
         <div><strong>{t('composeSkills')}</strong><span>{t('skillsStoredNatively')}</span></div>
-        <Tag theme="primary" variant="light">{loading ? t('loading') : t('enabledCount', { enabled: enabledCount, total: SKILLS_CATALOG.length })}</Tag>
+        <Tag theme="primary" variant="light">{loading ? t('loading') : t('enabledCount', { enabled: enabledCount, total: catalog.length })}</Tag>
       </div>
       <div className="skills-marketplace" aria-busy={loading}>
-        {SKILLS_CATALOG.map((skill) => {
+        {catalog.map((skill) => {
           const enabled = skill.locked || preferences[skill.id] !== false;
           const missingRecommended = (skill.recommends || []).filter((id) => preferences[id] === false);
           const missingRequired = (skill.requires || []).filter((id) => preferences[id] === false);
           const blocked = enabled && missingRequired.length > 0;
-          const connected = skill.id !== 'tencent-meeting' || meetingConfigured;
+          const connected = skill.configured;
           return <article className={`skill-market-card ${enabled ? 'is-enabled' : 'is-disabled'}`} key={skill.id}>
             <div className="skill-market-icon" aria-hidden="true">{skill.icon}</div>
             <div className="skill-market-content">
               <div className="skill-market-title">
-                <strong>{t(skill.nameKey)}</strong>
+                <strong>{skillText(skill.name, skill.id)}</strong>
                 {skill.locked && <Tag size="small">{t('core')}</Tag>}
                 {skill.external && <Tag size="small" theme={connected ? 'success' : 'warning'}>{connected ? t('connected') : t('waitingConnection')}</Tag>}
               </div>
-              <p>{t(skill.descriptionKey)}</p>
+              <p>{skillText(skill.description, '')}</p>
               {blocked && <div className="skill-dependency-note is-blocked">{t('requiresSkills', { names: missingRequired.map((id) => {
-                const dependency = SKILLS_CATALOG.find((item) => item.id === id);
-                return dependency ? t(dependency.nameKey) : id;
+                return skillName(id);
               }).join('、') })}</div>}
               {!blocked && enabled && missingRecommended.length > 0 && <div className="skill-dependency-note">{t('recommendsSkills', { names: missingRecommended.map((id) => {
-                const dependency = SKILLS_CATALOG.find((item) => item.id === id);
-                return dependency ? t(dependency.nameKey) : id;
+                return skillName(id);
               }).join('、') })}</div>}
-              {skill.id === 'calendar' && preferences.maps === false && enabled && <div className="skill-dependency-note">{t('calendarWithoutMaps')}</div>}
-              {skill.id === 'tencent-meeting' && !meetingConfigured && <button className="skill-install-link" type="button" onClick={() => window.open('https://meeting.tencent.com/ai-skill', '_blank', 'noopener,noreferrer')}>{t('connectTencentMeeting')}</button>}
+              {skill.external && !connected && skill.connect_url && <button className="skill-install-link" type="button" onClick={() => window.open(skill.connect_url, '_blank', 'noopener,noreferrer')}>{t('connectExternalSkill')}</button>}
             </div>
             <button
               type="button"
               role="switch"
               aria-checked={enabled}
-              aria-label={t('toggleSkill', { action: enabled ? t('disableAction') : t('enableAction'), name: t(skill.nameKey) })}
-              title={t('toggleSkill', { action: enabled ? t('disableAction') : t('enableAction'), name: t(skill.nameKey) })}
+              aria-label={t('toggleSkill', { action: enabled ? t('disableAction') : t('enableAction'), name: skillText(skill.name, skill.id) })}
+              title={t('toggleSkill', { action: enabled ? t('disableAction') : t('enableAction'), name: skillText(skill.name, skill.id) })}
               className={`skill-toggle ${enabled ? 'is-on' : ''}`}
               disabled={skill.locked || loading || savingId === skill.id}
               onClick={() => void save(skill.id, !enabled)}
             ><span /></button>
           </article>;
         })}
-        {!SKILLS_CATALOG.length && !loading && <div className="conversation-list-empty">{t('noSkills')}</div>}
+        {!catalog.length && !loading && <div className="conversation-list-empty">{t('noSkills')}</div>}
       </div>
       <div className="skills-marketplace-footer">
         <span>{t('disabledSkillHint')}</span>

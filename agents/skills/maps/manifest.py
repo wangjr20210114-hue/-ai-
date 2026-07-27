@@ -1,0 +1,51 @@
+MANIFEST = {
+    "schema_version": 1,
+    "id": "maps",
+    "order": 40,
+    "default_enabled": True,
+    "capabilities": [
+        "current_location",
+        "nearby_places",
+        "places",
+        "map_action",
+        "route",
+    ],
+    "plan_flags": [
+        "needs_places",
+        "needs_current_location",
+        "needs_nearby_places",
+        "needs_route",
+        "needs_map_action",
+    ],
+    "tools": [
+        {"name": "get_current_location", "capability": "current_location"},
+        {"name": "search_places", "capability": "places"},
+        {"name": "search_places_batch", "capability": "places", "required": False},
+        {"name": "recommend_nearby_places_on_map", "capability": "nearby_places"},
+        {"name": "recommend_places_on_map", "capability": "map_action"},
+        {"name": "prepare_map_recommendation", "capability": "map_action", "required": False},
+        {"name": "plan_route_between_places", "capability": "route"},
+    ],
+    "action_kinds": ["map_recommendation"],
+    "permissions": [
+        "makers.state",
+        "makers.trace",
+        "conversation.read",
+        "user.read",
+        "browser.location",
+    ],
+    "env_keys": ["TENCENT_MAP_KEY", "TENCENT_MAP_SK"],
+    "ui": {
+        "icon": "⌖",
+        "name": {"zh-CN": "真实地点与地图", "zh-TW": "真實地點與地圖", "en": "Real places and maps"},
+        "description": {
+            "zh-CN": "核实餐厅、景点和地址，并展示真实坐标与腾讯路线。",
+            "zh-TW": "核實餐廳、景點和地址，並展示真實座標與騰訊路線。",
+            "en": "Verify places and addresses, then show real coordinates and Tencent routes.",
+        },
+    },
+    "planner": {
+        "topic": "maps",
+        "summary": "Real places, browser location, nearby discovery, ordered stops and road routes.",
+    },
+}

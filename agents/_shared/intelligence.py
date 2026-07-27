@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .data_version import namespace
+from .skill_registry import default_skill_preferences
 from .workspace import USER_WORKSPACE_ID
 
 
@@ -19,17 +20,7 @@ SCHEMA_VERSION = 1
 STATE_KEY = "state"
 BEIJING = timezone(timedelta(hours=8))
 
-DEFAULT_SKILL_PREFERENCES = {
-    "core": True,
-    "web-search": True,
-    "vision": True,
-    "image-studio": True,
-    "maps": True,
-    "calendar": True,
-    "proactive-agent": True,
-    "paper-reading": True,
-    "tencent-meeting": True,
-}
+DEFAULT_SKILL_PREFERENCES = default_skill_preferences()
 
 DEFAULT_MAP_PREFERENCES = {
     # Fast/balanced/complete control the provider concurrency and total search
