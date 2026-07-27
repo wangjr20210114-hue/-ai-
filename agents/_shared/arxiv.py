@@ -284,13 +284,19 @@ def _dblp_profile_cached(
     # DBLP's exact-term syntax occasionally returns a transient 5xx even while
     # the normal author endpoint is healthy. Retry with the ordinary author
     # query only when needed; affiliation verification below remains strict.
-    for query in dict.fromkeys((exact_terms, str(author or "").strip())):
+    normal_query = str(author or "").strip()
+    # DBLP's exact author endpoint is occasionally slow or returns a transient
+    # 5xx. Retry that high-value query once before falling back to the broad
+    # search. A larger candidate window is important for common names because
+    # affiliation-qualified homonyms can otherwise be truncated.
+    queries = [exact_terms, exact_terms, normal_query]
+    for query in queries:
         if not query:
             continue
         params = urllib.parse.urlencode({
             "q": query,
             "format": "json",
-            "h": 30,
+            "h": 100,
             "c": 0,
         })
         request = urllib.request.Request(

@@ -3525,8 +3525,8 @@ def build_production_tools(
         academic_timeout = max(
             8.0,
             min(
-                24.0,
-                float(runtime_env.get("PAPER_SEARCH_TIMEOUT_SECONDS") or 16),
+                40.0,
+                float(runtime_env.get("PAPER_SEARCH_TIMEOUT_SECONDS") or 28),
             ),
         )
         try:
