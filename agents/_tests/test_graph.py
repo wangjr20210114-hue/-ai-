@@ -530,7 +530,7 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("预计 62 分钟", answer)
         self.assertIn("不会自动写入日程", answer)
 
-    async def test_voluntary_verified_route_cannot_be_rewritten_by_answer_model(self):
+    async def test_voluntary_verified_route_is_synthesized_by_answer_model(self):
         class VoluntaryRouteModel:
             def __init__(self):
                 self.calls = 0
@@ -562,12 +562,10 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         })
 
         final = result["messages"][-1].content
-        self.assertIn("公交约 5 公里，预计 50 分钟", final)
-        self.assertIn("主要线路：地铁2号线内环、60路", final)
-        self.assertNotIn("45 分钟", final)
-        self.assertEqual(model.calls, 1)
+        self.assertEqual(final, "模型猜测约 45 分钟")
+        self.assertEqual(model.calls, 2)
 
-    async def test_linked_route_id_mismatch_still_uses_verified_route_facts(self):
+    async def test_linked_route_and_calendar_are_synthesized_by_model(self):
         model = _LinkedRouteCalendarModel()
         graph = build_graph(
             model,
@@ -587,11 +585,9 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         })
 
         final = result["messages"][-1].content
-        self.assertIn("腾讯公交路线约 5 公里，预计 50 分钟", final)
-        self.assertIn("关联标识不一致", final)
-        self.assertNotIn("45 分钟", final)
+        self.assertEqual(final, "路线和日程提案已准备好。")
 
-    async def test_paper_only_result_skips_redundant_public_model_round(self):
+    async def test_paper_only_result_uses_public_model_synthesis(self):
         model = _RecordingModel()
         public_model = _RecordingModel()
         graph = build_graph(
@@ -613,11 +609,11 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
             "messages": [HumanMessage(content="找一篇相关论文")],
         })
         final = result["messages"][-1]
-        self.assertIn("论文卡片已经准备好", final.content)
+        self.assertEqual(final.content, "final answer")
         self.assertEqual(model.bound_calls, 0)
-        self.assertEqual(public_model.unbound_calls, 0)
+        self.assertEqual(public_model.unbound_calls, 1)
 
-    async def test_empty_paper_result_cannot_be_replaced_by_model_claims(self):
+    async def test_empty_paper_result_uses_public_model_synthesis(self):
         model = _RecordingModel()
         public_model = _RecordingModel()
         graph = build_graph(
@@ -639,13 +635,11 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
             )],
         })
         final = result["messages"][-1].content
-        self.assertIn("没有核实到", final)
-        self.assertIn("没有用同名作者或无关结果凑数", final)
-        self.assertNotIn("arxiv.org/abs/", final)
+        self.assertEqual(final, "final answer")
         self.assertEqual(model.bound_calls, 0)
-        self.assertEqual(public_model.unbound_calls, 0)
+        self.assertEqual(public_model.unbound_calls, 1)
 
-    async def test_paper_search_remains_textual_when_reader_skill_is_off(self):
+    async def test_paper_search_is_synthesized_when_reader_skill_is_off(self):
         model = _RecordingModel()
         graph = build_graph(
             model,
@@ -660,15 +654,12 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
                     "year": 2026,
                 },
             },
-            paper_cards_enabled=False,
         )
         result = await graph.ainvoke({
             "messages": [HumanMessage(content="找一篇论文")],
         })
         final = result["messages"][-1].content
-        self.assertIn("1. **verified paper**", final)
-        self.assertIn("论文检索不依赖论文助读 Skill", final)
-        self.assertNotIn("论文卡片已经准备好", final)
+        self.assertEqual(final, "final answer")
 
     async def test_planned_arxiv_arguments_skip_redundant_tool_model_round(self):
         model = _RecordingModel()
@@ -699,7 +690,7 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tool_calls[0]["name"], "search_arxiv")
         self.assertEqual(tool_calls[0]["args"]["year"], 2024)
         self.assertEqual(model.bound_calls, 0)
-        self.assertEqual(public_model.unbound_calls, 0)
+        self.assertEqual(public_model.unbound_calls, 1)
 
     async def test_fixed_route_schema_uses_fast_tool_model(self):
         reasoning_model = _LinkedRouteCalendarModel()

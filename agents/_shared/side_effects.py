@@ -8,6 +8,7 @@ import binascii
 from datetime import datetime
 import json
 import logging
+import re
 import socket
 import time
 import urllib.error
@@ -39,10 +40,81 @@ class MeetingResultUnknown(RuntimeError):
     """The provider may have accepted the request but no response was observed."""
 
 
+def _meeting_payload_from_mapping(value: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalize the field names used by different official MCP versions."""
+    normalized = {
+        re.sub(r"[^a-z0-9]", "", str(key).casefold()): item
+        for key, item in value.items()
+    }
+
+    def first(*names: str) -> str:
+        for name in names:
+            item = normalized.get(re.sub(r"[^a-z0-9]", "", name.casefold()))
+            if item is not None and str(item).strip():
+                return str(item).strip()
+        return ""
+
+    meeting_id = first("meeting_id", "meetingId", "meeting_uuid", "meetingUuid")
+    meeting_code = first(
+        "meeting_code", "meetingCode", "meeting_number", "meetingNumber",
+        "meeting_no", "meetingNo",
+    )
+    join_url = first(
+        "join_url", "joinUrl", "meeting_url", "meetingUrl", "meeting_link",
+        "meetingLink",
+    )
+    generic_url = first("url")
+    if not join_url and "meeting.tencent.com/" in generic_url.casefold():
+        join_url = generic_url
+    if not any((meeting_id, meeting_code, join_url)):
+        return None
+    return {
+        "meeting_id": meeting_id,
+        "meeting_code": meeting_code,
+        "join_url": join_url,
+        "subject": first("subject", "meeting_subject", "meetingSubject", "title"),
+    }
+
+
+def _meeting_payload_from_text(value: str) -> dict[str, Any] | None:
+    """Read the human-readable text block returned by MCP content responses."""
+    text = " ".join(str(value or "").split())
+    if not text:
+        return None
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError:
+        decoded = None
+    if decoded is not None and decoded != value:
+        return _find_meeting_payload(decoded)
+
+    url_match = re.search(r"https://meeting\.tencent\.com/[^\s<>\"]+", text, re.I)
+    code_match = re.search(
+        r"(?:meeting\s*(?:code|number|no\.?)|会议(?:号|号码))"
+        r"\s*[:：]?\s*([0-9][0-9\s-]{4,20}[0-9])",
+        text,
+        re.I,
+    )
+    id_match = re.search(
+        r"(?:meeting\s*id|会议\s*id)\s*[:：]?\s*([A-Za-z0-9_-]{6,80})",
+        text,
+        re.I,
+    )
+    if not any((url_match, code_match, id_match)):
+        return None
+    return {
+        "meeting_id": id_match.group(1) if id_match else "",
+        "meeting_code": re.sub(r"\D", "", code_match.group(1)) if code_match else "",
+        "join_url": url_match.group(0).rstrip(".,，。") if url_match else "",
+        "subject": "",
+    }
+
+
 def _find_meeting_payload(value: Any) -> dict[str, Any] | None:
     if isinstance(value, dict):
-        if any(key in value for key in ("meeting_id", "meeting_code", "join_url")):
-            return value
+        direct = _meeting_payload_from_mapping(value)
+        if direct:
+            return direct
         for nested in value.values():
             found = _find_meeting_payload(nested)
             if found:
@@ -53,10 +125,7 @@ def _find_meeting_payload(value: Any) -> dict[str, Any] | None:
             if found:
                 return found
     elif isinstance(value, str):
-        try:
-            return _find_meeting_payload(json.loads(value))
-        except json.JSONDecodeError:
-            return None
+        return _meeting_payload_from_text(value)
     return None
 
 
@@ -137,7 +206,7 @@ def _post_tencent_meeting_mcp(env: dict[str, Any], subject: str, start_iso: str,
         "ok": True,
         "meeting_id": str(meeting.get("meeting_id") or ""),
         "meeting_code": str(meeting.get("meeting_code") or ""),
-        "join_url": str(meeting.get("join_url") or meeting.get("meeting_url") or ""),
+        "join_url": str(meeting.get("join_url") or ""),
         "subject": str(meeting.get("subject") or subject),
         "start_time": start_iso,
         "provider": "tencent-meeting-official-mcp",

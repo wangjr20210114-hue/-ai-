@@ -64,12 +64,12 @@ class SkillRegistryContractTests(unittest.TestCase):
             [manifest.id for manifest in manifests],
             [
                 "core",
+                "proactive-agent",
                 "web-search",
                 "vision",
                 "image-studio",
                 "maps",
                 "calendar",
-                "proactive-agent",
                 "paper-reading",
                 "tencent-meeting",
             ],
@@ -79,7 +79,7 @@ class SkillRegistryContractTests(unittest.TestCase):
             {manifest.id for manifest in manifests},
         )
         self.assertTrue(default_skill_preferences()["core"])
-        self.assertEqual(locked_skill_ids(), {"core"})
+        self.assertEqual(locked_skill_ids(), {"core", "proactive-agent"})
 
     def test_edgeone_runtime_package_name_is_resolved_for_dynamic_entrypoints(self):
         with patch.object(

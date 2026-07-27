@@ -117,6 +117,11 @@ export async function workspaceOperation(
   });
   const data = await res.json().catch(() => ({})) as WorkspaceResponse & { error?: string };
   if (!res.ok) throw new Error(data.error || translate('workspaceOperationFailed'));
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('yuanbao:proactive-refresh', {
+      detail: { operation, response: data },
+    }));
+  }
   if (typeof window !== 'undefined' && Array.isArray(data.schedules)) {
     window.dispatchEvent(new CustomEvent('yuanbao:workspace-changed', { detail: data }));
     if (Array.isArray(data.changed) && data.changed.length > 0) {

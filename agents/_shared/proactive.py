@@ -190,7 +190,9 @@ def _merge_preferences(value: Any) -> dict[str, Any]:
             if len(mottos) >= 10:
                 break
         base["fallback_mottos"] = mottos
-    base["enabled"] = bool(base["enabled"])
+    # Proactive Agent is a locked core safety/assistance capability. Existing
+    # persisted false values are migrated back to true on every load.
+    base["enabled"] = True
     if base["autonomy_mode"] not in {"observe", "remind", "propose", "low_risk_auto"}:
         base["autonomy_mode"] = "propose"
     base["daily_limit"] = max(0, min(50, int(base["daily_limit"] or 0)))
@@ -332,7 +334,14 @@ def _schedule_end(item: dict[str, Any]) -> int:
 def collect_schedule_signals(schedules: list[dict[str, Any]], now: int, lookahead_hours: int = 24) -> list[dict[str, Any]]:
     horizon = now + max(1, lookahead_hours) * 3600
     future = sorted(
-        [item for item in schedules if now <= int(item.get("start_time") or 0) <= horizon and not item.get("done")],
+        [
+            item for item in schedules
+            if (
+                int(item.get("start_time") or 0) <= horizon
+                and _schedule_end(item) > now
+                and not item.get("done")
+            )
+        ],
         key=lambda item: int(item.get("start_time") or 0),
     )
     signals: list[dict[str, Any]] = []
@@ -341,17 +350,18 @@ def collect_schedule_signals(schedules: list[dict[str, Any]], now: int, lookahea
         if not schedule_id:
             continue
         start = int(item.get("start_time") or 0)
-        signals.append({
-            "type": "schedule_upcoming",
-            "dedup_key": f"schedule_upcoming:{schedule_id}:{start}",
-            "priority": "normal",
-            "subject_ids": [schedule_id],
-            "title": "即将开始",
-            "detail": f"{item.get('title') or '未命名日程'}将在24小时内开始",
-            "action": f"请帮我为即将开始的“{item.get('title') or '日程'}”做准备，检查地点、路线、天气和需要携带的东西",
-            "evidence": {"schedule": copy.deepcopy(item)},
-            "occurred_at": now,
-        })
+        if start >= now:
+            signals.append({
+                "type": "schedule_upcoming",
+                "dedup_key": f"schedule_upcoming:{schedule_id}:{start}",
+                "priority": "normal",
+                "subject_ids": [schedule_id],
+                "title": "即将开始",
+                "detail": f"{item.get('title') or '未命名日程'}将在24小时内开始",
+                "action": f"请帮我为即将开始的“{item.get('title') or '日程'}”做准备，检查地点、路线、天气和需要携带的东西",
+                "evidence": {"schedule": copy.deepcopy(item)},
+                "occurred_at": now,
+            })
         if index == 0:
             continue
         previous = future[index - 1]
@@ -893,7 +903,11 @@ def process_schedule_signals(state: dict[str, Any], signals: list[dict[str, Any]
             reason = "observe_only"
         elif not allowed_type:
             reason = "notification_type_disabled"
-        elif not memory_refresh and daily_count >= int(preferences.get("daily_limit") or 0):
+        elif (
+            not memory_refresh
+            and str(signal.get("priority") or "normal") != "high"
+            and daily_count >= int(preferences.get("daily_limit") or 0)
+        ):
             allowed = False
             reason = "daily_limit_reached"
         _observation(state, run_id, "policy_checked", "notification_policy", now, allowed=allowed, reason=reason)
@@ -1143,7 +1157,7 @@ def update_preferences(state: dict[str, Any], changes: dict[str, Any]) -> dict[s
     allowed = {
         key: changes[key]
         for key in (
-            "enabled", "autonomy_mode", "timezone", "daily_limit",
+            "autonomy_mode", "timezone", "daily_limit",
             "lookahead_hours", "window_limit", "quiet_hours", "types",
             "fallback_mottos", "provider_schedule_limit", "route_gap_hours",
             "travel_buffer_minutes",

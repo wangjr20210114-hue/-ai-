@@ -985,25 +985,27 @@ async def search_arxiv(
             except Exception:
                 return [], True
 
-        candidate_task = asyncio.create_task(candidate_id_lookup())
-        dblp_task = asyncio.create_task(dblp_lookup())
-        arxiv_task = asyncio.create_task(arxiv_lookup())
-        openalex_task = asyncio.create_task(openalex_lookup())
-        (
-            candidate_result,
-            dblp_result,
-            arxiv_result,
-            openalex_result,
-        ) = await asyncio.gather(
-            candidate_task,
-            dblp_task,
-            arxiv_task,
-            openalex_task,
-        )
-        candidate_rows, candidate_failed = candidate_result
-        dblp_rows, dblp_failed = dblp_result
-        broad_arxiv_rows, arxiv_failed = arxiv_result
-        openalex_rows, openalex_failed = openalex_result
+        # The model's exact arXiv identifiers are the primary discovery path.
+        # Verify them against the official API first; only pay for broad indexes
+        # when the verified model candidates cannot satisfy the requested count.
+        candidate_rows, candidate_failed = await candidate_id_lookup()
+        dblp_rows: list[dict[str, Any]] = []
+        broad_arxiv_rows: list[dict[str, Any]] = []
+        openalex_rows: list[dict[str, Any]] = []
+        dblp_failed = arxiv_failed = openalex_failed = False
+        if len(candidate_rows) < requested_limit:
+            (
+                dblp_result,
+                arxiv_result,
+                openalex_result,
+            ) = await asyncio.gather(
+                dblp_lookup(),
+                arxiv_lookup(),
+                openalex_lookup(),
+            )
+            dblp_rows, dblp_failed = dblp_result
+            broad_arxiv_rows, arxiv_failed = arxiv_result
+            openalex_rows, openalex_failed = openalex_result
         provider_failures += sum(
             int(value)
             for value in (

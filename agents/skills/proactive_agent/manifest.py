@@ -1,8 +1,9 @@
 MANIFEST = {
     "schema_version": 1,
     "id": "proactive-agent",
-    "order": 60,
+    "order": 5,
     "default_enabled": True,
+    "locked": True,
     "capabilities": ["workflow_action"],
     "plan_flags": ["needs_workflow_action"],
     "tools": [{"name": "propose_workflow", "capability": "workflow_action"}],

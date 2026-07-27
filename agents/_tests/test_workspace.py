@@ -1481,9 +1481,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             {},
         )
 
-    def test_route_or_calendar_action_buffers_public_answer_for_grounding(self):
-        self.assertTrue(should_buffer_public_answer({"needs_route": True}))
-        self.assertTrue(should_buffer_public_answer({
+    def test_structured_actions_keep_public_answer_streaming_except_images(self):
+        self.assertFalse(should_buffer_public_answer({"needs_route": True}))
+        self.assertFalse(should_buffer_public_answer({
             "needs_route": False,
             "needs_calendar_action": True,
         }))
@@ -1806,6 +1806,16 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([item["type"] for item in signals].count("schedule_conflict"), 1)
         self.assertEqual(len({item["dedup_key"] for item in signals}), len(signals))
 
+    def test_schedule_collector_detects_conflict_with_an_ongoing_event(self):
+        now = 1_800_000_000
+        schedules = [
+            {"id": "ongoing", "title": "ongoing", "start_time": now - 600, "duration_minutes": 30},
+            {"id": "next", "title": "next", "start_time": now + 300, "duration_minutes": 30},
+        ]
+        signals = collect_schedule_signals(schedules, now)
+        self.assertEqual([item["type"] for item in signals].count("schedule_conflict"), 1)
+        self.assertEqual([item["type"] for item in signals].count("schedule_upcoming"), 1)
+
     def test_proactive_policy_deduplicates_and_respects_daily_limit(self):
         now = 1_800_000_000
         state = empty_proactive_state()
@@ -1823,6 +1833,24 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(state["notifications"]), 1)
         self.assertEqual(second["notifications_created"], 0)
         self.assertTrue(any(run["reason"] == "daily_limit_reached" for run in state["runs"].values()))
+
+    def test_high_priority_conflict_bypasses_normal_daily_quota(self):
+        now = 1_800_000_000
+        state = empty_proactive_state()
+        update_preferences(state, {
+            "daily_limit": 0,
+            "quiet_hours": {"enabled": False},
+        })
+        stats = process_schedule_signals(state, [{
+            "type": "schedule_conflict",
+            "dedup_key": "conflict:urgent",
+            "priority": "high",
+            "title": "conflict",
+            "detail": "overlap",
+            "action": "resolve",
+            "occurred_at": now,
+        }], now)
+        self.assertEqual(stats["notifications_created"], 1)
 
     def test_proactive_fallback_mottos_are_sanitized_and_bounded(self):
         state = empty_proactive_state()
@@ -1983,7 +2011,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         mutate_notification(state, "ntf-1", "snooze", 100, 500)
         await save_proactive_state(store, state)
         restored = await load_proactive_state(store)
-        self.assertFalse(restored["preferences"]["enabled"])
+        self.assertTrue(restored["preferences"]["enabled"])
         self.assertEqual(restored["preferences"]["daily_limit"], 2)
         self.assertEqual(restored["notifications"]["ntf-1"]["status"], "snoozed")
 
@@ -5086,7 +5114,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(papers[0]["arxiv_url"], "")
 
-    async def test_author_institution_tool_uses_makers_search_in_parallel(self):
+    async def test_author_institution_tool_uses_makers_search_as_fallback(self):
         class EvidenceModel:
             def with_structured_output(self, schema, **_kwargs):
                 self.schema = schema
@@ -5141,6 +5169,45 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result["papers"]), 1)
         self.assertEqual(result["papers"][0]["arxiv_id"], "2604.10767")
         search.assert_awaited_once()
+
+    async def test_verified_model_paper_results_skip_makers_search(self):
+        class CandidateModel:
+            def with_structured_output(self, schema, **_kwargs):
+                self.schema = schema
+                return self
+
+            async def ainvoke(self, _messages):
+                return {"parsed": self.schema(candidates=[])}
+
+        verified = {
+            "title": "Verified arXiv Paper",
+            "arxiv_id": "2604.10767",
+            "authors": "Xin Peng",
+            "year": 2026,
+            "pdf_url": "https://arxiv.org/pdf/2604.10767.pdf",
+        }
+        tools = build_production_tools(
+            None,
+            store=FakeStore(),
+            conversation_id="paper-model-first",
+            env={"WSA_API_KEY": "test-key"},
+            paper_discovery_model=CandidateModel(),
+        )
+        tool = next(item for item in tools if item.name == "search_arxiv")
+        with patch(
+            "agents.chat._ui_tools.provider_search_arxiv",
+            new=AsyncMock(return_value=[verified]),
+        ), patch(
+            "agents.chat._ui_tools.provider_rich_search",
+            new=AsyncMock(),
+        ) as search:
+            result = json.loads(await tool.ainvoke({
+                "author": "Xin Peng",
+                "institution": "Fudan University",
+                "limit": 1,
+            }))
+        self.assertEqual(result["papers"], [verified])
+        search.assert_not_awaited()
 
     async def test_author_and_institution_disable_broad_arxiv_homonym_search(self):
         verified = {
@@ -5228,6 +5295,36 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         request = opened.call_args.args[0]
         self.assertEqual(request.headers["X-tencent-meeting-token"], "secret")
         self.assertEqual(json.loads(request.data)["params"]["name"], "schedule_meeting")
+
+    def test_tencent_meeting_accepts_human_readable_mcp_success_content(self):
+        payload = {
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": {
+                "content": [{
+                    "type": "text",
+                    "text": (
+                        "会议创建成功。会议号：123 456 789，"
+                        "入会链接：https://meeting.tencent.com/dm/example"
+                    ),
+                }],
+            },
+        }
+
+        class Response:
+            headers = {}
+            def __enter__(self): return self
+            def __exit__(self, *_args): return None
+            def read(self, _limit): return json.dumps(payload).encode("utf-8")
+
+        with patch("agents._shared.side_effects.urllib.request.urlopen", return_value=Response()):
+            result = _post_tencent_meeting_mcp(
+                {"TENCENT_MEETING_TOKEN": "secret"}, "产品周会",
+                "2026-07-21T15:00:00+08:00", "2026-07-21T16:00:00+08:00",
+            )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["meeting_code"], "123456789")
+        self.assertEqual(result["join_url"], "https://meeting.tencent.com/dm/example")
 
     async def test_successful_tencent_meeting_is_written_to_calendar_once(self):
         store = FakeStore()

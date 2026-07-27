@@ -11,5 +11,5 @@ from ..._shared.proactive import (
 
 async def on_preference_changed(context, enabled: bool) -> None:
     state = await load_proactive_state(context.state_store, context.user_id)
-    update_preferences(state, {"enabled": bool(enabled)})
+    update_preferences(state, {"enabled": True})
     await save_proactive_state(context.state_store, state, context.user_id)

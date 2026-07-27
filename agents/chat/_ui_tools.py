@@ -3530,19 +3530,25 @@ def build_production_tools(
             ),
         )
         try:
-            academic_rows, makers_rows = await asyncio.gather(
-                asyncio.wait_for(academic_lookup(), timeout=academic_timeout),
-                makers_search_fallback(),
-                return_exceptions=True,
-            )
-            if isinstance(academic_rows, Exception):
+            try:
+                academic_rows = await asyncio.wait_for(
+                    academic_lookup(),
+                    timeout=academic_timeout,
+                )
+            except Exception as exc:
                 logging.warning(
                     "academic provider cascade failed error_type=%s",
-                    type(academic_rows).__name__,
+                    type(exc).__name__,
                 )
                 academic_rows = []
-            if isinstance(makers_rows, Exception):
-                makers_rows = []
+            # SearchPro is recovery, not a parallel default. A successful set
+            # of model-proposed, officially verified arXiv IDs must not wait
+            # for another provider or dilute the result with cached prose.
+            makers_rows = (
+                []
+                if academic_rows
+                else await makers_search_fallback()
+            )
             papers = []
             seen_papers: set[str] = set()
             for paper in [*academic_rows, *makers_rows]:

@@ -383,7 +383,7 @@ export default function AppSettingsButton() {
           <h3>{t('proactive')}</h3>
           <p>{t('proactiveHint')}</p>
           {preferences && <div className="app-settings-grid">
-            <label><span>{t('proactiveEnabled')}</span><input type="checkbox" checked={preferences.enabled !== false} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ enabled: event.target.checked })} /></label>
+            <label><span>{t('proactiveEnabled')}</span><input type="checkbox" checked disabled aria-readonly="true" /></label>
             <label><span>{t('lookaheadRange')}</span><select value={preferences.lookahead_hours} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ lookahead_hours: Number(event.target.value) })}><option value={12}>{t('next12Hours')}</option><option value={24}>{t('next24Hours')}</option><option value={48}>{t('next48Hours')}</option><option value={72}>{t('next3Days')}</option></select></label>
             <label><span>{t('providerScheduleCount')}</span><select value={preferences.provider_schedule_limit} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ provider_schedule_limit: Number(event.target.value) })}>{[4, 6, 8, 12].map((value) => <option key={value} value={value}>{t('numericValue', { value })}</option>)}</select></label>
             <label><span>{t('routeGapHours')}</span><select value={preferences.route_gap_hours} disabled={busy === 'proactive'} onChange={(event) => void setPreferences({ route_gap_hours: Number(event.target.value) })}>{[1, 2, 3, 4, 6, 8].map((value) => <option key={value} value={value}>{t('numericValue', { value })}</option>)}</select></label>

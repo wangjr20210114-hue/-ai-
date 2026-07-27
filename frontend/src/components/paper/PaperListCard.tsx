@@ -22,6 +22,17 @@ interface DownloadedPaper {
   arxivId?: string;
 }
 
+function paperDownloadId(paper: PaperInfo): string {
+  if (paper.arxiv_id) return paper.arxiv_id;
+  if (!paper.pdf_url) return '';
+  let hash = 2166136261;
+  for (const character of paper.pdf_url) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `webpdf-${(hash >>> 0).toString(16)}`;
+}
+
 export default function PaperListCard({ message }: Props) {
   const { t } = useLanguage();
   const papers = dedupePapers(message.papers || []);
@@ -30,10 +41,12 @@ export default function PaperListCard({ message }: Props) {
   const [fullReader, setFullReader] = useState<DownloadedPaper | null>(null);
 
   const ensureDownloaded = async (paper: PaperInfo): Promise<DownloadedPaper | null> => {
-    if (downloaded[paper.arxiv_id]) return downloaded[paper.arxiv_id];
-    setDownloadingId(paper.arxiv_id);
+    const downloadId = paperDownloadId(paper);
+    if (!downloadId) return null;
+    if (downloaded[downloadId]) return downloaded[downloadId];
+    setDownloadingId(downloadId);
     try {
-      const result = await downloadPaper(paper.arxiv_id, paper.title, paper.pdf_url);
+      const result = await downloadPaper(downloadId, paper.title, paper.pdf_url);
       if (result.error) {
         MessagePlugin.warning(t('downloadFailed'));
         return null;
@@ -46,7 +59,7 @@ export default function PaperListCard({ message }: Props) {
       };
       setDownloaded((previous) => ({
         ...previous,
-        [paper.arxiv_id]: stored,
+        [downloadId]: stored,
       }));
       return stored;
     } catch {
@@ -75,9 +88,10 @@ export default function PaperListCard({ message }: Props) {
         {papers.map((paper, index) => {
           const arxivHref = paperArxivHref(paper);
           const sourceHref = paperSourceHref(paper);
+          const downloadId = paperDownloadId(paper);
           const readerAvailable = Boolean(
-            paper.arxiv_id
-            && (paper.pdf_url || !paper.arxiv_id.startsWith('webpdf-')),
+            downloadId
+            && (paper.pdf_url || !downloadId.startsWith('webpdf-')),
           );
           return (
             <article className="paper-discovery-card" key={`${paper.arxiv_id || paper.source_url || paper.title}-${index}`}>
@@ -99,7 +113,7 @@ export default function PaperListCard({ message }: Props) {
                 <Button
                   className="paper-assistant-button"
                   theme="primary"
-                  loading={downloadingId === paper.arxiv_id}
+                  loading={downloadingId === downloadId}
                   disabled={!readerAvailable}
                   icon={<BookOpenIcon />}
                   onClick={() => void openReader(paper)}

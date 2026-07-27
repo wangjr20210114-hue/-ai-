@@ -50,6 +50,7 @@ class SkillAndDataVersionTests(unittest.TestCase):
         self.assertEqual(names, {
             "ask_user_clarification",
             "propose_calendar_changes",
+            "propose_workflow",
             "search_arxiv",
         })
         self.assertNotIn("search_places", names)
@@ -57,7 +58,7 @@ class SkillAndDataVersionTests(unittest.TestCase):
 
 
 class SkillPreferenceEndpointTests(unittest.IsolatedAsyncioTestCase):
-    async def test_skill_preferences_persist_and_proactive_toggle_is_linked(self):
+    async def test_locked_proactive_skill_cannot_be_disabled(self):
         store = FakeStore()
         ctx = SimpleNamespace(
             request=SimpleNamespace(body={
@@ -68,14 +69,16 @@ class SkillPreferenceEndpointTests(unittest.IsolatedAsyncioTestCase):
         )
         response = await intelligence_handler(ctx)
         self.assertFalse(response["skill_preferences"]["maps"])
-        self.assertFalse(response["skill_preferences"]["proactive-agent"])
+        self.assertTrue(response["skill_preferences"]["proactive-agent"])
         self.assertTrue(response["skill_preferences"]["core"])
         proactive_values = [
             value for (namespace, key), value in store.values.items()
             if namespace[0].startswith("yuanbao_proactive_") and key == "state"
         ]
-        self.assertEqual(len(proactive_values), 1)
-        self.assertFalse(proactive_values[0]["preferences"]["enabled"])
+        self.assertFalse(any(
+            value.get("preferences", {}).get("enabled") is False
+            for value in proactive_values
+        ))
 
     def test_tool_catalog_respects_each_disabled_skill(self):
         tools = build_production_tools(
@@ -87,6 +90,7 @@ class SkillPreferenceEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("rich_search", names)
         self.assertIn("analyze_images_parallel", names)
         self.assertIn("propose_image", names)
+        self.assertIn("propose_workflow", names)
         self.assertIn("search_arxiv", names)
         self.assertNotIn("propose_meeting", names)
         self.assertNotIn("propose_calendar_changes", names)
@@ -101,6 +105,7 @@ class SkillPreferenceEndpointTests(unittest.IsolatedAsyncioTestCase):
                 "ask_user_clarification",
                 "propose_calendar_changes",
                 "propose_meeting",
+                "propose_workflow",
                 "search_arxiv",
             },
         )

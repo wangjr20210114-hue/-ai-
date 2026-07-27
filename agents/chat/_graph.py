@@ -671,7 +671,6 @@ def build_graph(
     public_system_prompt: str | None = None,
     planned_tool_arguments: dict[str, dict] | None = None,
     direct_answer: str = "",
-    paper_cards_enabled: bool = True,
 ):
     public_model = _tagged(
         public_answer_model or model,
@@ -705,9 +704,7 @@ def build_graph(
         seen_tool_call_signatures: set[str] = set()
         clarification_ready = False
         crossed_clarification_answer = False
-        paper_result_payload = None
         route_result_payload = None
-        calendar_result_payload = None
         required_tool_failed = False
         retryable_required_failures: dict[str, int] = {}
         for message in reversed(state["messages"]):
@@ -750,25 +747,12 @@ def build_graph(
                     and payload.get("ui_action") == "clarification_action"
                 )
                 if (
-                    name == "search_arxiv"
-                    and isinstance(payload, dict)
-                    and payload.get("ui_action") == "paper_results"
-                ):
-                    paper_result_payload = payload
-                if (
                     name == "plan_route_between_places"
                     and isinstance(payload, dict)
                     and payload.get("ui_action") == "map_action"
                     and isinstance(payload.get("route"), dict)
                 ):
                     route_result_payload = payload
-                if (
-                    name == "propose_calendar_changes"
-                    and isinstance(payload, dict)
-                    and payload.get("ui_action") == "calendar_action"
-                    and isinstance(payload.get("action"), dict)
-                ):
-                    calendar_result_payload = payload
                 if crossed_clarification_answer and (
                     name == "ask_user_clarification" or emitted_clarification
                 ):
@@ -847,69 +831,11 @@ def build_graph(
             location_answer = tool_result_fallback(state["messages"])
             if location_answer:
                 return {"messages": [AIMessage(content=location_answer)]}
-        # A paper-only search already has all user-visible content in its
-        # structured cards. Do not spend another model round synthesizing a
-        # fixed acknowledgement—and do not let an empty unbound model response
-        # turn a successful arXiv lookup into a failed chat run.
-        if (
-            tuple(required_sequence) == ("search_arxiv",)
-            and {name for name in used_tool_names if name}
-            == {"search_arxiv"}
-        ):
-            paper_answer = (
-                _paper_result_answer(
-                    paper_result_payload,
-                    cards_enabled=paper_cards_enabled,
-                )
-                or tool_failure_fallback(state["messages"])
-            )
-            if paper_answer:
-                paper_count = len(
-                    paper_result_payload.get("papers") or []
-                ) if isinstance(paper_result_payload, dict) else 0
-                logging.info(
-                    "finalized paper-only turn from structured result count=%s",
-                    paper_count,
-                )
-                return {"messages": [AIMessage(content=paper_answer)]}
-        # A route-only turn is completely described by verified Tencent route
-        # output. Rendering those fixed facts locally saves a second model
-        # round, guarantees typo-correction disclosure, and keeps route and
-        # calendar independent. Linked route+calendar plans intentionally
-        # continue to their next required capability.
-        if (
-            route_result_payload is not None
-            and calendar_result_payload is not None
-            and {
-                "plan_route_between_places",
-                "propose_calendar_changes",
-            }.issubset({name for name in used_tool_names if name})
-        ):
-            linked_answer = grounded_route_action_answer([
-                route_result_payload,
-                calendar_result_payload,
-            ])
-            if linked_answer:
-                logging.info(
-                    "finalized linked route-calendar turn from structured actions"
-                )
-                return {"messages": [AIMessage(content=linked_answer)]}
-        if (
-            route_result_payload is not None
-            and calendar_result_payload is None
-            and "propose_calendar_changes" not in required_sequence
-        ):
-            # A model may voluntarily call the verified route tool even when a
-            # degraded semantic preflight omitted the route capability. Never
-            # hand those facts back to a prose model: it can contradict the
-            # Tencent payload while still emitting the genuine map Action.
-            route_answer = _route_result_answer(route_result_payload)
-            if route_answer:
-                logging.info(
-                    "finalized verified route turn from structured Tencent result stops=%s",
-                    len(route_result_payload.get("ordered_stops") or []),
-                )
-                return {"messages": [AIMessage(content=route_answer)]}
+        # Structured paper, route, and calendar results are evidence and UI
+        # actions, not canned answers. The public model always receives them
+        # and writes the final response in the current conversational style.
+        # Local renderers remain available only as last-resort fallbacks when
+        # both normal and clean synthesis passes return no public text.
         # A model can occasionally keep reformulating the same search. Preserve
         # multi-tool reasoning, but after a generous turn-local budget force a
         # normal answer from the evidence already collected instead of exposing

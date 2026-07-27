@@ -158,29 +158,39 @@ export default function SkillsMarketplaceButton() {
               {!blocked && enabled && missingRecommended.length > 0 && <div className="skill-dependency-note">{t('recommendsSkills', { names: missingRecommended.map((id) => {
                 return skillName(id);
               }).join('、') })}</div>}
-              {skill.external && skill.credential?.kind === 'token' && <>
-                {credentialInstructions && <div className="skill-credential-help">{credentialInstructions}</div>}
-                <div className="skill-credential-editor">
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={tokenDrafts[skill.id] || ''}
-                    disabled={savingId === skill.id}
-                    placeholder={t('skillTokenPlaceholder')}
-                    onChange={(event) => setTokenDrafts((current) => ({
-                      ...current,
-                      [skill.id]: event.target.value,
-                    }))}
-                  />
-                  <Button size="small" theme="primary" loading={savingId === skill.id} disabled={!String(tokenDrafts[skill.id] || '').trim()} onClick={() => void saveConnection(skill.id)}>{t('saveConnection')}</Button>
+              {skill.external && skill.credential?.kind === 'token' && (
+                <div
+                  className={`skill-credential-region ${connected ? 'is-connected' : 'is-disconnected'}`}
+                  key={`${skill.id}:${connected ? 'connected' : 'disconnected'}`}
+                >
+                  {!connected ? <>
+                    {credentialInstructions && <div className="skill-credential-help">{credentialInstructions}</div>}
+                    <div className="skill-credential-editor">
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        value={tokenDrafts[skill.id] || ''}
+                        disabled={savingId === skill.id}
+                        placeholder={t('skillTokenPlaceholder')}
+                        onChange={(event) => setTokenDrafts((current) => ({
+                          ...current,
+                          [skill.id]: event.target.value,
+                        }))}
+                      />
+                      <Button size="small" theme="primary" loading={savingId === skill.id} disabled={!String(tokenDrafts[skill.id] || '').trim()} onClick={() => void saveConnection(skill.id)}>{t('saveConnection')}</Button>
+                    </div>
+                    <div className="skill-credential-actions">
+                      {skill.connect_url && <button className="skill-install-link" type="button" onClick={() => window.open(skill.connect_url, '_blank', 'noopener,noreferrer')}>{t('getTokenOfficial')}</button>}
+                      {skill.credential.help_url && <button className="skill-install-link" type="button" onClick={() => window.open(skill.credential?.help_url, '_blank', 'noopener,noreferrer')}>{t('viewOfficialGuide')}</button>}
+                    </div>
+                  </> : (
+                    <div className="skill-credential-connected">
+                      {connection?.expires_at && <span>{t('connectionExpiresAt', { time: new Date(connection.expires_at * 1000).toLocaleString() })}</span>}
+                      {connection?.configured && <button className="skill-install-link is-danger" type="button" disabled={savingId === skill.id} onClick={() => void disconnect(skill.id)}>{t('disconnectSkill')}</button>}
+                    </div>
+                  )}
                 </div>
-                <div className="skill-credential-actions">
-                  {skill.connect_url && <button className="skill-install-link" type="button" onClick={() => window.open(skill.connect_url, '_blank', 'noopener,noreferrer')}>{t('getTokenOfficial')}</button>}
-                  {skill.credential.help_url && <button className="skill-install-link" type="button" onClick={() => window.open(skill.credential?.help_url, '_blank', 'noopener,noreferrer')}>{t('viewOfficialGuide')}</button>}
-                  {connected && connection?.expires_at && <span>{t('connectionExpiresAt', { time: new Date(connection.expires_at * 1000).toLocaleString() })}</span>}
-                  {connected && connection?.configured && <button className="skill-install-link is-danger" type="button" disabled={savingId === skill.id} onClick={() => void disconnect(skill.id)}>{t('disconnectSkill')}</button>}
-                </div>
-              </>}
+              )}
               {skill.external && !skill.credential?.kind && !connected && skill.connect_url && <button className="skill-install-link" type="button" onClick={() => window.open(skill.connect_url, '_blank', 'noopener,noreferrer')}>{t('connectExternalSkill')}</button>}
             </div>
             <button

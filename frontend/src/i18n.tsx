@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 export type Language = 'zh-CN' | 'zh-TW' | 'en' | 'cat-cute' | 'cat-cold';
 export const LANGUAGE_KEY = 'floris-language';
@@ -778,6 +778,13 @@ const LanguageContext = createContext<LanguageContextValue>({
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>(() => getStoredLanguage());
+  useEffect(() => {
+    document.documentElement.lang = language === 'en'
+      ? 'en'
+      : language === 'zh-TW'
+        ? 'zh-TW'
+        : 'zh-CN';
+  }, [language]);
   const setLanguage = (next: Language) => {
     setLanguageState(next);
     try { localStorage.setItem(LANGUAGE_KEY, next); } catch { /* ignore */ }

@@ -202,12 +202,13 @@ def empty_generation_error(
 
 
 def should_buffer_public_answer(capability_plan: dict) -> bool:
-    """Delay answer prose when a structured result may need final grounding."""
-    return bool(
-        capability_plan.get("needs_image_generation")
-        or capability_plan.get("needs_route")
-        or capability_plan.get("needs_calendar_action")
-    )
+    """Buffer only image turns that may need generated-Markdown scrubbing.
+
+    Route, calendar, paper, and proactive cards are structured evidence beside
+    the answer. They must not turn the model's final response into a single
+    non-streaming block.
+    """
+    return bool(capability_plan.get("needs_image_generation"))
 
 
 def checkpoint_final_answer(snapshot) -> str:
@@ -614,7 +615,20 @@ def dynamic_system_prompt(
     if public_answer and selected_tools:
         tails.append(
             "工具结果和 Action 是事实来源。只陈述实际成功内容；确认卡尚未生效，"
-            "地图 Action 尚未点击时不得声称已经切换地图。"
+            "地图 Action 尚未点击时不得声称已经切换地图。缓存只属于工具事实层，"
+            "不得提及命中缓存，也不得复用旧的固定话术；要结合当前问题和完整对话，"
+            "用自然、有风格的语言重新组织最终回答。结构化卡片是正文的补充，不能替代正文。"
+        )
+    if public_answer and "search_arxiv" in selected_tools:
+        tails.append(
+            "论文工具返回的是已核实候选。先直接回答用户真正问的内容：检索请求要简要说明"
+            "筛选结果与相关性，研究方向问题要从论文主题中归纳方向和变化，不能只报数量或"
+            "机械罗列论文。论文卡片只负责打开原文和助读，不代替你的综合回答。"
+        )
+    if public_answer and "plan_route_between_places" in selected_tools:
+        tails.append(
+            "路线工具返回的是腾讯地图核实事实。保留站点顺序、交通方式、时间、距离和费用，"
+            "同时结合用户的出行目的自然说明取舍；不要套用固定的“路线卡片已经准备好”模板。"
         )
     return rendered + "\n\n" + "\n\n".join(tail for tail in tails if tail)
 
@@ -1912,9 +1926,6 @@ async def handler(ctx):
             **direct_paper_tool_arguments(capability_plan),
         },
         direct_answer=direct_public_answer,
-        paper_cards_enabled=capability_is_enabled(
-            "paper_assistant", skill_preferences,
-        ),
     )
     stage_timings_ms["tool_graph_setup"] = round(
         (time.monotonic() - graph_setup_started_at) * 1000

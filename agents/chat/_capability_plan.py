@@ -933,7 +933,14 @@ async def plan_required_clarification(
         "the maps topic and return needs_clarification=false so the Tencent-backed "
         "place/route tool can resolve it, auto-use near-certain evidence, offer "
         "finite provider candidates, or request free text when no evidence exists. "
-        "Do not ask the user to pre-correct or pre-disambiguate a supplied place."
+        "Do not ask the user to pre-correct or pre-disambiguate a supplied place. "
+        "Academic author identity is different: if a paper request identifies a "
+        "person only by a name or honorific and multiple real researchers could "
+        "plausibly match, selecting one would corrupt every result. In that case "
+        "return one clarification card asking for the minimum identity evidence "
+        "(normally institution or research field). Do not silently choose the "
+        "most prolific namesake. If the conversation already establishes that "
+        "evidence, do not ask again."
         "\nSelect every relevant topic from the catalog, including combinations, "
         "and omit unrelated topics. Classification is semantic, never based on "
         "literal keyword or phrase matching.\n"
@@ -1124,6 +1131,7 @@ async def plan_capabilities(
 - 只有缺失信息会阻断所有安全有用结果，或真实副作用对象无法唯一确定时，才设置 needs_clarification=true，并把其他 needs_* 设为 false。此时必须同时填写 clarification_title、clarification_prompt 和最少 clarification_fields，让系统直接生成主动卡片；不得只让最终模型用普通文本追问。偏好未决定时直接交给主模型给方案，不要澄清。
 - 用户只是探索思路、比较假设方案，且目的地、预算、同行或节奏尚未决定时，不需要外部事实、地点核验或地图；保持所有 needs_* 为 false，让主模型直接给 2–3 套假设方案。只有用户要求当前信息、来源、真实地点推荐或可执行路线时才选择相应能力。
 - 现实地点可能有错字、同名或缺城市时，不得在调用地点服务之前设置 needs_clarification。先选择地点/路线能力；地点工具会根据真实腾讯候选决定直接采用、单选或填空。
+- 论文作者身份不能按“最热门同名作者”猜测。若用户只给姓名或称谓、上下文没有单位/研究方向等身份线索，且现实中可能存在多个研究者，设置 needs_clarification=true，用一张主动卡只收集能区分身份的最少信息；已有足够身份线索时不得重复询问。
 - 用户要求把上一轮已核实路线写入日程时，设置 reuse_latest_route=true，只选择 calendar_context 和 calendar_action，不得重新选择 route 或抄写历史站点到 route_stops。新路线中用户明确给出的日期、时段、出发时刻或单站停留时长原样压缩到 route_calendar_hint，供后续日程续写；没有则留空。
 - optional_capabilities 只列不影响当前核心目标的增强能力。用户直接要求写入、修改或删除日程时 calendar_context/calendar_action 绝不属于可选；只有路线请求中系统可额外主动附送日程提案时才可标为可选。
 - 能力语义索引由已安装 Skill 的 Manifest 动态提供。只能选择索引中声明的 capability id；

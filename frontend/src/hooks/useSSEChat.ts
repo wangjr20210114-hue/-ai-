@@ -871,10 +871,10 @@ export function useSSEChat() {
         .catch((error) => console.warn('proactive workspace refresh failed', error));
     };
     window.addEventListener('yuanbao:workspace-changed', refreshWorkspace);
-    window.addEventListener('yuanbao:calendar-changed', refreshProactive);
+    window.addEventListener('yuanbao:proactive-refresh', refreshProactive);
     return () => {
       window.removeEventListener('yuanbao:workspace-changed', refreshWorkspace);
-      window.removeEventListener('yuanbao:calendar-changed', refreshProactive);
+      window.removeEventListener('yuanbao:proactive-refresh', refreshProactive);
     };
   }, [dispatch]);
 

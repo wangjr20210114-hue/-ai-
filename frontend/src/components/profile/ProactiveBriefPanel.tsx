@@ -50,14 +50,10 @@ export default function ProactiveBriefPanel() {
       timer = window.setTimeout(() => { void refresh(); }, 160);
     };
     const onVisibility = () => { if (document.visibilityState === 'visible') scheduleRefresh(); };
-    window.addEventListener('yuanbao:calendar-changed', scheduleRefresh);
-    window.addEventListener('yuanbao:workspace-changed', scheduleRefresh);
     window.addEventListener('focus', scheduleRefresh);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       window.clearTimeout(timer);
-      window.removeEventListener('yuanbao:calendar-changed', scheduleRefresh);
-      window.removeEventListener('yuanbao:workspace-changed', scheduleRefresh);
       window.removeEventListener('focus', scheduleRefresh);
       document.removeEventListener('visibilitychange', onVisibility);
     };
