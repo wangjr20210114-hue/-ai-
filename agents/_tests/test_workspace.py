@@ -740,7 +740,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("关键词", model.messages[0]["content"])
         self.assertEqual(
             fallback_tools_for_prompt_topics(("paper",)),
-            ("rich_search", "search_arxiv"),
+            ("search_arxiv",),
         )
 
     async def test_missing_source_content_is_planned_as_structured_card(self):
@@ -958,6 +958,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                     "calendar_context",
                     "calendar_action",
                 ],
+                "optional_capabilities": [
+                    "calendar_context",
+                    "calendar_action",
+                ],
             },
             disabled_skills={"calendar"},
         )
@@ -978,6 +982,30 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(disabled_plan["blocked_skill"], "calendar")
         self.assertEqual(required_tools_for_plan(disabled_plan), ())
+
+        reused_route = apply_runtime_skill_policy(
+            {
+                "needs_route": True,
+                "needs_calendar_context": True,
+                "needs_calendar_action": True,
+                "reuse_latest_route": True,
+                "route_stops": [
+                    {"query": "不应重新搜索的历史地点"},
+                ],
+                "_capabilities": [
+                    "route",
+                    "calendar_context",
+                    "calendar_action",
+                ],
+            },
+            disabled_skills=set(),
+        )
+        self.assertFalse(reused_route["needs_route"])
+        self.assertEqual(reused_route["route_stops"], [])
+        self.assertEqual(
+            required_tools_for_plan(reused_route),
+            ("propose_calendar_changes",),
+        )
 
     async def test_capability_planner_preserves_every_ordered_route_stop(self):
         model = StructuredPlannerModel({

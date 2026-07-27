@@ -184,6 +184,7 @@ export async function skillsOperation(
   preferences: Record<string, boolean>;
   providers: Record<string, boolean>;
   catalog: InstalledSkill[];
+  connections: NonNullable<MakersIntelligenceState['skill_connections']>;
 }> {
   const intelligence = await intelligenceOperation(
     conversationId,
@@ -194,7 +195,20 @@ export async function skillsOperation(
     preferences: intelligence.skill_preferences || {},
     providers: intelligence.providers || {},
     catalog: intelligence.skill_catalog || [],
+    connections: intelligence.skill_connections || {},
   };
+}
+
+export async function configureSkillConnection(
+  conversationId: string,
+  skillId: string,
+  token?: string,
+): Promise<MakersIntelligenceState> {
+  return intelligenceOperation(
+    conversationId,
+    token ? 'configure_skill_connection' : 'disconnect_skill_connection',
+    token ? { skill_id: skillId, token } : { skill_id: skillId },
+  );
 }
 
 export async function streamImageEdit(

@@ -68,6 +68,9 @@ DEFAULT_PLAN = {
     "route_mode": "default",
     "route_strategy": "default",
     "route_uses_current_location": False,
+    "reuse_latest_route": False,
+    "route_calendar_hint": "",
+    "optional_capabilities": [],
     "place_resolution_target": "none",
     "clarification_title": "",
     "clarification_prompt": "",
@@ -96,6 +99,18 @@ def apply_runtime_skill_policy(
     preserving a requested route.
     """
     reconciled = reconcile_capability_contract(plan)
+    if reconciled.get("reuse_latest_route"):
+        # This is a model-authored reference-resolution decision, not phrase
+        # matching. A verified route already exists in workspace state, so the
+        # current goal consumes it through the calendar adapter and must not
+        # re-run Tencent place search or directions.
+        reconciled["needs_route"] = False
+        reconciled["route_stops"] = []
+        reconciled["_capabilities"] = [
+            capability
+            for capability in (reconciled.get("_capabilities") or [])
+            if str(capability) != "route"
+        ]
     reconciled["blocked_skill"] = ""
     disabled = {
         str(skill_id or "").strip()
@@ -127,9 +142,19 @@ def apply_runtime_skill_policy(
         active_capabilities = set(_normalize_preflight_capabilities(
             reconciled.get("_capabilities") or []
         ))
+        optional_capabilities = set(_normalize_preflight_capabilities(
+            reconciled.get("optional_capabilities") or []
+        ))
+        omitted_capabilities = {
+            capability
+            for capability in active_capabilities
+            if _CAPABILITY_SKILLS.get(capability) == omitted_skill
+        }
         degradable = bool(
             active_capabilities
             & set(_SKILL_DEGRADATION_CAPABILITIES.get(omitted_skill, ()))
+            and omitted_capabilities
+            and omitted_capabilities.issubset(optional_capabilities)
         )
     else:
         omitted_skill = ""
@@ -390,6 +415,31 @@ class CapabilityPlan(BaseModel):
             "location as the implicit route origin, whether or not a fix is available."
         ),
     )
+    reuse_latest_route: bool = Field(
+        default=False,
+        description=(
+            "True when the current request asks to reuse the most recent "
+            "provider-verified route, such as turning that route into calendar "
+            "items. In that case do not plan a new route or repeat its stops."
+        ),
+    )
+    route_calendar_hint: str = Field(
+        default="",
+        description=(
+            "Only the user's explicit date/time window or per-stop duration "
+            "attached to a newly planned route, preserved for a later calendar "
+            "continuation. Empty when the user supplied none."
+        ),
+    )
+    optional_capabilities: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Capabilities that are helpful enhancements but not required for "
+            "the user's present goal. Use installed capability IDs only. A "
+            "direct request to create, edit, or delete calendar items is never "
+            "optional; an unsolicited calendar add-on to a route may be."
+        ),
+    )
     place_resolution_target: str = Field(
         default="none",
         description=(
@@ -501,6 +551,15 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
     } else "default"
     plan["route_uses_current_location"] = bool(
         plan.get("needs_route") and raw.get("route_uses_current_location")
+    )
+    plan["reuse_latest_route"] = bool(raw.get("reuse_latest_route"))
+    plan["route_calendar_hint"] = str(
+        raw.get("route_calendar_hint") or ""
+    ).strip()[:240]
+    plan["optional_capabilities"] = list(
+        _normalize_preflight_capabilities(
+            raw.get("optional_capabilities") or []
+        )
     )
     place_resolution_target = str(
         raw.get("place_resolution_target") or "none"
@@ -1065,6 +1124,8 @@ async def plan_capabilities(
 - 只有缺失信息会阻断所有安全有用结果，或真实副作用对象无法唯一确定时，才设置 needs_clarification=true，并把其他 needs_* 设为 false。此时必须同时填写 clarification_title、clarification_prompt 和最少 clarification_fields，让系统直接生成主动卡片；不得只让最终模型用普通文本追问。偏好未决定时直接交给主模型给方案，不要澄清。
 - 用户只是探索思路、比较假设方案，且目的地、预算、同行或节奏尚未决定时，不需要外部事实、地点核验或地图；保持所有 needs_* 为 false，让主模型直接给 2–3 套假设方案。只有用户要求当前信息、来源、真实地点推荐或可执行路线时才选择相应能力。
 - 现实地点可能有错字、同名或缺城市时，不得在调用地点服务之前设置 needs_clarification。先选择地点/路线能力；地点工具会根据真实腾讯候选决定直接采用、单选或填空。
+- 用户要求把上一轮已核实路线写入日程时，设置 reuse_latest_route=true，只选择 calendar_context 和 calendar_action，不得重新选择 route 或抄写历史站点到 route_stops。新路线中用户明确给出的日期、时段、出发时刻或单站停留时长原样压缩到 route_calendar_hint，供后续日程续写；没有则留空。
+- optional_capabilities 只列不影响当前核心目标的增强能力。用户直接要求写入、修改或删除日程时 calendar_context/calendar_action 绝不属于可选；只有路线请求中系统可额外主动附送日程提案时才可标为可选。
 - 能力语义索引由已安装 Skill 的 Manifest 动态提供。只能选择索引中声明的 capability id；
   下面只附本轮候选能力的详细边界，但不能把提示词片段选择当作最终路由。
 - needs_deep_reasoning 只用于确实需要多步开放推理的最终回答；能力路由、固定 JSON、工具参数、

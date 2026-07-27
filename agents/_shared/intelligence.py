@@ -113,6 +113,7 @@ def empty_intelligence_state() -> dict[str, Any]:
         },
         "map_preferences": copy.deepcopy(DEFAULT_MAP_PREFERENCES),
         "skill_preferences": copy.deepcopy(DEFAULT_SKILL_PREFERENCES),
+        "skill_connections": {},
     }
 
 
@@ -163,8 +164,115 @@ async def load_intelligence_state(store: Any, user_id: str = USER_WORKSPACE_ID) 
         )
         for skill_id, enabled in DEFAULT_SKILL_PREFERENCES.items()
     }
+    connections = state.get("skill_connections")
+    if not isinstance(connections, dict):
+        connections = {}
+    now = int(time.time())
+    state["skill_connections"] = {
+        str(skill_id): {
+            "token": str(connection.get("token") or "")[:4096],
+            "connected_at": int(connection.get("connected_at") or 0),
+            "expires_at": int(connection.get("expires_at") or 0),
+        }
+        for skill_id, connection in connections.items()
+        if (
+            isinstance(connection, dict)
+            and str(connection.get("token") or "").strip()
+            and int(connection.get("expires_at") or 0) > now
+        )
+    }
     prune_automatic_memories(state)
     return state
+
+
+def configure_skill_connection(
+    state: dict[str, Any],
+    skill_id: str,
+    token: str,
+    *,
+    now: int | None = None,
+) -> dict[str, int]:
+    """Store one manifest-declared personal token without exposing it publicly."""
+    from .skill_registry import skill_manifest
+
+    manifest = skill_manifest(str(skill_id or "").strip())
+    credential = dict(manifest.credential) if manifest else {}
+    if credential.get("kind") != "token":
+        raise ValueError("该 Skill 不支持在应用内配置 Token")
+    clean_token = str(token or "").strip()
+    if not 16 <= len(clean_token) <= 4096:
+        raise ValueError("Token 格式无效，请从官方 Skill 专区重新复制")
+    timestamp = int(time.time() if now is None else now)
+    ttl = int(credential.get("ttl_seconds") or 0)
+    connection = {
+        "token": clean_token,
+        "connected_at": timestamp,
+        "expires_at": timestamp + ttl,
+    }
+    state.setdefault("skill_connections", {})[manifest.id] = connection
+    return {
+        "connected_at": connection["connected_at"],
+        "expires_at": connection["expires_at"],
+    }
+
+
+def disconnect_skill_connection(state: dict[str, Any], skill_id: str) -> None:
+    connections = state.setdefault("skill_connections", {})
+    if isinstance(connections, dict):
+        connections.pop(str(skill_id or "").strip(), None)
+
+
+def skill_runtime_env(
+    env: dict[str, Any] | None,
+    state: dict[str, Any],
+    *,
+    now: int | None = None,
+) -> dict[str, Any]:
+    """Overlay unexpired user credentials onto one request-local env copy."""
+    from .skill_registry import skill_manifest
+
+    runtime = dict(env or {})
+    timestamp = int(time.time() if now is None else now)
+    connections = state.get("skill_connections")
+    if not isinstance(connections, dict):
+        return runtime
+    for skill_id, connection in connections.items():
+        manifest = skill_manifest(str(skill_id or ""))
+        credential = dict(manifest.credential) if manifest else {}
+        if (
+            credential.get("kind") != "token"
+            or not isinstance(connection, dict)
+            or int(connection.get("expires_at") or 0) <= timestamp
+        ):
+            continue
+        token = str(connection.get("token") or "").strip()
+        env_key = str(credential.get("env_key") or "").strip()
+        if token and env_key:
+            runtime[env_key] = token
+    return runtime
+
+
+def public_skill_connections(
+    state: dict[str, Any],
+    *,
+    now: int | None = None,
+) -> dict[str, dict[str, int | bool]]:
+    timestamp = int(time.time() if now is None else now)
+    connections = state.get("skill_connections")
+    if not isinstance(connections, dict):
+        return {}
+    return {
+        str(skill_id): {
+            "configured": bool(
+                str(connection.get("token") or "").strip()
+                and int(connection.get("expires_at") or 0) > timestamp
+            ),
+            "connected_at": int(connection.get("connected_at") or 0),
+            "expires_at": int(connection.get("expires_at") or 0),
+        }
+        for skill_id, connection in connections.items()
+        if isinstance(connection, dict)
+    }
 
 
 async def save_intelligence_state(

@@ -36,7 +36,9 @@ MANIFEST = {
             "place_resolution_target=calendar。用户明确要求写入/安排日程，或给出精确钟点并要求"
             "生成可执行日程时，才同时选择 route、calendar_context、calendar_action；只有“明天"
             "下午、周末”等宽泛时段并要求规划游玩路线时，选择 route 即可。日程始终是独立提案，"
-            "非必要的日程增强不得阻断已经可以完成的地点或路线规划。"
+            "非必要的日程增强不得阻断已经可以完成的地点或路线规划。把上一轮已经核实的路线写入"
+            "日程时设置 reuse_latest_route=true，只选择 calendar_context/calendar_action，直接复用"
+            "latest_route_plan，禁止重新搜索地点或再次规划路线。"
         ),
         "recovery_tools": ["search_places", "propose_calendar_changes"],
     },

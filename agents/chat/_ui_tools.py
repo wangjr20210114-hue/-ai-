@@ -1132,6 +1132,7 @@ def build_production_tools(
     planned_route_mode: str = "default",
     planned_route_strategy: str = "default",
     planned_route_uses_current_location: bool = False,
+    planned_route_calendar_hint: str = "",
     planned_calendar_place_resolution: bool = False,
     browser_current_location: dict[str, Any] | None = None,
     map_preferences: dict[str, Any] | None = None,
@@ -2382,6 +2383,7 @@ def build_production_tools(
             "mode": selected_route_mode,
             "strategy": selected_route_strategy,
             "selection": copy.deepcopy(route.get("selection") or {}),
+            "calendar_hint": str(planned_route_calendar_hint or "").strip()[:240],
         }
         state["latest_route_plan"] = route_plan
         route_plans = state.setdefault("route_plans", {})

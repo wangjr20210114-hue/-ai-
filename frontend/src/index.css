@@ -4142,6 +4142,12 @@ html.is-resizing-workspace * {
 .skill-market-content { min-width: 0; flex: 1; }
 .skill-market-title { display: flex; align-items: center; gap: 8px; }
 .skill-market-content p { margin: 6px 0; color: var(--app-text-2); font-size: 12px; line-height: 1.55; }
+.skill-credential-help { margin-top: 8px; color: var(--app-text-2); font-size: 12px; line-height: 1.55; }
+.skill-credential-editor { display: flex; gap: 8px; align-items: center; margin-top: 9px; }
+.skill-credential-editor input { min-width: 0; flex: 1; height: 32px; padding: 0 10px; border: 1px solid var(--app-border); border-radius: 9px; background: var(--app-panel); color: var(--app-text); outline: none; }
+.skill-credential-editor input:focus { border-color: var(--td-brand-color); box-shadow: 0 0 0 2px rgba(var(--app-accent-rgb), .1); }
+.skill-credential-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 8px; color: var(--app-text-3); font-size: 11px; }
+.skill-install-link.is-danger { color: var(--td-error-color); }
 .skill-dependency-note { margin-top: 7px; padding: 6px 8px; border-radius: 8px; background: rgba(var(--app-accent-rgb), .08); color: var(--app-text-2); font-size: 10.5px; line-height: 1.45; }
 .skill-dependency-note.is-blocked { background: rgba(228, 139, 42, .1); color: #9a5c15; }
 .skill-install-link { margin-top: 7px; padding: 0; border: 0; background: transparent; color: var(--td-brand-color); font-size: 11px; text-align: left; }

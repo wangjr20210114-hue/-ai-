@@ -645,6 +645,31 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(model.bound_calls, 0)
         self.assertEqual(public_model.unbound_calls, 0)
 
+    async def test_paper_search_remains_textual_when_reader_skill_is_off(self):
+        model = _RecordingModel()
+        graph = build_graph(
+            model,
+            [search_arxiv],
+            "tool system",
+            required_tools=["search_arxiv"],
+            planned_tool_arguments={
+                "search_arxiv": {
+                    "topic": "verified paper",
+                    "limit": 1,
+                    "author": "",
+                    "year": 2026,
+                },
+            },
+            paper_cards_enabled=False,
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="找一篇论文")],
+        })
+        final = result["messages"][-1].content
+        self.assertIn("1. **verified paper**", final)
+        self.assertIn("论文检索不依赖论文助读 Skill", final)
+        self.assertNotIn("论文卡片已经准备好", final)
+
     async def test_planned_arxiv_arguments_skip_redundant_tool_model_round(self):
         model = _RecordingModel()
         public_model = _RecordingModel()

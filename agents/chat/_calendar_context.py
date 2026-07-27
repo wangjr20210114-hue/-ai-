@@ -73,5 +73,7 @@ def latest_route_context(workspace: dict) -> str:
         "ordered_stops": stops,
         "distance_meters": int(route.get("distance_meters") or 0),
         "duration_seconds": int(route.get("duration_seconds") or 0),
+        "mode": str(route.get("mode") or ""),
+        "calendar_hint": str(route.get("calendar_hint") or "")[:240],
     }
     return json.dumps(public, ensure_ascii=False, separators=(",", ":"))

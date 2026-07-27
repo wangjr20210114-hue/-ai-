@@ -19,7 +19,7 @@ from .._shared.proactive import (
     save_proactive_state,
 )
 from .._shared.auth import require_user, scoped_conversation_id
-from .._shared.intelligence import load_intelligence_state
+from .._shared.intelligence import load_intelligence_state, skill_runtime_env
 from .._shared.http import error
 from .._shared.skill_registry import skill_manifest, unavailable_skills_for_action
 from .._shared.workspace import (
@@ -218,6 +218,7 @@ async def handler(ctx):
     store = ctx.store.langgraph_store
     state = await load_user_workspace(store, conversation_id, user_id)
     intelligence = await load_intelligence_state(store, user_id)
+    runtime_env = skill_runtime_env(ctx.env, intelligence)
     enabled_skills = intelligence.get("skill_preferences") or {}
     workspace_id = user_id
     try:
@@ -420,7 +421,7 @@ async def handler(ctx):
         state = await save_workspace(store, workspace_id, state)
         if kind == "meeting_create":
             result = await create_tencent_meeting(
-                ctx.env,
+                runtime_env,
                 str(payload.get("subject") or "腾讯会议"),
                 str(payload.get("start_time") or ""),
                 str(payload.get("end_time") or ""),

@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import types
 import unittest
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -19,6 +20,12 @@ from agents._shared.skill_registry import (
     skill_manifests,
     tool_skill_map,
     unavailable_skills_for_action,
+)
+from agents._shared.intelligence import (
+    configure_skill_connection,
+    empty_intelligence_state,
+    public_skill_connections,
+    skill_runtime_env,
 )
 from agents.skills.index import handler as skills_handler
 from agents.chat._capability_plan import required_tools_for_plan
@@ -97,6 +104,30 @@ class SkillRegistryContractTests(unittest.TestCase):
             next(item for item in connected if item["id"] == "tencent-meeting")[
                 "configured"
             ]
+        )
+        self.assertEqual(meeting["credential"]["kind"], "token")
+        self.assertEqual(meeting["credential"]["ttl_seconds"], 7 * 24 * 60 * 60)
+
+    def test_personal_skill_token_is_private_and_expires_after_one_week(self):
+        state = empty_intelligence_state()
+        configured = configure_skill_connection(
+            state,
+            "tencent-meeting",
+            "personal-token-that-is-long-enough",
+            now=100,
+        )
+        self.assertEqual(configured["expires_at"], 100 + 7 * 24 * 60 * 60)
+        self.assertEqual(
+            skill_runtime_env({}, state, now=101)["TENCENT_MEETING_TOKEN"],
+            "personal-token-that-is-long-enough",
+        )
+        self.assertNotIn(
+            "TENCENT_MEETING_TOKEN",
+            json.dumps(public_skill_connections(state, now=101)),
+        )
+        self.assertNotIn(
+            "TENCENT_MEETING_TOKEN",
+            skill_runtime_env({}, state, now=configured["expires_at"]),
         )
 
     def test_required_dependencies_are_resolved_before_tool_construction(self):

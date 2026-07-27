@@ -157,6 +157,7 @@ export interface MakersIntelligenceState {
   };
   skill_preferences?: Record<string, boolean>;
   skill_catalog?: InstalledSkill[];
+  skill_connections?: Record<string, SkillConnectionState>;
   providers?: Record<string, boolean>;
   rule_proposals: ProactiveRuleProposal[];
   feedback_count: number;
@@ -179,9 +180,22 @@ export interface InstalledSkill {
   external: boolean;
   configured: boolean;
   connect_url: string;
+  credential?: {
+    kind: 'token';
+    env_key: string;
+    ttl_seconds: number;
+    help_url: string;
+    instructions: Record<string, string>;
+  };
   icon: string;
   name: Record<string, string>;
   description: Record<string, string>;
+}
+
+export interface SkillConnectionState {
+  configured: boolean;
+  connected_at: number;
+  expires_at: number;
 }
 
 export interface ProviderBalance {

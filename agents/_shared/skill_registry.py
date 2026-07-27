@@ -82,6 +82,7 @@ class SkillManifest:
     external: bool
     provider_env: tuple[str, ...]
     connect_url: str
+    credential: Mapping[str, Any]
     icon: str
     names: Mapping[str, str]
     descriptions: Mapping[str, str]
@@ -108,6 +109,7 @@ class SkillManifest:
             "external": self.external,
             "configured": configured,
             "connect_url": self.connect_url,
+            "credential": dict(self.credential),
             "icon": self.icon,
             "name": dict(self.names),
             "description": dict(self.descriptions),
@@ -289,6 +291,32 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         if isinstance(raw.get("planner"), Mapping)
         else {}
     )
+    credential = (
+        raw.get("credential")
+        if isinstance(raw.get("credential"), Mapping)
+        else {}
+    )
+    credential_kind = str(credential.get("kind") or "").strip()
+    credential_env_key = str(credential.get("env_key") or "").strip()
+    credential_ttl = int(credential.get("ttl_seconds") or 0)
+    if credential_kind and credential_kind != "token":
+        raise ValueError(f"{source}: unsupported credential kind")
+    if credential_kind and (
+        credential_env_key not in _string_tuple(raw.get("env_keys"))
+        or credential_env_key not in _string_tuple(raw.get("provider_env"))
+    ):
+        raise ValueError(
+            f"{source}: credential env_key must be declared in env_keys and provider_env"
+        )
+    if credential_kind and not 300 <= credential_ttl <= 31 * 24 * 60 * 60:
+        raise ValueError(f"{source}: credential ttl_seconds is out of range")
+    public_credential = {
+        "kind": credential_kind,
+        "env_key": credential_env_key,
+        "ttl_seconds": credential_ttl,
+        "help_url": str(credential.get("help_url") or "").strip(),
+        "instructions": dict(_localized(credential.get("instructions"), "")),
+    } if credential_kind else {}
     recovery_tools = _string_tuple(planner.get("recovery_tools"))
     if any(not _TOOL_ID.fullmatch(item) for item in recovery_tools):
         raise ValueError(f"{source}: invalid planner recovery tool")
@@ -313,6 +341,7 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         external=bool(raw.get("external", False)),
         provider_env=_string_tuple(raw.get("provider_env")),
         connect_url=str(raw.get("connect_url") or "").strip(),
+        credential=MappingProxyType(public_credential),
         icon=str(ui.get("icon") or "◇").strip()[:8],
         names=_localized(ui.get("name"), skill_id),
         descriptions=_localized(ui.get("description"), ""),

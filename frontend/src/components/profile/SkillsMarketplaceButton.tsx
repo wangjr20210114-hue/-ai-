@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Dialog, MessagePlugin, Tag } from 'tdesign-react';
 import { AppIcon } from 'tdesign-icons-react';
 import { useAppState } from '../../store/appState';
-import { skillsOperation } from '../../services/api';
+import { configureSkillConnection, skillsOperation } from '../../services/api';
 import { useLanguage } from '../../i18n';
-import type { InstalledSkill } from '../../types';
+import type { InstalledSkill, SkillConnectionState } from '../../types';
 
 export default function SkillsMarketplaceButton() {
   const { conversationId } = useAppState();
@@ -14,6 +14,8 @@ export default function SkillsMarketplaceButton() {
   const [catalog, setCatalog] = useState<InstalledSkill[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState('');
+  const [connections, setConnections] = useState<Record<string, SkillConnectionState>>({});
+  const [tokenDrafts, setTokenDrafts] = useState<Record<string, string>>({});
 
   const refresh = useCallback(async (): Promise<boolean> => {
     setLoading(true);
@@ -21,6 +23,7 @@ export default function SkillsMarketplaceButton() {
       const result = await skillsOperation(conversationId);
       setPreferences(result.preferences);
       setCatalog(result.catalog);
+      setConnections(result.connections);
       return true;
     } catch {
       MessagePlugin.error(t('skillsReadFailed'));
@@ -80,6 +83,31 @@ export default function SkillsMarketplaceButton() {
       MessagePlugin.error(t('skillsSaveFailed'));
     } finally { setSavingId(''); }
   };
+  const saveConnection = async (skillId: string) => {
+    const token = String(tokenDrafts[skillId] || '').trim();
+    if (!token) return;
+    setSavingId(skillId);
+    try {
+      const state = await configureSkillConnection(conversationId, skillId, token);
+      setCatalog(state.skill_catalog || []);
+      setConnections(state.skill_connections || {});
+      setTokenDrafts((current) => ({ ...current, [skillId]: '' }));
+      MessagePlugin.success(t('skillTokenSaved'));
+    } catch {
+      MessagePlugin.error(t('skillTokenSaveFailed'));
+    } finally { setSavingId(''); }
+  };
+  const disconnect = async (skillId: string) => {
+    setSavingId(skillId);
+    try {
+      const state = await configureSkillConnection(conversationId, skillId);
+      setCatalog(state.skill_catalog || []);
+      setConnections(state.skill_connections || {});
+      MessagePlugin.success(t('skillDisconnected'));
+    } catch {
+      MessagePlugin.error(t('skillTokenSaveFailed'));
+    } finally { setSavingId(''); }
+  };
 
   return <>
     <Button
@@ -111,6 +139,10 @@ export default function SkillsMarketplaceButton() {
           const missingRequired = (skill.requires || []).filter((id) => preferences[id] === false);
           const blocked = enabled && missingRequired.length > 0;
           const connected = skill.configured;
+          const connection = connections[skill.id];
+          const credentialInstructions = skill.credential?.instructions
+            ? skillText(skill.credential.instructions, '')
+            : '';
           return <article className={`skill-market-card ${enabled ? 'is-enabled' : 'is-disabled'}`} key={skill.id}>
             <div className="skill-market-icon" aria-hidden="true">{skill.icon}</div>
             <div className="skill-market-content">
@@ -126,7 +158,30 @@ export default function SkillsMarketplaceButton() {
               {!blocked && enabled && missingRecommended.length > 0 && <div className="skill-dependency-note">{t('recommendsSkills', { names: missingRecommended.map((id) => {
                 return skillName(id);
               }).join('、') })}</div>}
-              {skill.external && !connected && skill.connect_url && <button className="skill-install-link" type="button" onClick={() => window.open(skill.connect_url, '_blank', 'noopener,noreferrer')}>{t('connectExternalSkill')}</button>}
+              {skill.external && skill.credential?.kind === 'token' && <>
+                {credentialInstructions && <div className="skill-credential-help">{credentialInstructions}</div>}
+                <div className="skill-credential-editor">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={tokenDrafts[skill.id] || ''}
+                    disabled={savingId === skill.id}
+                    placeholder={t('skillTokenPlaceholder')}
+                    onChange={(event) => setTokenDrafts((current) => ({
+                      ...current,
+                      [skill.id]: event.target.value,
+                    }))}
+                  />
+                  <Button size="small" theme="primary" loading={savingId === skill.id} disabled={!String(tokenDrafts[skill.id] || '').trim()} onClick={() => void saveConnection(skill.id)}>{t('saveConnection')}</Button>
+                </div>
+                <div className="skill-credential-actions">
+                  {skill.connect_url && <button className="skill-install-link" type="button" onClick={() => window.open(skill.connect_url, '_blank', 'noopener,noreferrer')}>{t('getTokenOfficial')}</button>}
+                  {skill.credential.help_url && <button className="skill-install-link" type="button" onClick={() => window.open(skill.credential?.help_url, '_blank', 'noopener,noreferrer')}>{t('viewOfficialGuide')}</button>}
+                  {connected && connection?.expires_at && <span>{t('connectionExpiresAt', { time: new Date(connection.expires_at * 1000).toLocaleString() })}</span>}
+                  {connected && connection?.configured && <button className="skill-install-link is-danger" type="button" disabled={savingId === skill.id} onClick={() => void disconnect(skill.id)}>{t('disconnectSkill')}</button>}
+                </div>
+              </>}
+              {skill.external && !skill.credential?.kind && !connected && skill.connect_url && <button className="skill-install-link" type="button" onClick={() => window.open(skill.connect_url, '_blank', 'noopener,noreferrer')}>{t('connectExternalSkill')}</button>}
             </div>
             <button
               type="button"

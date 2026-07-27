@@ -304,7 +304,11 @@ def tool_result_fallback(messages: Iterable) -> str:
     return "我找到了这些经过地点服务核实的结果：\n\n" + "\n".join(lines) + suffix
 
 
-def _paper_result_answer(payload: dict | None) -> str:
+def _paper_result_answer(
+    payload: dict | None,
+    *,
+    cards_enabled: bool = True,
+) -> str:
     if not isinstance(payload, dict) or payload.get("ui_action") != "paper_results":
         return ""
     papers = payload.get("papers")
@@ -324,6 +328,38 @@ def _paper_result_answer(payload: dict | None) -> str:
         if isinstance(paper, dict)
     }
     source_copy = "、".join(sorted(sources))
+    if not cards_enabled:
+        lines = []
+        for index, paper in enumerate(papers[:8], start=1):
+            if not isinstance(paper, dict):
+                continue
+            title = str(paper.get("title") or "").strip()
+            if not title:
+                continue
+            authors = str(paper.get("authors") or "").strip()
+            year = int(paper.get("year") or 0)
+            source_url = str(
+                paper.get("source_url")
+                or paper.get("arxiv_url")
+                or ""
+            ).strip()
+            label = f"{index}. **{title}**"
+            details = " · ".join(
+                value for value in (
+                    str(year) if year else "",
+                    authors,
+                ) if value
+            )
+            if details:
+                label += f"\n   {details}"
+            if source_url.startswith("https://"):
+                label += f"\n   [查看来源]({source_url})"
+            lines.append(label)
+        return (
+            f"已从 {source_copy} 核实到 {len(lines)} 篇符合条件的论文：\n\n"
+            + "\n\n".join(lines)
+            + "\n\n论文检索不依赖论文助读 Skill；开启该 Skill 后会额外显示论文卡片、PDF 保存和助读器。"
+        )
     return (
         f"已从 {source_copy} 核实到 {len(paper_titles)} 篇符合条件的论文，论文卡片已经准备好。"
         "有可下载 PDF 的结果可以直接启动论文助读器，也可以前往来源页查看原文。"
@@ -635,6 +671,7 @@ def build_graph(
     public_system_prompt: str | None = None,
     planned_tool_arguments: dict[str, dict] | None = None,
     direct_answer: str = "",
+    paper_cards_enabled: bool = True,
 ):
     public_model = _tagged(
         public_answer_model or model,
@@ -820,7 +857,10 @@ def build_graph(
             == {"search_arxiv"}
         ):
             paper_answer = (
-                _paper_result_answer(paper_result_payload)
+                _paper_result_answer(
+                    paper_result_payload,
+                    cards_enabled=paper_cards_enabled,
+                )
                 or tool_failure_fallback(state["messages"])
             )
             if paper_answer:

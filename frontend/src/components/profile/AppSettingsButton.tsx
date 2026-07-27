@@ -457,7 +457,7 @@ export default function AppSettingsButton() {
           </details>
         </section>}
 
-        {skillEnabled('papers') && <section className="app-settings-section">
+        {skillEnabled('paper_assistant') && <section className="app-settings-section">
           <h3>{t('readingLibrary')}</h3>
           <label className="app-settings-choice"><input type="radio" checked={automatic} disabled={busy === 'reading'} onChange={() => void saveReading(true)} /><span><strong>{t('autoOrganize')}</strong><small>{t('autoFilingDescription')}</small></span></label>
           <label className="app-settings-choice"><input type="radio" checked={!automatic} disabled={busy === 'reading'} onChange={() => void saveReading(false)} /><span><strong>{t('manualOrganize')}</strong><small>{t('manualFilingDescription')}</small></span></label>

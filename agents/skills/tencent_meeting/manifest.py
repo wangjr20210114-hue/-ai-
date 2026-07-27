@@ -17,7 +17,18 @@ MANIFEST = {
     "env_keys": ["TENCENT_MEETING_TOKEN", "TENCENT_MEETING_SKILL_VERSION"],
     "external": True,
     "provider_env": ["TENCENT_MEETING_TOKEN"],
-    "connect_url": "https://meeting.tencent.com/ai-skill",
+    "connect_url": "https://meeting.tencent.com/ai-skill.html",
+    "credential": {
+        "kind": "token",
+        "env_key": "TENCENT_MEETING_TOKEN",
+        "ttl_seconds": 604800,
+        "help_url": "https://meeting.tencent.com/support/topic/2233/index.html",
+        "instructions": {
+            "zh-CN": "打开腾讯会议 AI Skill 专区并登录个人账号，复制专属 Token 后粘贴到这里。Floris 只在服务端保存七天，之后需重新连接。",
+            "zh-TW": "開啟騰訊會議 AI Skill 專區並登入個人帳號，複製專屬 Token 後貼到這裡。Floris 只在服務端保存七天，之後需重新連線。",
+            "en": "Open Tencent Meeting AI Skill, sign in with a personal account, copy the personal token, and paste it here. Floris stores it server-side for seven days.",
+        },
+    },
     "ui": {
         "icon": "会",
         "name": {"zh-CN": "腾讯会议", "zh-TW": "騰訊會議", "en": "Tencent Meeting"},

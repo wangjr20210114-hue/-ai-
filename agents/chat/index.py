@@ -43,6 +43,7 @@ from .._shared.intelligence import (
     record_usage,
     save_intelligence_state,
     usage_summary,
+    skill_runtime_env,
 )
 from .._shared.auth import require_user, scoped_conversation_id
 from .._shared.data_version import namespace as data_namespace
@@ -1356,6 +1357,7 @@ async def handler(ctx):
     intelligence = await load_intelligence_state(
         ctx.store.langgraph_store, user_id,
     )
+    runtime_env = skill_runtime_env(ctx.env, intelligence)
     stage_timings_ms["intelligence_load"] = round(
         (time.monotonic() - intelligence_started_at) * 1000
     )
@@ -1726,7 +1728,7 @@ async def handler(ctx):
         paper_discovery_model=fast_model,
         store=ctx.store.langgraph_store,
         conversation_id=conversation_id,
-        env=ctx.env,
+        env=runtime_env,
         paper_constraints={
             "author": capability_plan.get("paper_author") or "",
             "institution": capability_plan.get("paper_institution") or "",
@@ -1774,6 +1776,9 @@ async def handler(ctx):
         ),
         planned_route_uses_current_location=bool(
             capability_plan.get("route_uses_current_location")
+        ),
+        planned_route_calendar_hint=str(
+            capability_plan.get("route_calendar_hint") or ""
         ),
         planned_calendar_place_resolution=bool(
             capability_plan.get("needs_calendar_action")
@@ -1907,6 +1912,9 @@ async def handler(ctx):
             **direct_paper_tool_arguments(capability_plan),
         },
         direct_answer=direct_public_answer,
+        paper_cards_enabled=capability_is_enabled(
+            "paper_assistant", skill_preferences,
+        ),
     )
     stage_timings_ms["tool_graph_setup"] = round(
         (time.monotonic() - graph_setup_started_at) * 1000
@@ -2038,7 +2046,14 @@ async def handler(ctx):
                         **({"search_results": latest_enriched_media} if latest_enriched_media else {}),
                     },
                 )
-            if capability_plan.get("needs_image_generation"):
+            if (
+                not blocked_skill
+                and "propose_image" in required_tool_names
+                and any(
+                    getattr(tool, "name", "") == "propose_image"
+                    for tool in graph_tools
+                )
+            ):
                 await queue.put(ctx.utils.sse({"type": "tool_call", "name": "image_generation_planning"}))
             if tool_setup_error:
                 await queue.put(
@@ -2108,7 +2123,13 @@ async def handler(ctx):
                                     await queue.put(ctx.utils.sse({"type": "search_results", "payload": metadata}))
                                     pending_search_results = None
                                 papers = action.get("papers")
-                                if isinstance(papers, list) and papers:
+                                if (
+                                    capability_is_enabled(
+                                        "paper_assistant", skill_preferences,
+                                    )
+                                    and isinstance(papers, list)
+                                    and papers
+                                ):
                                     pending_papers = {"papers": papers, "topic": metadata.get("query", "") if isinstance(metadata, dict) else ""}
                                 await queue.put(
                                     ctx.utils.sse({
@@ -2119,7 +2140,10 @@ async def handler(ctx):
                                 )
                                 continue
                             if action and action.get("ui_action") == "paper_results":
-                                pending_papers = action
+                                if capability_is_enabled(
+                                    "paper_assistant", skill_preferences,
+                                ):
+                                    pending_papers = action
                                 await queue.put(ctx.utils.sse({"type": "tool_result", "name": "search_arxiv", "content": "论文结果已准备"}))
                                 continue
                             if action and action.get("ui_action") == "clarification_action":

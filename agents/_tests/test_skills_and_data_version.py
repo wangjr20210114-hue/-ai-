@@ -47,7 +47,11 @@ class SkillAndDataVersionTests(unittest.TestCase):
     def test_calendar_can_run_without_map_but_map_tools_are_hidden(self):
         tools = build_production_tools(object(), enabled_skills={"calendar"})
         names = {tool.name for tool in tools}
-        self.assertEqual(names, {"ask_user_clarification", "propose_calendar_changes"})
+        self.assertEqual(names, {
+            "ask_user_clarification",
+            "propose_calendar_changes",
+            "search_arxiv",
+        })
         self.assertNotIn("search_places", names)
         self.assertNotIn("recommend_places_on_map", names)
 
@@ -93,7 +97,12 @@ class SkillPreferenceEndpointTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             {tool.name for tool in linked},
-            {"ask_user_clarification", "propose_calendar_changes", "propose_meeting"},
+            {
+                "ask_user_clarification",
+                "propose_calendar_changes",
+                "propose_meeting",
+                "search_arxiv",
+            },
         )
 
 

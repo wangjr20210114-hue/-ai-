@@ -14,6 +14,10 @@ from .._shared.intelligence import (
     rollback_memory,
     save_intelligence_state,
     normalize_map_preferences,
+    configure_skill_connection,
+    disconnect_skill_connection,
+    public_skill_connections,
+    skill_runtime_env,
 )
 from .._shared.proactive import load_proactive_state, save_proactive_state, update_preferences
 from .._shared.auth import require_user
@@ -27,8 +31,9 @@ from .._shared.skill_registry import (
 
 def _public_state(state, env):
     public = public_intelligence_state(state)
-    catalog = public_skill_catalog(env)
+    catalog = public_skill_catalog(skill_runtime_env(env, state))
     public["skill_catalog"] = catalog
+    public["skill_connections"] = public_skill_connections(state)
     public["providers"] = {
         item["id"]: bool(item["configured"])
         for item in catalog
@@ -138,6 +143,17 @@ async def handler(ctx):
                 },
                 previous,
                 current,
+            )
+        elif operation == "configure_skill_connection":
+            configure_skill_connection(
+                state,
+                str(body.get("skill_id") or ""),
+                str(body.get("token") or ""),
+            )
+        elif operation == "disconnect_skill_connection":
+            disconnect_skill_connection(
+                state,
+                str(body.get("skill_id") or ""),
             )
         elif operation == "clear_memories":
             state["memories"] = {}
