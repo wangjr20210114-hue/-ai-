@@ -1905,7 +1905,14 @@ async def handler(ctx):
         required_tools=required_tool_names,
         blocked_skill=blocked_skill,
         response_language=response_language,
-        public_answer_model=fast_model,
+        # Route facts are compact but safety-sensitive: the final prose must
+        # distinguish aggregate Tencent values from per-leg evidence and must
+        # not invent service hours or alternatives. Keep Flash for routing and
+        # every fixed tool schema, but use the main reasoning profile only for
+        # this user-visible synthesis.
+        public_answer_model=(
+            model if capability_plan.get("needs_route") else fast_model
+        ),
         fast_tool_model=fast_model,
         # Tool arguments are an intermediate fixed schema, including calendar
         # proposals. Use Flash without thinking here; the calendar adapter

@@ -2442,6 +2442,34 @@ def build_production_tools(
                 "transit": route.get("transit") or {},
                 "selection": route.get("selection") or {},
             },
+            "evidence_contract": {
+                "strict": True,
+                "aggregate_only": [
+                    "route.distance_meters",
+                    "route.distance_kilometers",
+                    "route.duration_seconds",
+                    "route.duration_minutes",
+                    "route.transit.walking_distance_meters",
+                ],
+                "permitted_transit_segment_fields": [
+                    "line", "vehicle", "geton", "getoff", "station_count",
+                ],
+                "unknown_fields": [
+                    "operating_hours",
+                    "service_days",
+                    "service_frequency",
+                    "travel_direction",
+                    "roads",
+                    "entrance_rules",
+                    "walking_segment_distances",
+                    "alternative_lines",
+                ],
+                "instruction": (
+                    "Only claims directly represented by the route object are "
+                    "grounded. Aggregate-only values must never be assigned to "
+                    "one leg. Unknown fields must not be inferred or mentioned."
+                ),
+            },
             "response_constraint": (
                 f"距离和耗时来自按用户指定顺序核实的 {len(resolved_stops)} 个地点之间的真实道路路线；"
                 f"交通方式为 {selected_route_mode}；"

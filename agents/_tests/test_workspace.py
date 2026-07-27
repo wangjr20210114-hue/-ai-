@@ -3017,6 +3017,15 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["destination"]["place_id"], "hotel")
         self.assertEqual(result["route"]["distance_kilometers"], 13.8)
         self.assertEqual(result["route"]["duration_minutes"], 35)
+        self.assertTrue(result["evidence_contract"]["strict"])
+        self.assertIn(
+            "alternative_lines",
+            result["evidence_contract"]["unknown_fields"],
+        )
+        self.assertIn(
+            "route.transit.walking_distance_meters",
+            result["evidence_contract"]["aggregate_only"],
+        )
         nearby.assert_awaited_once()
         planner.assert_awaited_once()
 
