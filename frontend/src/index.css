@@ -2954,6 +2954,18 @@ html:lang(en) {
 .floris-onboarding-welcome-copy { display: grid; gap: 7px; }
 .floris-onboarding-welcome-copy p,
 .floris-onboarding-hint-copy { margin: 0; color: var(--app-text-2); font-size: 13px; line-height: 1.72; }
+.floris-onboarding-welcome-copy a {
+  color: var(--td-brand-color);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--td-brand-color) 42%, transparent);
+  text-underline-offset: 3px;
+  transition: color 160ms ease, text-decoration-color 160ms ease;
+}
+.floris-onboarding-welcome-copy a:hover,
+.floris-onboarding-welcome-copy a:focus-visible {
+  color: var(--td-brand-color-hover);
+  text-decoration-color: currentColor;
+}
 .floris-onboarding-welcome-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 3px; }
 .floris-onboarding-welcome-actions button,
 .floris-onboarding-next {

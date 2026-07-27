@@ -5,9 +5,9 @@ import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
 import { activeProactiveNotifications, proactiveFallbackLines, proactiveHeaderLines, proactiveReminderLines } from '../profile/proactiveNotifications';
 import { useLanguage } from '../../i18n';
+import { FEATURE_DOCUMENT_URL } from '../../constants';
 
 const THEME_KEY = 'travel-theme';
-const FEATURE_DOCUMENT_URL = 'https://github.com/wangjr20210114-hue/-ai-/blob/main/README.md';
 
 /** 顶部导航栏。 */
 export default function Header({

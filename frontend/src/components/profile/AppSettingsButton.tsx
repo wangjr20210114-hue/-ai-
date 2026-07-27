@@ -20,6 +20,7 @@ import {
 } from '../../services/onboarding';
 import { languageName, useLanguage, type Language } from '../../i18n';
 import type { InstalledSkill, MakersIntelligenceState, ProviderUsageSummary } from '../../types';
+import { proactiveFallbackLines } from './proactiveNotifications';
 
 const DEFAULT_SEARCH_PREFERENCES = {
   result_limit: 8,
@@ -121,7 +122,9 @@ export default function AppSettingsButton() {
 
   useEffect(() => {
     if (visible && proactive?.preferences) {
-      setMottoDrafts([...(proactive.preferences.fallback_mottos || [])]);
+      setMottoDrafts(proactiveFallbackLines(
+        proactive.preferences.fallback_mottos || [],
+      ).map((item) => item.text));
     }
   }, [proactive?.preferences, visible]);
 

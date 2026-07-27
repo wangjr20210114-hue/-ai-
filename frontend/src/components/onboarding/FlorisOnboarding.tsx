@@ -16,6 +16,7 @@ import {
   OPEN_ONBOARDING_EVENT,
   shouldOpenOnboarding,
 } from '../../services/onboarding';
+import { FEATURE_DOCUMENT_URL } from '../../constants';
 
 type TourMode = 'hidden' | 'welcome' | 'tour' | 'settings-hint';
 type TourArea = 'sidebar' | 'workspace' | 'header';
@@ -402,7 +403,11 @@ export default function FlorisOnboarding({ connected, revealArea }: Props) {
             <h2 id={`floris-onboarding-title-${portalId}`}>{t('onboardingWelcomeTitle')}</h2>
             <div className="floris-onboarding-welcome-copy">
               <p>{t('onboardingOwners')}</p>
-              <p>{t('onboardingGithubWelcome')}</p>
+              <p>
+                <a href={FEATURE_DOCUMENT_URL} target="_blank" rel="noreferrer noopener">
+                  {t('onboardingGithubWelcome')}
+                </a>
+              </p>
               <p>{t('onboardingIntroOffer')}</p>
             </div>
             <div className="floris-onboarding-welcome-actions">

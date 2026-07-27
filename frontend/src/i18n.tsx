@@ -153,7 +153,7 @@ const catalog = {
   ],
   proactiveEnabled: ['启用主动服务', '啟用主動服務', 'Enable proactive service', '打开主动喵', '启用主动服务'],
   fallbackMottos: ['无提醒时的诗意短句', '無提醒時的詩意短句', 'Quiet-time mottos', '没有提醒时的小诗句喵', '空闲短句'],
-  fallbackMottosHint: ['最多 10 条，用于补满顶部 10 个轮播槽位；真实提醒按先来先服务占用槽位。', '最多 10 條，用於補滿頂部 10 個輪播槽位；真實提醒按先來先服務佔用槽位。', 'Up to 10. They fill vacant Header slots while real reminders occupy slots first-come, first-served.', '最多 10 条喵，用来补满顶部槽位，真实提醒按先来先服务排队。', '最多 10 条，用于补满顶部槽位；真实提醒按先来先服务。'],
+  fallbackMottosHint: ['这里显示顶部实际使用的 10 条短句；不足时自动补入同一套系统默认短句，真实提醒按先来先服务占用槽位。', '這裡顯示頂部實際使用的 10 條短句；不足時自動補入同一套系統預設短句，真實提醒按先來先服務佔用槽位。', 'These are the 10 lines actually used in the Header. Missing slots use the same system defaults, while real reminders take slots first-come, first-served.', '这里就是顶部实际轮播的 10 条小诗句喵；不够时会补上同一套系统默认短句，真实提醒先来先排队。', '这里显示顶部实际使用的 10 条短句；不足时补入系统默认短句，真实提醒优先占用槽位。'],
   mottoCount: ['{count}/10 条', '{count}/10 條', '{count}/10', '{count}/10 条喵', '{count}/10 条'],
   defaultMotto1: ['鱼儿水中游，永远不会回首～', '魚兒水中游，永遠不會回首～', 'A fish keeps swimming and never looks back.', '鱼儿向前游，不回头喵～', '鱼儿水中游，永远不会回首。'],
   defaultMotto2: ['风会记得每一片认真生长的叶子。', '風會記得每一片認真生長的葉子。', 'The wind remembers every leaf that grows with care.', '风会记得认真生长的叶子喵。', '风会记得每一片认真生长的叶子。'],
