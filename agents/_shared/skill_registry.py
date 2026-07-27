@@ -102,6 +102,7 @@ class SkillManifest:
             "order": self.order,
             "default_enabled": self.default_enabled,
             "locked": self.locked,
+            "capabilities": list(self.capabilities),
             "requires": list(self.requires),
             "recommends": list(self.recommends),
             "external": self.external,

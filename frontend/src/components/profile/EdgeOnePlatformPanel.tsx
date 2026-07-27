@@ -3,7 +3,8 @@ import { Button, MessagePlugin } from 'tdesign-react';
 import { ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import { intelligenceOperation, searchMakersPlaces, workspaceOperation } from '../../services/api';
-import type { MakersMapPlace, ScheduleItem } from '../../types';
+import { capabilityEnabled } from '../../services/skills';
+import type { InstalledSkill, MakersMapPlace, ScheduleItem } from '../../types';
 import MakersMap from './MakersMap';
 import ReadingLibraryPanel from './ReadingLibraryPanel';
 import { useLanguage } from '../../i18n';
@@ -51,6 +52,7 @@ export default function EdgeOnePlatformPanel() {
   const [dayViewOpen, setDayViewOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState('');
   const [skillPreferences, setSkillPreferences] = useState<Record<string, boolean>>({});
+  const [skillCatalog, setSkillCatalog] = useState<InstalledSkill[]>([]);
   const placePickerRef = useRef<HTMLDivElement>(null);
   const autoDescriptionRef = useRef('');
 
@@ -61,7 +63,10 @@ export default function EdgeOnePlatformPanel() {
   useEffect(() => {
     let disposed = false;
     void intelligenceOperation(conversationId).then((state) => {
-      if (!disposed) setSkillPreferences(state.skill_preferences || {});
+      if (!disposed) {
+        setSkillPreferences(state.skill_preferences || {});
+        setSkillCatalog(state.skill_catalog || []);
+      }
     }).catch(() => { /* The panel keeps defaults while the store reconnects. */ });
     const changed = (event: Event) => {
       const detail = (event as CustomEvent<Record<string, boolean>>).detail;
@@ -124,8 +129,16 @@ export default function EdgeOnePlatformPanel() {
   }), [locale]);
   const selectedDateIsPast = isPastCalendarDate(selectedDate);
   const todayKey = dateKey(new Date());
-  const mapsEnabled = skillPreferences.maps !== false;
-  const calendarEnabled = skillPreferences.calendar !== false;
+  const mapsEnabled = capabilityEnabled(
+    skillCatalog,
+    skillPreferences,
+    'places',
+  );
+  const calendarEnabled = capabilityEnabled(
+    skillCatalog,
+    skillPreferences,
+    'calendar_action',
+  );
 
   const openScheduleForm = (item?: ScheduleItem) => {
     if (!calendarEnabled) {

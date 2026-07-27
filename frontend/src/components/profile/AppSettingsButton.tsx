@@ -11,8 +11,9 @@ import {
 } from '../../services/api';
 import { getReadingSettings, updateReadingSettings } from '../../services/paperApi';
 import { clearLocalApplicationData } from '../../services/conversation';
+import { capabilityEnabled } from '../../services/skills';
 import { languageName, useLanguage, type Language } from '../../i18n';
-import type { MakersIntelligenceState, ProviderUsageSummary } from '../../types';
+import type { InstalledSkill, MakersIntelligenceState, ProviderUsageSummary } from '../../types';
 
 const DEFAULT_SEARCH_PREFERENCES = {
   result_limit: 8,
@@ -42,6 +43,7 @@ export default function AppSettingsButton() {
   const [searchPreferences, setSearchPreferences] = useState(DEFAULT_SEARCH_PREFERENCES);
   const [mapPreferences, setMapPreferences] = useState(DEFAULT_MAP_PREFERENCES);
   const [skillPreferences, setSkillPreferences] = useState<Record<string, boolean>>({});
+  const [skillCatalog, setSkillCatalog] = useState<InstalledSkill[]>([]);
   const [mottoDrafts, setMottoDrafts] = useState<string[]>([]);
   const [resetVisible, setResetVisible] = useState(false);
   const [resetPassword, setResetPassword] = useState('');
@@ -61,6 +63,7 @@ export default function AppSettingsButton() {
           setSearchPreferences(state.search_preferences || DEFAULT_SEARCH_PREFERENCES);
           setMapPreferences(state.map_preferences || DEFAULT_MAP_PREFERENCES);
           setSkillPreferences(state.skill_preferences || {});
+          setSkillCatalog(state.skill_catalog || []);
         }),
         getReadingSettings().then((settings) => {
           if (!disposed) setAutomatic(settings.auto_organize);
@@ -177,7 +180,11 @@ export default function AppSettingsButton() {
   };
 
   const preferences = proactive?.preferences;
-  const skillEnabled = (id: string) => skillPreferences[id] !== false;
+  const skillEnabled = (capability: string) => capabilityEnabled(
+    skillCatalog,
+    skillPreferences,
+    capability,
+  );
   const metered = (period: 'daily' | 'monthly', metric: string) => Object.entries(
     providerUsage?.metering?.[period] || {},
   ).reduce((total, [key, value]) => total + (key.endsWith(`.${metric}`) ? Number(value) || 0 : 0), 0);
@@ -304,7 +311,7 @@ export default function AppSettingsButton() {
           <p className="provider-usage-limit-hint">{t('providerUsageLimitedHint')}</p>
         </section>
 
-        {skillEnabled('web-search') && <section className="app-settings-section">
+        {skillEnabled('web_search') && <section className="app-settings-section">
           <h3>{t('searchExperience')}</h3>
           <p>{t('searchExperienceHint')}</p>
           <div className="app-settings-grid">
@@ -324,7 +331,7 @@ export default function AppSettingsButton() {
           </div>
         </section>}
 
-        {skillEnabled('maps') && <section className="app-settings-section">
+        {skillEnabled('places') && <section className="app-settings-section">
           <h3>{t('mapExperience')}</h3>
           <p>{t('mapExperienceHint')}</p>
           <div className="app-settings-grid">
@@ -372,7 +379,7 @@ export default function AppSettingsButton() {
           </div>
         </section>}
 
-        {skillEnabled('proactive-agent') && <section className="app-settings-section">
+        {skillEnabled('workflow_action') && <section className="app-settings-section">
           <h3>{t('proactive')}</h3>
           <p>{t('proactiveHint')}</p>
           {preferences && <div className="app-settings-grid">
@@ -450,7 +457,7 @@ export default function AppSettingsButton() {
           </details>
         </section>}
 
-        {skillEnabled('paper-reading') && <section className="app-settings-section">
+        {skillEnabled('papers') && <section className="app-settings-section">
           <h3>{t('readingLibrary')}</h3>
           <label className="app-settings-choice"><input type="radio" checked={automatic} disabled={busy === 'reading'} onChange={() => void saveReading(true)} /><span><strong>{t('autoOrganize')}</strong><small>{t('autoFilingDescription')}</small></span></label>
           <label className="app-settings-choice"><input type="radio" checked={!automatic} disabled={busy === 'reading'} onChange={() => void saveReading(false)} /><span><strong>{t('manualOrganize')}</strong><small>{t('manualFilingDescription')}</small></span></label>

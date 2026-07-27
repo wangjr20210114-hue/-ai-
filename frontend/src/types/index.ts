@@ -173,6 +173,7 @@ export interface InstalledSkill {
   order: number;
   default_enabled: boolean;
   locked: boolean;
+  capabilities: string[];
   requires: string[];
   recommends: string[];
   external: boolean;
