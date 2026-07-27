@@ -720,8 +720,7 @@ async def _place_resolution_with_provider_review(
     if (
         not enabled
         or model is None
-        or decision != "auto_use"
-        or reason != "tencent_provider_ranked_correction"
+        or decision not in {"auto_use", "choose"}
         or len(places) < 2
     ):
         return decision, selected, reason

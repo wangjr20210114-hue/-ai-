@@ -3112,6 +3112,78 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("天安门", field["options"][0])
         planner.assert_not_awaited()
 
+    async def test_route_semantic_review_can_use_canonical_provider_candidate(self):
+        class CanonicalPlaceModel:
+            def __init__(self):
+                self.schema = None
+                self.calls = 0
+
+            def with_structured_output(self, schema, **_kwargs):
+                self.schema = schema
+                return self
+
+            async def ainvoke(self, _messages):
+                self.calls += 1
+                return {
+                    "parsed": self.schema(
+                        unique_intent=True,
+                        selected_place_id="station-main",
+                    ),
+                }
+
+        model = CanonicalPlaceModel()
+        station_candidates = [
+            {**PLACE, "place_id": "station-main", "name": "北京站"},
+            {
+                **PLACE,
+                "place_id": "station-subway",
+                "name": "北京站[地铁站]",
+            },
+        ]
+        destination = {
+            **PLACE,
+            "place_id": "destination",
+            "name": "故宫博物院",
+        }
+
+        async def place_provider(_key, query, *, city, limit):
+            return station_candidates if query == "北京站" else [destination]
+
+        route = {
+            "provider": "tencent",
+            "mode": "driving",
+            "distance_meters": 8_000,
+            "duration_seconds": 1_800,
+            "fare": {},
+        }
+        with patch(
+            "agents.chat._ui_tools.provider_search_places",
+            new=place_provider,
+        ), patch(
+            "agents.chat._ui_tools.provider_plan_route",
+            new=AsyncMock(return_value=route),
+        ) as planner:
+            tools = build_production_tools(
+                None,
+                store=FakeStore(),
+                conversation_id="canonical-provider-place",
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+                place_disambiguation_model=model,
+            )
+            route_tool = next(
+                item for item in tools
+                if item.name == "plan_route_between_places"
+            )
+            result = json.loads(await route_tool.ainvoke({
+                "origin_query": "北京站",
+                "destination_query": "故宫博物院",
+            }))
+
+        self.assertEqual(result["ui_action"], "map_action")
+        self.assertEqual(result["ordered_stops"][0]["place_id"], "station-main")
+        self.assertEqual(model.calls, 1)
+        planner.assert_awaited_once()
+
     async def test_route_search_timeout_returns_fill_in_card(self):
         async def place_provider(_key, _query, *, city, limit):
             raise TimeoutError("provider deadline")
