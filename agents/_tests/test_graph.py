@@ -108,6 +108,17 @@ def search_arxiv(
     )
 
 
+@tool("search_arxiv")
+def empty_search_arxiv(topic: str = "", limit: int = 5) -> str:
+    """Return a verified empty paper result."""
+    return json.dumps({
+        "ui_action": "paper_results",
+        "papers": [],
+        "topic": topic,
+        "limit": limit,
+    }, ensure_ascii=False)
+
+
 class _ClarificationChoiceBoundModel:
     def __init__(self, owner, tools, tool_choice):
         self.owner = owner
@@ -433,6 +444,34 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         })
         final = result["messages"][-1]
         self.assertIn("论文卡片已经准备好", final.content)
+        self.assertEqual(model.bound_calls, 0)
+        self.assertEqual(public_model.unbound_calls, 0)
+
+    async def test_empty_paper_result_cannot_be_replaced_by_model_claims(self):
+        model = _RecordingModel()
+        public_model = _RecordingModel()
+        graph = build_graph(
+            model,
+            [empty_search_arxiv],
+            "tool system",
+            required_tools=["search_arxiv"],
+            public_answer_model=public_model,
+            planned_tool_arguments={
+                "search_arxiv": {
+                    "topic": "recent papers by Xin Peng",
+                    "limit": 2,
+                },
+            },
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(
+                content="给我找两篇复旦大学彭鑫老师近2年的论文"
+            )],
+        })
+        final = result["messages"][-1].content
+        self.assertIn("没有核实到", final)
+        self.assertIn("没有用同名作者或无关结果凑数", final)
+        self.assertNotIn("arxiv.org/abs/", final)
         self.assertEqual(model.bound_calls, 0)
         self.assertEqual(public_model.unbound_calls, 0)
 

@@ -258,6 +258,8 @@ class StructuredPlannerModel:
             if self.schema.__name__ == "PromptTopicSelection"
             else self.args
         )
+        if self.schema.__name__ == "CapabilityPlan":
+            values = {"capabilities": [], **values}
         return {
             "parsed": self.schema(**values),
             "raw": SimpleNamespace(content=""),
@@ -840,6 +842,45 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             required_tools_for_plan(plan),
             ("plan_route_between_places", "propose_calendar_changes"),
         )
+
+    async def test_paper_capability_checksum_prevents_plain_answer_bypass(self):
+        model = StructuredPlannerModel(args={
+            "capabilities": ["papers"],
+            "prompt_topics": ["paper"],
+            # Reproduce the observed gateway inconsistency: the semantic
+            # capability is present while its detailed boolean was omitted.
+            "needs_papers": False,
+            "search_query": "recent software engineering papers",
+            "paper_author": "Xin Peng",
+            "paper_institution": "Fudan University",
+            "paper_year_from": 2025,
+            "paper_year_to": 2026,
+            "paper_limit": 2,
+        })
+        plan, timed_out = await plan_capabilities_bounded(
+            model,
+            "给我找两篇复旦大学彭鑫老师近2年的论文",
+            timeout_seconds=2,
+        )
+        self.assertFalse(timed_out)
+        self.assertTrue(plan["needs_papers"])
+        self.assertEqual(plan["_capabilities"], ["papers"])
+        self.assertEqual(required_tools_for_plan(plan), ("search_arxiv",))
+        self.assertEqual(
+            direct_paper_tool_arguments(plan)["search_arxiv"]["limit"],
+            2,
+        )
+
+    def test_paper_prompt_topic_is_a_provider_evidence_invariant(self):
+        plan = parse_capability_plan({
+            "capabilities": [],
+            "prompt_topics": ["paper"],
+            "needs_papers": False,
+            "paper_author": "Xin Peng",
+        })
+        self.assertTrue(plan["needs_papers"])
+        self.assertEqual(plan["_capabilities"], ["papers"])
+        self.assertEqual(required_tools_for_plan(plan), ("search_arxiv",))
 
     async def test_required_input_gate_receives_request_location_context(self):
         model = StructuredPlannerModel()

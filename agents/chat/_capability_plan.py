@@ -60,6 +60,8 @@ DEFAULT_PLAN = {
     "clarification_prompt": "",
     "clarification_fields": [],
     "_prompt_topics": [],
+    "_prompt_topics_source": "none",
+    "_capabilities": [],
 }
 
 BOOLEAN_KEYS = tuple(key for key, value in DEFAULT_PLAN.items() if isinstance(value, bool))
@@ -125,6 +127,16 @@ class CapabilityPlan(BaseModel):
         description=(
             "Only later execution-policy topics needed for this turn. Choose "
             "from web, maps, calendar, image, paper, meeting, proactive."
+        ),
+    )
+    capabilities: list[str] = Field(
+        description=(
+            "Independent semantic checksum of every user-required capability. "
+            "Always return this field, even when empty. Choose only from "
+            "web_search, current_location, nearby_places, places, map_action, "
+            "route, calendar_context, calendar_action, meeting_action, "
+            "workflow_action, image_generation, papers. This list and the "
+            "needs_* fields must describe the same complete goal."
         ),
     )
     needs_clarification: bool = False
@@ -334,6 +346,10 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
     plan["_prompt_topics"] = list(
         _normalize_prompt_topics(raw.get("prompt_topics") or [])
     )
+    plan["_prompt_topics_source"] = "planner"
+    plan["_capabilities"] = list(
+        _normalize_preflight_capabilities(raw.get("capabilities") or [])
+    )
     plan["search_query"] = str(raw.get("search_query") or "").strip()[:160]
     plan["image_query"] = str(raw.get("image_query") or "").strip()[:160]
     plan["nearby_query"] = str(raw.get("nearby_query") or "").strip()[:80]
@@ -455,7 +471,7 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
         plan["needs_clarification"] = False
         plan["needs_places"] = True
         plan["needs_calendar_action"] = True
-    return plan
+    return reconcile_capability_contract(plan)
 
 
 def parse_capability_plan(content: Any) -> dict[str, Any]:
@@ -470,6 +486,8 @@ def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
     model cannot claim that a map, calendar change, meeting, or generated image
     is ready without actually producing the corresponding UI action.
     """
+    plan = reconcile_capability_contract(plan)
+
     # A disabled Skill is a terminal semantic planning state. The LLM planner,
     # not a keyword rule or business handler, decides whether the goal truly
     # depends on that Skill.
@@ -598,7 +616,7 @@ PROMPT_TOPIC_SUMMARIES = {
     "maps": "real places, current location, nearby discovery and routes",
     "calendar": "personal schedules, reminders and calendar mutations",
     "image": "understanding attached images or generating/editing images",
-    "paper": "paper discovery, arXiv and academic reading",
+    "paper": "verifiable paper discovery, author filtering and arXiv search",
     "meeting": "creating a Tencent Meeting linked to a schedule",
     "proactive": "recurring or multi-step workflows and proactive follow-up",
 }
@@ -679,6 +697,15 @@ _PREFLIGHT_CAPABILITY_FLAGS = {
     "papers": ("needs_papers",),
 }
 
+# These prompt fragments have exactly one provider-backed execution meaning.
+# Treating the model-selected topic as a second semantic checksum prevents a
+# contradictory structured plan from silently falling through to unsupported
+# prose. This is a protocol invariant over fixed enum values—not user-language
+# keyword routing.
+_PROMPT_TOPIC_CAPABILITIES = {
+    "paper": ("papers",),
+}
+
 
 def _normalize_preflight_capabilities(values: Iterable[Any]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(
@@ -688,6 +715,35 @@ def _normalize_preflight_capabilities(values: Iterable[Any]) -> tuple[str, ...]:
     ))
 
 
+def reconcile_capability_contract(plan: dict[str, Any]) -> dict[str, Any]:
+    """Monotonically reconcile redundant semantic routing fields.
+
+    The planner deliberately emits flags, capability enums and prompt-topic
+    enums in one structured call. A provider may occasionally omit one of the
+    redundant fields; execution preserves their union so a provider-backed
+    request cannot degrade into an unverifiable plain-language answer.
+    """
+    merged = dict(plan or {})
+    explicit = _normalize_preflight_capabilities(
+        merged.get("_capabilities")
+        or merged.get("capabilities")
+        or merged.get("_preflight_capabilities")
+        or []
+    )
+    implied: list[str] = []
+    if merged.get("_prompt_topics_source") != "fallback":
+        for topic in _normalize_prompt_topics(merged.get("_prompt_topics") or []):
+            implied.extend(_PROMPT_TOPIC_CAPABILITIES.get(topic, ()))
+    effective = tuple(dict.fromkeys([*explicit, *implied]))
+    for capability in effective:
+        for flag in _PREFLIGHT_CAPABILITY_FLAGS[capability]:
+            merged[flag] = True
+    merged["_capabilities"] = list(effective)
+    if merged.get("needs_calendar_action"):
+        merged["needs_calendar_context"] = True
+    return merged
+
+
 def apply_preflight_capabilities(
     plan: dict[str, Any],
     capabilities: Iterable[Any],
@@ -695,11 +751,12 @@ def apply_preflight_capabilities(
     """Monotonically preserve user-required capabilities from semantic preflight."""
     merged = dict(plan or {})
     normalized = _normalize_preflight_capabilities(capabilities)
-    for capability in normalized:
-        for flag in _PREFLIGHT_CAPABILITY_FLAGS[capability]:
-            merged[flag] = True
     merged["_preflight_capabilities"] = list(normalized)
-    return merged
+    merged["_capabilities"] = list(dict.fromkeys([
+        *(merged.get("_capabilities") or []),
+        *normalized,
+    ]))
+    return reconcile_capability_contract(merged)
 
 
 async def plan_required_clarification(
@@ -955,7 +1012,7 @@ async def plan_capabilities(
     today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
     prompt = f"""你是 FLORIS 单轮语义计划器，只填写给定 schema，不回答用户。当前北京时间日期：{today}。
 总则：
-- 在一次结构化输出中同时完成意图、依赖、必要信息、能力参数和 prompt_topics 规划；不要把同一问题留给另一个预检模型。理解完整目标，可同时选择多个能力；非必要字段保持默认值。blocked_skill 只填用户目标不可替代地依赖、且运行时明确关闭的 Skill id；可选增强关闭时不要阻塞。
+- 在一次结构化输出中同时完成意图、依赖、必要信息、能力参数和 prompt_topics 规划；不要把同一问题留给另一个预检模型。理解完整目标，可同时选择多个能力；非必要字段保持默认值。capabilities 必须始终返回，并独立列出完成用户完整目标必需的每一项固定枚举能力；它与 needs_* 是互相校验的冗余协议，两者必须一致，不能因为参数还不完整就漏掉能力。blocked_skill 只填用户目标不可替代地依赖、且运行时明确关闭的 Skill id；可选增强关闭时不要阻塞。
 - 只有缺失信息会阻断所有安全有用结果，或真实副作用对象无法唯一确定时，才设置 needs_clarification=true，并把其他 needs_* 设为 false。此时必须同时填写 clarification_title、clarification_prompt 和最少 clarification_fields，让系统直接生成主动卡片；不得只让最终模型用普通文本追问。偏好未决定时直接交给主模型给方案，不要澄清。
 - 用户只是探索思路、比较假设方案，且目的地、预算、同行或节奏尚未决定时，不需要外部事实、地点核验或地图；保持所有 needs_* 为 false，让主模型直接给 2–3 套假设方案。只有用户要求当前信息、来源、真实地点推荐或可执行路线时才选择相应能力。
 - 现实地点可能有错字、同名或缺城市时，不得在调用地点服务之前设置 needs_clarification。先选择地点/路线能力；地点工具会根据真实腾讯候选决定直接采用、单选或填空。
@@ -1041,6 +1098,7 @@ async def plan_capabilities(
         pass
     fallback = dict(DEFAULT_PLAN)
     fallback["_prompt_topics"] = list(selected_topics or PLANNER_PROMPT_DETAILS)
+    fallback["_prompt_topics_source"] = "fallback"
     fallback["_planner_failed"] = True
     return fallback
 
@@ -1076,6 +1134,7 @@ async def plan_capabilities_bounded(
         timed_out = True
         plan = dict(DEFAULT_PLAN)
         plan["_prompt_topics"] = list(PLANNER_PROMPT_DETAILS)
+        plan["_prompt_topics_source"] = "fallback"
     failed = bool(plan.pop("_planner_failed", False))
     timed_out = timed_out or failed
     if timings_ms is not None:
