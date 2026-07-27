@@ -1568,6 +1568,18 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("should-not-leak", route_prompt)
         self.assertLess(len(route_prompt), len(SYSTEM_PROMPT) * 0.7)
 
+        public_route_prompt = dynamic_system_prompt(
+            selected_tools={"plan_route_between_places"},
+            public_answer=True,
+            **common,
+        )
+        self.assertIn(
+            "transit.walking_distance_meters 是全程所有接驳步行的合计",
+            public_route_prompt,
+        )
+        self.assertIn("线路运营时段", public_route_prompt)
+        self.assertIn("一律不得用模型常识补写", public_route_prompt)
+
         calendar_prompt = dynamic_system_prompt(
             selected_tools={"propose_calendar_changes"},
             **common,

@@ -2453,6 +2453,10 @@ def build_production_tools(
                 )
                 + "必须按 ordered_stops 原顺序描述各站，绝不能重新排序；"
                 "回答必须使用这里的数值，不得改用网页估算、直线距离或模型猜测。"
+                "公交 transit.walking_distance_meters 是全程接驳步行合计，不是任一单段距离；"
+                "只有 transit.segments 中的 line、vehicle、geton、getoff、station_count 可以"
+                "作为公交分段事实。未返回的运营时段、线路方向、班次、途经道路、入口规则和"
+                "步行分段距离不得补写；证据不足时只报告聚合值并引导查看地图卡。"
             ),
         }, ensure_ascii=False)
 
