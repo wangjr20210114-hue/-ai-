@@ -194,6 +194,15 @@ def empty_generation_error(
     return ""
 
 
+def should_buffer_public_answer(capability_plan: dict) -> bool:
+    """Delay answer prose when a structured result may need final grounding."""
+    return bool(
+        capability_plan.get("needs_image_generation")
+        or capability_plan.get("needs_route")
+        or capability_plan.get("needs_calendar_action")
+    )
+
+
 def checkpoint_final_answer(snapshot) -> str:
     """Recover a manual graph fallback that message-token streaming omits.
 
@@ -1924,10 +1933,7 @@ async def handler(ctx):
             final_answer_parts: list[str] = []
             public_stream = PublicStreamFilter()
             stream_delta = StreamDeltaNormalizer()
-            buffer_public_answer = bool(
-                capability_plan.get("needs_image_generation")
-                or capability_plan.get("needs_route")
-            )
+            buffer_public_answer = should_buffer_public_answer(capability_plan)
             run_error = ""
             cancelled = False
             clarification_emitted = False

@@ -57,6 +57,7 @@ from agents.chat.index import (
     dynamic_system_prompt,
     runtime_datetime_context,
     resume_capability_protocol,
+    should_buffer_public_answer,
     should_persist_user_message,
     tools_for_capability_stage,
 )
@@ -1402,6 +1403,21 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             }),
             {},
         )
+
+    def test_route_or_calendar_action_buffers_public_answer_for_grounding(self):
+        self.assertTrue(should_buffer_public_answer({"needs_route": True}))
+        self.assertTrue(should_buffer_public_answer({
+            "needs_route": False,
+            "needs_calendar_action": True,
+        }))
+        self.assertTrue(should_buffer_public_answer({
+            "needs_image_generation": True,
+        }))
+        self.assertFalse(should_buffer_public_answer({
+            "needs_route": False,
+            "needs_calendar_action": False,
+            "needs_image_generation": False,
+        }))
 
     def test_dynamic_prompt_injects_only_the_current_skill_policy(self):
         common = {
