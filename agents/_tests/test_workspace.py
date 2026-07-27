@@ -100,6 +100,7 @@ from agents._shared.arxiv import (
     _best_title_match,
     _canonical_arxiv_id,
     _dblp_profile,
+    _search_openalex_sync,
     search_arxiv,
 )
 from agents._shared.tencent_location import (
@@ -4926,6 +4927,66 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cached.call_args_list[1].args[:2], (
             "Xin Peng", "Fudan University",
         ))
+
+    def test_openalex_requires_matching_author_affiliation_on_profile_and_work(self):
+        class Response:
+            def __init__(self, payload):
+                self.payload = json.dumps(payload).encode()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return self.payload
+
+        author_payload = {"results": [{
+            "id": "https://openalex.org/A1",
+            "display_name": "Xin Peng",
+            "display_name_alternatives": ["Peng Xin"],
+            "works_count": 100,
+            "cited_by_count": 200,
+            "last_known_institutions": [{
+                "display_name": "Fudan University",
+            }],
+        }]}
+        work_payload = {"results": [{
+            "id": "https://openalex.org/W1",
+            "doi": "https://doi.org/10.1000/example",
+            "title": "Verified Recent Work",
+            "publication_year": 2026,
+            "cited_by_count": 5,
+            "ids": {},
+            "authorships": [{
+                "author": {
+                    "id": "https://openalex.org/A1",
+                    "display_name": "Xin Peng",
+                },
+                "institutions": [{"display_name": "Fudan University"}],
+            }],
+            "primary_location": {
+                "landing_page_url": "https://doi.org/10.1000/example",
+                "pdf_url": "",
+            },
+        }]}
+        with patch(
+            "agents._shared.arxiv.urllib.request.urlopen",
+            side_effect=[Response(author_payload), Response(work_payload)],
+        ):
+            papers = _search_openalex_sync(
+                "",
+                2,
+                "Peng Xin",
+                "Fudan University",
+                2022,
+                2026,
+            )
+        self.assertEqual([paper["title"] for paper in papers], [
+            "Verified Recent Work",
+        ])
+        self.assertEqual(papers[0]["source"], "OpenAlex")
 
     def test_model_arxiv_identifiers_are_strictly_sanitized(self):
         self.assertEqual(_canonical_arxiv_id("arXiv:2604.10767v2"), "2604.10767v2")

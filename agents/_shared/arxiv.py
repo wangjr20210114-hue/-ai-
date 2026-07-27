@@ -520,6 +520,216 @@ def _search_dblp_sync(
     return papers[:max(1, min(8, limit))]
 
 
+def _openalex_institution_names(author: dict[str, Any]) -> str:
+    names: list[str] = []
+    for item in author.get("last_known_institutions") or []:
+        if isinstance(item, dict) and str(item.get("display_name") or "").strip():
+            names.append(str(item["display_name"]).strip())
+    for affiliation in author.get("affiliations") or []:
+        if not isinstance(affiliation, dict):
+            continue
+        institution = affiliation.get("institution")
+        if (
+            isinstance(institution, dict)
+            and str(institution.get("display_name") or "").strip()
+        ):
+            names.append(str(institution["display_name"]).strip())
+    return " ".join(dict.fromkeys(names))
+
+
+def _search_openalex_sync(
+    topic: str,
+    limit: int,
+    author: str,
+    institution: str,
+    year_from: int,
+    year_to: int,
+) -> list[dict[str, Any]]:
+    """Resolve an affiliation-qualified author and fetch recent works.
+
+    OpenAlex is used as an independent structured index, not as a source of
+    model-generated facts. The affiliation is verified first on the author
+    entity and again on each selected authorship.
+    """
+    if not author:
+        return []
+    author_params = urllib.parse.urlencode({
+        "search": author,
+        "per-page": 15,
+        "select": (
+            "id,display_name,display_name_alternatives,last_known_institutions,"
+            "affiliations,works_count,cited_by_count"
+        ),
+    })
+    author_request = urllib.request.Request(
+        f"https://api.openalex.org/authors?{author_params}",
+        headers={"User-Agent": "Floris/1.0 (mailto:opensource@floris.local)"},
+    )
+    with urllib.request.urlopen(
+        author_request,
+        timeout=12,
+        context=_ssl_context(),
+    ) as response:
+        author_payload = json.loads(response.read(3 * 1024 * 1024))
+    requested_name_tokens = set(_normalized_title(author).split())
+    author_candidates: list[dict[str, Any]] = []
+    for candidate in (
+        author_payload.get("results")
+        if isinstance(author_payload, dict)
+        and isinstance(author_payload.get("results"), list)
+        else []
+    ):
+        if not isinstance(candidate, dict):
+            continue
+        candidate_names = [
+            str(candidate.get("display_name") or ""),
+            *[
+                str(value)
+                for value in (candidate.get("display_name_alternatives") or [])
+                if str(value).strip()
+            ],
+        ]
+        if requested_name_tokens and not any(
+            set(_normalized_title(name).split()) == requested_name_tokens
+            for name in candidate_names
+        ):
+            continue
+        if institution and not _institution_matches(
+            _openalex_institution_names(candidate),
+            institution,
+        ):
+            continue
+        if str(candidate.get("id") or "").strip():
+            author_candidates.append(candidate)
+    if not author_candidates:
+        return []
+    author_candidates.sort(
+        key=lambda item: (
+            int(item.get("works_count") or 0),
+            int(item.get("cited_by_count") or 0),
+        ),
+        reverse=True,
+    )
+    author_id = str(author_candidates[0]["id"]).rsplit("/", 1)[-1]
+    filters = [f"author.id:{author_id}"]
+    if year_from:
+        filters.append(f"from_publication_date:{year_from}-01-01")
+    if year_to:
+        filters.append(f"to_publication_date:{year_to}-12-31")
+    work_params: dict[str, Any] = {
+        "filter": ",".join(filters),
+        "sort": "publication_date:desc",
+        "per-page": max(8, min(30, int(limit or 5) * 4)),
+        "select": (
+            "id,doi,title,publication_year,ids,authorships,primary_location,"
+            "best_oa_location,cited_by_count"
+        ),
+    }
+    if topic:
+        work_params["search"] = topic
+    work_request = urllib.request.Request(
+        "https://api.openalex.org/works?"
+        + urllib.parse.urlencode(work_params),
+        headers={"User-Agent": "Floris/1.0 (mailto:opensource@floris.local)"},
+    )
+    with urllib.request.urlopen(
+        work_request,
+        timeout=12,
+        context=_ssl_context(),
+    ) as response:
+        work_payload = json.loads(response.read(6 * 1024 * 1024))
+    papers: list[dict[str, Any]] = []
+    for work in (
+        work_payload.get("results")
+        if isinstance(work_payload, dict)
+        and isinstance(work_payload.get("results"), list)
+        else []
+    ):
+        if not isinstance(work, dict):
+            continue
+        title = " ".join(
+            str(work.get("title") or work.get("display_name") or "").split()
+        )
+        if not title:
+            continue
+        matched_authorship = None
+        author_names: list[str] = []
+        for authorship in work.get("authorships") or []:
+            if not isinstance(authorship, dict):
+                continue
+            work_author = authorship.get("author")
+            if not isinstance(work_author, dict):
+                continue
+            work_author_id = str(work_author.get("id") or "").rsplit("/", 1)[-1]
+            work_author_name = str(work_author.get("display_name") or "").strip()
+            if work_author_name:
+                author_names.append(work_author_name)
+            if work_author_id == author_id:
+                matched_authorship = authorship
+        if matched_authorship is None:
+            continue
+        if institution:
+            work_institutions = " ".join(
+                str(item.get("display_name") or "")
+                for item in (matched_authorship.get("institutions") or [])
+                if isinstance(item, dict)
+            )
+            if not _institution_matches(work_institutions, institution):
+                continue
+        ids = work.get("ids") if isinstance(work.get("ids"), dict) else {}
+        arxiv_url = str(ids.get("arxiv") or "").strip()
+        doi_url = str(work.get("doi") or ids.get("doi") or "").strip()
+        if not arxiv_url and re.search(r"10\.48550/arxiv\.", doi_url, re.I):
+            arxiv_id_from_doi = re.split(
+                r"10\.48550/arxiv\.",
+                doi_url,
+                flags=re.I,
+            )[-1]
+            arxiv_url = f"https://arxiv.org/abs/{arxiv_id_from_doi}"
+        arxiv_id = (
+            arxiv_url.split("/abs/", 1)[1].split("?", 1)[0]
+            if "/abs/" in arxiv_url
+            else ""
+        )
+        primary = (
+            work.get("primary_location")
+            if isinstance(work.get("primary_location"), dict)
+            else {}
+        )
+        best_oa = (
+            work.get("best_oa_location")
+            if isinstance(work.get("best_oa_location"), dict)
+            else {}
+        )
+        pdf_url = str(
+            best_oa.get("pdf_url") or primary.get("pdf_url") or ""
+        ).strip()
+        source_url = (
+            arxiv_url
+            or doi_url
+            or str(primary.get("landing_page_url") or "").strip()
+            or str(work.get("id") or "").strip()
+        )
+        papers.append({
+            "title": title,
+            "arxiv_id": arxiv_id,
+            "authors": ", ".join(author_names[:12]),
+            "year": int(work.get("publication_year") or 0),
+            "abstract_zh": "",
+            "key_contribution": "",
+            "citations": (
+                f"OpenAlex · 被引 {int(work.get('cited_by_count') or 0)} 次"
+            ),
+            "source": "OpenAlex",
+            "source_url": source_url,
+            "arxiv_url": arxiv_url,
+            "pdf_url": pdf_url,
+        })
+        if len(papers) >= max(1, min(8, int(limit or 5))):
+            break
+    return papers
+
+
 def _crossref_author_text(item: dict[str, Any]) -> tuple[str, list[str]]:
     author_records = item.get("author") if isinstance(item.get("author"), list) else []
     names: list[str] = []
@@ -705,12 +915,15 @@ async def search_arxiv(
             if not proposed:
                 return [], False
             try:
-                return await asyncio.to_thread(
-                    _lookup_arxiv_ids_sync,
-                    proposed,
-                    author,
-                    start_year,
-                    end_year,
+                return await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _lookup_arxiv_ids_sync,
+                        proposed,
+                        author,
+                        start_year,
+                        end_year,
+                    ),
+                    timeout=22.0,
                 ), False
             except Exception:
                 return [], True
@@ -738,14 +951,36 @@ async def search_arxiv(
             if not author:
                 return [], False
             try:
-                return await asyncio.to_thread(
-                    _search_dblp_sync,
-                    topic,
-                    requested_limit,
-                    author,
-                    institution,
-                    start_year,
-                    end_year,
+                return await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _search_dblp_sync,
+                        topic,
+                        requested_limit,
+                        author,
+                        institution,
+                        start_year,
+                        end_year,
+                    ),
+                    timeout=24.0,
+                ), False
+            except Exception:
+                return [], True
+
+        async def openalex_lookup() -> tuple[list[dict[str, Any]], bool]:
+            if not author:
+                return [], False
+            try:
+                return await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _search_openalex_sync,
+                        topic,
+                        requested_limit,
+                        author,
+                        institution,
+                        start_year,
+                        end_year,
+                    ),
+                    timeout=38.0,
                 ), False
             except Exception:
                 return [], True
@@ -753,17 +988,30 @@ async def search_arxiv(
         candidate_task = asyncio.create_task(candidate_id_lookup())
         dblp_task = asyncio.create_task(dblp_lookup())
         arxiv_task = asyncio.create_task(arxiv_lookup())
-        candidate_result, dblp_result, arxiv_result = await asyncio.gather(
+        openalex_task = asyncio.create_task(openalex_lookup())
+        (
+            candidate_result,
+            dblp_result,
+            arxiv_result,
+            openalex_result,
+        ) = await asyncio.gather(
             candidate_task,
             dblp_task,
             arxiv_task,
+            openalex_task,
         )
         candidate_rows, candidate_failed = candidate_result
         dblp_rows, dblp_failed = dblp_result
         broad_arxiv_rows, arxiv_failed = arxiv_result
+        openalex_rows, openalex_failed = openalex_result
         provider_failures += sum(
             int(value)
-            for value in (candidate_failed, dblp_failed, arxiv_failed)
+            for value in (
+                candidate_failed,
+                dblp_failed,
+                arxiv_failed,
+                openalex_failed,
+            )
         )
 
         # DBLP's affiliation-specific profile is authoritative identity
@@ -798,18 +1046,22 @@ async def search_arxiv(
             ]
         output.extend(candidate_rows)
         output.extend(dblp_rows)
+        output.extend(openalex_rows)
         output.extend(broad_arxiv_rows)
 
     if len(output) < requested_limit and (author or institution):
         try:
-            crossref = await asyncio.to_thread(
-                _search_crossref_sync,
-                topic,
-                requested_limit,
-                author,
-                institution,
-                start_year,
-                end_year,
+            crossref = await asyncio.wait_for(
+                asyncio.to_thread(
+                    _search_crossref_sync,
+                    topic,
+                    requested_limit,
+                    author,
+                    institution,
+                    start_year,
+                    end_year,
+                ),
+                timeout=10.0,
             )
             output.extend(crossref)
         except Exception:

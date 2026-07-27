@@ -3526,7 +3526,7 @@ def build_production_tools(
             8.0,
             min(
                 40.0,
-                float(runtime_env.get("PAPER_SEARCH_TIMEOUT_SECONDS") or 28),
+                float(runtime_env.get("PAPER_SEARCH_TIMEOUT_SECONDS") or 40),
             ),
         )
         try:
