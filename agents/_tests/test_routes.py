@@ -46,7 +46,43 @@ class RouteCacheTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(second["route"]["cache"]["hit"])
         planner.assert_awaited_once()
         self.assertEqual(planner.await_args.args[1], PLACES)
-        self.assertEqual(planner.await_args.kwargs, {"optimize": False})
+        self.assertEqual(planner.await_args.kwargs, {
+            "optimize": False,
+            "strategy": "time_then_cost",
+            "near_time_tolerance_minutes": 10,
+        })
+
+    async def test_route_action_strategy_reuses_the_matching_cache_key(self):
+        store = FakeStore()
+        ctx = SimpleNamespace(
+            env={},
+            request=SimpleNamespace(body={
+                "places": PLACES,
+                "optimize": False,
+                "mode": "driving",
+                "strategy": "least_time",
+            }, headers={}),
+            store=SimpleNamespace(langgraph_store=store),
+        )
+        route = {
+            "schema_version": 1, "provider": "test", "mode": "driving",
+            "places": PLACES, "path": [], "distance_meters": 900,
+            "duration_seconds": 500,
+            "fare": {
+                "currency": "CNY", "basis": "test",
+                "self_driving": {"estimate": 1, "toll": 0},
+                "taxi": {"low": 10, "high": 12},
+            },
+        }
+        planner = AsyncMock(return_value=route)
+        with patch("agents.routes.index.plan_verified_route", planner):
+            first = await handler(ctx)
+            second = await handler(ctx)
+
+        self.assertFalse(first["route"]["cache"]["hit"])
+        self.assertTrue(second["route"]["cache"]["hit"])
+        planner.assert_awaited_once()
+        self.assertEqual(planner.await_args.kwargs["strategy"], "least_time")
 
 
 if __name__ == "__main__":

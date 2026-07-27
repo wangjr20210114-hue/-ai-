@@ -826,6 +826,7 @@ export function useSSEChat() {
             mapPlaces: data.map_places,
             mapTitle: data.map_title,
             mapRouteMode: data.map_route_mode || undefined,
+            mapRouteStrategy: data.map_route_strategy || undefined,
             mapShowRoute: data.map_show_route,
           },
         });

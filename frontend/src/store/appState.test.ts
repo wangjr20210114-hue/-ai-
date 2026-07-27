@@ -132,10 +132,12 @@ describe('app state reducer', () => {
         title: '步行路线',
         places,
         routeMode: 'walking',
+        routeStrategy: 'least_time',
         showRoute: true,
       },
     });
     expect(route.mapRouteMode).toBe('walking');
+    expect(route.mapRouteStrategy).toBe('least_time');
     expect(route.mapShowRoute).toBe(true);
 
     const recommendation = reducer(route, {
@@ -143,6 +145,7 @@ describe('app state reducer', () => {
       payload: { title: '地点推荐', places },
     });
     expect(recommendation.mapRouteMode).toBeUndefined();
+    expect(recommendation.mapRouteStrategy).toBeUndefined();
     expect(recommendation.mapShowRoute).toBe(false);
   });
 

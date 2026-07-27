@@ -460,6 +460,7 @@ export interface MakersMapPlace {
 }
 
 export type MakersRouteMode = 'driving' | 'transit' | 'walking' | 'bicycling';
+export type MakersRouteStrategy = 'time_then_cost' | 'least_time' | 'least_cost';
 
 export type WorkspaceActionKind = 'map_recommendation' | 'calendar_changes' | 'meeting_create' | 'image_generate';
 export type WorkspaceActionStatus = 'ready' | 'active' | 'awaiting_confirmation' | 'executing' | 'succeeded' | 'failed' | 'cancelled' | 'reconciliation_required';
@@ -475,7 +476,7 @@ export interface WorkspaceAction {
     action_text?: string;
     places?: MakersMapPlace[];
     route_mode?: MakersRouteMode;
-    route_strategy?: 'time_then_cost' | 'least_time' | 'least_cost';
+    route_strategy?: MakersRouteStrategy;
     show_route?: boolean;
     summary?: string;
     changes?: Array<Record<string, unknown>>;

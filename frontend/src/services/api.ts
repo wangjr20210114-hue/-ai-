@@ -1,4 +1,4 @@
-import type { ChatMessage, ConversationSummary, TravelPlan, ScheduleItem, StoredFileInfo, MakersMapPlace, MakersRouteMode, MakersRoutePlan, WorkspaceAction, ProactiveState, MakersIntelligenceState, ProviderUsageSummary } from '../types';
+import type { ChatMessage, ConversationSummary, TravelPlan, ScheduleItem, StoredFileInfo, MakersMapPlace, MakersRouteMode, MakersRouteStrategy, MakersRoutePlan, WorkspaceAction, ProactiveState, MakersIntelligenceState, ProviderUsageSummary } from '../types';
 
 import { authorizedFetch, withEdgeOneAuth } from './auth';
 import { createConversationId, makersConversationHeaders } from './conversation';
@@ -13,6 +13,7 @@ export interface BootstrapData {
   map_places?: MakersMapPlace[];
   map_title?: string;
   map_route_mode?: MakersRouteMode | '';
+  map_route_strategy?: MakersRouteStrategy | '';
   map_show_route?: boolean;
   workspace_revision?: number;
   workspace_actions?: WorkspaceAction[];
@@ -31,7 +32,7 @@ export interface MakersChatRun {
 export interface WorkspaceResponse {
   revision: number;
   schedules: ScheduleItem[];
-  map?: { action_id: string; title: string; places: MakersMapPlace[]; route_mode?: MakersRouteMode | ''; route_strategy?: 'time_then_cost' | 'least_time' | 'least_cost' | ''; show_route?: boolean } | null;
+  map?: { action_id: string; title: string; places: MakersMapPlace[]; route_mode?: MakersRouteMode | ''; route_strategy?: MakersRouteStrategy | ''; show_route?: boolean } | null;
   action?: WorkspaceAction;
   actions?: WorkspaceAction[];
   changed?: Array<ScheduleItem & { deleted?: boolean }>;
@@ -246,13 +247,19 @@ export async function planMakersRoute(
   conversationId: string,
   places: MakersMapPlace[],
   mode?: MakersRouteMode,
+  strategy?: MakersRouteStrategy,
 ): Promise<MakersRoutePlan> {
   const res = await authorizedFetch('/routes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
     // Callers supply an intentional itinerary order. Keep it unchanged so a
     // shortest-path optimization cannot contradict the calendar chronology.
-    body: JSON.stringify({ places, ...(mode ? { mode } : {}), optimize: false }),
+    body: JSON.stringify({
+      places,
+      ...(mode ? { mode } : {}),
+      ...(strategy ? { strategy } : {}),
+      optimize: false,
+    }),
   });
   const data = await res.json().catch(() => ({})) as { route?: MakersRoutePlan; error?: string };
   if (!res.ok || !data.route) throw new Error(data.error || translate('realRoutePlanningFailed'));

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from 'tdesign-react';
 import { planMakersRoute, proactiveOperation } from '../../services/api';
 import { useAppDispatch } from '../../store/appState';
-import type { MakersMapPlace, MakersRouteMode, MakersRoutePlan } from '../../types';
+import type { MakersMapPlace, MakersRouteMode, MakersRoutePlan, MakersRouteStrategy } from '../../types';
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
 import { shouldPlanMakersRoute } from './makersMapRouting';
 import { translate, useLanguage } from '../../i18n';
@@ -21,6 +21,7 @@ interface Props {
   /** Whether this map represents an ordered plan (for example a day's schedule). */
   showRoute?: boolean;
   routeMode?: MakersRouteMode;
+  routeStrategy?: MakersRouteStrategy;
 }
 
 type PermissionState = 'checking' | 'prompt' | 'granted' | 'denied' | 'unavailable';
@@ -77,7 +78,7 @@ function hoursMinutes(seconds: number): string {
 }
 
 export default function MakersMap({
-  conversationId, title, places, revision, showRoute = false, routeMode,
+  conversationId, title, places, revision, showRoute = false, routeMode, routeStrategy,
 }: Props) {
   const { t } = useLanguage();
   const dispatch = useAppDispatch();
@@ -264,11 +265,11 @@ export default function MakersMap({
     let disposed = false;
     setRoute(null);
     setRouteError('');
-    void planMakersRoute(conversationId, places, routeMode)
+    void planMakersRoute(conversationId, places, routeMode, routeStrategy)
       .then((next) => { if (!disposed) setRoute(next); })
       .catch((error) => { if (!disposed) setRouteError(error instanceof Error ? error.message : t('routePlanningFailed')); });
     return () => { disposed = true; };
-  }, [conversationId, places, revision, routeMode, showRoute, t]);
+  }, [conversationId, places, revision, routeMode, routeStrategy, showRoute, t]);
 
   useEffect(() => {
     if (!displayPlaces.length) return;

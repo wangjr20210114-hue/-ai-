@@ -160,6 +160,7 @@ async def handler(ctx):
     latest_map = []
     latest_map_title = "相关地点"
     latest_map_route_mode = ""
+    latest_map_route_strategy = ""
     latest_map_show_route = False
     pending_actions = []
     pending_search_meta = None
@@ -313,6 +314,7 @@ async def handler(ctx):
         latest_map = active_map.get("places") or []
         latest_map_title = str(active_map.get("title") or "相关地点")
         latest_map_route_mode = str(active_map.get("route_mode") or "")
+        latest_map_route_strategy = str(active_map.get("route_strategy") or "")
         latest_map_show_route = bool(active_map.get("show_route"))
     return {
         "messages": result,
@@ -320,6 +322,7 @@ async def handler(ctx):
         "map_places": latest_map,
         "map_title": latest_map_title,
         "map_route_mode": latest_map_route_mode,
+        "map_route_strategy": latest_map_route_strategy,
         "map_show_route": latest_map_show_route,
         "workspace_revision": int(workspace.get("revision") or 0),
         "run": public_chat_run(run),

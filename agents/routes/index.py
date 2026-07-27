@@ -24,6 +24,15 @@ async def handler(ctx):
     mode = str(body.get("mode") or preferences.get("preferred_route_mode") or "driving").strip().lower()
     if mode not in {"driving", "transit", "walking", "bicycling"}:
         return error("路线方式必须是 driving、transit、walking 或 bicycling")
+    strategy = str(
+        body.get("strategy") or preferences.get("route_strategy") or "time_then_cost"
+    ).strip().lower()
+    if strategy not in {"time_then_cost", "least_time", "least_cost"}:
+        return error("路线策略必须是 time_then_cost、least_time 或 least_cost")
+    near_time_tolerance = max(
+        0,
+        min(30, int(preferences.get("near_time_tolerance_minutes", 10) or 0)),
+    )
     route_stop_limit = max(2, min(12, int(preferences.get("route_stop_limit") or 8)))
     if not 2 <= len(places) <= route_stop_limit:
         return error(
@@ -39,6 +48,8 @@ async def handler(ctx):
             places,
             optimize,
             mode=mode,
+            strategy=strategy,
+            near_time_tolerance_minutes=near_time_tolerance,
         )
     except (TypeError, ValueError):
         return error("地点坐标格式无效")
@@ -54,6 +65,8 @@ async def handler(ctx):
                     places,
                     optimize=optimize,
                     **({"mode": mode} if mode != "driving" else {}),
+                    strategy=strategy,
+                    near_time_tolerance_minutes=near_time_tolerance,
                 ),
                 timeout=route_timeout,
             )
@@ -74,6 +87,8 @@ async def handler(ctx):
             optimize,
             route,
             mode=mode,
+            strategy=strategy,
+            near_time_tolerance_minutes=near_time_tolerance,
         )
         provider_places = route.get("places")
         if isinstance(provider_places, list) and provider_places != places:
@@ -84,6 +99,8 @@ async def handler(ctx):
                 optimize,
                 route,
                 mode=mode,
+                strategy=strategy,
+                near_time_tolerance_minutes=near_time_tolerance,
             )
         return {"route": route}
     except Exception as exc:
