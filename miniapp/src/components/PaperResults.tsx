@@ -3,7 +3,7 @@ import Taro from '@tarojs/taro'
 import { Button, Text, View } from '@tarojs/components'
 import type { PaperInfo } from '@floris/contracts'
 import { translate } from '@/i18n'
-import { apiRequest } from '@/services/request'
+import { savePaperToReading } from '@/services/papers'
 
 export default function PaperResults({ papers }: { papers: PaperInfo[] }) {
   const [saving, setSaving] = useState('')
@@ -13,16 +13,7 @@ export default function PaperResults({ papers }: { papers: PaperInfo[] }) {
     if (saving) return
     setSaving(id)
     try {
-      await apiRequest('/papers', {
-        method: 'POST',
-        data: {
-          arxiv_id: paper.arxiv_id || `source-${Date.now()}`,
-          title: paper.title,
-          pdf_url: paper.pdf_url || '',
-          source_url: paper.source_url || paper.arxiv_url || '',
-        },
-        timeout: 60_000,
-      })
+      await savePaperToReading(paper)
       void Taro.showToast({ title: translate('addedToReading'), icon: 'success' })
     } catch (reason) {
       void Taro.showToast({ title: String((reason as Error)?.message || translate('saveFailed')), icon: 'none' })
