@@ -129,7 +129,17 @@ export default function ConversationSidebar({ open, onClose }: Props) {
         <div className="conversation-history-label">{t('history')}</div>
         <div className="conversation-list" data-onboarding="conversation-history">
           {loading && conversations.length === 0 && (
-            <div className="conversation-list-empty">{t('loading')}</div>
+            <div className="skeleton-list" role="status" aria-label={t('loading')}>
+              {[0, 1, 2, 3].map((row) => (
+                <div className="skeleton-conversation-item" key={row}>
+                  <span className="skeleton skeleton-dot" aria-hidden="true" />
+                  <span className="skeleton-lines" aria-hidden="true">
+                    <span className="skeleton skeleton-line" style={{ width: '74%' }} />
+                    <span className="skeleton skeleton-line" style={{ width: '46%' }} />
+                  </span>
+                </div>
+              ))}
+            </div>
           )}
           {loadError && (
             <button type="button" className="conversation-list-error" onClick={() => { void load(); }}>

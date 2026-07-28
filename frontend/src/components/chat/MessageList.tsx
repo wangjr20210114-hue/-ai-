@@ -17,13 +17,20 @@ interface Props {
   client: React.RefObject<ChatClient | null>;
 }
 
+const prefersReducedMotion = () => (
+  typeof window !== 'undefined'
+  && typeof window.matchMedia === 'function'
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+);
+
 /** 消息列表（居中），自动滚动到底部；空态展示引导。 */
 export default function MessageList({ client }: Props) {
-  const { messages, thinking } = useAppState();
+  const { messages, thinking, conversationId, proactive } = useAppState();
   const chainPositions = assistantChainPositions(
     thinking ? [...messages, { role: 'ai' as const }] : messages,
   );
   const thinkingChainPosition = thinking ? chainPositions[messages.length] : 'single';
+  const generationActive = messages.some((item) => item.streaming);
   const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const endRef = useRef<HTMLDivElement>(null);
@@ -36,6 +43,10 @@ export default function MessageList({ client }: Props) {
     const container = scrollRef.current;
     if (!container) return;
     const isInitialRestore = previousCountRef.current === 0 && messages.length > 0;
+    const grew = previousCountRef.current > 0 && messages.length > previousCountRef.current;
+    // Sending a message of your own always rejoins the live edge.
+    const ownMessageSent = grew && messages[messages.length - 1]?.role === 'user';
+    if (ownMessageSent) shouldStickToBottomRef.current = true;
     if (isInitialRestore) {
       // Run before paint so a restored task opens at the bottom without a visible scroll.
       container.scrollTop = container.scrollHeight;
@@ -48,9 +59,14 @@ export default function MessageList({ client }: Props) {
       // Never move the viewport while the user is selecting/copying an answer.
       shouldStickToBottomRef.current = false;
     } else if (shouldStickToBottomRef.current) {
-      // Status labels and streamed tokens update often. Keep the viewport anchored
-      // without restarting a smooth-scroll animation on every text change.
-      container.scrollTop = container.scrollHeight;
+      // Structural additions (a sent question, a new answer) glide to the
+      // bottom; streamed tokens keep the viewport anchored instantly so the
+      // smooth animation never restarts mid-flight.
+      if (grew && !prefersReducedMotion()) {
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+      } else {
+        container.scrollTop = container.scrollHeight;
+      }
       previousScrollTopRef.current = container.scrollTop;
     }
     previousCountRef.current = messages.length;
@@ -84,24 +100,13 @@ export default function MessageList({ client }: Props) {
       <div className="chat-scroll" ref={scrollRef}>
         <div className="chat-empty">
           <div className="chat-empty-logo"><img src="/floris-avatar.png" alt="Floris" /></div>
-          <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--app-text)' }}>
-            {t('appTitle')}
-          </div>
-          <div style={{ fontSize: 13.5, maxWidth: 420, lineHeight: 1.8 }}>
+          <div className="chat-empty-title">{t('appTitle')}</div>
+          <div className="chat-empty-sub">
             {t('appWelcome')}
             <br />
             {t('appCapabilities')}
           </div>
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 10,
-              justifyContent: 'center',
-              marginTop: 8,
-              maxWidth: 520,
-            }}
-          >
+          <div className="chat-empty-chips">
             {STARTERS.map((key) => (
               <button type="button" key={key} className="chip" onClick={() => dispatch({ type: 'SET_DRAFT', payload: t(key) })}>
                 {t(key)}
@@ -128,14 +133,27 @@ export default function MessageList({ client }: Props) {
       onCopy={stopAutoFollow}
     >
       <div className="chat-inner">
-        {messages.map((m, index) => (
-          <MessageBubble
-            key={m.id}
-            message={m}
-            client={client}
-            assistantChainPosition={chainPositions[index]}
-          />
-        ))}
+        {messages.map((m, index) => {
+          const previousUserMessage = index > 0
+            ? [...messages.slice(0, index)].reverse().find((item) => item.role === 'user')
+            : undefined;
+          return (
+            <MessageBubble
+              key={m.id}
+              message={m}
+              client={client}
+              assistantChainPosition={chainPositions[index]}
+              isLastAiMessage={m.role === 'ai' && index === messages.length - 1}
+              clarificationAnswered={Boolean(m.clarification)
+                && (Boolean(m.clarificationAnswered)
+                  || messages.slice(index + 1).some((item) => item.role === 'user'))}
+              previousUserMessage={previousUserMessage}
+              generationActive={generationActive}
+              conversationId={conversationId}
+              proactive={proactive}
+            />
+          );
+        })}
 
         {thinking && (
           <div className={`msg-row ai${thinkingChainPosition !== 'single' ? ` assistant-chain-${thinkingChainPosition}` : ''}`}>
