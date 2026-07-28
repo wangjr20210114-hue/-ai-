@@ -1,0 +1,16 @@
+.settings-page { min-height: 100vh; padding: 24px; box-sizing: border-box; }
+.settings-state { min-height: 70vh; padding: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; color: #8a654e; }
+.setting-section { margin-bottom: 22px; padding: 26px; border-radius: 24px; background: rgba(255,255,255,.86); box-shadow: 0 8px 25px rgba(145, 88, 45, .08); }
+.disabled-section { opacity: .56; }
+.section-title { display: block; font-size: 31px; font-weight: 720; }
+.section-hint { display: block; margin: 10px 0 18px; color: #96745f; font-size: 23px; line-height: 1.55; }
+.picker-row, .switch-row { min-height: 78px; display: flex; align-items: center; justify-content: space-between; }
+.skill-row { padding: 20px 0; display: flex; align-items: center; gap: 18px; border-top: 1px solid rgba(139, 85, 45, .09); }
+.skill-copy { flex: 1; min-width: 0; }
+.skill-name { display: block; font-size: 27px; font-weight: 650; }
+.skill-description { display: block; margin-top: 6px; color: #91705c; font-size: 22px; line-height: 1.5; }
+.skill-warning { display: block; margin-top: 6px; color: #c66b32; font-size: 21px; }
+.range-label { display: block; margin-top: 18px; font-size: 24px; }
+.account-note { padding: 18px 8px 60px; display: flex; flex-direction: column; gap: 8px; color: #9a7964; font-size: 21px; }
+.workspace-links { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.workspace-links button { margin: 0; color: #a05d35; background: #fff3e7; border-radius: 18px; font-size: 24px; }

@@ -61,7 +61,7 @@ export interface SavedPaper {
 
 export interface PaperAssistantResult {
   id: string;
-  action: 'translate' | 'summarize' | 'analyze';
+  action: 'translate' | 'summarize' | 'explain' | 'formula' | 'analyze' | 'terms' | 'qa';
   title: string;
   source_text: string;
   content: string;

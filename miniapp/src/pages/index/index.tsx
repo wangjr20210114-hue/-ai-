@@ -1,0 +1,430 @@
+import { useEffect, useRef, useState } from 'react'
+import Taro, { useDidShow } from '@tarojs/taro'
+import { Button, Image, ScrollView, Text, Textarea, View } from '@tarojs/components'
+import {
+  createChatPayload,
+  createClarificationPayload,
+  type ChatMessage,
+  type ChatRequestPayload,
+  type WorkspaceAction,
+} from '@floris/contracts'
+import MessageBubble from '@/components/MessageBubble'
+import { startChatStream, type ActiveChatStream } from '@/services/chat'
+import {
+  bootstrap,
+  cacheMessages,
+  getOrCreateConversationId,
+  newConversation,
+  readCachedMessages,
+} from '@/services/conversations'
+import { requestCurrentLocation } from '@/services/location'
+import { addPdfToReading, imageDataUrl, uploadToMakers } from '@/services/files'
+import { apiRequest } from '@/services/request'
+import { ensureSession } from '@/services/session'
+import { workspaceOperation } from '@/services/workspace'
+import './index.scss'
+
+const STATUS_COPY: Record<string, [string, string]> = {
+  rich_search: ['正在查找可靠信息…', '信息已经找齐，正在整理…'],
+  search_places: ['正在核实地点…', '地点已经核实…'],
+  search_places_batch: ['正在核实沿途地点…', '沿途地点已经核实…'],
+  plan_route_between_places: ['正在规划路线…', '路线已经规划好…'],
+  recommend_places_on_map: ['正在准备地图…', '地图已经准备好…'],
+  recommend_nearby_places_on_map: ['正在寻找附近地点…', '附近地点已经找到…'],
+  propose_calendar_changes: ['正在检查日程…', '日程方案已经准备好…'],
+  propose_image: ['正在准备画面…', '画面方案已经准备好…'],
+  image_generation_planning: ['正在理解画面要求…', '画面要求已经整理好…'],
+  search_arxiv: ['正在查找论文…', '论文已经找到…'],
+}
+
+type ProactiveNotification = { id?: string; title?: string; body?: string; priority?: string }
+
+export default function IndexPage() {
+  const [ready, setReady] = useState(false)
+  const [error, setError] = useState('')
+  const [conversationId, setConversationId] = useState('')
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [draft, setDraft] = useState('')
+  const [referenceImage, setReferenceImage] = useState<{ name: string; dataUrl: string } | null>(null)
+  const [attaching, setAttaching] = useState(false)
+  const [statusText, setStatusText] = useState('')
+  const [actionBusy, setActionBusy] = useState('')
+  const [reminders, setReminders] = useState<ProactiveNotification[]>([])
+  const [reminderIndex, setReminderIndex] = useState(0)
+  const [language, setLanguage] = useState(String(Taro.getStorageSync('floris-language') || 'zh-CN'))
+  const activeStream = useRef<ActiveChatStream | null>(null)
+  const messagesRef = useRef<ChatMessage[]>([])
+  const streaming = messages.some((message) => message.streaming)
+
+  const publish = (updater: ChatMessage[] | ((current: ChatMessage[]) => ChatMessage[])) => {
+    setMessages((current) => {
+      const next = typeof updater === 'function' ? updater(current) : updater
+      messagesRef.current = next
+      return next
+    })
+  }
+
+  const refreshReminders = async (
+    operation: 'page_open' | 'get' = 'get',
+    targetConversationId = conversationId,
+  ) => {
+    if (!targetConversationId) return
+    try {
+      const data = await apiRequest<{ notifications?: ProactiveNotification[] }>('/proactive', {
+        method: 'POST',
+        conversationId: targetConversationId,
+        data: { operation },
+        timeout: 20_000,
+      })
+      setReminders((data.notifications || []).slice(0, 10))
+      setReminderIndex(0)
+    } catch {
+      // Reminders never block chat.
+    }
+  }
+
+  useEffect(() => {
+    let disposed = false
+    void (async () => {
+      try {
+        const session = await ensureSession()
+        const id = getOrCreateConversationId(session)
+        const cached = readCachedMessages(id)
+        if (disposed) return
+        setConversationId(id)
+        publish(cached)
+        const data = await bootstrap(id).catch(() => ({ messages: [], run: undefined }))
+        if (disposed) return
+        const restored = Array.isArray(data.messages) && data.messages.length ? data.messages : cached
+        const interrupted = ['running', 'cancel_requested'].includes(String(data.run?.status || ''))
+        const normalized = restored.map((message) => ({ ...message, streaming: false }))
+        publish(interrupted
+          ? [...normalized, {
+            id: `interrupted-${Date.now()}`,
+            role: 'ai',
+            content: '上一次生成已中断，请点击重试。',
+            ts: Date.now(),
+            failed: true,
+          }]
+          : normalized)
+        setReady(true)
+        setTimeout(() => void refreshReminders('page_open', id), 0)
+      } catch (reason) {
+        if (!disposed) setError(String((reason as Error)?.message || reason))
+      }
+    })()
+    return () => {
+      disposed = true
+      activeStream.current?.stop().catch(() => undefined)
+      activeStream.current = null
+    }
+    // Login/bootstrap only runs once for this page instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useDidShow(() => {
+    setLanguage(String(Taro.getStorageSync('floris-language') || 'zh-CN'))
+    if (ready) void refreshReminders('page_open')
+  })
+
+  useEffect(() => {
+    if (reminders.length < 2) return
+    const timer = setInterval(() => {
+      setReminderIndex((current) => (current + 1) % reminders.length)
+    }, 6_000)
+    return () => clearInterval(timer)
+  }, [reminders.length])
+
+  useEffect(() => {
+    if (conversationId && messages.length && !messages.some((item) => item.streaming)) {
+      cacheMessages(conversationId, messages)
+    }
+  }, [conversationId, messages])
+
+  const patchMessage = (id: string, patcher: (message: ChatMessage) => ChatMessage) => {
+    publish((current) => current.map((message) => message.id === id ? patcher(message) : message))
+  }
+
+  const runStream = async (payload: ChatRequestPayload, assistantId: string) => {
+    if (!conversationId || activeStream.current) return
+    setError('')
+    patchMessage(assistantId, (message) => ({ ...message, streaming: true, failed: false }))
+    try {
+      activeStream.current = await startChatStream(conversationId, payload, {
+        onPatch(patch) {
+          if (patch.status) {
+            const copy = STATUS_COPY[patch.status.name]
+            setStatusText(copy?.[patch.status.phase === 'active' ? 0 : 1] || '正在处理…')
+          }
+          patchMessage(assistantId, (message) => {
+            const next = { ...message }
+            if (patch.reset) next.content = ''
+            if (patch.delta) next.content += patch.delta
+            if (patch.complete) next.streaming = false
+            if (patch.error) {
+              next.content = patch.error
+              next.failed = true
+              next.streaming = false
+            }
+            if (patch.searchResults) {
+              next.searchResults = {
+                ...(next.searchResults || {}),
+                ...patch.searchResults,
+                media: patch.searchResults.media?.length
+                  ? patch.searchResults.media
+                  : next.searchResults?.media,
+              }
+            }
+            if (patch.workspaceAction) {
+              next.workspaceActions = [
+                ...(next.workspaceActions || []).filter((item) => item.id !== patch.workspaceAction?.id),
+                patch.workspaceAction,
+              ]
+            }
+            if (patch.clarification) next.clarification = patch.clarification
+            if (patch.followUps?.length) next.followUps = patch.followUps
+            if (patch.papers?.length) next.papers = patch.papers
+            return next
+          })
+        },
+        onError(message) {
+          patchMessage(assistantId, (current) => ({
+            ...current,
+            content: message,
+            failed: true,
+            streaming: false,
+          }))
+        },
+        onDone() {
+          activeStream.current = null
+          setStatusText('')
+          patchMessage(assistantId, (message) => ({ ...message, streaming: false }))
+        },
+        onLocationRequired() {
+          void requestCurrentLocation().then(({ location, request }) => {
+            void runStream({
+              ...payload,
+              ...(location ? { current_location: location } : {}),
+              location_request: request,
+              _location_retry: true,
+            }, assistantId)
+          })
+        },
+      })
+    } catch (reason) {
+      activeStream.current = null
+      patchMessage(assistantId, (message) => ({
+        ...message,
+        content: String((reason as Error)?.message || reason),
+        failed: true,
+        streaming: false,
+      }))
+    }
+  }
+
+  const sendText = async (text = draft) => {
+    const content = text.trim()
+    if (!content || streaming || activeStream.current || !ready) return
+    const now = Date.now()
+    const userMessage: ChatMessage = {
+      id: `user-${now}`,
+      role: 'user',
+      content: referenceImage ? `${content}\n\n（已附参考图：${referenceImage.name}）` : content,
+      ts: now,
+    }
+    const assistant: ChatMessage = {
+      id: `assistant-${now}`,
+      role: 'ai',
+      content: '',
+      ts: now + 1,
+      streaming: true,
+    }
+    publish((current) => [...current, userMessage, assistant])
+    setDraft('')
+    const payload = createChatPayload(userMessage, language)
+    payload.reference_images = referenceImage ? [referenceImage.dataUrl] : []
+    setReferenceImage(null)
+    await runStream(payload, assistant.id)
+  }
+
+  const attach = async () => {
+    if (streaming || attaching) return
+    const selection = await Taro.showActionSheet({
+      itemList: ['选择参考图片', '上传 PDF 到“我的阅读”'],
+    }).catch(() => null)
+    if (!selection) return
+    setAttaching(true)
+    try {
+      if (selection.tapIndex === 0) {
+        const picked = await Taro.chooseMedia({ count: 1, mediaType: ['image'], sourceType: ['album', 'camera'] })
+        const file = picked.tempFiles[0]
+        if (!file) return
+        setReferenceImage({
+          name: file.tempFilePath.split('/').pop() || '参考图片',
+          dataUrl: await imageDataUrl(file.tempFilePath),
+        })
+        return
+      }
+      const picked = await Taro.chooseMessageFile({
+        count: 1,
+        type: 'file',
+        extension: ['pdf'],
+      })
+      const file = picked.tempFiles[0]
+      if (!file) return
+      const uploaded = await uploadToMakers(
+        conversationId,
+        file.path,
+        file.name,
+        'application/pdf',
+        file.size,
+      )
+      await addPdfToReading(uploaded)
+      void Taro.showToast({ title: '已加入“我的阅读”', icon: 'success' })
+    } catch (reason) {
+      void Taro.showToast({ title: String((reason as Error)?.message || '添加失败'), icon: 'none' })
+    } finally {
+      setAttaching(false)
+    }
+  }
+
+  const submitClarification = (message: ChatMessage, values: Record<string, string | string[]>) => {
+    if (!message.clarification || streaming) return
+    patchMessage(message.id, (current) => ({ ...current, clarificationAnswered: true }))
+    void runStream(
+      createClarificationPayload(message.clarification, values, message.id, language),
+      message.id,
+    )
+  }
+
+  const executeAction = async (
+    action: WorkspaceAction,
+    operation: 'activate_map' | 'confirm_action' | 'cancel_action',
+  ) => {
+    if (actionBusy) return
+    setActionBusy(action.id)
+    try {
+      const result = await workspaceOperation(conversationId, operation, {
+        action_id: action.id,
+        version: action.version,
+      })
+      if (result.action) {
+        publish((current) => current.map((message) => ({
+          ...message,
+          workspaceActions: message.workspaceActions?.map((item) => item.id === action.id ? result.action! : item),
+        })))
+      }
+      if (operation === 'activate_map') {
+        const map = result.map || {
+          action_id: action.id,
+          title: String(action.payload.title || '相关地点'),
+          places: Array.isArray(action.payload.places) ? action.payload.places as Array<Record<string, unknown>> : [],
+          route_mode: String(action.payload.route_mode || ''),
+          route_strategy: String(action.payload.route_strategy || ''),
+          show_route: Boolean(action.payload.show_route),
+        }
+        Taro.setStorageSync('floris.miniapp.active-map.v1', map)
+        await Taro.navigateTo({ url: '/pages/map/index' })
+      }
+      void refreshReminders('get')
+    } catch (reason) {
+      void Taro.showToast({ title: String((reason as Error)?.message || '操作失败'), icon: 'none' })
+    } finally {
+      setActionBusy('')
+    }
+  }
+
+  const stop = async () => {
+    const stream = activeStream.current
+    activeStream.current = null
+    if (stream) await stream.stop()
+    setStatusText('')
+    publish((current) => current
+      .filter((message) => !message.streaming || Boolean(message.content || message.clarification || message.workspaceActions?.length))
+      .map((message) => ({ ...message, streaming: false })))
+  }
+
+  const createNew = async () => {
+    if (streaming) return
+    const session = await ensureSession()
+    const id = newConversation(session)
+    setConversationId(id)
+    publish([])
+  }
+
+  const reminder = reminders[reminderIndex]
+  const reminderText = String(reminder?.body || reminder?.title || '')
+
+  if (error && !ready) {
+    return <View className='center-state'>
+      <Image className='state-avatar' src='https://floris.jlutx.com/floris-avatar.png' />
+      <Text>{error}</Text>
+      <Button className='primary-button' onClick={() => Taro.reLaunch({ url: '/pages/index/index' })}>重新登录</Button>
+    </View>
+  }
+
+  return <View className='chat-page'>
+    <View className='safe-top' />
+    <View className='app-header'>
+      <View className='brand'>
+        <Image className='brand-avatar' src='https://floris.jlutx.com/floris-avatar.png' />
+        <Text className='brand-title'>FLORIS</Text>
+      </View>
+      <View className='reminder-ticker'><Text>{reminderText || '有需要时，我会在这里轻轻提醒你。'}</Text></View>
+      <View className='header-actions'>
+        <Button className='icon-button' disabled={streaming} onClick={createNew}>＋</Button>
+        <Button className='icon-button' disabled={streaming} onClick={() => Taro.navigateTo({ url: '/pages/history/index' })}>☰</Button>
+        <Button className='icon-button' disabled={streaming} onClick={() => Taro.navigateTo({ url: '/pages/library/index' })}>▤</Button>
+        <Button className='icon-button' disabled={streaming} onClick={() => Taro.navigateTo({ url: '/pages/settings/index' })}>⚙</Button>
+      </View>
+    </View>
+
+    <ScrollView
+      className='message-list'
+      scrollY
+      scrollIntoView='chat-bottom-anchor'
+      enhanced
+      showScrollbar={false}
+    >
+      {!messages.length && ready ? <View className='empty-chat'>
+        <Image className='empty-avatar' src='https://floris.jlutx.com/floris-avatar.png' />
+        <Text className='empty-title'>今天想和 Floris 一起做什么？</Text>
+        {['看看今天的 AI 新闻', '帮我规划今天的行程', '画一只戴蓝色围巾的橘猫'].map((item) =>
+          <View key={item} className='suggestion' onClick={() => void sendText(item)}>{item}</View>)}
+      </View> : null}
+      {messages.map((message) => <MessageBubble
+        key={message.id}
+        message={message}
+        statusText={message.streaming ? statusText : ''}
+        actionBusy={actionBusy}
+        onClarification={submitClarification}
+        onAction={executeAction}
+        onFollowUp={(value) => void sendText(value)}
+      />)}
+      <View id='chat-bottom-anchor' className='bottom-anchor' />
+    </ScrollView>
+
+    <View className='composer'>
+      {referenceImage ? <View className='reference-chip'>
+        <Image src={referenceImage.dataUrl} mode='aspectFill' />
+        <Text>{referenceImage.name}</Text>
+        <Text onClick={() => setReferenceImage(null)}>×</Text>
+      </View> : null}
+      <Button className='attach-button' loading={attaching} disabled={streaming || !ready} onClick={() => void attach()}>＋</Button>
+      <Textarea
+        className='composer-input'
+        disabled={!ready}
+        maxlength={4000}
+        placeholder={ready ? '和 Floris 说点什么…' : '正在进入 Floris 的小窝…'}
+        value={draft}
+        onInput={(event) => setDraft(event.detail.value)}
+        onConfirm={() => void sendText()}
+        confirmType='send'
+        showConfirmBar={false}
+      />
+      {streaming
+        ? <Button className='send-button stop-button' onClick={() => void stop()}>■</Button>
+        : <Button className='send-button' disabled={!draft.trim() || !ready} onClick={() => void sendText()}>↑</Button>}
+    </View>
+  </View>
+}

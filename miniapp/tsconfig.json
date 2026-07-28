@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2019",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["miniprogram-api-typings", "node"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@floris/contracts": ["../packages/floris-contracts/src/index.ts"]
+    }
+  },
+  "include": ["src", "config", "types", "../packages/floris-contracts/src"],
+  "compileOnSave": false
+}

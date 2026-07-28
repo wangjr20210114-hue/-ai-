@@ -125,7 +125,9 @@ export async function onRequest(context) {
       const item = items.find((candidate) => candidate.storage_key === storageKey || candidate.file_id === storageKey);
       if (!item) return json({ error: '阅读项目不存在，请先保存到“我的阅读”' }, 404);
       const action = String(body.action || '');
-      if (!['translate', 'summarize', 'analyze'].includes(action)) return json({ error: '不支持的助读结果类型' }, 400);
+      if (!['translate', 'summarize', 'explain', 'formula', 'analyze', 'terms', 'qa'].includes(action)) {
+        return json({ error: '不支持的助读结果类型' }, 400);
+      }
       const content = String(body.content || '').trim().slice(0, 30000);
       if (!content) return json({ error: '助读结果不能为空' }, 400);
       const result = {

@@ -1,0 +1,52 @@
+import { useState } from 'react'
+import Taro from '@tarojs/taro'
+import { Button, Text, View } from '@tarojs/components'
+import type { PaperInfo } from '@floris/contracts'
+import { apiRequest } from '@/services/request'
+
+export default function PaperResults({ papers }: { papers: PaperInfo[] }) {
+  const [saving, setSaving] = useState('')
+
+  const save = async (paper: PaperInfo) => {
+    const id = paper.arxiv_id || paper.title
+    if (saving) return
+    setSaving(id)
+    try {
+      await apiRequest('/papers', {
+        method: 'POST',
+        data: {
+          arxiv_id: paper.arxiv_id || `source-${Date.now()}`,
+          title: paper.title,
+          pdf_url: paper.pdf_url || '',
+          source_url: paper.source_url || paper.arxiv_url || '',
+        },
+        timeout: 60_000,
+      })
+      void Taro.showToast({ title: '已加入“我的阅读”', icon: 'success' })
+    } catch (reason) {
+      void Taro.showToast({ title: String((reason as Error)?.message || '保存失败'), icon: 'none' })
+    } finally {
+      setSaving('')
+    }
+  }
+
+  return <View className='paper-results'>
+    {papers.slice(0, 6).map((paper) => {
+      const id = paper.arxiv_id || paper.title
+      return <View className='paper-card' key={id}>
+        <Text className='paper-title'>{paper.title}</Text>
+        {paper.authors ? <Text className='paper-meta'>{paper.authors}{paper.year ? ` · ${paper.year}` : ''}</Text> : null}
+        {paper.key_contribution || paper.abstract_zh
+          ? <Text className='paper-summary'>{paper.key_contribution || paper.abstract_zh}</Text>
+          : null}
+        <View className='paper-actions'>
+          <Button className='secondary-button' onClick={() => {
+            const url = paper.arxiv_url || paper.source_url || paper.pdf_url || ''
+            if (url) void Taro.setClipboardData({ data: url })
+          }}>复制来源</Button>
+          <Button className='primary-button' loading={saving === id} onClick={() => void save(paper)}>保存论文</Button>
+        </View>
+      </View>
+    })}
+  </View>
+}

@@ -29,15 +29,45 @@ test('conversation, state, object and schedule infrastructure reuse EdgeOne Make
   assert.doesNotMatch(chat + messages, /yuanbao_chat_runs_v1|chat_runs/);
 });
 
-test('personal demo uses one fixed owner without an application database', async () => {
-  const [currentUser, agentAuth, manifest] = await Promise.all([
+test('personal web owner and wx.login sessions share Makers stores without an application database', async () => {
+  const [currentUser, agentAuth, wechatAuth, manifest, miniapp] = await Promise.all([
     read('auth/current-user.js'),
     read('agents/_shared/auth.py'),
+    read('cloud-functions/wechat-auth/index.js'),
     read('package.json'),
+    read('miniapp/src/services/session.ts'),
   ]);
   assert.match(currentUser, /local-user/);
   assert.match(agentAuth, /USER_WORKSPACE_ID/);
-  assert.doesNotMatch(currentUser + agentAuth + manifest, /JWT_SECRET|DATABASE_URL|neondatabase|bcrypt|tenant:/i);
+  assert.match(wechatAuth, /jscode2session/);
+  assert.match(miniapp, /Taro\.login/);
+  assert.match(currentUser + agentAuth, /MINIAPP_SESSION_SECRET/);
+  assert.doesNotMatch(currentUser + agentAuth + wechatAuth + manifest, /JWT_SECRET|DATABASE_URL|neondatabase|bcrypt|tenant:/i);
+  assert.doesNotMatch(wechatAuth, /\b(?:openid|session_key)\s*:/i);
+  assert.doesNotMatch(miniapp, /localStorage/i);
+});
+
+test('miniapp reuses native WeChat capabilities and shared Agent protocols', async () => {
+  const [chat, stream, location, map, files, indexPage, contracts] = await Promise.all([
+    read('miniapp/src/services/chat.ts'),
+    read('miniapp/src/services/stream.ts'),
+    read('miniapp/src/services/location.ts'),
+    read('miniapp/src/pages/map/index.tsx'),
+    read('miniapp/src/services/files.ts'),
+    read('miniapp/src/pages/index/index.tsx'),
+    read('packages/floris-contracts/src/chat.ts'),
+  ]);
+  assert.match(stream, /enableChunked:\s*true/);
+  assert.match(stream, /onChunkReceived/);
+  assert.match(chat, /startChunkedSse/);
+  assert.match(location, /Taro\.getLocation/);
+  assert.match(map, /<Map/);
+  assert.match(files + indexPage, /Taro\.chooseMedia/);
+  assert.match(files + indexPage, /Taro\.chooseMessageFile/);
+  assert.match(files, /Taro\.compressImage/);
+  assert.match(files, /Taro\.openDocument/);
+  assert.match(contracts, /createClarificationPayload/);
+  assert.doesNotMatch(chat + stream, /WebSocket|EventSource/);
 });
 
 test('release gates execute the Makers production chain', async () => {

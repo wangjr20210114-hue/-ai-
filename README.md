@@ -8,7 +8,7 @@
 >
 > 运行平台：腾讯云 EdgeOne Makers
 >
-> 产品边界：个人单所有者演示，不提供注册、多用户、租户或用户数据库
+> 产品边界：网页端保持个人单所有者演示；微信小程序只使用 `wx.login` 隔离体验数据，不提供账号注册、组织租户或自建用户数据库
 >
 > 文档原则：根目录 `README.md` 是仓库唯一的功能、环境、部署和测试事实源
 
@@ -18,7 +18,7 @@
 
 ### 1.1 平台结构
 
-FLORIS 不运行 FastAPI、Uvicorn、WebSocket 服务、SQLite、外置用户数据库、自建对象存储、自建 Cron 或自建模型服务。React/Vite 负责界面；13 个 Python Agent 路由承担 LangGraph 对话、业务工具和所有者数据重置；8 个 Node Cloud Functions 承担文件、阅读库、论文、会话索引、验收站、健康页、文件重置和定时桥接；EdgeOne Makers 提供 AI Gateway、Agent Runtime、Conversation Store、LangGraph Checkpointer/Store、Pages Blob、Schedule、Trace 和 GitHub Provider 部署。
+FLORIS 不运行 FastAPI、Uvicorn、WebSocket 服务、SQLite、外置用户数据库、自建对象存储、自建 Cron 或自建模型服务。React/Vite 负责网页界面，Taro/React 负责微信小程序平台适配；13 个 Python Agent 路由承担 LangGraph 对话和业务工具；Node Cloud Functions 承担文件、阅读库、论文、会话索引、微信登录、验收站、健康页、文件重置和定时桥接；EdgeOne Makers 提供 AI Gateway、Agent Runtime、Conversation Store、LangGraph Checkpointer/Store、Pages Blob、Schedule、Trace 和 GitHub Provider 部署。
 
 | 数据或能力 | 事实源 |
 | --- | --- |
@@ -39,6 +39,7 @@ FLORIS 不运行 FastAPI、Uvicorn、WebSocket 服务、SQLite、外置用户数
 ```bash
 npm ci
 npm --prefix frontend ci
+npm --prefix miniapp ci
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt
@@ -69,6 +70,8 @@ edgeone makers dev
 | 可选降级 | `DASHSCOPE_API_KEY`、`GEMINI_API_KEY` | 视觉理解后备 |
 | 可选 Skill | `TENCENT_MEETING_TOKEN` | 腾讯会议个人 AI Skill；未配置时不向模型暴露会议工具 |
 | 数据管理 | `DATA_CLEAR_PASSWORD` | 设置页“清空数据库”的服务端校验密码；真实值只保存在 Makers |
+| 小程序必需 | `WECHAT_MINIAPP_APP_ID`、`WECHAT_MINIAPP_APP_SECRET` | `wx.login` 临时 code 的服务端换取；AppSecret 只保存在 Makers |
+| 小程序必需 | `MINIAPP_SESSION_SECRET` | 签发小程序短期会话令牌；应使用独立高熵随机值且只保存在 Makers |
 | 性能调节 | `CAPABILITY_PLAN_TIMEOUT_SECONDS` | 搜索/工具语义规划时限 |
 | 性能调节 | `RICH_SEARCH_PROVIDER_TIMEOUT_SECONDS` | SearchPro 调用时限 |
 | 性能调节 | `RICH_SEARCH_MEDIA_TIMEOUT_SECONDS` | 网页媒体提取时限 |
@@ -91,6 +94,43 @@ git push origin main
 Preview 流程：EdgeOne 控制台 → Makers → 项目 → 构建部署 → 新建部署 → 选择 `main` 和目标提交 → 选择预览环境 → 等待成功 → 从“预览”按钮获取签名链接。Production 只有在自动化和 Preview 人工验收通过后才发布。自定义域名 `floris.jlutx.com` 指向生产 Deployment。
 
 > 🖼️ 截图位 04：成功的 Production Deployment，显示提交 SHA、main 分支和 floris.jlutx.com 域名状态。
+
+### 1.5 微信小程序开发与预览
+
+小程序位于 `miniapp/`，当前开发分支为 `feature/wechat-miniapp`。它不是网页套壳，也不复制 Agent 业务：聊天、搜索、记忆、Skills、日程、地图数据、图片、论文和主动提醒继续请求 `https://floris.jlutx.com` 上的现有 Makers 路由；小程序只负责微信平台适配。跨端共用的会话 ID、SSE、请求载荷、结构化卡和事件协议位于 `packages/floris-contracts/`。
+
+平台复用规则：
+
+| 场景 | 直接复用 |
+| --- | --- |
+| 登录 | `wx.login`；code 只传 `/wechat-auth`，AppSecret 不进入小程序 |
+| HTTPS 与流式输出 | `Taro.request` / `wx.request` 的 `enableChunked` 与 `onChunkReceived` |
+| 停止生成 | `RequestTask.abort()` + Makers `/stop`；绝不自动重试模型 |
+| 定位与地图 | `wx.getLocation`、原生 `<map>`、marker/polyline；地点与道路仍由现有 Maps Skill 核实 |
+| 日期与时间 | 微信原生 `picker`，不自建日历选择器 |
+| 图片 | `wx.chooseMedia`、`wx.compressImage`、`wx.saveImageToPhotosAlbum` |
+| PDF | `wx.chooseMessageFile`、Makers Blob、`wx.openDocument` |
+| 本地会话缓存 | `wx.setStorageSync`；Makers Conversation/Checkpointer 仍是服务端事实源 |
+| Markdown | 成熟 `marked` 解析器 + 小程序原生 `rich-text` |
+
+首次配置：
+
+1. 在微信公众平台注册个人小程序，复制 AppID，并在“开发管理 → 开发设置”取得 AppSecret。
+2. 在 EdgeOne Makers 的 Preview 环境添加 `WECHAT_MINIAPP_APP_ID`、`WECHAT_MINIAPP_APP_SECRET`、`MINIAPP_SESSION_SECRET`；三者均设为 Secret。
+3. 微信公众平台 → 开发管理 → 开发设置 → 服务器域名，把 `https://floris.jlutx.com` 加入 `request`、`downloadFile` 合法域名；Makers Blob 预签名上传所返回的实际 HTTPS 域名还需加入 `request` 合法域名。
+4. 复制 `miniapp/project.private.config.example.json` 为 `miniapp/project.private.config.json`，只把其中 AppID 换成真实值。该文件已被 Git 忽略。
+5. 执行：
+
+```bash
+npm --prefix miniapp ci
+npm --prefix miniapp run typecheck
+npm --prefix miniapp test
+npm --prefix miniapp run build:weapp
+```
+
+6. 微信开发者工具 → 导入项目，选择仓库的 `miniapp/` 目录；`miniprogramRoot` 已指向 `dist/`。先在 Preview 后端验证登录、流式问答、停止生成、位置授权、日程确认和图片保存，再上传体验版。
+
+未配置真实 AppID 与上述三个 Makers Secret 时，代码仍可自动测试和构建，但 `touristappid` 不能完成真实 `wx.login` 闭环。小程序不使用 `web-view`，因此个人主体不受网页套壳能力限制。
 
 ## 2. 对话、流式输出与会话恢复
 

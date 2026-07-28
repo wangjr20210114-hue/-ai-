@@ -1,0 +1,54 @@
+page {
+  min-height: 100%;
+  color: #3b2b22;
+  background:
+    radial-gradient(circle at 12% 4%, rgba(255, 185, 111, 0.24), transparent 34%),
+    linear-gradient(180deg, #fffaf4 0%, #fff5e9 100%);
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+}
+
+button::after {
+  border: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  page {
+    color: #f3eefe;
+    background:
+      radial-gradient(circle at 18% 0%, rgba(147, 101, 221, .2), transparent 36%),
+      linear-gradient(180deg, #171226 0%, #211733 100%);
+  }
+
+  .chat-page,
+  .reader-page {
+    background: linear-gradient(180deg, #171226 0%, #211733 100%);
+  }
+
+  .app-header,
+  .composer,
+  .setting-section,
+  .conversation-item,
+  .library-item,
+  .schedule-row,
+  .latest-result,
+  .history-result {
+    color: #f4efff;
+    background: rgba(38, 28, 58, .92);
+    border-color: rgba(194, 165, 244, .12);
+  }
+
+  .assistant-bubble,
+  .structured-card,
+  .source-panel,
+  .source-input,
+  .question-input,
+  .map-sheet {
+    color: #eee8fb;
+    background: rgba(45, 33, 66, .94);
+  }
+
+  .composer-input {
+    color: #f4efff;
+    background: rgba(54, 41, 75, .95);
+  }
+}

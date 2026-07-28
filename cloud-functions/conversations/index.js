@@ -1,15 +1,9 @@
-import { currentUser } from '../../auth/current-user.js';
+import { assertConversationForUser, currentUser } from '../../auth/current-user.js';
 
 const CONVERSATION_PREFIX = 'yb7_';
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
-}
-
-function normalizeConversationId(value) {
-  const raw = String(value || '').trim();
-  if (!raw || raw.length > 180 || !raw.startsWith(CONVERSATION_PREFIX)) throw new Error('Invalid conversation id');
-  return raw;
 }
 
 function titleFromMessage(content) {
@@ -47,19 +41,25 @@ export async function onRequest(context) {
   const store = context.agent?.store;
   if (!store) return json({ error: 'Makers conversation store is unavailable' }, 503);
   let user;
-  user = await currentUser();
+  try { user = await currentUser(request, context.env || {}); }
+  catch { return json({ error: 'Unauthorized' }, 401); }
 
   if (request.method === 'GET') {
     const result = await store.listConversations({ userId: user.id, limit: 100, order: 'desc' });
     const items = Array.isArray(result?.items) ? result.items : [];
-    return json({ conversations: items.map(publicConversation).filter((item) => item.conversationId.startsWith(CONVERSATION_PREFIX)) });
+    return json({
+      conversations: items
+        .map(publicConversation)
+        .filter((item) => item.conversationId.startsWith(user.conversationPrefix || CONVERSATION_PREFIX)),
+    });
   }
 
   if (request.method === 'POST') {
     const body = await request.json().catch(() => ({}));
     if (body.operation !== 'append_message') return json({ error: 'Unsupported conversation operation' }, 400);
     let conversationId;
-    try { conversationId = normalizeConversationId(body.conversation_id); } catch { return json({ error: 'Invalid conversation id' }, 400); }
+    try { conversationId = assertConversationForUser(body.conversation_id, user); }
+    catch { return json({ error: 'Invalid conversation id' }, 400); }
     const content = typeof body.content === 'string' ? body.content : '';
     const role = body.role === 'ai' ? 'assistant' : body.role;
     if (!['user', 'assistant', 'system'].includes(role) || !content) return json({ error: 'Invalid conversation message' }, 400);
@@ -68,7 +68,7 @@ export async function onRequest(context) {
       conversationId, role, content, userId: user.id,
       metadata: {
         ...(body.metadata && typeof body.metadata === 'object' ? body.metadata : {}),
-        client_message_id: String(body.metadata?.id || ''), source: 'yuanbao-web', owner_user_id: user.id,
+        client_message_id: String(body.metadata?.id || ''), source: user.id === 'local-user' ? 'floris-web' : 'floris-wechat', owner_user_id: user.id,
       },
     });
     let conversation = await store.getConversation({ conversationId });

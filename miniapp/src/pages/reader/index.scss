@@ -1,0 +1,16 @@
+.reader-page { height: 100vh; display: flex; flex-direction: column; background: #fff8ef; }
+.reader-toolbar { padding: 18px; display: flex; gap: 8px; overflow-x: auto; background: rgba(255,255,255,.86); }
+.reader-action { padding: 12px 20px; flex: none; border-radius: 18px; color: #8f6348; background: #fff1e5; font-size: 22px; }
+.reader-action.active { color: #fff; background: #e47d3e; }
+.source-panel { padding: 20px; background: rgba(255,255,255,.76); }
+.source-header { display: flex; align-items: center; justify-content: space-between; font-size: 25px; font-weight: 650; }
+.source-header button { margin: 0; color: #a05d35; background: #fff3e7; border-radius: 14px; font-size: 21px; }
+.source-input { width: 100%; height: 180px; margin-top: 14px; padding: 16px; box-sizing: border-box; border-radius: 18px; background: #fff; font-size: 24px; }
+.question-input { height: 70px; margin-top: 12px; padding: 0 16px; box-sizing: border-box; border-radius: 16px; background: #fff; }
+.run-reader, .stop-reader { margin-top: 14px; border-radius: 18px; color: #fff; background: #e27a3b; }
+.stop-reader { background: #70564a; }
+.reader-results { flex: 1; min-height: 0; }
+.latest-result, .history-result { margin: 18px 20px; padding: 22px; border-radius: 20px; background: #fff; box-shadow: 0 8px 24px rgba(126, 75, 39, .08); font-size: 26px; line-height: 1.65; }
+.latest-result { border: 1px solid rgba(226, 122, 59, .28); }
+.result-label { display: block; margin-bottom: 12px; color: #bb6c3c; font-size: 21px; }
+.reader-error { color: #b74d3f; }
