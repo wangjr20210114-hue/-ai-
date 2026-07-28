@@ -1,5 +1,6 @@
 import Taro from '@tarojs/taro'
 import type { MiniappSession } from '@floris/contracts'
+import { translate } from '@/i18n'
 import { apiUrl } from './config'
 
 const SESSION_KEY = 'floris.miniapp.session.v1'
@@ -21,7 +22,7 @@ export function clearSession(): void {
 
 async function login(): Promise<MiniappSession> {
   const loginResult = await Taro.login()
-  if (!loginResult.code) throw new Error('微信登录失败，请重试')
+  if (!loginResult.code) throw new Error(translate('loginFailed'))
   const response = await Taro.request<{
     token?: string
     expires_at?: number
@@ -43,7 +44,7 @@ async function login(): Promise<MiniappSession> {
     || !data.user_id
     || !data.conversation_prefix
   ) {
-    throw new Error(data.error || '微信登录失败，请重试')
+    throw new Error(data.error || translate('loginFailed'))
   }
   const session: MiniappSession = {
     token: data.token,

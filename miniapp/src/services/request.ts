@@ -1,4 +1,5 @@
 import Taro from '@tarojs/taro'
+import { translate } from '@/i18n'
 import { apiUrl } from './config'
 import { ensureSession } from './session'
 
@@ -32,7 +33,7 @@ export async function apiRequest<T>(
     return apiRequest<T>(path, options, false)
   }
   if (response.statusCode < 200 || response.statusCode >= 300) {
-    throw new Error(response.data?.error || `请求失败（${response.statusCode}）`)
+    throw new Error(response.data?.error || translate('requestFailedStatus', { status: response.statusCode }))
   }
   return response.data
 }

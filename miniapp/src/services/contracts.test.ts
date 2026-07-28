@@ -58,6 +58,7 @@ describe('shared Floris protocol', () => {
 
   it('maps Agent events without embedding business intent in the miniapp', () => {
     expect(streamEventPatch({ type: 'ai_response', content: '答案' })).toEqual({ delta: '答案' })
+    expect(streamEventPatch({ type: 'error_message' })).toEqual({ error: '' })
     expect(streamEventPatch({
       type: 'clarification_action',
       payload: { clarification: { id: 'c', title: '补充', prompt: '请选择', fields: [] } },

@@ -7,6 +7,13 @@ import { apiRequest } from '@/services/request'
 import { startReaderStream, type ReaderAction } from '@/services/reader'
 import { ensureSession } from '@/services/session'
 import type { ChunkedSseTask } from '@/services/stream'
+import {
+  localeFor,
+  readLanguage,
+  translate,
+  type Language,
+  type TranslationKey,
+} from '@/i18n'
 import './index.scss'
 
 type AssistantResult = {
@@ -18,14 +25,14 @@ type AssistantResult = {
   created_at: number
 }
 
-const actionLabels: Array<[ReaderAction, string]> = [
-  ['translate', '翻译'],
-  ['summarize', '总结'],
-  ['explain', '解释'],
-  ['formula', '公式'],
-  ['terms', '术语'],
-  ['analyze', '分析'],
-  ['qa', '问答'],
+const actionLabelKeys: Array<[ReaderAction, TranslationKey]> = [
+  ['translate', 'readerTranslate'],
+  ['summarize', 'readerSummarize'],
+  ['explain', 'readerExplain'],
+  ['formula', 'readerFormula'],
+  ['terms', 'readerTerms'],
+  ['analyze', 'readerAnalyze'],
+  ['qa', 'readerQa'],
 ]
 
 export default function ReaderPage() {
@@ -40,9 +47,15 @@ export default function ReaderPage() {
   const [error, setError] = useState('')
   const taskRef = useRef<ChunkedSseTask | null>(null)
   const outputRef = useRef('')
-  const language = String(Taro.getStorageSync('floris-language') || 'zh-CN')
+  const [language] = useState<Language>(readLanguage())
+  const actionLabel = (value: ReaderAction) => translate(
+    actionLabelKeys.find(([id]) => id === value)?.[1] || 'readerResult',
+    {},
+    language,
+  )
 
   useEffect(() => {
+    void Taro.setNavigationBarTitle({ title: translate('navReader', {}, language) })
     void ensureSession().then((session) => setConversationId(getOrCreateConversationId(session)))
     if (!storageKey) return
     void apiRequest<{ items?: Array<{ storage_key?: string; assistant_results?: AssistantResult[] }> }>('/library')
@@ -80,14 +93,14 @@ export default function ReaderPage() {
             operation: 'save_assistant_result',
             storage_key: storageKey,
             action,
-            title: actionLabels.find(([id]) => id === action)?.[1] || '助读结果',
+            title: actionLabel(action),
             source_text: text.slice(0, 4000),
             content,
           },
         })
         if (saved.result) setHistory((items) => [saved.result!, ...items.filter((item) => item.id !== saved.result?.id)])
       } catch {
-        void Taro.showToast({ title: '结果已生成，但保存失败', icon: 'none' })
+        void Taro.showToast({ title: translate('resultSaveFailed', {}, language), icon: 'none' })
       }
     }
     taskRef.current = await startReaderStream(
@@ -118,33 +131,33 @@ export default function ReaderPage() {
 
   return <View className='reader-page'>
     <View className='reader-toolbar'>
-      {actionLabels.map(([id, label]) => <View key={id} className={`reader-action ${action === id ? 'active' : ''}`} onClick={() => !running && setAction(id)}>{label}</View>)}
+      {actionLabelKeys.map(([id]) => <View key={id} className={`reader-action ${action === id ? 'active' : ''}`} onClick={() => !running && setAction(id)}>{actionLabel(id)}</View>)}
     </View>
     <View className='source-panel'>
-      <View className='source-header'><Text>论文文本</Text><Button onClick={() => void paste()}>粘贴剪贴板</Button></View>
+      <View className='source-header'><Text>{translate('paperText', {}, language)}</Text><Button onClick={() => void paste()}>{translate('pasteClipboard', {}, language)}</Button></View>
       <Textarea
         className='source-input'
         disabled={running}
         maxlength={120000}
-        placeholder='在微信原生 PDF 预览中复制要处理的段落，然后粘贴到这里。'
+        placeholder={translate('readerSourcePlaceholder', {}, language)}
         value={text}
         onInput={(event) => setText(event.detail.value)}
       />
-      {action === 'qa' ? <Input className='question-input' disabled={running} placeholder='输入仅依据这段论文文本回答的问题'
+      {action === 'qa' ? <Input className='question-input' disabled={running} placeholder={translate('readerQuestionPlaceholder', {}, language)}
         value={question} onInput={(event) => setQuestion(event.detail.value)} /> : null}
       {running
-        ? <Button className='stop-reader' onClick={stop}>停止</Button>
-        : <Button className='run-reader' disabled={!text.trim() || (action === 'qa' && !question.trim())} onClick={() => void run()}>开始{actionLabels.find(([id]) => id === action)?.[1]}</Button>}
+        ? <Button className='stop-reader' onClick={stop}>{translate('stop', {}, language)}</Button>
+        : <Button className='run-reader' disabled={!text.trim() || (action === 'qa' && !question.trim())} onClick={() => void run()}>{translate('startAction', { action: actionLabel(action) }, language)}</Button>}
     </View>
     <ScrollView className='reader-results' scrollY>
       {output || running || error ? <View className='latest-result'>
-        <Text className='result-label'>最新结果 · 流式输出</Text>
+        <Text className='result-label'>{translate('latestStreaming', {}, language)}</Text>
         {output ? <MarkdownMessage content={output} /> : null}
-        {running && !output ? <Text>正在阅读这段内容…</Text> : null}
+        {running && !output ? <Text>{translate('readingNow', {}, language)}</Text> : null}
         {error ? <Text className='reader-error'>{error}</Text> : null}
       </View> : null}
       {history.map((item) => <View className='history-result' key={item.id}>
-        <Text className='result-label'>{item.title} · {new Date(item.created_at).toLocaleString()}</Text>
+        <Text className='result-label'>{item.title} · {new Date(item.created_at).toLocaleString(localeFor(language))}</Text>
         <MarkdownMessage content={item.content} />
       </View>)}
     </ScrollView>

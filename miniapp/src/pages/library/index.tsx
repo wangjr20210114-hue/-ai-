@@ -3,6 +3,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { Button, Text, View } from '@tarojs/components'
 import { apiRequest } from '@/services/request'
 import { openMakersDocument } from '@/services/files'
+import { readLanguage, translate, type Language } from '@/i18n'
 import './index.scss'
 
 type ReadingItem = {
@@ -18,15 +19,21 @@ export default function LibraryPage() {
   const [items, setItems] = useState<ReadingItem[]>([])
   const [loading, setLoading] = useState(true)
   const [opening, setOpening] = useState('')
+  const [language, setLanguage] = useState<Language>(readLanguage())
 
   const load = () => {
     setLoading(true)
     void apiRequest<{ items?: ReadingItem[] }>('/library')
       .then((result) => setItems(result.items || []))
-      .catch((reason) => Taro.showToast({ title: String((reason as Error)?.message || '读取失败'), icon: 'none' }))
+      .catch((reason) => Taro.showToast({ title: String((reason as Error)?.message || translate('readFailed')), icon: 'none' }))
       .finally(() => setLoading(false))
   }
-  useDidShow(load)
+  useDidShow(() => {
+    const nextLanguage = readLanguage()
+    setLanguage(nextLanguage)
+    void Taro.setNavigationBarTitle({ title: translate('navLibrary', {}, nextLanguage) })
+    load()
+  })
 
   const open = async (item: ReadingItem) => {
     if (!item.storage_key || opening) return
@@ -38,30 +45,30 @@ export default function LibraryPage() {
         data: { operation: 'touch', id: item.id },
       }).catch(() => undefined)
     } catch (reason) {
-      void Taro.showToast({ title: String((reason as Error)?.message || '打开失败'), icon: 'none' })
+      void Taro.showToast({ title: String((reason as Error)?.message || translate('openFailed')), icon: 'none' })
     } finally {
       setOpening('')
     }
   }
 
   return <View className='library-page'>
-    {loading ? <Text className='library-state'>正在读取“我的阅读”…</Text> : null}
+    {loading ? <Text className='library-state'>{translate('loadingReading', {}, language)}</Text> : null}
     {!loading && !items.length ? <View className='library-state'>
-      <Text>还没有保存的论文或 PDF</Text>
-      <Text>回到对话页，点击输入框左侧的“＋”上传。</Text>
+      <Text>{translate('noReading', {}, language)}</Text>
+      <Text>{translate('uploadReadingHint', {}, language)}</Text>
     </View> : null}
     {items.map((item) => <View className='library-item' key={item.id}>
       <View className='file-badge'>PDF</View>
       <View className='file-copy'>
-        <Text className='file-title'>{item.title || item.filename || 'PDF 文档'}</Text>
-        <Text className='file-kind'>{item.is_paper ? '论文' : 'PDF'} · 微信原生预览</Text>
+        <Text className='file-title'>{item.title || item.filename || translate('pdfDocument', {}, language)}</Text>
+        <Text className='file-kind'>{item.is_paper ? translate('paper', {}, language) : 'PDF'} · {translate('nativePreview', {}, language)}</Text>
       </View>
       <View className='file-actions'>
         <Button className='assist-button' onClick={() => {
           Taro.setStorageSync('floris.miniapp.reader-file.v1', item.storage_key || '')
           void Taro.navigateTo({ url: '/pages/reader/index' })
-        }}>助读</Button>
-        <Button className='open-button' loading={opening === item.id} onClick={() => void open(item)}>打开</Button>
+        }}>{translate('assistReading', {}, language)}</Button>
+        <Button className='open-button' loading={opening === item.id} onClick={() => void open(item)}>{translate('open', {}, language)}</Button>
       </View>
     </View>)}
   </View>

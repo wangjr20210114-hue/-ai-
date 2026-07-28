@@ -14,6 +14,12 @@ import {
 } from '@floris/contracts'
 import MessageBubble from '@/components/MessageBubble'
 import type { WorkspaceOperation } from '@/components/WorkspaceActionCard'
+import {
+  normalizeLanguage,
+  translate,
+  type Language,
+  type TranslationKey,
+} from '@/i18n'
 import { startChatStream, type ActiveChatStream } from '@/services/chat'
 import {
   bootstrap,
@@ -33,17 +39,17 @@ import { ensureSession } from '@/services/session'
 import { workspaceOperation } from '@/services/workspace'
 import './index.scss'
 
-const STATUS_COPY: Record<string, [string, string]> = {
-  rich_search: ['正在查找可靠信息…', '信息已经找齐，正在整理…'],
-  search_places: ['正在核实地点…', '地点已经核实…'],
-  search_places_batch: ['正在核实沿途地点…', '沿途地点已经核实…'],
-  plan_route_between_places: ['正在规划路线…', '路线已经规划好…'],
-  recommend_places_on_map: ['正在准备地图…', '地图已经准备好…'],
-  recommend_nearby_places_on_map: ['正在寻找附近地点…', '附近地点已经找到…'],
-  propose_calendar_changes: ['正在检查日程…', '日程方案已经准备好…'],
-  propose_image: ['正在准备画面…', '画面方案已经准备好…'],
-  image_generation_planning: ['正在理解画面要求…', '画面要求已经整理好…'],
-  search_arxiv: ['正在查找论文…', '论文已经找到…'],
+const STATUS_COPY: Record<string, [TranslationKey, TranslationKey]> = {
+  rich_search: ['statusSearchActive', 'statusSearchDone'],
+  search_places: ['statusPlacesActive', 'statusPlacesDone'],
+  search_places_batch: ['statusPlacesActive', 'statusPlacesDone'],
+  plan_route_between_places: ['statusRouteActive', 'statusRouteDone'],
+  recommend_places_on_map: ['statusMapActive', 'statusMapDone'],
+  recommend_nearby_places_on_map: ['statusNearbyActive', 'statusNearbyDone'],
+  propose_calendar_changes: ['statusCalendarActive', 'statusCalendarDone'],
+  propose_image: ['statusImageActive', 'statusImageDone'],
+  image_generation_planning: ['statusImagePlanActive', 'statusImageDone'],
+  search_arxiv: ['statusPaperActive', 'statusPaperDone'],
 }
 
 const PENDING_PROACTIVE_PROMPT_KEY = 'floris.miniapp.pending-proactive-prompt.v1'
@@ -60,7 +66,7 @@ export default function IndexPage() {
   const [actionBusy, setActionBusy] = useState('')
   const [tickerLines, setTickerLines] = useState<string[]>([])
   const [reminderIndex, setReminderIndex] = useState(0)
-  const [language, setLanguage] = useState(String(Taro.getStorageSync('floris-language') || 'zh-CN'))
+  const [language, setLanguage] = useState<Language>(() => normalizeLanguage(Taro.getStorageSync('floris-language')))
   const activeStream = useRef<ActiveChatStream | null>(null)
   const messagesRef = useRef<ChatMessage[]>([])
   const streaming = messages.some((message) => message.streaming)
@@ -115,7 +121,7 @@ export default function IndexPage() {
           ? [...normalized, {
             id: `interrupted-${Date.now()}`,
             role: 'ai',
-            content: '上一次生成已中断，请点击重试。',
+            content: translate('previousInterrupted', {}, language),
             ts: Date.now(),
             failed: true,
           }]
@@ -136,7 +142,7 @@ export default function IndexPage() {
   }, [])
 
   useDidShow(() => {
-    setLanguage(String(Taro.getStorageSync('floris-language') || 'zh-CN'))
+    setLanguage(normalizeLanguage(Taro.getStorageSync('floris-language')))
     const pendingPrompt = String(Taro.getStorageSync(PENDING_PROACTIVE_PROMPT_KEY) || '')
     if (pendingPrompt && !streaming) {
       Taro.removeStorageSync(PENDING_PROACTIVE_PROMPT_KEY)
@@ -180,7 +186,8 @@ export default function IndexPage() {
         onPatch(patch) {
           if (patch.status) {
             const copy = STATUS_COPY[patch.status.name]
-            setStatusText(copy?.[patch.status.phase === 'active' ? 0 : 1] || '正在处理…')
+            const key = copy?.[patch.status.phase === 'active' ? 0 : 1]
+            setStatusText(key ? translate(key, {}, language) : translate('statusProcessing', {}, language))
           }
           patchMessage(assistantId, (message) => {
             const next = { ...message }
@@ -263,7 +270,9 @@ export default function IndexPage() {
     const userMessage: ChatMessage = {
       id: `user-${now}`,
       role: 'user',
-      content: referenceImage ? `${content}\n\n（已附参考图：${referenceImage.name}）` : content,
+      content: referenceImage
+        ? `${content}\n\n${translate('attachedReference', { name: referenceImage.name }, language)}`
+        : content,
       ts: now,
     }
     const assistant: ChatMessage = {
@@ -284,7 +293,10 @@ export default function IndexPage() {
   const attach = async () => {
     if (streaming || attaching) return
     const selection = await Taro.showActionSheet({
-      itemList: ['选择参考图片', '上传 PDF 到“我的阅读”'],
+      itemList: [
+        translate('chooseReferenceImage', {}, language),
+        translate('uploadPdfReading', {}, language),
+      ],
     }).catch(() => null)
     if (!selection) return
     setAttaching(true)
@@ -294,7 +306,7 @@ export default function IndexPage() {
         const file = picked.tempFiles[0]
         if (!file) return
         setReferenceImage({
-          name: file.tempFilePath.split('/').pop() || '参考图片',
+          name: file.tempFilePath.split('/').pop() || translate('referenceImage', {}, language),
           dataUrl: await imageDataUrl(file.tempFilePath),
         })
         return
@@ -314,9 +326,9 @@ export default function IndexPage() {
         file.size,
       )
       await addPdfToReading(uploaded)
-      void Taro.showToast({ title: '已加入“我的阅读”', icon: 'success' })
+      void Taro.showToast({ title: translate('addedToReading', {}, language), icon: 'success' })
     } catch (reason) {
-      void Taro.showToast({ title: String((reason as Error)?.message || '添加失败'), icon: 'none' })
+      void Taro.showToast({ title: String((reason as Error)?.message || translate('addFailed', {}, language)), icon: 'none' })
     } finally {
       setAttaching(false)
     }
@@ -353,7 +365,7 @@ export default function IndexPage() {
       if (operation === 'activate_map') {
         const map = result.map || {
           action_id: action.id,
-          title: String(action.payload.title || '相关地点'),
+          title: String(action.payload.title || translate('relatedPlaces', {}, language)),
           places: Array.isArray(action.payload.places) ? action.payload.places as Array<Record<string, unknown>> : [],
           route_mode: String(action.payload.route_mode || ''),
           route_strategy: String(action.payload.route_strategy || ''),
@@ -364,7 +376,7 @@ export default function IndexPage() {
       }
       void refreshReminders('get')
     } catch (reason) {
-      void Taro.showToast({ title: String((reason as Error)?.message || '操作失败'), icon: 'none' })
+      void Taro.showToast({ title: String((reason as Error)?.message || translate('operationFailed', {}, language)), icon: 'none' })
     } finally {
       setActionBusy('')
     }
@@ -401,7 +413,7 @@ export default function IndexPage() {
     return <View className='center-state'>
       <Image className='state-avatar' src='https://floris.jlutx.com/floris-avatar.png' />
       <Text>{error}</Text>
-      <Button className='primary-button' onClick={() => Taro.reLaunch({ url: '/pages/index/index' })}>重新登录</Button>
+      <Button className='primary-button' onClick={() => Taro.reLaunch({ url: '/pages/index/index' })}>{translate('loginAgain', {}, language)}</Button>
     </View>
   }
 
@@ -415,15 +427,16 @@ export default function IndexPage() {
       <View
         className='reminder-ticker'
         role='button'
+        aria-label={translate('openProactive', {}, language)}
         onClick={() => Taro.navigateTo({ url: '/pages/proactive/index' })}
       >
-        <Text>{reminderText || '有需要时，我会在这里轻轻提醒你。'}</Text>
+        <Text>{reminderText || translate('gentleReminderFallback', {}, language)}</Text>
       </View>
       <View className='header-actions'>
-        <Button className='icon-button' disabled={streaming} onClick={createNew}>＋</Button>
-        <Button className='icon-button' disabled={streaming} onClick={() => Taro.navigateTo({ url: '/pages/history/index' })}>☰</Button>
-        <Button className='icon-button' disabled={streaming} onClick={() => Taro.navigateTo({ url: '/pages/library/index' })}>▤</Button>
-        <Button className='icon-button' disabled={streaming} onClick={() => Taro.navigateTo({ url: '/pages/settings/index' })}>⚙</Button>
+        <Button className='icon-button' aria-label={translate('createConversation', {}, language)} disabled={streaming} onClick={createNew}>＋</Button>
+        <Button className='icon-button' aria-label={translate('openHistory', {}, language)} disabled={streaming} onClick={() => Taro.navigateTo({ url: '/pages/history/index' })}>☰</Button>
+        <Button className='icon-button' aria-label={translate('openReading', {}, language)} disabled={streaming} onClick={() => Taro.navigateTo({ url: '/pages/library/index' })}>▤</Button>
+        <Button className='icon-button' aria-label={translate('openAppSettings', {}, language)} disabled={streaming} onClick={() => Taro.navigateTo({ url: '/pages/settings/index' })}>⚙</Button>
       </View>
     </View>
 
@@ -436,8 +449,12 @@ export default function IndexPage() {
     >
       {!messages.length && ready ? <View className='empty-chat'>
         <Image className='empty-avatar' src='https://floris.jlutx.com/floris-avatar.png' />
-        <Text className='empty-title'>今天想和 Floris 一起做什么？</Text>
-        {['看看今天的 AI 新闻', '帮我规划今天的行程', '画一只戴蓝色围巾的橘猫'].map((item) =>
+        <Text className='empty-title'>{translate('emptyChatTitle', {}, language)}</Text>
+        {[
+          translate('suggestionNews', {}, language),
+          translate('suggestionTrip', {}, language),
+          translate('suggestionCat', {}, language),
+        ].map((item) =>
           <View key={item} className='suggestion' onClick={() => void sendText(item)}>{item}</View>)}
       </View> : null}
       {messages.map((message) => <MessageBubble
@@ -457,14 +474,16 @@ export default function IndexPage() {
       {referenceImage ? <View className='reference-chip'>
         <Image src={referenceImage.dataUrl} mode='aspectFill' />
         <Text>{referenceImage.name}</Text>
-        <Text onClick={() => setReferenceImage(null)}>×</Text>
+        <Text aria-label={translate('removeReference', {}, language)} onClick={() => setReferenceImage(null)}>×</Text>
       </View> : null}
-      <Button className='attach-button' loading={attaching} disabled={streaming || !ready} onClick={() => void attach()}>＋</Button>
+      <Button className='attach-button' aria-label={translate('addAttachment', {}, language)} loading={attaching} disabled={streaming || !ready} onClick={() => void attach()}>＋</Button>
       <Textarea
         className='composer-input'
         disabled={!ready}
         maxlength={4000}
-        placeholder={ready ? '和 Floris 说点什么…' : '正在进入 Floris 的小窝…'}
+        placeholder={ready
+          ? translate('chatPlaceholder', {}, language)
+          : translate('enteringHome', {}, language)}
         value={draft}
         onInput={(event) => setDraft(event.detail.value)}
         onConfirm={() => void sendText()}
@@ -472,8 +491,8 @@ export default function IndexPage() {
         showConfirmBar={false}
       />
       {streaming
-        ? <Button className='send-button stop-button' onClick={() => void stop()}>■</Button>
-        : <Button className='send-button' disabled={!draft.trim() || !ready} onClick={() => void sendText()}>↑</Button>}
+        ? <Button className='send-button stop-button' aria-label={translate('stopGeneration', {}, language)} onClick={() => void stop()}>■</Button>
+        : <Button className='send-button' aria-label={translate('sendMessage', {}, language)} disabled={!draft.trim() || !ready} onClick={() => void sendText()}>↑</Button>}
     </View>
   </View>
 }

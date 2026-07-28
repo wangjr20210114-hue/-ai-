@@ -1,5 +1,6 @@
 import { Image, Text, View } from '@tarojs/components'
 import type { ChatMessage, WorkspaceAction } from '@floris/contracts'
+import { translate } from '@/i18n'
 import MarkdownMessage from './MarkdownMessage'
 import ClarificationCard from './ClarificationCard'
 import WorkspaceActionCard from './WorkspaceActionCard'
@@ -53,7 +54,7 @@ export default function MessageBubble({
         {(message.followUps || []).map((item) => <ButtonLike key={item} text={item} onClick={() => onFollowUp(item)} />)}
       </View> : null}
       {message.failed
-        ? <View className='retry-button' role='button' onClick={() => onRetry(message)}>重试生成</View>
+        ? <View className='retry-button' role='button' onClick={() => onRetry(message)}>{translate('retryGeneration')}</View>
         : null}
     </View>
   </View>

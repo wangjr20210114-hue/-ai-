@@ -118,7 +118,7 @@ Preview 流程：EdgeOne 控制台 → Makers → 项目 → 构建部署 → �
 
 1. 在微信公众平台注册个人小程序，复制 AppID，并在“开发管理 → 开发设置”取得 AppSecret。
 2. 在 EdgeOne Makers 的 Preview 环境添加 `WECHAT_MINIAPP_APP_ID`、`WECHAT_MINIAPP_APP_SECRET`、`MINIAPP_SESSION_SECRET`；三者均设为 Secret。
-3. 微信公众平台 → 开发管理 → 开发设置 → 服务器域名，把当前 `TARO_APP_API_BASE_URL` 的 HTTPS 主机加入 `request`、`downloadFile` 合法域名；Makers Blob 预签名上传所返回的实际 HTTPS 域名还需加入 `request` 合法域名。开发 Preview 与正式入口域名不同，两者都要分别登记。
+3. 微信公众平台 → 开发管理 → 开发设置 → 服务器域名，把当前 `TARO_APP_API_BASE_URL` 的 HTTPS 主机加入 `request`、`downloadFile` 合法域名；Makers Blob 预签名上传所返回的实际 HTTPS 域名还需加入 `request` 合法域名。开发 Preview 与正式入口域名不同，两者都要分别登记。正式构建已通过 `miniapp/.env.production` 固定使用 `https://miniapp-floris.jlutx.com`，该域名必须关联当前 Makers 项目的生产环境，并在 Cloudflare 以仅 DNS 的 CNAME 指向 EdgeOne 控制台分配的目标。
 4. 复制 `miniapp/project.private.config.example.json` 为 `miniapp/project.private.config.json`，只把其中 AppID 换成真实值。该文件已被 Git 忽略。
 5. 执行：
 

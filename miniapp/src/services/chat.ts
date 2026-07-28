@@ -7,6 +7,7 @@ import {
 import Taro from '@tarojs/taro'
 import { apiRequest } from './request'
 import { startChunkedSse } from './stream'
+import { translate } from '@/i18n'
 
 const manualStopKey = (conversationId: string) => `floris.miniapp.manual-stop.${conversationId}`
 
@@ -46,6 +47,9 @@ export async function startChatStream(
       try {
         const event = JSON.parse(frame) as FlorisStreamEvent
         const patch = streamEventPatch(event)
+        if (patch?.error !== undefined && !patch.error.trim()) {
+          patch.error = translate('generationFailed')
+        }
         if (patch?.requestLocation) locationRequired = true
         if (patch) callbacks.onPatch(patch, event)
       } catch {

@@ -13,6 +13,7 @@ import {
   View,
 } from '@tarojs/components'
 import { imageVersionsFrom, type WorkspaceAction } from '@floris/contracts'
+import { localeFor, readLanguage, translate, type TranslationKey } from '@/i18n'
 import MakersImage from './MakersImage'
 
 export type WorkspaceOperation =
@@ -31,12 +32,12 @@ interface Props {
   ) => void
 }
 
-const actionName = (kind: WorkspaceAction['kind']) => ({
-  map_recommendation: '地点与路线',
-  calendar_changes: '日程变更',
-  meeting_create: '腾讯会议',
-  image_generate: '图片创作',
-}[kind])
+const actionName = (kind: WorkspaceAction['kind']) => translate(({
+  map_recommendation: 'actionMap',
+  calendar_changes: 'actionCalendar',
+  meeting_create: 'actionMeeting',
+  image_generate: 'actionImage',
+} satisfies Record<WorkspaceAction['kind'], TranslationKey>)[kind])
 
 const arrayOfRecords = (value: unknown): Array<Record<string, unknown>> => (
   Array.isArray(value)
@@ -66,8 +67,8 @@ function isoFromParts(date: string, time: string): string {
 
 function formatScheduleTime(value: unknown): string {
   const number = Number(value || 0)
-  if (!number) return '时间待确认'
-  return new Date(number * 1000).toLocaleString()
+  if (!number) return translate('timePending')
+  return new Date(number * 1000).toLocaleString(localeFor(readLanguage()))
 }
 
 function CalendarDetails({ action }: { action: WorkspaceAction }) {
@@ -86,14 +87,18 @@ function CalendarDetails({ action }: { action: WorkspaceAction }) {
           ? event.place as Record<string, unknown>
           : {}
       )
-      const operationLabel = operation === 'delete' ? '删除' : operation === 'update' ? '修改' : '新增'
+      const operationLabel = translate(
+        operation === 'delete' ? 'delete' : operation === 'update' ? 'update' : 'create',
+      )
       return <View className='action-detail-row' key={`${operation}-${change.schedule_id || index}`}>
         <Text className={`action-operation operation-${operation}`}>{operationLabel}</Text>
         <View className='action-detail-copy'>
-          <Text className='action-detail-title'>{String(event.title || change.title || '日程')}</Text>
+          <Text className='action-detail-title'>{String(event.title || change.title || translate('schedule'))}</Text>
           {operation !== 'delete'
             ? <Text className='action-detail-meta'>{formatScheduleTime(event.start_time)}
-              {event.duration_minutes ? ` · ${Number(event.duration_minutes)} 分钟` : ''}
+              {event.duration_minutes
+                ? ` · ${translate('durationMinutes', { count: Number(event.duration_minutes) })}`
+                : ''}
             </Text>
             : null}
           {event.location || place.name || place.address
@@ -102,7 +107,9 @@ function CalendarDetails({ action }: { action: WorkspaceAction }) {
         </View>
       </View>
     })}
-    {warnings.map((warning) => <Text className='action-warning' key={warning}>请留意：{warning}</Text>)}
+    {warnings.map((warning) => <Text className='action-warning' key={warning}>
+      {translate('warningPrefix', { warning })}
+    </Text>)}
   </>
 }
 
@@ -121,7 +128,7 @@ function MeetingDetails({
   const initialEnd = useMemo(() => localDateTime(action.payload.end_time), [
     action.payload.end_time,
   ])
-  const [subject, setSubject] = useState(String(action.payload.subject || '腾讯会议'))
+  const [subject, setSubject] = useState(String(action.payload.subject || translate('actionMeeting')))
   const [startDate, setStartDate] = useState(initialStart.date)
   const [startTime, setStartTime] = useState(initialStart.time)
   const [endDate, setEndDate] = useState(initialEnd.date)
@@ -135,7 +142,7 @@ function MeetingDetails({
   useEffect(() => {
     const nextStart = localDateTime(action.payload.start_time)
     const nextEnd = localDateTime(action.payload.end_time)
-    setSubject(String(action.payload.subject || '腾讯会议'))
+    setSubject(String(action.payload.subject || translate('actionMeeting')))
     setStartDate(nextStart.date)
     setStartTime(nextStart.time)
     setEndDate(nextEnd.date)
@@ -153,21 +160,23 @@ function MeetingDetails({
     const joinUrl = String(result.join_url || '')
     const status = (
       action.status === 'succeeded'
-        ? '✓ 会议已创建并写入日程'
+        ? translate('meetingCreated')
         : action.status === 'cancelled'
-          ? '已取消'
+          ? translate('cancel')
           : action.status === 'failed'
-            ? '创建失败'
+            ? translate('createFailed')
             : action.status === 'reconciliation_required'
-              ? '外部结果需要确认'
-              : '正在处理'
+              ? translate('reconcileRequired')
+              : translate('statusProcessing')
     )
     return <View className='meeting-result'>
       <Text className='action-status'>{status}</Text>
-      {result.meeting_code ? <Text>会议号：{String(result.meeting_code)}</Text> : null}
+      {result.meeting_code
+        ? <Text>{translate('meetingCode', { code: String(result.meeting_code) })}</Text>
+        : null}
       {joinUrl ? <Button className='secondary-button' onClick={() => {
         void Taro.setClipboardData({ data: joinUrl })
-      }}>复制入会链接</Button> : null}
+      }}>{translate('copyJoinLink')}</Button> : null}
     </View>
   }
 
@@ -179,7 +188,7 @@ function MeetingDetails({
   const currentStart = isoFromParts(initialStart.date, initialStart.time)
   const currentEnd = isoFromParts(initialEnd.date, initialEnd.time)
   const dirty = (
-    subject.trim() !== String(action.payload.subject || '腾讯会议')
+    subject.trim() !== String(action.payload.subject || translate('actionMeeting'))
     || startIso !== currentStart
     || endIso !== currentEnd
   )
@@ -188,40 +197,40 @@ function MeetingDetails({
   const dateFallback = localDateTime(new Date().toISOString()).date
 
   return <View className='meeting-editor'>
-    <Text className='field-label'>会议主题</Text>
+    <Text className='field-label'>{translate('meetingSubject')}</Text>
     <Input className='meeting-subject' maxlength={120} disabled={busy}
       value={subject} onInput={(event) => setSubject(event.detail.value)} />
     <View className='meeting-time-grid'>
       <View>
-        <Text className='field-label'>开始时间</Text>
+        <Text className='field-label'>{translate('startTime')}</Text>
         <View className='datetime-row'>
           <Picker mode='date' disabled={busy} value={startDate || dateFallback}
             onChange={(event) => setStartDate(String(event.detail.value))}>
-            <View className='native-picker'>{startDate || '选择日期'}</View>
+            <View className='native-picker'>{startDate || translate('chooseDate')}</View>
           </Picker>
           <Picker mode='time' disabled={busy} value={startTime || '09:00'}
             onChange={(event) => setStartTime(String(event.detail.value))}>
-            <View className='native-picker'>{startTime || '选择时间'}</View>
+            <View className='native-picker'>{startTime || translate('chooseTime')}</View>
           </Picker>
         </View>
       </View>
       <View>
-        <Text className='field-label'>结束时间</Text>
+        <Text className='field-label'>{translate('endTime')}</Text>
         <View className='datetime-row'>
           <Picker mode='date' disabled={busy} value={endDate || startDate || dateFallback}
             onChange={(event) => setEndDate(String(event.detail.value))}>
-            <View className='native-picker'>{endDate || '选择日期'}</View>
+            <View className='native-picker'>{endDate || translate('chooseDate')}</View>
           </Picker>
           <Picker mode='time' disabled={busy} value={endTime || '10:00'}
             onChange={(event) => setEndTime(String(event.detail.value))}>
-            <View className='native-picker'>{endTime || '选择时间'}</View>
+            <View className='native-picker'>{endTime || translate('chooseTime')}</View>
           </Picker>
         </View>
       </View>
     </View>
     {errors.map((message) => <Text className='action-error' key={message}>{message}</Text>)}
     {startIso && endIso && !validTimes
-      ? <Text className='action-error'>会议结束时间必须晚于开始时间</Text>
+      ? <Text className='action-error'>{translate('invalidMeetingTime')}</Text>
       : null}
     {!needsValidation ? <CheckboxGroup
       onChange={(event) => setAcceptedWarnings(event.detail.value)}
@@ -232,22 +241,22 @@ function MeetingDetails({
           value={warning}
           disabled={busy}
         />
-        <Text>{warning}（确认后仍要创建）</Text>
+        <Text>{translate('warningAccepted', { warning })}</Text>
       </Label>)}
     </CheckboxGroup> : null}
     <View className='action-buttons'>
       {needsValidation
         ? <Button className='primary-button' loading={busy} disabled={busy || !validTimes}
           onClick={() => onExecute(action, 'update_meeting_action', {
-            subject: subject.trim() || '腾讯会议',
+            subject: subject.trim() || translate('actionMeeting'),
             start_time: startIso,
             end_time: endIso,
-          })}>保存并检查冲突</Button>
+          })}>{translate('saveCheckConflict')}</Button>
         : <Button className='primary-button' loading={busy}
           disabled={busy || !validTimes || !warningsAccepted}
-          onClick={() => onExecute(action, 'confirm_action')}>确认创建</Button>}
+          onClick={() => onExecute(action, 'confirm_action')}>{translate('confirmCreate')}</Button>}
       <Button className='secondary-button' disabled={busy}
-        onClick={() => onExecute(action, 'cancel_action')}>取消</Button>
+        onClick={() => onExecute(action, 'cancel_action')}>{translate('cancel')}</Button>
     </View>
   </View>
 }
@@ -265,7 +274,7 @@ export default function WorkspaceActionCard({ action, busy = false, onExecute }:
     {action.kind === 'map_recommendation' && places.length
       ? <View className='action-place-list'>
         {places.map((place, index) => <Text key={String(place.place_id || index)}>
-          {index + 1}. {String(place.name || '地点')}{place.address ? ` · ${String(place.address)}` : ''}
+          {index + 1}. {String(place.name || translate('place'))}{place.address ? ` · ${String(place.address)}` : ''}
         </Text>)}
       </View>
       : null}
@@ -286,13 +295,20 @@ export default function WorkspaceActionCard({ action, busy = false, onExecute }:
         </SwiperItem>)}
       </Swiper>
       {imageVersions.length > 1
-        ? <Text className='image-version-count'>{imageIndex + 1} / {imageVersions.length} · 左右滑动查看版本</Text>
+        ? <Text className='image-version-count'>{translate('swipeVersions', {
+          current: imageIndex + 1,
+          total: imageVersions.length,
+        })}</Text>
         : null}
     </View> : null}
     {action.kind === 'meeting_create'
       ? null
       : finished
-        ? <Text className='action-status'>{action.status === 'cancelled' ? '已取消' : action.status === 'failed' ? '执行失败' : '✓ 已完成'}</Text>
+        ? <Text className='action-status'>{action.status === 'cancelled'
+          ? translate('cancel')
+          : action.status === 'failed'
+            ? translate('executionFailed')
+            : translate('completed')}</Text>
         : <View className='action-buttons'>
           <Button
             className='primary-button'
@@ -300,10 +316,10 @@ export default function WorkspaceActionCard({ action, busy = false, onExecute }:
             disabled={busy}
             onClick={() => onExecute(action, action.kind === 'map_recommendation' ? 'activate_map' : 'confirm_action')}
           >
-            {action.kind === 'map_recommendation' ? '在地图中查看' : '确认执行'}
+            {translate(action.kind === 'map_recommendation' ? 'viewOnMap' : 'confirmExecute')}
           </Button>
           <Button className='secondary-button' disabled={busy}
-            onClick={() => onExecute(action, 'cancel_action')}>取消</Button>
+            onClick={() => onExecute(action, 'cancel_action')}>{translate('cancel')}</Button>
         </View>}
   </View>
 }

@@ -1,3 +1,3 @@
 export default definePageConfig({
-  navigationBarTitleText: 'Floris 设置',
+  navigationBarTitleText: 'FLORIS',
 })

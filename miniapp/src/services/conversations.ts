@@ -1,5 +1,6 @@
 import Taro from '@tarojs/taro'
 import { createConversationId, type ChatMessage, type MiniappSession } from '@floris/contracts'
+import { translate } from '@/i18n'
 import { apiRequest } from './request'
 
 const ACTIVE_CONVERSATION_KEY = 'floris.miniapp.active-conversation.v1'
@@ -75,7 +76,7 @@ export async function listConversations(): Promise<ConversationSummary[]> {
       : {}
     return {
       id: String(item.conversationId || ''),
-      title: String(metadata.title || '新对话'),
+      title: String(metadata.title || translate('newConversation')),
       updatedAt: Number(item.lastMessageAt || item.createdAt || Date.now()),
       messageCount: Number(item.messageCount || 0),
     }

@@ -12,6 +12,7 @@ import {
   View,
 } from '@tarojs/components'
 import type { ClarificationField, ClarificationPrompt } from '@floris/contracts'
+import { translate } from '@/i18n'
 
 interface Props {
   prompt: ClarificationPrompt
@@ -40,7 +41,9 @@ function ChoiceField({
     </CheckboxGroup>
   }
   return <RadioGroup onChange={(event) => onChange(event.detail.value)} name={field.id}>
-    {(field.type === 'boolean' && !(field.options || []).length ? ['是', '否'] : field.options || []).map((option) =>
+    {(field.type === 'boolean' && !(field.options || []).length
+      ? [translate('yes'), translate('no')]
+      : field.options || []).map((option) =>
       <Label className='choice-option' key={option}>
         <Radio value={option} checked={value === option} disabled={disabled} />
         <Text>{option}</Text>
@@ -66,7 +69,7 @@ function NativeInput({
       value={value || (field.type === 'date' ? new Date().toISOString().slice(0, 10) : '09:00')}
       onChange={(event) => onChange(String(event.detail.value))}
     >
-      <View className='native-picker'>{value || field.placeholder || (field.type === 'date' ? '选择日期' : '选择时间')}</View>
+      <View className='native-picker'>{value || field.placeholder || translate(field.type === 'date' ? 'chooseDate' : 'chooseTime')}</View>
     </Picker>
   }
   if (field.type === 'datetime') {
@@ -75,18 +78,18 @@ function NativeInput({
     return <View className='datetime-row'>
       <Picker disabled={disabled} mode='date' value={date || new Date().toISOString().slice(0, 10)}
         onChange={(event) => update(String(event.detail.value), time || '09:00')}>
-        <View className='native-picker'>{date || '选择日期'}</View>
+        <View className='native-picker'>{date || translate('chooseDate')}</View>
       </Picker>
       <Picker disabled={disabled} mode='time' value={time || '09:00'}
         onChange={(event) => update(date || new Date().toISOString().slice(0, 10), String(event.detail.value))}>
-        <View className='native-picker'>{time || '选择时间'}</View>
+        <View className='native-picker'>{time || translate('chooseTime')}</View>
       </Picker>
     </View>
   }
   return <Input
     className='clarification-input'
     disabled={disabled}
-    placeholder={field.placeholder || '请输入'}
+    placeholder={field.placeholder || translate('inputPlaceholder')}
     value={value}
     onInput={(event) => onChange(event.detail.value)}
   />
@@ -120,7 +123,7 @@ export default function ClarificationCard({ prompt, disabled = false, answered =
       </View>
     })}
     <Button className='primary-button' disabled={!complete || locked} onClick={() => onSubmit(values)}>
-      {answered ? '已提交' : '确认并继续'}
+      {translate(answered ? 'submitted' : 'confirmContinue')}
     </Button>
   </View>
 }

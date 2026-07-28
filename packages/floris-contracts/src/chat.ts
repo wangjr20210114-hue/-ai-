@@ -121,7 +121,7 @@ export function streamEventPatch(event: FlorisStreamEvent): StreamMessagePatch |
     case 'answer_complete':
       return { complete: true }
     case 'error_message':
-      return { error: String(event.content || event.message || '生成失败，请重试') }
+      return { error: String(event.content || event.message || '') }
     case 'tool_call':
       return event.name ? { status: { name: String(event.name), phase: 'active' } } : null
     case 'tool_result':

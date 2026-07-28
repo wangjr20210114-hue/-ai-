@@ -1,4 +1,5 @@
 import { apiRequest } from './request'
+import { translate } from '@/i18n'
 
 export type ProactiveNotification = {
   id: string
@@ -80,12 +81,12 @@ export function proactiveWorkflowHeadline(items: ProactiveWorkflow[]): string {
   const workflow = workflows.find((item) => item.status === 'awaiting_confirmation') || workflows[0]
   if (!workflow) return ''
   if (workflow.status === 'awaiting_confirmation') {
-    return `有一个“${workflow.title}”主动服务提案待你确认`
+    return translate('workflowProposalHeadline', { title: workflow.title })
   }
   const step = currentWorkflowStep(workflow)
   return step?.title
-    ? `“${workflow.title}”正在进行：${step.title}`
-    : `“${workflow.title}”正在进行`
+    ? translate('workflowActiveStep', { title: workflow.title, step: step.title })
+    : translate('workflowActive', { title: workflow.title })
 }
 
 export function proactiveTickerLines(state: ProactiveState, limit = 10): string[] {

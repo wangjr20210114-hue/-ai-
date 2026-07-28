@@ -1,6 +1,7 @@
 import 'fast-text-encoding'
 import Taro from '@tarojs/taro'
 import { splitSseFrames } from '@floris/contracts'
+import { translate } from '@/i18n'
 import { apiUrl } from './config'
 import { ensureSession } from './session'
 
@@ -67,17 +68,17 @@ export async function startChunkedSse(options: ChunkedSseOptions): Promise<Chunk
     },
     data: options.data,
     success(response) {
-      if (response.statusCode === 401) return fail('登录状态已失效，请重新发送')
+      if (response.statusCode === 401) return fail(translate('loginExpired'))
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        return fail(`请求失败（${response.statusCode}），请重试`)
+        return fail(translate('requestFailedStatus', { status: response.statusCode }))
       }
       if (!receivedChunk && !protocolDone && response.data instanceof ArrayBuffer && response.data.byteLength) {
         consume(response.data, true)
       }
-      if (!protocolDone) fail('网络连接提前结束，请点击重试')
+      if (!protocolDone) fail(translate('networkEnded'))
     },
     fail(error) {
-      if (!aborted) fail(String(error.errMsg || '网络请求失败，请重试'))
+      if (!aborted) fail(String(error.errMsg || translate('networkFailed')))
     },
   })
   task.onChunkReceived(({ data }) => {

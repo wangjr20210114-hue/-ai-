@@ -1,4 +1,5 @@
 import { startChunkedSse, type ChunkedSseTask } from './stream'
+import { translate } from '@/i18n'
 
 export type ReaderAction = 'translate' | 'summarize' | 'explain' | 'formula' | 'analyze' | 'terms' | 'qa'
 
@@ -39,7 +40,7 @@ export function startReaderStream(
       try {
         const event = JSON.parse(frame) as { type?: string; content?: string }
         if (event.type === 'paper_delta' && event.content && !settled) callbacks.onDelta(event.content)
-        if (event.type === 'error_message') fail(event.content || '助读失败，请重试')
+        if (event.type === 'error_message') fail(event.content || translate('readerFailed'))
         if (event.type === 'paper_done') done()
       } catch {
         // Ignore malformed heartbeats.

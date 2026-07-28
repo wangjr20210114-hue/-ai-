@@ -2,6 +2,7 @@ import { useState } from 'react'
 import Taro from '@tarojs/taro'
 import { Button, Text, View } from '@tarojs/components'
 import type { PaperInfo } from '@floris/contracts'
+import { translate } from '@/i18n'
 import { apiRequest } from '@/services/request'
 
 export default function PaperResults({ papers }: { papers: PaperInfo[] }) {
@@ -22,9 +23,9 @@ export default function PaperResults({ papers }: { papers: PaperInfo[] }) {
         },
         timeout: 60_000,
       })
-      void Taro.showToast({ title: '已加入“我的阅读”', icon: 'success' })
+      void Taro.showToast({ title: translate('addedToReading'), icon: 'success' })
     } catch (reason) {
-      void Taro.showToast({ title: String((reason as Error)?.message || '保存失败'), icon: 'none' })
+      void Taro.showToast({ title: String((reason as Error)?.message || translate('saveFailed')), icon: 'none' })
     } finally {
       setSaving('')
     }
@@ -43,8 +44,8 @@ export default function PaperResults({ papers }: { papers: PaperInfo[] }) {
           <Button className='secondary-button' onClick={() => {
             const url = paper.arxiv_url || paper.source_url || paper.pdf_url || ''
             if (url) void Taro.setClipboardData({ data: url })
-          }}>复制来源</Button>
-          <Button className='primary-button' loading={saving === id} onClick={() => void save(paper)}>保存论文</Button>
+          }}>{translate('copySource')}</Button>
+          <Button className='primary-button' loading={saving === id} onClick={() => void save(paper)}>{translate('savePaper')}</Button>
         </View>
       </View>
     })}

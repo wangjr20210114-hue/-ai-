@@ -1,4 +1,5 @@
 import Taro from '@tarojs/taro'
+import { translate } from '@/i18n'
 import { apiUrl } from './config'
 import { apiRequest } from './request'
 import { ensureSession } from './session'
@@ -26,7 +27,7 @@ export async function imageDataUrl(path: string): Promise<string> {
   const base64 = await readFile(compressed.tempFilePath, 'base64')
   const extension = compressed.tempFilePath.toLowerCase().endsWith('.png') ? 'png' : 'jpeg'
   const value = `data:image/${extension};base64,${String(base64)}`
-  if (value.length > 1_800_000) throw new Error('图片过大，请选择更小的图片')
+  if (value.length > 1_800_000) throw new Error(translate('imageTooLarge'))
   return value
 }
 
@@ -61,7 +62,7 @@ export async function uploadToMakers(
     responseType: 'text',
     timeout: 120_000,
   })
-  if (upload.statusCode < 200 || upload.statusCode >= 300) throw new Error('文件上传失败，请重试')
+  if (upload.statusCode < 200 || upload.statusCode >= 300) throw new Error(translate('fileUploadFailed'))
   return {
     storageKey: signed.key,
     name,
@@ -81,7 +82,7 @@ export async function addPdfToReading(file: MiniappFile): Promise<void> {
       mime_type: file.mimeType,
       is_paper: false,
       page_count: 0,
-      preview: '由微信小程序上传，使用微信原生文档阅读器打开。',
+      preview: translate('miniappPdfPreview'),
     },
   })
 }
@@ -95,7 +96,7 @@ export async function openMakersDocument(storageKey: string): Promise<void> {
       'x-floris-client': 'wechat-miniapp',
     },
   })
-  if (download.statusCode !== 200) throw new Error('文档下载失败')
+  if (download.statusCode !== 200) throw new Error(translate('documentDownloadFailed'))
   await Taro.openDocument({
     filePath: download.tempFilePath,
     fileType: 'pdf',

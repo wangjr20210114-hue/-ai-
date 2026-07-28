@@ -48,7 +48,7 @@ test('personal web owner and wx.login sessions share Makers stores without an ap
 });
 
 test('miniapp reuses native WeChat capabilities and shared Agent protocols', async () => {
-  const [chat, stream, request, location, map, files, makersImage, indexPage, proactive, reader, actionCard, contracts, images, preflight] = await Promise.all([
+  const [chat, stream, request, location, map, files, makersImage, indexPage, proactive, reader, actionCard, i18n, productionEnv, contracts, images, preflight] = await Promise.all([
     read('miniapp/src/services/chat.ts'),
     read('miniapp/src/services/stream.ts'),
     read('miniapp/src/services/request.ts'),
@@ -60,6 +60,8 @@ test('miniapp reuses native WeChat capabilities and shared Agent protocols', asy
     read('miniapp/src/pages/proactive/index.tsx'),
     read('miniapp/src/pages/reader/index.tsx'),
     read('miniapp/src/components/WorkspaceActionCard.tsx'),
+    read('miniapp/src/i18n.ts'),
+    read('miniapp/.env.production'),
     read('packages/floris-contracts/src/chat.ts'),
     read('packages/floris-contracts/src/image.ts'),
     read('miniapp/scripts/preflight.mjs'),
@@ -82,13 +84,15 @@ test('miniapp reuses native WeChat capabilities and shared Agent protocols', asy
   assert.match(actionCard, /<Swiper/);
   assert.match(actionCard, /imageVersionsFrom/);
   assert.match(actionCard, /update_meeting_action/);
-  assert.match(actionCard, /保存并检查冲突/);
+  assert.match(actionCard, /translate\('saveCheckConflict'\)/);
+  assert.match(i18n, /saveCheckConflict:\s*\['保存并检查冲突'/);
   assert.match(actionCard, /action\.payload\.changes/);
   assert.match(images, /result\.versions/);
   assert.match(preflight, /project\.private\.config\.json/);
   assert.match(preflight, /\/wechat-auth/);
   assert.match(preflight, /jscode2session/);
   assert.doesNotMatch(preflight, /APP_SECRET\s*=/);
+  assert.match(productionEnv, /^TARO_APP_API_BASE_URL=https:\/\/miniapp-floris\.jlutx\.com\s*$/);
   assert.match(proactive, /'mark_read'/);
   assert.match(proactive, /'snooze'/);
   assert.match(proactive, /'dismiss'/);

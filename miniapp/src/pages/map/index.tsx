@@ -8,6 +8,7 @@ import {
   type RoutePlace,
 } from '@/services/routes'
 import { ensureSession } from '@/services/session'
+import { readLanguage, translate, type Language } from '@/i18n'
 import './index.scss'
 
 type MapState = {
@@ -22,10 +23,12 @@ export default function MapPage() {
   const [mapState] = useState<MapState>(() => Taro.getStorageSync('floris.miniapp.active-map.v1') || {})
   const [route, setRoute] = useState<PlannedRoute | null>(null)
   const [routeError, setRouteError] = useState('')
+  const [language] = useState<Language>(readLanguage())
   const places = mapState.places || []
   const center = places[0] || { latitude: 39.9042, longitude: 116.4074 }
 
   useEffect(() => {
+    void Taro.setNavigationBarTitle({ title: translate('navMap', {}, language) })
     if (!mapState.show_route || places.length < 2) return
     void ensureSession().then((session) => planOrderedRoute(
       getOrCreateConversationId(session),
@@ -43,9 +46,9 @@ export default function MapPage() {
     height: 32,
     latitude: Number(place.latitude),
     longitude: Number(place.longitude),
-    title: `${index + 1}. ${place.name || '地点'}`,
+    title: `${index + 1}. ${place.name || translate('place', {}, language)}`,
     callout: {
-      content: `${index + 1}. ${place.name || '地点'}`,
+      content: `${index + 1}. ${place.name || translate('place', {}, language)}`,
       display: 'ALWAYS' as const,
       padding: 6,
       borderRadius: 8,
@@ -58,7 +61,7 @@ export default function MapPage() {
       anchorY: 0,
       textAlign: 'center' as const,
     },
-  })), [places])
+  })), [places, language])
   const polyline = route?.path?.length
     ? [{
       points: route.path,
@@ -84,8 +87,11 @@ export default function MapPage() {
       onError={() => undefined}
     />
     <View className='map-sheet'>
-      <Text className='map-title'>{mapState.title || '相关地点'}</Text>
-      {route ? <Text className='route-summary'>约 {(Number(route.distance_meters || 0) / 1000).toFixed(1)} 公里 · {Math.round(Number(route.duration_seconds || 0) / 60)} 分钟</Text> : null}
+      <Text className='map-title'>{mapState.title || translate('relatedPlaces', {}, language)}</Text>
+      {route ? <Text className='route-summary'>{translate('routeSummary', {
+        distance: (Number(route.distance_meters || 0) / 1000).toFixed(1),
+        minutes: Math.round(Number(route.duration_seconds || 0) / 60),
+      }, language)}</Text> : null}
       {routeError ? <Text className='route-error'>{routeError}</Text> : null}
       {places.map((place, index) => <View className='place-row' key={place.place_id || `${place.latitude}-${place.longitude}`}>
         <Text className='place-index'>{index + 1}</Text>
