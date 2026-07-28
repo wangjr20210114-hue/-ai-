@@ -91,7 +91,7 @@ async def handler(ctx):
             if "result_limit" in changes:
                 current["result_limit"] = max(4, min(18, int(changes["result_limit"])))
             if "image_limit" in changes:
-                current["image_limit"] = max(0, min(4, int(changes["image_limit"])))
+                current["image_limit"] = max(0, min(8, int(changes["image_limit"])))
             if "parallel_image_search" in changes:
                 current["parallel_image_search"] = bool(changes["parallel_image_search"])
             state["search_preferences"] = current

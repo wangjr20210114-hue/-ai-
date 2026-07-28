@@ -153,12 +153,14 @@ from agents._shared.intelligence import (
     confirm_memory,
     confirmed_memory_context,
     empty_intelligence_state,
+    load_intelligence_state,
     propose_memory,
     prune_automatic_memories,
     public_intelligence_state,
     record_feedback,
     record_usage,
     rollback_memory,
+    save_intelligence_state,
     usage_summary,
 )
 from agents._shared.proactive_memory import infer_memory_reminder
@@ -931,7 +933,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(plan["needs_papers"])
         self.assertEqual(required_tools_for_plan(plan), ("search_arxiv",))
 
-    def test_paper_prompt_topic_is_a_provider_evidence_invariant(self):
+    def test_prompt_topic_does_not_execute_paper_without_capability(self):
         plan = parse_capability_plan({
             "capabilities": [],
             "prompt_topics": ["paper"],
@@ -939,9 +941,22 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "paper_author": "Xin Peng",
             "paper_identity_globally_unambiguous": True,
         })
-        self.assertTrue(plan["needs_papers"])
-        self.assertEqual(plan["_capabilities"], ["papers"])
-        self.assertEqual(required_tools_for_plan(plan), ("search_arxiv",))
+        self.assertFalse(plan["needs_papers"])
+        self.assertEqual(plan["_capabilities"], [])
+        self.assertEqual(required_tools_for_plan(plan), ())
+
+    def test_news_may_load_paper_boundary_without_running_paper_search(self):
+        plan = parse_capability_plan({
+            "capabilities": ["web_search"],
+            "prompt_topics": ["web", "paper"],
+            "needs_web_search": True,
+            "needs_images": True,
+            "needs_papers": False,
+            "search_query": "今天 AI 新闻",
+            "image_query": "今天 AI 新闻事件现场",
+        })
+        self.assertEqual(plan["_capabilities"], ["web_search"])
+        self.assertEqual(required_tools_for_plan(plan), ("rich_search",))
 
     async def test_required_input_gate_receives_request_location_context(self):
         model = StructuredPlannerModel()
@@ -1850,6 +1865,44 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("![故宫太和殿建筑](https://cdn.example.com/palace.jpg)", evidence)
         self.assertNotIn("[[image:", evidence)
         self.assertNotIn("[[card:", evidence)
+
+    def test_planner_preferred_media_is_required_when_reviewed(self):
+        metadata = {
+            "results": [],
+            "media_pending": False,
+            "media": [{
+                "caption": "发布会现场",
+                "url": "https://cdn.example.com/launch.jpg",
+            }],
+        }
+        evidence = evidence_for_model(metadata, require_relevant_image=True)
+        self.assertIn("必须至少选择一张最相关图片", evidence)
+
+    def test_empty_paper_result_cannot_override_successful_web_search(self):
+        web = ToolMessage(
+            name="rich_search",
+            tool_call_id="web-1",
+            content=json.dumps({
+                "ui_action": "rich_search_results",
+                "search_results": {
+                    "results": [{
+                        "title": "AI 新闻",
+                        "url": "https://news.example.com/ai",
+                    }],
+                },
+            }, ensure_ascii=False),
+        )
+        paper = ToolMessage(
+            name="search_arxiv",
+            tool_call_id="paper-1",
+            content=json.dumps({
+                "ui_action": "paper_results",
+                "papers": [],
+            }, ensure_ascii=False),
+        )
+        answer = tool_result_fallback([web, paper])
+        self.assertIn("[AI 新闻](https://news.example.com/ai)", answer)
+        self.assertNotIn("没有核实到符合作者", answer)
 
     async def test_workspace_round_trip_increments_revision(self):
         store = FakeStore()
@@ -4362,7 +4415,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(provider.await_args.args[1], "合并后的 AI 新闻查询")
             self.assertFalse(provider.await_args.kwargs["include_media"])
             self.assertEqual(provider.await_args.kwargs["result_limit"], 8)
-            self.assertEqual(provider.await_args.kwargs["image_limit"], 2)
+            self.assertEqual(provider.await_args.kwargs["image_limit"], 8)
             self.assertTrue(provider.await_args.kwargs["parallel_queries"])
 
             next_turn_tools = build_production_tools(
@@ -4479,10 +4532,35 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         state = empty_intelligence_state()
         self.assertEqual(state["search_preferences"], {
             "result_limit": 8,
-            "image_limit": 2,
+            "image_limit": 8,
             "parallel_image_search": True,
         })
         self.assertEqual(public_intelligence_state(state)["search_preferences"], state["search_preferences"])
+
+    async def test_search_preferences_allow_eight_images_and_clamp_larger_values(self):
+        store = FakeStore()
+        state = empty_intelligence_state()
+        state["search_preferences"]["image_limit"] = 99
+        await save_intelligence_state(store, state, "image-limit-user")
+        restored = await load_intelligence_state(store, "image-limit-user")
+        self.assertEqual(restored["search_preferences"]["image_limit"], 8)
+
+    async def test_legacy_two_image_default_migrates_once_without_overriding_new_choice(self):
+        store = FakeStore()
+        legacy = empty_intelligence_state()
+        legacy["schema_version"] = 1
+        legacy["search_preferences"]["image_limit"] = 2
+        await save_intelligence_state(store, legacy, "legacy-image-limit-user")
+        stored = next(iter(store.values.values()))
+        stored["schema_version"] = 1
+        migrated = await load_intelligence_state(store, "legacy-image-limit-user")
+        self.assertEqual(migrated["schema_version"], 2)
+        self.assertEqual(migrated["search_preferences"]["image_limit"], 8)
+
+        migrated["search_preferences"]["image_limit"] = 2
+        await save_intelligence_state(store, migrated, "legacy-image-limit-user")
+        restored = await load_intelligence_state(store, "legacy-image-limit-user")
+        self.assertEqual(restored["search_preferences"]["image_limit"], 2)
 
     async def test_calendar_edit_refreshes_and_delete_retires_proactive_reminder(self):
         store = FakeStore()
@@ -4962,8 +5040,146 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 {"HUNYUAN_IMAGE_API_KEY": "vision-key"}, "AI 新闻", candidates, 2,
             )
         self.assertEqual(len(reviewed), 2)
+        self.assertEqual(diagnostics["reviewed"], 2)
+        self.assertEqual(request.call_count, 2)
+
+    async def test_vision_batch_supports_eight_image_setting(self):
+        response = json.dumps({
+            "description": "相关图片",
+            "relevant": True,
+            "promotional": False,
+        }, ensure_ascii=False)
+        candidates = [
+            {
+                "url": f"https://example.com/editorial-{index}.jpg",
+                "source_url": f"https://source.example/{index}",
+                "source_title": str(index),
+            }
+            for index in range(1, 11)
+        ]
+        with patch(
+            "agents._shared.rich_search.vision_completion",
+            new=AsyncMock(return_value=(response, {"provider": "hunyuan"})),
+        ) as request:
+            reviewed, diagnostics = await _vision_filter(
+                {"HUNYUAN_IMAGE_API_KEY": "vision-key"},
+                "需要多张配图的查询",
+                candidates,
+                8,
+            )
+        self.assertEqual(len(reviewed), 8)
+        self.assertEqual(diagnostics["reviewed"], 8)
+        self.assertEqual(request.call_count, 8)
+
+    async def test_vision_rejects_promotional_image_even_when_semantically_relevant(self):
+        candidates = [{
+            "url": "https://example.com/news-image.jpg",
+            "source_url": "https://source.example/story",
+            "source_title": "产品发布",
+        }]
+        response = json.dumps({
+            "description": "带购买卖点的产品宣传图",
+            "relevant": True,
+            "promotional": True,
+        }, ensure_ascii=False)
+        with patch(
+            "agents._shared.rich_search.vision_completion",
+            new=AsyncMock(return_value=(response, {"provider": "hunyuan"})),
+        ):
+            reviewed, diagnostics = await _vision_filter(
+                {"HUNYUAN_IMAGE_API_KEY": "vision-key"},
+                "产品发布新闻",
+                candidates,
+                2,
+            )
+        self.assertEqual(reviewed, [])
+        self.assertEqual(diagnostics["promotional"], 1)
+
+    async def test_vision_budget_prioritizes_editorial_images_over_avatars_and_banners(self):
+        candidates = [
+            {
+                "url": "https://img.example.com/banner.png?w=1600&h=200&size=20",
+                "source_url": "https://source.example/banner",
+                "source_title": "横幅",
+            },
+            {
+                "url": "https://profile.example.com/avatar_user.png",
+                "source_url": "https://source.example/avatar",
+                "source_title": "头像",
+            },
+            *[
+                {
+                    "url": f"https://img.example.com/editorial-{index}.jpg?w=1200&h=800&size={200 + index}",
+                    "source_url": f"https://source.example/story-{index}",
+                    "source_title": f"正文图片 {index}",
+                    "context": "这是一段与报道正文相邻的具体事件说明。" * 6,
+                }
+                for index in range(1, 5)
+            ],
+        ]
+        response = json.dumps(
+            {"description": "新闻现场", "relevant": True},
+            ensure_ascii=False,
+        )
+        with patch(
+            "agents._shared.rich_search.vision_completion",
+            new=AsyncMock(return_value=(response, {"provider": "hunyuan"})),
+        ) as request:
+            reviewed, diagnostics = await _vision_filter(
+                {"HUNYUAN_IMAGE_API_KEY": "vision-key"},
+                "一项需要真实配图的查询",
+                candidates,
+                4,
+            )
+        reviewed_urls = [
+            call.args[1][0]["image_url"]["url"]
+            for call in request.call_args_list
+        ]
         self.assertEqual(diagnostics["reviewed"], 4)
-        self.assertEqual(request.call_count, 4)
+        self.assertEqual(len(reviewed), 4)
+        self.assertTrue(all("editorial-" in url for url in reviewed_urls))
+        self.assertEqual(diagnostics["prefilter_profile_or_brand_asset"], 1)
+        self.assertEqual(diagnostics["prefilter_banner_geometry"], 1)
+
+    async def test_vision_budget_uses_query_context_before_unrelated_large_image(self):
+        candidates = [
+            {
+                "url": "https://img.example.com/unrelated.jpg?w=1800&h=1200&size=900",
+                "source_url": "https://source.example/unrelated",
+                "source_title": "综合资讯",
+                "context": "足球赛况与球队转会消息",
+            },
+            *[
+                {
+                    "url": f"https://img.example.com/relevant-{index}.jpg?w=900&h=600&size=120",
+                    "source_url": f"https://source.example/relevant-{index}",
+                    "source_title": "综合资讯",
+                    "context": "人工智能产品发布会现场展示新的推理模型",
+                }
+                for index in range(1, 5)
+            ],
+        ]
+        response = json.dumps({
+            "description": "发布会现场",
+            "relevant": True,
+            "promotional": False,
+        }, ensure_ascii=False)
+        with patch(
+            "agents._shared.rich_search.vision_completion",
+            new=AsyncMock(return_value=(response, {"provider": "hunyuan"})),
+        ) as request:
+            await _vision_filter(
+                {"HUNYUAN_IMAGE_API_KEY": "vision-key"},
+                "人工智能模型发布会",
+                candidates,
+                4,
+            )
+        reviewed_urls = [
+            call.args[1][0]["image_url"]["url"]
+            for call in request.call_args_list
+        ]
+        self.assertEqual(len(reviewed_urls), 4)
+        self.assertTrue(all("relevant-" in url for url in reviewed_urls))
 
     def test_dsml_tool_protocol_is_normalized(self):
         wire = '''<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="search_arxiv"><｜｜DSML｜｜parameter name="topic" string="true">Zhi-Hua Zhou 2026</｜｜DSML｜｜parameter><｜｜DSML｜｜parameter name="limit" string="false">5</｜｜DSML｜｜parameter></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>'''

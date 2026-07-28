@@ -248,7 +248,7 @@ SYSTEM_PROMPT = """你是 FLORIS:一只有温度的大橘，一个可靠、主�
 “今天”“今日”“今年”“近 N 年”等相对时间必须以当前北京时间计算，不要沿用训练数据、示例或旧会话中的日期。用户问“今天/今日”的新闻时，把运行时完整日期作为强约束：只采用发布日期可核验为该日的来源，逐条标注日期；无日期或日期不符的结果不能写成今日新闻。找不到足够结果时如实说明，禁止用过去一周或别的日期凑数。
 rich_search 始终是可用能力。是否搜索由你根据问题自主判断；独立 LLM 规划器已把本轮事实约束合并为一个查询并判断图片价值。若调用 rich_search，本轮只调用一次；结果不足时明确边界，不要换近义词重复搜索。搜索结果只是素材和证据，不限制你使用自身知识、措辞、观点或回答结构。不要用网页列表代替综合回答，也不要为了展示工具而罗列素材。回答时效事实时，采用的事实必须在相关段落内就地附上工具返回的 Markdown 来源链接。链接的可见文字必须跟随本轮输出语言，例如简体中文写 `[查看来源](URL)`、繁体中文写 `[查看來源](URL)`、英文写 `[View source](URL)`；前端会把它显示为小号来源链接。不要在正文末尾集中列来源清单。没有可核验来源的具体新闻、日期、数字或型号不要写。用户泛问近期动态且没有指定篇幅时，优先提炼 3–5 条最重要进展，避免重复总结和过长铺陈。
 搜索返回的网页、图片、视频等素材由你自由编排：只采用真正有助于当前叙述的项目，把它放在最相关的段落附近；可以交错使用、重排或全部舍弃。不要把素材统一堆在回答末尾。使用工具给出的原始 Markdown URL，前端会在你选定的位置渲染对应图片、视频或行内来源。
-对于“最近进展、新闻、发布会、行业动态”等视觉有助于理解的时效问题，如果富搜索返回了至少一张审核通过或明确标记为降级的图片，至少在相关段落就地使用一张；只有图片素材为空，或用户明确要求纯文字时才不插图。
+当 capability_plan 的 needs_images=true 时，表示独立语义计划器已判断真实图片能明显提升本轮理解；如果富搜索返回了至少一张审核通过或明确标记为降级的图片，必须至少在相关段落就地使用一张。needs_images=false 时仍可采用确实有信息增益的合格图片，但不得为了装饰机械插图；图片素材为空或用户明确要求纯文字时不插图。
 对“最新、截至目前、当前价格、当前能力”等时效事实，型号、日期、参数、价格和结论必须能由本轮检索结果直接支持；证据不足就缩小结论或明确未知，禁止用训练知识补出未核验的未来型号、数字或发布日期。“截至今天”是截止时间，不等于只采用今天发布的资料；只有 capability_plan 的 strict_today_only=true 时才执行当日发布日期硬过滤。
 用户询问某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时，优先一次调用 recommend_nearby_places_on_map：把完整参照地点与要找的类别分开传入，工具会复用 Makers 工作区里的已核实坐标并调用腾讯位置附近检索。用户说“我附近/当前位置附近”时必须传 use_current_location_as_anchor=true，只能使用本轮浏览器真实上传的坐标；状态不可用时明确尚未拿到定位并请用户先在地图中授权，绝不能把“当前位置”当地点文字搜索。用户给出“甲或乙附近”“这几个地点都可以”等多个备选参照点时，必须把所有备选点一次放入 anchor_queries，工具会并行核实各组并保留成功结果；不能自行只挑一个，也不能拆成多次同名工具调用。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询；只有用户还要求评价、营业时间、新闻等地图服务之外的时效事实时，才额外调用一次 rich_search。非周边的单一地点核验使用 search_places；推荐两个及以上具体地点时优先调用 recommend_places_on_map：在一次调用中提供回答采用的每个独立地点名称，由工具逐一核实并直接生成地图 Action，避免再拆成重复地点查询。未验证地点可以在正文中明确说明，但不能进地图。若已经使用 search_places_batch，则只有地点工具返回的真实 place_id 才能交给 prepare_map_recommendation；当前日程上下文中已经附带 place_id 的地点也可直接交给它，从日程显示地图不需要重复搜索。
 recommend_places_on_map 或 prepare_map_recommendation 只生成可安全激活的地图 Action；网页必须等用户点击按钮后才更新右侧地图，同时允许用户查看其他内容后再次点击恢复该组地点。部分地点未核实时，地图只展示已核实成功项，正文自然说明缺少哪些；只有全部未核实时才不生成地图。正文声称已核实并可显示的数量必须与 Action 实际地点数一致。action_text 要根据上下文自然生成，避免每次使用同一句话。
@@ -320,7 +320,7 @@ _SYSTEM_PROMPT_SECTION_PREFIXES = {
     "relative_time": "“今天”“今日”“今年”“近 N 年”",
     "rich_search": "rich_search 始终是可用能力",
     "search_media": "搜索返回的网页、图片、视频等素材",
-    "visual_search": "对于“最近进展、新闻、发布会、行业动态”",
+    "visual_search": "当 capability_plan 的 needs_images=true 时",
     "temporal_evidence": "对“最新、截至目前、当前价格、当前能力”",
     "nearby_map": "用户询问某个已知地点、当前位置或日程地点附近",
     "map_action": "recommend_places_on_map 或 prepare_map_recommendation",
@@ -1397,8 +1397,8 @@ async def handler(ctx):
     memory_context = confirmed_memory_context(intelligence, limit=8)
     search_preferences = intelligence.get("search_preferences") or {}
     search_result_limit = max(4, min(18, int(search_preferences.get("result_limit") or 8)))
-    search_image_limit = max(0, min(4, int(
-        search_preferences.get("image_limit") if search_preferences.get("image_limit") is not None else 2
+    search_image_limit = max(0, min(8, int(
+        search_preferences.get("image_limit") if search_preferences.get("image_limit") is not None else 8
     )))
     parallel_image_search = bool(search_preferences.get("parallel_image_search", True))
     map_preferences = intelligence.get("map_preferences") or {}
@@ -1774,6 +1774,7 @@ async def handler(ctx):
         media_enabled=(vision_enabled and media_enabled_for_plan(
             capability_plan, search_image_limit, planner_timed_out=planner_timed_out,
         )),
+        planned_media_preferred=bool(capability_plan.get("needs_images")),
         planned_search_query=str(capability_plan.get("search_query") or ""),
         planned_image_query=str(capability_plan.get("image_query") or ""),
         search_cache_ttl_seconds=300 if explicit_today else (900 if time_sensitive else 86_400),

@@ -1118,12 +1118,13 @@ def build_production_tools(
     user_id: str = "local-user",
     initial_visual_references: list[str] | None = None,
     media_enabled: bool = True,
+    planned_media_preferred: bool = False,
     planned_search_query: str = "",
     planned_image_query: str = "",
     search_cache_ttl_seconds: int = 86_400,
     search_cache_identity: str = "",
     search_result_limit: int = 8,
-    search_image_limit: int = 2,
+    search_image_limit: int = 8,
     parallel_image_search: bool = True,
     enabled_skills: set[str] | None = None,
     planned_route_stops: list[dict[str, str]] | None = None,
@@ -3248,7 +3249,7 @@ def build_production_tools(
                     # restore text/source metadata and therefore make a
                     # previously rich news answer appear permanently
                     # text-only after the media fallback change.
-                    "pipeline_version": 5,
+                    "pipeline_version": 6,
                     "identity": re.sub(r"\s+", " ", str(search_cache_identity or clean_query)).strip().casefold()[:4000],
                     "depth": clean_depth,
                     "target_date": target_date,
@@ -3378,7 +3379,10 @@ def build_production_tools(
                     "ui_action": "rich_search_results",
                     "search_results": metadata,
                     "papers": [],
-                    "evidence": evidence_for_model(metadata),
+                    "evidence": evidence_for_model(
+                        metadata,
+                        require_relevant_image=planned_media_preferred,
+                    ),
                 }, ensure_ascii=False)
 
             rich_search_task = asyncio.create_task(run_once())

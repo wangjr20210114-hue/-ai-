@@ -215,6 +215,107 @@ async def _extract_candidates(
     return output
 
 
+def _candidate_visual_priority(
+    candidate: dict[str, str], query: str = "",
+) -> tuple[int, int, int]:
+    """Rank editorial-looking candidates without increasing the review budget.
+
+    Search pages often expose account avatars and ultra-wide navigation banners
+    before the first useful article image. URL dimensions are only a visual
+    quality signal; semantic relevance and safety remain the vision model's job.
+    """
+    url = str(candidate.get("url") or "")
+    parsed = urllib.parse.urlparse(url)
+    lowered = f"{parsed.netloc}{parsed.path}".lower()
+    url_params = urllib.parse.parse_qs(parsed.query)
+
+    def number(name: str) -> int:
+        try:
+            return max(0, int((url_params.get(name) or [0])[0]))
+        except (TypeError, ValueError):
+            return 0
+
+    width = number("w") or number("width")
+    height = number("h") or number("height")
+    encoded_size = number("size")
+    score = 0
+    if any(marker in lowered for marker in ("avatar", "profile", "logo", "icon")):
+        score -= 20
+    if width and height:
+        ratio = max(width, height) / max(1, min(width, height))
+        shortest = min(width, height)
+        if shortest >= 300 and ratio <= 2.4:
+            score += 8
+        elif shortest < 160 or ratio >= 3.0:
+            score -= 8
+    if encoded_size >= 100:
+        score += 4
+    elif encoded_size and encoded_size < 40:
+        score -= 2
+    context_length = len(str(
+        candidate.get("context")
+        or candidate.get("alt")
+        or candidate.get("source_title")
+        or ""
+    ).strip())
+    if context_length >= 80:
+        score += 1
+    context = str(
+        candidate.get("context")
+        or candidate.get("alt")
+        or candidate.get("source_title")
+        or ""
+    ).casefold()
+    normalized_query = str(query or "").casefold()
+    lexical_units = set(re.findall(
+        r"[a-z0-9][a-z0-9.+_-]{1,}",
+        normalized_query,
+    ))
+    for chinese_run in re.findall(r"[\u4e00-\u9fff]{2,}", normalized_query):
+        lexical_units.update(
+            chinese_run[index:index + 2]
+            for index in range(len(chinese_run) - 1)
+        )
+    overlap = sum(1 for unit in lexical_units if unit in context)
+    score += min(12, overlap * 3)
+    return score, min(encoded_size, 10_000), min(width * height, 20_000_000)
+
+
+def _candidate_prefilter_reason(candidate: dict[str, str]) -> str:
+    """Reject URL shapes that are reliably non-editorial before paid review."""
+    url = str(candidate.get("url") or "")
+    parsed = urllib.parse.urlparse(url)
+    lowered = f"{parsed.netloc}{parsed.path}".lower()
+    if (
+        parsed.netloc.lower() == "qb-profile.image.myqcloud.com"
+        or any(marker in lowered for marker in ("avatar", "profile", "logo", "icon"))
+    ):
+        return "profile_or_brand_asset"
+    if re.search(
+        r"(?:^|[/_.-])(?:ads?|advert|promo|promotion|coupon)(?:[/_.-]|$)",
+        lowered,
+    ):
+        return "advertising_url"
+    params = urllib.parse.parse_qs(parsed.query)
+
+    def number(name: str) -> int:
+        try:
+            return max(0, int((params.get(name) or [0])[0]))
+        except (TypeError, ValueError):
+            return 0
+
+    width = number("w") or number("width")
+    height = number("h") or number("height")
+    if width and height:
+        shortest = min(width, height)
+        ratio = max(width, height) / max(1, shortest)
+        if shortest < 120:
+            return "tiny_asset"
+        if ratio >= 3.2 and shortest <= 500:
+            return "banner_geometry"
+    return ""
+
+
 def _vision_endpoint(env: dict[str, Any]) -> str:
     base = str(
         env.get("HUNYUAN_VISION_BASE_URL")
@@ -242,9 +343,12 @@ def _review_image(
         return "", "missing_api_key"
     model = str(env.get("HUNYUAN_VISION_MODEL") or "hy-vision-2.0-instruct")
     prompt = (
-        '分析图片与用户查询的关系，只返回 JSON：{"description":"准确描述图片实际内容","relevant":true或false}。\n'
+        '分析图片与用户查询的关系，只返回 JSON：'
+        '{"description":"准确描述图片实际内容","relevant":true或false,"promotional":true或false}。\n'
         '以图片本身为准，网页上下文仅供参考。广告、促销价格、热线、二维码、Logo、图标、装饰、UI、占位图、纯文字截图或无关内容必须为 false；'
-        '只有图片主体能直接帮助理解用户问题才为 true，不确定时为 false。\n'
+        '图片能识别或呈现查询中的具体事件、人物、产品、地点或报道主体，且与来源标题语义一致时即可为 true；'
+        '不要求图片证明整篇回答，也不要因为无法确认次要背景细节而拒绝一张明显相关的非宣传图片。'
+        '品牌营销海报、带促销卖点的产品宣传图或商业导流图必须 promotional=true；普通新闻现场或客观产品实拍为 false。\n'
         f'用户问题：{query[:120]}\n网页上下文：{(candidate.get("context") or candidate.get("alt") or candidate.get("source_title") or "")[:300]}'
     )
     payload = {"model": model, "messages": [{"role": "user", "content": [
@@ -275,7 +379,10 @@ def _review_image(
         if match:
             raw = match.group(0)
         reviewed = json.loads(raw)
-        if reviewed.get("relevant") is True:
+        if (
+            reviewed.get("relevant") is True
+            and reviewed.get("promotional") is not True
+        ):
             description = str(reviewed.get("description") or "").strip()[:240]
             return (description, "approved") if description else ("", "missing_description")
         return "", "irrelevant"
@@ -286,11 +393,23 @@ def _review_image(
 async def _vision_filter(
     env: dict[str, Any], query: str, candidates: list[dict[str, str]], output_limit: int = 4,
 ) -> tuple[list[dict[str, str]], dict[str, int]]:
-    output_limit = max(0, min(4, int(output_limit)))
+    output_limit = max(0, min(8, int(output_limit)))
     if output_limit == 0:
         return [], {"candidates": len(candidates), "reviewed": 0, "disabled": 1}
     if not vision_providers(env):
         return [], {"missing_api_key": 1, "candidates": len(candidates), "reviewed": 0}
+
+    # Remove deterministic non-editorial URL/geometry shapes before spending
+    # any vision budget. Keep reason counts in diagnostics so these rules remain
+    # observable and can be relaxed if a provider changes its asset format.
+    prefilter_diagnostics: Counter[str] = Counter()
+    eligible_candidates: list[dict[str, str]] = []
+    for candidate in candidates[:30]:
+        reason = _candidate_prefilter_reason(candidate)
+        if reason:
+            prefilter_diagnostics[f"prefilter_{reason}"] += 1
+        else:
+            eligible_candidates.append(candidate)
 
     # Prefer one candidate per source before filling remaining slots. HY-Vision
     # supports exactly one image per request, so review a small bounded set in
@@ -298,16 +417,26 @@ async def _vision_filter(
     selected: list[dict[str, str]] = []
     remaining: list[dict[str, str]] = []
     seen_sources: set[str] = set()
-    for candidate in candidates[:30]:
+    ranked_candidates = sorted(
+        eligible_candidates,
+        key=lambda candidate: _candidate_visual_priority(candidate, query),
+        reverse=True,
+    )
+    for candidate in ranked_candidates:
         source = str(candidate.get("source_url") or "")
         if source and source not in seen_sources:
             seen_sources.add(source)
             selected.append(candidate)
         else:
             remaining.append(candidate)
-    selected = (selected + remaining)[:min(4, max(2, output_limit * 2))]
+    selected = (selected + remaining)[:output_limit]
     if not selected:
-        return [], {"candidates": 0, "reviewed": 0}
+        return [], {
+            "candidates": len(candidates),
+            "eligible_candidates": 0,
+            "reviewed": 0,
+            **dict(prefilter_diagnostics),
+        }
 
     # Image review is a shallow relevance/safety gate, not an open-ended
     # visual-analysis task. Keep one shared deadline for the whole provider
@@ -319,7 +448,11 @@ async def _vision_filter(
         prompt = (
             '快速审核图片，不做背景推理或深度分析。只判断图片是否直接帮助回答用户问题，以及是否属于广告、'
             '促销、二维码、Logo、图标、UI、占位图、纯文字截图或无关内容；这些情况必须判为 false。'
-            '只返回简短 JSON：{"description":"一句话描述可见主体","relevant":true}；不确定时 relevant=false。\n'
+            '图片能识别或呈现查询中的具体事件、人物、产品、地点或报道主体，且与来源标题语义一致时即可判为 true；'
+            '不要因无法确认次要背景细节而拒绝明显相关的非宣传图片。'
+            '品牌营销海报、带促销卖点的产品宣传图或商业导流图必须 promotional=true；'
+            '普通新闻现场或客观产品实拍为 false。'
+            '只返回简短 JSON：{"description":"一句话描述可见主体","relevant":true,"promotional":false}。\n'
             f'用户问题：{query[:160]}\n网页上下文：{context}'
         )
         try:
@@ -348,6 +481,7 @@ async def _vision_filter(
     reviews = await asyncio.gather(*(review(candidate) for candidate in selected))
     output: list[dict[str, str]] = []
     diagnostics: Counter[str] = Counter()
+    diagnostics.update(prefilter_diagnostics)
     for candidate, (item, provider_diagnostics) in zip(selected, reviews):
         provider_name = str(provider_diagnostics.get("provider") or "")
         if provider_name:
@@ -359,12 +493,19 @@ async def _vision_filter(
             diagnostics[str(provider_diagnostics.get("error") or "vision_failed")] += 1
             continue
         description = str(item.get("description") or "").strip()[:240]
-        if item.get("relevant") is True and description:
+        if (
+            item.get("relevant") is True
+            and item.get("promotional") is not True
+            and description
+        ):
             output.append({**candidate, "description": description})
             diagnostics["approved"] += 1
+        elif item.get("promotional") is True:
+            diagnostics["promotional"] += 1
         else:
             diagnostics["irrelevant"] += 1
     diagnostics["candidates"] = len(candidates)
+    diagnostics["eligible_candidates"] = len(eligible_candidates)
     diagnostics["reviewed"] = len(selected)
     return output[:output_limit], dict(diagnostics)
 
@@ -377,7 +518,7 @@ async def rich_search(
     *,
     parallel_queries: bool = True,
     result_limit: int | None = None,
-    image_limit: int = 4,
+    image_limit: int = 8,
     target_date: str = "",
     strict_date: bool = False,
     media_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
@@ -392,7 +533,7 @@ async def rich_search(
     limit = max(4, min(18, int(result_limit))) if result_limit is not None else {
         "basic": 8, "standard": 12, "deep": 18,
     }.get(depth, 12)
-    image_limit = max(0, min(4, int(image_limit)))
+    image_limit = max(0, min(8, int(image_limit)))
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json; charset=utf-8"}
     provider_query = query
     if target_date:
@@ -556,7 +697,9 @@ async def rich_search(
     return await enrich_media()
 
 
-def evidence_for_model(metadata: dict[str, Any]) -> str:
+def evidence_for_model(
+    metadata: dict[str, Any], *, require_relevant_image: bool = False,
+) -> str:
     sources = "\n".join(
         f"- {item.get('id') or 'source'} | 类型={item.get('source') or 'web'} | [{item['title']}]({item['url']})"
         f" | 发布日期={item.get('date') or '未标注'} | 摘要={item['snippet']}"
@@ -573,10 +716,17 @@ def evidence_for_model(metadata: dict[str, Any]) -> str:
         "这里只列出审核通过的图片；若标记为“视觉审核暂不可用”，只能把它当作与来源绑定的文章主图谨慎使用。"
         "没有列出的真实图片 URL 就表示本轮无合格配图。"
     )
+    image_instruction = (
+        "本轮语义计划器已判断真实图片能明显帮助理解；只要上方存在图片素材，"
+        "必须至少选择一张最相关图片，并在对应事实段落附近用 Markdown 插入。"
+        if require_relevant_image and metadata.get("media")
+        else
+        "这些图片是可选素材；只在确实增加信息时采用。"
+    )
     return (
         f"可选网页/视频素材：\n{sources or '无'}\n\n"
         f"经视觉模型审核的可选图片素材：\n{media}\n{media_status}\n\n"
-        "这些只是素材，不是回答提纲。由你决定采用哪些、放在何处以及以什么顺序呈现，也可以全部不用。"
+        f"这些只是素材，不是回答提纲。由你决定采用哪些、放在何处以及以什么顺序呈现。{image_instruction}"
         "若采用网页或视频，直接在相关段落使用上面给出的 Markdown 链接；若采用图片，必须把上面给出的完整 URL"
         "直接写成 ![准确说明](URL)，由你决定它所在的段落和顺序。"
         "前端会就地渲染为网页卡片、视频卡片或带来源图片。不要把资源统一罗列或堆在回答末尾。"

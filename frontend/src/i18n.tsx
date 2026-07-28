@@ -188,6 +188,7 @@ const catalog = {
   searchImagesOne: ['最多 1 张', '最多 1 張', 'Up to 1', '最多 1 张喵', '最多 1 张'],
   searchImagesTwo: ['最多 2 张', '最多 2 張', 'Up to 2', '最多 2 张喵', '最多 2 张'],
   searchImagesFour: ['最多 4 张', '最多 4 張', 'Up to 4', '最多 4 张喵', '最多 4 张'],
+  searchImagesEight: ['最多 8 张', '最多 8 張', 'Up to 8', '最多 8 张喵', '最多 8 张'],
   searchSettingsSaved: ['搜索设置已保存', '搜尋設定已儲存', 'Search settings saved', '搜索设置保存好啦喵', '搜索设置已保存'],
   mapExperience: ['地图与路线', '地圖與路線', 'Maps and routes', '地图与路线喵', '地图与路线'],
   mapExperienceHint: ['速度档位会联动候选数量、路线站点上限和地点搜索时限；通常在 30 秒内完成，硬上限不超过 60 秒。', '速度檔位會聯動候選數量、路線站點上限和地點搜尋時限；通常在 30 秒內完成，硬上限不超過 60 秒。', 'The speed profile controls candidate count, route stop limits, and place-search time. Normal searches target 30 seconds with a hard ceiling below 60 seconds.', '速度档位会控制候选数量、站点上限和等待时间喵。', '调整速度、候选数和路线站点上限。'],

@@ -28,6 +28,8 @@ MANIFEST = {
         "summary": "Verifiable academic paper discovery with author, institution, topic and date filtering.",
         "instructions": (
             "【论文检索】检索论文、文献或 arXiv 用 needs_papers；paper_topic 只写用户明确指定的研究主题，"
+            "只有用户目标明确要求学术论文/文献，或必须由学术索引核验时才执行 papers；"
+            "加载本段提示词本身绝不代表要执行论文能力，普通新闻或行业进展不要附带论文检索。"
             "只有作者、单位、年份、数量而没有主题时必须留空，不能复制整句请求；"
             "作者、年份、数量分别写入 paper_author、paper_year/paper_year_from/paper_year_to、paper_limit。"
             "中文作者名要在 paper_author 中给出最可能的英文论文署名；用户用单位限定作者时，"

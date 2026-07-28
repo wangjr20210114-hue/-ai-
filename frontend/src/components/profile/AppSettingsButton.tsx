@@ -24,7 +24,7 @@ import { proactiveFallbackLines } from './proactiveNotifications';
 
 const DEFAULT_SEARCH_PREFERENCES = {
   result_limit: 8,
-  image_limit: 2,
+  image_limit: 8,
   parallel_image_search: true,
 };
 
@@ -378,6 +378,7 @@ export default function AppSettingsButton() {
               <option value={1}>{t('searchImagesOne')}</option>
               <option value={2}>{t('searchImagesTwo')}</option>
               <option value={4}>{t('searchImagesFour')}</option>
+              <option value={8}>{t('searchImagesEight')}</option>
             </select></label>
             <label><span>{t('parallelImageSearch')}</span><input type="checkbox" checked={searchPreferences.parallel_image_search} disabled={busy === 'search'} onChange={(event) => void saveSearch({ parallel_image_search: event.target.checked })} /></label>
           </div>

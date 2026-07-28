@@ -247,7 +247,15 @@ class CapabilityPlan(BaseModel):
     needs_clarification: bool = False
     needs_web_search: bool = False
     strict_today_only: bool = False
-    needs_images: bool = False
+    needs_images: bool = Field(
+        default=False,
+        description=(
+            "True when real searched images materially improve comprehension by "
+            "showing a concrete event, person, product, place, or reported subject, "
+            "even if the user did not explicitly request images. False for purely "
+            "abstract reasoning, simple calculations, or decorative-only imagery."
+        ),
+    )
     needs_places: bool = False
     needs_current_location: bool = Field(
         default=False,
@@ -283,7 +291,15 @@ class CapabilityPlan(BaseModel):
     needs_meeting_action: bool = False
     needs_workflow_action: bool = False
     needs_image_generation: bool = False
-    needs_papers: bool = False
+    needs_papers: bool = Field(
+        default=False,
+        description=(
+            "True only when the user's goal explicitly requests academic papers or "
+            "literature, or when scholarly-index verification is indispensable to "
+            "the requested result. General news, industry updates, and current "
+            "developments do not require papers merely because their subject is technical."
+        ),
+    )
     needs_deep_reasoning: bool = Field(
         default=False,
         description=(
@@ -866,16 +882,6 @@ _PREFLIGHT_CAPABILITY_FLAGS = {
 for _registered_capability in capability_skill_map():
     _PREFLIGHT_CAPABILITY_FLAGS.setdefault(_registered_capability, ())
 
-# These prompt fragments have exactly one provider-backed execution meaning.
-# Treating the model-selected topic as a second semantic checksum prevents a
-# contradictory structured plan from silently falling through to unsupported
-# prose. This is a protocol invariant over fixed enum values—not user-language
-# keyword routing.
-_PROMPT_TOPIC_CAPABILITIES = {
-    "paper": ("papers",),
-}
-
-
 def _normalize_preflight_capabilities(values: Iterable[Any]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(
         str(value or "").strip().lower()
@@ -885,12 +891,15 @@ def _normalize_preflight_capabilities(values: Iterable[Any]) -> tuple[str, ...]:
 
 
 def reconcile_capability_contract(plan: dict[str, Any]) -> dict[str, Any]:
-    """Monotonically reconcile redundant semantic routing fields.
+    """Reconcile redundant execution fields without executing prompt fragments.
 
-    The planner deliberately emits flags, capability enums and prompt-topic
-    enums in one structured call. A provider may occasionally omit one of the
-    redundant fields; execution preserves their union so a provider-backed
-    request cannot degrade into an unverifiable plain-language answer.
+    ``prompt_topics`` only retrieve compact operating instructions for the
+    planner. They are intentionally not an execution signal: a news turn may
+    load the paper boundary to decide that academic search is unnecessary.
+    Explicit capability enums may restore omitted ``needs_*`` flags. Existing
+    flags are already consumed directly by the shortest-chain mapper and must
+    not be expanded back into capability enums: composite map/calendar flags
+    intentionally overlap and reverse inference would add duplicate tools.
     """
     merged = dict(plan or {})
     explicit = _normalize_preflight_capabilities(
@@ -899,11 +908,7 @@ def reconcile_capability_contract(plan: dict[str, Any]) -> dict[str, Any]:
         or merged.get("_preflight_capabilities")
         or []
     )
-    implied: list[str] = []
-    if merged.get("_prompt_topics_source") != "fallback":
-        for topic in _normalize_prompt_topics(merged.get("_prompt_topics") or []):
-            implied.extend(_PROMPT_TOPIC_CAPABILITIES.get(topic, ()))
-    effective = tuple(dict.fromkeys([*explicit, *implied]))
+    effective = explicit
     for capability in effective:
         for flag in _PREFLIGHT_CAPABILITY_FLAGS[capability]:
             merged[flag] = True
@@ -1114,7 +1119,12 @@ async def plan_capabilities(
 - 用户要求把上一轮已核实路线写入日程时，设置 reuse_latest_route=true，只选择 calendar_context 和 calendar_action，不得重新选择 route 或抄写历史站点到 route_stops。新路线中用户明确给出的日期、时段、出发时刻或单站停留时长原样压缩到 route_calendar_hint，供后续日程续写；没有则留空。
 - optional_capabilities 只列不影响当前核心目标的增强能力。用户直接要求写入、修改或删除日程时 calendar_context/calendar_action 绝不属于可选；只有路线请求中系统可额外主动附送日程提案时才可标为可选。
 - 能力语义索引由已安装 Skill 的 Manifest 动态提供。只能选择索引中声明的 capability id；
-  下面只附本轮候选能力的详细边界，但不能把提示词片段选择当作最终路由。
+  下面只附本轮候选能力的详细边界。prompt_topics 只加载判断边界，绝不能据此执行能力；
+  只有 capabilities 与 needs_* 才是执行协议。一个主题被提及、与另一个主题相关或可作为补充，
+  不等于用户目标必须执行该能力。
+- 普通新闻、行业动态或当前进展默认由 web_search 完成。只有用户明确要论文/学术文献，
+  或完整目标必须依赖学术索引核验时，才选择 papers；论文只是可选补充时不要设置
+  needs_papers，也不要把 papers 放进 capabilities。任何可选来源为空都不能替代核心能力的结果。
 - needs_deep_reasoning 只用于确实需要多步开放推理的最终回答；能力路由、固定 JSON、工具参数、
   Action 确认、简单问答都保持 false，使用 Flash 即可。
 - 正常的实质性回答只要存在自然、具体且不重复原问题的下一步，needs_followups 就应为 true；

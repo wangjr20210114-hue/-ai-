@@ -16,7 +16,7 @@ from .skill_registry import default_skill_preferences, locked_skill_ids
 from .workspace import USER_WORKSPACE_ID
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 STATE_KEY = "state"
 BEIJING = timezone(timedelta(hours=8))
 
@@ -108,7 +108,7 @@ def empty_intelligence_state() -> dict[str, Any]:
         "memory_preferences": {"enabled": True},
         "search_preferences": {
             "result_limit": 8,
-            "image_limit": 2,
+            "image_limit": 8,
             "parallel_image_search": True,
         },
         "map_preferences": copy.deepcopy(DEFAULT_MAP_PREFERENCES),
@@ -135,7 +135,9 @@ async def load_intelligence_state(store: Any, user_id: str = USER_WORKSPACE_ID) 
     stored = _value(await store.aget(intelligence_namespace(user_id), STATE_KEY))
     if not stored:
         return state
+    stored_schema_version = int(stored.get("schema_version") or 0)
     state.update(copy.deepcopy(stored))
+    state["schema_version"] = SCHEMA_VERSION
     for key in ("memory_proposals", "memories", "rule_proposals"):
         if not isinstance(state.get(key), dict):
             state[key] = {}
@@ -149,9 +151,19 @@ async def load_intelligence_state(store: Any, user_id: str = USER_WORKSPACE_ID) 
     preferences = state.get("search_preferences")
     if not isinstance(preferences, dict):
         preferences = {}
+    image_limit = (
+        preferences.get("image_limit")
+        if preferences.get("image_limit") is not None
+        else 8
+    )
+    # Version 1 shipped with two images as the implicit default. Migrate only
+    # that legacy value once; an explicit choice of two made after this schema
+    # upgrade remains untouched.
+    if stored_schema_version < 2 and image_limit == 2:
+        image_limit = 8
     state["search_preferences"] = {
         "result_limit": max(4, min(18, int(preferences.get("result_limit") or 8))),
-        "image_limit": max(0, min(4, int(preferences.get("image_limit") if preferences.get("image_limit") is not None else 2))),
+        "image_limit": max(0, min(8, int(image_limit))),
         "parallel_image_search": bool(preferences.get("parallel_image_search", True)),
     }
     state["map_preferences"] = normalize_map_preferences(state.get("map_preferences"))
@@ -665,7 +677,7 @@ def public_intelligence_state(state: dict[str, Any]) -> dict[str, Any]:
         "memory_count": len(state.get("memories", {})),
         "memory_preferences": copy.deepcopy(state.get("memory_preferences") or {"enabled": True}),
         "search_preferences": copy.deepcopy(state.get("search_preferences") or {
-            "result_limit": 8, "image_limit": 2, "parallel_image_search": True,
+            "result_limit": 8, "image_limit": 8, "parallel_image_search": True,
         }),
         "map_preferences": normalize_map_preferences(state.get("map_preferences")),
         "skill_preferences": copy.deepcopy(state.get("skill_preferences") or DEFAULT_SKILL_PREFERENCES),

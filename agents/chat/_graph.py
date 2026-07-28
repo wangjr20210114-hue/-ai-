@@ -228,20 +228,76 @@ def tool_result_fallback(messages: Iterable) -> str:
             return f"腾讯地图将你当前的位置解析为：{readable}{suffix}。"
 
     paper_payload = None
+    rich_search_payload = None
     for message in logical_turn_messages:
-        if (
-            getattr(message, "type", "") != "tool"
-            or getattr(message, "name", "") != "search_arxiv"
-        ):
+        if getattr(message, "type", "") != "tool":
             continue
         try:
             payload = json.loads(str(getattr(message, "content", "") or ""))
         except (TypeError, json.JSONDecodeError):
             continue
-        if not isinstance(payload, dict) or payload.get("ui_action") != "paper_results":
+        if not isinstance(payload, dict):
             continue
-        paper_payload = payload
-        break
+        tool_name = getattr(message, "name", "")
+        if (
+            tool_name == "search_arxiv"
+            and payload.get("ui_action") == "paper_results"
+            and paper_payload is None
+        ):
+            paper_payload = payload
+        elif (
+            tool_name == "rich_search"
+            and payload.get("ui_action") == "rich_search_results"
+            and rich_search_payload is None
+        ):
+            rich_search_payload = payload
+
+    paper_items = (
+        paper_payload.get("papers")
+        if isinstance(paper_payload, dict)
+        and isinstance(paper_payload.get("papers"), list)
+        else []
+    )
+    if paper_items:
+        paper_answer = _paper_result_answer(paper_payload)
+        if paper_answer:
+            return paper_answer
+
+    # A supplementary academic lookup may legitimately return no papers after
+    # a successful web search. Never let that empty secondary source replace
+    # the primary result with an unrelated author/institution failure message.
+    search_metadata = (
+        rich_search_payload.get("search_results")
+        if isinstance(rich_search_payload, dict)
+        and isinstance(rich_search_payload.get("search_results"), dict)
+        else {}
+    )
+    search_results = (
+        search_metadata.get("results")
+        if isinstance(search_metadata.get("results"), list)
+        else []
+    )
+    verified_sources = [
+        {
+            "title": str(item.get("title") or "").strip(),
+            "url": str(item.get("url") or "").strip(),
+        }
+        for item in search_results
+        if isinstance(item, dict)
+        and str(item.get("title") or "").strip()
+        and str(item.get("url") or "").startswith(("https://", "http://"))
+    ][:5]
+    if verified_sources:
+        links = "\n".join(
+            f"- [{item['title']}]({item['url']})"
+            for item in verified_sources
+        )
+        return (
+            "联网检索已经拿到可核验资料，但模型这次没有完成综合整理。"
+            "先保留本轮可靠来源，你可以直接点击查看，或点击重试让我重新组织回答：\n\n"
+            f"{links}"
+        )
+
     paper_answer = _paper_result_answer(paper_payload)
     if paper_answer:
         return paper_answer

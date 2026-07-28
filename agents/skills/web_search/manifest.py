@@ -25,7 +25,10 @@ MANIFEST = {
         "instructions": (
             "【联网搜索】时效事实、用户要求查证或来源时 needs_web_search=true；"
             "search_query 合并为一次简洁事实查询。只有明确要求今天发布的内容才设 "
-            "strict_today_only=true。图片确实帮助理解时再设 needs_images 并填写 image_query。"
+            "strict_today_only=true。以用户的理解收益判断配图：当真实图片能更快展示报道主体、"
+            "事件现场、人物、产品或地点时，即使用户没有主动要求图片，也设 needs_images=true "
+            "并填写具体 image_query；纯抽象推理、简单计算或图片没有信息增益时保持 false。"
+            "普通新闻、行业动态和当前进展由 web_search 完成；不要因为报道涉及科研或 AI 就附带执行论文检索。"
         ),
         "recovery_tools": ["rich_search"],
     },
