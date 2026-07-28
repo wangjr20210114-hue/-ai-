@@ -25,7 +25,6 @@ from .._shared.tencent_location import (
 )
 from .._shared.web_media import collect_page_images as provider_collect_page_images
 from .._shared.rich_search import evidence_for_model, rich_search as provider_rich_search
-from .._shared.data_version import namespace as data_namespace
 from .._shared.side_effects import generate_image as provider_generate_image, resolve_image_reference
 from .._shared.arxiv import search_arxiv as provider_search_arxiv
 from .._shared.proactive import load_proactive_state, propose_workflow as create_workflow_proposal, save_proactive_state
@@ -1121,8 +1120,6 @@ def build_production_tools(
     planned_media_preferred: bool = False,
     planned_search_query: str = "",
     planned_image_query: str = "",
-    search_cache_ttl_seconds: int = 86_400,
-    search_cache_identity: str = "",
     search_result_limit: int = 8,
     search_image_limit: int = 8,
     parallel_image_search: bool = True,
@@ -3230,7 +3227,7 @@ def build_production_tools(
         return json.dumps({"page_url": page_url, "images": images, "count": len(images)}, ensure_ascii=False)
 
     async def rich_search(query: str, image_query: str = "", depth: str = "standard") -> str:
-        """Run one planner-shaped rich search per turn, with a persistent result cache."""
+        """Run one fresh planner-shaped rich search per turn."""
         nonlocal rich_search_task, rich_search_invocations
         rich_search_invocations += 1
         if rich_search_task is None:
@@ -3241,134 +3238,53 @@ def build_production_tools(
             clean_depth = depth if depth in {"basic", "standard", "deep"} else "standard"
             target_date = str(time_scope.get("target_date") or "")
             strict_date = bool(time_scope.get("strict_date"))
-            cache_input = json.dumps(
-                {
-                    # Increment whenever cached search metadata semantics change
-                    # so an older text-only entry cannot mask new rich media.
-                    # Invalidate pre-vision-review entries that can only
-                    # restore text/source metadata and therefore make a
-                    # previously rich news answer appear permanently
-                    # text-only after the media fallback change.
-                    "pipeline_version": 6,
-                    "identity": re.sub(r"\s+", " ", str(search_cache_identity or clean_query)).strip().casefold()[:4000],
-                    "depth": clean_depth,
-                    "target_date": target_date,
-                    "strict_date": strict_date,
-                    "media": media_enabled,
-                    "result_limit": search_result_limit,
-                    "image_limit": search_image_limit,
-                    "parallel_image_search": parallel_image_search,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-            )
-            cache_key = hashlib.sha256(cache_input.encode("utf-8")).hexdigest()
-            cache_namespace = data_namespace("search_cache", str(user_id or "local-user"))
 
             async def run_once() -> str:
                 nonlocal turn_visual_references, rich_search_provider_calls
-                metadata = None
-                stale_metadata = None
-                stale_age = 0
-                if store is not None:
-                    try:
-                        cached_item = await store.aget(cache_namespace, cache_key)
-                        cached = cached_item.get("value") if isinstance(cached_item, dict) else getattr(cached_item, "value", None)
-                        cached_at = int((cached or {}).get("cached_at") or 0) if isinstance(cached, dict) else 0
-                        candidate = cached.get("metadata") if isinstance(cached, dict) else None
-                        if cached_at and isinstance(candidate, dict):
-                            stale_age = max(0, int(time.time()) - cached_at)
-                            stale_metadata = candidate
-                            if stale_age <= max(0, int(search_cache_ttl_seconds)):
-                                metadata = candidate
-                                metadata = {
-                                    **metadata,
-                                    "media_pending": False,
-                                    "cache_hit": True,
-                                    "cache_age_seconds": stale_age,
-                                }
-                                logging.info("rich_search cache_hit key=%s media=%s", cache_key[:12], media_enabled)
-                    except Exception:
-                        # Search must remain available when the optional cache is unavailable.
-                        metadata = None
-                if metadata is None:
-                    logging.info("rich_search provider_call key=%s media=%s", cache_key[:12], media_enabled)
-                    try:
-                        async def publish_enriched_media(enriched: dict[str, Any]) -> None:
-                            completed = {**enriched, "cache_hit": False, "media_pending": False}
-                            await record_vision_diagnostics(
-                                store,
-                                user_id,
-                                completed.get("vision_diagnostics"),
-                                source="rich_search_media",
-                            )
-                            if store is not None:
-                                try:
-                                    await store.aput(cache_namespace, cache_key, {
-                                        "cached_at": int(time.time()),
-                                        "metadata": completed,
-                                    })
-                                except Exception:
-                                    pass
-                            if media_callback is not None:
-                                await media_callback(completed)
+                logging.info(
+                    "rich_search provider_call conversation=%s media=%s",
+                    conversation_id,
+                    media_enabled,
+                )
 
-                        rich_search_provider_calls += 1
-                        try:
-                            metadata = await provider_rich_search(
-                                runtime_env,
-                                clean_query,
-                                image_query=clean_image_query,
-                                depth=clean_depth,
-                                target_date=target_date,
-                                strict_date=strict_date,
-                                media_callback=publish_enriched_media if progressive_media and media_enabled else None,
-                                background_tasks=background_tasks if progressive_media and media_enabled else None,
-                                include_media=media_enabled,
-                                result_limit=search_result_limit,
-                                image_limit=search_image_limit,
-                                parallel_queries=parallel_image_search,
-                            )
-                        finally:
-                            await record_provider_usage(
-                                store, user_id, "wsa", "requests", 1, source="rich_search",
-                            )
-                        metadata = {**metadata, "cache_hit": False}
-                        if not progressive_media:
-                            await record_vision_diagnostics(
-                                store,
-                                user_id,
-                                metadata.get("vision_diagnostics"),
-                                source="rich_search_media",
-                            )
-                    except Exception:
-                        stale_limit = max(3600, int(search_cache_ttl_seconds) * 4)
-                        if isinstance(stale_metadata, dict) and stale_age <= stale_limit:
-                            metadata = {
-                                **stale_metadata,
-                                "media_pending": False,
-                                "cache_hit": True,
-                                "stale_cache_hit": True,
-                                "cache_age_seconds": stale_age,
-                            }
-                            logging.warning(
-                                "rich_search stale_cache_hit key=%s age=%s",
-                                cache_key[:12], stale_age,
-                            )
-                        else:
-                            raise
-                    if (
-                        store is not None
-                        and not metadata.get("media_pending")
-                        and not metadata.get("stale_cache_hit")
-                    ):
-                        try:
-                            await store.aput(cache_namespace, cache_key, {
-                                "cached_at": int(time.time()),
-                                "metadata": metadata,
-                            })
-                        except Exception:
-                            pass
+                async def publish_enriched_media(enriched: dict[str, Any]) -> None:
+                    completed = {**enriched, "media_pending": False}
+                    await record_vision_diagnostics(
+                        store,
+                        user_id,
+                        completed.get("vision_diagnostics"),
+                        source="rich_search_media",
+                    )
+                    if media_callback is not None:
+                        await media_callback(completed)
+
+                rich_search_provider_calls += 1
+                try:
+                    metadata = await provider_rich_search(
+                        runtime_env,
+                        clean_query,
+                        image_query=clean_image_query,
+                        depth=clean_depth,
+                        target_date=target_date,
+                        strict_date=strict_date,
+                        media_callback=publish_enriched_media if progressive_media and media_enabled else None,
+                        background_tasks=background_tasks if progressive_media and media_enabled else None,
+                        include_media=media_enabled,
+                        result_limit=search_result_limit,
+                        image_limit=search_image_limit,
+                        parallel_queries=parallel_image_search,
+                    )
+                finally:
+                    await record_provider_usage(
+                        store, user_id, "wsa", "requests", 1, source="rich_search",
+                    )
+                if not progressive_media:
+                    await record_vision_diagnostics(
+                        store,
+                        user_id,
+                        metadata.get("vision_diagnostics"),
+                        source="rich_search_media",
+                    )
                 reviewed_references = [
                     str(item.get("url") or "")
                     for item in metadata.get("media", [])
@@ -3399,11 +3315,10 @@ def build_production_tools(
                 "turn_provider_calls": rich_search_provider_calls,
             }
             logging.info(
-                "rich_search turn_audit conversation=%s invocations=%s provider_calls=%s cache_hit=%s",
+                "rich_search turn_audit conversation=%s invocations=%s provider_calls=%s",
                 conversation_id,
                 rich_search_invocations,
                 rich_search_provider_calls,
-                bool(metadata.get("cache_hit")),
             )
         return json.dumps(result, ensure_ascii=False)
 

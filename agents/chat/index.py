@@ -615,8 +615,8 @@ def dynamic_system_prompt(
     if public_answer and selected_tools:
         tails.append(
             "工具结果和 Action 是事实来源。只陈述实际成功内容；确认卡尚未生效，"
-            "地图 Action 尚未点击时不得声称已经切换地图。缓存只属于工具事实层，"
-            "不得提及命中缓存，也不得复用旧的固定话术；要结合当前问题和完整对话，"
+            "地图 Action 尚未点击时不得声称已经切换地图。每一轮都要结合当前问题和完整对话，"
+            "不得复用旧的固定话术；"
             "用自然、有风格的语言重新组织最终回答。结构化卡片是正文的补充，不能替代正文。"
         )
     if public_answer and "search_arxiv" in selected_tools:
@@ -1777,13 +1777,6 @@ async def handler(ctx):
         planned_media_preferred=bool(capability_plan.get("needs_images")),
         planned_search_query=str(capability_plan.get("search_query") or ""),
         planned_image_query=str(capability_plan.get("image_query") or ""),
-        search_cache_ttl_seconds=300 if explicit_today else (900 if time_sensitive else 86_400),
-        # Planning still determines the actual search query, but it must not
-        # make the cache key unstable: two plans for the exact same user turn
-        # can differ only in wording and otherwise trigger duplicate SearchPro
-        # calls. Date scope and user-adjustable limits remain part of the key in
-        # the tool adapter.
-        search_cache_identity=message,
         search_result_limit=search_result_limit,
         search_image_limit=search_image_limit,
         parallel_image_search=parallel_image_search,

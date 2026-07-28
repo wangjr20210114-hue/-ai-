@@ -4392,7 +4392,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         event = result["action"]["payload"]["changes"][0]["event"]
         self.assertGreater(event["duration_minutes"], 60)
 
-    async def test_rich_search_executes_once_per_turn_and_reuses_persistent_cache(self):
+    async def test_rich_search_executes_once_per_turn_without_cross_turn_cache(self):
         store = FakeStore()
         metadata = {
             "query": "合并后的 AI 新闻查询", "results": [], "media": [], "images": [],
@@ -4402,7 +4402,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         with patch("agents.chat._ui_tools.provider_rich_search", new=provider):
             tools = build_production_tools(
                 None, store=store, conversation_id="search-one", env={}, media_enabled=False,
-                planned_search_query="合并后的 AI 新闻查询", search_cache_ttl_seconds=3600,
+                planned_search_query="合并后的 AI 新闻查询",
             )
             tool = next(item for item in tools if item.name == "rich_search")
             first = json.loads(await tool.ainvoke({"query": "第一次改写"}))
@@ -4420,14 +4420,14 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
             next_turn_tools = build_production_tools(
                 None, store=store, conversation_id="search-two", env={}, media_enabled=False,
-                planned_search_query="合并后的 AI 新闻查询", search_cache_ttl_seconds=3600,
+                planned_search_query="合并后的 AI 新闻查询",
             )
             next_tool = next(item for item in next_turn_tools if item.name == "rich_search")
-            cached = json.loads(await next_tool.ainvoke({"query": "任意改写"}))
-            self.assertEqual(provider.await_count, 1)
-            self.assertTrue(cached["search_results"]["cache_hit"])
-            self.assertEqual(cached["search_results"]["search_config"]["turn_tool_invocations"], 1)
-            self.assertEqual(cached["search_results"]["search_config"]["turn_provider_calls"], 0)
+            fresh = json.loads(await next_tool.ainvoke({"query": "任意改写"}))
+            self.assertEqual(provider.await_count, 2)
+            self.assertNotIn("cache_hit", fresh["search_results"])
+            self.assertEqual(fresh["search_results"]["search_config"]["turn_tool_invocations"], 1)
+            self.assertEqual(fresh["search_results"]["search_config"]["turn_provider_calls"], 1)
 
     async def test_rich_search_audit_matrix_never_duplicates_provider_calls(self):
         scenarios = [
@@ -4454,7 +4454,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(config["turn_tool_invocations"], 2)
                     self.assertEqual(config["turn_provider_calls"], 1)
 
-    async def test_progressive_rich_search_publishes_and_caches_enriched_media(self):
+    async def test_progressive_rich_search_publishes_enriched_media_without_cache(self):
         store = FakeStore()
         background_tasks = []
         published = []
@@ -4486,7 +4486,6 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None, store=store, conversation_id="progressive-search", env={},
                 media_enabled=True, progressive_media=True, media_callback=publish,
                 background_tasks=background_tasks, planned_search_query="AI 新闻",
-                search_cache_identity="progressive-media-test",
             )
             tool = next(item for item in tools if item.name == "rich_search")
             first = json.loads(await tool.ainvoke({"query": "AI 新闻"}))
@@ -4494,17 +4493,16 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.gather(*background_tasks)
             self.assertEqual(published[0]["images"], enriched["images"])
 
-            cached_tools = build_production_tools(
+            next_background_tasks = []
+            next_turn_tools = build_production_tools(
                 None, store=store, conversation_id="progressive-search-2", env={},
                 media_enabled=True, progressive_media=True, media_callback=publish,
-                background_tasks=[], planned_search_query="AI 新闻",
-                search_cache_identity="progressive-media-test",
+                background_tasks=next_background_tasks, planned_search_query="AI 新闻",
             )
-            cached_tool = next(item for item in cached_tools if item.name == "rich_search")
-            cached = json.loads(await cached_tool.ainvoke({"query": "不同措辞"}))
-            self.assertTrue(cached["search_results"]["cache_hit"])
-            self.assertEqual(cached["search_results"]["images"], enriched["images"])
-            self.assertEqual(mocked.await_count, 1)
+            next_turn_tool = next(item for item in next_turn_tools if item.name == "rich_search")
+            await next_turn_tool.ainvoke({"query": "不同措辞"})
+            await asyncio.gather(*next_background_tasks)
+            self.assertEqual(mocked.await_count, 2)
 
     def test_pending_search_media_never_promises_image_generation(self):
         prompt = evidence_for_model({
@@ -5736,7 +5734,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_vision_review_timeout({"RICH_SEARCH_VISION_TIMEOUT_SECONDS": "1"}), 2.0)
         self.assertEqual(_vision_review_timeout({"RICH_SEARCH_VISION_TIMEOUT_SECONDS": "4"}), 4.0)
 
-    async def test_exact_repeat_reuses_persistent_rich_search_cache(self):
+    async def test_exact_repeat_runs_a_fresh_search_in_each_turn(self):
         store = FakeStore()
         metadata = {
             "query": "AI 新闻", "results": [], "media": [], "images": [],
@@ -5753,12 +5751,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                     conversation_id=conversation_id,
                     env={},
                     planned_search_query="AI 近期重要进展",
-                    search_cache_identity="最近AI有什么新进展",
                     media_enabled=False,
                 )
                 tool = next(item for item in tools if item.name == "rich_search")
                 await tool.ainvoke({"query": "模型本次生成的不同搜索措辞"})
-        self.assertEqual(provider.await_count, 1)
+        self.assertEqual(provider.await_count, 2)
 
     def test_free_vision_fallback_chain_keeps_hunyuan_primary(self):
         providers = vision_providers({
