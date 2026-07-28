@@ -242,14 +242,21 @@ export default function SettingsPage() {
   if (error) return <View className='settings-state'><Text>{error}</Text><Button onClick={() => void load()}>{translate('retry', {}, language)}</Button></View>
 
   return <View className='settings-page'>
-    <View className='setting-section'>
+    <View className='settings-hero'>
+      <View>
+        <Text className='settings-kicker'>{translate('navSettings', {}, language)}</Text>
+        <Text className='settings-title'>{translate('settingsOverview', {}, language)}</Text>
+      </View>
+      <Text className='settings-mark'>⌘</Text>
+    </View>
+    <View className='setting-section workspace-section'>
       <Text className='section-title'>{translate('workspace', {}, language)}</Text>
       <View className='workspace-links'>
         <Button onClick={() => Taro.switchTab({ url: '/pages/calendar/index' })}>{translate('myCalendar', {}, language)}</Button>
         <Button onClick={() => Taro.switchTab({ url: '/pages/library/index' })}>{translate('myReading', {}, language)}</Button>
       </View>
     </View>
-    <View className='setting-section'>
+    <View className='setting-section language-section'>
       <Text className='section-title'>{translate('interfaceLanguage', {}, language)}</Text>
       <Picker
         mode='selector'
@@ -267,7 +274,7 @@ export default function SettingsPage() {
       </Picker>
     </View>
 
-    <View className='setting-section'>
+    <View className='setting-section usage-section'>
       <View className='usage-heading'>
         <View>
           <Text className='section-title'>{translate('providerUsage', {}, language)}</Text>
@@ -308,7 +315,7 @@ export default function SettingsPage() {
       }, language)}</Text> : null}
     </View>
 
-    <View className='setting-section'>
+    <View className='setting-section skills-section'>
       <Text className='section-title'>{translate('skillsMarketplace', {}, language)}</Text>
       <Text className='section-hint'>{translate('skillsHint', {}, language)}</Text>
       {skills.map((skill) => {

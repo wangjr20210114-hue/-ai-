@@ -1,14 +1,17 @@
-.history-page { min-height: 100vh; box-sizing: border-box; padding: 28px 26px 80px; }
+.history-page { min-height: 100vh; box-sizing: border-box; padding: 30px 22px 90px; }
+.history-hero { margin-bottom: 28px; }
+.history-kicker { display: block; color: var(--floris-accent); font-size: 21px; font-weight: 650; }
+.history-title { display: block; margin-top: 7px; color: var(--floris-text); font-size: 36px; font-weight: 750; letter-spacing: -.7px; line-height: 1.25; }
 .conversation-item {
-  margin-bottom: 14px;
-  padding: 24px;
+  margin-bottom: 12px;
+  padding: 20px;
   display: flex;
   align-items: center;
   gap: 18px;
   border: 1px solid var(--floris-border);
   border-radius: 22px;
   background: var(--floris-panel);
-  box-shadow: var(--floris-shadow);
+  box-shadow: 0 1px 0 var(--floris-border);
   animation: history-item-in 240ms cubic-bezier(.16,1,.3,1) both;
   transition: transform 120ms cubic-bezier(.16,1,.3,1);
 }
@@ -17,5 +20,10 @@
 .conversation-title { display: block; color: var(--floris-text); font-size: 28px; font-weight: 670; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conversation-time { display: block; margin-top: 8px; color: var(--floris-text-3); font-size: 21px; }
 .conversation-count { padding: 8px 12px; border-radius: 999px; color: var(--floris-accent); background: var(--floris-accent-soft); font-size: 20px; }
-.page-state { padding: 100px 30px; display: flex; flex-direction: column; align-items: center; gap: 22px; color: var(--floris-text-3); text-align: center; }
+.page-state { min-height: 45vh; padding: 60px 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; color: var(--floris-text-3); text-align: center; }
+.history-empty-icon { width: 86px; height: 86px; border-radius: 28px; color: var(--floris-accent); background: var(--floris-accent-soft); line-height: 86px; text-align: center; font-size: 38px; box-shadow: var(--floris-shadow); }
 @keyframes history-item-in { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+@media (min-width: 700px) {
+  .history-page { padding-left: 38px; padding-right: 38px; }
+  .history-title { font-size: 42px; }
+}

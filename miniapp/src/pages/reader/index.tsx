@@ -130,6 +130,10 @@ export default function ReaderPage() {
   }
 
   return <View className='reader-page'>
+    <View className='reader-hero'>
+      <Text className='reader-kicker'>{translate('navReader', {}, language)}</Text>
+      <Text className='reader-title'>{translate('readerOverview', {}, language)}</Text>
+    </View>
     <View className='reader-toolbar'>
       {actionLabelKeys.map(([id]) => <View
         key={id}

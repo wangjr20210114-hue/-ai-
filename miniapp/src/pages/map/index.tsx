@@ -127,6 +127,7 @@ export default function MapPage() {
       </Button>
     </View>
     <View className='map-sheet'>
+      <View className='map-sheet-handle' />
       <Text className='map-title'>{mapState.title || translate('relatedPlaces', {}, language)}</Text>
       {route ? <Text className='route-summary'>{translate('routeSummary', {
         distance: (Number(route.distance_meters || 0) / 1000).toFixed(1),

@@ -34,20 +34,25 @@ function ChoiceField({
 }) {
   if (field.type === 'multi') {
     return <CheckboxGroup onChange={(event) => onChange(event.detail.value)} name={field.id}>
-      {(field.options || []).map((option) => <Label className='choice-option' key={option}>
-        <Checkbox value={option} checked={Array.isArray(value) && value.includes(option)} disabled={disabled} />
+      {(field.options || []).map((option) => {
+        const checked = Array.isArray(value) && value.includes(option)
+        return <Label className={`choice-option ${checked ? 'is-selected' : ''}`} key={option}>
+        <Checkbox value={option} checked={checked} disabled={disabled} />
         <Text>{option}</Text>
-      </Label>)}
+      </Label>
+      })}
     </CheckboxGroup>
   }
   return <RadioGroup onChange={(event) => onChange(event.detail.value)} name={field.id}>
     {(field.type === 'boolean' && !(field.options || []).length
       ? [translate('yes'), translate('no')]
-      : field.options || []).map((option) =>
-      <Label className='choice-option' key={option}>
-        <Radio value={option} checked={value === option} disabled={disabled} />
+      : field.options || []).map((option) => {
+      const checked = value === option
+      return <Label className={`choice-option ${checked ? 'is-selected' : ''}`} key={option}>
+        <Radio value={option} checked={checked} disabled={disabled} />
         <Text>{option}</Text>
-      </Label>)}
+      </Label>
+      })}
   </RadioGroup>
 }
 

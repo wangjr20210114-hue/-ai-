@@ -18,6 +18,12 @@ export default defineConfig<'webpack5'>(async (merge) => {
       '@floris/contracts': path.resolve(__dirname, '..', '..', 'packages', 'floris-contracts', 'src'),
     },
     cache: { enable: false },
+    copy: {
+      patterns: [
+        { from: 'src/assets/tab', to: 'dist/assets/tab' },
+      ],
+      options: {},
+    },
     mini: {
       webpackChain(chain) {
         chain.resolve.plugin('tsconfig-paths').use(TsconfigPathsPlugin)

@@ -181,6 +181,11 @@ export default function LibraryPage() {
   }
 
   return <View className='library-page'>
+    <View className='library-hero'>
+      <Text className='library-kicker'>{translate('navLibrary', {}, language)}</Text>
+      <Text className='library-title'>{translate('readingOverview', {}, language)}</Text>
+      <Text className='library-count'>{items.length}</Text>
+    </View>
     <View className='library-toolbar'>
       <View className='auto-organize'>
         <Text>{translate('autoOrganize', {}, language)}</Text>
@@ -258,6 +263,7 @@ export default function LibraryPage() {
 
     {loading ? <Text className='library-state'>{translate('loadingReading', {}, language)}</Text> : null}
     {!loading && !visibleItems.length ? <View className='library-state'>
+      <Text className='library-empty-icon'>▱</Text>
       <Text>{translate('noReading', {}, language)}</Text>
       <Text>{translate('uploadReadingHint', {}, language)}</Text>
     </View> : null}

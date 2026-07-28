@@ -1,0 +1,42 @@
+{
+  "light": {
+    "navigationBarBackgroundColor": "#fff8f2",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#fff8f2",
+    "backgroundTextStyle": "light",
+    "tabColor": "#8d7668",
+    "tabSelectedColor": "#ed6a2c",
+    "tabBackgroundColor": "#fffdfb",
+    "tabBorderStyle": "white",
+    "chatIcon": "assets/tab/chat-light-idle.png",
+    "chatIconActive": "assets/tab/chat-light-active.png",
+    "calendarIcon": "assets/tab/calendar-light-idle.png",
+    "calendarIconActive": "assets/tab/calendar-light-active.png",
+    "readingIcon": "assets/tab/reading-light-idle.png",
+    "readingIconActive": "assets/tab/reading-light-active.png",
+    "proactiveIcon": "assets/tab/proactive-light-idle.png",
+    "proactiveIconActive": "assets/tab/proactive-light-active.png",
+    "settingsIcon": "assets/tab/settings-light-idle.png",
+    "settingsIconActive": "assets/tab/settings-light-active.png"
+  },
+  "dark": {
+    "navigationBarBackgroundColor": "#0d0a18",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#0d0a18",
+    "backgroundTextStyle": "dark",
+    "tabColor": "#9d91b4",
+    "tabSelectedColor": "#b59cff",
+    "tabBackgroundColor": "#171122",
+    "tabBorderStyle": "black",
+    "chatIcon": "assets/tab/chat-dark-idle.png",
+    "chatIconActive": "assets/tab/chat-dark-active.png",
+    "calendarIcon": "assets/tab/calendar-dark-idle.png",
+    "calendarIconActive": "assets/tab/calendar-dark-active.png",
+    "readingIcon": "assets/tab/reading-dark-idle.png",
+    "readingIconActive": "assets/tab/reading-dark-active.png",
+    "proactiveIcon": "assets/tab/proactive-dark-idle.png",
+    "proactiveIconActive": "assets/tab/proactive-dark-active.png",
+    "settingsIcon": "assets/tab/settings-dark-idle.png",
+    "settingsIconActive": "assets/tab/settings-dark-active.png"
+  }
+}

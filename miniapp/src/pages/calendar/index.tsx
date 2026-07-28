@@ -45,6 +45,18 @@ function roundedStart(date: string): Date {
   return value
 }
 
+function weekDateValues(value: string): string[] {
+  const selected = new Date(`${value}T12:00:00`)
+  const mondayOffset = (selected.getDay() + 6) % 7
+  const monday = new Date(selected)
+  monday.setDate(selected.getDate() - mondayOffset)
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday)
+    date.setDate(monday.getDate() + index)
+    return localDateValue(date)
+  })
+}
+
 function formForSchedule(schedule: CalendarSchedule | undefined, date: string): CalendarForm {
   if (!schedule) {
     const start = roundedStart(date)
@@ -144,6 +156,13 @@ export default function CalendarPage() {
     [schedules, selectedDate],
   )
   const readOnly = isPastCalendarDay(selectedDate)
+  const selectedDateObject = new Date(`${selectedDate}T12:00:00`)
+  const weekDates = useMemo(() => weekDateValues(selectedDate), [selectedDate])
+  const selectDate = (value: string) => {
+    setSelectedDate(value)
+    setForm(null)
+    setPlaces([])
+  }
 
   const openEditor = (schedule?: CalendarSchedule) => {
     if (!calendarEnabled || readOnly) return
@@ -247,20 +266,48 @@ export default function CalendarPage() {
   }
 
   return <View className='calendar-page'>
-    <View className='calendar-toolbar'>
-      <Picker mode='date' value={selectedDate} onChange={(event) => {
-        const value = String(event.detail.value)
-        setSelectedDate(value)
-        setForm(null)
-        setPlaces([])
-      }}>
-        <View className='calendar-date'>{selectedDate} 〉</View>
-      </Picker>
+    <View className='calendar-hero'>
+      <View className='calendar-hero-copy'>
+        <Text className='calendar-kicker'>{selectedDateObject.toLocaleDateString(localeFor(language), {
+          month: 'long',
+          day: 'numeric',
+          weekday: 'long',
+        })}</Text>
+        <Text className='calendar-hero-title'>{translate('calendarOverview', {}, language)}</Text>
+      </View>
       <Button
         className='calendar-add'
+        aria-label={translate('calendarAdd', {}, language)}
         disabled={loading || readOnly || !calendarEnabled}
         onClick={() => openEditor()}
-      >＋ {translate('calendarAdd', {}, language)}</Button>
+      >＋</Button>
+    </View>
+    <View className='calendar-toolbar'>
+      <Picker mode='date' value={selectedDate} onChange={(event) => {
+        selectDate(String(event.detail.value))
+      }}>
+        <View className='calendar-date'>{selectedDateObject.toLocaleDateString(localeFor(language), {
+          year: 'numeric',
+          month: 'long',
+        })}⌄</View>
+      </Picker>
+    </View>
+    <View className='week-strip'>
+      {weekDates.map((value) => {
+        const date = new Date(`${value}T12:00:00`)
+        const past = isPastCalendarDay(value)
+        return <View
+          key={value}
+          className={`week-day ${value === selectedDate ? 'is-selected' : ''} ${past ? 'is-past' : ''}`}
+          hoverClass='floris-press'
+          hoverStayTime={70}
+          onClick={() => selectDate(value)}
+        >
+          <Text>{date.toLocaleDateString(localeFor(language), { weekday: 'short' })}</Text>
+          <Text>{date.getDate()}</Text>
+          {schedulesForDay(schedules, value).length ? <Text className='week-dot'>•</Text> : null}
+        </View>
+      })}
     </View>
 
     {!calendarEnabled ? <View className='calendar-skill-off'>
@@ -273,7 +320,10 @@ export default function CalendarPage() {
     {readOnly ? <Text className='calendar-readonly'>{translate('calendarReadOnly', {}, language)}</Text> : null}
     {loading ? <Text className='calendar-state'>{translate('loadingCalendar', {}, language)}</Text> : null}
     {!loading && !daySchedules.length
-      ? <Text className='calendar-state calendar-state-empty'>{translate('noCalendar', {}, language)}</Text>
+      ? <View className='calendar-state calendar-state-empty'>
+        <Text className='calendar-empty-icon'>◷</Text>
+        <Text>{translate('noCalendar', {}, language)}</Text>
+      </View>
       : null}
 
     {daySchedules.map((schedule) => {

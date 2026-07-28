@@ -1,10 +1,13 @@
-.proactive-page { min-height: 100vh; box-sizing: border-box; padding: 28px 26px 150px; color: var(--floris-text); }
-.proactive-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
-.proactive-toolbar text { font-size: 30px; font-weight: 720; }
-.proactive-toolbar button { width: auto; margin: 0; border: 1px solid var(--floris-border); border-radius: 18px; color: var(--floris-accent); background: var(--floris-panel); box-shadow: var(--floris-shadow); font-size: 22px; }
-.proactive-empty { display: block; padding: 25vh 30px 0; color: var(--floris-text-3); text-align: center; }
-.proactive-item, .workflow-item { margin-bottom: 18px; padding: 24px; border: 1px solid var(--floris-border); border-radius: 24px; background: var(--floris-panel); box-shadow: var(--floris-shadow); animation: proactive-card-in 260ms cubic-bezier(.16,1,.3,1) both; }
-.proactive-item.priority-high { border-left: 6px solid var(--floris-danger); }
+.proactive-page { min-height: 100vh; box-sizing: border-box; padding: 30px 22px 150px; color: var(--floris-text); }
+.proactive-hero { margin-bottom: 28px; display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; }
+.proactive-hero-copy { flex: 1; min-width: 0; }
+.proactive-kicker { display: block; color: var(--floris-accent); font-size: 21px; font-weight: 650; }
+.proactive-hero-title { display: block; margin-top: 7px; color: var(--floris-text); font-size: 36px; font-weight: 750; letter-spacing: -.7px; line-height: 1.25; }
+.proactive-refresh { width: 66px; min-width: 66px; height: 66px; margin: 0; padding: 0; border: 0; border-radius: 22px; color: var(--floris-accent); background: var(--floris-accent-soft); box-shadow: var(--floris-shadow); font-size: 30px; line-height: 64px; }
+.proactive-empty { min-height: 42vh; padding: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; color: var(--floris-text-3); text-align: center; font-size: 22px; line-height: 1.55; }
+.proactive-empty-icon { width: 86px; height: 86px; border-radius: 28px; color: var(--floris-accent); background: var(--floris-accent-soft); box-shadow: var(--floris-shadow); line-height: 86px; text-align: center; font-size: 36px; }
+.proactive-item, .workflow-item { position: relative; margin-bottom: 14px; padding: 22px; border: 1px solid var(--floris-border); border-radius: 26px; background: var(--floris-panel); box-shadow: var(--floris-shadow); animation: proactive-card-in 260ms cubic-bezier(.16,1,.3,1) both; }
+.proactive-item.priority-high::before { content: ''; position: absolute; left: 0; top: 24px; bottom: 24px; width: 5px; border-radius: 0 999px 999px 0; background: var(--floris-danger); }
 .workflow-item { border-color: var(--floris-border-strong); }
 .workflow-eyebrow { display: block; margin-bottom: 8px; color: var(--floris-accent); font-size: 20px; font-weight: 650; }
 .proactive-title { display: block; color: var(--floris-text); font-size: 28px; font-weight: 700; }
@@ -22,3 +25,9 @@
 .workflow-actions button { width: auto; min-width: 142px; flex: 1; margin: 0; border-radius: 16px; color: var(--floris-text-2); background: var(--floris-accent-soft); font-size: 21px; }
 .workflow-actions .workflow-cancel { color: var(--floris-danger); background: var(--floris-danger-soft); }
 @keyframes proactive-card-in { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (min-width: 700px) {
+  .proactive-page { padding-left: 38px; padding-right: 38px; }
+  .proactive-hero-title { font-size: 42px; }
+  .proactive-item,
+  .workflow-item { max-width: 920px; }
+}

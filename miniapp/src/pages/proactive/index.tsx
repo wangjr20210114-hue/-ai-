@@ -103,12 +103,20 @@ export default function ProactivePage() {
   }
 
   return <View className='proactive-page'>
-    <View className='proactive-toolbar'>
-      <Text>{translate('proactiveHeading', {}, language)}</Text>
-      <Button loading={loading} disabled={Boolean(busy)} onClick={() => void load(true)}>{translate('refresh', {}, language)}</Button>
+    <View className='proactive-hero'>
+      <View className='proactive-hero-copy'>
+        <Text className='proactive-kicker'>{translate('proactiveHeading', {}, language)}</Text>
+        <Text className='proactive-hero-title'>{translate('proactiveOverview', {}, language)}</Text>
+      </View>
+      <Button className='proactive-refresh' loading={loading} disabled={Boolean(busy)}
+        aria-label={translate('refresh', {}, language)}
+        onClick={() => void load(true)}>↻</Button>
     </View>
     {!loading && !notifications.length && !workflows.length
-      ? <Text className='proactive-empty'>{translate('proactiveEmpty', {}, language)}</Text>
+      ? <View className='proactive-empty'>
+        <Text className='proactive-empty-icon'>✦</Text>
+        <Text>{translate('proactiveEmpty', {}, language)}</Text>
+      </View>
       : null}
     {workflows.map((workflow) => {
       const step = currentWorkflowStep(workflow)

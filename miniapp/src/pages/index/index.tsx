@@ -433,6 +433,11 @@ export default function IndexPage() {
   }
 
   const reminderText = tickerLines[reminderIndex] || ''
+  const starters = [
+    { icon: '⌁', label: translate('suggestionNews', {}, language) },
+    { icon: '◷', label: translate('suggestionTrip', {}, language) },
+    { icon: '✦', label: translate('suggestionCat', {}, language) },
+  ]
 
   if (error && !ready) {
     return <View className='center-state'>
@@ -454,17 +459,19 @@ export default function IndexPage() {
           if (!interactionLocked) void Taro.switchTab({ url: '/pages/proactive/index' })
         }}
       >
-        <Text>{reminderText || translate('gentleReminderFallback', {}, language)}</Text>
+        <Text className='reminder-spark'>✦</Text>
+        <Text className='reminder-copy'>{reminderText || translate('gentleReminderFallback', {}, language)}</Text>
+        <Text className='reminder-arrow'>›</Text>
       </View>
     </View>
     <View className='conversation-toolbar'>
       <Button disabled={interactionLocked} onClick={createNew}>
         <Text className='toolbar-icon'>＋</Text>
-        <Text>{translate('createConversation', {}, language)}</Text>
+        <Text className='toolbar-label'>{translate('createConversation', {}, language)}</Text>
       </Button>
       <Button disabled={interactionLocked} onClick={() => Taro.navigateTo({ url: '/pages/history/index' })}>
-        <Text className='toolbar-icon'>⌁</Text>
-        <Text>{translate('openHistory', {}, language)}</Text>
+        <Text className='toolbar-icon'>◴</Text>
+        <Text className='toolbar-label'>{translate('openHistory', {}, language)}</Text>
       </Button>
     </View>
 
@@ -476,15 +483,22 @@ export default function IndexPage() {
       showScrollbar={false}
     >
       {!messages.length && ready ? <View className='empty-chat'>
-        <Image className='empty-avatar' src={apiUrl('/floris-avatar.png')} />
+        <View className='empty-avatar-halo'>
+          <Image className='empty-avatar' src={apiUrl('/floris-avatar.png')} />
+        </View>
+        <Text className='empty-kicker'>{translate('emptyChatGreeting', {}, language)}</Text>
         <Text className='empty-title'>{translate('emptyChatTitle', {}, language)}</Text>
-        {[
-          translate('suggestionNews', {}, language),
-          translate('suggestionTrip', {}, language),
-          translate('suggestionCat', {}, language),
-        ].map((item) =>
-          <View key={item} className='suggestion' hoverClass='floris-card-press'
-            hoverStayTime={80} onClick={() => void sendText(item)}>{item}</View>)}
+        <Text className='empty-subtitle'>{translate('emptyChatSubtitle', {}, language)}</Text>
+        <Text className='starter-heading'>{translate('quickStart', {}, language)}</Text>
+        <View className='starter-grid'>
+          {starters.map((item, index) =>
+            <View key={item.label} className={`suggestion suggestion-${index}`} hoverClass='floris-card-press'
+              hoverStayTime={80} onClick={() => void sendText(item.label)}>
+              <Text className='suggestion-icon'>{item.icon}</Text>
+              <Text>{item.label}</Text>
+              <Text className='suggestion-arrow'>↗</Text>
+            </View>)}
+        </View>
       </View> : null}
       {messages.map((message) => <MessageBubble
         key={message.id}
@@ -508,23 +522,25 @@ export default function IndexPage() {
             if (!interactionLocked) setReferenceImage(null)
           }}>×</Text>
       </View> : null}
-      <Button className='attach-button' aria-label={translate('addAttachment', {}, language)} loading={attaching} disabled={interactionLocked} onClick={() => void attach()}>＋</Button>
-      <Textarea
-        className='composer-input'
-        disabled={interactionLocked}
-        maxlength={4000}
-        placeholder={ready
-          ? translate('chatPlaceholder', {}, language)
-          : translate('enteringHome', {}, language)}
-        value={draft}
-        onInput={(event) => setDraft(event.detail.value)}
-        onConfirm={() => void sendText()}
-        confirmType='send'
-        showConfirmBar={false}
-      />
-      {streaming
-        ? <Button className='send-button stop-button' aria-label={translate('stopGeneration', {}, language)} onClick={() => void stop()}>■</Button>
-        : <Button className='send-button' aria-label={translate('sendMessage', {}, language)} disabled={!draft.trim() || interactionLocked} onClick={() => void sendText()}>↑</Button>}
+      <View className='composer-shell'>
+        <Button className='attach-button' aria-label={translate('addAttachment', {}, language)} loading={attaching} disabled={interactionLocked} onClick={() => void attach()}>＋</Button>
+        <Textarea
+          className='composer-input'
+          disabled={interactionLocked}
+          maxlength={4000}
+          placeholder={ready
+            ? translate('chatPlaceholder', {}, language)
+            : translate('enteringHome', {}, language)}
+          value={draft}
+          onInput={(event) => setDraft(event.detail.value)}
+          onConfirm={() => void sendText()}
+          confirmType='send'
+          showConfirmBar={false}
+        />
+        {streaming
+          ? <Button className='send-button stop-button' aria-label={translate('stopGeneration', {}, language)} onClick={() => void stop()}>■</Button>
+          : <Button className='send-button' aria-label={translate('sendMessage', {}, language)} disabled={!draft.trim() || interactionLocked} onClick={() => void sendText()}>↑</Button>}
+      </View>
     </View>
   </View>
 }
