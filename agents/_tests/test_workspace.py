@@ -5207,6 +5207,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "agents._shared.arxiv._search_dblp_sync",
             return_value=[],
         ), patch(
+            "agents._shared.arxiv._search_openalex_sync",
+            return_value=[],
+        ), patch(
             "agents._shared.arxiv._search_crossref_sync",
             return_value=[crossref_paper],
         ) as crossref:
@@ -5521,6 +5524,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "agents._shared.arxiv._search_arxiv_sync",
             return_value=[{"title": "Wrong Homonym"}],
         ) as broad_lookup, patch(
+            "agents._shared.arxiv._search_openalex_sync",
+            return_value=[],
+        ), patch(
             "agents._shared.arxiv._search_crossref_sync",
             return_value=[],
         ) as crossref:
