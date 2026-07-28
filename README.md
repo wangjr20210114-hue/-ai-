@@ -97,7 +97,7 @@ Preview 流程：EdgeOne 控制台 → Makers → 项目 → 构建部署 → �
 
 ### 1.5 微信小程序开发与预览
 
-小程序位于 `miniapp/`，当前开发分支为 `feature/wechat-miniapp`。它不是网页套壳，也不复制 Agent 业务：聊天、搜索、记忆、Skills、日程、地图数据、图片、论文和主动提醒继续请求 `https://floris.jlutx.com` 上的现有 Makers 路由；小程序只负责微信平台适配。跨端共用的会话 ID、SSE、请求载荷、结构化卡和事件协议位于 `packages/floris-contracts/`。
+小程序位于 `miniapp/`，当前开发分支为 `feature/wechat-miniapp`。它不是网页套壳，也不复制 Agent 业务：聊天、搜索、记忆、Skills、日程、地图数据、图片、论文和主动提醒继续请求 `TARO_APP_API_BASE_URL` 所指向的现有 Makers 环境（开发时为该分支 Preview，上线时为小程序自己的稳定 HTTPS 入口）；小程序只负责微信平台适配。跨端共用的会话 ID、SSE、请求载荷、结构化卡和事件协议位于 `packages/floris-contracts/`。
 
 平台复用规则：
 
@@ -112,13 +112,13 @@ Preview 流程：EdgeOne 控制台 → Makers → 项目 → 构建部署 → �
 | PDF | `wx.chooseMessageFile`、Makers Blob、`wx.openDocument` |
 | 本地会话缓存 | `wx.setStorageSync`；Makers Conversation/Checkpointer 仍是服务端事实源 |
 | Markdown | 成熟 `marked` 解析器 + 小程序原生 `rich-text` |
-| 主动提醒 | 页面打开立即刷新、前台每 10 分钟复用 Proactive Agent 检查；处理/稍后/忽略继续写入 Makers |
+| 主动提醒 | 页面打开立即刷新、前台每 10 分钟复用 Proactive Agent 检查；处理/稍后/忽略、多步骤工作流与持久偏好继续写入 Makers |
 
 首次配置：
 
 1. 在微信公众平台注册个人小程序，复制 AppID，并在“开发管理 → 开发设置”取得 AppSecret。
 2. 在 EdgeOne Makers 的 Preview 环境添加 `WECHAT_MINIAPP_APP_ID`、`WECHAT_MINIAPP_APP_SECRET`、`MINIAPP_SESSION_SECRET`；三者均设为 Secret。
-3. 微信公众平台 → 开发管理 → 开发设置 → 服务器域名，把 `https://floris.jlutx.com` 加入 `request`、`downloadFile` 合法域名；Makers Blob 预签名上传所返回的实际 HTTPS 域名还需加入 `request` 合法域名。
+3. 微信公众平台 → 开发管理 → 开发设置 → 服务器域名，把当前 `TARO_APP_API_BASE_URL` 的 HTTPS 主机加入 `request`、`downloadFile` 合法域名；Makers Blob 预签名上传所返回的实际 HTTPS 域名还需加入 `request` 合法域名。开发 Preview 与正式入口域名不同，两者都要分别登记。
 4. 复制 `miniapp/project.private.config.example.json` 为 `miniapp/project.private.config.json`，只把其中 AppID 换成真实值。该文件已被 Git 忽略。
 5. 执行：
 
@@ -137,6 +137,8 @@ npm --prefix miniapp run preflight -- --api <当前 feature/wechat-miniapp Previ
 未配置真实 AppID 与上述三个 Makers Secret 时，代码仍可自动测试和构建，但 `touristappid` 不能完成真实 `wx.login` 闭环。小程序不使用 `web-view`，因此个人主体不受网页套壳能力限制。
 
 微信原生 `openDocument` 负责可靠的 PDF 查看，但它不提供正文抽取 API。小程序论文助读因此复用系统阅读器的复制能力与现有 Reader Agent：用户在原生预览中复制段落，回到助读页粘贴后即可流式翻译、总结、解释、公式分析、术语提取或问答，结果仍持久保存到 Makers 阅读库。这里没有为了“自动抽取”再内置一套 PDF 解析器；网页端已有的完整 PDF.js 助读保持不变。
+
+结构化副作用也不在小程序重写：日程确认卡展开现有 Agent 返回的新增、修改、删除与冲突提醒；腾讯会议卡复用 `update_meeting_action`，通过微信原生日期/时间 `picker` 补齐信息、由 Makers 再校验冲突，最后才允许确认。主动服务页直接呈现现有 Proactive Agent 的待确认/进行中工作流，完成、跳过、失败、重试、补救与取消都调用同一组持久化操作。
 
 ## 2. 对话、流式输出与会话恢复
 

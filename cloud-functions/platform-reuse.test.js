@@ -81,6 +81,9 @@ test('miniapp reuses native WeChat capabilities and shared Agent protocols', asy
   assert.match(makersImage, /Taro\.openSetting/);
   assert.match(actionCard, /<Swiper/);
   assert.match(actionCard, /imageVersionsFrom/);
+  assert.match(actionCard, /update_meeting_action/);
+  assert.match(actionCard, /保存并检查冲突/);
+  assert.match(actionCard, /action\.payload\.changes/);
   assert.match(images, /result\.versions/);
   assert.match(preflight, /project\.private\.config\.json/);
   assert.match(preflight, /\/wechat-auth/);
@@ -89,6 +92,9 @@ test('miniapp reuses native WeChat capabilities and shared Agent protocols', asy
   assert.match(proactive, /'mark_read'/);
   assert.match(proactive, /'snooze'/);
   assert.match(proactive, /'dismiss'/);
+  assert.match(proactive, /'confirm_workflow'/);
+  assert.match(proactive, /'complete_workflow_step'/);
+  assert.match(proactive, /'cancel_workflow'/);
   assert.match(reader, /startReaderStream/);
   assert.match(contracts, /createClarificationPayload/);
   assert.doesNotMatch(chat + stream, /WebSocket|EventSource/);

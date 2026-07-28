@@ -13,6 +13,7 @@ import {
   type WorkspaceAction,
 } from '@floris/contracts'
 import MessageBubble from '@/components/MessageBubble'
+import type { WorkspaceOperation } from '@/components/WorkspaceActionCard'
 import { startChatStream, type ActiveChatStream } from '@/services/chat'
 import {
   bootstrap,
@@ -26,6 +27,7 @@ import { addPdfToReading, imageDataUrl, uploadToMakers } from '@/services/files'
 import {
   activeProactiveNotifications,
   proactiveOperation,
+  proactiveWorkflowHeadline,
   type ProactiveNotification,
 } from '@/services/proactive'
 import { apiRequest } from '@/services/request'
@@ -59,6 +61,7 @@ export default function IndexPage() {
   const [statusText, setStatusText] = useState('')
   const [actionBusy, setActionBusy] = useState('')
   const [reminders, setReminders] = useState<ProactiveNotification[]>([])
+  const [workflowHint, setWorkflowHint] = useState('')
   const [reminderIndex, setReminderIndex] = useState(0)
   const [language, setLanguage] = useState(String(Taro.getStorageSync('floris-language') || 'zh-CN'))
   const activeStream = useRef<ActiveChatStream | null>(null)
@@ -81,6 +84,7 @@ export default function IndexPage() {
     try {
       const data = await proactiveOperation(targetConversationId, operation)
       setReminders(activeProactiveNotifications(data.notifications || []))
+      setWorkflowHint(proactiveWorkflowHeadline(data.workflows || []))
       setReminderIndex(0)
     } catch {
       // Reminders never block chat.
@@ -238,6 +242,7 @@ export default function IndexPage() {
                 },
               }).then((state) => {
                 setReminders(activeProactiveNotifications(state.notifications || []))
+                setWorkflowHint(proactiveWorkflowHeadline(state.workflows || []))
               }).catch(() => undefined)
             }
             void runStream(createLocationRetryPayload(payload, location, request), assistantId)
@@ -332,7 +337,8 @@ export default function IndexPage() {
 
   const executeAction = async (
     action: WorkspaceAction,
-    operation: 'activate_map' | 'confirm_action' | 'cancel_action',
+    operation: WorkspaceOperation,
+    input: Record<string, unknown> = {},
   ) => {
     if (actionBusy) return
     setActionBusy(action.id)
@@ -340,6 +346,7 @@ export default function IndexPage() {
       const result = await workspaceOperation(conversationId, operation, {
         action_id: action.id,
         version: action.version,
+        ...input,
       })
       if (result.action) {
         publish((current) => current.map((message) => ({
@@ -393,7 +400,7 @@ export default function IndexPage() {
   }
 
   const reminder = reminders[reminderIndex]
-  const reminderText = String(reminder?.body || reminder?.title || '')
+  const reminderText = String(reminder?.body || reminder?.title || workflowHint || '')
 
   if (error && !ready) {
     return <View className='center-state'>

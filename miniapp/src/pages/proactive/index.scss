@@ -3,8 +3,10 @@
 .proactive-toolbar text { font-size: 30px; font-weight: 720; }
 .proactive-toolbar button { width: auto; margin: 0; border-radius: 18px; color: #8e552f; background: #fff; font-size: 23px; }
 .proactive-empty { display: block; padding: 25vh 30px 0; color: #94725e; text-align: center; }
-.proactive-item { margin-bottom: 18px; padding: 24px; border-radius: 24px; background: rgba(255,255,255,.9); box-shadow: 0 12px 34px rgba(139,80,39,.08); }
+.proactive-item, .workflow-item { margin-bottom: 18px; padding: 24px; border-radius: 24px; background: rgba(255,255,255,.9); box-shadow: 0 12px 34px rgba(139,80,39,.08); }
 .proactive-item.priority-high { border-left: 6px solid #dc7553; }
+.workflow-item { border: 1px solid rgba(224, 125, 64, .2); }
+.workflow-eyebrow { display: block; margin-bottom: 8px; color: #cc7139; font-size: 20px; font-weight: 650; }
 .proactive-title { display: block; font-size: 28px; font-weight: 700; }
 .proactive-body { display: block; margin-top: 10px; color: #765946; font-size: 24px; line-height: 1.55; }
 .proactive-time { display: block; margin-top: 10px; color: #aa8b76; font-size: 20px; }
@@ -12,3 +14,10 @@
 .proactive-actions button { flex: 1; margin: 0; padding: 0 8px; border-radius: 16px; font-size: 22px; }
 .proactive-handle { color: #fff; background: linear-gradient(135deg,#f29a53,#df7132); }
 .proactive-later, .proactive-ignore { color: #79513a; background: #fff3e8; }
+.workflow-step { margin-top: 16px; padding: 18px; border-radius: 18px; background: #fff6ed; }
+.workflow-step-title { display: block; color: #70442d; font-size: 25px; font-weight: 680; }
+.workflow-step-body { display: block; margin-top: 7px; color: #86634e; font-size: 22px; line-height: 1.5; }
+.workflow-error { display: block; margin-top: 8px; color: #c95745; font-size: 21px; }
+.workflow-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.workflow-actions button { width: auto; min-width: 142px; flex: 1; margin: 0; border-radius: 16px; color: #7a4e34; background: #fff1e5; font-size: 21px; }
+.workflow-actions .workflow-cancel { color: #a64f45; background: #fff0ee; }

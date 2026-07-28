@@ -4,13 +4,18 @@ import MarkdownMessage from './MarkdownMessage'
 import ClarificationCard from './ClarificationCard'
 import WorkspaceActionCard from './WorkspaceActionCard'
 import PaperResults from './PaperResults'
+import type { WorkspaceOperation } from './WorkspaceActionCard'
 
 interface Props {
   message: ChatMessage
   statusText?: string
   actionBusy?: string
   onClarification: (message: ChatMessage, values: Record<string, string | string[]>) => void
-  onAction: (action: WorkspaceAction, operation: 'activate_map' | 'confirm_action' | 'cancel_action') => void
+  onAction: (
+    action: WorkspaceAction,
+    operation: WorkspaceOperation,
+    input?: Record<string, unknown>,
+  ) => void
   onFollowUp: (value: string) => void
   onRetry: (message: ChatMessage) => void
 }

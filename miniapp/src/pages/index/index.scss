@@ -76,6 +76,22 @@
 .action-buttons { display: flex; gap: 12px; }
 .action-buttons button { flex: 1; }
 .action-status { display: block; margin-top: 16px; color: #799251; }
+.action-place-list { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; color: #73523f; font-size: 22px; line-height: 1.5; }
+.action-detail-row { display: flex; gap: 12px; margin-top: 14px; padding: 14px; border-radius: 16px; background: rgba(255,255,255,.72); }
+.action-operation { flex: none; align-self: flex-start; padding: 5px 9px; border-radius: 10px; color: #fff; background: #e58645; font-size: 19px; line-height: 1.2; }
+.action-operation.operation-update { background: #718cb3; }
+.action-operation.operation-delete { background: #bc675d; }
+.action-detail-copy { flex: 1; min-width: 0; }
+.action-detail-title { display: block; color: #543625; font-size: 24px; font-weight: 650; }
+.action-detail-meta { display: block; margin-top: 5px; color: #8b6954; font-size: 20px; line-height: 1.45; }
+.action-warning, .action-error { display: block; margin-top: 12px; padding: 12px 14px; border-radius: 13px; color: #a65e37; background: #fff0e2; font-size: 21px; line-height: 1.45; }
+.action-error { color: #aa4d42; background: #fff0ee; }
+.meeting-editor { margin-top: 16px; }
+.meeting-subject { min-height: 68px; box-sizing: border-box; padding: 14px 18px; border-radius: 16px; background: #fff; border: 1px solid rgba(163, 97, 50, .18); }
+.meeting-time-grid { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+.meeting-warning-choice { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; padding: 12px; border-radius: 14px; color: #8b5c3f; background: #fff0e2; font-size: 21px; line-height: 1.45; }
+.meeting-result { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; color: #6d4c39; font-size: 23px; }
+.meeting-result .secondary-button { margin-top: 2px; }
 .generated-image { width: 100%; margin-top: 18px; border-radius: 18px; }
 .image-version-gallery { margin-top: 18px; }
 .image-version-swiper { height: 660px; overflow: hidden; border-radius: 18px; background: rgba(121, 86, 62, .06); }

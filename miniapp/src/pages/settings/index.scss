@@ -14,3 +14,14 @@
 .account-note { padding: 18px 8px 60px; display: flex; flex-direction: column; gap: 8px; color: #9a7964; font-size: 21px; }
 .workspace-links { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .workspace-links button { margin: 0; color: #a05d35; background: #fff3e7; border-radius: 18px; font-size: 24px; }
+.motto-heading { margin-top: 18px; display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.motto-heading > view { flex: 1; min-width: 0; }
+.motto-title { display: block; font-size: 25px; font-weight: 650; }
+.motto-heading .section-hint { margin-bottom: 8px; }
+.motto-count { flex: none; color: #a07b63; font-size: 21px; }
+.motto-list { display: flex; flex-direction: column; gap: 12px; }
+.motto-row { display: flex; align-items: center; gap: 10px; }
+.motto-row input { min-height: 72px; flex: 1; padding: 0 18px; border: 1px solid rgba(139, 85, 45, .13); border-radius: 16px; background: #fffaf5; font-size: 23px; box-sizing: border-box; }
+.motto-row button { width: 72px; min-width: 72px; height: 72px; margin: 0; padding: 0; border-radius: 16px; color: #a85e45; background: #fff0eb; font-size: 30px; line-height: 72px; }
+.motto-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.motto-actions button { width: auto; flex: 1; min-width: 174px; margin: 0; border-radius: 16px; color: #8d552f; background: #fff1e4; font-size: 22px; }
