@@ -134,6 +134,8 @@ npm --prefix miniapp run preflight -- --api <当前 feature/wechat-miniapp Previ
 
 6. 微信开发者工具 → 导入项目，选择仓库的 `miniapp/` 目录；`miniprogramRoot` 已指向 `dist/`。先在 Preview 后端验证登录、流式问答、停止生成、位置授权、日程确认和图片保存，再上传体验版。
 
+若开发者工具提示“当前地址不在 request 合法域名列表中”，本地联调可在“详情 → 本地设置”勾选“不校验合法域名、web-view（业务域名）、TLS 版本以及 HTTPS 证书”，它只影响本机模拟器；体验版与正式版仍必须按第 3 步登记服务器域名。Preview 地址会随部署变化，不适合作为长期入口；准备真机验收时应给小程序后端绑定稳定 HTTPS 域名，再同时登记为 `request` 与 `downloadFile` 合法域名。
+
 未配置真实 AppID 与上述三个 Makers Secret 时，代码仍可自动测试和构建，但 `touristappid` 不能完成真实 `wx.login` 闭环。小程序不使用 `web-view`，因此个人主体不受网页套壳能力限制。
 
 微信原生 `openDocument` 负责可靠的 PDF 查看，但它不提供正文抽取 API。小程序论文助读因此复用系统阅读器的复制能力与现有 Reader Agent：用户在原生预览中复制段落，回到助读页粘贴后即可流式翻译、总结、解释、公式分析、术语提取或问答，结果仍持久保存到 Makers 阅读库。这里没有为了“自动抽取”再内置一套 PDF 解析器；网页端已有的完整 PDF.js 助读保持不变。
