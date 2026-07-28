@@ -48,7 +48,7 @@ test('personal web owner and wx.login sessions share Makers stores without an ap
 });
 
 test('miniapp reuses native WeChat capabilities and shared Agent protocols', async () => {
-  const [chat, stream, request, location, map, files, makersImage, indexPage, proactive, reader, actionCard, contracts, images] = await Promise.all([
+  const [chat, stream, request, location, map, files, makersImage, indexPage, proactive, reader, actionCard, contracts, images, preflight] = await Promise.all([
     read('miniapp/src/services/chat.ts'),
     read('miniapp/src/services/stream.ts'),
     read('miniapp/src/services/request.ts'),
@@ -62,6 +62,7 @@ test('miniapp reuses native WeChat capabilities and shared Agent protocols', asy
     read('miniapp/src/components/WorkspaceActionCard.tsx'),
     read('packages/floris-contracts/src/chat.ts'),
     read('packages/floris-contracts/src/image.ts'),
+    read('miniapp/scripts/preflight.mjs'),
   ]);
   assert.match(stream, /enableChunked:\s*true/);
   assert.match(stream, /onChunkReceived/);
@@ -81,6 +82,10 @@ test('miniapp reuses native WeChat capabilities and shared Agent protocols', asy
   assert.match(actionCard, /<Swiper/);
   assert.match(actionCard, /imageVersionsFrom/);
   assert.match(images, /result\.versions/);
+  assert.match(preflight, /project\.private\.config\.json/);
+  assert.match(preflight, /\/wechat-auth/);
+  assert.match(preflight, /jscode2session/);
+  assert.doesNotMatch(preflight, /APP_SECRET\s*=/);
   assert.match(proactive, /'mark_read'/);
   assert.match(proactive, /'snooze'/);
   assert.match(proactive, /'dismiss'/);

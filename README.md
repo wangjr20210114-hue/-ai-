@@ -70,8 +70,8 @@ edgeone makers dev
 | 可选降级 | `DASHSCOPE_API_KEY`、`GEMINI_API_KEY` | 视觉理解后备 |
 | 可选 Skill | `TENCENT_MEETING_TOKEN` | 腾讯会议个人 AI Skill；未配置时不向模型暴露会议工具 |
 | 数据管理 | `DATA_CLEAR_PASSWORD` | 设置页“清空数据库”的服务端校验密码；真实值只保存在 Makers |
-| 小程序必需 | `WECHAT_MINIAPP_APP_ID`、`WECHAT_MINIAPP_APP_SECRET` | `wx.login` 临时 code 的服务端换取；AppSecret 只保存在 Makers |
-| 小程序必需 | `MINIAPP_SESSION_SECRET` | 签发小程序短期会话令牌；应使用独立高熵随机值且只保存在 Makers |
+| 小程序后端（仅启用小程序时） | `WECHAT_MINIAPP_APP_ID`、`WECHAT_MINIAPP_APP_SECRET` | Preview 的 `/wechat-auth` 用它们交换 `wx.login` 临时 code；网页客户端不读取，AppSecret 只保存在 Makers |
+| 小程序后端（仅启用小程序时） | `MINIAPP_SESSION_SECRET` | Preview 后端签发小程序短期会话令牌；网页客户端不需要，应使用独立高熵随机值且只保存在 Makers |
 | 性能调节 | `CAPABILITY_PLAN_TIMEOUT_SECONDS` | 搜索/工具语义规划时限 |
 | 性能调节 | `RICH_SEARCH_PROVIDER_TIMEOUT_SECONDS` | SearchPro 调用时限 |
 | 性能调节 | `RICH_SEARCH_MEDIA_TIMEOUT_SECONDS` | 网页媒体提取时限 |
@@ -127,7 +127,10 @@ npm --prefix miniapp ci
 npm --prefix miniapp run typecheck
 npm --prefix miniapp test
 npm --prefix miniapp run build:weapp
+npm --prefix miniapp run preflight -- --api <当前 feature/wechat-miniapp Preview 地址>
 ```
+
+`preflight` 不读取或打印 AppSecret：它只校验本地真实 AppID、构建产物、HTTPS，以及 Preview `/wechat-auth` 是否已经走到微信官方 `jscode2session`。返回“微信登录尚未配置”时，不要继续真机测试，先补齐三项 Makers Secret 并从 `feature/wechat-miniapp` 重新部署 Preview。
 
 6. 微信开发者工具 → 导入项目，选择仓库的 `miniapp/` 目录；`miniprogramRoot` 已指向 `dist/`。先在 Preview 后端验证登录、流式问答、停止生成、位置授权、日程确认和图片保存，再上传体验版。
 
