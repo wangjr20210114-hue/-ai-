@@ -236,6 +236,8 @@ export default function LibraryPage() {
         ].map((folder) => <View
           className={`folder-tab ${selectedFolder === folder.id ? 'is-active' : ''}`}
           key={folder.id}
+          hoverClass='floris-press'
+          hoverStayTime={80}
           onClick={() => setSelectedFolder(folder.id)}
         >{folder.name}</View>)}
       </View>

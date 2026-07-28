@@ -443,15 +443,12 @@ export default function IndexPage() {
   }
 
   return <View className='chat-page'>
-    <View className='safe-top' />
-    <View className='app-header'>
-      <View className='brand'>
-        <Image className='brand-avatar' src={apiUrl('/floris-avatar.png')} />
-        <Text className='brand-title'>FLORIS</Text>
-      </View>
+    <View className='chat-context-bar'>
       <View
         className={`reminder-ticker ${interactionLocked ? 'is-disabled' : ''}`}
         role='button'
+        hoverClass='floris-press'
+        hoverStayTime={80}
         aria-label={translate('openProactive', {}, language)}
         onClick={() => {
           if (!interactionLocked) void Taro.switchTab({ url: '/pages/proactive/index' })
@@ -459,12 +456,16 @@ export default function IndexPage() {
       >
         <Text>{reminderText || translate('gentleReminderFallback', {}, language)}</Text>
       </View>
-      <View className='header-actions'>
-        <Button className='icon-button' aria-label={translate('createConversation', {}, language)} disabled={interactionLocked} onClick={createNew}>＋</Button>
-        <Button className='icon-button' aria-label={translate('openHistory', {}, language)} disabled={interactionLocked} onClick={() => Taro.navigateTo({ url: '/pages/history/index' })}>☰</Button>
-        <Button className='icon-button' aria-label={translate('openReading', {}, language)} disabled={interactionLocked} onClick={() => Taro.switchTab({ url: '/pages/library/index' })}>▤</Button>
-        <Button className='icon-button' aria-label={translate('openAppSettings', {}, language)} disabled={interactionLocked} onClick={() => Taro.switchTab({ url: '/pages/settings/index' })}>⚙</Button>
-      </View>
+    </View>
+    <View className='conversation-toolbar'>
+      <Button disabled={interactionLocked} onClick={createNew}>
+        <Text className='toolbar-icon'>＋</Text>
+        <Text>{translate('createConversation', {}, language)}</Text>
+      </Button>
+      <Button disabled={interactionLocked} onClick={() => Taro.navigateTo({ url: '/pages/history/index' })}>
+        <Text className='toolbar-icon'>⌁</Text>
+        <Text>{translate('openHistory', {}, language)}</Text>
+      </Button>
     </View>
 
     <ScrollView
@@ -482,7 +483,8 @@ export default function IndexPage() {
           translate('suggestionTrip', {}, language),
           translate('suggestionCat', {}, language),
         ].map((item) =>
-          <View key={item} className='suggestion' onClick={() => void sendText(item)}>{item}</View>)}
+          <View key={item} className='suggestion' hoverClass='floris-card-press'
+            hoverStayTime={80} onClick={() => void sendText(item)}>{item}</View>)}
       </View> : null}
       {messages.map((message) => <MessageBubble
         key={message.id}

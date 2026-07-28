@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import Taro from '@tarojs/taro'
+import { useMemo, useState } from 'react'
+import Taro, { useDidShow } from '@tarojs/taro'
 import { Button, Input, Picker, Slider, Switch, Text, View } from '@tarojs/components'
 import type { MiniappSession } from '@floris/contracts'
 import { capabilityEnabled } from '@floris/contracts'
@@ -11,6 +11,12 @@ import {
 } from '@/services/proactive'
 import { apiRequest } from '@/services/request'
 import { ensureSession } from '@/services/session'
+import {
+  getProviderUsage,
+  meteredProviderValue,
+  type ProviderUsageSummary,
+} from '@/services/provider-usage'
+import { clearMiniappLocalData, resetApplicationData } from '@/services/reset'
 import {
   LANGUAGE_KEY,
   readLanguage,
@@ -28,6 +34,7 @@ type Skill = {
   configured?: boolean
   external?: boolean
   requires?: string[]
+  capabilities?: string[]
   name?: Record<string, string>
   description?: Record<string, string>
 }
@@ -59,13 +66,18 @@ export default function SettingsPage() {
   const [language, setLanguage] = useState<Language>(readLanguage())
   const [proactive, setProactive] = useState<ProactiveState>({})
   const [mottos, setMottos] = useState<string[]>([])
+  const [providerUsage, setProviderUsage] = useState<ProviderUsageSummary | null>(null)
+  const [providerUsageLoading, setProviderUsageLoading] = useState(false)
+  const [providerUsageError, setProviderUsageError] = useState(false)
+  const [resetVisible, setResetVisible] = useState(false)
+  const [resetPassword, setResetPassword] = useState('')
   const preferences = state.skill_preferences || {}
   const skills = state.skill_catalog || []
   const searchEnabled = capabilityEnabled(skills, preferences, 'web_search')
   const mapsEnabled = capabilityEnabled(skills, preferences, 'places')
 
   const load = async () => {
-    setLoading(true)
+    if (!session) setLoading(true)
     setError('')
     try {
       const nextSession = await ensureSession()
@@ -83,6 +95,7 @@ export default function SettingsPage() {
       setState(data)
       setProactive(proactiveState)
       setMottos((proactiveState.preferences?.fallback_mottos || []).slice(0, 5))
+      void loadProviderUsage(id)
     } catch (reason) {
       setError(String((reason as Error)?.message || reason))
     } finally {
@@ -90,11 +103,54 @@ export default function SettingsPage() {
     }
   }
 
-  useEffect(() => {
-    void Taro.setNavigationBarTitle({ title: translate('navSettings', {}, language) })
-    void updateNativeTabBar(language)
+  useDidShow(() => {
+    const nextLanguage = readLanguage()
+    setLanguage(nextLanguage)
+    void Taro.setNavigationBarTitle({ title: translate('navSettings', {}, nextLanguage) })
+    void updateNativeTabBar(nextLanguage)
     void load()
-  }, [])
+  })
+
+  const loadProviderUsage = async (id = conversationId) => {
+    if (!id || providerUsageLoading) return
+    setProviderUsageLoading(true)
+    setProviderUsageError(false)
+    try {
+      setProviderUsage(await getProviderUsage(id))
+    } catch {
+      setProviderUsageError(true)
+    } finally {
+      setProviderUsageLoading(false)
+    }
+  }
+
+  const clearData = async () => {
+    if (!conversationId || saving) return
+    if (!resetPassword) {
+      void Taro.showToast({ title: translate('dataClearPasswordRequired', {}, language), icon: 'none' })
+      return
+    }
+    const answer = await Taro.showModal({
+      title: translate('dataClearWarningTitle', {}, language),
+      content: translate('dataClearWarningBody', {}, language),
+      confirmText: translate('confirmClearDatabase', {}, language),
+      cancelText: translate('cancel', {}, language),
+      confirmColor: '#c95147',
+    })
+    if (!answer.confirm) return
+    setSaving('reset')
+    try {
+      await resetApplicationData(conversationId, resetPassword)
+      clearMiniappLocalData(language)
+      void Taro.showToast({ title: translate('dataClearSucceeded', {}, language), icon: 'success', duration: 1800 })
+      await ensureSession(true)
+      await Taro.reLaunch({ url: '/pages/index/index' })
+    } catch {
+      void Taro.showToast({ title: translate('dataClearFailed', {}, language), icon: 'none' })
+    } finally {
+      setSaving('')
+    }
+  }
 
   const update = async (operation: string, field: string, payload: Record<string, unknown>) => {
     if (!conversationId || saving) return
@@ -209,6 +265,47 @@ export default function SettingsPage() {
       >
         <View className='picker-row'><Text>{translate('language', {}, language)}</Text><Text>{languageLabels[languageIndex]} 〉</Text></View>
       </Picker>
+    </View>
+
+    <View className='setting-section'>
+      <View className='usage-heading'>
+        <View>
+          <Text className='section-title'>{translate('providerUsage', {}, language)}</Text>
+          <Text className='section-hint'>{translate('providerUsageHint', {}, language)}</Text>
+        </View>
+        <Button
+          className='usage-refresh'
+          loading={providerUsageLoading}
+          disabled={providerUsageLoading}
+          onClick={() => void loadProviderUsage()}
+        >↻</Button>
+      </View>
+      {providerUsage ? <View className='usage-grid'>
+        {[
+          [translate('providerUsageToday', {}, language), providerUsage.usage.daily_tokens],
+          [translate('providerUsageMonth', {}, language), providerUsage.usage.monthly_tokens],
+          [translate('visionTokenUsage', {}, language), meteredProviderValue(providerUsage, 'monthly', 'vision_tokens')],
+          [translate('imageGenerationUsage', {}, language), meteredProviderValue(providerUsage, 'monthly', 'images')],
+          [translate('wsaUsage', {}, language), Number(providerUsage.metering.monthly['wsa.requests'] || 0)],
+          [translate('mapUsage', {}, language), Number(providerUsage.metering.monthly['tencent_maps.requests'] || 0)],
+        ].map(([label, value]) => <View className='usage-card' key={String(label)}>
+          <Text>{label}</Text>
+          <Text>{Number(value).toLocaleString()}</Text>
+        </View>)}
+        {providerUsage.providers.flatMap((provider) => provider.balances.map((balance) => <View
+          className='usage-card'
+          key={`${provider.id}-${balance.currency}`}
+        >
+          <Text>{translate('providerBalance', { provider: provider.id }, language)}</Text>
+          <Text>{balance.currency} {Number(balance.total_balance).toFixed(2)}</Text>
+        </View>))}
+      </View> : null}
+      {providerUsageError ? <Text className='usage-error'>
+        {translate('providerUsageLoadFailed', {}, language)}
+      </Text> : null}
+      {providerUsage ? <Text className='usage-updated'>{translate('providerUsageUpdated', {
+        time: new Date(providerUsage.refreshed_at * 1000).toLocaleString(),
+      }, language)}</Text> : null}
     </View>
 
     <View className='setting-section'>
@@ -475,6 +572,36 @@ export default function SettingsPage() {
         <Button loading={saving === 'proactive-refresh'} disabled={!proactiveEnabled || Boolean(saving)}
           onClick={() => void refreshProactive()}>{translate('checkNow', {}, language)}</Button>
       </View>
+    </View>
+
+    <View className='setting-section danger-section'>
+      <Text className='section-title'>{translate('dataManagement', {}, language)}</Text>
+      <Text className='section-hint'>{translate('dataClearHint', {}, language)}</Text>
+      {!resetVisible ? <Button className='danger-outline' onClick={() => {
+        setResetPassword('')
+        setResetVisible(true)
+      }}>{translate('clearDatabase', {}, language)}</Button> : <View className='reset-editor'>
+        <Text>{translate('dataClearWarningTitle', {}, language)}</Text>
+        <Text>{translate('dataClearWarningBody', {}, language)}</Text>
+        <Input
+          password
+          value={resetPassword}
+          disabled={saving === 'reset'}
+          placeholder={translate('dataClearPasswordPlaceholder', {}, language)}
+          onInput={(event) => setResetPassword(event.detail.value)}
+        />
+        <View>
+          <Button disabled={saving === 'reset'} onClick={() => setResetVisible(false)}>
+            {translate('cancel', {}, language)}
+          </Button>
+          <Button
+            className='danger'
+            loading={saving === 'reset'}
+            disabled={!resetPassword || saving === 'reset'}
+            onClick={() => void clearData()}
+          >{translate('confirmClearDatabase', {}, language)}</Button>
+        </View>
+      </View>}
     </View>
 
     <View className='account-note'>

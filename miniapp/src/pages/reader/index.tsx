@@ -131,7 +131,13 @@ export default function ReaderPage() {
 
   return <View className='reader-page'>
     <View className='reader-toolbar'>
-      {actionLabelKeys.map(([id]) => <View key={id} className={`reader-action ${action === id ? 'active' : ''}`} onClick={() => !running && setAction(id)}>{actionLabel(id)}</View>)}
+      {actionLabelKeys.map(([id]) => <View
+        key={id}
+        className={`reader-action ${action === id ? 'active' : ''}`}
+        hoverClass='floris-press'
+        hoverStayTime={80}
+        onClick={() => !running && setAction(id)}
+      >{actionLabel(id)}</View>)}
     </View>
     <View className='source-panel'>
       <View className='source-header'><Text>{translate('paperText', {}, language)}</Text><Button onClick={() => void paste()}>{translate('pasteClipboard', {}, language)}</Button></View>

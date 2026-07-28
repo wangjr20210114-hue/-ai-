@@ -374,6 +374,8 @@ export default function CalendarPage() {
           {places.map((place) => <View
             className={`place-option ${form.selectedPlace?.place_id === place.place_id ? 'is-selected' : ''}`}
             key={place.place_id}
+            hoverClass='floris-card-press'
+            hoverStayTime={80}
             onClick={() => setForm({
               ...form,
               selectedPlace: place,

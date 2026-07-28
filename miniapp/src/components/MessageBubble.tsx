@@ -40,6 +40,8 @@ export default function MessageBubble({
       {ai && message.content && !message.streaming ? <View
         className='message-copy'
         role='button'
+        hoverClass='floris-press'
+        hoverStayTime={80}
         aria-label={translate('copy')}
         onClick={() => void Taro.setClipboardData({
           data: markdownToPlainText(message.content),
@@ -66,12 +68,14 @@ export default function MessageBubble({
         {(message.followUps || []).map((item) => <ButtonLike key={item} text={item} onClick={() => onFollowUp(item)} />)}
       </View> : null}
       {message.failed
-        ? <View className='retry-button' role='button' onClick={() => onRetry(message)}>{translate('retryGeneration')}</View>
+        ? <View className='retry-button' role='button' hoverClass='floris-press'
+          hoverStayTime={80} onClick={() => onRetry(message)}>{translate('retryGeneration')}</View>
         : null}
     </View>
   </View>
 }
 
 function ButtonLike({ text, onClick }: { text: string; onClick: () => void }) {
-  return <View className='follow-up-chip' role='button' onClick={onClick}>{text}</View>
+  return <View className='follow-up-chip' role='button' hoverClass='floris-card-press'
+    hoverStayTime={80} onClick={onClick}>{text}</View>
 }

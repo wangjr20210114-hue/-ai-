@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Taro from '@tarojs/taro'
-import { Map, Text, View } from '@tarojs/components'
+import { Button, Map, Text, View } from '@tarojs/components'
 import { getOrCreateConversationId } from '@/services/conversations'
 import {
   planOrderedRoute,
@@ -9,6 +9,7 @@ import {
 } from '@/services/routes'
 import { apiUrl } from '@/services/config'
 import { ensureSession } from '@/services/session'
+import { requestCurrentLocation } from '@/services/location'
 import { readLanguage, translate, type Language } from '@/i18n'
 import './index.scss'
 
@@ -24,6 +25,7 @@ export default function MapPage() {
   const [mapState] = useState<MapState>(() => Taro.getStorageSync('floris.miniapp.active-map.v1') || {})
   const [route, setRoute] = useState<PlannedRoute | null>(null)
   const [routeError, setRouteError] = useState('')
+  const [locating, setLocating] = useState(false)
   const [language] = useState<Language>(readLanguage())
   const places = mapState.places || []
   const center = places[0] || { latitude: 39.9042, longitude: 116.4074 }
@@ -74,19 +76,56 @@ export default function MapPage() {
     }]
     : []
 
+  const moveToCurrentLocation = async () => {
+    if (locating) return
+    setLocating(true)
+    try {
+      const result = await requestCurrentLocation()
+      if (result.location) {
+        Taro.createMapContext('floris-map').moveToLocation({
+          latitude: result.location.latitude,
+          longitude: result.location.longitude,
+        })
+        return
+      }
+      if (result.request.state === 'denied') {
+        const answer = await Taro.showModal({
+          title: translate('locationPermissionTitle', {}, language),
+          content: translate('locationPermissionBody', {}, language),
+          confirmText: translate('openSettings', {}, language),
+          cancelText: translate('cancel', {}, language),
+        })
+        if (answer.confirm) await Taro.openSetting()
+        return
+      }
+      void Taro.showToast({ title: translate('locationUnavailable', {}, language), icon: 'none' })
+    } finally {
+      setLocating(false)
+    }
+  }
+
   return <View className='map-page'>
-    <Map
-      className='native-map'
-      latitude={Number(center.latitude)}
-      longitude={Number(center.longitude)}
-      scale={12}
-      markers={markers}
-      includePoints={places}
-      polyline={polyline}
-      showLocation
-      enableTraffic
-      onError={() => undefined}
-    />
+    <View className='map-stage'>
+      <Map
+        id='floris-map'
+        className='native-map'
+        latitude={Number(center.latitude)}
+        longitude={Number(center.longitude)}
+        scale={12}
+        markers={markers}
+        includePoints={places}
+        polyline={polyline}
+        showLocation
+        enableTraffic
+        onError={() => undefined}
+      />
+      <Button className='locate-button' loading={locating}
+        aria-label={translate('showMyLocation', {}, language)}
+        onClick={() => void moveToCurrentLocation()}>
+        <Text>⌖</Text>
+        <Text>{translate(locating ? 'locating' : 'showMyLocation', {}, language)}</Text>
+      </Button>
+    </View>
     <View className='map-sheet'>
       <Text className='map-title'>{mapState.title || translate('relatedPlaces', {}, language)}</Text>
       {route ? <Text className='route-summary'>{translate('routeSummary', {

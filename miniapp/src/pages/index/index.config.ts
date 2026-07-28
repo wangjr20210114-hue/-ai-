@@ -1,4 +1,4 @@
 export default definePageConfig({
-  navigationStyle: 'custom',
+  navigationBarTitleText: 'FLORIS',
   disableScroll: true,
 })
