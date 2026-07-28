@@ -22,7 +22,12 @@ const check = (ok, label, detail) => {
 }
 
 const project = JSON.parse(await readFile(resolve(miniappRoot, 'project.config.json'), 'utf8'))
-check(project.miniprogramRoot === './dist', '微信工程输出目录', String(project.miniprogramRoot || '未设置'))
+const miniprogramRoot = String(project.miniprogramRoot || '').replace(/^\.\//, '').replace(/\/+$/, '')
+check(
+  miniprogramRoot === 'dist',
+  '微信工程输出目录',
+  miniprogramRoot === 'dist' ? 'dist/' : String(project.miniprogramRoot || '未设置'),
+)
 
 let privateConfig = null
 try {
@@ -31,10 +36,15 @@ try {
   // The private file is intentionally ignored by Git.
 }
 const appId = String(privateConfig?.appid || '').trim()
+const validAppId = /^wx[0-9A-Za-z]{16}$/.test(appId)
 check(
-  /^wx[0-9A-Za-z]{16}$/.test(appId),
+  validAppId,
   '真实小程序 AppID',
-  appId ? '格式不正确' : '缺少 miniapp/project.private.config.json',
+  validAppId
+    ? '格式有效'
+    : appId
+      ? '格式不正确'
+      : '缺少 miniapp/project.private.config.json',
 )
 
 let built = true
