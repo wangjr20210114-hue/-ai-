@@ -1,8 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { CheckIcon, CopyIcon, ImageIcon } from 'tdesign-icons-react';
 import { toBlob } from 'html-to-image';
-import { useAppDispatch, useAppState } from '../../store/appState';
+import { useAppDispatch } from '../../store/appState';
 import type { ChatMessage, ClarificationPrompt, TravelPlan, SkillInfo, MeetingResult, ScheduleItem, WorkspaceAction } from '../../types';
 import type { ChatClient } from '../../services/chatClient';
 import { proactiveOperation, workspaceOperation } from '../../services/api';
@@ -21,7 +21,7 @@ import {
   clarificationSubmissionText,
 } from './clarificationSubmission';
 import { loadProactiveDocumentContext } from '../../services/proactiveDocument';
-import type { ProactiveNotification } from '../../types';
+import type { ProactiveNotification, ProactiveState } from '../../types';
 import { markdownToPlainText } from '../common/richContent';
 import { getStoredLanguage, translate, useLanguage } from '../../i18n';
 import type { AssistantChainPosition } from './assistantMessageChain';
@@ -31,6 +31,15 @@ interface Props {
   message: ChatMessage;
   client: React.RefObject<ChatClient | null>;
   assistantChainPosition?: AssistantChainPosition;
+  // List-derived values passed as props so a memoized bubble only re-renders
+  // when something it actually displays changes (e.g. not on every streamed
+  // token of a later message).
+  isLastAiMessage: boolean;
+  clarificationAnswered: boolean;
+  previousUserMessage?: ChatMessage;
+  generationActive: boolean;
+  conversationId: string;
+  proactive: ProactiveState | null;
 }
 
 function imageGroup(action: WorkspaceAction): string {
@@ -104,13 +113,14 @@ function ClarificationCard({
   messageId,
   client,
   answered,
+  generationActive,
 }: {
   clarification: ClarificationPrompt;
   messageId: string;
   client: React.RefObject<ChatClient | null>;
   answered: boolean;
+  generationActive: boolean;
 }) {
-  const { messages } = useAppState();
   const { t } = useLanguage();
   const [values, setValues] = useState<Record<string, string | string[]>>({});
   const [activeIndex, setActiveIndex] = useState(0);
@@ -120,7 +130,6 @@ function ClarificationCard({
   const fields = clarification.fields;
   const activeField = fields[Math.min(activeIndex, Math.max(0, fields.length - 1))];
   const setValue = (id: string, value: string | string[]) => setValues((current) => ({ ...current, [id]: value }));
-  const generationActive = messages.some((item) => item.streaming);
   const fieldComplete = (field: ClarificationPrompt['fields'][number]) => {
     if (!field.required) return true;
     const value = values[field.id];
@@ -366,7 +375,17 @@ function ImageCreationProgress({ message }: { message: ChatMessage }) {
 }
 
 /** 单条消息气泡。AI 消息下方根据 skill.intent 渲染不同卡片。 */
-export default function MessageBubble({ message, client, assistantChainPosition = 'single' }: Props) {
+function MessageBubble({
+  message,
+  client,
+  assistantChainPosition = 'single',
+  isLastAiMessage,
+  clarificationAnswered,
+  previousUserMessage,
+  generationActive,
+  conversationId,
+  proactive,
+}: Props) {
   const isUser = message.role === 'user';
   const isAssistantChain = !isUser && assistantChainPosition !== 'single';
   const isAssistantChainTail = assistantChainPosition === 'single' || assistantChainPosition === 'end';
@@ -374,16 +393,7 @@ export default function MessageBubble({ message, client, assistantChainPosition 
   const [followUpWidth, setFollowUpWidth] = useState<number>();
   const dispatch = useAppDispatch();
   const { t } = useLanguage();
-  const { conversationId, messages, proactive } = useAppState();
-  // 追问只在最后一条 AI 消息显示
-  const isLastAIMessage = !isUser && messages[messages.length - 1]?.id === message.id;
-  const messageIndex = messages.findIndex((item) => item.id === message.id);
-  const clarificationAnswered = Boolean(message.clarification)
-    && (Boolean(message.clarificationAnswered)
-      || messages.slice(messageIndex + 1).some((item) => item.role === 'user'));
-  const previousUserMessage = messageIndex > 0
-    ? [...messages.slice(0, messageIndex)].reverse().find((item) => item.role === 'user')
-    : undefined;
+  // 追问只在最后一条 AI 消息显示（由列表层判定并以 props 注入）
 
   // 旅游状态
   const [travelPlan, setTravelPlan] = useState<TravelPlan | null>(message.travelPlanData || null);
@@ -515,7 +525,7 @@ export default function MessageBubble({ message, client, assistantChainPosition 
   };
 
   const retryFailedAnswer = async () => {
-    if (!previousUserMessage || retryingAnswer || messages.some((item) => item.streaming)) return;
+    if (!previousUserMessage || retryingAnswer || generationActive) return;
     if (!client.current) {
       dispatch({ type: 'SET_DRAFT', payload: previousUserMessage.content });
       MessagePlugin.warning(t('connectionNotReady'));
@@ -826,7 +836,7 @@ export default function MessageBubble({ message, client, assistantChainPosition 
                 searchMeta={markdownRender.searchMeta}
                 streaming={markdownRender.streaming}
               />}
-              {message.clarification && <ClarificationCard clarification={message.clarification} messageId={message.id} client={client} answered={clarificationAnswered} />}
+              {message.clarification && <ClarificationCard clarification={message.clarification} messageId={message.id} client={client} answered={clarificationAnswered} generationActive={generationActive} />}
               {message.proactive && proactive && <div className="proactive-conversation-actions">
                 {(proactive.notifications || []).filter((item) => item.status !== 'dismissed').slice(0, 3).map((item) => <div className="proactive-conversation-item" key={item.id}>
                   <span>{item.title}</span>
@@ -865,7 +875,7 @@ export default function MessageBubble({ message, client, assistantChainPosition 
                 <button
                   type="button"
                   className="chat-retry-button"
-                  disabled={retryingAnswer || messages.some((item) => item.streaming)}
+                  disabled={retryingAnswer || generationActive}
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={() => { void retryFailedAnswer(); }}
                 >
@@ -1078,7 +1088,7 @@ export default function MessageBubble({ message, client, assistantChainPosition 
         {/* 搜索结果不再单独展示卡片，已由 AI 自然穿插在 Markdown 回答中 */}
 
         {/* === 追问建议（只在最后一条 AI 消息显示） === */}
-        {!isUser && !message.streaming && isLastAIMessage && message.followUps && message.followUps.length > 0 && (
+        {!isUser && !message.streaming && isLastAiMessage && message.followUps && message.followUps.length > 0 && (
           <div className="followup-section answer-followups" style={followUpWidth ? { width: followUpWidth } : undefined}>
             <div className="followup-label">{t('followUpLabel')}</div>
             <div className="followup-list">
@@ -1094,3 +1104,7 @@ export default function MessageBubble({ message, client, assistantChainPosition 
     </div>
   );
 }
+
+// Streaming tokens arrive many times per second. Unchanged bubbles keep
+// stable props, so memo skips their reconciliation entirely.
+export default memo(MessageBubble);

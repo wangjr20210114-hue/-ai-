@@ -17,7 +17,13 @@ const THEME_KEY = 'travel-theme';
 
 function initialTheme(): ThemeMode {
   const saved = (typeof localStorage !== 'undefined' && localStorage.getItem(THEME_KEY)) as ThemeMode | null;
-  return saved === 'dark' || saved === 'light' ? saved : 'light';
+  if (saved === 'dark' || saved === 'light') return saved;
+  // First visit: follow the OS appearance until the user picks a theme.
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    return 'dark';
+  }
+  return 'light';
 }
 
 export interface AppState {

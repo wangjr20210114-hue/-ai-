@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import MarkdownRenderer from './MarkdownRenderer';
+import MarkdownRenderer, { loadMarkdownEnhancements } from './MarkdownRenderer';
 import type { SearchMeta } from '../../types';
 import { LanguageProvider } from '../../i18n';
 
@@ -17,7 +17,9 @@ const searchMeta: SearchMeta = {
 };
 
 describe('MarkdownRenderer', () => {
-  it('renders fenced code as a bounded language-labelled block', () => {
+  it('renders fenced code as a bounded language-labelled block', async () => {
+    // Highlighting loads asynchronously after first paint in the app.
+    await loadMarkdownEnhancements();
     const html = renderToStaticMarkup(
       <MarkdownRenderer content={'```python\nprint("' + 'x'.repeat(400) + '")\n```'} />,
     );

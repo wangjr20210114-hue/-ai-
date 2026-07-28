@@ -1,15 +1,53 @@
-import React, { memo, useMemo, useState } from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import hljs from 'highlight.js/lib/common';
-import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
-import rehypeKatex from 'rehype-katex';
-import 'katex/dist/katex.min.css';
 import type { RichMediaAsset, SearchMeta } from '../../types';
 import { isSafeRemoteUrl, linkBareCitations, replaceCitationMarkers, sourceLabel } from './richContent';
 import { translate, useLanguage } from '../../i18n';
 
 const MEDIA_SLOT = /\[\[YUANBAO_MEDIA(?:\s*:\s*(\d+))?\]\]/g;
+
+// Code highlighting and math typesetting are heavy and many conversations
+// never use them. Load them after first paint, then upgrade the rendering.
+interface MarkdownEnhancements {
+  hljs: typeof import('highlight.js/lib/common').default;
+  remarkMath: typeof import('remark-math').default;
+  rehypeKatex: typeof import('rehype-katex').default;
+}
+
+let enhancementsCache: MarkdownEnhancements | null = null;
+let enhancementsPromise: Promise<MarkdownEnhancements> | null = null;
+
+// Exported so tests can preload the async chunks before a sync render.
+export function loadMarkdownEnhancements(): Promise<MarkdownEnhancements> {
+  if (!enhancementsPromise) {
+    enhancementsPromise = Promise.all([
+      import('highlight.js/lib/common'),
+      import('remark-math'),
+      import('rehype-katex'),
+      import('katex/dist/katex.min.css'),
+    ]).then(([hljsModule, remarkMathModule, rehypeKatexModule]) => {
+      enhancementsCache = {
+        hljs: hljsModule.default,
+        remarkMath: remarkMathModule.default,
+        rehypeKatex: rehypeKatexModule.default,
+      };
+      return enhancementsCache;
+    });
+  }
+  return enhancementsPromise;
+}
+
+function useMarkdownEnhancements(): MarkdownEnhancements | null {
+  const [enhancements, setEnhancements] = useState<MarkdownEnhancements | null>(() => enhancementsCache);
+  useEffect(() => {
+    if (enhancements) return;
+    let alive = true;
+    void loadMarkdownEnhancements().then((loaded) => { if (alive) setEnhancements(loaded); });
+    return () => { alive = false; };
+  }, [enhancements]);
+  return enhancements;
+}
 
 function markdownAlt(value: string): string {
   return value.replace(/[[\]\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 180) || translate('answerImage');
@@ -67,19 +105,24 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
 function CodeBlock({ children }: { children: React.ReactNode }) {
   const [copied, setCopied] = useState(false);
   const { t } = useLanguage();
+  const enhancements = useMarkdownEnhancements();
   const child = React.Children.toArray(children)[0];
   if (!React.isValidElement<{ className?: string; children?: React.ReactNode }>(child)) {
     return <pre className="md-code-block">{children}</pre>;
   }
   const code = String(child.props.children || '').replace(/\n$/, '');
   const language = String(child.props.className || '').replace(/^language-/, '').trim();
+  // Render plain code until the highlighter chunk arrives, then upgrade in place.
   let highlighted = '';
-  try {
-    highlighted = language && hljs.getLanguage(language)
-      ? hljs.highlight(code, { language, ignoreIllegals: true }).value
-      : hljs.highlightAuto(code).value;
-  } catch {
-    highlighted = code.replace(/[&<>]/g, (value) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[value] || value));
+  if (enhancements) {
+    const { hljs } = enhancements;
+    try {
+      highlighted = language && hljs.getLanguage(language)
+        ? hljs.highlight(code, { language, ignoreIllegals: true }).value
+        : hljs.highlightAuto(code).value;
+    } catch {
+      highlighted = code.replace(/[&<>]/g, (value) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[value] || value));
+    }
   }
   const copy = async () => {
     try {
@@ -93,7 +136,9 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
       <span>{language || t('code')}</span>
       <button type="button" onClick={() => { void copy(); }} aria-label={t('copyCode')}>{copied ? t('copied') : t('copy')}</button>
     </div>
-    <pre className="md-code-block"><code className={`hljs${language ? ` language-${language}` : ''}`} dangerouslySetInnerHTML={{ __html: highlighted }} /></pre>
+    {highlighted
+      ? <pre className="md-code-block"><code className={`hljs${language ? ` language-${language}` : ''}`} dangerouslySetInnerHTML={{ __html: highlighted }} /></pre>
+      : <pre className="md-code-block"><code className={language ? `language-${language}` : undefined}>{code}</code></pre>}
   </div>;
 }
 
@@ -138,6 +183,7 @@ function MarkdownRenderer({
   streaming?: boolean;
 }) {
   const { t } = useLanguage();
+  const enhancements = useMarkdownEnhancements();
   const sources = useMemo(() => searchMeta?.results || [], [searchMeta?.results]);
   const visibleMedia = useMemo(() => {
     const reviewedMedia = uniqueMediaAssets(searchMeta?.media || []);
@@ -227,8 +273,8 @@ function MarkdownRenderer({
       data-search-tool-invocations={typeof toolInvocations === 'number' ? toolInvocations : undefined}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkMath, remarkGfm]}
-        rehypePlugins={[rehypeKatex]}
+        remarkPlugins={enhancements ? [enhancements.remarkMath, remarkGfm] : [remarkGfm]}
+        rehypePlugins={enhancements ? [enhancements.rehypeKatex] : []}
         components={markdownComponents}
       >
         {cleanedContent}

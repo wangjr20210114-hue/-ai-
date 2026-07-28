@@ -7,7 +7,7 @@ import {
   fetchPaperFile, renameReadingFolder, type ReadingFolder, type ReadingSettings, type SavedPaper,
 } from '../../services/paperApi';
 import { createZip } from '../../services/zip';
-import PaperFullReader from '../paper/PaperFullReader';
+import PaperFullReader from '../paper/LazyPaperFullReader';
 import { useLanguage } from '../../i18n';
 
 function saveBlob(blob: Blob, name: string) {
@@ -22,7 +22,7 @@ export default function ReadingLibraryPanel() {
   const [folders, setFolders] = useState<ReadingFolder[]>([]);
   const [settings, setSettings] = useState<ReadingSettings>({ auto_organize: true });
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [busyFolder, setBusyFolder] = useState('');
   const [reader, setReader] = useState<SavedPaper | null>(null);
 
@@ -90,7 +90,19 @@ export default function ReadingLibraryPanel() {
       <Button shape="circle" variant="text" size="small" loading={loading} icon={<RefreshIcon />} aria-label={t('refresh')} title={t('refresh')} onClick={() => void load()} />
     </div>
     <div className="reading-library-mode">{settings.auto_organize ? t('autoOrganizing') : t('manualOrganize')}</div>
-    {!items.length && !folders.length ? <div className="reading-library-empty">{t('libraryEmpty')}</div> : (
+    {loading && !items.length && !folders.length ? (
+      <div className="skeleton-list" role="status" aria-label={t('loading')}>
+        {[0, 1].map((row) => (
+          <div className="skeleton-reading-item" key={row}>
+            <span className="skeleton skeleton-line" style={{ width: '38%' }} aria-hidden="true" />
+            <span className="skeleton skeleton-block" aria-hidden="true">
+              <span className="skeleton skeleton-line" style={{ width: '82%' }} />
+              <span className="skeleton skeleton-line" style={{ width: '58%' }} />
+            </span>
+          </div>
+        ))}
+      </div>
+    ) : !items.length && !folders.length ? <div className="reading-library-empty">{t('libraryEmpty')}</div> : (
       <div className="reading-folder-list">{groups.map(({ folder, items: folderItems }) => (
         <section className="reading-folder" key={folder.id || 'unfiled'}>
           <div className="reading-folder-header">
