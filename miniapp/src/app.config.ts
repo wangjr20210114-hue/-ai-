@@ -17,7 +17,7 @@ export default defineAppConfig({
   },
   permission: {
     'scope.userLocation': {
-      desc: '用于附近路线与天气提醒 / Used for nearby routes and weather reminders',
+      desc: '用于附近路线与天气提醒',
     },
   },
   requiredPrivateInfos: ['getLocation'],
