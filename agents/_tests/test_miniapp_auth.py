@@ -36,6 +36,16 @@ class MiniappAuthTests(unittest.TestCase):
         identity = require_user(SimpleNamespace())
         self.assertEqual(identity["user_id"], USER_WORKSPACE_ID)
 
+    def test_miniapp_header_without_token_is_rejected(self):
+        ctx = SimpleNamespace(
+            request=SimpleNamespace(
+                headers={"x-floris-client": "wechat-miniapp"}
+            ),
+            env={},
+        )
+        with self.assertRaisesRegex(ValueError, "Unauthorized"):
+            require_user(ctx)
+
     def test_signed_session_is_read_by_every_agent_handler(self):
         secret = "test-only-miniapp-session-secret"
         user_id = "wx_1234567890abcdef12345678"

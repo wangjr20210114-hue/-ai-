@@ -22,6 +22,7 @@ export async function apiRequest<T>(
     timeout: options.timeout || 30_000,
     header: {
       'content-type': 'application/json',
+      'x-floris-client': 'wechat-miniapp',
       Authorization: `Bearer ${session.token}`,
       ...(options.conversationId ? { 'makers-conversation-id': options.conversationId } : {}),
     },

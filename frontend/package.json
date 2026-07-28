@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@floris/contracts": "file:../packages/floris-contracts",
     "highlight.js": "^11.11.1",
     "html-to-image": "^1.11.11",
     "katex": "^0.17.0",

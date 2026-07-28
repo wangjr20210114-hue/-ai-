@@ -77,9 +77,16 @@
 .action-buttons button { flex: 1; }
 .action-status { display: block; margin-top: 16px; color: #799251; }
 .generated-image { width: 100%; margin-top: 18px; border-radius: 18px; }
+.image-version-gallery { margin-top: 18px; }
+.image-version-swiper { height: 660px; overflow: hidden; border-radius: 18px; background: rgba(121, 86, 62, .06); }
+.image-version-swiper .makers-image-wrap { height: 100%; display: flex; flex-direction: column; }
+.image-version-swiper .generated-image-fit { flex: 1; min-height: 0; height: 540px; margin-top: 0; }
+.image-version-swiper .save-image-button { flex: none; margin: 10px 18px 18px; }
+.image-version-count { display: block; margin-top: 10px; color: #956d55; font-size: 21px; text-align: center; }
 .save-image-button { margin-top: 10px; }
 .follow-ups { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
 .follow-up-chip, .suggestion { padding: 14px 18px; border-radius: 18px; color: #9a5c36; background: rgba(239, 145, 77, .1); font-size: 24px; }
+.retry-button { width: fit-content; margin-top: 16px; padding: 12px 20px; border-radius: 16px; color: #a54837; background: rgba(196, 68, 54, .09); font-size: 23px; }
 .paper-card { margin-top: 16px; padding: 20px; border-radius: 18px; background: #fff8ef; border: 1px solid rgba(214, 124, 60, .16); }
 .paper-title { display: block; font-size: 26px; font-weight: 680; }
 .paper-meta { display: block; margin-top: 8px; color: #956d55; font-size: 21px; }

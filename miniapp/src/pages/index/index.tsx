@@ -4,6 +4,10 @@ import { Button, Image, ScrollView, Text, Textarea, View } from '@tarojs/compone
 import {
   createChatPayload,
   createClarificationPayload,
+  createLocationRetryPayload,
+  mergeMessages,
+  restoredConversationWasInterrupted,
+  settleStoppedMessages,
   type ChatMessage,
   type ChatRequestPayload,
   type WorkspaceAction,
@@ -19,6 +23,11 @@ import {
 } from '@/services/conversations'
 import { requestCurrentLocation } from '@/services/location'
 import { addPdfToReading, imageDataUrl, uploadToMakers } from '@/services/files'
+import {
+  activeProactiveNotifications,
+  proactiveOperation,
+  type ProactiveNotification,
+} from '@/services/proactive'
 import { apiRequest } from '@/services/request'
 import { ensureSession } from '@/services/session'
 import { workspaceOperation } from '@/services/workspace'
@@ -37,7 +46,7 @@ const STATUS_COPY: Record<string, [string, string]> = {
   search_arxiv: ['正在查找论文…', '论文已经找到…'],
 }
 
-type ProactiveNotification = { id?: string; title?: string; body?: string; priority?: string }
+const PENDING_PROACTIVE_PROMPT_KEY = 'floris.miniapp.pending-proactive-prompt.v1'
 
 export default function IndexPage() {
   const [ready, setReady] = useState(false)
@@ -65,18 +74,13 @@ export default function IndexPage() {
   }
 
   const refreshReminders = async (
-    operation: 'page_open' | 'get' = 'get',
+    operation: 'page_open' | 'get' | 'memory_refresh' = 'get',
     targetConversationId = conversationId,
   ) => {
     if (!targetConversationId) return
     try {
-      const data = await apiRequest<{ notifications?: ProactiveNotification[] }>('/proactive', {
-        method: 'POST',
-        conversationId: targetConversationId,
-        data: { operation },
-        timeout: 20_000,
-      })
-      setReminders((data.notifications || []).slice(0, 10))
+      const data = await proactiveOperation(targetConversationId, operation)
+      setReminders(activeProactiveNotifications(data.notifications || []))
       setReminderIndex(0)
     } catch {
       // Reminders never block chat.
@@ -95,9 +99,18 @@ export default function IndexPage() {
         publish(cached)
         const data = await bootstrap(id).catch(() => ({ messages: [], run: undefined }))
         if (disposed) return
-        const restored = Array.isArray(data.messages) && data.messages.length ? data.messages : cached
-        const interrupted = ['running', 'cancel_requested'].includes(String(data.run?.status || ''))
-        const normalized = restored.map((message) => ({ ...message, streaming: false }))
+        const runActive = ['running', 'cancel_requested'].includes(String(data.run?.status || ''))
+        const restored = Array.isArray(data.messages) ? data.messages : []
+        const merged = mergeMessages(restored, cached)
+        const interrupted = restoredConversationWasInterrupted(merged, runActive)
+        const normalized = settleStoppedMessages(merged)
+        if (runActive) {
+          void apiRequest('/stop', {
+            method: 'POST',
+            data: { conversation_id: id },
+            timeout: 5_000,
+          }).catch(() => undefined)
+        }
         publish(interrupted
           ? [...normalized, {
             id: `interrupted-${Date.now()}`,
@@ -124,8 +137,21 @@ export default function IndexPage() {
 
   useDidShow(() => {
     setLanguage(String(Taro.getStorageSync('floris-language') || 'zh-CN'))
+    const pendingPrompt = String(Taro.getStorageSync(PENDING_PROACTIVE_PROMPT_KEY) || '')
+    if (pendingPrompt && !streaming) {
+      Taro.removeStorageSync(PENDING_PROACTIVE_PROMPT_KEY)
+      setDraft(pendingPrompt)
+    }
     if (ready) void refreshReminders('page_open')
   })
+
+  useEffect(() => {
+    if (!ready || !conversationId) return
+    const timer = setInterval(() => {
+      void refreshReminders('memory_refresh', conversationId)
+    }, 10 * 60 * 1000)
+    return () => clearInterval(timer)
+  }, [ready, conversationId])
 
   useEffect(() => {
     if (reminders.length < 2) return
@@ -202,12 +228,19 @@ export default function IndexPage() {
         },
         onLocationRequired() {
           void requestCurrentLocation().then(({ location, request }) => {
-            void runStream({
-              ...payload,
-              ...(location ? { current_location: location } : {}),
-              location_request: request,
-              _location_retry: true,
-            }, assistantId)
+            if (location) {
+              void proactiveOperation(conversationId, 'ingest_signal', {
+                signal_type: 'browser_location_weather',
+                dedup_key: `miniapp-location:${Math.floor(location.captured_at / 3_600_000)}`,
+                payload: {
+                  latitude: location.latitude,
+                  longitude: location.longitude,
+                },
+              }).then((state) => {
+                setReminders(activeProactiveNotifications(state.notifications || []))
+              }).catch(() => undefined)
+            }
+            void runStream(createLocationRetryPayload(payload, location, request), assistantId)
           })
         },
       })
@@ -352,6 +385,13 @@ export default function IndexPage() {
     publish([])
   }
 
+  const retry = (failed: ChatMessage) => {
+    const index = messagesRef.current.findIndex((message) => message.id === failed.id)
+    const previousUser = [...messagesRef.current.slice(0, index)].reverse()
+      .find((message) => message.role === 'user')
+    if (previousUser) void sendText(previousUser.content)
+  }
+
   const reminder = reminders[reminderIndex]
   const reminderText = String(reminder?.body || reminder?.title || '')
 
@@ -370,7 +410,13 @@ export default function IndexPage() {
         <Image className='brand-avatar' src='https://floris.jlutx.com/floris-avatar.png' />
         <Text className='brand-title'>FLORIS</Text>
       </View>
-      <View className='reminder-ticker'><Text>{reminderText || '有需要时，我会在这里轻轻提醒你。'}</Text></View>
+      <View
+        className='reminder-ticker'
+        role='button'
+        onClick={() => Taro.navigateTo({ url: '/pages/proactive/index' })}
+      >
+        <Text>{reminderText || '有需要时，我会在这里轻轻提醒你。'}</Text>
+      </View>
       <View className='header-actions'>
         <Button className='icon-button' disabled={streaming} onClick={createNew}>＋</Button>
         <Button className='icon-button' disabled={streaming} onClick={() => Taro.navigateTo({ url: '/pages/history/index' })}>☰</Button>
@@ -400,6 +446,7 @@ export default function IndexPage() {
         onClarification={submitClarification}
         onAction={executeAction}
         onFollowUp={(value) => void sendText(value)}
+        onRetry={retry}
       />)}
       <View id='chat-bottom-anchor' className='bottom-anchor' />
     </ScrollView>

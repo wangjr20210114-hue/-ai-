@@ -90,7 +90,10 @@ export async function openMakersDocument(storageKey: string): Promise<void> {
   const session = await ensureSession()
   const download = await Taro.downloadFile({
     url: apiUrl(`/files?key=${encodeURIComponent(storageKey)}`),
-    header: { Authorization: `Bearer ${session.token}` },
+    header: {
+      Authorization: `Bearer ${session.token}`,
+      'x-floris-client': 'wechat-miniapp',
+    },
   })
   if (download.statusCode !== 200) throw new Error('文档下载失败')
   await Taro.openDocument({

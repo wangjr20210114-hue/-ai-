@@ -91,12 +91,15 @@ def _verify_miniapp_session(token: str, secret: str, now: float | None = None) -
 
 def require_user(ctx: Any) -> dict[str, Any]:
     authorization = _header(ctx, "authorization")
+    miniapp_request = _header(ctx, "x-floris-client").lower() == "wechat-miniapp"
     if authorization:
         prefix, _, token = authorization.partition(" ")
         secret = _environment(ctx, "MINIAPP_SESSION_SECRET")
         if prefix.lower() != "bearer" or not token.strip() or not secret:
             raise ValueError("Unauthorized")
         return _verify_miniapp_session(token.strip(), secret)
+    if miniapp_request:
+        raise ValueError("Unauthorized")
     return {
         "user_id": USER_WORKSPACE_ID,
         "username": "local-user",

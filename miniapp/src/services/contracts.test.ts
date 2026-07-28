@@ -3,6 +3,10 @@ import {
   createChatPayload,
   createClarificationPayload,
   createConversationId,
+  createLocationRetryPayload,
+  imageVersionsFrom,
+  mergeMessages,
+  restoredConversationWasInterrupted,
   splitSseFrames,
   streamEventPatch,
   type ChatMessage,
@@ -58,5 +62,67 @@ describe('shared Floris protocol', () => {
       type: 'clarification_action',
       payload: { clarification: { id: 'c', title: '补充', prompt: '请选择', fields: [] } },
     })?.clarification?.id).toBe('c')
+  })
+
+  it('restores a structured card without falsely reporting an interrupted run', () => {
+    const restored: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: '写入日程', ts: 1 },
+      {
+        id: 'a1',
+        role: 'ai',
+        content: '',
+        ts: 2,
+        clarification: { id: 'c1', title: '时间', prompt: '请选择', fields: [] },
+      },
+    ]
+    expect(restoredConversationWasInterrupted(mergeMessages(restored, []), true)).toBe(false)
+  })
+
+  it('drops the optimistic user-only cache tail when Makers has not completed it', () => {
+    const remote: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: '第一问', ts: 1 },
+      { id: 'a1', role: 'ai', content: '第一答', ts: 2 },
+    ]
+    const local: ChatMessage[] = [
+      ...remote,
+      { id: 'u2', role: 'user', content: '未完成的第二问', ts: Date.now() },
+    ]
+    expect(mergeMessages(remote, local).map(({ id, content }) => ({ id, content }))).toEqual(
+      remote.map(({ id, content }) => ({ id, content })),
+    )
+  })
+
+  it('retries location inside the same turn without resending the user message', () => {
+    const original = createChatPayload(
+      { id: 'u1', role: 'user', content: '附近有什么餐厅', ts: 1 },
+      'zh-CN',
+    )
+    const retry = createLocationRetryPayload(
+      original,
+      { latitude: 39.9, longitude: 116.4 },
+      { permission: 'granted' },
+    )
+    expect(retry.client_message).toBeUndefined()
+    expect(retry._location_retry).toBe(true)
+    expect(retry.current_location).toMatchObject({ latitude: 39.9 })
+  })
+
+  it('reuses the Makers image version chain and falls back to one result image', () => {
+    expect(imageVersionsFrom({
+      id: 'image-2',
+      payload: { prompt: '橘猫' },
+      result: {
+        image_url: '/files?key=latest',
+        versions: [
+          { id: 'image-1', prompt: '橘猫', image_url: '/files?key=first' },
+          { id: 'image-2', prompt: '加蓝围巾', image_url: '/files?key=latest' },
+        ],
+      },
+    }).map((item) => item.id)).toEqual(['image-1', 'image-2'])
+    expect(imageVersionsFrom({
+      id: 'image-1',
+      payload: { prompt: '橘猫' },
+      result: { image_url: '/files?key=first' },
+    })[0]).toMatchObject({ id: 'image-1', prompt: '橘猫' })
   })
 })

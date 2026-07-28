@@ -48,24 +48,43 @@ test('personal web owner and wx.login sessions share Makers stores without an ap
 });
 
 test('miniapp reuses native WeChat capabilities and shared Agent protocols', async () => {
-  const [chat, stream, location, map, files, indexPage, contracts] = await Promise.all([
+  const [chat, stream, request, location, map, files, makersImage, indexPage, proactive, reader, actionCard, contracts, images] = await Promise.all([
     read('miniapp/src/services/chat.ts'),
     read('miniapp/src/services/stream.ts'),
+    read('miniapp/src/services/request.ts'),
     read('miniapp/src/services/location.ts'),
     read('miniapp/src/pages/map/index.tsx'),
     read('miniapp/src/services/files.ts'),
+    read('miniapp/src/components/MakersImage.tsx'),
     read('miniapp/src/pages/index/index.tsx'),
+    read('miniapp/src/pages/proactive/index.tsx'),
+    read('miniapp/src/pages/reader/index.tsx'),
+    read('miniapp/src/components/WorkspaceActionCard.tsx'),
     read('packages/floris-contracts/src/chat.ts'),
+    read('packages/floris-contracts/src/image.ts'),
   ]);
   assert.match(stream, /enableChunked:\s*true/);
   assert.match(stream, /onChunkReceived/);
   assert.match(chat, /startChunkedSse/);
+  assert.match(chat, /_allow_after_stop/);
+  assert.match(stream + request, /x-floris-client/);
   assert.match(location, /Taro\.getLocation/);
   assert.match(map, /<Map/);
+  assert.doesNotMatch(map, /iconPath:\s*['"]{2}/);
+  assert.match(map, /includePoints/);
   assert.match(files + indexPage, /Taro\.chooseMedia/);
   assert.match(files + indexPage, /Taro\.chooseMessageFile/);
   assert.match(files, /Taro\.compressImage/);
   assert.match(files, /Taro\.openDocument/);
+  assert.match(makersImage, /Taro\.saveImageToPhotosAlbum/);
+  assert.match(makersImage, /Taro\.openSetting/);
+  assert.match(actionCard, /<Swiper/);
+  assert.match(actionCard, /imageVersionsFrom/);
+  assert.match(images, /result\.versions/);
+  assert.match(proactive, /'mark_read'/);
+  assert.match(proactive, /'snooze'/);
+  assert.match(proactive, /'dismiss'/);
+  assert.match(reader, /startReaderStream/);
   assert.match(contracts, /createClarificationPayload/);
   assert.doesNotMatch(chat + stream, /WebSocket|EventSource/);
 });

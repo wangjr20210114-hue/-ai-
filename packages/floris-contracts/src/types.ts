@@ -71,6 +71,7 @@ export interface ChatMessage {
   ts: number
   streaming?: boolean
   failed?: boolean
+  proactive?: boolean
   followUps?: string[]
   searchResults?: SearchMeta
   papers?: PaperInfo[]

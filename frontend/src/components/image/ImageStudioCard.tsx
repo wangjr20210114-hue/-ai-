@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { imageVersionsFrom, type ImageVersion } from '@floris/contracts';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { DownloadIcon } from 'tdesign-icons-react';
 import { streamImageEdit } from '../../services/api';
@@ -7,35 +8,10 @@ import { createZip } from '../../services/zip';
 import type { WorkspaceAction } from '../../types';
 import { useLanguage, type TranslationKey } from '../../i18n';
 
-interface ImageVersion {
-  id: string;
-  prompt: string;
-  image_url: string;
-  storage_key?: string;
-  parent_action_id?: string;
-  created_at?: number;
-}
-
 interface Props {
   action: WorkspaceAction;
   conversationId: string;
   onUpdated: (action: WorkspaceAction) => void;
-}
-
-function versionsFrom(action: WorkspaceAction): ImageVersion[] {
-  const result = action.result || {};
-  const versions = Array.isArray(result.versions) ? result.versions as ImageVersion[] : [];
-  if (versions.length) return versions.filter((item) => item?.id && item?.image_url);
-  if (typeof result.image_url === 'string' && result.image_url) {
-    return [{
-      id: action.id,
-      prompt: String(action.payload.prompt || ''),
-      image_url: result.image_url,
-      storage_key: typeof result.storage_key === 'string' ? result.storage_key : '',
-      created_at: action.created_at,
-    }];
-  }
-  return [];
 }
 
 function saveBlob(blob: Blob, name: string) {
@@ -80,7 +56,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
   const [downloading, setDownloading] = useState(false);
   const loadedUrlsRef = useRef<Set<string>>(new Set());
   const downloadCacheRef = useRef<Map<string, { blob: Blob; objectUrl: string }>>(new Map());
-  const versions = useMemo(() => versionsFrom(currentAction), [currentAction]);
+  const versions = useMemo(() => imageVersionsFrom(currentAction), [currentAction]);
   const selected = versions[Math.min(index, Math.max(0, versions.length - 1))];
   const selectedSrc = selected
     ? downloadCacheRef.current.get(selected.image_url)?.objectUrl || withEdgeOneAuth(selected.image_url)
@@ -93,7 +69,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
 
   useEffect(() => {
     setCurrentAction(action);
-    const next = versionsFrom(action);
+    const next = imageVersionsFrom(action);
     setIndex(Math.max(0, next.length - 1));
   }, [action]);
 
@@ -145,7 +121,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
       const action = await streamImageEdit(conversationId, prompt, selected.id);
       setCurrentAction(action);
       onUpdated(action);
-      const next = versionsFrom(action);
+      const next = imageVersionsFrom(action);
       setIndex(Math.max(0, next.length - 1));
       setInstruction('');
       if (action.status === 'failed') throw new Error(action.error || t('imageEditFailed'));

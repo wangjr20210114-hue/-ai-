@@ -19,6 +19,13 @@ test('web calls keep the existing local owner identity', async () => {
   assert.equal(tenantPrefix(user), '');
 });
 
+test('miniapp-marked requests cannot bypass wx.login by omitting the token', async () => {
+  const request = new Request('https://floris.test/system', {
+    headers: { 'x-floris-client': 'wechat-miniapp' },
+  });
+  await assert.rejects(currentUser(request, {}), /Unauthorized/);
+});
+
 test('signed miniapp sessions isolate conversation and blob namespaces', async () => {
   const userId = 'wx_1234567890abcdef12345678';
   const token = signMiniappSession({ userId, expiresAt: Date.now() + 60_000 }, secret);

@@ -61,6 +61,7 @@ export async function startChunkedSse(options: ChunkedSseOptions): Promise<Chunk
     header: {
       'content-type': 'application/json',
       Accept: 'text/event-stream',
+      'x-floris-client': 'wechat-miniapp',
       Authorization: `Bearer ${session.token}`,
       'makers-conversation-id': options.conversationId,
     },

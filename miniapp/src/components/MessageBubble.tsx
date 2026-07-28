@@ -12,6 +12,7 @@ interface Props {
   onClarification: (message: ChatMessage, values: Record<string, string | string[]>) => void
   onAction: (action: WorkspaceAction, operation: 'activate_map' | 'confirm_action' | 'cancel_action') => void
   onFollowUp: (value: string) => void
+  onRetry: (message: ChatMessage) => void
 }
 
 export default function MessageBubble({
@@ -21,6 +22,7 @@ export default function MessageBubble({
   onClarification,
   onAction,
   onFollowUp,
+  onRetry,
 }: Props) {
   const ai = message.role === 'ai'
   return <View className={`message-row ${ai ? 'assistant-row' : 'user-row'}`}>
@@ -45,6 +47,9 @@ export default function MessageBubble({
       {(message.followUps || []).length ? <View className='follow-ups'>
         {(message.followUps || []).map((item) => <ButtonLike key={item} text={item} onClick={() => onFollowUp(item)} />)}
       </View> : null}
+      {message.failed
+        ? <View className='retry-button' role='button' onClick={() => onRetry(message)}>重试生成</View>
+        : null}
     </View>
   </View>
 }

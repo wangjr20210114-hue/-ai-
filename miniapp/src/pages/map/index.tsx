@@ -53,7 +53,9 @@ export default function MapPage() {
 
   const markers = useMemo(() => places.map((place, index) => ({
     id: index + 1,
-    iconPath: '',
+    iconPath: 'https://floris.jlutx.com/floris-avatar.png',
+    width: 32,
+    height: 32,
     latitude: Number(place.latitude),
     longitude: Number(place.longitude),
     title: `${index + 1}. ${place.name || '地点'}`,
@@ -90,6 +92,7 @@ export default function MapPage() {
       longitude={Number(center.longitude)}
       scale={12}
       markers={markers}
+      includePoints={places}
       polyline={polyline}
       showLocation
       enableTraffic

@@ -7,6 +7,7 @@ export default defineAppConfig({
     'pages/library/index',
     'pages/calendar/index',
     'pages/reader/index',
+    'pages/proactive/index',
   ],
   window: {
     backgroundTextStyle: 'light',

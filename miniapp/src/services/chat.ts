@@ -4,8 +4,11 @@ import {
   type FlorisStreamEvent,
   type StreamMessagePatch,
 } from '@floris/contracts'
+import Taro from '@tarojs/taro'
 import { apiRequest } from './request'
 import { startChunkedSse } from './stream'
+
+const manualStopKey = (conversationId: string) => `floris.miniapp.manual-stop.${conversationId}`
 
 export interface ChatStreamCallbacks {
   onPatch: (patch: StreamMessagePatch, event: FlorisStreamEvent) => void
@@ -29,11 +32,16 @@ export async function startChatStream(
 ): Promise<ActiveChatStream> {
   let manuallyStopped = false
   let locationRequired = false
+  const allowAfterStop = Boolean(Taro.getStorageSync(manualStopKey(conversationId)))
+  if (allowAfterStop) Taro.removeStorageSync(manualStopKey(conversationId))
 
   const requestTask = await startChunkedSse({
     path: '/chat',
     conversationId,
-    data: payload,
+    data: {
+      ...payload,
+      ...(allowAfterStop ? { _allow_after_stop: true } : {}),
+    },
     onFrame(frame) {
       try {
         const event = JSON.parse(frame) as FlorisStreamEvent
@@ -57,6 +65,7 @@ export async function startChatStream(
     async stop() {
       if (manuallyStopped) return
       manuallyStopped = true
+      Taro.setStorageSync(manualStopKey(conversationId), true)
       requestTask.abort()
       // Makers owns durable run cancellation. No model request is retried or
       // resumed after an explicit user stop.

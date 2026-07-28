@@ -27,6 +27,10 @@ function bearerToken(request) {
   return String(value).match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || '';
 }
 
+function requiresMiniappSession(request) {
+  return String(request?.headers?.get?.('x-floris-client') || '').toLowerCase() === 'wechat-miniapp';
+}
+
 export function conversationPrefixForUser(userId) {
   if (userId === LEGACY_USER.id) return LEGACY_USER.conversationPrefix;
   const tag = String(userId || '').replace(/[^0-9A-Za-z]/g, '').slice(-10);
@@ -88,7 +92,10 @@ export function verifyMiniappSession(token, secret, now = Date.now()) {
  */
 export async function currentUser(request, env = {}) {
   const token = bearerToken(request);
-  if (!token) return { ...LEGACY_USER };
+  if (!token) {
+    if (requiresMiniappSession(request)) throw new Error('Unauthorized');
+    return { ...LEGACY_USER };
+  }
   return verifyMiniappSession(token, env.MINIAPP_SESSION_SECRET);
 }
 

@@ -81,6 +81,22 @@ export function createClarificationPayload(
   }
 }
 
+/** Resume the same Agent turn after native location permission resolves. */
+export function createLocationRetryPayload(
+  payload: ChatRequestPayload,
+  location?: Record<string, unknown>,
+  request?: Record<string, unknown>,
+): ChatRequestPayload {
+  const retry = {
+    ...payload,
+    ...(location ? { current_location: location } : {}),
+    ...(request ? { location_request: request } : {}),
+    _location_retry: true,
+  }
+  delete retry.client_message
+  return retry
+}
+
 export interface StreamMessagePatch {
   delta?: string
   reset?: boolean

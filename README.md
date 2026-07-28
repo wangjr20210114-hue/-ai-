@@ -108,10 +108,11 @@ Preview 流程：EdgeOne 控制台 → Makers → 项目 → 构建部署 → �
 | 停止生成 | `RequestTask.abort()` + Makers `/stop`；绝不自动重试模型 |
 | 定位与地图 | `wx.getLocation`、原生 `<map>`、marker/polyline；地点与道路仍由现有 Maps Skill 核实 |
 | 日期与时间 | 微信原生 `picker`，不自建日历选择器 |
-| 图片 | `wx.chooseMedia`、`wx.compressImage`、`wx.saveImageToPhotosAlbum` |
+| 图片 | `wx.chooseMedia`、`wx.compressImage`、原生 `swiper` 展示 Makers 图片版本链、`wx.saveImageToPhotosAlbum` |
 | PDF | `wx.chooseMessageFile`、Makers Blob、`wx.openDocument` |
 | 本地会话缓存 | `wx.setStorageSync`；Makers Conversation/Checkpointer 仍是服务端事实源 |
 | Markdown | 成熟 `marked` 解析器 + 小程序原生 `rich-text` |
+| 主动提醒 | 页面打开立即刷新、前台每 10 分钟复用 Proactive Agent 检查；处理/稍后/忽略继续写入 Makers |
 
 首次配置：
 
@@ -131,6 +132,8 @@ npm --prefix miniapp run build:weapp
 6. 微信开发者工具 → 导入项目，选择仓库的 `miniapp/` 目录；`miniprogramRoot` 已指向 `dist/`。先在 Preview 后端验证登录、流式问答、停止生成、位置授权、日程确认和图片保存，再上传体验版。
 
 未配置真实 AppID 与上述三个 Makers Secret 时，代码仍可自动测试和构建，但 `touristappid` 不能完成真实 `wx.login` 闭环。小程序不使用 `web-view`，因此个人主体不受网页套壳能力限制。
+
+微信原生 `openDocument` 负责可靠的 PDF 查看，但它不提供正文抽取 API。小程序论文助读因此复用系统阅读器的复制能力与现有 Reader Agent：用户在原生预览中复制段落，回到助读页粘贴后即可流式翻译、总结、解释、公式分析、术语提取或问答，结果仍持久保存到 Makers 阅读库。这里没有为了“自动抽取”再内置一套 PDF 解析器；网页端已有的完整 PDF.js 助读保持不变。
 
 ## 2. 对话、流式输出与会话恢复
 
