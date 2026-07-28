@@ -20,7 +20,11 @@ import {
   type Language,
   type TranslationKey,
 } from '@/i18n'
-import { startChatStream, type ActiveChatStream } from '@/services/chat'
+import {
+  applyClarificationPatch,
+  startChatStream,
+  type ActiveChatStream,
+} from '@/services/chat'
 import {
   bootstrap,
   cacheMessages,
@@ -64,6 +68,7 @@ export default function IndexPage() {
   const [draft, setDraft] = useState('')
   const [referenceImage, setReferenceImage] = useState<{ name: string; dataUrl: string } | null>(null)
   const [attaching, setAttaching] = useState(false)
+  const [continuationPending, setContinuationPending] = useState(false)
   const [statusText, setStatusText] = useState('')
   const [actionBusy, setActionBusy] = useState('')
   const [tickerLines, setTickerLines] = useState<string[]>([])
@@ -72,7 +77,7 @@ export default function IndexPage() {
   const activeStream = useRef<ActiveChatStream | null>(null)
   const messagesRef = useRef<ChatMessage[]>([])
   const streaming = messages.some((message) => message.streaming)
-  const interactionLocked = !ready || streaming
+  const interactionLocked = !ready || streaming || continuationPending
 
   const publish = (updater: ChatMessage[] | ((current: ChatMessage[]) => ChatMessage[])) => {
     setMessages((current) => {
@@ -94,6 +99,39 @@ export default function IndexPage() {
     } catch {
       // Reminders never block chat.
     }
+  }
+
+  const ingestLocationSignal = async (
+    location: {
+      latitude: number
+      longitude: number
+      captured_at: number
+    },
+    targetConversationId = conversationId,
+  ) => {
+    if (!targetConversationId) return
+    try {
+      const state = await proactiveOperation(targetConversationId, 'ingest_signal', {
+        signal_type: 'browser_location_weather',
+        dedup_key: `miniapp-location:${Math.floor(location.captured_at / 3_600_000)}`,
+        payload: {
+          latitude: location.latitude,
+          longitude: location.longitude,
+        },
+      })
+      setTickerLines(proactiveTickerLines(state))
+      setReminderIndex(0)
+    } catch {
+      // Location enrichment must never block chat.
+    }
+  }
+
+  const refreshAuthorizedLocation = async (targetConversationId = conversationId) => {
+    if (!targetConversationId) return
+    const setting = await Taro.getSetting().catch(() => null)
+    if (setting?.authSetting?.['scope.userLocation'] !== true) return
+    const result = await requestCurrentLocation()
+    if (result.location) await ingestLocationSignal(result.location, targetConversationId)
   }
 
   useEffect(() => {
@@ -131,6 +169,7 @@ export default function IndexPage() {
           : normalized)
         setReady(true)
         setTimeout(() => void refreshReminders('page_open', id), 0)
+        setTimeout(() => void refreshAuthorizedLocation(id), 0)
       } catch (reason) {
         if (!disposed) setError(String((reason as Error)?.message || reason))
       }
@@ -154,6 +193,7 @@ export default function IndexPage() {
       setDraft(pendingPrompt)
     }
     if (ready) void refreshReminders('page_open')
+    if (ready) void refreshAuthorizedLocation()
   })
 
   useEffect(() => {
@@ -208,6 +248,7 @@ export default function IndexPage() {
               next.content = patch.error
               next.failed = true
               next.streaming = false
+              if (next.clarification) next.clarificationAnswered = false
             }
             if (patch.searchResults) {
               next.searchResults = {
@@ -224,7 +265,9 @@ export default function IndexPage() {
                 patch.workspaceAction,
               ]
             }
-            if (patch.clarification) next.clarification = patch.clarification
+            if (patch.clarification) {
+              return applyClarificationPatch(next, patch.clarification)
+            }
             if (patch.followUps?.length) next.followUps = patch.followUps
             if (patch.papers?.length) next.papers = patch.papers
             return next
@@ -236,6 +279,7 @@ export default function IndexPage() {
             content: message,
             failed: true,
             streaming: false,
+            ...(current.clarification ? { clarificationAnswered: false } : {}),
           }))
         },
         onDone() {
@@ -244,22 +288,15 @@ export default function IndexPage() {
           patchMessage(assistantId, (message) => ({ ...message, streaming: false }))
         },
         onLocationRequired() {
-          void requestCurrentLocation().then(({ location, request }) => {
-            if (location) {
-              void proactiveOperation(conversationId, 'ingest_signal', {
-                signal_type: 'browser_location_weather',
-                dedup_key: `miniapp-location:${Math.floor(location.captured_at / 3_600_000)}`,
-                payload: {
-                  latitude: location.latitude,
-                  longitude: location.longitude,
-                },
-              }).then((state) => {
-                setTickerLines(proactiveTickerLines(state))
-                setReminderIndex(0)
-              }).catch(() => undefined)
-            }
-            void runStream(createLocationRetryPayload(payload, location, request), assistantId)
-          })
+          setContinuationPending(true)
+          void requestCurrentLocation()
+            .then(async ({ location, request }) => {
+              if (location) {
+                void ingestLocationSignal(location)
+              }
+              await runStream(createLocationRetryPayload(payload, location, request), assistantId)
+            })
+            .finally(() => setContinuationPending(false))
         },
       })
     } catch (reason) {
@@ -269,6 +306,7 @@ export default function IndexPage() {
         content: String((reason as Error)?.message || reason),
         failed: true,
         streaming: false,
+        ...(message.clarification ? { clarificationAnswered: false } : {}),
       }))
     }
   }

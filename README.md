@@ -121,7 +121,7 @@ Preview 流程：EdgeOne 控制台 → Makers → 项目 → 构建部署 → �
 
 1. 在微信公众平台注册个人小程序，复制 AppID，并在“开发管理 → 开发设置”取得 AppSecret。
 2. 在独立的 EdgeOne Makers 小程序项目中添加 `WECHAT_MINIAPP_APP_ID`、`WECHAT_MINIAPP_APP_SECRET`、`MINIAPP_SESSION_SECRET`；三者均设为 Secret。模型、搜索、地图和图片所需变量只迁移当前业务实际使用项，不复制网页端专属或已弃用变量。
-3. 微信公众平台 → 开发管理 → 开发设置 → 服务器域名，把 `https://miniapp-floris.jlutx.com` 加入 `request`、`downloadFile` 合法域名；Makers Blob 预签名上传所返回的实际 HTTPS 域名还需加入 `request` 合法域名。正式构建已通过 `miniapp/.env.production` 固定使用该入口。Cloudflare 中 `miniapp-floris` 使用“仅 DNS”的 CNAME，目标为 EdgeOne 控制台显示的 `miniapp-floris.jlutx.com.pages.dnsoe6.com`；不要改动网页端的 `floris` 记录。EdgeOne 为该域名部署自动续签的免费证书并开启强制 HTTPS。
+3. 微信公众平台 → 开发管理 → 开发设置 → 服务器域名：将 `https://miniapp-floris.jlutx.com` 加入 `request` 和 `downloadFile` 合法域名，同时将当前小程序 Makers 项目真实签名返回的 `https://1331509262-zone-3sgh18wrmisi.blob-nocache.edgeone.site` 加入 `request` 合法域名。PDF 使用 `wx.request` 对该地址执行预签名原始 PUT，因此它属于 `request`，不是 `uploadFile`。正式构建已通过 `miniapp/.env.production` 固定使用主入口。Cloudflare 中 `miniapp-floris` 使用“仅 DNS”的 CNAME，目标为 EdgeOne 控制台显示的 `miniapp-floris.jlutx.com.pages.dnsoe6.com`；不要改动网页端的 `floris` 记录。EdgeOne 为该域名部署自动续签的免费证书并开启强制 HTTPS。
 4. 复制 `miniapp/project.private.config.example.json` 为 `miniapp/project.private.config.json`，只把其中 AppID 换成真实值。该文件已被 Git 忽略。
 5. 执行：
 

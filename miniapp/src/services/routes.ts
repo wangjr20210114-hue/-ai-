@@ -14,6 +14,22 @@ export type PlannedRoute = {
   duration_seconds?: number
 }
 
+/** Invalid coordinates must not make one bad result break the whole native map. */
+export function validRoutePlaces(places: RoutePlace[]): RoutePlace[] {
+  return places.filter((place) => {
+    const latitude = Number(place.latitude)
+    const longitude = Number(place.longitude)
+    return (
+      Number.isFinite(latitude)
+      && Number.isFinite(longitude)
+      && latitude >= -90
+      && latitude <= 90
+      && longitude >= -180
+      && longitude <= 180
+    )
+  })
+}
+
 export function orderedRoutePayload(
   places: RoutePlace[],
   mode?: string,

@@ -1,6 +1,6 @@
 {
   "name": "floris-wechat-miniapp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "Floris 微信小程序客户端",
   "scripts": {

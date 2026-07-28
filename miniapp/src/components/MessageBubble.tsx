@@ -52,6 +52,7 @@ export default function MessageBubble({
       {message.streaming && !message.content ? <View className='typing-dots'><Text>●</Text><Text>●</Text><Text>●</Text></View> : null}
       {message.streaming && statusText ? <Text className='stream-status'>{statusText}</Text> : null}
       {message.clarification ? <ClarificationCard
+        key={message.clarification.id}
         prompt={message.clarification}
         answered={message.clarificationAnswered}
         disabled={message.streaming}

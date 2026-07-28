@@ -14,6 +14,10 @@ const apiBase = (
   || process.env.TARO_APP_API_BASE_URL
   || 'https://miniapp-floris.jlutx.com'
 ).replace(/\/+$/, '')
+const blobUploadOrigin = (
+  process.env.FLORIS_MINIAPP_BLOB_UPLOAD_ORIGIN
+  || 'https://1331509262-zone-3sgh18wrmisi.blob-nocache.edgeone.site'
+).replace(/\/+$/, '')
 
 const checks = []
 const check = (ok, label, detail) => {
@@ -105,7 +109,7 @@ try {
 
 console.log('\n微信公众平台合法域名：')
 console.log(`- request 合法域名：${apiBase}`)
+console.log(`- request 合法域名（Makers Blob 预签名 PUT）：${blobUploadOrigin}`)
 console.log(`- downloadFile 合法域名：${apiBase}`)
-console.log('- upload 所使用的 Makers Blob 预签名域名：首次上传时按实际域名追加')
 
 if (checks.some((item) => !item.ok)) process.exitCode = 1

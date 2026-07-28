@@ -22,7 +22,36 @@ vi.mock('./request', () => ({
   apiRequest: mocks.apiRequest,
 }))
 
-import { startChatStream } from './chat'
+import { applyClarificationPatch, startChatStream } from './chat'
+
+describe('clarification continuation state', () => {
+  it('unlocks a later clarification while preserving the state of the same card', () => {
+    const message = {
+      id: 'assistant-1',
+      role: 'ai' as const,
+      content: '',
+      ts: 1,
+      clarificationAnswered: true,
+      clarification: {
+        id: 'clarification-1',
+        title: '出发时间',
+        prompt: '请选择',
+        fields: [],
+      },
+    }
+    const same = applyClarificationPatch(message, message.clarification)
+    expect(same.clarificationAnswered).toBe(true)
+
+    const next = applyClarificationPatch(message, {
+      id: 'clarification-2',
+      title: '具体酒店',
+      prompt: '请选择',
+      fields: [],
+    })
+    expect(next.clarification?.id).toBe('clarification-2')
+    expect(next.clarificationAnswered).toBe(false)
+  })
+})
 
 describe('chat stop ownership', () => {
   beforeEach(() => {

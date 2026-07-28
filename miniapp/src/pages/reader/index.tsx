@@ -43,10 +43,12 @@ export default function ReaderPage() {
   const [action, setAction] = useState<ReaderAction>('translate')
   const [output, setOutput] = useState('')
   const [history, setHistory] = useState<AssistantResult[]>([])
+  const [latestSavedId, setLatestSavedId] = useState('')
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
   const taskRef = useRef<ChunkedSseTask | null>(null)
   const outputRef = useRef('')
+  const stopRequestedRef = useRef(false)
   const [language] = useState<Language>(readLanguage())
   const actionLabel = (value: ReaderAction) => translate(
     actionLabelKeys.find(([id]) => id === value)?.[1] || 'readerResult',
@@ -77,15 +79,17 @@ export default function ReaderPage() {
     setRunning(true)
     setError('')
     setOutput('')
+    setLatestSavedId('')
     outputRef.current = ''
+    stopRequestedRef.current = false
     let completed = false
-    const done = async () => {
+    const done = async (persist: boolean) => {
       if (completed) return
       completed = true
       taskRef.current = null
       setRunning(false)
       const content = outputRef.current.trim()
-      if (!content || !storageKey) return
+      if (!persist || !content || !storageKey) return
       try {
         const saved = await apiRequest<{ result?: AssistantResult }>('/library', {
           method: 'POST',
@@ -98,7 +102,10 @@ export default function ReaderPage() {
             content,
           },
         })
-        if (saved.result) setHistory((items) => [saved.result!, ...items.filter((item) => item.id !== saved.result?.id)])
+        if (saved.result) {
+          setLatestSavedId(saved.result.id)
+          setHistory((items) => [saved.result!, ...items.filter((item) => item.id !== saved.result?.id)])
+        }
       } catch {
         void Taro.showToast({ title: translate('resultSaveFailed', {}, language), icon: 'none' })
       }
@@ -114,16 +121,17 @@ export default function ReaderPage() {
           outputRef.current += value
           setOutput(outputRef.current)
         },
-        onDone() { void done() },
+        onDone() { void done(!stopRequestedRef.current) },
         onError(value) {
           setError(value)
-          void done()
+          void done(false)
         },
       },
     )
   }
 
   const stop = () => {
+    stopRequestedRef.current = true
     taskRef.current?.abort()
     taskRef.current = null
     setRunning(false)
@@ -166,7 +174,9 @@ export default function ReaderPage() {
         {running && !output ? <Text>{translate('readingNow', {}, language)}</Text> : null}
         {error ? <Text className='reader-error'>{error}</Text> : null}
       </View> : null}
-      {history.map((item) => <View className='history-result' key={item.id}>
+      {history
+        .filter((item) => !(output && item.id === latestSavedId))
+        .map((item) => <View className='history-result' key={item.id}>
         <Text className='result-label'>{item.title} · {new Date(item.created_at).toLocaleString(localeFor(language))}</Text>
         <MarkdownMessage content={item.content} />
       </View>)}

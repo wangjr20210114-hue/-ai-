@@ -1,6 +1,8 @@
 import {
   streamEventPatch,
+  type ChatMessage,
   type ChatRequestPayload,
+  type ClarificationPrompt,
   type FlorisStreamEvent,
   type StreamMessagePatch,
 } from '@floris/contracts'
@@ -20,6 +22,19 @@ export interface ChatStreamCallbacks {
 
 export interface ActiveChatStream {
   stop: () => Promise<void>
+}
+
+/** A later clarification is a new interaction even when it reuses one AI bubble. */
+export function applyClarificationPatch(
+  message: ChatMessage,
+  clarification: ClarificationPrompt,
+): ChatMessage {
+  const changed = message.clarification?.id !== clarification.id
+  return {
+    ...message,
+    clarification,
+    ...(changed ? { clarificationAnswered: false } : {}),
+  }
 }
 
 /**

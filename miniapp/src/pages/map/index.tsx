@@ -4,6 +4,7 @@ import { Button, Map, Text, View } from '@tarojs/components'
 import { getOrCreateConversationId } from '@/services/conversations'
 import {
   planOrderedRoute,
+  validRoutePlaces,
   type PlannedRoute,
   type RoutePlace,
 } from '@/services/routes'
@@ -27,7 +28,10 @@ export default function MapPage() {
   const [routeError, setRouteError] = useState('')
   const [locating, setLocating] = useState(false)
   const [language] = useState<Language>(readLanguage())
-  const places = mapState.places || []
+  const places = useMemo(
+    () => validRoutePlaces(mapState.places || []),
+    [mapState.places],
+  )
   const center = places[0] || { latitude: 39.9042, longitude: 116.4074 }
 
   useEffect(() => {
