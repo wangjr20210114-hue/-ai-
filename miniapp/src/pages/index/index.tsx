@@ -37,6 +37,7 @@ import {
 import { apiRequest } from '@/services/request'
 import { ensureSession } from '@/services/session'
 import { workspaceOperation } from '@/services/workspace'
+import { apiUrl } from '@/services/config'
 import './index.scss'
 
 const STATUS_COPY: Record<string, [TranslationKey, TranslationKey]> = {
@@ -411,7 +412,7 @@ export default function IndexPage() {
 
   if (error && !ready) {
     return <View className='center-state'>
-      <Image className='state-avatar' src='https://floris.jlutx.com/floris-avatar.png' />
+      <Image className='state-avatar' src={apiUrl('/floris-avatar.png')} />
       <Text>{error}</Text>
       <Button className='primary-button' onClick={() => Taro.reLaunch({ url: '/pages/index/index' })}>{translate('loginAgain', {}, language)}</Button>
     </View>
@@ -421,7 +422,7 @@ export default function IndexPage() {
     <View className='safe-top' />
     <View className='app-header'>
       <View className='brand'>
-        <Image className='brand-avatar' src='https://floris.jlutx.com/floris-avatar.png' />
+        <Image className='brand-avatar' src={apiUrl('/floris-avatar.png')} />
         <Text className='brand-title'>FLORIS</Text>
       </View>
       <View
@@ -448,7 +449,7 @@ export default function IndexPage() {
       showScrollbar={false}
     >
       {!messages.length && ready ? <View className='empty-chat'>
-        <Image className='empty-avatar' src='https://floris.jlutx.com/floris-avatar.png' />
+        <Image className='empty-avatar' src={apiUrl('/floris-avatar.png')} />
         <Text className='empty-title'>{translate('emptyChatTitle', {}, language)}</Text>
         {[
           translate('suggestionNews', {}, language),

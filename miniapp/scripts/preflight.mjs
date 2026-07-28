@@ -12,7 +12,7 @@ const apiBase = (
   argument('--api')
   || process.env.FLORIS_MINIAPP_API_BASE_URL
   || process.env.TARO_APP_API_BASE_URL
-  || 'https://floris.jlutx.com'
+  || 'https://miniapp-floris.jlutx.com'
 ).replace(/\/+$/, '')
 
 const checks = []

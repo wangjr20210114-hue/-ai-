@@ -65,4 +65,13 @@ describe('mini-program internationalization catalog', () => {
     })
     expect(findings).toEqual([])
   })
+
+  it('does not depend on the web production origin at runtime', () => {
+    const findings = sourceFiles(sourceRoot).flatMap((file) => (
+      fs.readFileSync(file, 'utf8').includes('https://floris.jlutx.com')
+        ? [path.relative(sourceRoot, file)]
+        : []
+    ))
+    expect(findings).toEqual([])
+  })
 })

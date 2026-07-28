@@ -7,6 +7,7 @@ import {
   type PlannedRoute,
   type RoutePlace,
 } from '@/services/routes'
+import { apiUrl } from '@/services/config'
 import { ensureSession } from '@/services/session'
 import { readLanguage, translate, type Language } from '@/i18n'
 import './index.scss'
@@ -41,7 +42,7 @@ export default function MapPage() {
 
   const markers = useMemo(() => places.map((place, index) => ({
     id: index + 1,
-    iconPath: 'https://floris.jlutx.com/floris-avatar.png',
+    iconPath: apiUrl('/floris-avatar.png'),
     width: 32,
     height: 32,
     latitude: Number(place.latitude),

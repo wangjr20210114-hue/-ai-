@@ -6,6 +6,7 @@ import ClarificationCard from './ClarificationCard'
 import WorkspaceActionCard from './WorkspaceActionCard'
 import PaperResults from './PaperResults'
 import type { WorkspaceOperation } from './WorkspaceActionCard'
+import { apiUrl } from '@/services/config'
 
 interface Props {
   message: ChatMessage
@@ -32,7 +33,7 @@ export default function MessageBubble({
 }: Props) {
   const ai = message.role === 'ai'
   return <View className={`message-row ${ai ? 'assistant-row' : 'user-row'}`}>
-    {ai ? <Image className='assistant-avatar' src='https://floris.jlutx.com/floris-avatar.png' mode='aspectFill' /> : null}
+    {ai ? <Image className='assistant-avatar' src={apiUrl('/floris-avatar.png')} mode='aspectFill' /> : null}
     <View className={`message-bubble ${ai ? 'assistant-bubble' : 'user-bubble'} ${message.failed ? 'failed-bubble' : ''}`}>
       {message.content ? <MarkdownMessage content={message.content} /> : null}
       {message.streaming && !message.content ? <View className='typing-dots'><Text>●</Text><Text>●</Text><Text>●</Text></View> : null}
