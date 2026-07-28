@@ -3,6 +3,7 @@
  * paper assistant and opening the canonical source page.
  */
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { BookOpenIcon, JumpIcon } from 'tdesign-icons-react';
 import type { ChatMessage, PaperInfo } from '../../types';
@@ -13,7 +14,7 @@ import {
   paperDownloadId,
   paperSourceHref,
 } from '../../services/paperUtils';
-import PaperFullReader from './LazyPaperFullReader';
+import PaperFullReader from './PaperFullReader';
 import { useLanguage } from '../../i18n';
 
 interface Props {
@@ -147,13 +148,14 @@ export default function PaperListCard({ message }: Props) {
         })}
       </div>
 
-      {fullReader && (
+      {fullReader && createPortal(
         <PaperFullReader
           fileId={fullReader.fileId}
           title={fullReader.title}
           arxivId={fullReader.arxivId}
           onClose={() => setFullReader(null)}
-        />
+        />,
+        document.body,
       )}
     </section>
   );

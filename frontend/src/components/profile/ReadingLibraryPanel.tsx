@@ -7,7 +7,7 @@ import {
   fetchPaperFile, renameReadingFolder, type ReadingFolder, type ReadingSettings, type SavedPaper,
 } from '../../services/paperApi';
 import { createZip } from '../../services/zip';
-import PaperFullReader from '../paper/LazyPaperFullReader';
+import PaperFullReader from '../paper/PaperFullReader';
 import { useLanguage } from '../../i18n';
 
 function saveBlob(blob: Blob, name: string) {

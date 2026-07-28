@@ -3,10 +3,10 @@
  */
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Button, MessagePlugin } from 'tdesign-react';
+import { Button, Loading, MessagePlugin } from 'tdesign-react';
 import { BookOpenIcon, FullscreenIcon } from 'tdesign-icons-react';
 import { fetchPaperFile } from '../../services/paperApi';
-import PaperFullReader from './LazyPaperFullReader';
+import PaperFullReader from './PaperFullReader';
 import { useLanguage } from '../../i18n';
 
 interface Props {
@@ -91,16 +91,7 @@ export default function PaperInlineReader({
         </div>
       </div>
       <div className="paper-inline-preview">
-        {loading && (
-          <div className="paper-loading-state" role="status">
-            <div className="skeleton-paper-page is-inline" aria-hidden="true">
-              <span className="skeleton skeleton-line" style={{ width: '44%' }} />
-              <span className="skeleton skeleton-line" />
-              <span className="skeleton skeleton-line" style={{ width: '78%' }} />
-            </div>
-            <span>{t('openingCompatiblePreview')}</span>
-          </div>
-        )}
+        {loading && <div className="paper-loading-state"><Loading /><span>{t('openingCompatiblePreview')}</span></div>}
         {loadError && <div className="paper-load-error"><strong>{t('pdfOpenFailed')}</strong><span>{loadError}</span></div>}
         {objectUrl && <iframe className="paper-native-frame paper-inline-frame" src={objectUrl} title={title || fileName} />}
       </div>

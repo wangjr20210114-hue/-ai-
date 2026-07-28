@@ -2464,66 +2464,6 @@ html:lang(en) {
   background: var(--app-panel-2);
 }
 
-/* PDF 预览/阅读器位于深色画布上，骨架使用反色 */
-.skeleton-paper-page {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: min(420px, 72%);
-  padding: 22px 20px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.1);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
-}
-.skeleton-paper-page.is-inline {
-  width: min(320px, 80%);
-  padding: 16px 14px;
-}
-.paper-loading-state .skeleton {
-  background: rgba(255, 255, 255, 0.22);
-}
-.paper-loading-state .skeleton::after {
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
-}
-
-/* LazyPaperFullReader 的 Suspense 兜底，与真实阅读器同层级同构图 */
-.paper-reader-fallback {
-  animation: paperBackdropIn 0.2s ease both;
-}
-.paper-reader-fallback-panel {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-4);
-  width: min(860px, calc(100vw - 48px));
-  height: min(88dvh, 1000px);
-  padding: var(--space-4);
-  border-radius: 16px;
-  background: var(--app-panel);
-  box-shadow: var(--app-shadow);
-  animation: paperReaderIn 0.24s var(--motion-ease-out) both;
-}
-.paper-reader-fallback-panel > .skeleton-line {
-  align-self: flex-start;
-  width: 32%;
-  height: 14px;
-}
-.paper-reader-fallback-page {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 12px;
-  width: 100%;
-  padding: var(--space-5);
-  border-radius: 8px;
-}
-.paper-reader-fallback-page .skeleton-line {
-  height: 12px;
-}
-.paper-reader-fallback-page .skeleton-line:not([style]) {
-  width: 100%;
-}
-
 /* ============ 动画 ============ */
 @keyframes cardSlideIn {
   from {

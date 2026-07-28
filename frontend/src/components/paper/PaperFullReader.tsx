@@ -378,18 +378,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
         <div className="paper-body" style={{ display: 'flex', overflow: 'hidden' }}>
           {/* PDF 侧 */}
           <div className="paper-compatible-view">
-            {loading && (
-              <div className="paper-loading-state" role="status">
-                <div className="skeleton-paper-page" aria-hidden="true">
-                  <span className="skeleton skeleton-line" style={{ width: '44%' }} />
-                  <span className="skeleton skeleton-line" />
-                  <span className="skeleton skeleton-line" />
-                  <span className="skeleton skeleton-line" style={{ width: '86%' }} />
-                  <span className="skeleton skeleton-line" style={{ width: '62%' }} />
-                </div>
-                <span>{t('openingHdPreview')}</span>
-              </div>
-            )}
+            {loading && <div className="paper-loading-state"><Loading /><span>{t('openingHdPreview')}</span></div>}
             {loadError && <div className="paper-load-error"><strong>{t('pdfOpenFailed')}</strong><span>{loadError}</span></div>}
             {doc && pages.map(pg => (
               <div
