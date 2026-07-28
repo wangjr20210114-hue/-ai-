@@ -30,6 +30,7 @@
   text-overflow: ellipsis;
   text-align: center;
 }
+.reminder-ticker.is-disabled { opacity: .52; }
 .header-actions { display: flex; flex: none; gap: 2px; }
 .icon-button {
   width: 48px;

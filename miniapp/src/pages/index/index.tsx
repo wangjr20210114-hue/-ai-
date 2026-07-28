@@ -71,6 +71,7 @@ export default function IndexPage() {
   const activeStream = useRef<ActiveChatStream | null>(null)
   const messagesRef = useRef<ChatMessage[]>([])
   const streaming = messages.some((message) => message.streaming)
+  const interactionLocked = !ready || streaming
 
   const publish = (updater: ChatMessage[] | ((current: ChatMessage[]) => ChatMessage[])) => {
     setMessages((current) => {
@@ -327,6 +328,21 @@ export default function IndexPage() {
         file.size,
       )
       await addPdfToReading(uploaded)
+      void proactiveOperation(conversationId, 'ingest_signal', {
+        signal_type: 'file_uploaded',
+        dedup_key: uploaded.storageKey,
+        payload: {
+          file_id: uploaded.storageKey,
+          storage_key: uploaded.storageKey,
+          filename: uploaded.name,
+          mime_type: uploaded.mimeType,
+          is_paper: false,
+          ui_language: language,
+        },
+      }).then((state) => {
+        setTickerLines(proactiveTickerLines(state))
+        setReminderIndex(0)
+      }).catch(() => undefined)
       void Taro.showToast({ title: translate('addedToReading', {}, language), icon: 'success' })
     } catch (reason) {
       void Taro.showToast({ title: String((reason as Error)?.message || translate('addFailed', {}, language)), icon: 'none' })
@@ -426,18 +442,20 @@ export default function IndexPage() {
         <Text className='brand-title'>FLORIS</Text>
       </View>
       <View
-        className='reminder-ticker'
+        className={`reminder-ticker ${interactionLocked ? 'is-disabled' : ''}`}
         role='button'
         aria-label={translate('openProactive', {}, language)}
-        onClick={() => Taro.navigateTo({ url: '/pages/proactive/index' })}
+        onClick={() => {
+          if (!interactionLocked) void Taro.navigateTo({ url: '/pages/proactive/index' })
+        }}
       >
         <Text>{reminderText || translate('gentleReminderFallback', {}, language)}</Text>
       </View>
       <View className='header-actions'>
-        <Button className='icon-button' aria-label={translate('createConversation', {}, language)} disabled={streaming} onClick={createNew}>＋</Button>
-        <Button className='icon-button' aria-label={translate('openHistory', {}, language)} disabled={streaming} onClick={() => Taro.navigateTo({ url: '/pages/history/index' })}>☰</Button>
-        <Button className='icon-button' aria-label={translate('openReading', {}, language)} disabled={streaming} onClick={() => Taro.navigateTo({ url: '/pages/library/index' })}>▤</Button>
-        <Button className='icon-button' aria-label={translate('openAppSettings', {}, language)} disabled={streaming} onClick={() => Taro.navigateTo({ url: '/pages/settings/index' })}>⚙</Button>
+        <Button className='icon-button' aria-label={translate('createConversation', {}, language)} disabled={interactionLocked} onClick={createNew}>＋</Button>
+        <Button className='icon-button' aria-label={translate('openHistory', {}, language)} disabled={interactionLocked} onClick={() => Taro.navigateTo({ url: '/pages/history/index' })}>☰</Button>
+        <Button className='icon-button' aria-label={translate('openReading', {}, language)} disabled={interactionLocked} onClick={() => Taro.navigateTo({ url: '/pages/library/index' })}>▤</Button>
+        <Button className='icon-button' aria-label={translate('openAppSettings', {}, language)} disabled={interactionLocked} onClick={() => Taro.navigateTo({ url: '/pages/settings/index' })}>⚙</Button>
       </View>
     </View>
 
@@ -475,12 +493,15 @@ export default function IndexPage() {
       {referenceImage ? <View className='reference-chip'>
         <Image src={referenceImage.dataUrl} mode='aspectFill' />
         <Text>{referenceImage.name}</Text>
-        <Text aria-label={translate('removeReference', {}, language)} onClick={() => setReferenceImage(null)}>×</Text>
+        <Text aria-label={translate('removeReference', {}, language)}
+          onClick={() => {
+            if (!interactionLocked) setReferenceImage(null)
+          }}>×</Text>
       </View> : null}
-      <Button className='attach-button' aria-label={translate('addAttachment', {}, language)} loading={attaching} disabled={streaming || !ready} onClick={() => void attach()}>＋</Button>
+      <Button className='attach-button' aria-label={translate('addAttachment', {}, language)} loading={attaching} disabled={interactionLocked} onClick={() => void attach()}>＋</Button>
       <Textarea
         className='composer-input'
-        disabled={!ready}
+        disabled={interactionLocked}
         maxlength={4000}
         placeholder={ready
           ? translate('chatPlaceholder', {}, language)
@@ -493,7 +514,7 @@ export default function IndexPage() {
       />
       {streaming
         ? <Button className='send-button stop-button' aria-label={translate('stopGeneration', {}, language)} onClick={() => void stop()}>■</Button>
-        : <Button className='send-button' aria-label={translate('sendMessage', {}, language)} disabled={!draft.trim() || !ready} onClick={() => void sendText()}>↑</Button>}
+        : <Button className='send-button' aria-label={translate('sendMessage', {}, language)} disabled={!draft.trim() || interactionLocked} onClick={() => void sendText()}>↑</Button>}
     </View>
   </View>
 }

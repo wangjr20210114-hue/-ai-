@@ -97,7 +97,9 @@ Preview 流程：EdgeOne 控制台 → Makers → 项目 → 构建部署 → �
 
 ### 1.5 微信小程序开发与预览
 
-小程序位于 `miniapp/`，当前开发分支为 `feature/wechat-miniapp`。它不是网页套壳，也不复制 Agent 业务：聊天、搜索、记忆、Skills、日程、地图数据、图片、论文和主动提醒继续请求 `TARO_APP_API_BASE_URL` 所指向的现有 Makers 环境（开发时为该分支 Preview，上线时为小程序自己的稳定 HTTPS 入口）；小程序只负责微信平台适配。跨端共用的会话 ID、SSE、请求载荷、结构化卡和事件协议位于 `packages/floris-contracts/`。
+小程序位于 `miniapp/`，当前开发分支为 `feature/wechat-miniapp`。它不是网页套壳，也不复制 Agent 业务：聊天、搜索、记忆、Skills、日程、地图数据、图片、论文和主动提醒继续请求 `TARO_APP_API_BASE_URL` 所指向的 Makers 环境；小程序只负责微信平台适配。跨端共用的会话 ID、SSE、请求载荷、结构化卡和事件协议位于 `packages/floris-contracts/`。
+
+生产环境与网页端彻底隔离：网页端继续使用项目 `ai-active-agent-floris` 和域名 `floris.jlutx.com`；小程序使用独立的全球可用区项目 `floris-miniapp`（项目 ID `makers-qgou8iu7g1lz`）和域名 `miniapp-floris.jlutx.com`。小程序项目从 `feature/wechat-miniapp` 构建，正式客户端通过 `miniapp/.env.production` 只连接自己的域名，因此发布小程序后端不会重新构建、覆盖或切换网页端 Deployment。
 
 平台复用规则：
 
@@ -117,8 +119,8 @@ Preview 流程：EdgeOne 控制台 → Makers → 项目 → 构建部署 → �
 首次配置：
 
 1. 在微信公众平台注册个人小程序，复制 AppID，并在“开发管理 → 开发设置”取得 AppSecret。
-2. 在 EdgeOne Makers 的 Preview 环境添加 `WECHAT_MINIAPP_APP_ID`、`WECHAT_MINIAPP_APP_SECRET`、`MINIAPP_SESSION_SECRET`；三者均设为 Secret。
-3. 微信公众平台 → 开发管理 → 开发设置 → 服务器域名，把当前 `TARO_APP_API_BASE_URL` 的 HTTPS 主机加入 `request`、`downloadFile` 合法域名；Makers Blob 预签名上传所返回的实际 HTTPS 域名还需加入 `request` 合法域名。开发 Preview 与正式入口域名不同，两者都要分别登记。正式构建已通过 `miniapp/.env.production` 固定使用 `https://miniapp-floris.jlutx.com`，该域名必须关联当前 Makers 项目的生产环境，并在 Cloudflare 以仅 DNS 的 CNAME 指向 EdgeOne 控制台分配的目标。
+2. 在独立的 EdgeOne Makers 小程序项目中添加 `WECHAT_MINIAPP_APP_ID`、`WECHAT_MINIAPP_APP_SECRET`、`MINIAPP_SESSION_SECRET`；三者均设为 Secret。模型、搜索、地图和图片所需变量只迁移当前业务实际使用项，不复制网页端专属或已弃用变量。
+3. 微信公众平台 → 开发管理 → 开发设置 → 服务器域名，把 `https://miniapp-floris.jlutx.com` 加入 `request`、`downloadFile` 合法域名；Makers Blob 预签名上传所返回的实际 HTTPS 域名还需加入 `request` 合法域名。正式构建已通过 `miniapp/.env.production` 固定使用该入口。Cloudflare 中 `miniapp-floris` 使用“仅 DNS”的 CNAME，目标为 EdgeOne 控制台显示的 `miniapp-floris.jlutx.com.pages.dnsoe6.com`；不要改动网页端的 `floris` 记录。EdgeOne 为该域名部署自动续签的免费证书并开启强制 HTTPS。
 4. 复制 `miniapp/project.private.config.example.json` 为 `miniapp/project.private.config.json`，只把其中 AppID 换成真实值。该文件已被 Git 忽略。
 5. 执行：
 
