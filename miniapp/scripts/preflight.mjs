@@ -48,12 +48,36 @@ check(
 )
 
 let built = true
+let builtAppConfig = null
 try {
-  await access(resolve(miniappRoot, 'dist', 'app.json'), constants.R_OK)
+  const appConfigPath = resolve(miniappRoot, 'dist', 'app.json')
+  await access(appConfigPath, constants.R_OK)
+  builtAppConfig = JSON.parse(await readFile(appConfigPath, 'utf8'))
 } catch {
   built = false
 }
 check(built, '小程序构建产物', built ? 'dist/app.json 可读取' : '请先运行 npm run build:weapp')
+const locationPermissionDescription = String(
+  builtAppConfig?.permission?.['scope.userLocation']?.desc || '',
+).trim()
+const locationPermissionDescriptionLength = Array.from(locationPermissionDescription).length
+check(
+  locationPermissionDescriptionLength > 0 && locationPermissionDescriptionLength <= 30,
+  '微信位置权限说明',
+  locationPermissionDescriptionLength > 0
+    ? `${locationPermissionDescriptionLength}/30 字`
+    : 'dist/app.json 中缺少 scope.userLocation.desc',
+)
+const requiredPrivateInfos = Array.isArray(builtAppConfig?.requiredPrivateInfos)
+  ? builtAppConfig.requiredPrivateInfos
+  : []
+check(
+  requiredPrivateInfos.includes('getLocation'),
+  '微信定位隐私声明',
+  requiredPrivateInfos.includes('getLocation')
+    ? 'requiredPrivateInfos 已声明 getLocation'
+    : 'dist/app.json 中缺少 getLocation',
+)
 check(apiBase.startsWith('https://'), '后端使用 HTTPS', apiBase)
 
 try {

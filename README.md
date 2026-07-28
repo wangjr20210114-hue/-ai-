@@ -132,9 +132,20 @@ npm --prefix miniapp run build:weapp
 npm --prefix miniapp run preflight -- --api <当前 feature/wechat-miniapp Preview 地址>
 ```
 
-`preflight` 不读取或打印 AppSecret：它只校验本地真实 AppID、构建产物、HTTPS，以及 Preview `/wechat-auth` 是否已经走到微信官方 `jscode2session`。返回“微信登录尚未配置”时，不要继续真机测试，先补齐三项 Makers Secret 并从 `feature/wechat-miniapp` 重新部署 Preview。
+`preflight` 不读取或打印 AppSecret：它只校验本地真实 AppID、构建产物、微信位置权限说明不超过 30 字、`getLocation` 隐私声明、HTTPS，以及 Preview `/wechat-auth` 是否已经走到微信官方 `jscode2session`。返回“微信登录尚未配置”时，不要继续真机测试，先补齐三项 Makers Secret 并从 `feature/wechat-miniapp` 重新部署 Preview。
 
 6. 微信开发者工具 → 导入项目，选择仓库的 `miniapp/` 目录；`miniprogramRoot` 已指向 `dist/`。先在 Preview 后端验证登录、流式问答、停止生成、位置授权、日程确认和图片保存，再上传体验版。
+7. 上传前重新执行第 5 步。微信开发者工具右上角点击“上传”，填写版本号和说明；上传成功只会生成“开发版本”，不会自动成为体验版。也可以在 macOS 终端执行：
+
+```bash
+/Applications/wechatwebdevtools.app/Contents/MacOS/cli upload \
+  --project "$PWD/miniapp" \
+  --version "0.1.0" \
+  --desc "Floris 微信小程序体验版" \
+  --lang zh
+```
+
+8. 微信公众平台 → 管理 → 版本管理，在“开发版本”中找到刚上传的版本并点击“选为体验版”。非管理员真机测试前，先在“成员管理”中把对应微信号添加为体验成员；体验成员随后扫描版本管理页的体验二维码。
 
 若开发者工具提示“当前地址不在 request 合法域名列表中”，本地联调可在“详情 → 本地设置”勾选“不校验合法域名、web-view（业务域名）、TLS 版本以及 HTTPS 证书”，它只影响本机模拟器；体验版与正式版仍必须按第 3 步登记服务器域名。Preview 地址会随部署变化，不适合作为长期入口；准备真机验收时应给小程序后端绑定稳定 HTTPS 域名，再同时登记为 `request` 与 `downloadFile` 合法域名。
 
