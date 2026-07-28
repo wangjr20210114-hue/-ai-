@@ -20,6 +20,7 @@ frontend/*.local
 miniapp/node_modules/
 miniapp/dist/
 miniapp/.swc/
+miniapp/*.local
 miniapp/project.private.config.json
 
 # OS

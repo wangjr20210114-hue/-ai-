@@ -5,6 +5,7 @@
   "description": "Floris 微信小程序客户端",
   "scripts": {
     "build:weapp": "taro build --type weapp",
+    "build:weapp:preview": "taro build --type weapp --mode development",
     "dev:weapp": "taro build --type weapp --watch",
     "preflight": "node scripts/preflight.mjs",
     "typecheck": "tsc --noEmit",
