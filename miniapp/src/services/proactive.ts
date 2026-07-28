@@ -88,6 +88,20 @@ export function proactiveWorkflowHeadline(items: ProactiveWorkflow[]): string {
     : `“${workflow.title}”正在进行`
 }
 
+export function proactiveTickerLines(state: ProactiveState, limit = 10): string[] {
+  const workflow = proactiveWorkflowHeadline(state.workflows || [])
+  const reminders = activeProactiveNotifications(state.notifications || [])
+    .map((item) => String(item.body || item.title || '').trim())
+    .filter(Boolean)
+  const realLines = [workflow, ...reminders].filter(Boolean)
+  if (realLines.length) return [...new Set(realLines)].slice(0, limit)
+  return [...new Set(
+    (state.preferences?.fallback_mottos || [])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean),
+  )].slice(0, limit)
+}
+
 export function proactiveOperation(
   conversationId: string,
   operation: string,

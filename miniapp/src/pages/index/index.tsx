@@ -25,10 +25,8 @@ import {
 import { requestCurrentLocation } from '@/services/location'
 import { addPdfToReading, imageDataUrl, uploadToMakers } from '@/services/files'
 import {
-  activeProactiveNotifications,
   proactiveOperation,
-  proactiveWorkflowHeadline,
-  type ProactiveNotification,
+  proactiveTickerLines,
 } from '@/services/proactive'
 import { apiRequest } from '@/services/request'
 import { ensureSession } from '@/services/session'
@@ -60,8 +58,7 @@ export default function IndexPage() {
   const [attaching, setAttaching] = useState(false)
   const [statusText, setStatusText] = useState('')
   const [actionBusy, setActionBusy] = useState('')
-  const [reminders, setReminders] = useState<ProactiveNotification[]>([])
-  const [workflowHint, setWorkflowHint] = useState('')
+  const [tickerLines, setTickerLines] = useState<string[]>([])
   const [reminderIndex, setReminderIndex] = useState(0)
   const [language, setLanguage] = useState(String(Taro.getStorageSync('floris-language') || 'zh-CN'))
   const activeStream = useRef<ActiveChatStream | null>(null)
@@ -83,8 +80,7 @@ export default function IndexPage() {
     if (!targetConversationId) return
     try {
       const data = await proactiveOperation(targetConversationId, operation)
-      setReminders(activeProactiveNotifications(data.notifications || []))
-      setWorkflowHint(proactiveWorkflowHeadline(data.workflows || []))
+      setTickerLines(proactiveTickerLines(data))
       setReminderIndex(0)
     } catch {
       // Reminders never block chat.
@@ -158,12 +154,12 @@ export default function IndexPage() {
   }, [ready, conversationId])
 
   useEffect(() => {
-    if (reminders.length < 2) return
+    if (tickerLines.length < 2) return
     const timer = setInterval(() => {
-      setReminderIndex((current) => (current + 1) % reminders.length)
+      setReminderIndex((current) => (current + 1) % tickerLines.length)
     }, 6_000)
     return () => clearInterval(timer)
-  }, [reminders.length])
+  }, [tickerLines.length])
 
   useEffect(() => {
     if (conversationId && messages.length && !messages.some((item) => item.streaming)) {
@@ -241,8 +237,8 @@ export default function IndexPage() {
                   longitude: location.longitude,
                 },
               }).then((state) => {
-                setReminders(activeProactiveNotifications(state.notifications || []))
-                setWorkflowHint(proactiveWorkflowHeadline(state.workflows || []))
+                setTickerLines(proactiveTickerLines(state))
+                setReminderIndex(0)
               }).catch(() => undefined)
             }
             void runStream(createLocationRetryPayload(payload, location, request), assistantId)
@@ -399,8 +395,7 @@ export default function IndexPage() {
     if (previousUser) void sendText(previousUser.content)
   }
 
-  const reminder = reminders[reminderIndex]
-  const reminderText = String(reminder?.body || reminder?.title || workflowHint || '')
+  const reminderText = tickerLines[reminderIndex] || ''
 
   if (error && !ready) {
     return <View className='center-state'>

@@ -14,6 +14,18 @@ export function startReaderStream(
     onError: (value: string) => void
   },
 ): Promise<ChunkedSseTask> {
+  let settled = false
+  const done = () => {
+    if (settled) return
+    settled = true
+    callbacks.onDone()
+  }
+  const fail = (message: string) => {
+    if (settled) return
+    settled = true
+    callbacks.onError(message)
+  }
+
   return startChunkedSse({
     path: '/reader',
     conversationId,
@@ -26,14 +38,14 @@ export function startReaderStream(
     onFrame(frame) {
       try {
         const event = JSON.parse(frame) as { type?: string; content?: string }
-        if (event.type === 'paper_delta' && event.content) callbacks.onDelta(event.content)
-        if (event.type === 'error_message') callbacks.onError(event.content || '助读失败，请重试')
-        if (event.type === 'paper_done') callbacks.onDone()
+        if (event.type === 'paper_delta' && event.content && !settled) callbacks.onDelta(event.content)
+        if (event.type === 'error_message') fail(event.content || '助读失败，请重试')
+        if (event.type === 'paper_done') done()
       } catch {
         // Ignore malformed heartbeats.
       }
     },
-    onDone: callbacks.onDone,
-    onError: callbacks.onError,
+    onDone: done,
+    onError: fail,
   })
 }

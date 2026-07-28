@@ -34,7 +34,12 @@ vi.mock('@tarojs/components', async () => {
   }
 })
 
-vi.mock('./MakersImage', () => ({ default: () => null }))
+vi.mock('./MakersImage', async () => {
+  const React = await import('react')
+  return {
+    default: ({ src }: { src: string }) => React.createElement('img', { 'data-src': src }),
+  }
+})
 
 import WorkspaceActionCard from './WorkspaceActionCard'
 
@@ -100,5 +105,53 @@ describe('native structured action cards', () => {
     expect(html).toContain('选择日期')
     expect(html).toContain('保存并检查冲突')
     expect(html).not.toContain('确认创建')
+  })
+
+  it('keeps verified map places in Agent order and offers the native map action', () => {
+    const html = renderToStaticMarkup(<WorkspaceActionCard
+      action={{
+        id: 'map-1',
+        kind: 'map_recommendation',
+        status: 'awaiting_confirmation',
+        version: 1,
+        payload: {
+          title: '今晚路线',
+          places: [
+            { place_id: 'breakfast', name: '早餐店', address: '第一站' },
+            { place_id: 'station', name: '北京站', address: '第二站' },
+            { place_id: 'hotel', name: '锦江之星', address: '第三站' },
+          ],
+          show_route: true,
+        },
+      }}
+      onExecute={vi.fn()}
+    />)
+    expect(html.indexOf('早餐店')).toBeLessThan(html.indexOf('北京站'))
+    expect(html.indexOf('北京站')).toBeLessThan(html.indexOf('锦江之星'))
+    expect(html).toContain('在地图中查看')
+  })
+
+  it('renders the Makers image version chain in one native swiper', () => {
+    const html = renderToStaticMarkup(<WorkspaceActionCard
+      action={{
+        id: 'image-2',
+        kind: 'image_generate',
+        status: 'succeeded',
+        version: 2,
+        payload: { prompt: '橘猫戴蓝色围巾' },
+        result: {
+          image_url: '/files?key=second',
+          versions: [
+            { id: 'image-1', prompt: '橘猫', image_url: '/files?key=first' },
+            { id: 'image-2', prompt: '橘猫戴蓝色围巾', image_url: '/files?key=second' },
+          ],
+        },
+      }}
+      onExecute={vi.fn()}
+    />)
+    expect(html).toContain('data-src="/files?key=first"')
+    expect(html).toContain('data-src="/files?key=second"')
+    expect(html).toContain('1 / 2')
+    expect(html).toContain('左右滑动查看版本')
   })
 })

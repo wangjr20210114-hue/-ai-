@@ -8,6 +8,7 @@ import {
   actionableProactiveWorkflows,
   activeProactiveNotifications,
   currentWorkflowStep,
+  proactiveTickerLines,
   proactiveWorkflowHeadline,
 } from './proactive'
 
@@ -54,5 +55,31 @@ describe('proactive reminder window', () => {
     expect(currentWorkflowStep(workflows[1])?.id).toBe('next')
     expect(proactiveWorkflowHeadline(workflows)).toContain('待你确认')
     expect(proactiveWorkflowHeadline([workflows[1]])).toBe('“今晚行程”正在进行：现在出发')
+  })
+
+  it('uses persisted mottos only when no real reminder or workflow needs the slot', () => {
+    expect(proactiveTickerLines({
+      notifications: [],
+      workflows: [],
+      preferences: { fallback_mottos: [' 星光会找到夜路。 ', '', '星光会找到夜路。', '慢慢来。'] },
+    })).toEqual(['星光会找到夜路。', '慢慢来。'])
+
+    expect(proactiveTickerLines({
+      notifications: [{ id: 'weather', status: 'unread', body: '海淀区有雷阵雨，记得带伞。' }],
+      workflows: [],
+      preferences: { fallback_mottos: ['这句不应混进真实提醒。'] },
+    })).toEqual(['海淀区有雷阵雨，记得带伞。'])
+
+    expect(proactiveTickerLines({
+      notifications: [],
+      workflows: [{
+        id: 'trip',
+        title: '出发准备',
+        status: 'active',
+        version: 2,
+        steps: [{ id: 'leave', status: 'notified', title: '现在出发' }],
+      }],
+      preferences: { fallback_mottos: ['这句不应出现。'] },
+    })).toEqual(['“出发准备”正在进行：现在出发'])
   })
 })

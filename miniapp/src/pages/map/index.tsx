@@ -2,52 +2,37 @@ import { useEffect, useMemo, useState } from 'react'
 import Taro from '@tarojs/taro'
 import { Map, Text, View } from '@tarojs/components'
 import { getOrCreateConversationId } from '@/services/conversations'
-import { apiRequest } from '@/services/request'
+import {
+  planOrderedRoute,
+  type PlannedRoute,
+  type RoutePlace,
+} from '@/services/routes'
 import { ensureSession } from '@/services/session'
 import './index.scss'
 
-type Place = {
-  place_id?: string
-  name?: string
-  address?: string
-  latitude: number
-  longitude: number
-}
-
 type MapState = {
   title?: string
-  places?: Place[]
+  places?: RoutePlace[]
   route_mode?: string
   route_strategy?: string
   show_route?: boolean
 }
 
-type Route = {
-  path?: Array<{ latitude: number; longitude: number }>
-  distance_meters?: number
-  duration_seconds?: number
-}
-
 export default function MapPage() {
   const [mapState] = useState<MapState>(() => Taro.getStorageSync('floris.miniapp.active-map.v1') || {})
-  const [route, setRoute] = useState<Route | null>(null)
+  const [route, setRoute] = useState<PlannedRoute | null>(null)
   const [routeError, setRouteError] = useState('')
   const places = mapState.places || []
   const center = places[0] || { latitude: 39.9042, longitude: 116.4074 }
 
   useEffect(() => {
     if (!mapState.show_route || places.length < 2) return
-    void ensureSession().then((session) => apiRequest<{ route?: Route }>('/routes', {
-      method: 'POST',
-      conversationId: getOrCreateConversationId(session),
-      data: {
-        places,
-        mode: mapState.route_mode || undefined,
-        strategy: mapState.route_strategy || undefined,
-        optimize: false,
-      },
-      timeout: 30_000,
-    })).then((result) => setRoute(result.route || null))
+    void ensureSession().then((session) => planOrderedRoute(
+      getOrCreateConversationId(session),
+      places,
+      mapState.route_mode || undefined,
+      mapState.route_strategy || undefined,
+    )).then((result) => setRoute(result.route || null))
       .catch((reason) => setRouteError(String((reason as Error)?.message || reason)))
   }, [])
 
