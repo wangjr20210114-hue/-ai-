@@ -1,3 +1,4 @@
+import Taro from '@tarojs/taro'
 import { Image, Text, View } from '@tarojs/components'
 import type { ChatMessage, WorkspaceAction } from '@floris/contracts'
 import { translate } from '@/i18n'
@@ -7,6 +8,7 @@ import WorkspaceActionCard from './WorkspaceActionCard'
 import PaperResults from './PaperResults'
 import type { WorkspaceOperation } from './WorkspaceActionCard'
 import { apiUrl } from '@/services/config'
+import { markdownToPlainText } from '@/services/markdown'
 
 interface Props {
   message: ChatMessage
@@ -35,6 +37,15 @@ export default function MessageBubble({
   return <View className={`message-row ${ai ? 'assistant-row' : 'user-row'}`}>
     {ai ? <Image className='assistant-avatar' src={apiUrl('/floris-avatar.png')} mode='aspectFill' /> : null}
     <View className={`message-bubble ${ai ? 'assistant-bubble' : 'user-bubble'} ${message.failed ? 'failed-bubble' : ''}`}>
+      {ai && message.content && !message.streaming ? <View
+        className='message-copy'
+        role='button'
+        aria-label={translate('copy')}
+        onClick={() => void Taro.setClipboardData({
+          data: markdownToPlainText(message.content),
+          success: () => void Taro.showToast({ title: translate('copied'), icon: 'success' }),
+        })}
+      >⧉</View> : null}
       {message.content ? <MarkdownMessage content={message.content} /> : null}
       {message.streaming && !message.content ? <View className='typing-dots'><Text>●</Text><Text>●</Text><Text>●</Text></View> : null}
       {message.streaming && statusText ? <Text className='stream-status'>{statusText}</Text> : null}

@@ -38,6 +38,7 @@ import { apiRequest } from '@/services/request'
 import { ensureSession } from '@/services/session'
 import { workspaceOperation } from '@/services/workspace'
 import { apiUrl } from '@/services/config'
+import { updateNativeTabBar } from '@/services/tabbar'
 import './index.scss'
 
 const STATUS_COPY: Record<string, [TranslationKey, TranslationKey]> = {
@@ -144,7 +145,9 @@ export default function IndexPage() {
   }, [])
 
   useDidShow(() => {
-    setLanguage(normalizeLanguage(Taro.getStorageSync('floris-language')))
+    const nextLanguage = normalizeLanguage(Taro.getStorageSync('floris-language'))
+    setLanguage(nextLanguage)
+    void updateNativeTabBar(nextLanguage)
     const pendingPrompt = String(Taro.getStorageSync(PENDING_PROACTIVE_PROMPT_KEY) || '')
     if (pendingPrompt && !streaming) {
       Taro.removeStorageSync(PENDING_PROACTIVE_PROMPT_KEY)
@@ -152,6 +155,11 @@ export default function IndexPage() {
     }
     if (ready) void refreshReminders('page_open')
   })
+
+  useEffect(() => {
+    const update = interactionLocked ? Taro.hideTabBar : Taro.showTabBar
+    void update({ animation: true }).catch(() => undefined)
+  }, [interactionLocked])
 
   useEffect(() => {
     if (!ready || !conversationId) return
@@ -446,7 +454,7 @@ export default function IndexPage() {
         role='button'
         aria-label={translate('openProactive', {}, language)}
         onClick={() => {
-          if (!interactionLocked) void Taro.navigateTo({ url: '/pages/proactive/index' })
+          if (!interactionLocked) void Taro.switchTab({ url: '/pages/proactive/index' })
         }}
       >
         <Text>{reminderText || translate('gentleReminderFallback', {}, language)}</Text>
@@ -454,8 +462,8 @@ export default function IndexPage() {
       <View className='header-actions'>
         <Button className='icon-button' aria-label={translate('createConversation', {}, language)} disabled={interactionLocked} onClick={createNew}>＋</Button>
         <Button className='icon-button' aria-label={translate('openHistory', {}, language)} disabled={interactionLocked} onClick={() => Taro.navigateTo({ url: '/pages/history/index' })}>☰</Button>
-        <Button className='icon-button' aria-label={translate('openReading', {}, language)} disabled={interactionLocked} onClick={() => Taro.navigateTo({ url: '/pages/library/index' })}>▤</Button>
-        <Button className='icon-button' aria-label={translate('openAppSettings', {}, language)} disabled={interactionLocked} onClick={() => Taro.navigateTo({ url: '/pages/settings/index' })}>⚙</Button>
+        <Button className='icon-button' aria-label={translate('openReading', {}, language)} disabled={interactionLocked} onClick={() => Taro.switchTab({ url: '/pages/library/index' })}>▤</Button>
+        <Button className='icon-button' aria-label={translate('openAppSettings', {}, language)} disabled={interactionLocked} onClick={() => Taro.switchTab({ url: '/pages/settings/index' })}>⚙</Button>
       </View>
     </View>
 

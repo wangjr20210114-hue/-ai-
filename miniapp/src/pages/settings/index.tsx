@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Taro from '@tarojs/taro'
 import { Button, Input, Picker, Slider, Switch, Text, View } from '@tarojs/components'
 import type { MiniappSession } from '@floris/contracts'
+import { capabilityEnabled } from '@floris/contracts'
 import { getOrCreateConversationId } from '@/services/conversations'
 import {
   proactiveOperation,
@@ -19,6 +20,7 @@ import {
   type TranslationKey,
 } from '@/i18n'
 import './index.scss'
+import { updateNativeTabBar } from '@/services/tabbar'
 
 type Skill = {
   id: string
@@ -34,7 +36,16 @@ type Intelligence = {
   skill_preferences?: Record<string, boolean>
   skill_catalog?: Skill[]
   search_preferences?: { result_limit?: number; image_limit?: number; parallel_image_search?: boolean }
-  map_preferences?: { service_mode?: string; place_result_limit?: number; route_stop_limit?: number }
+  map_preferences?: {
+    service_mode?: string
+    place_result_limit?: number
+    route_stop_limit?: number
+    search_timeout_seconds?: number
+    preferred_route_mode?: string
+    route_strategy?: string
+    near_time_tolerance_minutes?: number
+    learn_route_preferences?: boolean
+  }
   memory_preferences?: { enabled?: boolean }
 }
 
@@ -50,8 +61,8 @@ export default function SettingsPage() {
   const [mottos, setMottos] = useState<string[]>([])
   const preferences = state.skill_preferences || {}
   const skills = state.skill_catalog || []
-  const searchEnabled = Boolean(preferences['web-search'])
-  const mapsEnabled = Boolean(preferences.maps)
+  const searchEnabled = capabilityEnabled(skills, preferences, 'web_search')
+  const mapsEnabled = capabilityEnabled(skills, preferences, 'places')
 
   const load = async () => {
     setLoading(true)
@@ -81,6 +92,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     void Taro.setNavigationBarTitle({ title: translate('navSettings', {}, language) })
+    void updateNativeTabBar(language)
     void load()
   }, [])
 
@@ -151,10 +163,23 @@ export default function SettingsPage() {
   ]
   const lookaheadOptions = [12, 24, 48, 72]
   const bufferOptions = [0, 10, 15, 30, 45, 60]
+  const placeResultOptions = [3, 4, 6, 8, 10, 12]
+  const routeStopOptions = [4, 6, 8, 10, 12]
+  const mapTimeoutOptions = [15, 20, 30, 45, 55]
+  const routeToleranceOptions = [0, 5, 10, 15, 20, 30]
+  const routeModes: Array<{ id: string; key: TranslationKey }> = [
+    { id: 'driving', key: 'routeModeDriving' },
+    { id: 'transit', key: 'routeModeTransit' },
+    { id: 'walking', key: 'routeModeWalking' },
+    { id: 'bicycling', key: 'routeModeBicycling' },
+  ]
+  const routeStrategies: Array<{ id: string; key: TranslationKey }> = [
+    { id: 'time_then_cost', key: 'routeStrategyTimeThenCost' },
+    { id: 'least_time', key: 'routeStrategyLeastTime' },
+    { id: 'least_cost', key: 'routeStrategyLeastCost' },
+  ]
   const skillById = useMemo(() => new Map(skills.map((skill) => [skill.id, skill])), [skills])
-  const proactiveEnabled = Boolean(
-    skillById.get('workflow_action')?.locked || preferences.workflow_action,
-  )
+  const proactiveEnabled = capabilityEnabled(skills, preferences, 'workflow_action')
   const proactivePreferences = proactive.preferences || {}
 
   if (loading) return <View className='settings-state'>{translate('loadingSettings', {}, language)}</View>
@@ -164,8 +189,8 @@ export default function SettingsPage() {
     <View className='setting-section'>
       <Text className='section-title'>{translate('workspace', {}, language)}</Text>
       <View className='workspace-links'>
-        <Button onClick={() => Taro.navigateTo({ url: '/pages/calendar/index' })}>{translate('myCalendar', {}, language)}</Button>
-        <Button onClick={() => Taro.navigateTo({ url: '/pages/library/index' })}>{translate('myReading', {}, language)}</Button>
+        <Button onClick={() => Taro.switchTab({ url: '/pages/calendar/index' })}>{translate('myCalendar', {}, language)}</Button>
+        <Button onClick={() => Taro.switchTab({ url: '/pages/library/index' })}>{translate('myReading', {}, language)}</Button>
       </View>
     </View>
     <View className='setting-section'>
@@ -179,6 +204,7 @@ export default function SettingsPage() {
           setLanguage(next)
           Taro.setStorageSync(LANGUAGE_KEY, next)
           void Taro.setNavigationBarTitle({ title: translate('navSettings', {}, next) })
+          void updateNativeTabBar(next)
         }}
       >
         <View className='picker-row'><Text>{translate('language', {}, language)}</Text><Text>{languageLabels[languageIndex]} 〉</Text></View>
@@ -249,12 +275,21 @@ export default function SettingsPage() {
         mode='selector'
         range={mapModes.map(({ key }) => translate(key, {}, language))}
         value={mapModes.findIndex(({ id }) => id === (state.map_preferences?.service_mode || 'balanced'))}
-        onChange={(event) => void update('update_map_preferences', 'map-mode', {
-          preferences: {
-            ...(state.map_preferences || {}),
-            service_mode: mapModes[Number(event.detail.value)]?.id || 'balanced',
-          },
-        })}
+        onChange={(event) => {
+          const serviceMode = mapModes[Number(event.detail.value)]?.id || 'balanced'
+          const defaults = serviceMode === 'fast'
+            ? { place_result_limit: 4, route_stop_limit: 4, search_timeout_seconds: 20 }
+            : serviceMode === 'complete'
+              ? { place_result_limit: 10, route_stop_limit: 12, search_timeout_seconds: 55 }
+              : { place_result_limit: 6, route_stop_limit: 8, search_timeout_seconds: 30 }
+          void update('update_map_preferences', 'map-mode', {
+            preferences: {
+              ...(state.map_preferences || {}),
+              service_mode: serviceMode,
+              ...defaults,
+            },
+          })
+        }}
       >
         <View className='picker-row'><Text>{translate('serviceMode', {}, language)}</Text><Text>{translate(
           mapModes.find(({ id }) => id === (state.map_preferences?.service_mode || 'balanced'))?.key || 'balanced',
@@ -262,6 +297,97 @@ export default function SettingsPage() {
           language,
         )} 〉</Text></View>
       </Picker>
+      {([
+        ['mapPlaceResultCount', placeResultOptions, state.map_preferences?.place_result_limit || 6, 'place_result_limit'],
+        ['mapRouteStopCount', routeStopOptions, state.map_preferences?.route_stop_limit || 8, 'route_stop_limit'],
+        ['mapSearchTimeout', mapTimeoutOptions, state.map_preferences?.search_timeout_seconds || 30, 'search_timeout_seconds'],
+        ['nearTimeTolerance', routeToleranceOptions, state.map_preferences?.near_time_tolerance_minutes ?? 10, 'near_time_tolerance_minutes'],
+      ] as Array<[TranslationKey, number[], number, string]>).map(([label, options, value, field]) => <Picker
+        key={field}
+        disabled={!mapsEnabled || Boolean(saving)}
+        mode='selector'
+        range={options.map((item) => translate(
+          field === 'search_timeout_seconds' ? 'secondsValue' : field === 'near_time_tolerance_minutes'
+            ? 'routeToleranceMinutes'
+            : 'numericValue',
+          { value: item },
+          language,
+        ))}
+        value={Math.max(0, options.indexOf(value))}
+        onChange={(event) => void update('update_map_preferences', `map-${field}`, {
+          preferences: {
+            ...(state.map_preferences || {}),
+            [field]: options[Number(event.detail.value)],
+          },
+        })}
+      >
+        <View className='picker-row'>
+          <Text>{translate(label, {}, language)}</Text>
+          <Text>{translate(
+            field === 'search_timeout_seconds' ? 'secondsValue' : field === 'near_time_tolerance_minutes'
+              ? 'routeToleranceMinutes'
+              : 'numericValue',
+            { value },
+            language,
+          )} 〉</Text>
+        </View>
+      </Picker>)}
+      <Picker
+        disabled={!mapsEnabled || Boolean(saving)}
+        mode='selector'
+        range={routeModes.map(({ key }) => translate(key, {}, language))}
+        value={Math.max(0, routeModes.findIndex(({ id }) => id === (state.map_preferences?.preferred_route_mode || 'driving')))}
+        onChange={(event) => void update('update_map_preferences', 'map-route-mode', {
+          preferences: {
+            ...(state.map_preferences || {}),
+            preferred_route_mode: routeModes[Number(event.detail.value)]?.id || 'driving',
+          },
+        })}
+      >
+        <View className='picker-row'>
+          <Text>{translate('preferredRouteMode', {}, language)}</Text>
+          <Text>{translate(
+            routeModes.find(({ id }) => id === (state.map_preferences?.preferred_route_mode || 'driving'))?.key || 'routeModeDriving',
+            {},
+            language,
+          )} 〉</Text>
+        </View>
+      </Picker>
+      <Picker
+        disabled={!mapsEnabled || Boolean(saving)}
+        mode='selector'
+        range={routeStrategies.map(({ key }) => translate(key, {}, language))}
+        value={Math.max(0, routeStrategies.findIndex(({ id }) => id === (state.map_preferences?.route_strategy || 'time_then_cost')))}
+        onChange={(event) => void update('update_map_preferences', 'map-route-strategy', {
+          preferences: {
+            ...(state.map_preferences || {}),
+            route_strategy: routeStrategies[Number(event.detail.value)]?.id || 'time_then_cost',
+          },
+        })}
+      >
+        <View className='picker-row'>
+          <Text>{translate('routeStrategy', {}, language)}</Text>
+          <Text>{translate(
+            routeStrategies.find(({ id }) => id === (state.map_preferences?.route_strategy || 'time_then_cost'))?.key || 'routeStrategyTimeThenCost',
+            {},
+            language,
+          )} 〉</Text>
+        </View>
+      </Picker>
+      <View className='switch-row'>
+        <Text>{translate('learnRoutePreferences', {}, language)}</Text>
+        <Switch
+          checked={state.map_preferences?.learn_route_preferences !== false}
+          disabled={!mapsEnabled || Boolean(saving)}
+          color='#e88240'
+          onChange={(event) => void update('update_map_preferences', 'map-learning', {
+            preferences: {
+              ...(state.map_preferences || {}),
+              learn_route_preferences: event.detail.value,
+            },
+          })}
+        />
+      </View>
     </View>
 
     <View className={`setting-section ${proactiveEnabled ? '' : 'disabled-section'}`}>

@@ -13,6 +13,7 @@ import {
 } from '@/services/proactive'
 import { ensureSession } from '@/services/session'
 import { localeFor, readLanguage, translate, type Language } from '@/i18n'
+import { updateNativeTabBar } from '@/services/tabbar'
 import './index.scss'
 
 const PENDING_PROMPT_KEY = 'floris.miniapp.pending-proactive-prompt.v1'
@@ -45,6 +46,7 @@ export default function ProactivePage() {
     const nextLanguage = readLanguage()
     setLanguage(nextLanguage)
     void Taro.setNavigationBarTitle({ title: translate('navProactive', {}, nextLanguage) })
+    void updateNativeTabBar(nextLanguage)
     void load(false)
   })
 
@@ -65,7 +67,7 @@ export default function ProactivePage() {
       setWorkflows(actionableProactiveWorkflows(state.workflows || []))
       if (operation === 'mark_read' && item.action_prompt) {
         Taro.setStorageSync(PENDING_PROMPT_KEY, item.action_prompt)
-        await Taro.navigateBack()
+        await Taro.switchTab({ url: '/pages/index/index' })
       }
     } catch (reason) {
       void Taro.showToast({ title: String((reason as Error)?.message || translate('operationFailed')), icon: 'none' })
