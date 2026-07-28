@@ -63,6 +63,7 @@ async def write_chat_run(
     run_id: str,
     status: str,
     error: str = "",
+    diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     now = int(time.time())
     previous = await read_chat_run(conversation_store, conversation_id) or {}
@@ -71,6 +72,7 @@ async def write_chat_run(
         "run_id": str(run_id or previous.get("run_id") or ""),
         "status": str(status),
         "error": str(error or ""),
+        "diagnostics": dict(diagnostics or {}),
         "started_at": started_at,
         "updated_at": now,
         "completed_at": now if status in TERMINAL_STATES else None,
@@ -95,7 +97,10 @@ def public_chat_run(run: dict[str, Any] | None) -> dict[str, Any] | None:
         return None
     return {
         key: run.get(key)
-        for key in ("run_id", "status", "error", "started_at", "updated_at", "completed_at")
+        for key in (
+            "run_id", "status", "error", "diagnostics",
+            "started_at", "updated_at", "completed_at",
+        )
     }
 
 

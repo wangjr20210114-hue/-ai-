@@ -199,6 +199,33 @@ def tool_result_fallback(messages: Iterable) -> str:
     for message in logical_turn_messages:
         if (
             getattr(message, "type", "") != "tool"
+            or getattr(message, "name", "") != "propose_calendar_changes"
+        ):
+            continue
+        try:
+            payload = json.loads(str(getattr(message, "content", "") or ""))
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or payload.get("ui_action") != "calendar_change_report":
+            continue
+        skipped = payload.get("skipped_changes")
+        skipped = skipped if isinstance(skipped, list) else []
+        if skipped:
+            lines = [
+                f"- {str(item.get('operation') or '操作')}“{str(item.get('target') or '目标')}”："
+                f"{str(item.get('reason') or '未执行')}"
+                for item in skipped
+                if isinstance(item, dict)
+            ]
+            return (
+                "我已经读取当前日程表，但这次没有可执行的差量修改，"
+                "也没有把失败的更新或删除改成新增：\n\n"
+                + "\n".join(lines)
+            )
+
+    for message in logical_turn_messages:
+        if (
+            getattr(message, "type", "") != "tool"
             or getattr(message, "name", "") != "get_current_location"
         ):
             continue

@@ -556,6 +556,42 @@ function MessageBubble({
     }
   };
 
+  const requestRouteCalendarProposal = async (action: WorkspaceAction) => {
+    if (generationActive || workspaceBusy) return;
+    const content = t('routeCalendarRequest');
+    if (!client.current) {
+      dispatch({ type: 'SET_DRAFT', payload: content });
+      MessagePlugin.warning(t('connectionNotReady'));
+      return;
+    }
+    const requestMessage: ChatMessage = {
+      id: `route-calendar-${Date.now()}`,
+      role: 'user',
+      content,
+      ts: Date.now(),
+    };
+    setWorkspaceBusy(`calendar:${action.id}`);
+    try {
+      await Promise.resolve(client.current.send({
+        type: 'user_activity',
+        payload: {
+          activity: 'route_calendar_offer_accepted',
+          text: requestMessage.content,
+          message_id: requestMessage.id,
+          client_message_id: requestMessage.id,
+          client_message: requestMessage,
+          reference_images: [],
+          response_language: getStoredLanguage(),
+        },
+      }));
+    } catch {
+      dispatch({ type: 'SET_DRAFT', payload: content });
+      MessagePlugin.error(t('serviceError'));
+    } finally {
+      setWorkspaceBusy('');
+    }
+  };
+
   type ImageActionResult = { ok: boolean; image_url?: string; prompt?: string; error?: string };
   const [imageGenerating, setImageGenerating] = useState(false);
   const [imageResult, setImageResult] = useState<ImageActionResult | null>(null);
@@ -728,7 +764,13 @@ function MessageBubble({
           const date = [first.getFullYear(), String(first.getMonth() + 1).padStart(2, '0'), String(first.getDate()).padStart(2, '0')].join('-');
           dispatch({ type: 'PULSE_CALENDAR', payload: { date, count: changed.length } });
         }
-        MessagePlugin.success(t('calendarChangesApplied'));
+        if (response.action?.status === 'succeeded') {
+          MessagePlugin.success(t('calendarChangesApplied'));
+        } else {
+          MessagePlugin.warning(
+            response.action?.error || t('calendarChangesUnavailable'),
+          );
+        }
       }
       if (operation === 'confirm_action' && action.kind === 'meeting_create') {
         if (response.action?.status === 'succeeded') MessagePlugin.success(t('meetingCreatedSuccess'));
@@ -809,20 +851,12 @@ function MessageBubble({
       <div className="msg-content-wrap">
         <div
           ref={bubbleRef}
-          className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''} ${isImageCreation ? 'is-image-generation' : ''} ${!isUser && !message.streaming && markdownRender.content.trim() && isAssistantChainTail ? 'has-copy-action' : ''}${isAssistantChain ? ` assistant-chain-bubble assistant-chain-bubble-${assistantChainPosition}` : ''}`}
+          className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''} ${isImageCreation ? 'is-image-generation' : ''}${isAssistantChain ? ` assistant-chain-bubble assistant-chain-bubble-${assistantChainPosition}` : ''}`}
         >
           {isUser ? (
             message.content
           ) : (
             <>
-              {!message.streaming && markdownRender.content.trim() && isAssistantChainTail && <div className="answer-action-group">
-                <button type="button" className="answer-action-button" title={t('saveImage')} aria-label={t('saveImage')} disabled={answerSaving} onPointerDown={(event) => event.stopPropagation()} onClick={() => { void saveAnswerImage(); }}>
-                  <ImageIcon aria-hidden="true" />
-                </button>
-                <button type="button" className={`answer-action-button answer-copy-button${answerCopied ? ' is-copied' : ''}`} title={t('copy')} aria-label={t('copy')} onPointerDown={(event) => event.stopPropagation()} onClick={() => { void copyAnswerText(); }}>
-                  {answerCopied ? <CheckIcon aria-hidden="true" /> : <CopyIcon aria-hidden="true" />}
-                </button>
-              </div>}
               {/* 搜索动画 */}
               {!isUser && message.streaming && (
                 isImageCreation ? <ImageCreationProgress message={message} /> : <div className={`search-progress ${message.content ? 'has-content' : ''}`}>
@@ -885,16 +919,30 @@ function MessageBubble({
               {!message.streaming && workspaceActions.map((action) => {
                 const busy = workspaceBusy === action.id;
                 if (action.kind === 'map_recommendation') {
+                  const calendarAlreadyProposed = workspaceActions.some(
+                    (item) => item.kind === 'calendar_changes',
+                  );
                   return (
-                    <button
-                      key={action.id}
-                      type="button"
-                      className="workspace-map-action"
-                      disabled={busy || action.status === 'cancelled'}
-                      onClick={() => void handleWorkspaceAction(action, 'activate_map')}
-                    >
-                      {busy ? t('openingMap') : action.payload.action_text || t('viewPlacesOnMap')}
-                    </button>
+                    <div className="workspace-map-actions" key={action.id}>
+                      <button
+                        type="button"
+                        className="workspace-map-action"
+                        disabled={busy || action.status === 'cancelled'}
+                        onClick={() => void handleWorkspaceAction(action, 'activate_map')}
+                      >
+                        {busy ? t('openingMap') : action.payload.action_text || t('viewPlacesOnMap')}
+                      </button>
+                      {action.payload.calendar_offer && !calendarAlreadyProposed && (
+                        <button
+                          type="button"
+                          className="workspace-map-action"
+                          disabled={generationActive || Boolean(workspaceBusy)}
+                          onClick={() => { void requestRouteCalendarProposal(action); }}
+                        >
+                          {workspaceBusy === `calendar:${action.id}` ? t('processing') : t('addSchedule')}
+                        </button>
+                      )}
+                    </div>
                   );
                 }
                 if (action.kind === 'image_generate' && action.status !== 'awaiting_confirmation') {
@@ -943,6 +991,16 @@ function MessageBubble({
                   </div>
                 );
               })}
+              {!message.streaming && markdownRender.content.trim() && isAssistantChainTail && (
+                <div className="answer-action-group">
+                  <button type="button" className="answer-action-button" title={t('saveImage')} aria-label={t('saveImage')} disabled={answerSaving} onPointerDown={(event) => event.stopPropagation()} onClick={() => { void saveAnswerImage(); }}>
+                    <ImageIcon aria-hidden="true" />
+                  </button>
+                  <button type="button" className={`answer-action-button answer-copy-button${answerCopied ? ' is-copied' : ''}`} title={t('copy')} aria-label={t('copy')} onPointerDown={(event) => event.stopPropagation()} onClick={() => { void copyAnswerText(); }}>
+                    {answerCopied ? <CheckIcon aria-hidden="true" /> : <CopyIcon aria-hidden="true" />}
+                  </button>
+                </div>
+              )}
               {message.streaming && message.content && (
                 <span className="typing-cursor">▊</span>
               )}

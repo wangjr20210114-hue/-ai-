@@ -9,6 +9,7 @@ from agents._shared.tencent_location import plan_verified_route
 from agents._shared.workspace import (
     WorkspaceConflictError,
     apply_calendar_changes,
+    apply_calendar_changes_best_effort,
     empty_workspace,
     load_workspace,
     save_workspace,
@@ -153,6 +154,71 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
             ["tencent:a", "tencent:b"],
         )
         self.assertTrue(result["route_plan_id"])
+        self.assertTrue(result["action"]["payload"]["calendar_offer"])
+
+    async def test_route_calendar_offer_is_hidden_when_calendar_skill_is_disabled(self):
+        store = FakeStore()
+        state = empty_workspace()
+        state["place_candidates"] = {
+            PLACE_A["place_id"]: PLACE_A,
+            PLACE_B["place_id"]: PLACE_B,
+        }
+        await save_workspace(store, "local-user", state)
+        route = {
+            "provider": "tencent",
+            "mode": "driving",
+            "places": [PLACE_A, PLACE_B],
+            "path": [],
+            "distance_meters": 10_000,
+            "duration_seconds": 1_800,
+            "fare": {},
+        }
+        with patch(
+            "agents.chat._ui_tools.provider_plan_route",
+            new=AsyncMock(return_value=route),
+        ):
+            tools = build_production_tools(
+                None,
+                store=store,
+                conversation_id="route-map-no-calendar",
+                env={},
+                enabled_skills={"maps", "proactive-agent"},
+            )
+            route_tool = next(
+                tool for tool in tools
+                if tool.name == "plan_route_between_places"
+            )
+            result = json.loads(await route_tool.ainvoke({
+                "origin_query": "起点｜北京市起点路",
+                "destination_query": "终点｜北京市终点路",
+                "city": "北京",
+            }))
+        self.assertFalse(result["action"]["payload"]["calendar_offer"])
+
+    def test_confirmed_calendar_changes_apply_valid_subset(self):
+        state = empty_workspace()
+        existing = apply_calendar_changes(state, [{
+            "operation": "create",
+            "event": {
+                "title": "保留目标",
+                "start_time": 2_000_000_000,
+                "duration_minutes": 60,
+            },
+        }])[0]
+        changed, skipped = apply_calendar_changes_best_effort(state, [
+            {
+                "operation": "update",
+                "schedule_id": existing["id"],
+                "event": {"title": "已更新目标"},
+            },
+            {
+                "operation": "delete",
+                "schedule_id": "missing-id",
+            },
+        ], now=1_900_000_000)
+        self.assertEqual([item["title"] for item in changed], ["已更新目标"])
+        self.assertEqual(skipped[0]["operation"], "delete")
+        self.assertIn("找不到", skipped[0]["reason"])
 
     async def test_calendar_move_keeps_duration_and_can_clear_location(self):
         store = FakeStore()

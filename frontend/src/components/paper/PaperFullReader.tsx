@@ -3,7 +3,7 @@
  * 画面按设备像素比渲染，TextLayer 仅负责原生选词与助读菜单。
  */
 import { useEffect, useRef, useState } from 'react';
-import { Button, Loading, Textarea, Tag } from 'tdesign-react';
+import { Button, Loading, MessagePlugin, Textarea, Tag } from 'tdesign-react';
 import { CloseIcon, FullscreenExitIcon, FullscreenIcon } from 'tdesign-icons-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { fetchPaperFile } from '../../services/paperApi';
@@ -13,10 +13,12 @@ import {
 } from '../../services/pdf';
 import {
   translateParagraph, summarizeParagraph,
-  analyzePaper, paperQA,
+  analyzePaper, paperQA, loadPaperAssistantResults, savePaperAssistantResult,
+  type PaperAssistantResult,
 } from '../../services/paperApi';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { useLanguage } from '../../i18n';
+import { translationsInTimeOrder } from './paperHistory';
 
 interface Props {
   fileId: string;
@@ -46,7 +48,7 @@ interface PageData {
 }
 
 export default function PaperFullReader({ fileId, title, fileSize, partSize, assistantEnabled = true, onClose }: Props) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const readerRef = useRef<HTMLDivElement>(null);
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const textLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -68,7 +70,25 @@ export default function PaperFullReader({ fileId, title, fileSize, partSize, ass
   const [aiTab, setAiTab] = useState<'result' | 'qa'>('result');
   const [qaInput, setQaInput] = useState('');
   const [qaHistory, setQaHistory] = useState<{ q: string; a: string }[]>([]);
+  const [savedTranslations, setSavedTranslations] = useState<PaperAssistantResult[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const streamRef = useRef<{ cancel: () => void } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHistoryLoading(true);
+    void loadPaperAssistantResults(fileId)
+      .then((items) => {
+        if (!cancelled) setSavedTranslations(translationsInTimeOrder(items));
+      })
+      .catch(() => {
+        if (!cancelled) setSavedTranslations([]);
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [fileId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -271,6 +291,22 @@ export default function PaperFullReader({ fileId, title, fileSize, partSize, ass
     const onDelta = (delta: string) => setAiResult(prev => prev ? { ...prev, content: prev.content + delta } : prev);
     const onDone = (full: string, error?: string) => {
       setAiResult(prev => prev ? { ...prev, content: error ? `❌ ${error}` : full, streaming: false } : prev);
+      if (action === 'translate' && !error && full.trim()) {
+        void savePaperAssistantResult(fileId, {
+          action: 'translate',
+          title,
+          source_text: text,
+          content: full,
+        }).then((saved) => {
+          setSavedTranslations((current) => translationsInTimeOrder([
+            ...current.filter((item) => item.id !== saved.id),
+            saved,
+          ]));
+          setAiResult((current) => current?.action === 'translate' && current.content === full ? null : current);
+        }).catch(() => {
+          MessagePlugin.warning(t('translationNotSaved'));
+        });
+      }
     };
     const documentText = pages.map((page) => `【第 ${page.pageNum} 页】\n${page.paragraphs.map((paragraph) => paragraph.text).join('\n')}`).join('\n\n');
     switch (action) {
@@ -402,7 +438,7 @@ export default function PaperFullReader({ fileId, title, fileSize, partSize, ass
 
             {aiTab === 'result' && (
               <div className="paper-ai-content">
-                {!aiResult && (
+                {!aiResult && !historyLoading && savedTranslations.length === 0 && (
                   <div className="paper-ai-empty">
                     {t('paperAssistantInstructions')}<br />
                     · {t('selectTextAction')}<br />
@@ -411,17 +447,39 @@ export default function PaperFullReader({ fileId, title, fileSize, partSize, ass
                     {t('useFullPaperFeature')}
                   </div>
                 )}
-                {aiResult && (
+                {aiResult && aiResult.action !== 'translate' && (
                   <div>
-                    {aiResult.action !== 'translate' && (
-                      <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6, color: '#2b5aed' }}>
-                        {aiResult.title}{aiResult.streaming && <Loading size="small" style={{ marginLeft: 6 }} />}
-                      </div>
-                    )}
+                    <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6, color: '#2b5aed' }}>
+                      {aiResult.title}{aiResult.streaming && <Loading size="small" style={{ marginLeft: 6 }} />}
+                    </div>
                     <div className="paper-ai-result">
                       <MarkdownRenderer content={aiResult.content || '...'} />
                     </div>
                   </div>
+                )}
+                {savedTranslations.length > 0 && (
+                  <section className="paper-translation-history">
+                    <div className="paper-translation-history-title">
+                      {t('savedTranslationsCount', { count: savedTranslations.length })}
+                    </div>
+                    {savedTranslations.map((item) => (
+                      <div className="paper-translation-entry" key={item.id}>
+                        <div className="paper-translation-meta">
+                          {item.title} · {new Date(item.created_at).toLocaleString(language)}
+                        </div>
+                        <MarkdownRenderer content={item.content} />
+                      </div>
+                    ))}
+                  </section>
+                )}
+                {aiResult?.action === 'translate' && (
+                  <section className="paper-current-translation" aria-live="polite">
+                    <div className="paper-translation-meta">
+                      {aiResult.title}
+                      {aiResult.streaming && <Loading size="small" style={{ marginLeft: 6 }} />}
+                    </div>
+                    <MarkdownRenderer content={aiResult.content || '...'} />
+                  </section>
                 )}
               </div>
             )}

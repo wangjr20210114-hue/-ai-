@@ -33,6 +33,7 @@ from ._protocol import (
     checkpoint_recovery_needed,
     public_content,
     public_error,
+    safe_error_diagnostics,
 )
 from ._calendar_context import calendar_context, latest_route_context
 from .._shared.intelligence import (
@@ -1333,13 +1334,16 @@ async def handler(ctx):
         status="running",
     )
 
-    async def fail_run(message_text: str) -> None:
+    async def fail_run(
+        message_text: str, diagnostics: dict | None = None,
+    ) -> None:
         await write_chat_run(
             ctx.store,
             conversation_id,
             run_id=run_id,
             status="failed",
             error=str(message_text or "请求失败"),
+            diagnostics=diagnostics,
         )
     reference_images = [
         str(item) for item in (body.get("reference_images") or [])
@@ -1364,7 +1368,10 @@ async def handler(ctx):
     except Exception as exc:
         logging.exception("chat model configuration failed")
         message_text = public_error(exc)
-        await fail_run(message_text)
+        await fail_run(
+            message_text,
+            safe_error_diagnostics(exc, stage="model_configuration"),
+        )
         return error(message_text, 503)
     intelligence_started_at = time.monotonic()
     stage_timings_ms["request_setup"] = round(
@@ -1698,7 +1705,7 @@ async def handler(ctx):
     current_route_context = latest_route_context(workspace)
     if planner_timed_out:
         logging.warning(
-            "chat capability planning timed out after %.1fs; main semantic model retains all tools",
+            "chat capability planning unavailable after %.1fs; continuing with a bounded zero-tool recovery surface",
             planner_timeout,
         )
     logging.info("capability plan enabled=%s", [key for key, value in capability_plan.items() if value])
@@ -1767,10 +1774,9 @@ async def handler(ctx):
         background_tasks=background_tasks,
         user_id=user_id,
         initial_visual_references=reference_images,
-        # If the independent semantic planner times out, the main model still
-        # owns routing. Keep media available so a later model-selected
-        # rich_search can use SearchPro article images; simple turns do not pay
-        # any cost because no search tool is called.
+        # A recovered semantic plan may still request media. A hard planner
+        # failure exposes no search tool, so this flag cannot trigger provider
+        # work by itself.
         media_enabled=(vision_enabled and media_enabled_for_plan(
             capability_plan, search_image_limit, planner_timed_out=planner_timed_out,
         )),
@@ -1814,8 +1820,9 @@ async def handler(ctx):
         else ()
     )
     graph_tool_names = required_tool_names or fallback_tool_names
-    # A router timeout retains a semantically bounded recovery surface instead
-    # of injecting every schema and every Skill policy into one model call.
+    # A planner failure never expands into every schema or Skill policy. A
+    # successful lightweight semantic recovery supplies a normal required
+    # chain; a hard failure leaves only the universal clarification tool.
     graph_tools = tools_for_capability_stage(
         all_tools, graph_tool_names,
         blocked_skill=blocked_skill,
@@ -1882,9 +1889,7 @@ async def handler(ctx):
     )
 
     graph_model = (
-        model
-        if planner_timed_out or capability_plan.get("needs_deep_reasoning")
-        else fast_model
+        model if capability_plan.get("needs_deep_reasoning") else fast_model
     )
     graph = build_graph(
         graph_model,
@@ -1978,6 +1983,7 @@ async def handler(ctx):
             stream_delta = StreamDeltaNormalizer()
             buffer_public_answer = should_buffer_public_answer(capability_plan)
             run_error = ""
+            run_diagnostics: dict = {}
             cancelled = False
             clarification_emitted = False
             if bool(body.get("_diagnostics")):
@@ -2262,9 +2268,17 @@ async def handler(ctx):
             except Exception as exc:
                 logging.exception("chat stream failed conversation=%s", conversation_id)
                 run_error = public_error(exc)
+                run_diagnostics = safe_error_diagnostics(
+                    exc, stage="graph_stream",
+                )
                 await queue.put(
                     ctx.utils.sse({"type": "error_message", "content": run_error})
                 )
+                if bool(body.get("_diagnostics")):
+                    await queue.put(ctx.utils.sse({
+                        "type": "error_diagnostics",
+                        "payload": run_diagnostics,
+                    }))
             except asyncio.CancelledError:
                 # abortActiveRun is the platform-owned cancellation path.  A
                 # browser disconnect does not cancel this detached producer.
@@ -2437,6 +2451,7 @@ async def handler(ctx):
                         run_id=run_id,
                         status="cancelled" if cancelled else ("failed" if run_error else "completed"),
                         error=run_error,
+                        diagnostics=run_diagnostics,
                     )
                 if any(usage):
                     try:

@@ -510,6 +510,8 @@ export interface WorkspaceAction {
     route_mode?: MakersRouteMode;
     route_strategy?: MakersRouteStrategy;
     show_route?: boolean;
+    route_plan_id?: string;
+    calendar_offer?: boolean;
     summary?: string;
     changes?: Array<Record<string, unknown>>;
     subject?: string;

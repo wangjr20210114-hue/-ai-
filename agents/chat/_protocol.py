@@ -14,6 +14,11 @@ _PROVIDER_ERROR = re.compile(r"provider|model id|api[_ -]?key|gateway", re.I)
 _REQUEST_ERROR = re.compile(r"invalid_request|status code:\s*[45]\d\d|error code:\s*[45]\d\d", re.I)
 _INTERNAL_ERROR = re.compile(r"\brole\b|keyerror|traceback|stack|agent_run_error|internal server error", re.I)
 _QUOTA_ERROR = re.compile(r"quota|rate[_ -]?limit|too many requests|\b429\b", re.I)
+_STATUS_CODE = re.compile(r"(?:status|error)\s*code\s*[:=]\s*(\d{3})", re.I)
+_REQUEST_ID = re.compile(
+    r"(?:x-request-id|request[_ -]?id|trace[_ -]?id)\s*[:=]\s*[\"']?([a-z0-9._:-]{4,96})",
+    re.I,
+)
 
 
 def _strip_leading_observation(text: str) -> tuple[str, bool]:
@@ -61,6 +66,38 @@ def public_error(error: Any) -> str:
     if not text or _INTERNAL_ERROR.search(text):
         return "消息服务暂时异常，本次失败不会保存为 AI 回答，请稍后重试。"
     return text if len(text) <= 180 else f"{text[:180]}…"
+
+
+def safe_error_diagnostics(error: Any, *, stage: str) -> dict[str, Any]:
+    """Return a small, secret-free failure envelope for run diagnostics."""
+    text = str(error or "")
+    status_match = _STATUS_CODE.search(text)
+    request_match = _REQUEST_ID.search(text)
+    if _QUOTA_ERROR.search(text):
+        category = "quota"
+        retryable = True
+    elif _PROVIDER_ERROR.search(text):
+        category = "provider_configuration"
+        retryable = False
+    elif _REQUEST_ERROR.search(text):
+        category = "request_rejected"
+        retryable = True
+    elif _INTERNAL_ERROR.search(text):
+        category = "internal"
+        retryable = False
+    else:
+        category = "runtime"
+        retryable = False
+    diagnostics: dict[str, Any] = {
+        "stage": re.sub(r"[^a-z0-9_.:-]", "", str(stage or "").lower())[:48] or "unknown",
+        "category": category,
+        "retryable": retryable,
+    }
+    if status_match:
+        diagnostics["status_code"] = int(status_match.group(1))
+    if request_match:
+        diagnostics["request_id"] = request_match.group(1)[:96]
+    return diagnostics
 
 
 def checkpoint_recovery_needed(

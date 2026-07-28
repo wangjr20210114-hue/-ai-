@@ -246,7 +246,17 @@ class CapabilityPlan(BaseModel):
     )
     needs_clarification: bool = False
     needs_web_search: bool = False
-    strict_today_only: bool = False
+    strict_today_only: bool = Field(
+        default=False,
+        description=(
+            "True only when the user asks for news, events, announcements, or "
+            "other items that were published or happened on the current Beijing "
+            "calendar date itself, for example 'today's AI news'. False when "
+            "'today', 'current', or 'latest' merely defines the as-of cutoff and "
+            "older still-current sources remain valid. When true, undated or "
+            "other-date sources must be excluded instead of used as substitutes."
+        ),
+    )
     needs_images: bool = Field(
         default=False,
         description=(
@@ -853,6 +863,17 @@ class SemanticPreflight(BaseModel):
             "the calendar capability."
         ),
     )
+    needs_web_search: bool = False
+    strict_today_only: bool = Field(
+        default=False,
+        description=(
+            "True only for items published or occurring on today's Beijing "
+            "calendar date; false for latest/current information as of today."
+        ),
+    )
+    search_query: str = ""
+    needs_images: bool = False
+    image_query: str = ""
 
 
 def _normalize_prompt_topics(values: Iterable[Any]) -> tuple[str, ...]:
@@ -971,7 +992,12 @@ async def plan_required_clarification(
         "return one clarification card asking for the minimum identity evidence "
         "(normally institution or research field). Do not silently choose the "
         "most prolific namesake. If the conversation already establishes that "
-        "evidence, do not ask again."
+        "evidence, do not ask again. For current facts, set needs_web_search and "
+        "write one compact search_query. Set strict_today_only only when the "
+        "requested items themselves must be published or occur on today's "
+        "Beijing calendar date; 'latest/current/as of today' alone is a cutoff, "
+        "not a same-day publication constraint. When strict_today_only is true, "
+        "never relax it to older or undated sources."
         "\nSelect every relevant topic from the catalog, including combinations, "
         "and omit unrelated topics. Classification is semantic, never based on "
         "literal keyword or phrase matching.\n"
@@ -1017,6 +1043,12 @@ async def plan_required_clarification(
                         parsed.get("capabilities") or []
                     )
                 ),
+                "needs_web_search": bool(parsed.get("needs_web_search")),
+                "strict_today_only": bool(parsed.get("strict_today_only")),
+                "search_query": str(parsed.get("search_query") or "").strip()[:160],
+                "needs_images": bool(parsed.get("needs_images")),
+                "image_query": str(parsed.get("image_query") or "").strip()[:160],
+                "_preflight_failed": False,
             }
     except Exception:
         pass
@@ -1025,8 +1057,9 @@ async def plan_required_clarification(
         "clarification_title": "",
         "clarification_prompt": "",
         "clarification_fields": [],
-        "_prompt_topics": list(PLANNER_PROMPT_DETAILS),
+        "_prompt_topics": [],
         "_preflight_capabilities": [],
+        "_preflight_failed": True,
     }
 
 
@@ -1071,8 +1104,8 @@ async def select_prompt_context(
             return {"topics": topics}
     except Exception:
         pass
-    # Failure must preserve completeness, never fall back to phrase matching.
-    return {"topics": tuple(PLANNER_PROMPT_DETAILS)}
+    # An unknown semantic route must not expand into every prompt and tool.
+    return {"topics": ()}
 
 
 async def select_prompt_topics(
@@ -1125,6 +1158,9 @@ async def plan_capabilities(
 - 普通新闻、行业动态或当前进展默认由 web_search 完成。只有用户明确要论文/学术文献，
   或完整目标必须依赖学术索引核验时，才选择 papers；论文只是可选补充时不要设置
   needs_papers，也不要把 papers 放进 capabilities。任何可选来源为空都不能替代核心能力的结果。
+- 用户要求“今天/今日的新闻、消息、发布或事件”时，strict_today_only=true，表示结果本身必须发布或
+  发生在当前北京时间日期；无日期和其他日期的来源都不能替代。用户问“最新、当前、截至今天”而只是把
+  今天作为信息截止点时，strict_today_only=false，仍须联网核验，但可以采用此前发布且目前仍有效的来源。
 - needs_deep_reasoning 只用于确实需要多步开放推理的最终回答；能力路由、固定 JSON、工具参数、
   Action 确认、简单问答都保持 false，使用 Flash 即可。
 - 正常的实质性回答只要存在自然、具体且不重复原问题的下一步，needs_followups 就应为 true；
@@ -1196,7 +1232,7 @@ async def plan_capabilities(
     except Exception:
         pass
     fallback = dict(DEFAULT_PLAN)
-    fallback["_prompt_topics"] = list(selected_topics or PLANNER_PROMPT_DETAILS)
+    fallback["_prompt_topics"] = list(selected_topics)
     fallback["_prompt_topics_source"] = "fallback"
     fallback["_planner_failed"] = True
     return fallback
@@ -1230,13 +1266,58 @@ async def plan_capabilities_bounded(
     except asyncio.TimeoutError:
         timed_out = True
         plan = dict(DEFAULT_PLAN)
-        plan["_prompt_topics"] = list(PLANNER_PROMPT_DETAILS)
+        plan["_prompt_topics"] = []
         plan["_prompt_topics_source"] = "fallback"
     failed = bool(plan.pop("_planner_failed", False))
-    timed_out = timed_out or failed
+    recovered = False
+    if failed and not timed_out:
+        remaining = total_timeout - (loop.time() - started_at)
+        if remaining >= 0.05:
+            try:
+                preflight = await asyncio.wait_for(
+                    plan_required_clarification(
+                        model,
+                        user_message,
+                        location_context=location_context,
+                        has_reference_images=has_reference_images,
+                        has_document_context=has_document_context,
+                    ),
+                    timeout=remaining,
+                )
+                if not preflight.pop("_preflight_failed", False):
+                    recovered_plan = dict(DEFAULT_PLAN)
+                    for key in (
+                        "needs_clarification",
+                        "clarification_title",
+                        "clarification_prompt",
+                        "clarification_fields",
+                        "needs_web_search",
+                        "strict_today_only",
+                        "search_query",
+                        "needs_images",
+                        "image_query",
+                    ):
+                        if key in preflight:
+                            recovered_plan[key] = preflight[key]
+                    recovered_plan["_prompt_topics"] = list(
+                        preflight.get("_prompt_topics") or []
+                    )
+                    recovered_plan["_prompt_topics_source"] = "recovery"
+                    recovered_plan["_preflight_capabilities"] = list(
+                        preflight.get("_preflight_capabilities") or []
+                    )
+                    recovered_plan["_capabilities"] = list(
+                        preflight.get("_preflight_capabilities") or []
+                    )
+                    plan = reconcile_capability_contract(recovered_plan)
+                    recovered = True
+            except asyncio.TimeoutError:
+                timed_out = True
+    timed_out = timed_out or (failed and not recovered)
     if timings_ms is not None:
         elapsed = round((loop.time() - started_at) * 1000)
         timings_ms["semantic_plan"] = elapsed
         timings_ms["semantic_plan_timed_out"] = timed_out
+        timings_ms["semantic_plan_recovered"] = recovered
         timings_ms["capability_planning_total"] = elapsed
     return plan, timed_out

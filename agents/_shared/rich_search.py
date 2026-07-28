@@ -567,6 +567,10 @@ async def rich_search(
     date_filter = {"received": len(results), "kept": len(results), "undated": 0, "mismatched": 0}
     if strict_date and target_date:
         results, date_filter = _filter_for_target_date(results, target_date)
+        # Images are evidence-bearing search output too. Do not review or
+        # expose media from an older/undated article after its source has been
+        # removed by the same-day truth boundary.
+        visual_results = results
     sources = [{
         "id": f"source-{index}", "source": item["source"], "title": item["title"],
         "snippet": item["snippet"][:240], "url": item["url"], "date": item["date"],
@@ -723,8 +727,16 @@ def evidence_for_model(
         else
         "这些图片是可选素材；只在确实增加信息时采用。"
     )
+    temporal_instruction = (
+        f"本轮要求严格限定发布日期为 {metadata.get('target_date')}。"
+        "上方为空即表示没有核实到当日来源；必须直接说明这一证据边界，"
+        "不得用其他日期、未标日期或模型记忆补成当日新闻。\n\n"
+        if metadata.get("strict_date") and metadata.get("target_date")
+        else ""
+    )
     return (
-        f"可选网页/视频素材：\n{sources or '无'}\n\n"
+        temporal_instruction
+        + f"可选网页/视频素材：\n{sources or '无'}\n\n"
         f"经视觉模型审核的可选图片素材：\n{media}\n{media_status}\n\n"
         f"这些只是素材，不是回答提纲。由你决定采用哪些、放在何处以及以什么顺序呈现。{image_instruction}"
         "若采用网页或视频，直接在相关段落使用上面给出的 Markdown 链接；若采用图片，必须把上面给出的完整 URL"

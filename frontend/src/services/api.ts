@@ -24,6 +24,13 @@ export interface MakersChatRun {
   run_id?: string;
   status?: 'running' | 'cancel_requested' | 'completed' | 'failed' | 'cancelled';
   error?: string;
+  diagnostics?: {
+    stage?: string;
+    category?: string;
+    status_code?: number;
+    request_id?: string;
+    retryable?: boolean;
+  };
   started_at?: number;
   updated_at?: number;
   completed_at?: number | null;
@@ -36,6 +43,7 @@ export interface WorkspaceResponse {
   action?: WorkspaceAction;
   actions?: WorkspaceAction[];
   changed?: Array<ScheduleItem & { deleted?: boolean }>;
+  skipped?: Array<{ operation: string; target: string; reason: string }>;
   travel_plan?: TravelPlan;
   travel_plans?: TravelPlan[];
   deleted_plan_id?: string;

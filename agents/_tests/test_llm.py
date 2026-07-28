@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from agents.chat._llm import (
     DEFAULT_FAST_FALLBACK_MODEL,
@@ -80,6 +80,34 @@ class ModelConfigurationTests(unittest.TestCase):
             ),
             "enabled",
         )
+
+
+class ModelFailoverTests(unittest.IsolatedAsyncioTestCase):
+    async def test_recoverable_provider_400_switches_once_before_output(self):
+        primary = MagicMock()
+        fallback = MagicMock()
+        primary.ainvoke = AsyncMock(side_effect=RuntimeError(
+            "Error code: 400 - invalid_request: request envelope rejected"
+        ))
+        fallback.ainvoke = AsyncMock(return_value="recovered")
+        model = QuotaFailoverModel(primary, fallback)
+
+        self.assertEqual(await model.ainvoke([{"role": "user", "content": "hi"}]), "recovered")
+        primary.ainvoke.assert_awaited_once()
+        fallback.ainvoke.assert_awaited_once()
+
+    async def test_configuration_400_is_not_retried(self):
+        primary = MagicMock()
+        fallback = MagicMock()
+        primary.ainvoke = AsyncMock(side_effect=RuntimeError(
+            "Error code: 400 - Model ID must include provider prefix"
+        ))
+        fallback.ainvoke = AsyncMock(return_value="must-not-run")
+        model = QuotaFailoverModel(primary, fallback)
+
+        with self.assertRaises(RuntimeError):
+            await model.ainvoke([{"role": "user", "content": "hi"}])
+        fallback.ainvoke.assert_not_awaited()
 
 
 if __name__ == "__main__":

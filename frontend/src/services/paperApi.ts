@@ -112,6 +112,26 @@ export async function moveReadingItem(itemId: string, folderId: string) {
   return libraryOperation<{ item: SavedPaper }>({ operation: 'move_item', item_id: itemId, folder_id: folderId });
 }
 
+export async function loadPaperAssistantResults(storageKey: string): Promise<PaperAssistantResult[]> {
+  const library = await getReadingLibrary();
+  const item = library.papers.find((paper) => paper.storage_key === storageKey || paper.file_id === storageKey);
+  return [...(item?.assistant_results || [])].sort(
+    (left, right) => Number(left.created_at || 0) - Number(right.created_at || 0),
+  );
+}
+
+export async function savePaperAssistantResult(
+  storageKey: string,
+  result: Pick<PaperAssistantResult, 'action' | 'title' | 'source_text' | 'content'>,
+): Promise<PaperAssistantResult> {
+  const data = await libraryOperation<{ result: PaperAssistantResult }>({
+    operation: 'save_assistant_result',
+    storage_key: storageKey,
+    ...result,
+  });
+  return data.result;
+}
+
 export async function registerReadingItem(item: {
   storage_key: string;
   filename: string;

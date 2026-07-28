@@ -70,7 +70,7 @@ from agents.chat._ui_tools import (
     preserve_planned_route_stops,
     verify_place_queries_parallel,
 )
-from agents.chat._protocol import PublicStreamFilter, StreamDeltaNormalizer, action_fallback_content, checkpoint_recovery_needed, dsml_tool_calls, public_content, public_error
+from agents.chat._protocol import PublicStreamFilter, StreamDeltaNormalizer, action_fallback_content, checkpoint_recovery_needed, dsml_tool_calls, public_content, public_error, safe_error_diagnostics
 from agents.messages.index import handler as messages_handler
 from agents._shared.side_effects import (
     _cloudflare_image_prompt,
@@ -273,6 +273,30 @@ class FailingStructuredPlannerModel(StructuredPlannerModel):
         self.calls += 1
         self.messages = messages
         raise RuntimeError("structured planner rejected the request")
+
+
+class RecoveringStructuredPlannerModel(StructuredPlannerModel):
+    async def ainvoke(self, messages):
+        self.calls += 1
+        self.messages = messages
+        if self.schema.__name__ == "CapabilityPlan":
+            raise RuntimeError(
+                "Error code: 400 - invalid_request: request envelope rejected"
+            )
+        values = {
+            "needs_clarification": False,
+            "topics": ["web"],
+            "capabilities": ["web_search"],
+            "needs_web_search": True,
+            "strict_today_only": True,
+            "search_query": "2026-07-29 AI 新闻",
+            "needs_images": False,
+        }
+        return {
+            "parsed": self.schema(**values),
+            "raw": SimpleNamespace(content=""),
+            "parsing_error": None,
+        }
 
 
 class FakeRequest:
@@ -1135,6 +1159,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(plan["needs_route"])
         self.assertFalse(plan["needs_calendar_action"])
         self.assertEqual(required_tools_for_plan(plan), ())
+        self.assertEqual(plan["_prompt_topics"], [])
 
     async def test_failed_structured_planner_has_no_keyword_fallback(self):
         model = FailingStructuredPlannerModel()
@@ -1145,6 +1170,22 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(plan["needs_route"])
         self.assertFalse(plan["needs_calendar_action"])
         self.assertEqual(required_tools_for_plan(plan), ())
+
+    async def test_failed_full_plan_uses_one_bounded_semantic_recovery(self):
+        model = RecoveringStructuredPlannerModel()
+        timings = {}
+        plan, timed_out = await plan_capabilities_bounded(
+            model,
+            "今天 AI 有什么新消息？",
+            timeout_seconds=2,
+            timings_ms=timings,
+        )
+        self.assertFalse(timed_out)
+        self.assertEqual(model.calls, 2)
+        self.assertTrue(timings["semantic_plan_recovered"])
+        self.assertTrue(plan["strict_today_only"])
+        self.assertEqual(plan["_prompt_topics"], ["web"])
+        self.assertEqual(required_tools_for_plan(plan), ("rich_search",))
 
     def test_capability_plan_rejects_unknown_blocked_skill(self):
         plan = parse_capability_plan(json.dumps({
@@ -1643,6 +1684,16 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("模型配置", message)
         self.assertNotIn("provider prefix", message)
         self.assertNotIn("invalid_request", message)
+
+    def test_run_diagnostics_keep_only_safe_failure_fields(self):
+        diagnostics = safe_error_diagnostics(
+            "Error code: 400 - invalid_request; request_id=req-abc123; api_key=secret",
+            stage="graph_stream",
+        )
+        self.assertEqual(diagnostics["stage"], "graph_stream")
+        self.assertEqual(diagnostics["status_code"], 400)
+        self.assertEqual(diagnostics["request_id"], "req-abc123")
+        self.assertNotIn("secret", json.dumps(diagnostics))
 
     def test_capability_plan_parser_is_bounded_to_known_booleans(self):
         plan = parse_capability_plan('```json\n{"needs_places": true, "needs_map_action": 1, "strict_today_only": true, "search_query": "北京旅行", "image_query": "故宫建筑", "unknown": true}\n```')
@@ -4308,6 +4359,64 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         event = result["action"]["payload"]["changes"][0]["event"]
         self.assertEqual(event["place"]["place_id"], PLACE["place_id"])
 
+    async def test_calendar_tool_skips_missing_target_without_creating_replacement(self):
+        store = FakeStore()
+        state = empty_workspace()
+        existing = apply_calendar_changes(state, [{
+            "operation": "create",
+            "event": {
+                "title": "真实存在",
+                "start_time": 2_000_000_000,
+                "duration_minutes": 60,
+            },
+        }])[0]
+        await save_workspace(store, USER_WORKSPACE_ID, state)
+        tools = build_production_tools(
+            None, store=store, conversation_id="calendar-partial", env={},
+        )
+        calendar_tool = next(
+            tool for tool in tools if tool.name == "propose_calendar_changes"
+        )
+        result = json.loads(await calendar_tool.ainvoke({
+            "summary": "尽力修改",
+            "changes": [
+                {
+                    "operation": "update",
+                    "schedule_id": existing["id"],
+                    "event": {"title": "真实存在（已修改）"},
+                },
+                {
+                    "operation": "delete",
+                    "schedule_id": "does-not-exist",
+                },
+            ],
+        }))
+        self.assertEqual(result["ui_action"], "calendar_action")
+        payload = result["action"]["payload"]
+        self.assertEqual(len(payload["changes"]), 1)
+        self.assertEqual(payload["changes"][0]["operation"], "update")
+        self.assertEqual(payload["skipped_changes"][0]["operation"], "delete")
+        self.assertEqual(payload["calendar_snapshot"]["schedule_count"], 1)
+
+    async def test_calendar_tool_reports_all_missing_targets_without_action(self):
+        tools = build_production_tools(
+            None, store=FakeStore(), conversation_id="calendar-missing", env={},
+        )
+        calendar_tool = next(
+            tool for tool in tools if tool.name == "propose_calendar_changes"
+        )
+        result = json.loads(await calendar_tool.ainvoke({
+            "summary": "删除不存在的日程",
+            "changes": [{
+                "operation": "delete",
+                "schedule_id": "does-not-exist",
+            }],
+        }))
+        self.assertEqual(result["ui_action"], "calendar_change_report")
+        self.assertEqual(result["applied_count"], 0)
+        self.assertEqual(result["skipped_changes"][0]["operation"], "delete")
+        self.assertNotIn("action", result)
+
     async def test_calendar_online_location_uses_model_protocol_enum(self):
         store = FakeStore()
         await save_workspace(store, USER_WORKSPACE_ID, empty_workspace())
@@ -5733,6 +5842,40 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["media"][0]["vision_fallback"])
         self.assertEqual(result["vision_diagnostics"]["missing_api_key"], 1)
         self.assertEqual(result["vision_diagnostics"]["provider_fallback"], 1)
+
+    async def test_strict_today_filter_also_excludes_old_article_media(self):
+        pages = [{
+            "url": "https://example.com/old",
+            "title": "旧消息",
+            "date": "2026-07-28",
+            "image": "https://img.example.com/old.jpg",
+            "passage": "昨天发布",
+        }, {
+            "url": "https://example.com/today",
+            "title": "今日消息",
+            "date": "2026-07-29",
+            "image": "https://img.example.com/today.jpg",
+            "passage": "今天发布",
+        }]
+        with (
+            patch("agents._shared.rich_search._json_request", return_value={"Pages": pages}),
+            patch("agents._shared.rich_search.collect_page_media", new=AsyncMock(return_value=[])),
+        ):
+            result = await run_rich_search(
+                {"WSA_API_KEY": "test"},
+                "今天 AI 有什么新消息",
+                "AI 新闻现场",
+                "basic",
+                target_date="2026-07-29",
+                strict_date=True,
+                image_limit=2,
+            )
+        self.assertEqual(
+            [item["url"] for item in result["results"]],
+            ["https://example.com/today"],
+        )
+        self.assertEqual(result["images"], ["https://img.example.com/today.jpg"])
+        self.assertNotIn("https://img.example.com/old.jpg", json.dumps(result))
 
     def test_rich_search_visual_review_timeout_is_hard_bounded(self):
         self.assertEqual(_vision_review_timeout({}), 7.0)

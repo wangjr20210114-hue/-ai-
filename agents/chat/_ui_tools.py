@@ -1140,6 +1140,7 @@ def build_production_tools(
 ) -> list[StructuredTool]:
     runtime_env = env or {}
     place_skill_id = capability_skill_map().get("places", "")
+    calendar_skill_id = capability_skill_map().get("calendar_action", "")
     paper_scope = paper_constraints or {}
     time_scope = temporal_context or {}
     map_scope = map_preferences or {}
@@ -2417,6 +2418,17 @@ def build_production_tools(
                     else {}
                 ),
                 "show_route": True,
+                # The route remains independently useful. When Calendar is
+                # enabled, the same durable route card can explicitly start a
+                # second turn that reuses this verified route and prepares a
+                # separate confirmation proposal.
+                "calendar_offer": bool(
+                    calendar_skill_id
+                    and (
+                        enabled_skills is None
+                        or calendar_skill_id in enabled_skills
+                    )
+                ),
             },
             requires_confirmation=False,
         )
@@ -2712,8 +2724,9 @@ def build_production_tools(
         )
         linked_create_index = 0
         normalization_warnings: list[str] = []
+        skipped_changes: list[dict[str, str]] = []
         normalized = []
-        for raw in changes:
+        for change_index, raw in enumerate(changes, 1):
             if not isinstance(raw, dict):
                 raise ValueError("日程变更格式无效")
             operation = str(raw.get("operation") or "create")
@@ -2724,7 +2737,19 @@ def build_production_tools(
             if operation in {"update", "delete"}:
                 schedule_id = str(raw.get("schedule_id") or "")
                 if schedule_id not in state.get("schedules", {}):
-                    raise ValueError("当前日程已变化，旧日程 ID 已失效；请根据本轮系统提供的当前日程标题和时间重新匹配后再提案")
+                    event = raw.get("event") if isinstance(raw.get("event"), dict) else {}
+                    label = str(
+                        event.get("title")
+                        or raw.get("title")
+                        or schedule_id
+                        or f"第 {change_index} 项"
+                    ).strip()[:120]
+                    skipped_changes.append({
+                        "operation": operation,
+                        "target": label,
+                        "reason": "当前日程表中不存在，已跳过",
+                    })
+                    continue
                 change["schedule_id"] = schedule_id
                 previous_event = state.get("schedules", {}).get(schedule_id) or {}
             if operation != "delete":
@@ -2959,6 +2984,21 @@ def build_production_tools(
                     normalized_event["location"] = place.get("address") or place.get("name")
                 change["event"] = normalized_event
             normalized.append(change)
+        if not normalized:
+            return json.dumps({
+                "ui_action": "calendar_change_report",
+                "applied_count": 0,
+                "proposed_count": 0,
+                "skipped_changes": skipped_changes,
+                "calendar_snapshot": {
+                    "revision": int(state.get("revision") or 0),
+                    "schedule_count": len(state.get("schedules") or {}),
+                },
+                "response_constraint": (
+                    "本轮已读取当前日程表，但没有可执行的差量变更；"
+                    "请逐项说明未找到的更新或删除目标，不得改为新增日程。"
+                ),
+            }, ensure_ascii=False)
         if not route_source_id and isinstance(latest_route, dict):
             # If a proposal contains at least two places from a very recent
             # verified route, it is semantically a route-derived calendar
@@ -3023,6 +3063,10 @@ def build_production_tools(
         validate_calendar_change_window(state, normalized)
         warnings = calendar_change_warnings(state, normalized)
         warnings.extend(normalization_warnings)
+        warnings.extend(
+            f"{item['operation']}“{item['target']}”：{item['reason']}"
+            for item in skipped_changes
+        )
         warnings = list(dict.fromkeys(warnings))[:8]
 
         # Preview route feasibility before confirmation. The mutation remains
@@ -3131,6 +3175,11 @@ def build_production_tools(
                 "summary": str(summary or "日程变更")[:300],
                 "changes": normalized,
                 "warnings": warnings,
+                "skipped_changes": skipped_changes,
+                "calendar_snapshot": {
+                    "revision": int(state.get("revision") or 0),
+                    "schedule_count": len(state.get("schedules") or {}),
+                },
                 **({"source_route_plan_id": route_source_id} if route_source_id else {}),
             },
             requires_confirmation=True,

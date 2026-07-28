@@ -25,6 +25,7 @@ from .._shared.skill_registry import skill_manifest, unavailable_skills_for_acti
 from .._shared.workspace import (
     active_map_payload,
     apply_calendar_changes,
+    apply_calendar_changes_best_effort,
     validate_calendar_change_window,
     begin_action_execution,
     check_action_version,
@@ -396,16 +397,23 @@ async def handler(ctx):
         payload = action.get("payload") or {}
         verify_action_snapshot(action)
         if kind == "calendar_changes":
-            validate_calendar_change_window(state, payload.get("changes") or [])
-            changed = apply_calendar_changes(state, payload.get("changes") or [])
-            action["status"] = "succeeded"
-            action["result"] = {"changed": changed}
+            changed, skipped = apply_calendar_changes_best_effort(
+                state, payload.get("changes") or [],
+            )
+            action["status"] = "succeeded" if changed else "failed"
+            action["result"] = {"changed": changed, "skipped": skipped}
+            action["error"] = (
+                ""
+                if changed
+                else "没有可执行的日程变更；目标可能已不存在或日程已变化"
+            )
             action["version"] = int(action.get("version") or 1) + 1
             action["updated_at"] = int(time.time())
             state["active_map_action_id"] = ""
             state = await save_workspace(store, workspace_id, state)
-            await _record_calendar_signal(store, changed, action["id"], user_id, ctx.env)
-            return _response(state, action, changed=changed)
+            if changed:
+                await _record_calendar_signal(store, changed, action["id"], user_id, ctx.env)
+            return _response(state, action, changed=changed, skipped=skipped)
 
         if kind == "meeting_create":
             missing_fields = payload.get("missing_fields") or []

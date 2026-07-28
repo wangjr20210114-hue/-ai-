@@ -38,8 +38,44 @@ def _is_transient_gateway_error(error: Exception) -> bool:
     ))
 
 
+def _is_recoverable_request_error(error: Exception) -> bool:
+    """Allow one provider switch for a rejected request, before any output.
+
+    Makers occasionally rejects an otherwise valid OpenAI-compatible request
+    envelope with 400/422.  A direct Flash fallback can safely retry that
+    read-only model call.  Authentication, model configuration, quota and
+    explicit context-limit failures are deliberately excluded: retrying those
+    unchanged would only add latency or hide an operator error.
+    """
+    text = str(error or "").lower()
+    rejected = any(marker in text for marker in (
+        "invalid_request",
+        "status code: 400",
+        "error code: 400",
+        "status code: 422",
+        "error code: 422",
+    ))
+    if not rejected:
+        return False
+    terminal_markers = (
+        "api key", "api_key", "authentication", "unauthorized", "forbidden",
+        "permission denied", "provider prefix", "model id", "model_id",
+        "model not found", "does not exist", "context length", "context_length",
+        "maximum context", "max context", "quota", "rate limit", "rate_limit",
+    )
+    return not any(marker in text for marker in terminal_markers)
+
+
+def _should_fail_over(error: Exception) -> bool:
+    return bool(
+        _is_quota_error(error)
+        or _is_transient_gateway_error(error)
+        or _is_recoverable_request_error(error)
+    )
+
+
 class QuotaFailoverModel:
-    """Keep Makers first; fail over on quota or transient gateway outages."""
+    """Keep Makers first; fail over once before public output when safe."""
 
     def __init__(self, primary: Any, fallback: Any):
         self.primary = primary
@@ -69,7 +105,7 @@ class QuotaFailoverModel:
         try:
             return await self.primary.ainvoke(messages, **kwargs)
         except Exception as exc:
-            if not (_is_quota_error(exc) or _is_transient_gateway_error(exc)):
+            if not _should_fail_over(exc):
                 raise
             return await self.fallback.ainvoke(messages, **kwargs)
 
@@ -81,7 +117,7 @@ class QuotaFailoverModel:
                 emitted = True
                 yield chunk
         except Exception as exc:
-            if emitted or not (_is_quota_error(exc) or _is_transient_gateway_error(exc)):
+            if emitted or not _should_fail_over(exc):
                 raise
             async for chunk in self.fallback.astream(messages, **kwargs):
                 yield chunk

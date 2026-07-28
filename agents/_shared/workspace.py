@@ -518,6 +518,55 @@ def apply_calendar_changes(state: dict[str, Any], changes: list[dict[str, Any]])
     return changed
 
 
+def apply_calendar_changes_best_effort(
+    state: dict[str, Any],
+    changes: list[dict[str, Any]],
+    *,
+    now: int | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Apply independent confirmed changes while reporting stale targets.
+
+    Chat proposals are based on a JSON snapshot. Another tab may change that
+    snapshot before the user confirms, so one vanished update/delete target
+    must not erase other still-valid changes. Direct calendar-editor writes
+    continue to use the atomic ``apply_calendar_changes`` path.
+    """
+    changed: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+    for index, change in enumerate(changes or [], 1):
+        if not isinstance(change, dict):
+            skipped.append({
+                "operation": "unknown",
+                "target": f"第 {index} 项",
+                "reason": "变更格式无效",
+            })
+            continue
+        operation = str(change.get("operation") or "create")
+        event = change.get("event") if isinstance(change.get("event"), dict) else {}
+        target = str(
+            event.get("title")
+            or change.get("schedule_id")
+            or f"第 {index} 项"
+        ).strip()[:120]
+        try:
+            validate_calendar_change_window(state, [change], now=now)
+            applied = apply_calendar_changes(state, [change])
+            changed.extend(applied)
+            if not applied and operation == "create":
+                skipped.append({
+                    "operation": operation,
+                    "target": target,
+                    "reason": "与现有日程完全相同，未重复添加",
+                })
+        except ValueError as exc:
+            skipped.append({
+                "operation": operation,
+                "target": target,
+                "reason": str(exc)[:240] or "未执行",
+            })
+    return changed, skipped
+
+
 def active_map_payload(state: dict[str, Any]) -> dict[str, Any] | None:
     action_id = str(state.get("active_map_action_id") or "")
     action = state.get("actions", {}).get(action_id)

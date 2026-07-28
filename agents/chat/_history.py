@@ -154,6 +154,25 @@ def compact_tool_results_for_model(messages):
                     if action.get(key) is not None
                 }
         else:
+            if payload.get("ui_action") == "calendar_change_report":
+                compact = {
+                    "ui_action": "calendar_change_report",
+                    "applied_count": int(payload.get("applied_count") or 0),
+                    "proposed_count": int(payload.get("proposed_count") or 0),
+                    "skipped_changes": payload.get("skipped_changes") or [],
+                    "calendar_snapshot": payload.get("calendar_snapshot") or {},
+                    "response_constraint": payload.get("response_constraint") or "",
+                }
+                compact_content = json.dumps(
+                    compact, ensure_ascii=False, separators=(",", ":"),
+                )
+                if isinstance(message, dict):
+                    output.append({**message, "content": compact_content})
+                elif hasattr(message, "model_copy"):
+                    output.append(message.model_copy(update={"content": compact_content}))
+                else:
+                    output.append(message)
+                continue
             action = payload.get("action") or {}
             action_payload = (
                 action.get("payload") if isinstance(action, dict) else {}

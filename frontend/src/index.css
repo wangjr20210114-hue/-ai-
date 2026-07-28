@@ -641,9 +641,6 @@ html.is-resizing-workspace * {
   border-top-left-radius: 4px;
   box-shadow: var(--app-shadow);
 }
-.msg-bubble.ai.has-copy-action {
-  padding-top: 30px;
-}
 .msg-bubble.ai.is-error {
   border-color: rgba(213, 73, 65, 0.34);
   background: color-mix(in srgb, #d54941 6%, var(--app-ai-bubble));
@@ -1462,9 +1459,16 @@ html.is-resizing-workspace * {
   padding: 7px 1px 1px;
 }
 
+.workspace-map-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 10px;
+}
+
 .workspace-map-action {
   display: inline;
-  margin-top: 10px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -2148,12 +2152,13 @@ html:lang(en) {
   align-items: flex-end;
 }
 .answer-action-group {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 2;
-  display: inline-flex;
+  display: flex;
+  width: 100%;
+  justify-content: flex-end;
+  align-items: center;
   gap: 3px;
+  margin-top: 8px;
+  min-height: 26px;
 }
 .answer-action-button {
   display: inline-grid;
@@ -2744,6 +2749,31 @@ html:lang(en) {
 .paper-ai-result {
   max-height: none;
   overflow: visible;
+}
+
+.paper-translation-history,
+.paper-current-translation {
+  display: block;
+}
+
+.paper-translation-history-title {
+  margin-bottom: 18px;
+  color: var(--app-text-3);
+  font-size: 12px;
+}
+
+.paper-translation-entry {
+  margin-bottom: 24px;
+}
+
+.paper-translation-meta {
+  margin-bottom: 8px;
+  color: var(--app-text-3);
+  font-size: 11px;
+}
+
+.paper-current-translation {
+  margin-top: 24px;
 }
 
 .settings-language-select { width: 100%; max-width: 280px; padding: 8px 10px; border: 1px solid var(--app-border-strong); border-radius: 8px; color: var(--app-text); background: var(--app-panel); font: inherit; }
@@ -3710,10 +3740,6 @@ body {
   .msg-row.ai .msg-bubble.ai.assistant-chain-bubble {
     width: 92%;
     max-width: 92%;
-  }
-
-  .msg-bubble.ai.has-copy-action {
-    padding-top: 32px;
   }
 
   .answer-followups {

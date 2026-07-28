@@ -180,10 +180,20 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_chat_run_uses_native_conversation_metadata(self):
         store = FakeConversationStore()
-        await write_chat_run(store, "conversation-1", run_id="run-1", status="running")
+        await write_chat_run(
+            store,
+            "conversation-1",
+            run_id="run-1",
+            status="running",
+            diagnostics={"stage": "semantic_plan", "category": "request_rejected"},
+        )
         restored = await read_chat_run(store, "conversation-1")
         self.assertEqual(restored["status"], "running")
         self.assertEqual(public_chat_run(restored)["run_id"], "run-1")
+        self.assertEqual(
+            public_chat_run(restored)["diagnostics"]["stage"],
+            "semantic_plan",
+        )
         self.assertEqual(store.metadata["title"], "保留标题")
 
     async def test_stop_delegates_public_id_to_makers_abort(self):
