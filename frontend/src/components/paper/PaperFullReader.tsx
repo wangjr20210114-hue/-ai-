@@ -3,7 +3,7 @@
  * 画面按设备像素比渲染，TextLayer 仅负责原生选词与助读菜单。
  */
 import { useEffect, useRef, useState } from 'react';
-import { Button, Loading, MessagePlugin, Textarea, Tag } from 'tdesign-react';
+import { Button, Loading, Textarea, Tag } from 'tdesign-react';
 import { CloseIcon, FullscreenExitIcon, FullscreenIcon } from 'tdesign-icons-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { fetchPaperFile } from '../../services/paperApi';
@@ -13,17 +13,17 @@ import {
 } from '../../services/pdf';
 import {
   translateParagraph, summarizeParagraph,
-  analyzePaper, paperQA, loadPaperAssistantResults, savePaperAssistantResult,
-  type PaperAssistantResult,
+  analyzePaper, paperQA,
 } from '../../services/paperApi';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { useLanguage } from '../../i18n';
-import { newestTranslationsFirst } from './paperHistory';
 
 interface Props {
   fileId: string;
   title: string;
   arxivId?: string;
+  fileSize?: number;
+  partSize?: number;
   assistantEnabled?: boolean;
   onClose: () => void;
 }
@@ -45,9 +45,8 @@ interface PageData {
   rendered: boolean;
 }
 
-export default function PaperFullReader({ fileId, title, assistantEnabled = true, onClose }: Props) {
-  const { language, t } = useLanguage();
-  const locale = language === 'zh-TW' ? 'zh-TW' : language === 'en' ? 'en' : 'zh-CN';
+export default function PaperFullReader({ fileId, title, fileSize, partSize, assistantEnabled = true, onClose }: Props) {
+  const { t } = useLanguage();
   const readerRef = useRef<HTMLDivElement>(null);
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const textLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -69,28 +68,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
   const [aiTab, setAiTab] = useState<'result' | 'qa'>('result');
   const [qaInput, setQaInput] = useState('');
   const [qaHistory, setQaHistory] = useState<{ q: string; a: string }[]>([]);
-  const [savedTranslations, setSavedTranslations] = useState<PaperAssistantResult[]>([]);
-  // Avoid painting the empty instructions for one frame before history starts
-  // loading; that transient state looked like a flash when opening a paper.
-  const [historyLoading, setHistoryLoading] = useState(true);
   const streamRef = useRef<{ cancel: () => void } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setHistoryLoading(true);
-    void loadPaperAssistantResults(fileId)
-      .then((items) => {
-        if (cancelled) return;
-        setSavedTranslations(newestTranslationsFirst(items));
-      })
-      .catch(() => {
-        if (!cancelled) setSavedTranslations([]);
-      })
-      .finally(() => {
-        if (!cancelled) setHistoryLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [fileId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,7 +79,10 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
       try {
         setLoading(true); setLoadError('');
         fetchTimer = window.setTimeout(() => fetchController.abort(), 30_000);
-        const resp = await fetchPaperFile(fileId, fetchController.signal);
+        const resp = await fetchPaperFile(fileId, fetchController.signal, {
+          size: fileSize,
+          partSize,
+        });
         window.clearTimeout(fetchTimer);
         if (!resp.ok) throw new Error(t('pdfDownloadStatusFailed', { status: resp.status }));
         const blob = await resp.blob();
@@ -119,7 +100,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
       }
     })();
     return () => { cancelled = true; window.clearTimeout(fetchTimer); fetchController.abort(); };
-  }, [fileId, t]);
+  }, [fileId, fileSize, partSize, t]);
 
   useEffect(() => {
     const previous = document.body.style.overflow;
@@ -290,22 +271,6 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
     const onDelta = (delta: string) => setAiResult(prev => prev ? { ...prev, content: prev.content + delta } : prev);
     const onDone = (full: string, error?: string) => {
       setAiResult(prev => prev ? { ...prev, content: error ? `❌ ${error}` : full, streaming: false } : prev);
-      if (action === 'translate' && !error && full.trim()) {
-        void savePaperAssistantResult(fileId, {
-          action: 'translate',
-          title,
-          source_text: text,
-          content: full,
-        }).then((saved) => {
-          setSavedTranslations((current) => newestTranslationsFirst([
-            saved,
-            ...current.filter((item) => item.id !== saved.id),
-          ]));
-          setAiResult(null);
-        }).catch(() => {
-          MessagePlugin.warning(t('translationNotSaved'));
-        });
-      }
     };
     const documentText = pages.map((page) => `【第 ${page.pageNum} 页】\n${page.paragraphs.map((paragraph) => paragraph.text).join('\n')}`).join('\n\n');
     switch (action) {
@@ -437,7 +402,7 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
 
             {aiTab === 'result' && (
               <div className="paper-ai-content">
-                {!aiResult && !historyLoading && (
+                {!aiResult && (
                   <div className="paper-ai-empty">
                     {t('paperAssistantInstructions')}<br />
                     · {t('selectTextAction')}<br />
@@ -448,24 +413,14 @@ export default function PaperFullReader({ fileId, title, assistantEnabled = true
                 )}
                 {aiResult && (
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6, color: '#2b5aed' }}>
-                      {aiResult.title}{aiResult.streaming && <Loading size="small" style={{ marginLeft: 6 }} />}
-                    </div>
+                    {aiResult.action !== 'translate' && (
+                      <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6, color: '#2b5aed' }}>
+                        {aiResult.title}{aiResult.streaming && <Loading size="small" style={{ marginLeft: 6 }} />}
+                      </div>
+                    )}
                     <div className="paper-ai-result">
                       <MarkdownRenderer content={aiResult.content || '...'} />
                     </div>
-                  </div>
-                )}
-                {savedTranslations.length > 0 && (
-                  <div className="paper-translation-history">
-                    <div className="paper-translation-history-title">{t('savedTranslationsCount', { count: savedTranslations.length })}</div>
-                    {savedTranslations.map((item) => (
-                      <article className="paper-translation-entry" key={item.id}>
-                        <div className="paper-translation-time">{new Date(item.created_at).toLocaleString(locale)}</div>
-                        <div className="paper-translation-entry-title">{item.title}</div>
-                        <MarkdownRenderer content={item.content} />
-                      </article>
-                    ))}
                   </div>
                 )}
               </div>

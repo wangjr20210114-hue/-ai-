@@ -1,11 +1,6 @@
 import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
-
-const MAX_FILE_BYTES = 20 * 1024 * 1024;
-// Makers Cloud Functions cap a response body at 6 MB. Keep every file part
-// below that limit while continuing to persist the original object in the
-// Makers Blob store.
-const DOWNLOAD_PART_BYTES = 4 * 1024 * 1024;
+import { DOWNLOAD_PART_BYTES, MAX_FILE_BYTES } from './config.js';
 const SUPPORTED_TYPES = new Map([
   ['application/pdf', ['.pdf']],
   ['image/png', ['.png']],

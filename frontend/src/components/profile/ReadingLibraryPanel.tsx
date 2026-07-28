@@ -4,7 +4,7 @@ import { Button, MessagePlugin } from 'tdesign-react';
 import { AddIcon, DeleteIcon, DownloadIcon, EditIcon, FileIcon, FolderIcon, RefreshIcon } from 'tdesign-icons-react';
 import {
   createReadingFolder, deleteSavedPaper, getReadingLibrary, moveReadingItem,
-  fetchPaperFile, renameReadingFolder, type ReadingFolder, type ReadingSettings, type SavedPaper,
+  fetchPaperFile, preloadPaperFile, renameReadingFolder, type ReadingFolder, type ReadingSettings, type SavedPaper,
 } from '../../services/paperApi';
 import { createZip } from '../../services/zip';
 import PaperFullReader from '../paper/PaperFullReader';
@@ -82,6 +82,10 @@ export default function ReadingLibraryPanel() {
     } catch { MessagePlugin.error(t('folderDownloadFailed')); }
     finally { setBusyFolder(''); }
   };
+  const warmReader = (item: SavedPaper) => preloadPaperFile(item.file_id, {
+    size: item.file_size,
+    partSize: item.part_size,
+  });
 
   return <div className="my-panel-card reading-library-card" data-onboarding="reading">
     <div className="section-title">
@@ -114,7 +118,13 @@ export default function ReadingLibraryPanel() {
           </div>
           {(expanded[folder.id] ?? true) && <div className="reading-library-list">{folderItems.map((item) => (
             <div className="reading-library-item" key={item.id}>
-              <button type="button" className="reading-library-open" onClick={() => setReader(item)}>
+              <button
+                type="button"
+                className="reading-library-open"
+                onPointerEnter={() => warmReader(item)}
+                onFocus={() => warmReader(item)}
+                onClick={() => setReader(item)}
+              >
                 <span>{item.is_paper || item.kind === 'paper' ? '📄' : '📑'}</span>
                 <span><strong>{item.title || item.filename}</strong><small>{item.is_paper || item.kind === 'paper' ? t('paperAssistant') : t('pdfReading')}{item.page_count ? t('pageCount', { count: item.page_count }) : ''}</small></span>
               </button>
@@ -128,7 +138,15 @@ export default function ReadingLibraryPanel() {
       ))}</div>
     )}
     {reader && createPortal(
-      <PaperFullReader fileId={reader.file_id} title={reader.title || reader.filename} arxivId={reader.arxiv_id} assistantEnabled={Boolean(reader.is_paper || reader.kind === 'paper')} onClose={() => setReader(null)} />,
+      <PaperFullReader
+        fileId={reader.file_id}
+        title={reader.title || reader.filename}
+        arxivId={reader.arxiv_id}
+        fileSize={reader.file_size}
+        partSize={reader.part_size}
+        assistantEnabled={Boolean(reader.is_paper || reader.kind === 'paper')}
+        onClose={() => setReader(null)}
+      />,
       document.body,
     )}
   </div>;

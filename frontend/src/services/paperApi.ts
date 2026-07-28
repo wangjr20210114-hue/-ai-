@@ -14,6 +14,9 @@ export async function downloadPaper(arxivId: string, title: string, pdfUrl = '',
   arxiv_id: string;
   total_chars: number;
   preview: string;
+  file_size?: number;
+  part_size?: number;
+  reused?: boolean;
   error?: string;
   code?: string;
 }> {
@@ -54,6 +57,8 @@ export interface SavedPaper {
   kind?: 'paper' | 'pdf';
   is_paper?: boolean;
   page_count?: number;
+  file_size?: number;
+  part_size?: number;
   preview?: string;
   folder_id?: string;
   assistant_results?: PaperAssistantResult[];
@@ -107,24 +112,6 @@ export async function moveReadingItem(itemId: string, folderId: string) {
   return libraryOperation<{ item: SavedPaper }>({ operation: 'move_item', item_id: itemId, folder_id: folderId });
 }
 
-export async function loadPaperAssistantResults(storageKey: string): Promise<PaperAssistantResult[]> {
-  const library = await getReadingLibrary();
-  const item = library.papers.find((paper) => paper.storage_key === storageKey || paper.file_id === storageKey);
-  return [...(item?.assistant_results || [])].sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0));
-}
-
-export async function savePaperAssistantResult(
-  storageKey: string,
-  result: Pick<PaperAssistantResult, 'action' | 'title' | 'source_text' | 'content'>,
-): Promise<PaperAssistantResult> {
-  const data = await libraryOperation<{ result: PaperAssistantResult }>({
-    operation: 'save_assistant_result',
-    storage_key: storageKey,
-    ...result,
-  });
-  return data.result;
-}
-
 export async function registerReadingItem(item: {
   storage_key: string;
   filename: string;
@@ -156,32 +143,123 @@ export function paperFileUrl(fileId: string): string {
  * ceiling. Small files keep the single-request path; larger files are joined
  * from authenticated 4 MB parts exposed by the same Makers-backed endpoint.
  */
-export async function fetchPaperFile(fileId: string, signal?: AbortSignal): Promise<Response> {
+export interface PaperFileMetadata {
+  size?: number;
+  partSize?: number;
+}
+
+interface MaterializedPaperFile {
+  blob: Blob;
+  contentType: string;
+}
+
+const materializedPaperFiles = new Map<string, MaterializedPaperFile>();
+const pendingPaperFiles = new Map<string, Promise<MaterializedPaperFile>>();
+
+function responseFromPaperFile(file: MaterializedPaperFile): Response {
+  return new Response(file.blob, {
+    status: 200,
+    headers: {
+      'Content-Type': file.contentType,
+      'Content-Length': String(file.blob.size),
+    },
+  });
+}
+
+function waitForPaperFile(
+  task: Promise<MaterializedPaperFile>,
+  signal?: AbortSignal,
+): Promise<MaterializedPaperFile> {
+  if (!signal) return task;
+  if (signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(new DOMException('Aborted', 'AbortError'));
+    signal.addEventListener('abort', abort, { once: true });
+    task.then(
+      (value) => {
+        signal.removeEventListener('abort', abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', abort);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function downloadPaperFile(
+  fileId: string,
+  metadata: PaperFileMetadata,
+): Promise<MaterializedPaperFile> {
   const url = paperFileUrl(fileId);
-  const head = await authorizedFetch(url, { method: 'HEAD', signal });
-  if (!head.ok) return head;
-  const size = Number(head.headers.get('x-yuanbao-file-size') || head.headers.get('content-length') || 0);
-  const partSize = Number(head.headers.get('x-yuanbao-part-size') || 0);
+  let size = Number(metadata.size || 0);
+  let partSize = Number(metadata.partSize || 0);
+  let contentType = 'application/pdf';
+  if (!Number.isFinite(size) || size <= 0 || !Number.isFinite(partSize) || partSize <= 0) {
+    const head = await authorizedFetch(url, { method: 'HEAD' });
+    if (!head.ok) throw new Error(translate('pdfLoadStatusFailed', { status: head.status }));
+    size = Number(head.headers.get('x-yuanbao-file-size') || head.headers.get('content-length') || 0);
+    partSize = Number(head.headers.get('x-yuanbao-part-size') || 0);
+    contentType = head.headers.get('content-type') || contentType;
+  }
   if (!Number.isFinite(size) || size <= 0 || !Number.isFinite(partSize) || partSize <= 0 || size <= partSize) {
-    return authorizedFetch(url, { signal });
+    const response = await authorizedFetch(url);
+    if (!response.ok) throw new Error(translate('pdfLoadStatusFailed', { status: response.status }));
+    const blob = await response.blob();
+    return { blob, contentType: response.headers.get('content-type') || blob.type || contentType };
   }
 
-  const chunks: Uint8Array[] = [];
   const totalParts = Math.ceil(size / partSize);
-  for (let part = 0; part < totalParts; part += 1) {
+  const chunks = await Promise.all(Array.from({ length: totalParts }, async (_, part) => {
     const separator = url.includes('?') ? '&' : '?';
-    const response = await authorizedFetch(`${url}${separator}part=${part}`, { signal });
-    if (!response.ok) return response;
-    chunks.push(new Uint8Array(await response.arrayBuffer()));
-  }
-  const blob = new Blob(chunks, { type: head.headers.get('content-type') || 'application/pdf' });
+    const response = await authorizedFetch(`${url}${separator}part=${part}`);
+    if (!response.ok) throw new Error(translate('pdfLoadStatusFailed', { status: response.status }));
+    return new Uint8Array(await response.arrayBuffer());
+  }));
+  const blob = new Blob(chunks, { type: contentType });
   if (blob.size !== size) {
-    return new Response(JSON.stringify({ error: translate('pdfChunksIncomplete') }), {
-      status: 502,
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    });
+    throw new Error(translate('pdfChunksIncomplete'));
   }
-  return new Response(blob, { status: 200, headers: { 'Content-Type': blob.type, 'Content-Length': String(blob.size) } });
+  return { blob, contentType };
+}
+
+/**
+ * Materialize each PDF once per page session. Reader, inline preview and
+ * downloads can then share the same bytes, while known metadata skips the
+ * extra HEAD round trip and large Makers-safe parts download concurrently.
+ */
+export async function fetchPaperFile(
+  fileId: string,
+  signal?: AbortSignal,
+  metadata: PaperFileMetadata = {},
+): Promise<Response> {
+  const cached = materializedPaperFiles.get(fileId);
+  if (cached) return responseFromPaperFile(cached);
+  let task = pendingPaperFiles.get(fileId);
+  if (!task) {
+    task = downloadPaperFile(fileId, metadata)
+      .then((file) => {
+        // The reader only needs the current document. Keeping one materialized
+        // PDF prevents duplicate preview/fullscreen reads without retaining a
+        // growing collection of large files in browser memory.
+        materializedPaperFiles.clear();
+        materializedPaperFiles.set(fileId, file);
+        return file;
+      })
+      .finally(() => pendingPaperFiles.delete(fileId));
+    pendingPaperFiles.set(fileId, task);
+  }
+  return responseFromPaperFile(await waitForPaperFile(task, signal));
+}
+
+export function preloadPaperFile(
+  fileId: string,
+  metadata: PaperFileMetadata = {},
+): void {
+  void fetchPaperFile(fileId, undefined, metadata).catch(() => {
+    // Opening the reader remains the visible retry/error path.
+  });
 }
 
 /** SSE 流式调用通用方法 */

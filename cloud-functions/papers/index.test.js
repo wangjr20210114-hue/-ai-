@@ -6,10 +6,33 @@ const {
   downloadFirstValidPdf,
   extractArxivId,
   extractDoi,
+  findReusablePaper,
   isSafePublicHttps,
   resolveDownloadCandidates,
   titleMatches,
 } = __test;
+
+test('reuses only an exact stored paper identity', () => {
+  const items = [
+    { id: 'arxiv', arxiv_id: '2601.01234', source_url: 'https://arxiv.org/abs/2601.01234' },
+    { id: 'doi', arxiv_id: '', source_url: 'https://doi.org/10.1145/3808169' },
+  ];
+  assert.equal(findReusablePaper(items, {
+    arxivId: '2601.01234',
+    sourceUrl: '',
+    directPdf: '',
+  })?.id, 'arxiv');
+  assert.equal(findReusablePaper(items, {
+    arxivId: 'webpaper-demo',
+    sourceUrl: 'https://doi.org/10.1145/3808169',
+    directPdf: '',
+  })?.id, 'doi');
+  assert.equal(findReusablePaper(items, {
+    arxivId: '2601.99999',
+    sourceUrl: '',
+    directPdf: '',
+  }), undefined);
+});
 
 test('extracts canonical scholarly identifiers without accepting private URLs', () => {
   assert.equal(extractDoi('https://doi.org/10.1145/3808169'), '10.1145/3808169');

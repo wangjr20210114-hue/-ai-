@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { BookOpenIcon, JumpIcon } from 'tdesign-icons-react';
 import type { ChatMessage, PaperInfo } from '../../types';
-import { downloadPaper } from '../../services/paperApi';
+import { downloadPaper, preloadPaperFile } from '../../services/paperApi';
 import {
   dedupePapers,
   paperArxivHref,
@@ -26,6 +26,8 @@ interface DownloadedPaper {
   title: string;
   fileName: string;
   arxivId?: string;
+  fileSize?: number;
+  partSize?: number;
 }
 
 export default function PaperListCard({ message }: Props) {
@@ -66,6 +68,8 @@ export default function PaperListCard({ message }: Props) {
         title: result.title,
         fileName: result.filename,
         arxivId: result.arxiv_id || paper.arxiv_id,
+        fileSize: result.file_size,
+        partSize: result.part_size,
       };
       setDownloaded((previous) => ({
         ...previous,
@@ -82,7 +86,13 @@ export default function PaperListCard({ message }: Props) {
 
   const openReader = async (paper: PaperInfo) => {
     const stored = await ensureDownloaded(paper);
-    if (stored) setFullReader(stored);
+    if (stored) {
+      preloadPaperFile(stored.fileId, {
+        size: stored.fileSize,
+        partSize: stored.partSize,
+      });
+      setFullReader(stored);
+    }
   };
 
   if (papers.length === 0) return null;
@@ -153,6 +163,8 @@ export default function PaperListCard({ message }: Props) {
           fileId={fullReader.fileId}
           title={fullReader.title}
           arxivId={fullReader.arxivId}
+          fileSize={fullReader.fileSize}
+          partSize={fullReader.partSize}
           onClose={() => setFullReader(null)}
         />,
         document.body,

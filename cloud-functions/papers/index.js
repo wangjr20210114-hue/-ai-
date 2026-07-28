@@ -1,7 +1,7 @@
 import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
+import { DOWNLOAD_PART_BYTES, MAX_FILE_BYTES as MAX_PDF_BYTES } from '../files/config.js';
 const DATA_GENERATION = 'v7_20260724_clear';
-const MAX_PDF_BYTES = 20 * 1024 * 1024;
 const RESOLUTION_TIMEOUT_MS = 15_000;
 const DOWNLOAD_TIMEOUT_MS = 105_000;
 const REQUEST_HEADERS = {
@@ -68,6 +68,40 @@ function titleMatches(expected, candidate) {
   const rightTokens = new Set(right.split(' ').filter(Boolean));
   const shared = [...leftTokens].filter((token) => rightTokens.has(token)).length;
   return shared / Math.max(leftTokens.size, rightTokens.size) >= 0.9;
+}
+
+function findReusablePaper(items, { arxivId, sourceUrl, directPdf }) {
+  const canonicalArxivId = isSyntheticPaperId(arxivId) ? '' : String(arxivId || '').trim();
+  const sourceCandidates = new Set(
+    [sourceUrl, directPdf]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
+  );
+  return items.find((item) => (
+    (canonicalArxivId && String(item.arxiv_id || '').trim() === canonicalArxivId)
+    || (item.source_url && sourceCandidates.has(String(item.source_url).trim()))
+  ));
+}
+
+function storedPaperResponse(item, metadata) {
+  const fileSize = Number(
+    item.file_size
+    || metadata?.size
+    || metadata?.contentLength
+    || metadata?.headers?.['content-length']
+    || 0,
+  );
+  return {
+    file_id: item.file_id || item.storage_key,
+    filename: item.filename,
+    title: item.title,
+    arxiv_id: item.arxiv_id || '',
+    total_chars: 0,
+    preview: item.preview || '',
+    content_url: item.content_url || `/files?key=${encodeURIComponent(item.file_id || item.storage_key)}`,
+    ...(fileSize > 0 ? { file_size: fileSize, part_size: DOWNLOAD_PART_BYTES } : {}),
+    reused: true,
+  };
 }
 
 async function fetchJson(url, fetchImpl) {
@@ -302,6 +336,15 @@ export async function onRequest(context) {
   const isArxiv = !isSyntheticPaperId(arxivId);
   if (isArxiv && (!/^[A-Za-z0-9./-]{3,80}$/.test(arxivId) || arxivId.includes('..'))) return json({ error: '无效 arXiv ID' }, 400);
   try {
+    const store = getStore({ name: 'yuanbao-files', consistency: 'strong' });
+    const items = await loadIndex(store, indexKey);
+    const reusable = findReusablePaper(items, { arxivId, sourceUrl, directPdf });
+    if (reusable) {
+      const key = reusable.file_id || reusable.storage_key;
+      const metadata = key ? await store.getMetadata(key) : null;
+      if (metadata) return json(storedPaperResponse(reusable, metadata));
+    }
+
     const candidates = await resolveDownloadCandidates({
       arxivId,
       directPdf,
@@ -324,7 +367,6 @@ export async function onRequest(context) {
       }, 502);
     }
     const { data, candidate } = downloaded;
-    const store = getStore({ name: 'yuanbao-files', consistency: 'strong' });
     const resolvedArxivId = candidate.arxivId || (isArxiv ? arxivId : '');
     const stableId = resolvedArxivId || arxivId || 'resolved-paper';
     const safeId = stableId.replace(/[^A-Za-z0-9.-]+/g, '-');
@@ -337,10 +379,9 @@ export async function onRequest(context) {
         ? `https://arxiv.org/abs/${resolvedArxivId}`
         : (sourceUrl || directPdf || candidate.url)
     );
-    const item = { id: crypto.randomUUID(), storage_key: key, file_id: key, filename: `${safeId}.pdf`, title: savedTitle, mime_type: 'application/pdf', kind: 'paper', is_paper: true, arxiv_id: resolvedArxivId, source_url: canonicalSource, page_count: 0, preview: '', content_url: `/files?key=${encodeURIComponent(key)}`, created_at: now, last_opened_at: now };
-    const items = await loadIndex(store, indexKey);
+    const item = { id: crypto.randomUUID(), storage_key: key, file_id: key, filename: `${safeId}.pdf`, title: savedTitle, mime_type: 'application/pdf', kind: 'paper', is_paper: true, arxiv_id: resolvedArxivId, source_url: canonicalSource, page_count: 0, preview: '', content_url: `/files?key=${encodeURIComponent(key)}`, file_size: data.byteLength, part_size: DOWNLOAD_PART_BYTES, created_at: now, last_opened_at: now };
     await store.set(indexKey, JSON.stringify([item, ...items.filter((saved) => resolvedArxivId ? saved.arxiv_id !== resolvedArxivId : saved.source_url !== canonicalSource)].slice(0, 500)));
-    return json({ file_id: key, filename: item.filename, title: savedTitle, arxiv_id: resolvedArxivId, total_chars: 0, preview: '', content_url: item.content_url });
+    return json({ file_id: key, filename: item.filename, title: savedTitle, arxiv_id: resolvedArxivId, total_chars: 0, preview: '', content_url: item.content_url, file_size: data.byteLength, part_size: DOWNLOAD_PART_BYTES, reused: false });
   } catch (error) {
     const timeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
     return json({
@@ -357,6 +398,8 @@ export const __test = {
   isSafePublicHttps,
   normalizedTitle,
   titleMatches,
+  findReusablePaper,
+  storedPaperResponse,
   resolveDownloadCandidates,
   downloadFirstValidPdf,
 };

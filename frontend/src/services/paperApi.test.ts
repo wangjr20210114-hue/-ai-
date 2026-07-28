@@ -28,6 +28,32 @@ describe('fetchPaperFile', () => {
     expect(String(fetchMock.mock.calls[1][0])).toContain('part=0');
     expect(String(fetchMock.mock.calls[2][0])).toContain('part=1');
   });
+
+  it('uses known size metadata to skip HEAD and starts every large-file part immediately', async () => {
+    const pending: Array<() => void> = [];
+    const fetchMock = vi.fn((input: RequestInfo | URL) => new Promise<Response>((resolve) => {
+      pending.push(() => {
+        const part = Number(new URL(String(input), 'https://example.test').searchParams.get('part'));
+        resolve(new Response(
+          part === 0 ? new Uint8Array([1, 2, 3, 4]) : new Uint8Array([5, 6, 7]),
+          { status: 200 },
+        ));
+      });
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const responsePromise = fetchPaperFile(
+      'uploads/demo/known-large.pdf',
+      undefined,
+      { size: 7, partSize: 4 },
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    pending.forEach((finish) => finish());
+
+    const response = await responsePromise;
+    expect(Array.from(new Uint8Array(await response.arrayBuffer()))).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(fetchMock.mock.calls.every(([input]) => String(input).includes('part='))).toBe(true);
+  });
 });
 
 describe('streamPaper', () => {
