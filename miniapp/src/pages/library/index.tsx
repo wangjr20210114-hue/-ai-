@@ -14,31 +14,45 @@ import {
   type ReadingItem,
 } from '@/services/library'
 import { apiRequest } from '@/services/request'
+import { readNativeCache, writeNativeCache } from '@/services/native-cache'
 import { updateNativeTabBar } from '@/services/tabbar'
 import { readLanguage, translate, type Language } from '@/i18n'
 import './index.scss'
 
 const ALL_FOLDER = '__all__'
 const UNFILED_FOLDER = '__unfiled__'
+const LIBRARY_SNAPSHOT_KEY = 'floris.miniapp.screen.library.v1'
+
+type LibrarySnapshot = {
+  items: ReadingItem[]
+  folders: ReadingFolder[]
+  autoOrganize: boolean
+}
 
 export default function LibraryPage() {
-  const [items, setItems] = useState<ReadingItem[]>([])
-  const [folders, setFolders] = useState<ReadingFolder[]>([])
-  const [autoOrganize, setAutoOrganize] = useState(true)
+  const [initial] = useState(() => readNativeCache<LibrarySnapshot>(LIBRARY_SNAPSHOT_KEY))
+  const [items, setItems] = useState<ReadingItem[]>(initial?.items || [])
+  const [folders, setFolders] = useState<ReadingFolder[]>(initial?.folders || [])
+  const [autoOrganize, setAutoOrganize] = useState(initial?.autoOrganize ?? true)
   const [selectedFolder, setSelectedFolder] = useState(ALL_FOLDER)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!initial)
   const [opening, setOpening] = useState('')
   const [saving, setSaving] = useState('')
   const [folderEditor, setFolderEditor] = useState<{ id: string; name: string } | null>(null)
   const [language, setLanguage] = useState<Language>(readLanguage())
 
   const load = async () => {
-    setLoading(true)
+    if (!initial && !items.length && !folders.length) setLoading(true)
     try {
       const result = await getReadingLibrary()
       setItems(result.items)
       setFolders(result.folders)
       setAutoOrganize(result.settings.auto_organize)
+      writeNativeCache<LibrarySnapshot>(LIBRARY_SNAPSHOT_KEY, {
+        items: result.items,
+        folders: result.folders,
+        autoOrganize: result.settings.auto_organize,
+      })
     } catch (reason) {
       void Taro.showToast({
         title: String((reason as Error)?.message || translate('readFailed')),

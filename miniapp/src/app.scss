@@ -67,6 +67,30 @@ button[disabled] {
   opacity: .45;
 }
 
+.calendar-page,
+.history-page,
+.library-page,
+.map-page,
+.proactive-page,
+.reader-page,
+.settings-page {
+  animation: floris-page-enter 300ms cubic-bezier(.16, 1, .3, 1) both;
+}
+
+.setting-section,
+.schedule-row,
+.library-item,
+.proactive-item,
+.workflow-item,
+.paper-card,
+.structured-card {
+  transition:
+    transform 160ms cubic-bezier(.16, 1, .3, 1),
+    box-shadow 220ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease;
+}
+
 .button-hover,
 .floris-press {
   opacity: .82;
@@ -76,6 +100,26 @@ button[disabled] {
 .floris-card-press {
   opacity: .88;
   transform: translateY(2px) scale(.985);
+}
+
+@keyframes floris-page-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0) scale(.995);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button,
+  view,
+  text {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
 }
 
 input,

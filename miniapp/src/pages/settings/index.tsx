@@ -11,6 +11,7 @@ import {
 } from '@/services/proactive'
 import { apiRequest } from '@/services/request'
 import { ensureSession } from '@/services/session'
+import { readNativeCache, writeNativeCache } from '@/services/native-cache'
 import {
   getProviderUsage,
   meteredProviderValue,
@@ -56,16 +57,27 @@ type Intelligence = {
   memory_preferences?: { enabled?: boolean }
 }
 
+const SETTINGS_SNAPSHOT_KEY = 'floris.miniapp.screen.settings.v1'
+
+type SettingsSnapshot = {
+  conversationId: string
+  intelligence: Intelligence
+  proactive: ProactiveState
+}
+
 export default function SettingsPage() {
+  const [initial] = useState(() => readNativeCache<SettingsSnapshot>(SETTINGS_SNAPSHOT_KEY))
   const [session, setSession] = useState<MiniappSession | null>(null)
-  const [conversationId, setConversationId] = useState('')
-  const [state, setState] = useState<Intelligence>({})
-  const [loading, setLoading] = useState(true)
+  const [conversationId, setConversationId] = useState(initial?.conversationId || '')
+  const [state, setState] = useState<Intelligence>(initial?.intelligence || {})
+  const [loading, setLoading] = useState(!initial)
   const [saving, setSaving] = useState('')
   const [error, setError] = useState('')
   const [language, setLanguage] = useState<Language>(readLanguage())
-  const [proactive, setProactive] = useState<ProactiveState>({})
-  const [mottos, setMottos] = useState<string[]>([])
+  const [proactive, setProactive] = useState<ProactiveState>(initial?.proactive || {})
+  const [mottos, setMottos] = useState<string[]>(
+    (initial?.proactive.preferences?.fallback_mottos || []).slice(0, 5),
+  )
   const [providerUsage, setProviderUsage] = useState<ProviderUsageSummary | null>(null)
   const [providerUsageLoading, setProviderUsageLoading] = useState(false)
   const [providerUsageError, setProviderUsageError] = useState(false)
@@ -77,7 +89,7 @@ export default function SettingsPage() {
   const mapsEnabled = capabilityEnabled(skills, preferences, 'places')
 
   const load = async () => {
-    if (!session) setLoading(true)
+    if (!initial && !session) setLoading(true)
     setError('')
     try {
       const nextSession = await ensureSession()
@@ -95,6 +107,11 @@ export default function SettingsPage() {
       setState(data)
       setProactive(proactiveState)
       setMottos((proactiveState.preferences?.fallback_mottos || []).slice(0, 5))
+      writeNativeCache<SettingsSnapshot>(SETTINGS_SNAPSHOT_KEY, {
+        conversationId: id,
+        intelligence: data,
+        proactive: proactiveState,
+      })
       void loadProviderUsage(id)
     } catch (reason) {
       setError(String((reason as Error)?.message || reason))
@@ -162,6 +179,11 @@ export default function SettingsPage() {
         data: { operation, ...payload },
       })
       setState(data)
+      writeNativeCache<SettingsSnapshot>(SETTINGS_SNAPSHOT_KEY, {
+        conversationId,
+        intelligence: data,
+        proactive,
+      })
       void Taro.showToast({ title: translate('saved', {}, language), icon: 'success' })
     } catch (reason) {
       void Taro.showToast({ title: String((reason as Error)?.message || translate('saveFailed', {}, language)), icon: 'none' })
@@ -188,6 +210,11 @@ export default function SettingsPage() {
       })
       setProactive(data)
       setMottos((data.preferences?.fallback_mottos || []).slice(0, 5))
+      writeNativeCache<SettingsSnapshot>(SETTINGS_SNAPSHOT_KEY, {
+        conversationId,
+        intelligence: state,
+        proactive: data,
+      })
       void Taro.showToast({ title: translate('saved', {}, language), icon: 'success' })
     } catch (reason) {
       void Taro.showToast({ title: String((reason as Error)?.message || translate('saveFailed', {}, language)), icon: 'none' })
@@ -202,6 +229,11 @@ export default function SettingsPage() {
     try {
       const data = await proactiveOperation(conversationId, 'refresh')
       setProactive(data)
+      writeNativeCache<SettingsSnapshot>(SETTINGS_SNAPSHOT_KEY, {
+        conversationId,
+        intelligence: state,
+        proactive: data,
+      })
       void Taro.showToast({ title: translate('checkDone', {}, language), icon: 'success' })
     } catch {
       void Taro.showToast({ title: translate('checkUnavailable', {}, language), icon: 'none' })

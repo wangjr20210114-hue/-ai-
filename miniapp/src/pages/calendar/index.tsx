@@ -14,6 +14,7 @@ import {
 import { getOrCreateConversationId } from '@/services/conversations'
 import { searchVerifiedPlaces, type VerifiedPlace } from '@/services/places'
 import { apiRequest } from '@/services/request'
+import { readNativeCache, writeNativeCache } from '@/services/native-cache'
 import { ensureSession } from '@/services/session'
 import { updateNativeTabBar } from '@/services/tabbar'
 import { workspaceOperation } from '@/services/workspace'
@@ -31,6 +32,15 @@ type CalendarForm = {
   locationQuery: string
   selectedPlace?: VerifiedPlace
   placeTouched: boolean
+}
+
+const CALENDAR_SNAPSHOT_KEY = 'floris.miniapp.screen.calendar.v1'
+
+type CalendarSnapshot = {
+  schedules: CalendarSchedule[]
+  conversationId: string
+  calendarEnabled: boolean
+  mapsEnabled: boolean
 }
 
 function roundedStart(date: string): Date {
@@ -98,20 +108,21 @@ function formForSchedule(schedule: CalendarSchedule | undefined, date: string): 
 }
 
 export default function CalendarPage() {
-  const [schedules, setSchedules] = useState<CalendarSchedule[]>([])
-  const [loading, setLoading] = useState(true)
+  const [initial] = useState(() => readNativeCache<CalendarSnapshot>(CALENDAR_SNAPSHOT_KEY))
+  const [schedules, setSchedules] = useState<CalendarSchedule[]>(initial?.schedules || [])
+  const [loading, setLoading] = useState(!initial)
   const [saving, setSaving] = useState(false)
   const [language, setLanguage] = useState<Language>(readLanguage())
-  const [conversationId, setConversationId] = useState('')
+  const [conversationId, setConversationId] = useState(initial?.conversationId || '')
   const [selectedDate, setSelectedDate] = useState(todayValue())
   const [form, setForm] = useState<CalendarForm | null>(null)
   const [places, setPlaces] = useState<VerifiedPlace[]>([])
   const [searchingPlaces, setSearchingPlaces] = useState(false)
-  const [calendarEnabled, setCalendarEnabled] = useState(true)
-  const [mapsEnabled, setMapsEnabled] = useState(true)
+  const [calendarEnabled, setCalendarEnabled] = useState(initial?.calendarEnabled ?? true)
+  const [mapsEnabled, setMapsEnabled] = useState(initial?.mapsEnabled ?? true)
 
   const load = () => {
-    setLoading(true)
+    if (!initial && !schedules.length) setLoading(true)
     void ensureSession()
       .then(async (session) => {
         const id = getOrCreateConversationId(session)
@@ -132,9 +143,18 @@ export default function CalendarPage() {
         ])
         const catalog = intelligence.skill_catalog || []
         const preferences = intelligence.skill_preferences || {}
-        setCalendarEnabled(capabilityEnabled(catalog, preferences, 'calendar_changes'))
-        setMapsEnabled(capabilityEnabled(catalog, preferences, 'places'))
-        setSchedules((workspace.schedules || []) as CalendarSchedule[])
+        const nextCalendarEnabled = capabilityEnabled(catalog, preferences, 'calendar_changes')
+        const nextMapsEnabled = capabilityEnabled(catalog, preferences, 'places')
+        const nextSchedules = (workspace.schedules || []) as CalendarSchedule[]
+        setCalendarEnabled(nextCalendarEnabled)
+        setMapsEnabled(nextMapsEnabled)
+        setSchedules(nextSchedules)
+        writeNativeCache<CalendarSnapshot>(CALENDAR_SNAPSHOT_KEY, {
+          schedules: nextSchedules,
+          conversationId: id,
+          calendarEnabled: nextCalendarEnabled,
+          mapsEnabled: nextMapsEnabled,
+        })
       })
       .catch((reason) => Taro.showToast({
         title: String((reason as Error)?.message || translate('readFailed')),
@@ -222,7 +242,14 @@ export default function CalendarPage() {
           event,
         }],
       })
-      setSchedules((result.schedules || []) as CalendarSchedule[])
+      const nextSchedules = (result.schedules || []) as CalendarSchedule[]
+      setSchedules(nextSchedules)
+      writeNativeCache<CalendarSnapshot>(CALENDAR_SNAPSHOT_KEY, {
+        schedules: nextSchedules,
+        conversationId,
+        calendarEnabled,
+        mapsEnabled,
+      })
       setSelectedDate(form.date)
       setForm(null)
       setPlaces([])
@@ -252,7 +279,14 @@ export default function CalendarPage() {
       const result = await workspaceOperation(conversationId, 'direct_calendar_changes', {
         changes: [{ operation: 'delete', schedule_id: schedule.id }],
       })
-      setSchedules((result.schedules || []) as CalendarSchedule[])
+      const nextSchedules = (result.schedules || []) as CalendarSchedule[]
+      setSchedules(nextSchedules)
+      writeNativeCache<CalendarSnapshot>(CALENDAR_SNAPSHOT_KEY, {
+        schedules: nextSchedules,
+        conversationId,
+        calendarEnabled,
+        mapsEnabled,
+      })
       if (form?.id === schedule.id) setForm(null)
       void Taro.showToast({ title: translate('eventDeleted', {}, language), icon: 'success' })
     } catch (reason) {

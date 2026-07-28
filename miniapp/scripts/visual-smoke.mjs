@@ -18,6 +18,10 @@ const routes = [
   ['settings', '/pages/settings/index', 'tab'],
   ['reader', '/pages/reader/index', 'page'],
 ]
+const requestedRoutes = new Set(process.argv.slice(2))
+const selectedRoutes = requestedRoutes.size
+  ? routes.filter(([name]) => requestedRoutes.has(name))
+  : routes
 
 await mkdir(outputPath, { recursive: true })
 
@@ -35,7 +39,7 @@ try {
   // Let the initial route settle before asking the automator for page metadata.
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 5000))
 
-  for (const [name, route, routeType] of routes) {
+  for (const [name, route, routeType] of selectedRoutes) {
     if (routeType === 'tab') {
       await miniProgram.switchTab(route)
     } else {

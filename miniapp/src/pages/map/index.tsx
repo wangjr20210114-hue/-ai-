@@ -8,10 +8,10 @@ import {
   type PlannedRoute,
   type RoutePlace,
 } from '@/services/routes'
-import { apiUrl } from '@/services/config'
 import { ensureSession } from '@/services/session'
 import { requestCurrentLocation } from '@/services/location'
 import { readLanguage, translate, type Language } from '@/i18n'
+import florisAvatar from '@/assets/floris/avatar.png'
 import './index.scss'
 
 type MapState = {
@@ -48,7 +48,7 @@ export default function MapPage() {
 
   const markers = useMemo(() => places.map((place, index) => ({
     id: index + 1,
-    iconPath: apiUrl('/floris-avatar.png'),
+    iconPath: florisAvatar,
     width: 32,
     height: 32,
     latitude: Number(place.latitude),

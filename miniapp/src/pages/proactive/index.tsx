@@ -8,33 +8,54 @@ import {
   currentWorkflowStep,
   proactiveOperation,
   type ProactiveNotification,
+  type ProactiveState,
   type ProactiveWorkflow,
   type ProactiveWorkflowStep,
 } from '@/services/proactive'
 import { ensureSession } from '@/services/session'
 import { localeFor, readLanguage, translate, type Language } from '@/i18n'
 import { updateNativeTabBar } from '@/services/tabbar'
+import { readNativeCache, writeNativeCache } from '@/services/native-cache'
 import './index.scss'
 
 const PENDING_PROMPT_KEY = 'floris.miniapp.pending-proactive-prompt.v1'
+const PROACTIVE_SNAPSHOT_KEY = 'floris.miniapp.screen.proactive.v1'
+
+type ProactiveSnapshot = {
+  conversationId: string
+  state: ProactiveState
+}
 
 export default function ProactivePage() {
-  const [conversationId, setConversationId] = useState('')
-  const [notifications, setNotifications] = useState<ProactiveNotification[]>([])
-  const [workflows, setWorkflows] = useState<ProactiveWorkflow[]>([])
-  const [loading, setLoading] = useState(true)
+  const [initial] = useState(() => readNativeCache<ProactiveSnapshot>(PROACTIVE_SNAPSHOT_KEY))
+  const [conversationId, setConversationId] = useState(initial?.conversationId || '')
+  const [notifications, setNotifications] = useState<ProactiveNotification[]>(
+    activeProactiveNotifications(initial?.state.notifications || []),
+  )
+  const [workflows, setWorkflows] = useState<ProactiveWorkflow[]>(
+    actionableProactiveWorkflows(initial?.state.workflows || []),
+  )
+  const [loading, setLoading] = useState(!initial)
   const [busy, setBusy] = useState('')
   const [language, setLanguage] = useState<Language>(readLanguage())
 
+  const applyState = (id: string, state: ProactiveState) => {
+    setConversationId(id)
+    setNotifications(activeProactiveNotifications(state.notifications || []))
+    setWorkflows(actionableProactiveWorkflows(state.workflows || []))
+    writeNativeCache<ProactiveSnapshot>(PROACTIVE_SNAPSHOT_KEY, {
+      conversationId: id,
+      state,
+    })
+  }
+
   const load = async (refresh = false) => {
-    setLoading(true)
+    if (!initial && !notifications.length && !workflows.length) setLoading(true)
     try {
       const session = await ensureSession()
       const id = getOrCreateConversationId(session)
-      setConversationId(id)
       const state = await proactiveOperation(id, refresh ? 'refresh' : 'get')
-      setNotifications(activeProactiveNotifications(state.notifications || []))
-      setWorkflows(actionableProactiveWorkflows(state.workflows || []))
+      applyState(id, state)
     } catch (reason) {
       void Taro.showToast({ title: String((reason as Error)?.message || translate('proactiveLoadFailed')), icon: 'none' })
     } finally {
@@ -63,8 +84,7 @@ export default function ProactivePage() {
           ? { until: Math.floor(Date.now() / 1000) + 3600 }
           : {}),
       })
-      setNotifications(activeProactiveNotifications(state.notifications || []))
-      setWorkflows(actionableProactiveWorkflows(state.workflows || []))
+      applyState(conversationId, state)
       if (operation === 'mark_read' && item.action_prompt) {
         Taro.setStorageSync(PENDING_PROMPT_KEY, item.action_prompt)
         await Taro.switchTab({ url: '/pages/index/index' })
@@ -93,8 +113,7 @@ export default function ProactivePage() {
         version: workflow.version,
         ...(step ? { step_id: step.id } : {}),
       })
-      setNotifications(activeProactiveNotifications(state.notifications || []))
-      setWorkflows(actionableProactiveWorkflows(state.workflows || []))
+      applyState(conversationId, state)
     } catch (reason) {
       void Taro.showToast({ title: String((reason as Error)?.message || translate('taskUpdateFailed')), icon: 'none' })
     } finally {

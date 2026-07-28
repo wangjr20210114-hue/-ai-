@@ -111,9 +111,11 @@ Preview 流程：EdgeOne 控制台 → Makers → 项目 → 构建部署 → �
 | 定位与地图 | `wx.getLocation`、原生 `<map>`、marker/polyline；地点与道路仍由现有 Maps Skill 核实 |
 | 日期与时间 | 微信原生 `picker`，不自建日历选择器 |
 | 主导航 | 微信原生 `tabBar`；对话、日程、阅读、提醒和设置始终可见，不把核心入口藏在 Header 图标中 |
+| 响应式布局 | 手机使用“左侧窄功能轨 + 右侧对话工作区”，平板/宽屏自动把左栏展开为提醒和最近会话列表；功能键避开微信右上角胶囊区 |
+| 交互动效 | 微信原生 `hover-class`、CSS transition/keyframes 与系统减弱动态效果偏好；页面、消息、卡片、提醒轮播、输入框和按压反馈采用 120–360ms 短动效 |
 | 图片 | `wx.chooseMedia`、`wx.compressImage`、原生 `swiper` 展示 Makers 图片版本链、`wx.saveImageToPhotosAlbum` |
 | PDF | `wx.chooseMessageFile`、Makers Blob、`wx.openDocument` |
-| 本地会话缓存 | `wx.setStorageSync`；Makers Conversation/Checkpointer 仍是服务端事实源 |
+| 首屏与本地缓存 | 压缩后的 Floris 头像和明暗背景随包加载；`wx.setStorageSync` 立即恢复会话，并为日程、阅读、提醒、设置提供 stale-while-revalidate 快照；Makers Conversation/Checkpointer 仍是服务端事实源 |
 | Markdown | 成熟 `marked` 解析器 + 小程序原生 `rich-text` |
 | 主动提醒 | 页面打开立即刷新、前台每 10 分钟复用 Proactive Agent 检查；处理/稍后/忽略、多步骤工作流与持久偏好继续写入 Makers |
 

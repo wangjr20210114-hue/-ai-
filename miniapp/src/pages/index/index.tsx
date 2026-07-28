@@ -29,8 +29,11 @@ import {
   bootstrap,
   cacheMessages,
   getOrCreateConversationId,
+  listConversations,
   newConversation,
   readCachedMessages,
+  setActiveConversationId,
+  type ConversationSummary,
 } from '@/services/conversations'
 import { requestCurrentLocation } from '@/services/location'
 import { addPdfToReading, imageDataUrl, uploadToMakers } from '@/services/files'
@@ -39,10 +42,12 @@ import {
   proactiveTickerLines,
 } from '@/services/proactive'
 import { apiRequest } from '@/services/request'
-import { ensureSession } from '@/services/session'
+import { ensureSession, readSession } from '@/services/session'
 import { workspaceOperation } from '@/services/workspace'
-import { apiUrl } from '@/services/config'
 import { updateNativeTabBar } from '@/services/tabbar'
+import florisAvatar from '@/assets/floris/avatar.png'
+import florisChatLight from '@/assets/floris/chat-light.jpg'
+import florisChatDark from '@/assets/floris/chat-dark.jpg'
 import './index.scss'
 
 const STATUS_COPY: Record<string, [TranslationKey, TranslationKey]> = {
@@ -60,11 +65,28 @@ const STATUS_COPY: Record<string, [TranslationKey, TranslationKey]> = {
 
 const PENDING_PROACTIVE_PROMPT_KEY = 'floris.miniapp.pending-proactive-prompt.v1'
 
+function initialChatState(): {
+  conversationId: string
+  messages: ChatMessage[]
+  ready: boolean
+} {
+  const session = readSession()
+  if (!session) return { conversationId: '', messages: [], ready: false }
+  const conversationId = getOrCreateConversationId(session)
+  return {
+    conversationId,
+    messages: readCachedMessages(conversationId),
+    ready: true,
+  }
+}
+
 export default function IndexPage() {
-  const [ready, setReady] = useState(false)
+  const [initial] = useState(initialChatState)
+  const [ready, setReady] = useState(initial.ready)
   const [error, setError] = useState('')
-  const [conversationId, setConversationId] = useState('')
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [conversationId, setConversationId] = useState(initial.conversationId)
+  const [messages, setMessages] = useState<ChatMessage[]>(initial.messages)
+  const [recentConversations, setRecentConversations] = useState<ConversationSummary[]>([])
   const [draft, setDraft] = useState('')
   const [referenceImage, setReferenceImage] = useState<{ name: string; dataUrl: string } | null>(null)
   const [attaching, setAttaching] = useState(false)
@@ -75,7 +97,7 @@ export default function IndexPage() {
   const [reminderIndex, setReminderIndex] = useState(0)
   const [language, setLanguage] = useState<Language>(() => normalizeLanguage(Taro.getStorageSync('floris-language')))
   const activeStream = useRef<ActiveChatStream | null>(null)
-  const messagesRef = useRef<ChatMessage[]>([])
+  const messagesRef = useRef<ChatMessage[]>(initial.messages)
   const streaming = messages.some((message) => message.streaming)
   const interactionLocked = !ready || streaming || continuationPending
 
@@ -143,9 +165,25 @@ export default function IndexPage() {
         const cached = readCachedMessages(id)
         if (disposed) return
         setConversationId(id)
-        publish(cached)
+        publish((current) => current.length ? current : cached)
+        // The cached session is enough for the native shell to become usable.
+        // Durable Makers state is reconciled in the background so opening the
+        // mini program is not gated by a full remote bootstrap.
+        setReady(true)
+        setTimeout(() => {
+          void listConversations()
+            .then((items) => {
+              if (!disposed) setRecentConversations(items.slice(0, 6))
+            })
+            .catch(() => undefined)
+        }, 0)
         const data = await bootstrap(id).catch(() => ({ messages: [], run: undefined }))
         if (disposed) return
+        if (activeStream.current) {
+          setTimeout(() => void refreshReminders('page_open', id), 0)
+          setTimeout(() => void refreshAuthorizedLocation(id), 0)
+          return
+        }
         const runActive = ['running', 'cancel_requested'].includes(String(data.run?.status || ''))
         const restored = Array.isArray(data.messages) ? data.messages : []
         const merged = mergeMessages(restored, cached)
@@ -167,7 +205,6 @@ export default function IndexPage() {
             failed: true,
           }]
           : normalized)
-        setReady(true)
         setTimeout(() => void refreshReminders('page_open', id), 0)
         setTimeout(() => void refreshAuthorizedLocation(id), 0)
       } catch (reason) {
@@ -463,6 +500,12 @@ export default function IndexPage() {
     publish([])
   }
 
+  const openConversation = async (id: string) => {
+    if (interactionLocked || id === conversationId) return
+    setActiveConversationId(id)
+    await Taro.reLaunch({ url: '/pages/index/index' })
+  }
+
   const retry = (failed: ChatMessage) => {
     const index = messagesRef.current.findIndex((message) => message.id === failed.id)
     const previousUser = [...messagesRef.current.slice(0, index)].reverse()
@@ -479,105 +522,189 @@ export default function IndexPage() {
 
   if (error && !ready) {
     return <View className='center-state'>
-      <Image className='state-avatar' src={apiUrl('/floris-avatar.png')} />
+      <Image className='state-avatar' src={florisAvatar} />
       <Text>{error}</Text>
       <Button className='primary-button' onClick={() => Taro.reLaunch({ url: '/pages/index/index' })}>{translate('loginAgain', {}, language)}</Button>
     </View>
   }
 
-  return <View className='chat-page'>
-    <View className='chat-context-bar'>
-      <View
-        className={`reminder-ticker ${interactionLocked ? 'is-disabled' : ''}`}
-        role='button'
-        hoverClass='floris-press'
-        hoverStayTime={80}
-        aria-label={translate('openProactive', {}, language)}
-        onClick={() => {
-          if (!interactionLocked) void Taro.switchTab({ url: '/pages/proactive/index' })
-        }}
-      >
-        <Text className='reminder-spark'>✦</Text>
-        <Text className='reminder-copy'>{reminderText || translate('gentleReminderFallback', {}, language)}</Text>
-        <Text className='reminder-arrow'>›</Text>
-      </View>
-    </View>
-    <View className='conversation-toolbar'>
-      <Button disabled={interactionLocked} onClick={createNew}>
-        <Text className='toolbar-icon'>＋</Text>
-        <Text className='toolbar-label'>{translate('createConversation', {}, language)}</Text>
-      </Button>
-      <Button disabled={interactionLocked} onClick={() => Taro.navigateTo({ url: '/pages/history/index' })}>
-        <Text className='toolbar-icon'>◴</Text>
-        <Text className='toolbar-label'>{translate('openHistory', {}, language)}</Text>
-      </Button>
-    </View>
-
-    <ScrollView
-      className='message-list'
-      scrollY
-      scrollIntoView='chat-bottom-anchor'
-      enhanced
-      showScrollbar={false}
-    >
-      {!messages.length && ready ? <View className='empty-chat'>
-        <View className='empty-avatar-halo'>
-          <Image className='empty-avatar' src={apiUrl('/floris-avatar.png')} />
+  return <View
+    className='chat-page'
+    style={`--floris-chat-light:url(${florisChatLight});--floris-chat-dark:url(${florisChatDark})`}
+  >
+    <View className='chat-layout'>
+      <View className='chat-side-panel'>
+        <View className='side-brand'>
+          <Image className='side-avatar' src={florisAvatar} />
+          <View className='side-brand-copy'>
+            <Text className='side-brand-name'>FLORIS</Text>
+            <Text className='side-brand-note'>{translate('emptyChatGreeting', {}, language)}</Text>
+          </View>
         </View>
-        <Text className='empty-kicker'>{translate('emptyChatGreeting', {}, language)}</Text>
-        <Text className='empty-title'>{translate('emptyChatTitle', {}, language)}</Text>
-        <Text className='empty-subtitle'>{translate('emptyChatSubtitle', {}, language)}</Text>
-        <Text className='starter-heading'>{translate('quickStart', {}, language)}</Text>
-        <View className='starter-grid'>
-          {starters.map((item, index) =>
-            <View key={item.label} className={`suggestion suggestion-${index}`} hoverClass='floris-card-press'
-              hoverStayTime={80} onClick={() => void sendText(item.label)}>
-              <Text className='suggestion-icon'>{item.icon}</Text>
-              <Text>{item.label}</Text>
-              <Text className='suggestion-arrow'>↗</Text>
-            </View>)}
-        </View>
-      </View> : null}
-      {messages.map((message) => <MessageBubble
-        key={message.id}
-        message={message}
-        statusText={message.streaming ? statusText : ''}
-        actionBusy={actionBusy}
-        onClarification={submitClarification}
-        onAction={executeAction}
-        onFollowUp={(value) => void sendText(value)}
-        onRetry={retry}
-      />)}
-      <View id='chat-bottom-anchor' className='bottom-anchor' />
-    </ScrollView>
-
-    <View className='composer'>
-      {referenceImage ? <View className='reference-chip'>
-        <Image src={referenceImage.dataUrl} mode='aspectFill' />
-        <Text>{referenceImage.name}</Text>
-        <Text aria-label={translate('removeReference', {}, language)}
+        <View
+          className={`side-reminder ${interactionLocked ? 'is-disabled' : ''}`}
+          role='button'
+          aria-label={translate('openProactive', {}, language)}
+          hoverClass='floris-card-press'
+          hoverStayTime={80}
           onClick={() => {
-            if (!interactionLocked) setReferenceImage(null)
-          }}>×</Text>
-      </View> : null}
-      <View className='composer-shell'>
-        <Button className='attach-button' aria-label={translate('addAttachment', {}, language)} loading={attaching} disabled={interactionLocked} onClick={() => void attach()}>＋</Button>
-        <Textarea
-          className='composer-input'
+            if (!interactionLocked) void Taro.switchTab({ url: '/pages/proactive/index' })
+          }}
+        >
+          <Text className='side-reminder-spark'>✦</Text>
+          <Text key={reminderIndex} className='side-reminder-copy'>
+            {reminderText || translate('gentleReminderFallback', {}, language)}
+          </Text>
+        </View>
+        <Button
+          className='side-new-conversation'
+          aria-label={translate('createConversation', {}, language)}
           disabled={interactionLocked}
-          maxlength={4000}
-          placeholder={ready
-            ? translate('chatPlaceholder', {}, language)
-            : translate('enteringHome', {}, language)}
-          value={draft}
-          onInput={(event) => setDraft(event.detail.value)}
-          onConfirm={() => void sendText()}
-          confirmType='send'
-          showConfirmBar={false}
-        />
-        {streaming
-          ? <Button className='send-button stop-button' aria-label={translate('stopGeneration', {}, language)} onClick={() => void stop()}>■</Button>
-          : <Button className='send-button' aria-label={translate('sendMessage', {}, language)} disabled={!draft.trim() || interactionLocked} onClick={() => void sendText()}>↑</Button>}
+          onClick={createNew}
+        >
+          <Text>＋</Text>
+          <Text>{translate('createConversation', {}, language)}</Text>
+        </Button>
+        <View
+          className='side-section-heading'
+          role='button'
+          aria-label={translate('openHistory', {}, language)}
+          hoverClass='floris-press'
+          hoverStayTime={80}
+          onClick={() => {
+            if (!interactionLocked) void Taro.navigateTo({ url: '/pages/history/index' })
+          }}
+        >
+          <Text>{translate('openHistory', {}, language)}</Text>
+          <Text>◴</Text>
+        </View>
+        <ScrollView className='side-conversation-list' scrollY showScrollbar={false}>
+          {recentConversations.map((item) => <View
+            key={item.id}
+            className={`side-conversation ${item.id === conversationId ? 'is-active' : ''}`}
+            hoverClass='floris-press'
+            hoverStayTime={80}
+            onClick={() => void openConversation(item.id)}
+          >
+            <Text className='side-conversation-title'>{item.title}</Text>
+            <Text className='side-conversation-meta'>
+              {translate('messageCount', { count: item.messageCount }, language)}
+            </Text>
+          </View>)}
+          {!recentConversations.length ? <View className='side-conversation-skeleton'>
+            <View />
+            <View />
+            <View />
+          </View> : null}
+        </ScrollView>
+      </View>
+
+      <View className='chat-main'>
+        <View className='chat-context-bar'>
+          <View
+            className={`reminder-ticker ${interactionLocked ? 'is-disabled' : ''}`}
+            role='button'
+            hoverClass='floris-press'
+            hoverStayTime={80}
+            aria-label={translate('openProactive', {}, language)}
+            onClick={() => {
+              if (!interactionLocked) void Taro.switchTab({ url: '/pages/proactive/index' })
+            }}
+          >
+            <Text className='reminder-spark'>✦</Text>
+            <Text key={reminderIndex} className='reminder-copy ticker-copy-enter'>
+              {reminderText || translate('gentleReminderFallback', {}, language)}
+            </Text>
+            <Text className='reminder-arrow'>›</Text>
+          </View>
+        </View>
+        <View className='conversation-toolbar'>
+          <Button disabled={interactionLocked} onClick={createNew}>
+            <Text className='toolbar-icon'>＋</Text>
+            <Text className='toolbar-label'>{translate('createConversation', {}, language)}</Text>
+          </Button>
+          <Button disabled={interactionLocked} onClick={() => Taro.navigateTo({ url: '/pages/history/index' })}>
+            <Text className='toolbar-icon'>◴</Text>
+            <Text className='toolbar-label'>{translate('openHistory', {}, language)}</Text>
+          </Button>
+        </View>
+
+        <ScrollView
+          className='message-list'
+          scrollY
+          scrollIntoView='chat-bottom-anchor'
+          enhanced
+          showScrollbar={false}
+        >
+          {!ready ? <View className='chat-loading'>
+            <View className='loading-avatar' />
+            <View className='loading-copy loading-copy-wide' />
+            <View className='loading-copy' />
+            <View className='loading-card-row'>
+              <View />
+              <View />
+            </View>
+          </View> : null}
+          {!messages.length && ready ? <View className='empty-chat'>
+            <View className='empty-avatar-halo'>
+              <Image className='empty-avatar' src={florisAvatar} />
+            </View>
+            <Text className='empty-kicker'>{translate('emptyChatGreeting', {}, language)}</Text>
+            <Text className='empty-title'>{translate('emptyChatTitle', {}, language)}</Text>
+            <Text className='empty-subtitle'>{translate('emptyChatSubtitle', {}, language)}</Text>
+            <Text className='starter-heading'>{translate('quickStart', {}, language)}</Text>
+            <View className='starter-grid'>
+              {starters.map((item, index) =>
+                <View key={item.label} className={`suggestion suggestion-${index}`} hoverClass='floris-card-press'
+                  hoverStayTime={80} onClick={() => void sendText(item.label)}>
+                  <Text className='suggestion-icon'>{item.icon}</Text>
+                  <Text>{item.label}</Text>
+                  <Text className='suggestion-arrow'>↗</Text>
+                </View>)}
+            </View>
+          </View> : null}
+          {messages.map((message) => <MessageBubble
+            key={message.id}
+            message={message}
+            statusText={message.streaming ? statusText : ''}
+            actionBusy={actionBusy}
+            onClarification={submitClarification}
+            onAction={executeAction}
+            onFollowUp={(value) => void sendText(value)}
+            onRetry={retry}
+          />)}
+          <View id='chat-bottom-anchor' className='bottom-anchor' />
+        </ScrollView>
+
+        <View className='composer'>
+          {referenceImage ? <View className='reference-chip'>
+            <Image src={referenceImage.dataUrl} mode='aspectFill' />
+            <Text>{referenceImage.name}</Text>
+            <Text aria-label={translate('removeReference', {}, language)}
+              onClick={() => {
+                if (!interactionLocked) setReferenceImage(null)
+              }}>×</Text>
+          </View> : null}
+          <View className='composer-shell'>
+            <Button className='attach-button' aria-label={translate('addAttachment', {}, language)} loading={attaching} disabled={interactionLocked} onClick={() => void attach()}>＋</Button>
+            <Textarea
+              className='composer-input'
+              disabled={interactionLocked}
+              maxlength={4000}
+              placeholder={ready
+                ? translate('chatPlaceholder', {}, language)
+                : translate('enteringHome', {}, language)}
+              value={draft}
+              onInput={(event) => setDraft(event.detail.value)}
+              onConfirm={() => void sendText()}
+              confirmType='send'
+              showConfirmBar={false}
+            />
+            {streaming
+              ? <Button className='send-button stop-button' aria-label={translate('stopGeneration', {}, language)} onClick={() => void stop()}>■</Button>
+              : <Button className='send-button' aria-label={translate('sendMessage', {}, language)} disabled={!draft.trim() || interactionLocked} onClick={() => void sendText()}>↑</Button>}
+          </View>
+        </View>
       </View>
     </View>
   </View>
