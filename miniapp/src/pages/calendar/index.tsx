@@ -3,6 +3,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { Button, Input, Picker, Text, Textarea, View } from '@tarojs/components'
 import { capabilityEnabled, type SkillCapabilityDefinition } from '@floris/contracts'
 import {
+  calendarSkillEnabled,
   isPastCalendarDay,
   localDateValue,
   localTimestamp,
@@ -143,7 +144,7 @@ export default function CalendarPage() {
         ])
         const catalog = intelligence.skill_catalog || []
         const preferences = intelligence.skill_preferences || {}
-        const nextCalendarEnabled = capabilityEnabled(catalog, preferences, 'calendar_changes')
+        const nextCalendarEnabled = calendarSkillEnabled(catalog, preferences)
         const nextMapsEnabled = capabilityEnabled(catalog, preferences, 'places')
         const nextSchedules = (workspace.schedules || []) as CalendarSchedule[]
         setCalendarEnabled(nextCalendarEnabled)

@@ -1,3 +1,8 @@
+import {
+  capabilityEnabled,
+  type SkillCapabilityDefinition,
+} from '@floris/contracts'
+
 export interface CalendarSchedule {
   id?: string
   title?: string
@@ -10,6 +15,14 @@ export interface CalendarSchedule {
     place?: Record<string, unknown>
     [key: string]: unknown
   }
+}
+
+/** Resolve the calendar control surface through the shared Skill capability. */
+export function calendarSkillEnabled(
+  catalog: SkillCapabilityDefinition[],
+  preferences: Record<string, boolean>,
+): boolean {
+  return capabilityEnabled(catalog, preferences, 'calendar_action')
 }
 
 export function localDateValue(date: Date): string {

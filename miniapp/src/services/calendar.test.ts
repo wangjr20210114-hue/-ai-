@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  calendarSkillEnabled,
   isPastCalendarDay,
   localDateValue,
   localTimeValue,
@@ -8,6 +9,15 @@ import {
 } from './calendar'
 
 describe('calendar helpers', () => {
+  it('resolves the calendar page from the manifest capability, not the action kind', () => {
+    const catalog = [{
+      id: 'calendar',
+      capabilities: ['calendar_context', 'calendar_action'],
+    }]
+    expect(calendarSkillEnabled(catalog, { calendar: true })).toBe(true)
+    expect(calendarSkillEnabled(catalog, { calendar: false })).toBe(false)
+  })
+
   it('round trips local date and time values', () => {
     const value = new Date(2026, 6, 28, 8, 35)
     expect(localDateValue(value)).toBe('2026-07-28')
