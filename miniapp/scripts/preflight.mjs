@@ -1,4 +1,4 @@
-import { access, readFile } from 'node:fs/promises'
+import { access, readFile, readdir } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -23,6 +23,16 @@ const checks = []
 const check = (ok, label, detail) => {
   checks.push({ ok, label, detail })
   console.log(`${ok ? '✓' : '✗'} ${label}${detail ? `：${detail}` : ''}`)
+}
+
+async function javascriptFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true })
+  const nested = await Promise.all(entries.map((entry) => {
+    const path = resolve(directory, entry.name)
+    if (entry.isDirectory()) return javascriptFiles(path)
+    return entry.isFile() && entry.name.endsWith('.js') ? [path] : []
+  }))
+  return nested.flat()
 }
 
 const project = JSON.parse(await readFile(resolve(miniappRoot, 'project.config.json'), 'utf8'))
@@ -61,6 +71,26 @@ try {
   built = false
 }
 check(built, '小程序构建产物', built ? 'dist/app.json 可读取' : '请先运行 npm run build:weapp')
+let browserDecoderFree = false
+if (built) {
+  try {
+    const files = await javascriptFiles(resolve(miniappRoot, 'dist'))
+    const sources = await Promise.all(files.map((file) => readFile(file, 'utf8')))
+    browserDecoderFree = sources.every((source) => (
+      !source.includes('TextDecoder')
+      && !source.includes('fast-text-encoding')
+    ))
+  } catch {
+    browserDecoderFree = false
+  }
+}
+check(
+  browserDecoderFree,
+  '微信真机 UTF-8 解码兼容',
+  browserDecoderFree
+    ? '构建产物不依赖浏览器 TextDecoder'
+    : '构建产物仍包含 TextDecoder 或旧 polyfill',
+)
 const locationPermissionDescription = String(
   builtAppConfig?.permission?.['scope.userLocation']?.desc || '',
 ).trim()
