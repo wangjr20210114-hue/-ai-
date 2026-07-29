@@ -67,6 +67,7 @@ async function runtimeState(miniProgram) {
     const messages = []
     let stopVisible = false
     let sendDisabled = true
+    let newConversationDisabled = true
 
     const textOf = (node) => {
       if (!node || typeof node !== 'object') return ''
@@ -86,8 +87,12 @@ async function runtimeState(miniProgram) {
       if (classes.includes('send-button') && !classes.includes('stop-button')) {
         sendDisabled = Boolean(node.p2)
       }
+      if (classes.includes('side-new-conversation')) {
+        newConversationDisabled = Boolean(node.p2)
+      }
       if (classes.includes('message-row')) {
         messages.push({
+          role: classes.includes('user-row') ? 'user' : 'ai',
           text: textOf(node).replace(/\s+/g, ' ').trim(),
           failed: classes.includes('failed-bubble')
             || JSON.stringify(node).includes('failed-bubble'),
@@ -100,9 +105,27 @@ async function runtimeState(miniProgram) {
       route: page.route,
       stopVisible,
       sendDisabled,
+      newConversationDisabled,
       messages,
     }
   })
+}
+
+async function activeConversationId(miniProgram) {
+  return miniProgram.evaluate(() => String(
+    wx.getStorageSync('floris.miniapp.active-conversation.v1') || '',
+  ))
+}
+
+async function waitForConversationChange(miniProgram, previous, timeout = 8_000) {
+  const deadline = Date.now() + timeout
+  let current = await activeConversationId(miniProgram)
+  while (Date.now() < deadline) {
+    if (current && current !== previous) return current
+    await delay(80)
+    current = await activeConversationId(miniProgram)
+  }
+  throw new Error(`新建对话未生效：${JSON.stringify({ previous, current })}`)
 }
 
 async function durableState(miniProgram) {
@@ -186,21 +209,27 @@ try {
   const initial = await runtimeState(miniProgram)
   assert(initial.route === 'pages/index/index', `首页路由异常：${initial.route}`)
 
+  await waitFor(
+    miniProgram,
+    (state) => !state.stopVisible && !state.newConversationDisabled,
+    25_000,
+    100,
+  )
+  const initialConversationId = await activeConversationId(miniProgram)
   const fresh = await dispatch(miniProgram, 'side-new-conversation', 'tap')
   assert(fresh.ok, '找不到新建对话按钮')
-  await delay(300)
+  await waitForConversationChange(miniProgram, initialConversationId)
 
   await inputAndSend(
     miniProgram,
     '请写一段约五百字的橘猫故事，用五个自然段流式输出。',
   )
-  const streaming = await waitFor(
+  await waitFor(
     miniProgram,
     (state) => state.stopVisible,
     10_000,
     50,
   )
-  const beforeStop = streaming.messages.at(-1)?.text || ''
   const stopped = await dispatch(miniProgram, 'stop-button', 'tap')
   assert(stopped.ok, '流式生成期间找不到停止按钮')
 
@@ -210,12 +239,13 @@ try {
     8_000,
     80,
   )
+  const afterStop = [...settled.messages].reverse().find((message) => message.role === 'ai')?.text || ''
   await delay(1_500)
   const afterQuietWindow = await runtimeState(miniProgram)
-  const afterStop = afterQuietWindow.messages.at(-1)?.text || ''
+  const afterQuiet = [...afterQuietWindow.messages].reverse().find((message) => message.role === 'ai')?.text || ''
   assert(!afterQuietWindow.stopVisible, '停止后仍处于生成状态')
   assert(
-    afterStop.length <= beforeStop.length + 24,
+    afterQuiet.length <= afterStop.length + 4,
     '用户停止后回答仍在自动续写',
   )
 
@@ -248,13 +278,22 @@ try {
     150,
   )
   assert(
-    restored.messages.filter((message) => message.text.includes('1+1')).length === 1,
+    restored.messages.filter((message) => (
+      message.role === 'user' && message.text.includes('1+1')
+    )).length === 1,
     '重新进入后出现重复用户消息',
   )
 
+  await waitFor(
+    miniProgram,
+    (state) => !state.stopVisible && !state.newConversationDisabled,
+    10_000,
+    100,
+  )
+  const completedConversationId = await activeConversationId(miniProgram)
   const nextConversation = await dispatch(miniProgram, 'side-new-conversation', 'tap')
   assert(nextConversation.ok, '恢复测试前无法新建对话')
-  await delay(300)
+  await waitForConversationChange(miniProgram, completedConversationId)
   const recoveryPrompt = '请写一个四段的橘猫旅行故事，每段至少八十字。'
   await inputAndSend(miniProgram, recoveryPrompt)
   await waitFor(miniProgram, (state) => state.stopVisible, 10_000, 50)
@@ -285,7 +324,7 @@ try {
   await miniProgram.screenshot({ path: recoveryScreenshotPath })
   process.stdout.write(`${JSON.stringify({
     ok: true,
-    stoppedAnswerLength: afterStop.length,
+    stoppedAnswerLength: afterQuiet.length,
     resumedAnswer: completed.messages.at(-1)?.text,
     recoveredAnswerLength: recovered.messages.at(-1)?.text.length,
     screenshot: screenshotPath,

@@ -71,6 +71,42 @@ const STATUS_COPY: Record<string, [TranslationKey, TranslationKey]> = {
 }
 
 const PENDING_PROACTIVE_PROMPT_KEY = 'floris.miniapp.pending-proactive-prompt.v1'
+const RUN_RECOVERY_MARKER_PREFIX = 'floris.miniapp.run-recovery.v1.'
+
+const recoveryMarkerKey = (conversationId: string) => (
+  `${RUN_RECOVERY_MARKER_PREFIX}${conversationId}`
+)
+
+function markRunForRecovery(conversationId: string) {
+  Taro.setStorageSync(recoveryMarkerKey(conversationId), Date.now())
+}
+
+function clearRunRecoveryMarker(conversationId: string) {
+  Taro.removeStorageSync(recoveryMarkerKey(conversationId))
+}
+
+function recoveryExpected(conversationId: string): boolean {
+  const startedAt = Number(Taro.getStorageSync(recoveryMarkerKey(conversationId)) || 0)
+  return startedAt > 0 && Date.now() - startedAt < 5 * 60_000
+}
+
+async function bootstrapForOpen(conversationId: string) {
+  const retryDelays = recoveryExpected(conversationId)
+    ? [0, 180, 320, 520, 820, 1200]
+    : [0]
+  let last: Awaited<ReturnType<typeof bootstrap>> | undefined
+  for (const delay of retryDelays) {
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
+    try {
+      last = await bootstrap(conversationId)
+      if ((last.messages || []).length || last.run?.status) return last
+    } catch {
+      // A detached Makers writer can be admitted just after the page reopens.
+      // /messages is read-only, so a short bounded retry is safe.
+    }
+  }
+  return last || { messages: [], run: undefined }
+}
 
 function initialChatState(): {
   conversationId: string
@@ -186,7 +222,7 @@ export default function IndexPage() {
             })
             .catch(() => undefined)
         }, 0)
-        const data = await bootstrap(id).catch(() => ({ messages: [], run: undefined }))
+        const data = await bootstrapForOpen(id)
         if (disposed) return
         if (activeStream.current) {
           setTimeout(() => void refreshReminders('page_open', id), 0)
@@ -266,6 +302,7 @@ export default function IndexPage() {
             }]
             : normalized)
         }
+        clearRunRecoveryMarker(id)
         setTimeout(() => void refreshReminders('page_open', id), 0)
         setTimeout(() => void refreshAuthorizedLocation(id), 0)
       } catch (reason) {
@@ -330,8 +367,29 @@ export default function IndexPage() {
     if (!conversationId || activeStream.current) return
     setError('')
     patchMessage(assistantId, (message) => ({ ...message, streaming: true, failed: false }))
+    let completed = false
+    let resolveStarted: (stream: ActiveChatStream | null) => void = () => undefined
+    const started = new Promise<ActiveChatStream | null>((resolve) => {
+      resolveStarted = resolve
+    })
+    const pendingControl: ActiveChatStream = {
+      async stop() {
+        const stream = await started
+        if (stream && !completed) await stream.stop()
+      },
+      detach() {
+        void started.then((stream) => {
+          if (stream && !completed) stream.detach()
+        })
+      },
+    }
+    // Install a cancellable placeholder before session/bootstrap work. Without
+    // it, a tap on Stop during this short startup window only clears the UI;
+    // the native request can attach later and continue writing.
+    activeStream.current = pendingControl
+    markRunForRecovery(conversationId)
     try {
-      activeStream.current = await startChatStream(conversationId, payload, {
+      const liveStream = await startChatStream(conversationId, payload, {
         onPatch(patch) {
           if (patch.status) {
             const copy = STATUS_COPY[patch.status.name]
@@ -382,6 +440,8 @@ export default function IndexPage() {
           }))
         },
         onDone() {
+          completed = true
+          clearRunRecoveryMarker(conversationId)
           activeStream.current = null
           setStatusText('')
           patchMessage(assistantId, (message) => ({ ...message, streaming: false }))
@@ -398,8 +458,15 @@ export default function IndexPage() {
             .finally(() => setContinuationPending(false))
         },
       })
+      resolveStarted(liveStream)
+      if (!completed && activeStream.current === pendingControl) {
+        activeStream.current = liveStream
+      }
     } catch (reason) {
-      activeStream.current = null
+      completed = true
+      clearRunRecoveryMarker(conversationId)
+      resolveStarted(null)
+      if (activeStream.current === pendingControl) activeStream.current = null
       patchMessage(assistantId, (message) => ({
         ...message,
         content: String((reason as Error)?.message || reason),
@@ -546,15 +613,21 @@ export default function IndexPage() {
 
   const stop = async () => {
     const stream = activeStream.current
-    activeStream.current = null
+    setContinuationPending(true)
     setStatusText('')
     publish((current) => current
       .filter((message) => !message.streaming || Boolean(message.content || message.clarification || message.workspaceActions?.length))
       .map((message) => ({ ...message, streaming: false })))
-    // Restore the composer immediately. The durable Makers cancellation can
-    // finish in parallel; the next deliberate send observes its pending
-    // marker and will not start another graph writer prematurely.
-    if (stream) await stream.stop()
+    try {
+      // `stream` may still be the startup placeholder. Waiting here prevents a
+      // new user turn from racing a late native request onto the same Makers
+      // checkpoint.
+      if (stream) await stream.stop()
+    } finally {
+      if (activeStream.current === stream) activeStream.current = null
+      clearRunRecoveryMarker(conversationId)
+      setContinuationPending(false)
+    }
   }
 
   const createNew = async () => {

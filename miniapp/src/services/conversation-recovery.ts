@@ -2,7 +2,15 @@ import type { ChatMessage } from '@floris/contracts'
 import { bootstrap, type BootstrapData } from './conversations'
 
 export function conversationRunActive(data: BootstrapData): boolean {
-  return ['running', 'cancel_requested'].includes(String(data.run?.status || ''))
+  const status = String(data.run?.status || '')
+  if (status === 'running') return true
+  if (status !== 'cancel_requested') return false
+  const updatedAt = Number(data.run?.updated_at || 0)
+  // Makers may briefly expose cancel_requested while the detached writer
+  // unwinds. If that checkpoint has not changed for 15 seconds, treating it
+  // as an active generation traps the whole client behind a run that already
+  // accepted cancellation.
+  return !updatedAt || Date.now() / 1000 - updatedAt < 15
 }
 
 export interface ConversationRecoveryOptions {

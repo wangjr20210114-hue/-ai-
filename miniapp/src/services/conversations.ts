@@ -20,7 +20,13 @@ export interface BootstrapData {
   map_title?: string
   map_show_route?: boolean
   map_route_mode?: string
-  run?: { status?: string; run_id?: string }
+  run?: {
+    status?: string
+    run_id?: string
+    started_at?: number
+    updated_at?: number
+    completed_at?: number | null
+  }
 }
 
 export function getOrCreateConversationId(session: MiniappSession): string {

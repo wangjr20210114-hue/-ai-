@@ -52,6 +52,9 @@ describe('Makers conversation recovery', () => {
   it('recognizes only Makers non-terminal run states', () => {
     expect(conversationRunActive({ run: { status: 'running' } })).toBe(true)
     expect(conversationRunActive({ run: { status: 'cancel_requested' } })).toBe(true)
+    expect(conversationRunActive({
+      run: { status: 'cancel_requested', updated_at: Math.floor(Date.now() / 1000) - 16 },
+    })).toBe(false)
     expect(conversationRunActive({ run: { status: 'completed' } })).toBe(false)
     expect(conversationRunActive({ run: { status: 'failed' } })).toBe(false)
   })

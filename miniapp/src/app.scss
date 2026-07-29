@@ -1,35 +1,62 @@
 page {
-  --floris-bg: #fff8f2;
-  --floris-bg-deep: #ffefe1;
-  --floris-panel: rgba(255, 255, 255, .86);
-  --floris-panel-solid: #fffdfb;
-  --floris-panel-soft: rgba(255, 243, 232, .88);
-  --floris-border: rgba(99, 55, 28, .08);
-  --floris-border-strong: rgba(99, 55, 28, .14);
-  --floris-text: #2d211a;
-  --floris-text-2: #6f5c50;
-  --floris-text-3: #a68f80;
-  --floris-accent: #ed6a2c;
-  --floris-accent-hover: #ff914d;
-  --floris-accent-soft: #fff0e2;
-  --floris-accent-wash: rgba(237, 106, 44, .1);
-  --floris-danger: #b94f48;
+  --floris-bg: #f7f4f1;
+  --floris-bg-warm: #fff8f1;
+  --floris-surface: #ffffff;
+  --floris-surface-raised: rgba(255, 255, 255, .94);
+  --floris-surface-soft: #fbf7f3;
+  --floris-surface-muted: #f2ede8;
+  --floris-border: rgba(59, 43, 34, .08);
+  --floris-border-strong: rgba(59, 43, 34, .14);
+  --floris-text: #29231f;
+  --floris-text-2: #685d56;
+  --floris-text-3: #9a8f87;
+  --floris-accent: #ec6a2c;
+  --floris-accent-strong: #d9551d;
+  --floris-accent-soft: #fff0e4;
+  --floris-accent-wash: rgba(236, 106, 44, .09);
+  --floris-success: #5f7d50;
+  --floris-success-soft: #eef5ea;
+  --floris-danger: #b64d47;
   --floris-danger-soft: #fff0ef;
-  --floris-shadow: 0 1px 2px rgba(84, 42, 18, .04), 0 8px 24px rgba(112, 58, 25, .06);
-  --floris-shadow-float: 0 18px 48px rgba(101, 50, 20, .12);
-  --floris-user-bubble: linear-gradient(145deg, #ff914d, #ed672a);
-  --floris-ai-bubble: rgba(255, 253, 251, .88);
-  --floris-radius-s: 16px;
-  --floris-radius-m: 22px;
-  --floris-radius-l: 30px;
+  --floris-shadow-s: 0 1px 2px rgba(52, 35, 25, .04);
+  --floris-shadow-m: 0 10px 30px rgba(69, 42, 26, .07);
+  --floris-shadow-l: 0 22px 56px rgba(69, 42, 26, .12);
+  --floris-radius-s: 12px;
+  --floris-radius-m: 18px;
+  --floris-radius-l: 24px;
+  --floris-motion-press: 100ms;
+  --floris-motion-fast: 180ms;
+  --floris-motion-enter: 240ms;
+  --floris-ease: cubic-bezier(.16, 1, .3, 1);
+  /* Compatibility aliases for feature components while every screen consumes
+     the same redesigned token source. */
+  --floris-bg-deep: var(--floris-bg-warm);
+  --floris-panel: var(--floris-surface-raised);
+  --floris-panel-solid: var(--floris-surface);
+  --floris-panel-soft: var(--floris-surface-soft);
+  --floris-shadow: var(--floris-shadow-m);
+  --floris-shadow-float: var(--floris-shadow-l);
+  --floris-accent-hover: var(--floris-accent-strong);
+  --floris-user-bubble: linear-gradient(145deg, #f18447, var(--floris-accent));
+  --floris-ai-bubble: var(--floris-surface-raised);
   min-height: 100%;
   color: var(--floris-text);
   background:
-    radial-gradient(circle at 4% -2%, rgba(255, 164, 94, .18), transparent 32%),
-    radial-gradient(circle at 100% 20%, rgba(255, 207, 162, .18), transparent 28%),
-    linear-gradient(180deg, #fffaf6 0%, var(--floris-bg) 100%);
-  /* 全局统一：英文 Times New Roman，中文宋体 */
-  font-family: 'Times New Roman', 'Songti SC', 'STSong', 'SimSun', 'Noto Serif CJK SC', serif;
+    radial-gradient(circle at 8% -8%, rgba(255, 181, 122, .17), transparent 34%),
+    linear-gradient(180deg, var(--floris-bg-warm) 0%, var(--floris-bg) 48%, var(--floris-bg) 100%);
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    "SF Pro Display",
+    "PingFang SC",
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+  font-size: 28px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 view,
@@ -47,13 +74,13 @@ textarea {
 }
 
 button {
-  transition:
-    transform 120ms cubic-bezier(.16, 1, .3, 1),
-    opacity 180ms ease,
-    background-color 180ms ease,
-    box-shadow 180ms ease,
-    color 180ms ease;
   -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--floris-motion-press) var(--floris-ease),
+    opacity var(--floris-motion-fast) ease,
+    background-color var(--floris-motion-fast) ease,
+    border-color var(--floris-motion-fast) ease,
+    box-shadow var(--floris-motion-fast) ease;
 }
 
 button::after {
@@ -61,117 +88,11 @@ button::after {
 }
 
 button:active:not([disabled]) {
-  transform: scale(.97);
+  transform: scale(.975);
 }
 
 button[disabled] {
-  opacity: .45;
-}
-
-.calendar-page,
-.history-page,
-.library-page,
-.map-page,
-.proactive-page,
-.reader-page,
-.settings-page {
-  animation: floris-page-enter 300ms cubic-bezier(.16, 1, .3, 1) both;
-}
-
-.setting-section,
-.schedule-row,
-.library-item,
-.proactive-item,
-.workflow-item,
-.paper-card,
-.structured-card {
-  transition:
-    transform 160ms cubic-bezier(.16, 1, .3, 1),
-    box-shadow 220ms ease,
-    border-color 180ms ease,
-    background-color 180ms ease;
-}
-
-.button-hover,
-.floris-press {
-  opacity: .82;
-  transform: scale(.97);
-}
-
-.floris-card-press {
-  opacity: .88;
-  transform: translateY(2px) scale(.985);
-}
-
-@keyframes floris-page-enter {
-  from {
-    opacity: 0;
-    transform: translate3d(0, 12px, 0) scale(.995);
-  }
-  to {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-}
-
-/* 头像浮动 + 光环呼吸（空态/品牌位共用） */
-@keyframes avatar-float {
-  0%, 100% { transform: translate3d(0, 0, 0) rotate(-1.2deg); }
-  50% { transform: translate3d(0, -8px, 0) rotate(1.2deg); }
-}
-@keyframes halo-breathe {
-  0%, 100% { box-shadow: 0 16px 40px rgba(223, 107, 45, .18), 0 0 0 10px rgba(237, 106, 44, .06), 0 0 0 22px rgba(237, 106, 44, .035); }
-  50% { box-shadow: 0 20px 48px rgba(223, 107, 45, .24), 0 0 0 14px rgba(237, 106, 44, .08), 0 0 0 30px rgba(237, 106, 44, .045); }
-}
-@keyframes content-reveal {
-  from { opacity: 0; transform: translate3d(0, 6px, 0) scale(.99); }
-  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-}
-
-/* Tab 切换时的整页入场（A/B 同名动画交替以重复触发） */
-.floris-page-enter.is-run-a { animation: floris-page-rise-a 240ms cubic-bezier(.16,1,.3,1) both; }
-.floris-page-enter.is-run-b { animation: floris-page-rise-b 240ms cubic-bezier(.16,1,.3,1) both; }
-@keyframes floris-page-rise-a {
-  from { opacity: .35; transform: translate3d(0, 10px, 0); }
-  to { opacity: 1; transform: translate3d(0, 0, 0); }
-}
-@keyframes floris-page-rise-b {
-  from { opacity: .35; transform: translate3d(0, 10px, 0); }
-  to { opacity: 1; transform: translate3d(0, 0, 0); }
-}
-
-/* ---- 统一骨架屏（各页首次加载共用） ---- */
-@keyframes floris-shimmer {
-  0% { background-position: 130% 0; }
-  100% { background-position: -30% 0; }
-}
-.fl-skeleton,
-.skeleton-state-bar {
-  overflow: hidden;
-  border-radius: 999px;
-  background: linear-gradient(100deg, var(--floris-panel-soft) 18%, var(--floris-panel) 42%, var(--floris-panel-soft) 66%);
-  background-size: 220% 100%;
-  animation: floris-shimmer 1.25s ease-in-out infinite;
-}
-.skeleton-state { padding: 30px 26px; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box; }
-.skeleton-state-bar { height: 24px; }
-.skeleton-state-bar-1 { width: 58%; height: 34px; }
-.skeleton-state-bar-2 { width: 88%; }
-.skeleton-state-bar-3 { width: 44%; }
-
-/* 原生 switch 默认尺寸偏大，统一收敛 */
-switch {
-  transform: scale(.78);
-  transform-origin: right center;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  button,
-  view,
-  text {
-    animation-duration: .01ms !important;
-    transition-duration: .01ms !important;
-  }
+  opacity: .42;
 }
 
 input,
@@ -179,95 +100,108 @@ textarea {
   color: var(--floris-text);
 }
 
+.button-hover,
+.floris-press {
+  opacity: .76;
+  transform: scale(.975);
+}
+
+.floris-card-press {
+  opacity: .86;
+  transform: scale(.988);
+}
+
+/* Tab pages already have native navigation. Only the content settles once; no
+   repeated full-page spring that competes with the native tab transition. */
+.floris-page-enter.is-run-a,
+.floris-page-enter.is-run-b {
+  animation: floris-content-enter var(--floris-motion-enter) var(--floris-ease) both;
+}
+
+@keyframes floris-content-enter {
+  from { opacity: .45; transform: translate3d(0, 6px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes floris-reveal {
+  from { opacity: 0; transform: translate3d(0, 7px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes floris-shimmer {
+  0% { background-position: 120% 0; }
+  100% { background-position: -20% 0; }
+}
+
+.fl-skeleton,
+.skeleton-state-bar {
+  overflow: hidden;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      100deg,
+      var(--floris-surface-muted) 18%,
+      var(--floris-surface) 42%,
+      var(--floris-surface-muted) 66%
+    );
+  background-size: 220% 100%;
+  animation: floris-shimmer 1.35s ease-in-out infinite;
+}
+
+.skeleton-state {
+  padding: 24px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.skeleton-state-bar { height: 20px; }
+.skeleton-state-bar-1 { width: 52%; height: 30px; }
+.skeleton-state-bar-2 { width: 84%; }
+.skeleton-state-bar-3 { width: 38%; }
+
+switch {
+  transform: scale(.72);
+  transform-origin: right center;
+}
+
 @media (prefers-color-scheme: dark) {
   page {
-    --floris-bg: #0d0a18;
-    --floris-bg-deep: #171026;
-    --floris-panel: rgba(29, 23, 44, .86);
-    --floris-panel-solid: #1d172c;
-    --floris-panel-soft: rgba(39, 30, 58, .82);
-    --floris-border: rgba(214, 196, 255, .1);
-    --floris-border-strong: rgba(214, 196, 255, .18);
-    --floris-text: rgba(248, 244, 255, .94);
-    --floris-text-2: rgba(229, 219, 255, .68);
-    --floris-text-3: rgba(207, 192, 238, .46);
-    --floris-accent: #a78bfa;
-    --floris-accent-hover: #c4b5fd;
-    --floris-accent-soft: #211739;
-    --floris-accent-wash: rgba(167, 139, 250, .12);
-    --floris-danger: #ef8f8b;
-    --floris-danger-soft: #351f2d;
-    --floris-shadow: 0 10px 32px rgba(5, 2, 14, .38), 0 0 0 1px rgba(167, 139, 250, .04);
-    --floris-shadow-float: 0 22px 58px rgba(5, 2, 14, .54);
-    --floris-user-bubble: linear-gradient(135deg, #7c3aed, #a855f7);
-    --floris-ai-bubble: rgba(36, 27, 53, .95);
+    --floris-bg: #0c0a12;
+    --floris-bg-warm: #15101f;
+    --floris-surface: #1b1625;
+    --floris-surface-raised: rgba(31, 25, 42, .94);
+    --floris-surface-soft: #221b2f;
+    --floris-surface-muted: #292136;
+    --floris-border: rgba(226, 214, 255, .08);
+    --floris-border-strong: rgba(226, 214, 255, .15);
+    --floris-text: rgba(252, 249, 255, .94);
+    --floris-text-2: rgba(232, 225, 245, .7);
+    --floris-text-3: rgba(214, 202, 236, .46);
+    --floris-accent: #aa8cf4;
+    --floris-accent-strong: #c2adff;
+    --floris-accent-soft: #2a1f41;
+    --floris-accent-wash: rgba(170, 140, 244, .11);
+    --floris-success: #a6c890;
+    --floris-success-soft: #202c20;
+    --floris-danger: #ef9590;
+    --floris-danger-soft: #351f2b;
+    --floris-shadow-s: 0 1px 2px rgba(0, 0, 0, .16);
+    --floris-shadow-m: 0 14px 36px rgba(0, 0, 0, .24);
+    --floris-shadow-l: 0 28px 64px rgba(0, 0, 0, .38);
     background:
-      radial-gradient(circle at 12% -4%, rgba(134, 86, 215, .24), transparent 35%),
-      radial-gradient(circle at 100% 24%, rgba(76, 44, 139, .16), transparent 28%),
-      linear-gradient(180deg, #0d0a18 0%, #151022 100%);
-  }
-
-  .chat-context-bar,
-  .composer,
-  .setting-section,
-  .conversation-item,
-  .library-item,
-  .schedule-row,
-  .calendar-editor,
-  .proactive-item,
-  .workflow-item,
-  .latest-result,
-  .history-result,
-  .folder-editor,
-  .folder-actions {
-    color: var(--floris-text);
-    background: rgba(29, 23, 44, .9);
-    border-color: var(--floris-border);
-  }
-
-  .assistant-bubble,
-  .structured-card,
-  .source-panel,
-  .source-input,
-  .question-input,
-  .map-sheet,
-  .editor-input,
-  .editor-picker,
-  .editor-textarea,
-  .composer-input {
-    color: var(--floris-text);
-    background: var(--floris-ai-bubble);
-    border-color: var(--floris-border);
-  }
-
-  .section-hint,
-  .skill-description,
-  .schedule-detail,
-  .schedule-description,
-  .file-kind,
-  .place-address,
-  .proactive-body,
-  .proactive-time,
-  .account-note {
-    color: var(--floris-text-2);
+      radial-gradient(circle at 12% -6%, rgba(135, 91, 220, .2), transparent 36%),
+      radial-gradient(circle at 100% 32%, rgba(78, 50, 140, .13), transparent 30%),
+      linear-gradient(180deg, var(--floris-bg-warm), var(--floris-bg) 54%);
   }
 }
 
-@media (min-width: 700px) {
-  .settings-page,
-  .calendar-page,
-  .library-page,
-  .proactive-page,
-  .history-page {
-    width: min(100%, 1120px);
-    margin: 0 auto;
-  }
-
-  .message-list > view,
-  .conversation-toolbar,
-  .chat-context-bar > view {
-    width: min(100%, 980px);
-    margin-left: auto;
-    margin-right: auto;
+@media (prefers-reduced-motion: reduce) {
+  button,
+  view,
+  text {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
   }
 }

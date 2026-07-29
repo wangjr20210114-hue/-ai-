@@ -19,8 +19,10 @@ export function markdownToPlainText(markdown: string): string {
  * blocks and tables all arrive styled.
  */
 
-/* Serif stack matching the app: Times New Roman for latin, Songti for CJK. */
-const SERIF = "font-family:'Times New Roman','Songti SC','STSong','SimSun','Noto Serif CJK SC',serif"
+/* Keep rich content on the same native UI stack as the surrounding mini
+   program. A single typographic voice is calmer on narrow screens and avoids
+   the jump between Songti headings and system controls. */
+const UI_FONT = "font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','PingFang SC','Helvetica Neue',Arial,sans-serif"
 
 /* Runtime-injected styles bypass Taro's pxtransform, so every length here
    uses rpx directly (1rpx ≈ 0.5pt) — writing px would render ~2x too big. */
@@ -38,29 +40,42 @@ const PRE_STYLE = [
 ].join(';')
 
 const RICH_TEXT_TAG_STYLES: Record<string, string> = {
-  p: `margin:0 0 20rpx;line-height:1.75;${SERIF}`,
-  h1: `margin:28rpx 0 14rpx;font-size:25rpx;font-weight:760;line-height:1.4;${SERIF}`,
-  h2: `margin:24rpx 0 12rpx;font-size:24rpx;font-weight:720;line-height:1.45;${SERIF}`,
-  h3: `margin:20rpx 0 10rpx;font-size:24rpx;font-weight:700;line-height:1.5;${SERIF}`,
-  h4: `margin:18rpx 0 9rpx;font-size:24rpx;font-weight:680;line-height:1.5;${SERIF}`,
-  h5: `margin:16rpx 0 8rpx;font-size:23rpx;font-weight:660;line-height:1.5;${SERIF}`,
-  h6: `margin:14rpx 0 7rpx;font-size:22rpx;font-weight:640;line-height:1.5;${SERIF}`,
+  p: `margin:0 0 22rpx;font-size:28rpx;line-height:1.72;${UI_FONT}`,
+  // Chat headings should read as structure inside one answer, not as page
+  // banners. Their slightly smaller size offsets the optical enlargement
+  // caused by bold Chinese glyphs; weight and whitespace carry the hierarchy.
+  h1: `margin:26rpx 0 12rpx;font-size:27rpx;font-weight:620;line-height:1.52;${UI_FONT}`,
+  h2: `margin:24rpx 0 10rpx;font-size:27rpx;font-weight:610;line-height:1.54;${UI_FONT}`,
+  h3: `margin:20rpx 0 9rpx;font-size:27rpx;font-weight:600;line-height:1.56;${UI_FONT}`,
+  h4: `margin:20rpx 0 9rpx;font-size:27rpx;font-weight:590;line-height:1.56;${UI_FONT}`,
+  h5: `margin:18rpx 0 8rpx;font-size:27rpx;font-weight:580;line-height:1.56;${UI_FONT}`,
+  h6: `margin:18rpx 0 8rpx;font-size:27rpx;font-weight:570;line-height:1.56;${UI_FONT}`,
   ul: 'margin:0 0 20rpx;padding-left:56rpx',
   ol: 'margin:0 0 20rpx;padding-left:56rpx',
-  li: `margin:8rpx 0;line-height:1.7;${SERIF}`,
-  blockquote: `margin:0rpx 0rpx 20rpx 0rpx;padding:8rpx 0rpx 8rpx 28rpx;border-left-width:10rpx;border-left-style:solid;border-left-color:#ed6a2c;opacity:.82;${SERIF}`,
+  li: `margin:8rpx 0;font-size:28rpx;line-height:1.68;${UI_FONT}`,
+  blockquote: `margin:0 0 22rpx;padding:8rpx 0 8rpx 24rpx;border-left-width:6rpx;border-left-style:solid;border-left-color:#ed6a2c;opacity:.78;${UI_FONT}`,
   a: 'color:#d9671f',
   strong: 'font-weight:700',
   code: 'padding:4rpx 12rpx;border-radius:10rpx;background:rgba(237,106,44,.12);color:#d9671f;font-size:22rpx',
   hr: 'margin:32rpx 0;border-top:2rpx solid rgba(142,96,64,.16)',
   img: 'max-width:100%;border-radius:20rpx;margin:16rpx 0',
-  table: `width:100%;margin:0 0 20rpx;border-collapse:collapse;table-layout:fixed;font-size:20rpx;${SERIF}`,
-  th: `padding:12rpx 10rpx;border:2rpx solid rgba(142,96,64,.24);background:rgba(237,106,44,.1);font-weight:660;text-align:left;line-height:1.5;${SERIF}`,
-  td: `padding:12rpx 10rpx;border:2rpx solid rgba(142,96,64,.18);line-height:1.55;word-break:break-word;${SERIF}`,
+  table: `width:100%;margin:4rpx 0 22rpx;border-collapse:collapse;table-layout:fixed;font-size:22rpx;${UI_FONT}`,
+  th: `padding:13rpx 10rpx;border:2rpx solid rgba(142,96,64,.2);background:rgba(237,106,44,.08);font-weight:660;text-align:left;line-height:1.45;${UI_FONT}`,
+  td: `padding:13rpx 10rpx;border:2rpx solid rgba(142,96,64,.14);line-height:1.5;word-break:break-word;${UI_FONT}`,
 }
 
 export function decorateRichTextHtml(html: string): string {
   return String(html || '')
+    // WeChat's rich-text applies an oversized native heading appearance on
+    // some devices even when an h1-h6 carries an inline rpx font size. Render
+    // headings as ordinary blocks so Floris owns the visual scale completely.
+    .replace(/<h([1-6])([^>]*)>/gi,
+      (_match, level: string, attrs: string) => {
+        const style = RICH_TEXT_TAG_STYLES[`h${level}`]
+        const cleanAttrs = String(attrs || '').replace(/\sstyle=(?:"[^"]*"|'[^']*')/gi, '')
+        return `<div${cleanAttrs} style="${style}">`
+      })
+    .replace(/<\/h[1-6]>/gi, '</div>')
     // rich-text drops <pre> and a plain div collapses whitespace, so fenced
     // code becomes a dark card that preserves line breaks.
     .replace(/<pre(?:\s[^>]*)?><code(?:\s[^>]*)?>([\s\S]*?)<\/code><\/pre>/gi,

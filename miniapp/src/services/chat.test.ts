@@ -151,11 +151,11 @@ describe('chat stop ownership', () => {
     })
   })
 
-  it('keeps a cancel-requested marker pending instead of sharing one graph thread', async () => {
+  it('waits for Makers to turn cancel-requested into a confirmed stop', async () => {
     mocks.storage.set('floris.miniapp.manual-stop.yb7_cancelling', { state: 'pending' })
     mocks.apiRequest.mockResolvedValueOnce({ status: 'cancel_requested' })
 
-    await expect(startChatStream(
+    await startChatStream(
       'yb7_cancelling',
       {
         activity: 'asked',
@@ -170,12 +170,11 @@ describe('chat stop ownership', () => {
         onDone: vi.fn(),
         onError: vi.fn(),
       },
-    )).rejects.toThrow('上一次生成还在停止')
+    )
 
-    expect(mocks.startChunkedSse).not.toHaveBeenCalled()
-    expect(mocks.storage.get('floris.miniapp.manual-stop.yb7_cancelling')).toEqual({
-      state: 'pending',
-    })
+    expect(mocks.apiRequest).toHaveBeenCalledTimes(2)
+    expect(mocks.startChunkedSse).toHaveBeenCalledTimes(1)
+    expect(mocks.storage.has('floris.miniapp.manual-stop.yb7_cancelling')).toBe(false)
   })
 
   it('retries an unconfirmed stop once before starting the next deliberate run', async () => {

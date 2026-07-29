@@ -19,8 +19,13 @@ describe('markdownToPlainText', () => {
 describe('decorateRichTextHtml', () => {
   it('injects inline styles into bare tags', () => {
     const html = decorateRichTextHtml('<h2>标题</h2><p>正文<strong>重点</strong></p>')
-    expect(html).toContain('<h2 style=')
+    expect(html).not.toContain('<h2')
+    expect(html).toContain('<div style=')
+    expect(html).toContain('font-size:27rpx')
+    expect(html).toContain('font-weight:610')
+    expect(html).toContain('标题</div>')
     expect(html).toContain('<p style=')
+    expect(html).toContain('font-size:28rpx')
     expect(html).toContain('<strong style=')
   })
 
@@ -40,7 +45,7 @@ describe('decorateRichTextHtml', () => {
   it('constrains tables with fixed layout and compact cells', () => {
     const html = decorateRichTextHtml('<table><thead><tr><th>角色</th></tr></thead><tbody><tr><td>模型拥有方</td></tr></tbody></table>')
     expect(html).toContain('table-layout:fixed')
-    expect(html).toContain('font-size:20rpx')
+    expect(html).toContain('font-size:22rpx')
     expect(html).toContain('word-break:break-word')
   })
 })

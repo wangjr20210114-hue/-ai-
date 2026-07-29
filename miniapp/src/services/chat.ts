@@ -58,6 +58,21 @@ function makerStopConfirmed(result: MakerStopResult): boolean {
   return ['cancelled', 'idle', 'aborted'].includes(String(result.status || ''))
 }
 
+async function confirmMakerStop(conversationId: string): Promise<MakerStopResult> {
+  const delays = [0, 160, 260, 420, 680, 1000, 1400]
+  let last: MakerStopResult = {}
+  for (const delay of delays) {
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
+    // `/stop` is the Makers-owned idempotent cancellation barrier. Repeating
+    // it only while Makers reports `cancel_requested` never starts or retries
+    // model generation.
+    last = await stopMakerRun(conversationId)
+    if (makerStopConfirmed(last)) return last
+    if (last.status !== 'cancel_requested') return last
+  }
+  return last
+}
+
 export interface ChatStreamCallbacks {
   onPatch: (patch: StreamMessagePatch, event: FlorisStreamEvent) => void
   onDone: () => void
@@ -103,7 +118,7 @@ export async function startChatStream(
     // Starting /chat first and retrying abortActiveRun from inside that handler
     // can race with the new run and cancel the user's deliberate next message.
     try {
-      const result = await stopMakerRun(conversationId)
+      const result = await confirmMakerStop(conversationId)
       if (!makerStopConfirmed(result)) throw new Error('cancel_pending')
       stopState = 'confirmed'
       writeManualStopState(conversationId, stopState)
@@ -159,7 +174,7 @@ export async function startChatStream(
       // Makers owns durable run cancellation. No model request is retried or
       // resumed after an explicit user stop.
       try {
-        const result = await stopMakerRun(conversationId)
+        const result = await confirmMakerStop(conversationId)
         if (makerStopConfirmed(result)) {
           writeManualStopState(conversationId, 'confirmed')
         }
