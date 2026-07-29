@@ -36,4 +36,11 @@ describe('decorateRichTextHtml', () => {
     expect(html.match(/style=/g)).toHaveLength(1)
     expect(html).toContain('color:red')
   })
+
+  it('constrains tables with fixed layout and compact cells', () => {
+    const html = decorateRichTextHtml('<table><thead><tr><th>角色</th></tr></thead><tbody><tr><td>模型拥有方</td></tr></tbody></table>')
+    expect(html).toContain('table-layout:fixed')
+    expect(html).toContain('font-size:20rpx')
+    expect(html).toContain('word-break:break-word')
+  })
 })

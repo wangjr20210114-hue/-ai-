@@ -54,9 +54,9 @@ const RICH_TEXT_TAG_STYLES: Record<string, string> = {
   code: 'padding:4rpx 12rpx;border-radius:10rpx;background:rgba(237,106,44,.12);color:#d9671f;font-size:22rpx',
   hr: 'margin:32rpx 0;border-top:2rpx solid rgba(142,96,64,.16)',
   img: 'max-width:100%;border-radius:20rpx;margin:16rpx 0',
-  table: `width:100%;margin:0 0 20rpx;border-collapse:collapse;font-size:22rpx;${SERIF}`,
-  th: `padding:14rpx 18rpx;border:2rpx solid rgba(142,96,64,.24);background:rgba(237,106,44,.1);font-weight:660;text-align:left;line-height:1.55;${SERIF}`,
-  td: `padding:14rpx 18rpx;border:2rpx solid rgba(142,96,64,.18);line-height:1.6;${SERIF}`,
+  table: `width:100%;margin:0 0 20rpx;border-collapse:collapse;table-layout:fixed;font-size:20rpx;${SERIF}`,
+  th: `padding:12rpx 10rpx;border:2rpx solid rgba(142,96,64,.24);background:rgba(237,106,44,.1);font-weight:660;text-align:left;line-height:1.5;${SERIF}`,
+  td: `padding:12rpx 10rpx;border:2rpx solid rgba(142,96,64,.18);line-height:1.55;word-break:break-word;${SERIF}`,
 }
 
 export function decorateRichTextHtml(html: string): string {
