@@ -291,3 +291,24 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
   assert.match(active, /t\('retryGeneration'\)/);
   assert.match(i18n, /重试生成/);
 });
+
+test('the chat page never shadows the Makers chat agent route', async () => {
+  const [rawConfig, landingPage, chatPage] = await Promise.all([
+    read('edgeone.json'),
+    read('frontend/index.html'),
+    read('frontend/chatBot/index.html'),
+  ]);
+  const config = JSON.parse(rawConfig);
+  const frontendRewrites = config.rewrites || [];
+  assert.equal(
+    frontendRewrites.some((item) => item.source === '/chat'),
+    false,
+    'POST /chat belongs to the Makers Agent and must not be rewritten to static HTML',
+  );
+  assert.deepEqual(
+    frontendRewrites.find((item) => item.source === '/chatBot'),
+    { source: '/chatBot', destination: '/chatBot/index.html' },
+  );
+  assert.match(landingPage, /href="\/chatBot"/);
+  assert.match(chatPage, /src="\/src\/main\.tsx"/);
+});

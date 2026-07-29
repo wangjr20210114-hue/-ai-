@@ -7,7 +7,7 @@
 > 
 > 产品介绍：<https://floris.jlutx.com>
 >
-> AI 对话：<https://floris.jlutx.com/chat/>
+> AI 对话：<https://floris.jlutx.com/chatBot>
 >
 > 运行平台：腾讯云 EdgeOne Makers
 >

@@ -27,7 +27,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         intro: resolve(__dirname, 'index.html'),
-        app: resolve(__dirname, 'chat/index.html'),
+        app: resolve(__dirname, 'chatBot/index.html'),
         acceptance: resolve(__dirname, 'test-cases-entry.html'),
       },
     },

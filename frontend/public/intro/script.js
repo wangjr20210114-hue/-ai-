@@ -3,7 +3,7 @@
   'use strict';
 
   const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const SITE_URL = '/chat/';
+  const SITE_URL = '/chatBot';
 
   /* ================= 主题 ================= */
   const root = document.documentElement;
