@@ -17,6 +17,7 @@ import { localeFor, readLanguage, translate, type Language } from '@/i18n'
 import { updateNativeTabBar } from '@/services/tabbar'
 import { readNativeCache, writeNativeCache } from '@/services/native-cache'
 import SkeletonState from '@/components/SkeletonState'
+import { useTabEnterClass } from '@/hooks/useTabEnterClass'
 import './index.scss'
 
 const PENDING_PROMPT_KEY = 'floris.miniapp.pending-proactive-prompt.v1'
@@ -28,6 +29,7 @@ type ProactiveSnapshot = {
 }
 
 export default function ProactivePage() {
+  const enterClass = useTabEnterClass()
   const [initial] = useState(() => readNativeCache<ProactiveSnapshot>(PROACTIVE_SNAPSHOT_KEY))
   const [conversationId, setConversationId] = useState(initial?.conversationId || '')
   const [notifications, setNotifications] = useState<ProactiveNotification[]>(
@@ -122,7 +124,7 @@ export default function ProactivePage() {
     }
   }
 
-  return <View className='proactive-page'>
+  return <View className={`proactive-page ${enterClass}`}>
     <View className='proactive-hero'>
       <View className='proactive-hero-copy'>
         <Text className='proactive-kicker'>{translate('proactiveHeading', {}, language)}</Text>

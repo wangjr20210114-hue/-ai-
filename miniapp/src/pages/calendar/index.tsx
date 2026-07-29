@@ -19,6 +19,7 @@ import { readNativeCache, writeNativeCache } from '@/services/native-cache'
 import { ensureSession } from '@/services/session'
 import { updateNativeTabBar } from '@/services/tabbar'
 import SkeletonState from '@/components/SkeletonState'
+import { useTabEnterClass } from '@/hooks/useTabEnterClass'
 import { workspaceOperation } from '@/services/workspace'
 import { localeFor, readLanguage, translate, type Language } from '@/i18n'
 import './index.scss'
@@ -110,6 +111,7 @@ function formForSchedule(schedule: CalendarSchedule | undefined, date: string): 
 }
 
 export default function CalendarPage() {
+  const enterClass = useTabEnterClass()
   const [initial] = useState(() => readNativeCache<CalendarSnapshot>(CALENDAR_SNAPSHOT_KEY))
   const [schedules, setSchedules] = useState<CalendarSchedule[]>(initial?.schedules || [])
   const [loading, setLoading] = useState(!initial)
@@ -301,7 +303,7 @@ export default function CalendarPage() {
     }
   }
 
-  return <View className='calendar-page'>
+  return <View className={`calendar-page ${enterClass}`}>
     <View className='calendar-hero'>
       <View className='calendar-hero-copy'>
         <Text className='calendar-kicker'>{selectedDateObject.toLocaleDateString(localeFor(language), {

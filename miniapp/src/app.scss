@@ -127,6 +127,18 @@ button[disabled] {
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 
+/* Tab 切换时的整页入场（A/B 同名动画交替以重复触发） */
+.floris-page-enter.is-run-a { animation: floris-page-rise-a 240ms cubic-bezier(.16,1,.3,1) both; }
+.floris-page-enter.is-run-b { animation: floris-page-rise-b 240ms cubic-bezier(.16,1,.3,1) both; }
+@keyframes floris-page-rise-a {
+  from { opacity: .35; transform: translate3d(0, 10px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes floris-page-rise-b {
+  from { opacity: .35; transform: translate3d(0, 10px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
 /* ---- 统一骨架屏（各页首次加载共用） ---- */
 @keyframes floris-shimmer {
   0% { background-position: 130% 0; }

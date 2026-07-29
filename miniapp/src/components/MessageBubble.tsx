@@ -38,7 +38,6 @@ export default function MessageBubble({
   const ai = message.role === 'ai'
   return <View className={`message-row ${ai ? 'assistant-row' : 'user-row'}`}>
     {ai ? <Image className='assistant-avatar' src={florisAvatar} mode='aspectFill' /> : null}
-    {!ai && userAvatarUrl ? <Image className='user-avatar' src={userAvatarUrl} mode='aspectFill' /> : null}
     <View className={`message-bubble ${ai ? 'assistant-bubble' : 'user-bubble'} ${message.failed ? 'failed-bubble' : ''}`}>
       {ai && message.content && !message.streaming ? <View
         className='message-copy'
@@ -52,8 +51,12 @@ export default function MessageBubble({
         })}
       >⧉</View> : null}
       {message.content ? <MarkdownMessage content={message.content} /> : null}
-      {message.streaming && !message.content ? <View className='typing-dots'><Text>●</Text><Text>●</Text><Text>●</Text></View> : null}
-      {message.streaming && statusText ? <Text className='stream-status'>{statusText}</Text> : null}
+      {message.streaming && !message.content && !statusText
+        ? <View className='thinking-dots'><Text /><Text /><Text /></View>
+        : null}
+      {message.streaming && statusText
+        ? <View className='stream-status'><Text className='stream-status-dot' /><Text>{statusText}</Text></View>
+        : null}
       {message.clarification ? <ClarificationCard
         key={message.clarification.id}
         prompt={message.clarification}
@@ -76,6 +79,7 @@ export default function MessageBubble({
           hoverStayTime={80} onClick={() => onRetry(message)}>{translate('retryGeneration')}</View>
         : null}
     </View>
+    {!ai && userAvatarUrl ? <Image className='user-avatar' src={userAvatarUrl} mode='aspectFill' /> : null}
   </View>
 }
 

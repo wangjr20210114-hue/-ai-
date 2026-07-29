@@ -15,6 +15,7 @@ import {
 import MessageBubble from '@/components/MessageBubble'
 import type { WorkspaceOperation } from '@/components/WorkspaceActionCard'
 import { readProfile, type UserProfile } from '@/services/profile'
+import { useTabEnterClass } from '@/hooks/useTabEnterClass'
 import {
   normalizeLanguage,
   translate,
@@ -103,6 +104,7 @@ export default function IndexPage() {
   const [reminderIndex, setReminderIndex] = useState(0)
   const [language, setLanguage] = useState<Language>(() => normalizeLanguage(Taro.getStorageSync('floris-language')))
   const [profile, setProfile] = useState<UserProfile>(() => readProfile())
+  const enterClass = useTabEnterClass()
   const activeStream = useRef<ActiveChatStream | null>(null)
   const messagesRef = useRef<ChatMessage[]>(initial.messages)
   const streaming = messages.some((message) => message.streaming)
@@ -592,7 +594,7 @@ export default function IndexPage() {
   }
 
   return <View
-    className='chat-page'
+    className={`chat-page ${enterClass}`}
     style={`--floris-chat-light:url(${florisChatLight});--floris-chat-dark:url(${florisChatDark})`}
   >
     <View className='chat-layout'>

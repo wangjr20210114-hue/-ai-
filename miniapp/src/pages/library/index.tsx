@@ -18,6 +18,7 @@ import { readNativeCache, writeNativeCache } from '@/services/native-cache'
 import { updateNativeTabBar } from '@/services/tabbar'
 import { readLanguage, translate, type Language } from '@/i18n'
 import SkeletonState from '@/components/SkeletonState'
+import { useTabEnterClass } from '@/hooks/useTabEnterClass'
 import './index.scss'
 
 const ALL_FOLDER = '__all__'
@@ -31,6 +32,7 @@ type LibrarySnapshot = {
 }
 
 export default function LibraryPage() {
+  const enterClass = useTabEnterClass()
   const [initial] = useState(() => readNativeCache<LibrarySnapshot>(LIBRARY_SNAPSHOT_KEY))
   const [items, setItems] = useState<ReadingItem[]>(initial?.items || [])
   const [folders, setFolders] = useState<ReadingFolder[]>(initial?.folders || [])
@@ -195,7 +197,7 @@ export default function LibraryPage() {
     }
   }
 
-  return <View className='library-page'>
+  return <View className={`library-page ${enterClass}`}>
     <View className='library-hero'>
       <Text className='library-kicker'>{translate('navLibrary', {}, language)}</Text>
       <Text className='library-title'>{translate('readingOverview', {}, language)}</Text>

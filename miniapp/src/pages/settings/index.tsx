@@ -20,6 +20,7 @@ import { apiRequest } from '@/services/request'
 import { ensureSession } from '@/services/session'
 import { readNativeCache, writeNativeCache } from '@/services/native-cache'
 import SkeletonState from '@/components/SkeletonState'
+import { useTabEnterClass } from '@/hooks/useTabEnterClass'
 import {
   getProviderUsage,
   meteredProviderValue,
@@ -74,6 +75,7 @@ type SettingsSnapshot = {
 }
 
 export default function SettingsPage() {
+  const enterClass = useTabEnterClass()
   const [initial] = useState(() => readNativeCache<SettingsSnapshot>(SETTINGS_SNAPSHOT_KEY))
   const [session, setSession] = useState<MiniappSession | null>(null)
   const [conversationId, setConversationId] = useState(initial?.conversationId || '')
@@ -283,7 +285,7 @@ export default function SettingsPage() {
   if (loading) return <View className='settings'><SkeletonState rows={6} /></View>
   if (error) return <View className='settings-state'><Text>{error}</Text><Button onClick={() => void load()}>{translate('retry', {}, language)}</Button></View>
 
-  return <View className='settings-page'>
+  return <View className={`settings-page ${enterClass}`}>
     <View className='settings-hero'>
       <View>
         <Text className='settings-kicker'>{translate('navSettings', {}, language)}</Text>
