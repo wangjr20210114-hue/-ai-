@@ -682,16 +682,14 @@ export default function IndexPage() {
             </Text>
             <Text className='reminder-arrow'>›</Text>
           </View>
-        </View>
-        <View className='conversation-toolbar'>
-          <Button disabled={interactionLocked} onClick={createNew}>
-            <Text className='toolbar-icon'>＋</Text>
-            <Text className='toolbar-label'>{translate('createConversation', {}, language)}</Text>
-          </Button>
-          <Button disabled={interactionLocked} onClick={() => Taro.navigateTo({ url: '/pages/history/index' })}>
-            <Text className='toolbar-icon'>◴</Text>
-            <Text className='toolbar-label'>{translate('openHistory', {}, language)}</Text>
-          </Button>
+          <View className='conversation-toolbar'>
+            <Button disabled={interactionLocked} aria-label={translate('createConversation', {}, language)} onClick={createNew}>
+              <Text className='toolbar-icon'>＋</Text>
+            </Button>
+            <Button disabled={interactionLocked} aria-label={translate('openHistory', {}, language)} onClick={() => Taro.navigateTo({ url: '/pages/history/index' })}>
+              <Text className='toolbar-icon'>◴</Text>
+            </Button>
+          </View>
         </View>
 
         <ScrollView

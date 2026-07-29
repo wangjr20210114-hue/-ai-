@@ -22,39 +22,41 @@ export function markdownToPlainText(markdown: string): string {
 /* Serif stack matching the app: Times New Roman for latin, Songti for CJK. */
 const SERIF = "font-family:'Times New Roman','Songti SC','STSong','SimSun','Noto Serif CJK SC',serif"
 
+/* Runtime-injected styles bypass Taro's pxtransform, so every length here
+   uses rpx directly (1rpx ≈ 0.5pt) — writing px would render ~2x too big. */
 const PRE_STYLE = [
-  'margin:0 0 14px',
-  'padding:20px 22px',
-  'border-radius:18px',
+  'margin:0 0 20rpx',
+  'padding:26rpx 30rpx',
+  'border-radius:22rpx',
   'background:#2b2233',
   'color:#f3edff',
   "font-family:Menlo,Consolas,monospace",
-  'font-size:22px',
+  'font-size:22rpx',
   'line-height:1.65',
   'white-space:pre-wrap',
   'word-break:break-all',
 ].join(';')
 
 const RICH_TEXT_TAG_STYLES: Record<string, string> = {
-  p: `margin:0 0 13px;line-height:1.75;${SERIF}`,
-  h1: `margin:18px 0 10px;font-size:28px;font-weight:760;line-height:1.4;${SERIF}`,
-  h2: `margin:16px 0 9px;font-size:26px;font-weight:720;line-height:1.4;${SERIF}`,
-  h3: `margin:14px 0 7px;font-size:25px;font-weight:700;line-height:1.45;${SERIF}`,
-  h4: `margin:12px 0 6px;font-size:24px;font-weight:680;line-height:1.5;${SERIF}`,
-  h5: `margin:10px 0 5px;font-size:23px;font-weight:660;line-height:1.5;${SERIF}`,
-  h6: `margin:10px 0 5px;font-size:22px;font-weight:640;line-height:1.5;${SERIF}`,
-  ul: 'margin:0 0 13px;padding-left:36px',
-  ol: 'margin:0 0 13px;padding-left:36px',
-  li: `margin:6px 0;line-height:1.7;${SERIF}`,
-  blockquote: `margin:0 0 13px;padding:6px 0 6px 20px;border-left:7px solid #ed6a2c;opacity:.82;${SERIF}`,
+  p: `margin:0 0 20rpx;line-height:1.75;${SERIF}`,
+  h1: `margin:28rpx 0 14rpx;font-size:27rpx;font-weight:760;line-height:1.4;${SERIF}`,
+  h2: `margin:24rpx 0 12rpx;font-size:26rpx;font-weight:720;line-height:1.45;${SERIF}`,
+  h3: `margin:20rpx 0 10rpx;font-size:25rpx;font-weight:700;line-height:1.5;${SERIF}`,
+  h4: `margin:18rpx 0 9rpx;font-size:24rpx;font-weight:680;line-height:1.5;${SERIF}`,
+  h5: `margin:16rpx 0 8rpx;font-size:23rpx;font-weight:660;line-height:1.5;${SERIF}`,
+  h6: `margin:14rpx 0 7rpx;font-size:22rpx;font-weight:640;line-height:1.5;${SERIF}`,
+  ul: 'margin:0 0 20rpx;padding-left:56rpx',
+  ol: 'margin:0 0 20rpx;padding-left:56rpx',
+  li: `margin:8rpx 0;line-height:1.7;${SERIF}`,
+  blockquote: `margin:0 0 20rpx;padding:8rpx 0 8rpx 28rpx;border-left:8rpx solid #ed6a2c;opacity:.82;${SERIF}`,
   a: 'color:#d9671f',
   strong: 'font-weight:700',
-  code: `padding:2px 9px;border-radius:8px;background:rgba(237,106,44,.12);color:#d9671f;font-size:20px;${SERIF}`,
-  hr: 'margin:20px 0;border-top:1px solid rgba(142,96,64,.16)',
-  img: 'max-width:100%;border-radius:16px;margin:12px 0',
-  table: `width:100%;margin:0 0 13px;border-collapse:collapse;font-size:22px;${SERIF}`,
-  th: `padding:9px 12px;border:1px solid rgba(142,96,64,.24);background:rgba(237,106,44,.1);font-weight:660;text-align:left;line-height:1.55;${SERIF}`,
-  td: `padding:9px 12px;border:1px solid rgba(142,96,64,.18);line-height:1.6;${SERIF}`,
+  code: 'padding:4rpx 12rpx;border-radius:10rpx;background:rgba(237,106,44,.12);color:#d9671f;font-size:22rpx',
+  hr: 'margin:32rpx 0;border-top:2rpx solid rgba(142,96,64,.16)',
+  img: 'max-width:100%;border-radius:20rpx;margin:16rpx 0',
+  table: `width:100%;margin:0 0 20rpx;border-collapse:collapse;font-size:22rpx;${SERIF}`,
+  th: `padding:14rpx 18rpx;border:2rpx solid rgba(142,96,64,.24);background:rgba(237,106,44,.1);font-weight:660;text-align:left;line-height:1.55;${SERIF}`,
+  td: `padding:14rpx 18rpx;border:2rpx solid rgba(142,96,64,.18);line-height:1.6;${SERIF}`,
 }
 
 export function decorateRichTextHtml(html: string): string {
