@@ -4,8 +4,6 @@ declare namespace NodeJS {
   }
 }
 
-declare module 'fast-text-encoding'
-
 declare module '*.png' {
   const source: string
   export default source

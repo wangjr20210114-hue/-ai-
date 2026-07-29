@@ -1,9 +1,9 @@
-import 'fast-text-encoding'
 import Taro from '@tarojs/taro'
 import { splitSseFrames } from '@floris/contracts'
 import { translate } from '@/i18n'
 import { apiUrl } from './config'
 import { ensureSession } from './session'
+import { Utf8StreamDecoder } from './utf8'
 
 export interface ChunkedSseOptions {
   path: string
@@ -22,7 +22,7 @@ export interface ChunkedSseTask {
 /** One native WeChat chunked-request adapter shared by chat and paper reader. */
 export async function startChunkedSse(options: ChunkedSseOptions): Promise<ChunkedSseTask> {
   const session = await ensureSession()
-  const decoder = new TextDecoder()
+  const decoder = new Utf8StreamDecoder()
   let buffer = ''
   let receivedChunk = false
   let protocolDone = false
