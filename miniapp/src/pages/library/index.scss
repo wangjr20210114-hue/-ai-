@@ -14,7 +14,7 @@
 .folder-editor button.primary { color: #fff; background: var(--floris-accent); }
 .folder-tabs { display: flex; gap: 12px; padding: 2px 0 10px; }
 .folder-tab { flex: none; padding: 13px 22px; border: 1px solid var(--floris-border); border-radius: 999px; color: var(--floris-text-2); background: var(--floris-panel); box-shadow: 0 4px 12px rgba(111,59,28,.035); font-size: 21px; transition: transform 120ms cubic-bezier(.16,1,.3,1), opacity 180ms ease; }
-.folder-tab.is-active { border-color: transparent; color: #fff; background: var(--floris-accent); box-shadow: 0 7px 20px rgba(214,110,48,.18); }
+.folder-tab.is-active { border-color: transparent; color: #fff; background: linear-gradient(135deg, var(--floris-accent-hover), var(--floris-accent)); box-shadow: 0 7px 20px rgba(214,110,48,.18); }
 .folder-actions { margin: -4px 0 16px; padding: 15px 18px; display: flex; align-items: center; gap: 10px; border: 1px solid var(--floris-border); border-radius: 16px; background: var(--floris-panel-soft); }
 .folder-actions text { flex: 1; min-width: 0; color: var(--floris-text); font-size: 23px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .folder-actions button { margin: 0; border: 0; border-radius: 12px; color: var(--floris-accent); background: var(--floris-panel); font-size: 20px; }
@@ -30,7 +30,7 @@
 .assist-button { color: #fff; background: var(--floris-accent); }
 .delete-button { color: var(--floris-danger); background: var(--floris-danger-soft); }
 .library-state { min-height: 38vh; padding: 32px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--floris-text-3); text-align: center; font-size: 22px; line-height: 1.55; }
-.library-empty-icon { width: 86px; height: 86px; margin-bottom: 8px; border-radius: 28px; color: var(--floris-accent); background: var(--floris-accent-soft); line-height: 86px; text-align: center; font-size: 42px; box-shadow: var(--floris-shadow); }
+.library-empty-icon { width: 96px; height: 96px; margin-bottom: 14px; border-radius: 32px; display: flex; align-items: center; justify-content: center; font-size: 46px; line-height: 1; background: linear-gradient(145deg, var(--floris-accent-soft), var(--floris-panel)); animation: halo-breathe 3.6s ease-in-out infinite; }
 @keyframes folder-editor-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes library-item-in { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-color-scheme: dark) {

@@ -277,7 +277,7 @@ export default function LibraryPage() {
 
     {loading ? <Text className='library-state'>{translate('loadingReading', {}, language)}</Text> : null}
     {!loading && !visibleItems.length ? <View className='library-state'>
-      <Text className='library-empty-icon'>▱</Text>
+      <Text className='library-empty-icon'>📚</Text>
       <Text>{translate('noReading', {}, language)}</Text>
       <Text>{translate('uploadReadingHint', {}, language)}</Text>
     </View> : null}

@@ -355,7 +355,7 @@ export default function CalendarPage() {
     {loading ? <Text className='calendar-state'>{translate('loadingCalendar', {}, language)}</Text> : null}
     {!loading && !daySchedules.length
       ? <View className='calendar-state calendar-state-empty'>
-        <Text className='calendar-empty-icon'>◷</Text>
+        <Text className='calendar-empty-icon'>🗓️</Text>
         <Text>{translate('noCalendar', {}, language)}</Text>
       </View>
       : null}

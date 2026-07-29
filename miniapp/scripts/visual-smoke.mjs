@@ -5,6 +5,10 @@ import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const automator = require('miniprogram-automator')
+// Newer devtools CLIs no longer support `-v`; skip the automator's version
+// probe so it can launch against them.
+const MiniProgramModule = require('miniprogram-automator/out/MiniProgram.js')
+MiniProgramModule.default.prototype.checkVersion = async function checkVersion() {}
 const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const projectPath = resolve(scriptDirectory, '..')
 const outputPath = resolve(projectPath, '.artifacts', 'visual-smoke')

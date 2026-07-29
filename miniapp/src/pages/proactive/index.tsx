@@ -133,7 +133,7 @@ export default function ProactivePage() {
     </View>
     {!loading && !notifications.length && !workflows.length
       ? <View className='proactive-empty'>
-        <Text className='proactive-empty-icon'>✦</Text>
+        <Text className='proactive-empty-icon'>🐾</Text>
         <Text>{translate('proactiveEmpty', {}, language)}</Text>
       </View>
       : null}

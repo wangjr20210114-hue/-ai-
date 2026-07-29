@@ -113,6 +113,21 @@ button[disabled] {
   }
 }
 
+/* 头像浮动 + 光环呼吸（空态/品牌位共用） */
+@keyframes avatar-float {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(-1.2deg); }
+  50% { transform: translate3d(0, -8px, 0) rotate(1.2deg); }
+}
+@keyframes halo-breathe {
+  0%, 100% { box-shadow: 0 16px 40px rgba(223, 107, 45, .18), 0 0 0 10px rgba(237, 106, 44, .06), 0 0 0 22px rgba(237, 106, 44, .035); }
+  50% { box-shadow: 0 20px 48px rgba(223, 107, 45, .24), 0 0 0 14px rgba(237, 106, 44, .08), 0 0 0 30px rgba(237, 106, 44, .045); }
+}
+
+/* 原生 switch 默认尺寸偏大，统一收敛 */
+switch {
+  transform: scale(.86);
+}
+
 @media (prefers-reduced-motion: reduce) {
   button,
   view,
