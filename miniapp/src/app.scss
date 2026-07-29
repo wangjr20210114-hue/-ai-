@@ -28,7 +28,8 @@ page {
     radial-gradient(circle at 4% -2%, rgba(255, 164, 94, .18), transparent 32%),
     radial-gradient(circle at 100% 20%, rgba(255, 207, 162, .18), transparent 28%),
     linear-gradient(180deg, #fffaf6 0%, var(--floris-bg) 100%);
-  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  /* 全局统一：英文 Times New Roman，中文宋体 */
+  font-family: 'Times New Roman', 'Songti SC', 'STSong', 'SimSun', 'Noto Serif CJK SC', serif;
 }
 
 view,
