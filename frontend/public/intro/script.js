@@ -3,7 +3,7 @@
   'use strict';
 
   const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const SITE_URL = 'https://floris.jlutx.com';
+  const SITE_URL = '/chat/';
 
   /* ================= 主题 ================= */
   const root = document.documentElement;
@@ -106,7 +106,7 @@
   const tabsBar = document.getElementById('demo-tabs');
   const liveBadge = document.getElementById('demo-live');
 
-  const AVATAR = './assets/floris-avatar.png';
+  const AVATAR = '/intro/assets/floris-avatar.png';
 
   const cards = {
     sources: () => `

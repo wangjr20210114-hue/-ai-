@@ -26,7 +26,8 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        app: resolve(__dirname, 'index.html'),
+        intro: resolve(__dirname, 'index.html'),
+        app: resolve(__dirname, 'chat/index.html'),
         acceptance: resolve(__dirname, 'test-cases-entry.html'),
       },
     },

@@ -4,6 +4,14 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/chat",
+      "destination": "/chat/index.html"
+    },
+    {
+      "source": "/chat/",
+      "destination": "/chat/index.html"
+    },
+    {
       "source": "/test-cases",
       "destination": "/test-cases-entry.html"
     },

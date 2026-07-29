@@ -1,33 +1,147 @@
-<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
-    />
-    <title>FLORIS:一只有温度的大橘</title>
-    <script>
-      // The dedicated acceptance hostname opens the static test station at its root.
-      // The main application hostname keeps its normal chat entry point.
-      (function () {
-        if (window.location.hostname === 'floris-test.jlutx.com' && window.location.pathname === '/') {
-          window.location.replace('/test-cases/');
-        }
-      })();
-      // 首屏即应用已保存的主题，避免闪烁
-      (function () {
-        try {
-          var t = localStorage.getItem('travel-theme');
-          document.documentElement.setAttribute('theme-mode', t === 'dark' ? 'dark' : 'light');
-        } catch (e) {
-          document.documentElement.setAttribute('theme-mode', 'light');
-        }
-      })();
-    </script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<!DOCTYPE html>
+<html lang="zh-CN" theme-mode="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FLORIS · 一只有温度的大橘</title>
+  <meta name="description" content="Floris 是一只有温度的橘猫 AI：聊天、日程、旅行、论文助读、画画，运行在腾讯云 EdgeOne Makers 上。" />
+  <link rel="icon" href="/intro/assets/floris-avatar.png" />
+  <link rel="stylesheet" href="/intro/styles.css" />
+  <script>
+    // The dedicated acceptance hostname keeps opening its test station at root.
+    if (window.location.hostname === 'floris-test.jlutx.com') {
+      window.location.replace('/test-cases/');
+    }
+  </script>
+</head>
+<body>
+  <div id="theme-wipe" aria-hidden="true"></div>
+
+  <header class="nav">
+    <a class="nav-brand" href="#top">
+      <span class="nav-avatar"><img src="/intro/assets/floris-avatar.png" alt="Floris" /></span>
+      <span class="nav-logo">FLORIS<small>一只有温度的大橘</small></span>
+    </a>
+    <nav class="nav-links">
+      <a href="#demo">现场演示</a>
+      <a href="#features">能力</a>
+      <a href="#about">关于</a>
+    </nav>
+    <div class="nav-actions">
+      <button id="theme-toggle" class="icon-btn" type="button" aria-label="切换深浅色" title="切换深浅色">
+        <span class="theme-icon" aria-hidden="true"></span>
+      </button>
+      <a class="btn btn-primary btn-sm" href="/chat/">进入小窝</a>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="hero-badge reveal">腾讯云 EdgeOne Makers · 主动式 Agent</p>
+        <h1 class="reveal" style="--reveal-delay: 70ms">
+          一只橘猫，<br />它很<em>温柔</em>，<br />喜欢和你聊天。
+        </h1>
+        <p class="hero-desc reveal" style="--reveal-delay: 140ms">
+          它细心地帮你安排日程、规划旅行，告诉你每天的新鲜事，贴心提醒你天寒加衣。
+          你做着无聊的科研，它依在你身边帮你翻译总结。你和它聊天，它绝对给出所知的一切——
+          大橘，一只真的懂你、黏你的喵。
+        </p>
+        <div class="hero-cta reveal" style="--reveal-delay: 210ms">
+          <a class="btn btn-primary btn-lg" href="/chat/">
+            开始对话
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+          <a class="btn btn-ghost btn-lg" href="#demo">看看它能做什么</a>
+        </div>
+        <p class="hero-note reveal" style="--reveal-delay: 280ms">by Jurant &amp; Jimmy · 有温度的 AI 伙伴</p>
+      </div>
+
+      <div class="hero-stage reveal" style="--reveal-delay: 180ms" aria-hidden="true">
+        <div class="stage-ring ring-1"></div>
+        <div class="stage-ring ring-2"></div>
+        <div class="stage-ring ring-3"></div>
+        <div class="stage-avatar">
+          <img src="/intro/assets/floris-avatar.png" alt="" />
+        </div>
+        <span class="float-chip chip-1">会画画</span>
+        <span class="float-chip chip-2">懂论文</span>
+        <span class="float-chip chip-3">超黏人</span>
+        <span class="float-chip chip-4">提醒加衣</span>
+      </div>
+    </section>
+
+    <section id="demo" class="demo-section">
+      <div class="section-head reveal">
+        <p class="section-eyebrow">LIVE DEMO</p>
+        <h2>看大橘干活</h2>
+        <p class="section-sub">下面是一个会自动播放的对话窗口，复刻 README 里的真实用法。点击标签可切换场景。</p>
+      </div>
+
+      <div class="demo-frame reveal" style="--reveal-delay: 120ms">
+        <div class="demo-window">
+          <div class="demo-titlebar">
+            <span class="demo-dot"></span><span class="demo-dot"></span><span class="demo-dot"></span>
+            <span class="demo-title">和 Floris 聊天</span>
+            <span class="demo-live" id="demo-live"><i></i>播放中</span>
+          </div>
+          <div class="demo-tabs" id="demo-tabs" role="tablist" aria-label="演示场景"></div>
+          <div class="demo-chat" id="demo-chat" aria-live="polite"></div>
+          <div class="demo-inputbar">
+            <span class="demo-input-placeholder">输入消息…（ Enter 发送，Shift+Enter 换行 ）</span>
+            <span class="demo-send" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M3.4 20.4 21.8 12 3.4 3.6l2.9 6.9 8.5 1.5-8.5 1.5z"/></svg>
+              发送
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="features-section">
+      <div class="section-head reveal">
+        <p class="section-eyebrow">CAPABILITIES</p>
+        <h2>它都会些什么？</h2>
+        <p class="section-sub">核心能力热插拔，Skill 工厂随时扩展。</p>
+      </div>
+      <div class="features-grid" id="features-grid"></div>
+    </section>
+
+    <section class="theme-section">
+      <div class="theme-band reveal">
+        <div class="theme-band-copy">
+          <h2>白天黑夜，都陪着你。</h2>
+          <p>暖橙的清晨，紫色夜空的晚安。点右上角的小月亮，亲自感受一下。</p>
+        </div>
+        <button class="btn btn-lg btn-contrast" id="theme-cta" type="button">
+          <span class="theme-cta-label">切换到夜空</span>
+        </button>
+      </div>
+    </section>
+
+    <section id="about" class="about-section">
+      <div class="about-card reveal">
+        <span class="about-avatar"><img src="/intro/assets/floris-avatar.png" alt="Floris 头像" /></span>
+        <h2>来和大橘坐坐吧</h2>
+        <p>
+          它还有点懒，偶尔想得太多，但它的主人 Jurant &amp; Jimmy 正在努力优化。
+          你的每一条反馈，都会让 Floris 离哆啦 A 梦更近一点。
+        </p>
+        <div class="about-actions">
+          <a class="btn btn-primary btn-lg" href="/chat/">开始和 Floris 对话</a>
+          <a class="btn btn-ghost btn-lg" href="mailto:2011948918@qq.com?subject=Floris%20%E4%BD%BF%E7%94%A8%E5%8F%8D%E9%A6%88&body=%E5%96%B5%EF%BC%8C%E6%88%91%E6%83%B3%E8%AF%B4%EF%BC%9A">写信给我们</a>
+        </div>
+        <p class="about-meta">运行于 腾讯云 EdgeOne Makers · 作者 Jurant &amp; Jimmy</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>FLORIS · 一只有温度的大橘</span>
+    <span class="footer-sep">·</span>
+    <span>谢谢 Codex、Kimi、Deepseek 和每一个你</span>
+  </footer>
+
+  <script src="/intro/script.js"></script>
+</body>
 </html>
