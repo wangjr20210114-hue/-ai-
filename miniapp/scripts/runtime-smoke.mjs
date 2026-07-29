@@ -105,6 +105,41 @@ async function runtimeState(miniProgram) {
   })
 }
 
+async function durableState(miniProgram) {
+  return miniProgram.evaluate(() => new Promise((resolveState) => {
+    const session = wx.getStorageSync('floris.miniapp.session.v1') || {}
+    const conversationId = wx.getStorageSync('floris.miniapp.active-conversation.v1')
+    wx.request({
+      url: 'https://miniapp-floris.jlutx.com/messages',
+      method: 'POST',
+      timeout: 12_000,
+      header: {
+        'content-type': 'application/json',
+        'x-floris-client': 'wechat-miniapp',
+        Authorization: `Bearer ${session.token || ''}`,
+        'makers-conversation-id': conversationId,
+      },
+      data: { conversation_id: conversationId },
+      complete(result) {
+        const data = result.data || {}
+        resolveState({
+          conversationId,
+          statusCode: result.statusCode || 0,
+          run: data.run || null,
+          messages: (data.messages || []).map((message) => ({
+            role: message.role,
+            content: String(message.content || '').slice(0, 240),
+            clarification: Boolean(message.clarification),
+            actionCount: Array.isArray(message.workspaceActions)
+              ? message.workspaceActions.length
+              : 0,
+          })),
+        })
+      },
+    })
+  }))
+}
+
 async function waitFor(miniProgram, predicate, timeout = 30_000, interval = 100) {
   const deadline = Date.now() + timeout
   let state = await runtimeState(miniProgram)
@@ -113,7 +148,8 @@ async function waitFor(miniProgram, predicate, timeout = 30_000, interval = 100)
     await delay(interval)
     state = await runtimeState(miniProgram)
   }
-  throw new Error(`等待运行状态超时：${JSON.stringify(state)}`)
+  const durable = await durableState(miniProgram).catch(() => null)
+  throw new Error(`等待运行状态超时：${JSON.stringify({ state, durable })}`)
 }
 
 async function inputAndSend(miniProgram, value) {
@@ -188,7 +224,7 @@ try {
     miniProgram,
     (state) => (
       !state.stopVisible
-      && state.messages.length >= settled.messages.length + 2
+      && state.messages.at(-2)?.text.includes('1+1')
       && /\b2\b/.test(state.messages.at(-1)?.text || '')
     ),
     45_000,
@@ -199,15 +235,61 @@ try {
     completed.messages.at(-2)?.text.includes('1+1'),
     '停止后的下一轮用户消息没有进入会话',
   )
+
+  await miniProgram.reLaunch('/pages/index/index')
+  const restored = await waitFor(
+    miniProgram,
+    (state) => (
+      !state.stopVisible
+      && state.messages.some((message) => message.text.includes('1+1'))
+      && /\b2\b/.test(state.messages.at(-1)?.text || '')
+    ),
+    25_000,
+    150,
+  )
+  assert(
+    restored.messages.filter((message) => message.text.includes('1+1')).length === 1,
+    '重新进入后出现重复用户消息',
+  )
+
+  const nextConversation = await dispatch(miniProgram, 'side-new-conversation', 'tap')
+  assert(nextConversation.ok, '恢复测试前无法新建对话')
+  await delay(300)
+  const recoveryPrompt = '请写一个四段的橘猫旅行故事，每段至少八十字。'
+  await inputAndSend(miniProgram, recoveryPrompt)
+  await waitFor(miniProgram, (state) => state.stopVisible, 10_000, 50)
+
+  // Re-entering the mini program closes only the native subscriber. Makers'
+  // detached producer must continue the same run and /messages must restore it
+  // without creating another model request.
+  await miniProgram.reLaunch('/pages/index/index')
+  const recovered = await waitFor(
+    miniProgram,
+    (state) => (
+      !state.stopVisible
+      && (state.messages.at(-1)?.text || '').length > 180
+    ),
+    120_000,
+    250,
+  )
+  assert(!recovered.messages.at(-1)?.failed, '刷新后的同一轮回答恢复为失败')
+  assert(
+    recovered.messages.filter((message) => message.text.includes(recoveryPrompt)).length === 1,
+    '刷新恢复创建了重复用户消息',
+  )
   assert(exceptions.length === 0, `微信运行时异常：${JSON.stringify(exceptions)}`)
 
   const screenshotPath = resolve(outputPath, 'chat-stop-and-resume.png')
   await miniProgram.screenshot({ path: screenshotPath })
+  const recoveryScreenshotPath = resolve(outputPath, 'chat-reload-recovery.png')
+  await miniProgram.screenshot({ path: recoveryScreenshotPath })
   process.stdout.write(`${JSON.stringify({
     ok: true,
     stoppedAnswerLength: afterStop.length,
     resumedAnswer: completed.messages.at(-1)?.text,
+    recoveredAnswerLength: recovered.messages.at(-1)?.text.length,
     screenshot: screenshotPath,
+    recoveryScreenshot: recoveryScreenshotPath,
   }, null, 2)}\n`)
 } finally {
   miniProgram.disconnect()

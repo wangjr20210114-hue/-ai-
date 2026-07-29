@@ -181,6 +181,17 @@ def run_cancelled(value: object) -> bool:
     )
 
 
+def run_cancelled_or_superseded(value: object, run_id: str) -> bool:
+    """Return whether an old producer must stop before another run may write."""
+    if run_cancelled(value):
+        return True
+    return bool(
+        isinstance(value, dict)
+        and value.get("run_id")
+        and str(value.get("run_id")) != str(run_id)
+    )
+
+
 def empty_generation_error(
     final_answer: str,
     *,
@@ -1280,15 +1291,10 @@ async def handler(ctx):
         )
     elif isinstance(previous_run, dict) and previous_run.get("status") in RUNNING_STATES:
         if previous_run.get("status") == "cancel_requested":
-            # The Stop endpoint has already delegated cancellation to Maker's
-            # abortActiveRun.  Its detached producer may still be flushing
-            # cleanup work, but that must not keep the composer locked.
-            await write_chat_run(
-                ctx.store,
-                conversation_id,
-                run_id=str(previous_run.get("run_id") or ""),
-                status="cancelled",
-            )
+            # Never start a second LangGraph writer while the stopped producer
+            # is still unwinding. The client polls /stop and can send again as
+            # soon as that producer publishes its terminal marker.
+            return error("上一轮仍在停止，请稍候", 409)
         elif allow_after_stop:
             # /stop already delegates cancellation to Makers abortActiveRun.
             # At this point Makers has registered the deliberate new /chat as
@@ -1961,15 +1967,10 @@ async def handler(ctx):
                 return False
             last_cancel_check[0] = now_mono
             latest = await read_chat_run(ctx.store, conversation_id)
-            if (
-                isinstance(latest, dict)
-                and latest.get("run_id")
-                and str(latest.get("run_id")) != run_id
-            ):
-                # A newer send owns this conversation. The detached producer
-                # for the old run must stop without touching its state.
-                return True
-            return run_cancelled(latest)
+            # A newer send owns this conversation, or /stop has recorded an
+            # explicit terminal intent. The old producer must stop before it
+            # can write another LangGraph checkpoint.
+            return run_cancelled_or_superseded(latest, run_id)
 
         async def produce():
             pending_actions: list[dict] = []
@@ -2269,13 +2270,27 @@ async def handler(ctx):
                     ctx.utils.sse({"type": "error_message", "content": run_error})
                 )
             except asyncio.CancelledError:
-                # abortActiveRun is the platform-owned cancellation path.  A
-                # browser disconnect does not cancel this detached producer.
+                # Manual stop cancels this producer. A plain subscriber
+                # disconnect is handled by the outer generator and shields it.
                 latest_run = await read_chat_run(ctx.store, conversation_id)
-                cancelled = run_cancelled(latest_run)
+                cancelled = run_cancelled_or_superseded(latest_run, run_id)
                 if not cancelled:
                     run_error = "运行已中断，请重试"
             finally:
+                if cancelled:
+                    # Never publish or persist post-answer work from a run the
+                    # user stopped. Cancellation must remain terminal and must
+                    # not race a later run on the same LangGraph thread.
+                    pending_ai_content.clear()
+                    final_answer_parts.clear()
+                    pending_search_results = None
+                    pending_papers = None
+                    for task in (follow_up_task, memory_task, recent_questions_task):
+                        if task is not None and not task.done():
+                            task.cancel()
+                    for task in background_tasks:
+                        if not task.done():
+                            task.cancel()
                 final_answer = "".join(final_answer_parts).strip()
                 empty_error = empty_generation_error(
                     final_answer,
@@ -2457,6 +2472,22 @@ async def handler(ctx):
                 await queue.put(done)
 
         producer = asyncio.create_task(produce())
+
+        async def finish_disconnected_producer() -> None:
+            latest_run = await read_chat_run(ctx.store, conversation_id)
+            if run_cancelled_or_superseded(latest_run, run_id):
+                # /stop writes cancel_requested before calling Makers'
+                # abortActiveRun. Cancel the graph task instead of shielding
+                # it, otherwise an old checkpoint can overwrite the next run.
+                producer.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await producer
+                return
+            # Navigation, refresh, and transient network loss are not a user
+            # stop. Keep the same Makers run alive for /messages recovery.
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.shield(producer)
+
         try:
             while True:
                 try:
@@ -2472,14 +2503,10 @@ async def handler(ctx):
                     break
                 yield frame
         except GeneratorExit:
-            # Closing the SSE subscriber must not close the Makers run. Keep
-            # this invocation alive until LangGraph writes its final checkpoint.
-            with contextlib.suppress(asyncio.CancelledError):
-                await asyncio.shield(producer)
+            await finish_disconnected_producer()
             return
         except asyncio.CancelledError:
-            with contextlib.suppress(asyncio.CancelledError):
-                await asyncio.shield(producer)
+            await finish_disconnected_producer()
             raise
         finally:
             if producer.done():

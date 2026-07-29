@@ -43,6 +43,8 @@ const catalog = {
   readerFailed: ['助读失败，请重试', '助讀失敗，請重試', 'Reading assistance failed. Try again.', '助读没成功，再试一次喵', '助读失败。请重试'],
   newConversation: ['新对话', '新對話', 'New conversation', '新的喵喵对话', '新对话'],
   previousInterrupted: ['上一次生成已中断，请点击重试。', '上一次生成已中斷，請點擊重試。', 'The previous response was interrupted. Tap Retry.', '上次说到一半断开啦，点重试喵。', '上一次生成已中断。请重试'],
+  restoringAnswer: ['正在接回刚才的回答…', '正在接回剛才的回答…', 'Reconnecting to the previous response…', '正在接回刚才的回答喵…', '正在恢复上一轮回答…'],
+  recoveryTimedOut: ['上一轮处理时间过长，已停止；请点击重试。', '上一輪處理時間過長，已停止；請點擊重試。', 'The previous response took too long and was stopped. Tap Retry.', '上一轮等太久啦，已经停下，点重试喵。', '上一轮处理超时，已停止。请重试'],
   attachedReference: ['（已附参考图：{name}）', '（已附參考圖：{name}）', '(Reference image attached: {name})', '（带上参考图啦：{name}，喵）', '（已附参考图：{name}）'],
   chooseReferenceImage: ['选择参考图片', '選擇參考圖片', 'Choose a reference image', '选一张参考图喵', '选择参考图片'],
   uploadPdfReading: ['上传 PDF 到“我的阅读”', '上傳 PDF 到「我的閱讀」', 'Upload PDF to My Reading', '把 PDF 收进阅读小窝喵', '上传 PDF 到“我的阅读”'],

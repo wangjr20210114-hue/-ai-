@@ -18,7 +18,7 @@ from agents._shared.tencent_location import plan_driving_route
 from agents.proactive.index import handler as proactive_handler
 from agents.stop.index import handler as stop_handler
 from agents.system_internal.index import _expected_tick_after
-from agents.chat.index import run_cancelled
+from agents.chat.index import run_cancelled, run_cancelled_or_superseded
 
 
 class FakeStore:
@@ -190,26 +190,37 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         store = FakeConversationStore()
         await write_chat_run(store, "conversation-1", run_id="run-1", status="running")
         targets = []
+        def abort(target):
+            targets.append(target)
+            store.metadata["yuanbao_chat_run_v1"] = {
+                **store.metadata["yuanbao_chat_run_v1"],
+                "status": "cancelled",
+            }
+            return SimpleNamespace(aborted=True, run_id="run-1")
+
         ctx = SimpleNamespace(
             env={},
             store=store,
             request=SimpleNamespace(body={"conversation_id": "conversation-1"}, headers={}),
             utils=SimpleNamespace(
-                abortActiveRun=lambda target: (
-                    targets.append(target)
-                    or SimpleNamespace(aborted=True, run_id="run-1")
-                ),
+                abortActiveRun=abort,
             ),
         )
         response = await stop_handler(ctx)
         self.assertEqual(targets, ["conversation-1"])
-        self.assertEqual(response["status"], "aborted")
+        self.assertEqual(response["status"], "cancelled")
         self.assertEqual((await read_chat_run(store, "conversation-1"))["status"], "cancelled")
 
     def test_chat_producer_honors_both_makers_stop_states(self):
         self.assertTrue(run_cancelled({"status": "cancel_requested"}))
         self.assertTrue(run_cancelled({"status": "cancelled"}))
         self.assertFalse(run_cancelled({"status": "running"}))
+        self.assertTrue(run_cancelled_or_superseded(
+            {"run_id": "old", "status": "running"}, "new",
+        ))
+        self.assertFalse(run_cancelled_or_superseded(
+            {"run_id": "new", "status": "running"}, "new",
+        ))
 
     def test_daily_health_grace_uses_scheduled_boundary(self):
         now = int(datetime.fromisoformat("2026-07-19T11:00:00+08:00").timestamp())

@@ -41,13 +41,21 @@ function stopControlConversationId(): string {
   return `floris-stop-${Date.now().toString(36)}`
 }
 
-function confirmMakerStop(conversationId: string) {
-  return apiRequest('/stop', {
+export type MakerStopResult = {
+  status?: 'cancelled' | 'cancel_requested' | 'idle' | 'aborted'
+}
+
+export function stopMakerRun(conversationId: string): Promise<MakerStopResult> {
+  return apiRequest<MakerStopResult>('/stop', {
     method: 'POST',
     data: { conversation_id: conversationId },
     conversationId: stopControlConversationId(),
     timeout: 15_000,
   })
+}
+
+function makerStopConfirmed(result: MakerStopResult): boolean {
+  return ['cancelled', 'idle', 'aborted'].includes(String(result.status || ''))
 }
 
 export interface ChatStreamCallbacks {
@@ -59,6 +67,8 @@ export interface ChatStreamCallbacks {
 
 export interface ActiveChatStream {
   stop: () => Promise<void>
+  /** Close only this page's native transport; the Makers run keeps working. */
+  detach: () => void
 }
 
 /** A later clarification is a new interaction even when it reuses one AI bubble. */
@@ -84,6 +94,7 @@ export async function startChatStream(
   callbacks: ChatStreamCallbacks,
 ): Promise<ActiveChatStream> {
   let manuallyStopped = false
+  let detached = false
   let locationRequired = false
   let stopState = readManualStopState(conversationId)
   const allowAfterStop = Boolean(stopState)
@@ -92,7 +103,8 @@ export async function startChatStream(
     // Starting /chat first and retrying abortActiveRun from inside that handler
     // can race with the new run and cancel the user's deliberate next message.
     try {
-      await confirmMakerStop(conversationId)
+      const result = await stopMakerRun(conversationId)
+      if (!makerStopConfirmed(result)) throw new Error('cancel_pending')
       stopState = 'confirmed'
       writeManualStopState(conversationId, stopState)
     } catch {
@@ -123,11 +135,12 @@ export async function startChatStream(
       }
     },
     onDone() {
+      if (detached) return
       callbacks.onDone()
       if (locationRequired && !manuallyStopped) callbacks.onLocationRequired?.()
     },
     onError(message) {
-      if (!manuallyStopped) callbacks.onError(message)
+      if (!manuallyStopped && !detached) callbacks.onError(message)
     },
   })
   if (allowAfterStop) {
@@ -146,8 +159,10 @@ export async function startChatStream(
       // Makers owns durable run cancellation. No model request is retried or
       // resumed after an explicit user stop.
       try {
-        await confirmMakerStop(conversationId)
-        writeManualStopState(conversationId, 'confirmed')
+        const result = await stopMakerRun(conversationId)
+        if (makerStopConfirmed(result)) {
+          writeManualStopState(conversationId, 'confirmed')
+        }
       } catch (reason) {
         // The local request is already aborted. Leave the durable marker
         // pending so the next deliberate send retries cancellation first.
@@ -157,6 +172,14 @@ export async function startChatStream(
           String(detail?.message || detail?.errMsg || reason),
         )
       }
+    },
+    detach() {
+      if (manuallyStopped || detached) return
+      detached = true
+      // Closing the native subscriber triggers Makers' documented detached
+      // producer path. The same Agent run keeps writing its checkpoint and is
+      // recovered through /messages when this conversation opens again.
+      requestTask.abort()
     },
   }
 }

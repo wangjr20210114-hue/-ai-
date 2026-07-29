@@ -1,5 +1,7 @@
 """Stop endpoint — delegate cancellation to the Makers Agent runtime."""
 
+import asyncio
+
 from .._shared.auth import require_user, scoped_conversation_id
 from .._shared.http import error
 from .._shared.makers_conversation import RUNNING_STATES, read_chat_run, write_chat_run
@@ -21,18 +23,37 @@ async def handler(ctx):
         )
     # Active Makers runs are keyed by the incoming, public conversation id.
     result = ctx.utils.abortActiveRun(raw_target)
-    if active or result.aborted:
-        # abortActiveRun is the platform-level cancellation wheel. Publish a
-        # terminal marker immediately so /messages can unlock every browser
-        # without polling a detached producer for another acknowledgement.
+    latest = await read_chat_run(ctx.store, target)
+    if active:
+        # abortActiveRun closes the subscriber first. The chat generator then
+        # cancels its LangGraph producer and publishes the terminal marker.
+        # Wait briefly so a deliberate next send cannot share a thread with
+        # the old producer and have its checkpoint overwritten.
+        for _ in range(40):
+            if not (
+                isinstance(latest, dict)
+                and latest.get("status") in RUNNING_STATES
+            ):
+                break
+            await asyncio.sleep(0.1)
+            latest = await read_chat_run(ctx.store, target)
+    status = str((latest or {}).get("status") or "")
+    if not active and result.aborted and status not in {"cancelled", "completed", "failed"}:
         await write_chat_run(
             ctx.store,
             target,
             run_id=str(result.run_id or (stored.get("run_id") if isinstance(stored, dict) else "")),
             status="cancelled",
         )
+        status = "cancelled"
     return {
-        "status": "aborted" if result.aborted or active else "idle",
+        "status": (
+            "cancelled"
+            if status == "cancelled"
+            else "cancel_requested"
+            if status == "cancel_requested"
+            else "idle"
+        ),
         "conversation_id": raw_target,
         "run_id": result.run_id or (stored.get("run_id") if isinstance(stored, dict) else None),
     }

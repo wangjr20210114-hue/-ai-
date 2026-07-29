@@ -23,8 +23,14 @@ import {
 import {
   applyClarificationPatch,
   startChatStream,
+  stopMakerRun,
   type ActiveChatStream,
 } from '@/services/chat'
+import {
+  conversationRunActive,
+  recoverConversation,
+  recoveringMessages,
+} from '@/services/conversation-recovery'
 import {
   bootstrap,
   cacheMessages,
@@ -41,7 +47,6 @@ import {
   proactiveOperation,
   proactiveTickerLines,
 } from '@/services/proactive'
-import { apiRequest } from '@/services/request'
 import { ensureSession, readSession } from '@/services/session'
 import { workspaceOperation } from '@/services/workspace'
 import { updateNativeTabBar } from '@/services/tabbar'
@@ -184,27 +189,79 @@ export default function IndexPage() {
           setTimeout(() => void refreshAuthorizedLocation(id), 0)
           return
         }
-        const runActive = ['running', 'cancel_requested'].includes(String(data.run?.status || ''))
+        const runActive = conversationRunActive(data)
         const restored = Array.isArray(data.messages) ? data.messages : []
         const merged = mergeMessages(restored, cached)
-        const interrupted = restoredConversationWasInterrupted(merged, runActive)
-        const normalized = settleStoppedMessages(merged)
         if (runActive) {
-          void apiRequest('/stop', {
-            method: 'POST',
-            data: { conversation_id: id },
-            timeout: 5_000,
-          }).catch(() => undefined)
+          let recoveryDetached = false
+          const runId = String(data.run?.run_id || Date.now())
+          const recoveryControl: ActiveChatStream = {
+            async stop() {
+              recoveryDetached = true
+              await stopMakerRun(id).catch(() => undefined)
+            },
+            detach() {
+              recoveryDetached = true
+            },
+          }
+          activeStream.current = recoveryControl
+          publish(recoveringMessages(merged, `recovering-${runId}`))
+          setStatusText(translate('restoringAnswer', {}, language))
+
+          const recovered = await recoverConversation(id, {
+            initial: data,
+            cancelled: () => disposed || recoveryDetached,
+            onSnapshot(snapshot) {
+              if (disposed || recoveryDetached) return
+              const snapshotMessages = Array.isArray(snapshot.messages) ? snapshot.messages : []
+              const next = mergeMessages(snapshotMessages, messagesRef.current, {
+                preserveStreaming: conversationRunActive(snapshot),
+              })
+              if (conversationRunActive(snapshot)) {
+                publish(recoveringMessages(next, `recovering-${runId}`))
+              }
+            },
+          })
+          if (disposed || recoveryDetached) return
+          activeStream.current = null
+          setStatusText('')
+          const finalMessages = settleStoppedMessages(mergeMessages(
+            Array.isArray(recovered.data.messages) ? recovered.data.messages : [],
+            messagesRef.current,
+          ))
+          const interrupted = (
+            recovered.timedOut
+            || restoredConversationWasInterrupted(finalMessages, false)
+          )
+          if (recovered.timedOut) {
+            await stopMakerRun(id).catch(() => undefined)
+          }
+          publish(interrupted
+            ? [...finalMessages, {
+              id: `interrupted-${runId}`,
+              role: 'ai',
+              content: translate(
+                recovered.timedOut ? 'recoveryTimedOut' : 'previousInterrupted',
+                {},
+                language,
+              ),
+              ts: Date.now(),
+              failed: true,
+            }]
+            : finalMessages)
+        } else {
+          const normalized = settleStoppedMessages(merged)
+          const interrupted = restoredConversationWasInterrupted(normalized, false)
+          publish(interrupted
+            ? [...normalized, {
+              id: `interrupted-${Date.now()}`,
+              role: 'ai',
+              content: translate('previousInterrupted', {}, language),
+              ts: Date.now(),
+              failed: true,
+            }]
+            : normalized)
         }
-        publish(interrupted
-          ? [...normalized, {
-            id: `interrupted-${Date.now()}`,
-            role: 'ai',
-            content: translate('previousInterrupted', {}, language),
-            ts: Date.now(),
-            failed: true,
-          }]
-          : normalized)
         setTimeout(() => void refreshReminders('page_open', id), 0)
         setTimeout(() => void refreshAuthorizedLocation(id), 0)
       } catch (reason) {
@@ -213,7 +270,7 @@ export default function IndexPage() {
     })()
     return () => {
       disposed = true
-      activeStream.current?.stop().catch(() => undefined)
+      activeStream.current?.detach()
       activeStream.current = null
     }
     // Login/bootstrap only runs once for this page instance.
@@ -485,11 +542,14 @@ export default function IndexPage() {
   const stop = async () => {
     const stream = activeStream.current
     activeStream.current = null
-    if (stream) await stream.stop()
     setStatusText('')
     publish((current) => current
       .filter((message) => !message.streaming || Boolean(message.content || message.clarification || message.workspaceActions?.length))
       .map((message) => ({ ...message, streaming: false })))
+    // Restore the composer immediately. The durable Makers cancellation can
+    // finish in parallel; the next deliberate send observes its pending
+    // marker and will not start another graph writer prematurely.
+    if (stream) await stream.stop()
   }
 
   const createNew = async () => {

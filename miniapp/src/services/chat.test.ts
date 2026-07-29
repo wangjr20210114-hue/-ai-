@@ -57,7 +57,7 @@ describe('chat stop ownership', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.storage.clear()
-    mocks.apiRequest.mockResolvedValue({ ok: true })
+    mocks.apiRequest.mockResolvedValue({ status: 'cancelled' })
     mocks.startChunkedSse.mockResolvedValue({ abort: vi.fn() })
   })
 
@@ -147,6 +147,33 @@ describe('chat stop ownership', () => {
 
     expect(mocks.startChunkedSse).not.toHaveBeenCalled()
     expect(mocks.storage.get('floris.miniapp.manual-stop.yb7_stop_barrier')).toEqual({
+      state: 'pending',
+    })
+  })
+
+  it('keeps a cancel-requested marker pending instead of sharing one graph thread', async () => {
+    mocks.storage.set('floris.miniapp.manual-stop.yb7_cancelling', { state: 'pending' })
+    mocks.apiRequest.mockResolvedValueOnce({ status: 'cancel_requested' })
+
+    await expect(startChatStream(
+      'yb7_cancelling',
+      {
+        activity: 'asked',
+        text: '下一问',
+        message_id: 'u2',
+        client_message_id: 'u2',
+        reference_images: [],
+        response_language: 'zh-CN',
+      },
+      {
+        onPatch: vi.fn(),
+        onDone: vi.fn(),
+        onError: vi.fn(),
+      },
+    )).rejects.toThrow('上一次生成还在停止')
+
+    expect(mocks.startChunkedSse).not.toHaveBeenCalled()
+    expect(mocks.storage.get('floris.miniapp.manual-stop.yb7_cancelling')).toEqual({
       state: 'pending',
     })
   })
