@@ -160,7 +160,8 @@ button[disabled] {
 
 /* 原生 switch 默认尺寸偏大，统一收敛 */
 switch {
-  transform: scale(.86);
+  transform: scale(.78);
+  transform-origin: right center;
 }
 
 @media (prefers-reduced-motion: reduce) {
