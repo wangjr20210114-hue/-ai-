@@ -16,6 +16,7 @@ import { ensureSession } from '@/services/session'
 import { localeFor, readLanguage, translate, type Language } from '@/i18n'
 import { updateNativeTabBar } from '@/services/tabbar'
 import { readNativeCache, writeNativeCache } from '@/services/native-cache'
+import SkeletonState from '@/components/SkeletonState'
 import './index.scss'
 
 const PENDING_PROMPT_KEY = 'floris.miniapp.pending-proactive-prompt.v1'
@@ -131,6 +132,7 @@ export default function ProactivePage() {
         aria-label={translate('refresh', {}, language)}
         onClick={() => void load(true)}>↻</Button>
     </View>
+    {loading && !notifications.length && !workflows.length ? <SkeletonState rows={4} /> : null}
     {!loading && !notifications.length && !workflows.length
       ? <View className='proactive-empty'>
         <Text className='proactive-empty-icon'>🐾</Text>

@@ -7,6 +7,10 @@
 .proactive-empty { min-height: 42vh; padding: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; color: var(--floris-text-3); text-align: center; font-size: 22px; line-height: 1.55; }
 .proactive-empty-icon { width: 96px; height: 96px; margin-bottom: 6px; border-radius: 32px; display: flex; align-items: center; justify-content: center; font-size: 46px; line-height: 1; background: linear-gradient(145deg, var(--floris-accent-soft), var(--floris-panel)); animation: halo-breathe 3.6s ease-in-out infinite; }
 .proactive-item, .workflow-item { position: relative; margin-bottom: 14px; padding: 22px; border: 1px solid var(--floris-border); border-radius: 26px; background: var(--floris-panel); box-shadow: var(--floris-shadow); animation: proactive-card-in 260ms cubic-bezier(.16,1,.3,1) both; }
+.proactive-item:nth-child(2), .workflow-item:nth-child(2) { animation-delay: 50ms; }
+.proactive-item:nth-child(3), .workflow-item:nth-child(3) { animation-delay: 100ms; }
+.proactive-item:nth-child(4), .workflow-item:nth-child(4) { animation-delay: 150ms; }
+.proactive-item:nth-child(n+5), .workflow-item:nth-child(n+5) { animation-delay: 200ms; }
 .proactive-item.priority-high::before { content: ''; position: absolute; left: 0; top: 24px; bottom: 24px; width: 5px; border-radius: 0 999px 999px 0; background: var(--floris-danger); }
 .workflow-item { border-color: var(--floris-border-strong); }
 .workflow-eyebrow { display: block; margin-bottom: 8px; color: var(--floris-accent); font-size: 20px; font-weight: 650; }

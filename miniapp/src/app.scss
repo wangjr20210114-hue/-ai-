@@ -122,6 +122,29 @@ button[disabled] {
   0%, 100% { box-shadow: 0 16px 40px rgba(223, 107, 45, .18), 0 0 0 10px rgba(237, 106, 44, .06), 0 0 0 22px rgba(237, 106, 44, .035); }
   50% { box-shadow: 0 20px 48px rgba(223, 107, 45, .24), 0 0 0 14px rgba(237, 106, 44, .08), 0 0 0 30px rgba(237, 106, 44, .045); }
 }
+@keyframes content-reveal {
+  from { opacity: 0; transform: translate3d(0, 6px, 0) scale(.99); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+/* ---- 统一骨架屏（各页首次加载共用） ---- */
+@keyframes floris-shimmer {
+  0% { background-position: 130% 0; }
+  100% { background-position: -30% 0; }
+}
+.fl-skeleton,
+.skeleton-state-bar {
+  overflow: hidden;
+  border-radius: 999px;
+  background: linear-gradient(100deg, var(--floris-panel-soft) 18%, var(--floris-panel) 42%, var(--floris-panel-soft) 66%);
+  background-size: 220% 100%;
+  animation: floris-shimmer 1.25s ease-in-out infinite;
+}
+.skeleton-state { padding: 30px 26px; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box; }
+.skeleton-state-bar { height: 24px; }
+.skeleton-state-bar-1 { width: 58%; height: 34px; }
+.skeleton-state-bar-2 { width: 88%; }
+.skeleton-state-bar-3 { width: 44%; }
 
 /* 原生 switch 默认尺寸偏大，统一收敛 */
 switch {

@@ -18,6 +18,7 @@ import { apiRequest } from '@/services/request'
 import { readNativeCache, writeNativeCache } from '@/services/native-cache'
 import { ensureSession } from '@/services/session'
 import { updateNativeTabBar } from '@/services/tabbar'
+import SkeletonState from '@/components/SkeletonState'
 import { workspaceOperation } from '@/services/workspace'
 import { localeFor, readLanguage, translate, type Language } from '@/i18n'
 import './index.scss'
@@ -353,7 +354,7 @@ export default function CalendarPage() {
     </View> : null}
 
     {readOnly ? <Text className='calendar-readonly'>{translate('calendarReadOnly', {}, language)}</Text> : null}
-    {loading ? <Text className='calendar-state'>{translate('loadingCalendar', {}, language)}</Text> : null}
+    {loading ? <SkeletonState rows={4} /> : null}
     {!loading && !daySchedules.length
       ? <View className='calendar-state calendar-state-empty'>
         <Text className='calendar-empty-icon'>🗓️</Text>

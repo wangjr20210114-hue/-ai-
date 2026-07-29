@@ -1,6 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Taro, { useDidShow } from '@tarojs/taro'
-import { Button, Input, Picker, Slider, Switch, Text, View } from '@tarojs/components'
+import { Button, Image, Input, Picker, Slider, Switch, Text, View } from '@tarojs/components'
+import {
+  readProfile,
+  saveAvatarFromChoose,
+  saveNickName,
+  subscribeProfile,
+  type UserProfile,
+} from '@/services/profile'
 import type { MiniappSession } from '@floris/contracts'
 import { capabilityEnabled } from '@floris/contracts'
 import { getOrCreateConversationId } from '@/services/conversations'
@@ -12,6 +19,7 @@ import {
 import { apiRequest } from '@/services/request'
 import { ensureSession } from '@/services/session'
 import { readNativeCache, writeNativeCache } from '@/services/native-cache'
+import SkeletonState from '@/components/SkeletonState'
 import {
   getProviderUsage,
   meteredProviderValue,
@@ -83,6 +91,8 @@ export default function SettingsPage() {
   const [providerUsageError, setProviderUsageError] = useState(false)
   const [resetVisible, setResetVisible] = useState(false)
   const [resetPassword, setResetPassword] = useState('')
+  const [profile, setProfile] = useState<UserProfile>(() => readProfile())
+  useEffect(() => subscribeProfile(setProfile), [])
   const preferences = state.skill_preferences || {}
   const skills = state.skill_catalog || []
   const searchEnabled = capabilityEnabled(skills, preferences, 'web_search')
@@ -270,7 +280,7 @@ export default function SettingsPage() {
   const proactiveEnabled = capabilityEnabled(skills, preferences, 'workflow_action')
   const proactivePreferences = proactive.preferences || {}
 
-  if (loading) return <View className='settings-state'>{translate('loadingSettings', {}, language)}</View>
+  if (loading) return <View className='settings'><SkeletonState rows={6} /></View>
   if (error) return <View className='settings-state'><Text>{error}</Text><Button onClick={() => void load()}>{translate('retry', {}, language)}</Button></View>
 
   return <View className='settings-page'>
@@ -280,6 +290,36 @@ export default function SettingsPage() {
         <Text className='settings-title'>{translate('settingsOverview', {}, language)}</Text>
       </View>
       <Text className='settings-mark'>⌘</Text>
+    </View>
+    <View className='setting-section profile-section'>
+      <Text className='section-title'>{translate('profileSection', {}, language)}</Text>
+      <View className='profile-row'>
+        <Button
+          className='profile-avatar-btn'
+          openType='chooseAvatar'
+          aria-label={translate('profileAvatarHint', {}, language)}
+          onChooseAvatar={(event) => {
+            const avatarUrl = event.detail?.avatarUrl
+            if (avatarUrl) void saveAvatarFromChoose(avatarUrl).then(setProfile)
+          }}
+        >
+          {profile.avatarUrl
+            ? <Image className='profile-avatar-img' src={profile.avatarUrl} mode='aspectFill' />
+            : <Text className='profile-avatar-fallback'>🐾</Text>}
+          <Text className='profile-avatar-badge'>＋</Text>
+        </Button>
+        <View className='profile-fields'>
+          <Input
+            className='profile-nickname'
+            type='nickname'
+            value={profile.nickName}
+            placeholder={translate('profileNicknamePlaceholder', {}, language)}
+            onBlur={(event) => setProfile(saveNickName(event.detail.value))}
+            onConfirm={(event) => setProfile(saveNickName(event.detail.value))}
+          />
+          <Text className='profile-hint'>{translate('profileSyncHint', {}, language)}</Text>
+        </View>
+      </View>
     </View>
     <View className='setting-section workspace-section'>
       <Text className='section-title'>{translate('workspace', {}, language)}</Text>

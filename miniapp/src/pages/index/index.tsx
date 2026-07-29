@@ -14,6 +14,7 @@ import {
 } from '@floris/contracts'
 import MessageBubble from '@/components/MessageBubble'
 import type { WorkspaceOperation } from '@/components/WorkspaceActionCard'
+import { readProfile, type UserProfile } from '@/services/profile'
 import {
   normalizeLanguage,
   translate,
@@ -101,6 +102,7 @@ export default function IndexPage() {
   const [tickerLines, setTickerLines] = useState<string[]>([])
   const [reminderIndex, setReminderIndex] = useState(0)
   const [language, setLanguage] = useState<Language>(() => normalizeLanguage(Taro.getStorageSync('floris-language')))
+  const [profile, setProfile] = useState<UserProfile>(() => readProfile())
   const activeStream = useRef<ActiveChatStream | null>(null)
   const messagesRef = useRef<ChatMessage[]>(initial.messages)
   const streaming = messages.some((message) => message.streaming)
@@ -281,6 +283,7 @@ export default function IndexPage() {
     const nextLanguage = normalizeLanguage(Taro.getStorageSync('floris-language'))
     setLanguage(nextLanguage)
     void updateNativeTabBar(nextLanguage)
+    setProfile(readProfile())
     const pendingPrompt = String(Taro.getStorageSync(PENDING_PROACTIVE_PROMPT_KEY) || '')
     if (pendingPrompt && !streaming) {
       Taro.removeStorageSync(PENDING_PROACTIVE_PROMPT_KEY)
@@ -697,7 +700,9 @@ export default function IndexPage() {
           showScrollbar={false}
         >
           {!ready ? <View className='chat-loading'>
-            <View className='loading-avatar' />
+            <View className='loading-avatar-halo'>
+              <Image className='loading-avatar-img' src={florisAvatar} mode='aspectFill' />
+            </View>
             <View className='loading-copy loading-copy-wide' />
             <View className='loading-copy' />
             <View className='loading-card-row'>
@@ -728,6 +733,7 @@ export default function IndexPage() {
             message={message}
             statusText={message.streaming ? statusText : ''}
             actionBusy={actionBusy}
+            userAvatarUrl={profile.avatarUrl}
             onClarification={submitClarification}
             onAction={executeAction}
             onFollowUp={(value) => void sendText(value)}

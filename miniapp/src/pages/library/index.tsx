@@ -17,6 +17,7 @@ import { apiRequest } from '@/services/request'
 import { readNativeCache, writeNativeCache } from '@/services/native-cache'
 import { updateNativeTabBar } from '@/services/tabbar'
 import { readLanguage, translate, type Language } from '@/i18n'
+import SkeletonState from '@/components/SkeletonState'
 import './index.scss'
 
 const ALL_FOLDER = '__all__'
@@ -275,7 +276,7 @@ export default function LibraryPage() {
       </Button>
     </View> : null}
 
-    {loading ? <Text className='library-state'>{translate('loadingReading', {}, language)}</Text> : null}
+    {loading ? <SkeletonState rows={5} /> : null}
     {!loading && !visibleItems.length ? <View className='library-state'>
       <Text className='library-empty-icon'>📚</Text>
       <Text>{translate('noReading', {}, language)}</Text>

@@ -14,6 +14,7 @@ interface Props {
   message: ChatMessage
   statusText?: string
   actionBusy?: string
+  userAvatarUrl?: string
   onClarification: (message: ChatMessage, values: Record<string, string | string[]>) => void
   onAction: (
     action: WorkspaceAction,
@@ -28,6 +29,7 @@ export default function MessageBubble({
   message,
   statusText,
   actionBusy,
+  userAvatarUrl,
   onClarification,
   onAction,
   onFollowUp,
@@ -36,6 +38,7 @@ export default function MessageBubble({
   const ai = message.role === 'ai'
   return <View className={`message-row ${ai ? 'assistant-row' : 'user-row'}`}>
     {ai ? <Image className='assistant-avatar' src={florisAvatar} mode='aspectFill' /> : null}
+    {!ai && userAvatarUrl ? <Image className='user-avatar' src={userAvatarUrl} mode='aspectFill' /> : null}
     <View className={`message-bubble ${ai ? 'assistant-bubble' : 'user-bubble'} ${message.failed ? 'failed-bubble' : ''}`}>
       {ai && message.content && !message.streaming ? <View
         className='message-copy'
