@@ -1290,15 +1290,11 @@ async def handler(ctx):
                 status="cancelled",
             )
         elif allow_after_stop:
-            # The browser may have lost the first /stop response while the
-            # user was offline. Reuse Maker's cancellation primitive once
-            # more on the next deliberate send, then hand ownership to this
-            # new run instead of returning a misleading 409.
-            raw_target = str(getattr(ctx, "conversation_id", "") or conversation_id)
-            try:
-                ctx.utils.abortActiveRun(raw_target)
-            except Exception:
-                logging.exception("maker abort retry failed conversation=%s", conversation_id)
+            # /stop already delegates cancellation to Makers abortActiveRun.
+            # At this point Makers has registered the deliberate new /chat as
+            # the active run for this conversation, so aborting by the same id
+            # again would cancel the new request itself. Consume the durable
+            # manual-stop intent and hand ownership directly to this run.
             await write_chat_run(
                 ctx.store,
                 conversation_id,

@@ -34,6 +34,7 @@ const catalog = {
   loginExpired: ['登录状态已失效，请重新发送', '登入狀態已失效，請重新傳送', 'Your session expired. Send again.', '登录过期啦，再发一次喵', '登录已失效。请重新发送'],
   networkEnded: ['网络连接提前结束，请点击重试', '網路連線提前結束，請點擊重試', 'The connection ended early. Tap Retry.', '网络断开啦，点重试喵', '连接提前结束。请重试'],
   networkFailed: ['网络请求失败，请重试', '網路請求失敗，請重試', 'Network request failed. Try again.', '网络没连好，再试一次喵', '网络请求失败。请重试'],
+  stopConfirmFailed: ['上一次生成还在停止，请稍后重试', '上一次產生仍在停止，請稍後重試', 'The previous response is still stopping. Try again shortly.', '上一次还没停稳，稍后再试喵', '上一次生成尚未停止。请稍后重试'],
   generationFailed: ['生成失败，请重试', '產生失敗，請重試', 'Generation failed. Try again.', '这次没生成好，再试一次喵', '生成失败。请重试'],
   imageTooLarge: ['图片过大，请选择更小的图片', '圖片過大，請選擇較小的圖片', 'The image is too large. Choose a smaller one.', '图片太大啦，换一张小一点的喵', '图片过大。请选择较小图片'],
   fileUploadFailed: ['文件上传失败，请重试', '檔案上傳失敗，請重試', 'File upload failed. Try again.', '文件没传上去，再试一次喵', '文件上传失败。请重试'],

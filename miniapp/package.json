@@ -9,6 +9,7 @@
     "assets:tabs": "node scripts/generate-tab-icons.mjs",
     "dev:weapp": "taro build --type weapp --watch --no-check",
     "preflight": "node scripts/preflight.mjs",
+    "runtime:smoke": "node scripts/runtime-smoke.mjs",
     "visual:smoke": "node scripts/visual-smoke.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
