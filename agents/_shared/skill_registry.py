@@ -24,8 +24,13 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
+from .._application.skills.runtime_ports import (
+    SERVICE_PERMISSIONS,
+    SkillServices,
+)
 
 SKILL_MANIFEST_SCHEMA_VERSION = 2
+SYSTEM_ADAPTER_PREFIX = "agents._skill_adapters."
 _SKILL_ID = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 _CAPABILITY_ID = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 _TOOL_ID = re.compile(r"^[a-z][a-z0-9_]{1,95}$")
@@ -44,6 +49,7 @@ _PERMISSIONS = {
 }
 from .component_api import (  # noqa: E402
     COMPONENT_PERMISSIONS,
+    component_envelope,
     component_permission,
     known_component_actions,
 )
@@ -147,6 +153,8 @@ class SkillRuntimeContext:
         "skill_id",
         "permissions",
         "conversation_id",
+        "request_id",
+        "tenant_id",
         "user_id",
         "env",
         "_state_store",
@@ -155,6 +163,8 @@ class SkillRuntimeContext:
         "_tracer",
         "_browser_location",
         "_components",
+        "_component_actions",
+        "_services",
         "_kind",
     )
 
@@ -167,8 +177,33 @@ class SkillRuntimeContext:
             if "conversation.read" in self.permissions
             else ""
         )
+        raw_identity = (
+            runtime.get("identity")
+            if isinstance(runtime.get("identity"), Mapping)
+            else {}
+        )
+        self.request_id = str(
+            runtime.get("request_id")
+            or raw_identity.get("request_id")
+            or self.conversation_id
+            or ""
+        )
+        self.tenant_id = (
+            str(
+                raw_identity.get("tenant_id")
+                or runtime.get("tenant_id")
+                or ""
+            )
+            if "user.read" in self.permissions
+            else ""
+        )
         self.user_id = (
-            str(runtime.get("user_id") or "")
+            str(
+                raw_identity.get("subject_id")
+                or raw_identity.get("user_id")
+                or runtime.get("user_id")
+                or ""
+            )
             if "user.read" in self.permissions
             else ""
         )
@@ -206,6 +241,13 @@ class SkillRuntimeContext:
         self._components = (
             runtime.get("components")
             if isinstance(runtime.get("components"), Mapping)
+            else {}
+        )
+        self._component_actions = frozenset(manifest.component_actions)
+        services = runtime.get("services")
+        self._services = (
+            services
+            if isinstance(services, (Mapping, SkillServices))
             else {}
         )
 
@@ -249,6 +291,11 @@ class SkillRuntimeContext:
         clean_action = str(action or "").strip()
         if clean_action not in known_component_actions():
             raise ValueError(f"Unknown Floris component action {clean_action!r}")
+        if clean_action not in self._component_actions:
+            raise PermissionError(
+                f"Skill {self.skill_id} did not declare component action "
+                f"{clean_action}"
+            )
         permission = component_permission(clean_action)
         if (
             permission not in self.permissions
@@ -263,7 +310,37 @@ class SkillRuntimeContext:
         handler = self._components.get(clean_action)
         if not callable(handler):
             raise RuntimeError(f"Component action {clean_action} is unavailable")
-        return handler
+        def dispatch(payload: Mapping[str, Any]):
+            envelope = component_envelope(
+                clean_action,
+                payload,
+                request_id=self.request_id,
+                tenant_id=self.tenant_id,
+                user_id=self.user_id,
+            )
+            return handler(envelope)
+
+        return dispatch
+
+    def service(self, name: str):
+        """Return only a declared, controller-supplied application service."""
+        clean_name = str(name or "").strip()
+        permission = SERVICE_PERMISSIONS.get(clean_name)
+        if permission is None:
+            raise ValueError(f"Unknown Skill service {clean_name!r}")
+        if permission not in self.permissions:
+            raise PermissionError(
+                f"Skill {self.skill_id} did not declare service permission "
+                f"{permission}"
+            )
+        value = (
+            self._services.get(clean_name)
+            if isinstance(self._services, Mapping)
+            else self._services.get(clean_name)
+        )
+        if value is None:
+            raise RuntimeError(f"Skill service {clean_name} is unavailable")
+        return value
 
     def trace(self, name: str, attributes: Mapping[str, Any] | None = None) -> None:
         self.require("makers.trace")
@@ -298,6 +375,42 @@ def _localized(value: Any, fallback: str) -> Mapping[str, str]:
         "zh-TW": str(raw.get("zh-TW") or simplified).strip(),
         "en": english,
     })
+
+
+def validate_adapter_entrypoint(manifest: SkillManifest) -> None:
+    """Allow executable adapters only from the trusted system namespace."""
+    if not manifest.adapter:
+        return
+    module_name, separator, function_name = manifest.adapter.partition(":")
+    if manifest.kind != "system":
+        raise ValueError(
+            f"Unreviewed Skill {manifest.id} cannot declare an executable adapter"
+        )
+    if (
+        not separator
+        or not module_name.startswith(SYSTEM_ADAPTER_PREFIX)
+        or module_name == SYSTEM_ADAPTER_PREFIX.rstrip(".")
+        or function_name != "build_tools"
+    ):
+        raise ValueError(
+            f"Skill {manifest.id} must use a trusted system adapter"
+        )
+
+
+def validate_preference_hook_entrypoint(manifest: SkillManifest) -> None:
+    """Preference lifecycle code follows the same repository trust boundary."""
+    if not manifest.preference_hook:
+        return
+    module_name, separator, function_name = manifest.preference_hook.partition(":")
+    if (
+        manifest.kind != "system"
+        or not separator
+        or not module_name.startswith(SYSTEM_ADAPTER_PREFIX)
+        or not function_name
+    ):
+        raise ValueError(
+            f"Skill {manifest.id} must use a trusted system preference hook"
+        )
 
 
 def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
@@ -404,7 +517,7 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
     recovery_tools = _string_tuple(planner.get("recovery_tools"))
     if any(not _TOOL_ID.fullmatch(item) for item in recovery_tools):
         raise ValueError(f"{source}: invalid planner recovery tool")
-    return SkillManifest(
+    manifest = SkillManifest(
         id=skill_id,
         version=version,
         kind=kind,
@@ -449,6 +562,9 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         component_actions=component_actions,
         skill_instructions=str(raw.get("_skill_instructions") or "").strip()[:12_000],
     )
+    validate_adapter_entrypoint(manifest)
+    validate_preference_hook_entrypoint(manifest)
+    return manifest
 
 
 def _validate_registry(manifests: Iterable[SkillManifest]) -> tuple[SkillManifest, ...]:
@@ -838,12 +954,27 @@ def build_adapter_tools(
     allowed by their manifest and must return tools whose names the manifest
     owns.
     """
-    enabled = set(enabled_skills)
+    enabled = set(resolve_enabled_skills(enabled_skills))
+    raw_identity = (
+        runtime.get("identity")
+        if isinstance(runtime.get("identity"), Mapping)
+        else {}
+    )
+    membership = str(
+        raw_identity.get("membership")
+        or runtime.get("membership")
+        or "free"
+    ).strip().lower()
+    plan_rank = {"guest": 0, "free": 1, "plus": 2, "pro": 3}
+    current_rank = plan_rank.get(membership, 1)
     built: list[Any] = []
+    built_names: set[str] = set()
     for manifest in skill_manifests():
         if not manifest.adapter or manifest.id not in enabled:
             continue
         if any(dependency not in enabled for dependency in manifest.requires):
+            continue
+        if current_rank < plan_rank[manifest.required_plan]:
             continue
         if not all(
             bool(str((runtime.get("env") or {}).get(key) or "").strip())
@@ -868,11 +999,33 @@ def build_adapter_tools(
         tools = list(result or [])
         declared = {binding.name for binding in manifest.tools}
         returned = {str(getattr(tool, "name", "") or "") for tool in tools}
+        if len(returned) != len(tools) or "" in returned:
+            raise ValueError(
+                f"Skill {manifest.id} adapter returned duplicate or unnamed tools"
+            )
         if not returned.issubset(declared):
             raise ValueError(
                 f"Skill {manifest.id} adapter returned undeclared tools "
                 f"{sorted(returned - declared)}"
             )
+        required = {
+            binding.name
+            for binding in manifest.tools
+            if binding.required
+        }
+        missing_required = required - returned
+        if missing_required:
+            raise ValueError(
+                f"Skill {manifest.id} adapter did not return required tools "
+                f"{sorted(missing_required)}"
+            )
+        duplicate_global = built_names.intersection(returned)
+        if duplicate_global:
+            raise ValueError(
+                "Skill adapter tool names must be globally unique: "
+                f"{sorted(duplicate_global)}"
+            )
+        built_names.update(returned)
         built.extend(tools)
     return built
 

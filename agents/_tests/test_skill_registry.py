@@ -231,7 +231,7 @@ class SkillRegistryContractTests(unittest.TestCase):
             _ = context.browser_location
 
     def test_adapter_can_reuse_makers_model_without_central_registration(self):
-        module_name = "agents._tests._runtime_skill_adapter"
+        module_name = "agents._skill_adapters._runtime_skill_adapter"
         module = types.ModuleType(module_name)
         observed = {}
 
