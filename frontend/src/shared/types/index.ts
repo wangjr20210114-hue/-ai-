@@ -1,4 +1,4 @@
-// 全局类型定义
+// Shared public type contracts used by feature models and app composition.
 
 export type ThemeMode = 'light' | 'dark';
 

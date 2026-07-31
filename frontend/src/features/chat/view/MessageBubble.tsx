@@ -3,9 +3,9 @@ import { Button, MessagePlugin } from 'tdesign-react';
 import { CheckIcon, CopyIcon, ImageIcon } from 'tdesign-icons-react';
 import { toBlob } from 'html-to-image';
 import { useAppDispatch } from '../../../store/appState';
-import type { ChatMessage, ClarificationPrompt, TravelPlan, SkillInfo, MeetingResult, ScheduleItem, WorkspaceAction } from '../../../types';
+import type { ChatMessage, ClarificationPrompt, TravelPlan, SkillInfo, MeetingResult, ScheduleItem, WorkspaceAction } from '../../../shared/types';
 import type { ChatClient } from '../../../services/chatClient';
-import { proactiveOperation, workspaceOperation } from '../../../services/api';
+import { proactiveOperation, workspaceOperation } from '../../../app/apiComposition';
 import TravelPlanCard from '../../../components/travel/TravelPlanCard';
 import PaperListCard from '../../../components/paper/PaperListCard';
 import PaperInlineReader from '../../../components/paper/PaperInlineReader';
@@ -21,7 +21,7 @@ import {
   clarificationSubmissionText,
 } from '../../../components/chat/clarificationSubmission';
 import { loadProactiveDocumentContext } from '../../../services/proactiveDocument';
-import type { ProactiveNotification, ProactiveState } from '../../../types';
+import type { ProactiveNotification, ProactiveState } from '../../../shared/types';
 import { markdownToPlainText } from '../../../components/common/richContent';
 import { getStoredLanguage, translate, useLanguage } from '../../../i18n';
 import type { AssistantChainPosition } from '../../../components/chat/assistantMessageChain';

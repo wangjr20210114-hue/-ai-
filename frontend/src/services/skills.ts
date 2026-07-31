@@ -1,4 +1,4 @@
-import type { InstalledSkill } from '../types';
+import type { InstalledSkill } from '../shared/types';
 
 function effectiveSkillEnabled(
   catalog: InstalledSkill[],

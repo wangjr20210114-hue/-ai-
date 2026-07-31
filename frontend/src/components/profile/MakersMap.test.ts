@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
 import { chronologicalSchedulePlaces, shouldPlanMakersRoute } from './makersMapRouting';
-import type { MakersMapPlace, ScheduleItem } from '../../types';
+import type { MakersMapPlace, ScheduleItem } from '../../shared/types';
 
 describe('MakersMap geolocation recovery', () => {
   it('reuses a recent authorized location after a page refresh', () => {

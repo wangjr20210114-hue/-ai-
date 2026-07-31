@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ChatMessage } from '../../../types';
+import type { ChatMessage } from '../../../shared/types';
 import { selectRenderer } from './renderers/rendererRegistry';
 
 

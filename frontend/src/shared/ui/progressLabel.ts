@@ -2,7 +2,7 @@ import type {
   StructuredProgressActivity,
   StructuredProgressStage,
   StructuredProgressStep,
-} from '../../types';
+} from '../../shared/types';
 import type { TranslationKey } from '../../i18n';
 
 

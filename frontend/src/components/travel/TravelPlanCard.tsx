@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Button, Tag, MessagePlugin, Collapse } from 'tdesign-react';
 import { CheckIcon, DeleteIcon } from 'tdesign-icons-react';
-import { workspaceOperation } from '../../services/api';
+import { workspaceOperation } from '../../app/apiComposition';
 import { useAppDispatch, useAppState } from '../../store/appState';
-import type { TravelPlan, ScheduleItem } from '../../types';
+import type { TravelPlan, ScheduleItem } from '../../shared/types';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import RouteMap from './RouteMap';
 import { useLanguage } from '../../i18n';

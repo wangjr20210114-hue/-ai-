@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Tag, Loading, MessagePlugin } from 'tdesign-react';
-import { planMakersRoute, searchMakersPlaces } from '../../services/api';
+import { planMakersRoute, searchMakersPlaces } from '../../app/apiComposition';
 import { useAppState } from '../../store/appState';
-import type { MakersRoutePlan } from '../../types';
+import type { MakersRoutePlan } from '../../shared/types';
 import { useLanguage } from '../../i18n';
 
 interface Props {

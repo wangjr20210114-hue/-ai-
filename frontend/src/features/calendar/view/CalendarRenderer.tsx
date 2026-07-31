@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../../../types';
+import type { ChatMessage } from '../../../shared/types';
 
 
 export function CalendarRenderer({ message }: { message: ChatMessage }) {

@@ -1,5 +1,5 @@
 import MarkdownRenderer from '../../../../components/common/MarkdownRenderer';
-import type { ChatMessage } from '../../../../types';
+import type { ChatMessage } from '../../../../shared/types';
 
 
 export function TextRenderer({

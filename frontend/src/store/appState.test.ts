@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { initialState, reducer } from './appState';
-import type { ChatMessage } from '../types';
+import type { ChatMessage } from '../shared/types';
 
 const userMessage: ChatMessage = {
   id: 'msg-1',

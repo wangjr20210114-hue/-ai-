@@ -10,7 +10,7 @@ import type {
   ConversationSummary,
   ProactiveState,
   DocumentContext,
-} from '../types';
+} from '../shared/types';
 import { translate } from '../i18n';
 
 const THEME_KEY = 'travel-theme';

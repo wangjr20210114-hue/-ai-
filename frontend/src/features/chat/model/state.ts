@@ -1,4 +1,4 @@
-import type { RichMediaAsset } from '../../../types';
+import type { RichMediaAsset } from '../../../shared/types';
 
 
 export interface ChatControllerState {

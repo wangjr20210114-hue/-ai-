@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ChatMessage } from '../types';
+import type { ChatMessage } from '../shared/types';
 import { clearLocalApplicationData, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, durableMessageCount, getOrCreateConversationId, hasDurableAssistantPayload, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
 import { CONVERSATION_PREFIX, isCurrentConversationId } from './dataVersion';
 

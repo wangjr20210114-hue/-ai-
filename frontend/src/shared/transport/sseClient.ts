@@ -1,3 +1,6 @@
+import { authorizedFetch } from '../auth/session';
+
+
 /** Parse complete SSE frames while retaining the final partial frame. */
 export function splitSseFrames(buffer: string): { frames: string[]; rest: string } {
   const normalized = buffer.replace(/\r\n/g, '\n');
@@ -24,7 +27,6 @@ export async function streamEvents(
   handlers: StreamEventHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const { authorizedFetch } = await import('../auth/session');
   const response = await authorizedFetch(path, { ...init, signal });
   if (!response.ok) {
     const detail = await response.text().catch(() => '');

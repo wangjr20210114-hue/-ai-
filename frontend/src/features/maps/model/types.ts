@@ -3,4 +3,4 @@ export type {
   MakersRouteMode,
   MakersRoutePlan,
   MakersRouteStrategy,
-} from '../../../types';
+} from '../../../shared/types';

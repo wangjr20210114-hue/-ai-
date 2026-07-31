@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { MessagePlugin } from 'tdesign-react';
-import { bootstrapApp, proactiveOperation } from '../../../services/api';
-import { ensureAuthSession, withEdgeOneAuth } from '../../../shared/auth/session';
+import { bootstrapApp, proactiveOperation } from '../../../app/apiComposition';
+import { authorizedFetch, ensureAuthSession } from '../../../shared/auth/session';
 import { presentableChatError } from '../../../services/chatError';
 import { durableMessageCount, hasDurableAssistantPayload, isDurableChatMessage, makersConversationHeaders, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../../../services/conversation';
 import { splitSseFrames } from '../../../shared/transport/sseClient';
 import { useAppDispatch, useAppState } from '../../../store/appState';
-import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, StructuredProgressStep, WorkspaceAction } from '../../../types';
+import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, StructuredProgressStep, WorkspaceAction } from '../../../shared/types';
 import { translate, type TranslationKey } from '../../../i18n';
 import {
   browserLocationRequestContext,
@@ -182,13 +182,12 @@ class SSEChatClient {
     await ensureAuthSession();
     const stopController = new AbortController();
     const stopTimer = window.setTimeout(() => stopController.abort(), STOP_TIMEOUT_MS);
-    const requestStop = (signal?: AbortSignal) => fetch(withEdgeOneAuth('/stop'), {
+    const requestStop = (signal?: AbortSignal) => authorizedFetch('/stop', {
       method: 'POST',
       // Makers documents that stop must not carry the target conversation
       // header, otherwise this request can replace the active run signal.
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ conversation_id: this.conversationId }),
-      credentials: 'same-origin',
       signal,
     });
     try {
@@ -283,7 +282,7 @@ class SSEChatClient {
       await ensureAuthSession();
       const browserLocation = currentBrowserLocation();
       const locationRequest = browserLocationRequestContext();
-      const response = await fetch(withEdgeOneAuth('/chat'), {
+      const response = await authorizedFetch('/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -296,7 +295,6 @@ class SSEChatClient {
           ...(allowAfterStop ? { _allow_after_stop: true } : {}),
         }),
         signal,
-        credentials: 'same-origin',
       });
 
       if (!response.ok) {

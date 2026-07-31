@@ -1,10 +1,12 @@
-import type { ChatMessage, ConversationSummary, TravelPlan, ScheduleItem, StoredFileInfo, MakersMapPlace, MakersRouteMode, MakersRouteStrategy, MakersRoutePlan, WorkspaceAction, ProactiveState, MakersIntelligenceState, ProviderUsageSummary, InstalledSkill, SkillMarketplaceState, SkillUploadRecord } from '../types';
+/** Transitional app composition over feature-owned route contracts. */
+import type { ChatMessage, ConversationSummary, TravelPlan, ScheduleItem, StoredFileInfo, MakersMapPlace, MakersRouteMode, MakersRouteStrategy, MakersRoutePlan, WorkspaceAction, ProactiveState, MakersIntelligenceState, ProviderUsageSummary, InstalledSkill, SkillMarketplaceState, SkillUploadRecord } from '../shared/types';
 
-import { authorizedFetch, withEdgeOneAuth } from './auth';
-import { createConversationId, makersConversationHeaders } from './conversation';
-import { splitSseFrames } from './sse';
-import { normalizeTimestamp } from './time';
-import { isCurrentConversationId } from './dataVersion';
+import { authorizedFetch, withEdgeOneAuth } from '../shared/auth/session';
+import { requestRaw } from '../shared/transport/httpClient';
+import { createConversationId, makersConversationHeaders } from '../services/conversation';
+import { splitSseFrames } from '../shared/transport/sseClient';
+import { normalizeTimestamp } from '../services/time';
+import { isCurrentConversationId } from '../services/dataVersion';
 import { translate } from '../i18n';
 
 export interface BootstrapData {
@@ -300,11 +302,11 @@ export async function uploadSkillPackage(file: File): Promise<SkillUploadRecord>
   if (!created.ok || !intent.upload_id || !intent.storage_key || !intent.url) {
     throw new Error(intent.error || 'Could not create Skill upload');
   }
-  const stored = await fetch(intent.url, {
+  const stored = await requestRaw(intent.url, {
     method: 'PUT',
     headers: { 'Content-Type': file.type || 'application/zip' },
     body: file,
-  });
+  }, false);
   if (!stored.ok) throw new Error(`Skill upload failed: HTTP ${stored.status}`);
   const completed = await authorizedFetch('/skill-uploads', {
     method: 'POST',
@@ -496,7 +498,15 @@ export async function uploadDocument(conversationId: string, file: File): Promis
   });
   const upload = await signed.json().catch(() => ({})) as { url?: string; key?: string; content_url?: string; error?: string };
   if (!signed.ok || !upload.url || !upload.key) throw new Error(upload.error || translate('blobUploadUrlFailed'));
-  const stored = await fetch(upload.url, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/pdf' }, body: file });
+  const stored = await requestRaw(
+    upload.url,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': file.type || 'application/pdf' },
+      body: file,
+    },
+    false,
+  );
   if (!stored.ok) throw new Error(translate('blobUploadFailed'));
   return {
     id: upload.key, original_name: file.name, mime_type: file.type || 'application/pdf', size_bytes: file.size,

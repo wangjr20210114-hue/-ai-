@@ -1,1 +1,1 @@
-export type { PaperInfo, StoredFileInfo } from '../../../types';
+export type { PaperInfo, StoredFileInfo } from '../../../shared/types';

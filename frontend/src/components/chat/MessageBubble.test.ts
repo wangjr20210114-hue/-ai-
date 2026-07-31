@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { WorkspaceAction } from '../../types';
+import type { WorkspaceAction } from '../../shared/types';
 import { generatedImageOpportunitySignal, nextWholeHourRange, usableMapPlaces } from './workspaceUi';
 
 function mapAction(places: WorkspaceAction['payload']['places']): WorkspaceAction {

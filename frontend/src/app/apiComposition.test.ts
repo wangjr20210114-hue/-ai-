@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getProviderUsage, planMakersRoute, resetApplicationData } from './api';
-import type { MakersMapPlace, MakersRoutePlan } from '../types';
+import { getProviderUsage, planMakersRoute, resetApplicationData } from './apiComposition';
+import type { MakersMapPlace, MakersRoutePlan } from '../shared/types';
 
 afterEach(() => vi.unstubAllGlobals());
 

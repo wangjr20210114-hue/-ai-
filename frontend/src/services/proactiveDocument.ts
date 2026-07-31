@@ -1,4 +1,4 @@
-import type { DocumentContext, ProactiveNotification } from '../types';
+import type { DocumentContext, ProactiveNotification } from '../shared/types';
 
 export function proactiveDocumentReference(
   notification: ProactiveNotification,

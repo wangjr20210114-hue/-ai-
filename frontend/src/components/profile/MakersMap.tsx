@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from 'tdesign-react';
-import { planMakersRoute, proactiveOperation } from '../../services/api';
+import { planMakersRoute, proactiveOperation } from '../../app/apiComposition';
 import { useAppDispatch } from '../../store/appState';
-import type { MakersMapPlace, MakersRouteMode, MakersRoutePlan, MakersRouteStrategy } from '../../types';
+import type { MakersMapPlace, MakersRouteMode, MakersRoutePlan, MakersRouteStrategy } from '../../shared/types';
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
 import { shouldPlanMakersRoute } from './makersMapRouting';
 import { translate, useLanguage } from '../../i18n';

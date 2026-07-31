@@ -3,9 +3,9 @@ import { Button, MessagePlugin, Textarea, Upload } from 'tdesign-react';
 import { SendIcon, AttachIcon } from 'tdesign-icons-react';
 import type { UploadFile } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
-import type { ChatMessage, WSMessage } from '../../types';
+import type { ChatMessage, WSMessage } from '../../shared/types';
 import type { ChatClient } from '../../services/chatClient';
-import { proactiveOperation, saveConversationMessage, uploadDocument } from '../../services/api';
+import { proactiveOperation, saveConversationMessage, uploadDocument } from '../../app/apiComposition';
 import { registerReadingItem } from '../../services/paperApi';
 import { getStoredLanguage, translate, useLanguage } from '../../i18n';
 

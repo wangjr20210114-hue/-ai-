@@ -8,9 +8,9 @@ import {
   progressTextForTool,
   restoredConversationWasInterrupted,
   terminalGenerationError,
-} from './useSSEChat';
-import type { ChatMessage, WorkspaceAction } from '../types';
-import type { SearchMeta } from '../types';
+} from './useChatController';
+import type { ChatMessage, WorkspaceAction } from '../../../shared/types';
+import type { SearchMeta } from '../../../shared/types';
 
 const media = [{
   id: 'media-1', kind: 'image' as const, url: 'https://example.com/news.jpg',

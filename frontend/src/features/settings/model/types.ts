@@ -1,5 +1,5 @@
 export type {
   MakersIntelligenceState,
   ProviderUsageSummary,
-} from '../../../types';
+} from '../../../shared/types';
 export type { AuthSession, SessionIdentity } from '../../../shared/auth/session';

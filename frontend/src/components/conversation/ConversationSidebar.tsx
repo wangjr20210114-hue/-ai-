@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
-import { createNewConversation, listConversations } from '../../services/api';
+import { createNewConversation, listConversations } from '../../app/apiComposition';
 import { reconcileConversationSummary, setActiveConversationId } from '../../services/conversation';
 import { useAppDispatch, useAppState } from '../../store/appState';
-import type { ConversationSummary } from '../../types';
+import type { ConversationSummary } from '../../shared/types';
 import { formatConversationTime } from '../../services/time';
 import AppSettingsButton from '../profile/AppSettingsButton';
 import SkillsMarketplaceButton from '../profile/SkillsMarketplaceButton';

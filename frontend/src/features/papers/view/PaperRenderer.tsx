@@ -1,5 +1,5 @@
 import PaperListCard from '../../../components/paper/PaperListCard';
-import type { ChatMessage } from '../../../types';
+import type { ChatMessage } from '../../../shared/types';
 
 
 export function PaperRenderer({ message }: { message: ChatMessage }) {

@@ -9,7 +9,7 @@ import {
   skillMarketplaceOperation,
   skillsOperation,
   uploadSkillPackage,
-} from '../../../services/api';
+} from '../../../app/apiComposition';
 import { currentAuthSession, startWechatLogin } from '../../../shared/auth/session';
 import { useAppState } from '../../../store/appState';
 import type {
@@ -17,7 +17,7 @@ import type {
   SkillConnectionState,
   SkillMarketplaceState,
   SkillUploadRecord,
-} from '../../../types';
+} from '../../../shared/types';
 import {
   filterMarketplaceSkills,
   localizedSkillText,

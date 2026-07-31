@@ -1,4 +1,4 @@
-import type { MakersMapPlace, ScheduleItem } from '../../types';
+import type { MakersMapPlace, ScheduleItem } from '../../shared/types';
 
 export function shouldPlanMakersRoute(showRoute: boolean, placesCount: number): boolean {
   return showRoute && placesCount >= 2;

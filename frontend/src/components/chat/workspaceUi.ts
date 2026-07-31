@@ -1,4 +1,4 @@
-import type { WorkspaceAction } from '../../types';
+import type { WorkspaceAction } from '../../shared/types';
 
 export function nextWholeHourRange(now = new Date()): { start: string; end: string } {
   const start = new Date(now);

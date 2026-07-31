@@ -4,7 +4,7 @@ import {
   reduceChatControllerEvent,
 } from '../model/events';
 import { initialChatControllerState } from '../model/state';
-import type { RichMediaAsset } from '../../../types';
+import type { RichMediaAsset } from '../../../shared/types';
 
 
 describe('chat controller event reduction', () => {

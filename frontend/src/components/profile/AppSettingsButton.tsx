@@ -8,7 +8,7 @@ import {
   intelligenceOperation,
   proactiveOperation,
   resetApplicationData,
-} from '../../services/api';
+} from '../../app/apiComposition';
 import { getReadingSettings, updateReadingSettings } from '../../services/paperApi';
 import { clearLocalApplicationData } from '../../services/conversation';
 import { capabilityEnabled } from '../../services/skills';
@@ -19,7 +19,7 @@ import {
   requestOnboarding,
 } from '../../services/onboarding';
 import { languageName, useLanguage, type Language } from '../../i18n';
-import type { InstalledSkill, MakersIntelligenceState, ProviderUsageSummary } from '../../types';
+import type { InstalledSkill, MakersIntelligenceState, ProviderUsageSummary } from '../../shared/types';
 import { proactiveFallbackLines } from './proactiveNotifications';
 
 const DEFAULT_SEARCH_PREFERENCES = {

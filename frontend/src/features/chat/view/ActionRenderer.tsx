@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../../../types';
+import type { ChatMessage } from '../../../shared/types';
 
 
 export function ActionRenderer({ message }: { message: ChatMessage }) {

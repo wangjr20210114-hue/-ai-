@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ClarificationPrompt } from '../../types';
+import type { ClarificationPrompt } from '../../shared/types';
 import {
   clarificationDisplayValue,
   clarificationOptionValue,

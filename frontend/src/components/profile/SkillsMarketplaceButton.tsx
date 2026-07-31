@@ -3,7 +3,7 @@ import { AppIcon } from 'tdesign-icons-react';
 import { createPortal } from 'react-dom';
 import { useSkillMarketplaceController } from '../../features/skills/controller/useSkillMarketplaceController';
 import type { MarketplaceView } from '../../features/skills/model';
-import type { InstalledSkill } from '../../types';
+import type { InstalledSkill } from '../../shared/types';
 
 export default function SkillsMarketplaceButton() {
   const controller = useSkillMarketplaceController();

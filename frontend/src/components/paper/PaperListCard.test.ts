@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PaperInfo } from '../../types';
+import type { PaperInfo } from '../../shared/types';
 import {
   dedupePapers,
   paperArxivHref,

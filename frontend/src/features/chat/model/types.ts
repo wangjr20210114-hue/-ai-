@@ -5,4 +5,4 @@ export type {
   ProactiveState,
   StructuredProgressStep,
   WorkspaceAction,
-} from '../../../types';
+} from '../../../shared/types';

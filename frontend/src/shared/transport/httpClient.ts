@@ -33,3 +33,12 @@ export async function requestJson<T>(
   }
   return body as T;
 }
+
+export function requestRaw(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  withSignedSession = true,
+): Promise<Response> {
+  if (withSignedSession) return authorizedFetch(input, init);
+  return fetch(input, init);
+}

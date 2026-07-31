@@ -2,7 +2,7 @@ export type {
   RichMediaAsset,
   SearchMeta,
   SearchResultItem,
-} from '../../../types';
+} from '../../../shared/types';
 
 export interface SearchEvent {
   type: 'stage' | 'sources' | 'media';
