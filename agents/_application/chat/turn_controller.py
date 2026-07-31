@@ -2270,6 +2270,14 @@ async def _handle(ctx):
                             execution.provider_request_count,
                             source="search_use_case",
                         )
+                    logging.info(
+                        "search_use_case turn_audit conversation=%s "
+                        "provider_calls=%s cache_hit=%s coalesced=%s",
+                        conversation_id,
+                        execution.provider_request_count,
+                        execution.cache_hit,
+                        execution.coalesced,
+                    )
                     search_evidence_text = execution.evidence.for_model()
                     search_references = [
                         item.url

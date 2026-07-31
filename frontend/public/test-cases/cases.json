@@ -464,7 +464,7 @@
     "id": "SEARCH-01",
     "module": "联网搜索",
     "title": "LLM 搜索规划、单次调用与来源综合",
-    "scope": "验证搜索前语义规划仍存在，复杂联网问题单轮只执行一次 rich_search，简单问题不搜索，并按理解价值决定是否配图。",
+    "scope": "验证搜索前语义规划仍存在，复杂联网问题单轮只执行一次 SearchUseCase/SearchPro，回答图不再决策搜索；简单问题不搜索，并按理解价值决定是否配图。",
     "implementation": "requires-config",
     "releaseBlocker": true,
     "preconditions": [
@@ -489,7 +489,7 @@
       "【验收站】在“证据”上传页面截图、Network/Console 截图或短录屏；等待提示已保存到 Makers Blob，再刷新测试站确认附件仍可打开。"
     ],
     "expected": [
-      "联网问题恰好一次 rich_search provider_call",
+      "联网问题恰好一次 SearchUseCase/SearchPro provider_call，回答图工具集合不含 rich_search",
       "工具返回后不再次显示正在检索",
       "1+1 直接回答且不搜索",
       "回答不是原始网页列表",
@@ -502,7 +502,7 @@
     "evidence": [
       "来源卡截图",
       "来源发布日期",
-      "Makers 日志中单条 rich_search provider_call",
+      "Makers 日志中单条 search_use_case turn_audit，provider_calls=1",
       "简单问题无搜索状态截图"
     ],
     "detailVersion": 2,
@@ -619,7 +619,7 @@
     "id": "SEARCH-04",
     "module": "联网搜索",
     "title": "网页图片与视觉筛选",
-    "scope": "验证图片候选、视觉复核和 Markdown 媒体渲染。",
+    "scope": "验证图片候选、视觉复核与 source_id/source_url 精确绑定渲染；视觉审核不阻塞首字。",
     "implementation": "requires-config",
     "releaseBlocker": false,
     "preconditions": [
@@ -645,6 +645,8 @@
     "expected": [
       "图片与主题匹配且不是占位图",
       "图片出现在相关段落附近",
+      "页面不存在新旧媒体占位符；模型自行输出的图片 Markdown 不渲染",
+      "仅 vision_reviewed=true 且 source_id、source_url 与段落精确来源一致的图片可见",
       "媒体失败不影响文字回答",
       "除用例明确要求的受控失败外，相关请求无意外 4xx/5xx，Console 无新增未捕获异常。",
       "结果、备注、最后编辑主机/时间和上传证据在刷新后仍存在，并可从另一台主机同步看到。"
@@ -716,7 +718,7 @@
     "id": "SEARCH-06",
     "module": "联网搜索",
     "title": "搜索上限、单次调用、并发提图与持久化",
-    "scope": "验证用户可以调整网页/图片上限和来源页并发策略，设置写入 Makers Store；同时验证每轮只有一次 SearchPro、rich_search 不超过 30 秒。",
+    "scope": "验证用户可以调整网页/图片上限和来源页并发策略，设置写入 Makers Store；同时验证每轮只有一次 SearchUseCase/SearchPro、首字不等待视觉审核。",
     "implementation": "implemented",
     "releaseBlocker": true,
     "preconditions": [
@@ -744,7 +746,8 @@
       "8/2 档结果分别不超过 8 个来源和 2 张图片",
       "18/4 档结果分别不超过 18 个来源和 4 张图片",
       "新闻问题仍由 LLM 规划并正常配图，简单问题不会因图片上限大于 0 而强制搜索",
-      "单轮只有一次 rich_search 和一次 SearchPro；来源页内部可以并发，不出现工具返回后再次搜索",
+      "单轮只有一次 SearchUseCase 和一次 SearchPro；回答图不含 rich_search，来源页内部可以并发，不出现证据返回后再次搜索",
+      "sources 事件先于首个 token；视觉审核可以在正文期间或 done 之后增量到达，不阻塞首字",
       "搜索前 LLM 规划正常在约 6 秒内结束；超时时由主模型继续语义路由而不是关键词硬编码。rich_search 阶段不超过 30 秒；推荐目标为 5–10 秒，若未达到需记录 planning/search/page_media/vision 分段或日志证据",
       "推荐档通常快于关闭并发提图的深度档；每一轮都重新检索，可直接比较两档耗时",
       "清理后恢复推荐值 8/2/并发提图"
