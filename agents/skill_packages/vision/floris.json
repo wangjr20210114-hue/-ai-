@@ -10,6 +10,7 @@
   "capabilities": ["vision_analysis"],
   "plan_flags": ["needs_images"],
   "tools": [{"name": "analyze_images_parallel", "capability": "vision_analysis", "required": false}],
+  "adapter": "agents._skill_adapters.vision.adapter:build_tools",
   "permissions": ["makers.model", "makers.trace", "conversation.read", "user.read", "components.search"],
   "component_actions": ["search.media.publish"],
   "ui": {

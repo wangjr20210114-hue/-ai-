@@ -18,6 +18,7 @@
     {"name": "prepare_map_recommendation", "capability": "map_action", "required": false},
     {"name": "plan_route_between_places", "capability": "route"}
   ],
+  "adapter": "agents._skill_adapters.maps.adapter:build_tools",
   "action_kinds": ["map_recommendation"],
   "permissions": ["makers.state", "makers.trace", "conversation.read", "user.read", "browser.location", "components.maps"],
   "env_keys": ["TENCENT_MAP_KEY", "TENCENT_MAP_SK"],

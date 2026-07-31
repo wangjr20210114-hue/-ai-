@@ -8,9 +8,9 @@
   "order": 0,
   "default_enabled": true,
   "locked": true,
-  "capabilities": ["papers"],
-  "plan_flags": ["needs_papers"],
-  "tools": [{"name": "search_arxiv", "capability": "papers"}],
+  "capabilities": ["clarification"],
+  "tools": [{"name": "ask_user_clarification", "capability": "clarification"}],
+  "adapter": "agents._skill_adapters.core.adapter:build_tools",
   "permissions": ["makers.state", "makers.model", "makers.trace", "conversation.read", "user.read", "components.system"],
   "component_actions": ["chat.progress.publish", "search.evidence.publish"],
   "ui": {
@@ -19,8 +19,8 @@
     "description": {"zh-CN": "问答、写作、翻译、总结与自然对话。核心能力始终开启。", "zh-TW": "問答、寫作、翻譯、總結與自然對話。核心能力始終開啟。", "en": "Chat, writing, translation, summarization, and natural conversation."}
   },
   "planner": {
-    "topic": "paper",
-    "summary": "Verifiable academic paper discovery with author, institution, topic and date filtering.",
-    "recovery_tools": ["search_arxiv"]
+    "topic": "core",
+    "summary": "General conversation and one bounded structured clarification when all useful answers are blocked.",
+    "recovery_tools": ["ask_user_clarification"]
   }
 }

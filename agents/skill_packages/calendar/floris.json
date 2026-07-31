@@ -10,6 +10,7 @@
   "capabilities": ["calendar_context", "calendar_action"],
   "plan_flags": ["needs_calendar_context", "needs_calendar_action"],
   "tools": [{"name": "propose_calendar_changes", "capability": "calendar_action"}],
+  "adapter": "agents._skill_adapters.calendar.adapter:build_tools",
   "action_kinds": ["calendar_changes"],
   "recommends": ["maps"],
   "degrade_when_capabilities": ["route"],

@@ -70,7 +70,6 @@ class SkillAndDataVersionTests(unittest.TestCase):
             "ask_user_clarification",
             "propose_calendar_changes",
             "propose_workflow",
-            "search_arxiv",
         })
         self.assertNotIn("search_places", names)
         self.assertNotIn("recommend_places_on_map", names)
@@ -127,7 +126,6 @@ class SkillPreferenceEndpointTests(unittest.IsolatedAsyncioTestCase):
                 "propose_calendar_changes",
                 "propose_meeting",
                 "propose_workflow",
-                "search_arxiv",
             },
         )
 

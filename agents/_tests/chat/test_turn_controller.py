@@ -87,7 +87,7 @@ class ChatTurnBoundaryTests(unittest.TestCase):
         self.assertNotIn("SearchPro", source)
         self.assertNotIn("_infrastructure.providers", source)
 
-    def test_production_controller_disables_legacy_search_tool_registration(self):
+    def test_production_controller_preexecutes_search_and_filters_answer_tools(self):
         controller_path = (
             Path(__file__).parents[2]
             / "_application"
@@ -96,8 +96,8 @@ class ChatTurnBoundaryTests(unittest.TestCase):
         )
         source = controller_path.read_text(encoding="utf-8")
 
-        self.assertIn("include_legacy_search=False", source)
         self.assertIn("search_use_case.execute(", source)
+        self.assertIn("answer_tool_names(", source)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@
   "capabilities": ["image_generation"],
   "plan_flags": ["needs_image_generation"],
   "tools": [{"name": "propose_image", "capability": "image_generation"}],
+  "adapter": "agents._skill_adapters.image_studio.adapter:build_tools",
   "action_kinds": ["image_generate"],
   "recommends": ["vision", "web-search"],
   "permissions": ["makers.state", "makers.blob", "makers.trace", "conversation.read", "user.read", "components.image"],

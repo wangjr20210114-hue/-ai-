@@ -10,6 +10,7 @@
   "capabilities": ["meeting_action"],
   "plan_flags": ["needs_meeting_action"],
   "tools": [{"name": "propose_meeting", "capability": "meeting_action"}],
+  "adapter": "agents._skill_adapters.tencent_meeting.adapter:build_tools",
   "action_kinds": ["meeting_create"],
   "requires": ["calendar"],
   "permissions": ["makers.state", "makers.trace", "conversation.read", "user.read", "components.calendar"],

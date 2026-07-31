@@ -49,6 +49,8 @@ class GenericSkillService(Protocol):
 
 
 SERVICE_PERMISSIONS = {
+    "core": "makers.model",
+    "proactive": "components.workspace",
     "search": "components.search",
     "maps": "components.maps",
     "calendar": "components.calendar",
@@ -59,9 +61,23 @@ SERVICE_PERMISSIONS = {
     "workspace": "components.workspace",
 }
 
+SKILL_SERVICE_NAMES = {
+    "core": "core",
+    "proactive-agent": "proactive",
+    "web-search": "search",
+    "vision": "vision",
+    "image-studio": "image",
+    "maps": "maps",
+    "calendar": "calendar",
+    "paper-reading": "papers",
+    "tencent-meeting": "meeting",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class SkillServices:
+    core: GenericSkillService | None = None
+    proactive: GenericSkillService | None = None
     search: SearchService | None = None
     maps: MapsService | None = None
     calendar: CalendarService | None = None
@@ -76,3 +92,16 @@ class SkillServices:
             raise ValueError(f"Unknown Skill service {name!r}")
         return getattr(self, name)
 
+
+@dataclass(frozen=True, slots=True)
+class ToolOperationService:
+    """Turn-local implementation functions, scoped to one manifest owner."""
+
+    operations: Mapping[str, Any]
+
+    def operation(self, name: str):
+        clean_name = str(name or "").strip()
+        value = self.operations.get(clean_name)
+        if not callable(value):
+            raise RuntimeError(f"Skill operation {clean_name!r} is unavailable")
+        return value

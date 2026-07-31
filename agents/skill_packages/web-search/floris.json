@@ -13,6 +13,7 @@
     {"name": "rich_search", "capability": "web_search"},
     {"name": "collect_page_images", "capability": "web_search", "required": false}
   ],
+  "adapter": "agents._skill_adapters.web_search.adapter:build_tools",
   "permissions": ["makers.state", "makers.trace", "conversation.read", "user.read", "components.chat", "components.search"],
   "component_actions": ["chat.progress.publish", "search.evidence.publish", "search.media.publish"],
   "ui": {

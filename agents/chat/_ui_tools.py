@@ -46,8 +46,11 @@ from .._shared.skill_registry import (
     default_skill_preferences,
     locked_skill_ids,
     resolve_enabled_skills,
-    skill_is_configured,
     tool_skill_map,
+)
+from .._application.skills.runtime_ports import (
+    SKILL_SERVICE_NAMES,
+    ToolOperationService,
 )
 from .._shared.workspace import (
     begin_action_execution,
@@ -1133,8 +1136,8 @@ def build_production_tools(
     search_result_limit: int = 8,
     search_image_limit: int = 8,
     parallel_image_search: bool = True,
-    include_legacy_search: bool = True,
     enabled_skills: set[str] | None = None,
+    identity: dict[str, Any] | None = None,
     planned_route_stops: list[dict[str, str]] | None = None,
     route_user_message: str = "",
     planned_route_city: str = "全国",
@@ -3735,12 +3738,6 @@ def build_production_tools(
         (propose_workflow, "propose_workflow", "用户明确要求建立跨时间、多步骤的持续提醒或计划时创建工作流提案。steps 每项包含 offset_minutes、title、body、action_prompt，可用 depends_on=['step_1'] 建立 DAG 依赖；失败时需要回退提示的步骤可增加 compensation={title,body,action_prompt}。默认按顺序依赖。必须由用户确认后才会激活，依赖步骤需用户标记完成后才推进。"),
         (ask_user_clarification, "ask_user_clarification", "所有问答场景统一的必要信息收集入口。只有缺少该字段会阻断所有安全有用的回答，或无法唯一确定真实副作用对象时才能调用；“知道后更好”、可选偏好和用户尚未决定都不得调用，应直接在正文给出 2–3 套带假设与取舍的方案。这条边界适用于所有主题，禁止套用固定画像问题。本轮最多调用一次并只收最少必要字段；能由当前上下文、已核实结果、其他字段或安全默认值推导出的字段不得再问。有限候选优先 single/multi，能用是/否表达就用 boolean，只缺日期用 date、日期已知只缺时刻用 time、两者都缺才用 datetime，仅答案无法枚举时用 text。卡片提交后由前端自动把答案作为对话补充信息继续推理，不要要求用户再次发送，也不要重复询问已提交字段。"),
     ]
-    if not include_legacy_search:
-        definitions = [
-            definition
-            for definition in definitions
-            if definition[1] != "rich_search"
-        ]
     active = (
         enabled_skills
         if enabled_skills is not None
@@ -3750,35 +3747,30 @@ def build_production_tools(
             if enabled
         }
     )
-    active = set(resolve_enabled_skills(active))
+    active = set(active)
     locked_skills = locked_skill_ids()
-    tool_skills = {
-        **tool_skill_map(),
-        "ask_user_clarification": next(iter(sorted(locked_skills)), ""),
+    active.update(locked_skills)
+    active = set(resolve_enabled_skills(active))
+    tool_owners = tool_skill_map()
+    operations = {
+        name: function
+        for function, name, _description in definitions
     }
-    definitions = [
-        definition
-        for definition in definitions
-        if (
-            tool_skills.get(definition[1]) in locked_skills
-            or (
-                tool_skills.get(definition[1]) in active
-                and skill_is_configured(
-                    str(tool_skills.get(definition[1]) or ""),
-                    runtime_env,
-                )
-            )
+    if set(operations) != set(tool_owners):
+        raise RuntimeError(
+            "System Skill implementation/manifest mismatch: "
+            f"missing={sorted(set(tool_owners) - set(operations))}, "
+            f"undeclared={sorted(set(operations) - set(tool_owners))}"
         )
-    ]
-    built_in_tools = [
-        StructuredTool.from_function(
-            coroutine=fn,
-            name=name,
-            description=description,
-            **({"args_schema": RoutePlanInput} if name == "plan_route_between_places" else {}),
-        )
-        for fn, name, description in definitions
-    ]
+    services = {
+        SKILL_SERVICE_NAMES[skill_id]: ToolOperationService({
+            name: operations[name]
+            for name, owner in tool_owners.items()
+            if owner == skill_id
+        })
+        for skill_id in active
+        if skill_id in SKILL_SERVICE_NAMES
+    }
     adapter_tools = build_adapter_tools({
         "state_store": store,
         "checkpointer": makers_checkpointer,
@@ -3786,18 +3778,18 @@ def build_production_tools(
         "tracer": tracer,
         "conversation_id": conversation_id,
         "user_id": user_id,
+        "identity": identity or {"user_id": user_id, "membership": "free"},
         "env": runtime_env,
         "browser_location": browser_current_location,
+        "services": services,
     }, active)
-    built_in_names = {tool.name for tool in built_in_tools}
     adapter_names = [str(getattr(tool, "name", "") or "") for tool in adapter_tools]
-    duplicate_names = built_in_names.intersection(adapter_names)
     duplicate_adapter_names = {
         name for name in adapter_names if adapter_names.count(name) > 1
     }
-    if duplicate_names or len(adapter_names) != len(set(adapter_names)):
+    if len(adapter_names) != len(set(adapter_names)):
         raise ValueError(
             "Skill adapter tool names must be globally unique: "
-            f"{sorted(duplicate_names or duplicate_adapter_names)}"
+            f"{sorted(duplicate_adapter_names)}"
         )
-    return [*built_in_tools, *adapter_tools]
+    return adapter_tools

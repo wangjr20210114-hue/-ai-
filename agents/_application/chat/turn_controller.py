@@ -1885,11 +1885,8 @@ async def _handle(ctx):
             search_result_limit=search_result_limit,
             search_image_limit=search_image_limit,
             parallel_image_search=parallel_image_search,
-            # Planned web search is executed by SearchUseCase before the
-            # answer graph. The nested legacy tool remains import-compatible
-            # for old unit tests but is never registered in this route.
-            include_legacy_search=False,
             enabled_skills=enabled_skills,
+            identity=identity,
             planned_route_stops=capability_plan.get("route_stops") or [],
             route_user_message=planning_message,
             planned_route_city=str(capability_plan.get("route_city") or "全国"),
@@ -1918,9 +1915,9 @@ async def _handle(ctx):
         required_tools_for_plan(capability_plan)
     )
     fallback_tool_names = (
-        fallback_tools_for_prompt_topics(
+        answer_tool_names(fallback_tools_for_prompt_topics(
             capability_plan.get("_prompt_topics") or [],
-        )
+        ))
         if planner_timed_out and not required_tool_names
         else ()
     )

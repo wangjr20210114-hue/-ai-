@@ -272,7 +272,7 @@ class SkillRegistryContractTests(unittest.TestCase):
         )
         names = {tool.name for tool in tools}
         owners = tool_skill_map()
-        self.assertEqual(names - {"ask_user_clarification"}, set(owners))
+        self.assertEqual(names, set(owners))
         self.assertEqual(len(owners), len(set(owners)))
         self.assertIn("plan_route_between_places", planner_topic_tools()["maps"])
 
