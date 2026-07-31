@@ -23,6 +23,8 @@ def session_token(
     membership: str = "free",
     roles: list[str] | None = None,
     subject_id: str = TEST_SUBJECT_ID,
+    tenant_id: str = "floris",
+    session_id: str = "test-session",
 ) -> str:
     header = _base64url(json.dumps(
         {"alg": "HS256", "typ": "JWT"},
@@ -31,7 +33,8 @@ def session_token(
     now = int(time.time())
     payload = _base64url(json.dumps({
         "sub": subject_id,
-        "tenant_id": "floris",
+        "tenant_id": tenant_id,
+        "sid": session_id,
         "username": "tester",
         "display_name": "测试用户",
         "avatar_url": "",
