@@ -547,7 +547,7 @@ agents/
   _views/           # JSON / SSE Presenter
   _shared/          # Makers/Provider Repository 与基础设施适配
   skill_packages/   # SKILL.md + floris.json
-  skill_adapters/   # 审核可信的 Python 适配器
+  _skill_adapters/  # 审核可信、不会被 Makers 暴露为路由的 Python 适配器
   <route>/index.py  # 薄 EdgeOne Route Adapter
 
 frontend/src/
@@ -557,6 +557,11 @@ frontend/src/
 ```
 
 新功能从一开始遵循该边界；现有 Chat、Workspace、Proactive 大入口按测试保护逐步迁移。`index.py` 最终只负责协议适配、Controller 委托和返回 SSE，领域模块不直接控制全局 UI。
+
+EdgeOne 的 `agents/skills/` 是保留目录，Skill 广场路由固定使用
+`agents/skill_marketplace/` → `/skill_marketplace`。发布前先运行
+`edgeone makers build`，再用 `npm run test:edgeone-build-routes` 检查
+真实构建产物，最后仅部署这份已验证的 `.edgeone` 目录。
 
 ### P2：前端与平台工程
 

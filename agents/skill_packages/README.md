@@ -1,7 +1,9 @@
 # FLORIS standard Skill contract
 
-`agents/skills/` is now only the `/skills` HTTP route. Installable packages are
-stored under `agents/skill_packages/<skill-id>/` and always contain:
+The HTTP route lives at `agents/skill_marketplace/` and is exposed as
+`/skill_marketplace`. EdgeOne reserves `agents/skills/` during Agent route
+discovery, so no product route or package is placed there. Installable packages
+are stored under `agents/skill_packages/<skill-id>/` and always contain:
 
 - `SKILL.md`: open Agent Skills instructions with `name` and `description`
   frontmatter.
@@ -67,7 +69,7 @@ Use verified provider observations. Never invent current weather.
   "component_actions": ["chat.progress.publish"],
   "env_keys": ["WEATHER_API_KEY"],
   "provider_env": ["WEATHER_API_KEY"],
-  "adapter": "agents.skill_adapters.weather_alerts:build_tools",
+  "adapter": "agents._skill_adapters.weather_alerts:build_tools",
   "ui": {
     "icon": "☂",
     "name": {
@@ -88,7 +90,8 @@ Use verified provider observations. Never invent current weather.
 }
 ```
 
-Trusted Python adapters live in `agents/skill_adapters/`. They receive
+Trusted Python adapters live in `agents/_skill_adapters/`. The leading
+underscore prevents EdgeOne from publishing adapter modules as HTTP routes. They receive
 `SkillRuntimeContext`, not the raw request context. Undeclared Makers handles,
 environment keys, and component actions are denied.
 
@@ -100,7 +103,8 @@ surface is implemented.
 Run the standard package validator before release:
 
 ```bash
-for package in agents/skill_packages/*; do
-  python /path/to/skill-creator/scripts/quick_validate.py "$package"
-done
+find agents/skill_packages -mindepth 1 -maxdepth 1 -type d -print0 |
+  while IFS= read -r -d '' package; do
+    python /path/to/skill-creator/scripts/quick_validate.py "$package"
+  done
 ```

@@ -51,7 +51,7 @@ export const config = {
     '/proactive/:path*',
     '/provider_usage/:path*',
     '/reader/:path*',
-    '/skills/:path*',
+    '/skill_marketplace/:path*',
     '/skill-uploads/:path*',
     '/system/:path*',
     '/system_internal/:path*',

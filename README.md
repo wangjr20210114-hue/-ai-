@@ -70,6 +70,19 @@
 **Production 流程：** 只有经过明确合并发布决策后，才在正式项目的 `main` 上操作。不要为了测试 `dev` 修改 `ai-active-agent-floris` 的分支、环境变量或域名。
 
 若使用 CLI 创建“直接上传型”独立开发项目，Makers 要求该项目先完成一次 Production 初始化，之后才能创建 Preview。这里的 Production 仅指**新开发项目自己的环境**：项目名必须唯一，上传内容必须来自已推送的 `dev` 提交，仍不得复用或改配正式项目。
+
+直接上传前必须验证 Maker 实际生成的 Agent 路由，再部署同一份已经验证的构建产物：
+
+```bash
+edgeone makers build
+npm run test:edgeone-build-routes
+edgeone makers deploy .edgeone -n <独立开发项目名> -e production
+```
+
+Skill 广场使用 `/skill_marketplace`；不要使用 EdgeOne 保留的
+`agents/skills/`。可信 Python 适配器放在 `agents/_skill_adapters/`，避免
+Makers 将其自动发布为无意的 HTTP 路由。
+
 ## 2. 如何直接体验我们的项目？
 ### 2.1 开始一个新的对话！
 废话不多说，直接上图（这个在你刚进去的时候，可爱的Floris也会贴心为你介绍哦~）

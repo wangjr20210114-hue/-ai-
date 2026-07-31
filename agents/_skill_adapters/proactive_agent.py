@@ -1,4 +1,8 @@
-"""Preference lifecycle integration for the proactive Agent Skill."""
+"""Preference lifecycle integration for the proactive Agent Skill.
+
+The leading underscore keeps this trusted runtime module outside EdgeOne's
+filesystem-to-route discovery.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""EdgeOne route adapter for the Skill marketplace MVC controller."""
+"""Non-reserved EdgeOne route adapter for the Skill marketplace Controller."""
 
 from __future__ import annotations
 

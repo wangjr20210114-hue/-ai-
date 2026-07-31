@@ -266,6 +266,9 @@ test('settings and Skills open on lightweight configuration reads', async () => 
 test('new multi-user and Skill surfaces follow the layered MVC boundary', async () => {
   const [
     skillRoute,
+    middleware,
+    api,
+    proactiveManifest,
     skillController,
     skillModel,
     skillView,
@@ -273,7 +276,10 @@ test('new multi-user and Skill surfaces follow the layered MVC boundary', async 
     marketplaceController,
     marketplaceModel,
   ] = await Promise.all([
-    read('agents/skills/index.py'),
+    read('agents/skill_marketplace/index.py'),
+    read('middleware.js'),
+    read('frontend/src/services/api.ts'),
+    read('agents/skill_packages/proactive-agent/floris.json'),
     read('agents/_controllers/skills_controller.py'),
     read('agents/_models/skill_marketplace.py'),
     read('agents/_views/skill_marketplace.py'),
@@ -283,6 +289,12 @@ test('new multi-user and Skill surfaces follow the layered MVC boundary', async 
   ]);
   assert.match(skillRoute, /handle_skills/);
   assert.doesNotMatch(skillRoute, /load_intelligence_state|public_skill_catalog/);
+  assert.match(middleware, /\/skill_marketplace\/:path\*/);
+  assert.doesNotMatch(middleware, /['"]\/skills\/:path\*/);
+  assert.match(api, /authorizedFetch\('\/skill_marketplace'/);
+  assert.doesNotMatch(api, /authorizedFetch\('\/skills'/);
+  assert.match(proactiveManifest, /agents\._skill_adapters\.proactive_agent/);
+  assert.doesNotMatch(proactiveManifest, /agents\.skill_adapters/);
   assert.match(skillController, /decorate_catalog/);
   assert.match(skillController, /marketplace_view/);
   assert.match(skillModel, /def decorate_catalog/);

@@ -227,7 +227,7 @@ export async function configureSkillConnection(
 export async function skillMarketplaceOperation(
   conversationId: string,
 ): Promise<SkillMarketplaceState> {
-  const response = await authorizedFetch('/skills', {
+  const response = await authorizedFetch('/skill_marketplace', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -246,7 +246,7 @@ export async function downloadSkillPackage(
   conversationId: string,
   skillId: string,
 ): Promise<void> {
-  const response = await authorizedFetch('/skills', {
+  const response = await authorizedFetch('/skill_marketplace', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
