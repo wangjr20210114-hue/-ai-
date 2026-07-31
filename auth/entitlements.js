@@ -1,37 +1,17 @@
-export const MEMBERSHIP_PLANS = Object.freeze(['guest', 'free', 'plus', 'pro']);
+import {
+  GUEST_SKILL_IDS,
+  MEMBERSHIP_PLANS,
+  PAYMENT_AVAILABLE,
+  PLAN_LIMITS,
+} from './generated/entitlements.js';
+
+export { MEMBERSHIP_PLANS };
 
 const PLAN_RANK = Object.freeze({
   guest: 0,
   free: 1,
   plus: 2,
   pro: 3,
-});
-
-const PLAN_LIMITS = Object.freeze({
-  guest: {
-    searchDepth: 'basic',
-    concurrentRuns: 1,
-    dailyTokens: 20_000,
-    userSkillUploads: 0,
-  },
-  free: {
-    searchDepth: 'standard',
-    concurrentRuns: 1,
-    dailyTokens: 80_000,
-    userSkillUploads: 2,
-  },
-  plus: {
-    searchDepth: 'deep',
-    concurrentRuns: 2,
-    dailyTokens: 300_000,
-    userSkillUploads: 10,
-  },
-  pro: {
-    searchDepth: 'deep',
-    concurrentRuns: 4,
-    dailyTokens: 1_000_000,
-    userSkillUploads: 50,
-  },
 });
 
 export function normalizeMembership(value, authType = 'guest') {
@@ -49,7 +29,7 @@ export function skillAccess(identity, skillId, requiredPlan = 'free') {
   const authType = String(identity?.auth_type || 'guest');
   if (authType === 'guest') {
     return {
-      allowed: id === 'core' || id === 'proactive-agent',
+      allowed: GUEST_SKILL_IDS.includes(id),
       reason: 'login_required',
     };
   }
@@ -80,7 +60,7 @@ export class EntitlementProvider {
       capabilities: {
         installCommunitySkills: plan !== 'guest',
         uploadSkills: PLAN_LIMITS[plan].userSkillUploads > 0,
-        paymentCheckout: false,
+        paymentCheckout: PAYMENT_AVAILABLE,
       },
     };
   }
@@ -105,6 +85,6 @@ export function publicEntitlements(identity) {
   return {
     plan,
     limits: { ...PLAN_LIMITS[plan] },
-    payment_available: false,
+    payment_available: PAYMENT_AVAILABLE,
   };
 }

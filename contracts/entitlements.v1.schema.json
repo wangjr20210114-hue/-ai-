@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://floris.local/contracts/entitlements.v1.schema.json",
+  "title": "Floris entitlement contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "plans",
+    "guest_skill_ids",
+    "limits",
+    "payment_available"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "plans": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "const": "guest"
+        },
+        {
+          "const": "free"
+        },
+        {
+          "const": "plus"
+        },
+        {
+          "const": "pro"
+        }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "guest_skill_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "guest",
+        "free",
+        "plus",
+        "pro"
+      ],
+      "properties": {
+        "guest": {
+          "$ref": "#/$defs/planLimits"
+        },
+        "free": {
+          "$ref": "#/$defs/planLimits"
+        },
+        "plus": {
+          "$ref": "#/$defs/planLimits"
+        },
+        "pro": {
+          "$ref": "#/$defs/planLimits"
+        }
+      }
+    },
+    "payment_available": {
+      "type": "boolean"
+    }
+  },
+  "$defs": {
+    "planLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "search_depth",
+        "concurrent_runs",
+        "daily_tokens",
+        "user_skill_uploads"
+      ],
+      "properties": {
+        "search_depth": {
+          "enum": [
+            "basic",
+            "standard",
+            "deep"
+          ]
+        },
+        "concurrent_runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "daily_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "user_skill_uploads": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

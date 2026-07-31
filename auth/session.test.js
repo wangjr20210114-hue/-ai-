@@ -14,6 +14,11 @@ import {
   authenticatedRequest,
   testIdentity,
 } from '../test-utils/auth.js';
+import {
+  normalizeMembership,
+  publicEntitlements,
+  skillAccess,
+} from './entitlements.js';
 
 test('signed sessions resolve one tenant-scoped user', async () => {
   const request = await authenticatedRequest('https://example.test/system');
@@ -47,4 +52,27 @@ test('tampered and wrong-purpose sessions are rejected', async () => {
     verifySessionToken(token, TEST_AUTH_ENV, { purpose: 'oauth' }),
     /purpose/i,
   );
+});
+
+test('entitlements consume the generated contract for every plan', () => {
+  assert.equal(normalizeMembership('unknown', 'guest'), 'guest');
+  assert.equal(normalizeMembership('unknown', 'wechat'), 'free');
+  assert.deepEqual(publicEntitlements({ auth_type: 'guest', membership: 'guest' }), {
+    plan: 'guest',
+    limits: {
+      searchDepth: 'basic',
+      concurrentRuns: 1,
+      dailyTokens: 20_000,
+      userSkillUploads: 0,
+    },
+    payment_available: false,
+  });
+  assert.deepEqual(skillAccess({ auth_type: 'guest' }, 'core'), {
+    allowed: true,
+    reason: 'login_required',
+  });
+  assert.deepEqual(skillAccess({ auth_type: 'guest' }, 'web-search'), {
+    allowed: false,
+    reason: 'login_required',
+  });
 });

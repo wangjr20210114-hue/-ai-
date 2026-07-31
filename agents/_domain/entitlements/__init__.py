@@ -1,6 +1,6 @@
-"""Compatibility exports for the domain entitlement policy."""
+"""Cross-runtime entitlement policy."""
 
-from .._domain.entitlements.policy import (
+from .policy import (
     GUEST_SKILL_IDS,
     allowed_skill_ids,
     effective_skill_preferences,
