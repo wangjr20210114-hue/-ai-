@@ -57,6 +57,16 @@ function mediaMarkdown(asset: RichMediaAsset): string {
   return `\n\n![${markdownAlt(asset.caption || asset.alt || '')}](${asset.url})\n\n`;
 }
 
+function normalizedRemoteUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.hash = '';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return value.trim().replace(/\/$/, '');
+  }
+}
+
 function replaceLegacyMediaSlots(content: string, media: RichMediaAsset[] = []): string {
   let nextIndex = 0;
   const placed = content.replace(MEDIA_SLOT, (_slot, explicitIndex: string | undefined) => {
@@ -66,6 +76,50 @@ function replaceLegacyMediaSlots(content: string, media: RichMediaAsset[] = []):
     return mediaMarkdown(asset);
   });
   return placed.replace(/\[\[YUANBAO_MEDIA[^\]]*$/, '');
+}
+
+function placeSourceBoundMedia(
+  content: string,
+  media: RichMediaAsset[] = [],
+  sources: SearchMeta['results'] = [],
+): string {
+  let placed = content;
+  const usedSources = new Set<string>();
+  for (const asset of media) {
+    if (
+      !asset.source_id
+      || usedSources.has(asset.source_id)
+      || !isSafeRemoteUrl(asset.url)
+      || placed.includes(`](${asset.url})`)
+    ) {
+      continue;
+    }
+    const source = sources.find((item) => item.id === asset.source_id);
+    if (
+      !source
+      || !isSafeRemoteUrl(source.url)
+      || (
+        asset.source_url
+        && normalizedRemoteUrl(asset.source_url) !== normalizedRemoteUrl(source.url)
+      )
+    ) {
+      continue;
+    }
+    const sourceUrlIndex = placed.indexOf(source.url);
+    if (
+      sourceUrlIndex < 2
+      || placed.slice(sourceUrlIndex - 2, sourceUrlIndex) !== ']('
+    ) {
+      continue;
+    }
+    const citationEnd = sourceUrlIndex + source.url.length;
+    const paragraphEnd = placed.indexOf('\n\n', citationEnd);
+    const insertAt = paragraphEnd < 0 ? placed.length : paragraphEnd;
+    const insertion = `\n\n${mediaMarkdown(asset).trim()}`;
+    placed = `${placed.slice(0, insertAt)}${insertion}${placed.slice(insertAt)}`;
+    usedSources.add(asset.source_id);
+  }
+  return placed;
 }
 
 function RichImage({ asset }: { asset: RichMediaAsset }) {
@@ -185,22 +239,22 @@ function MarkdownRenderer({
   const { t } = useLanguage();
   const enhancements = useMarkdownEnhancements();
   const sources = useMemo(() => searchMeta?.results || [], [searchMeta?.results]);
-  const visibleMedia = useMemo(() => {
-    const reviewedMedia = uniqueMediaAssets(searchMeta?.media || []);
-    return reviewedMedia.length
-      ? reviewedMedia
-      : uniqueMediaAssets(searchMeta?.media_pending ? searchMeta.preview_media || [] : []);
-  }, [searchMeta?.media, searchMeta?.media_pending, searchMeta?.preview_media]);
-  // Reviewed images normally arrive as model-authored Markdown. Progressive
-  // searches may also carry one deliberate media slot so a provider preview
-  // can be replaced or removed after background visual review. Never guess a
-  // placement when neither contract is present.
+  const visibleMedia = useMemo(
+    () => uniqueMediaAssets(searchMeta?.media || [])
+      .filter((asset) => asset.vision_reviewed !== false),
+    [searchMeta?.media],
+  );
+  // Legacy slots are cleaned for old conversations, but new answers never ask
+  // the model to emit an internal media protocol. A reviewed image is inserted
+  // only after a paragraph containing the exact source URL named by its
+  // source_id; unmatched media fails closed instead of guessing a position.
   const cleanedContent = useMemo(() => {
-    const mediaPlacedContent = replaceLegacyMediaSlots(content, visibleMedia);
-    return replaceCitationMarkers(
-      linkBareCitations(mediaPlacedContent, sources),
+    const legacyPlacedContent = replaceLegacyMediaSlots(content, visibleMedia);
+    const linkedContent = replaceCitationMarkers(
+      linkBareCitations(legacyPlacedContent, sources),
       sources,
     );
+    return placeSourceBoundMedia(linkedContent, visibleMedia, sources);
   }, [content, sources, visibleMedia]);
   const providerCalls = searchMeta?.search_config?.turn_provider_calls;
   const toolInvocations = searchMeta?.search_config?.turn_tool_invocations;

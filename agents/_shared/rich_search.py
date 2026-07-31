@@ -710,7 +710,6 @@ async def rich_search(
 
 def evidence_for_model(
     metadata: dict[str, Any], *, require_relevant_image: bool = False,
-    allow_pending_media_slot: bool = False,
 ) -> str:
     sources = "\n".join(
         f"- {item.get('id') or 'source'} | 类型={item.get('source') or 'web'} | [{item['title']}]({item['url']})"
@@ -718,33 +717,25 @@ def evidence_for_model(
         for item in metadata.get("results", [])
     )
     media = "\n".join(
-        f"- {item.get('id') or 'media'} | ![{item['caption']}]({item['url']}) | 来源={item.get('source_title') or item.get('source_url') or '未知'}"
+        f"- {item.get('id') or 'media'} | source_id={item.get('source_id') or 'none'}"
+        f" | 图片说明={item['caption']} | 图片URL={item['url']}"
+        f" | 来源={item.get('source_title') or item.get('source_url') or '未知'}"
         f"{' | 视觉审核暂不可用，仅作文章主图降级' if item.get('vision_fallback') or item.get('vision_reviewed') is False else ''}"
         for item in metadata.get("media", [])
     ) or "无通过视觉筛选的图片，不要插图。"
-    pending_slot_available = bool(
-        metadata.get("media_pending")
-        and metadata.get("preview_media")
-        and require_relevant_image
-        and allow_pending_media_slot
-    )
     media_status = (
-        (
-            "图片正在后台审核。若图片对事实解释确有帮助，请在最相关的事实段落后单独输出一行 "
-            "[[YUANBAO_MEDIA]]；前端会先标注为审核中，并在审核结束后替换或移除。"
-            if pending_slot_available
-            else "图片尚未审核完成，本轮不要插图，也不要声称正在生成图片。"
-        )
-        if metadata.get("media_pending") else
-        "这里只列出审核通过的图片；若标记为“视觉审核暂不可用”，只能把它当作与来源绑定的文章主图谨慎使用。"
-        "没有列出的真实图片 URL 就表示本轮无合格配图。"
+        "图片正在后台审核。本轮只写正文与来源链接，不要插图，也不要声称正在生成图片。"
+        if metadata.get("media_pending")
+        else
+        "这里只列出审核通过的图片；若正文采用相应事实，请正常引用该图片 source_id 对应的网页来源。"
+        "前端会按 source_id 把图片放在同源引用段落后；没有精确来源引用时不会插图。"
     )
     image_instruction = (
-        "本轮语义计划器已判断真实图片能明显帮助理解；只要上方存在图片素材，"
-        "必须至少选择一张最相关图片，并在对应事实段落附近用 Markdown 插入。"
+        "本轮语义计划器已判断真实图片能明显帮助理解；若采用相关事实，必须引用它对应的网页来源，"
+        "但不要自行输出图片 Markdown。"
         if require_relevant_image and metadata.get("media")
         else
-        "这些图片是可选素材；只在确实增加信息时采用。"
+        "图片由前端确定性放置，不属于回答正文协议。"
     )
     temporal_instruction = (
         f"本轮要求严格限定发布日期为 {metadata.get('target_date')}。"
@@ -757,14 +748,7 @@ def evidence_for_model(
         temporal_instruction
         + f"可选网页/视频素材：\n{sources or '无'}\n\n"
         f"经视觉模型审核的可选图片素材：\n{media}\n{media_status}\n\n"
-        f"这些只是素材，不是回答提纲。由你决定采用哪些、放在何处以及以什么顺序呈现。{image_instruction}"
-        "若采用网页或视频，直接在相关段落使用上面给出的 Markdown 链接；若采用图片，必须把上面给出的完整 URL"
-        "直接写成 ![准确说明](URL)，由你决定它所在的段落和顺序。"
-        "前端会就地渲染为网页卡片、视频卡片或带来源图片。不要把资源统一罗列或堆在回答末尾。"
-        + (
-            "除上面明确允许的一处 [[YUANBAO_MEDIA]] 外，不要输出其他媒体占位符；"
-            if pending_slot_available
-            else "不要输出任何媒体占位符；"
-        )
-        + "不要使用未提供的图片 URL，不要插入无关素材。"
+        f"这些只是事实素材，不是回答提纲。由你决定采用哪些事实以及以什么顺序呈现。{image_instruction}"
+        "若采用网页或视频，直接在相关段落使用上面给出的 Markdown 链接。"
+        "不要输出任何媒体占位符，不要自行输出图片 Markdown，不要使用未提供的图片 URL。"
     )

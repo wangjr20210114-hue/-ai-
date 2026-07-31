@@ -1924,13 +1924,22 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Write every question in clear, concise English.", system_prompt)
 
 
-    def test_rich_search_handoff_uses_standard_markdown(self):
+    def test_rich_search_handoff_keeps_media_out_of_model_authored_markdown(self):
         metadata = {
-            "results": [{"source": "wsa", "title": "故宫", "snippet": "明清宫殿", "url": "https://example.com/palace"}],
-            "media": [{"caption": "故宫太和殿建筑", "url": "https://cdn.example.com/palace.jpg"}],
+            "results": [{
+                "id": "source-1", "source": "wsa", "title": "故宫",
+                "snippet": "明清宫殿", "url": "https://example.com/palace",
+            }],
+            "media": [{
+                "id": "media-1", "source_id": "source-1",
+                "caption": "故宫太和殿建筑",
+                "url": "https://cdn.example.com/palace.jpg",
+            }],
         }
         evidence = evidence_for_model(metadata)
-        self.assertIn("![故宫太和殿建筑](https://cdn.example.com/palace.jpg)", evidence)
+        self.assertIn("source_id=source-1", evidence)
+        self.assertIn("不要自行输出图片 Markdown", evidence)
+        self.assertNotIn("![故宫太和殿建筑]", evidence)
         self.assertNotIn("[[image:", evidence)
         self.assertNotIn("[[card:", evidence)
 
@@ -1944,7 +1953,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             }],
         }
         evidence = evidence_for_model(metadata, require_relevant_image=True)
-        self.assertIn("必须至少选择一张最相关图片", evidence)
+        self.assertIn("必须引用它对应的网页来源", evidence)
+        self.assertIn("不要自行输出图片 Markdown", evidence)
 
     def test_empty_paper_result_cannot_override_successful_web_search(self):
         web = ToolMessage(
@@ -4640,12 +4650,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         prompt = evidence_for_model({
             "results": [], "media": [], "media_pending": True,
         })
-        self.assertIn("图片尚未审核完成", prompt)
+        self.assertIn("图片正在后台审核", prompt)
         self.assertIn("不要声称正在生成图片", prompt)
         self.assertIn("不要输出任何媒体占位符", prompt)
         self.assertNotIn("[[YUANBAO_MEDIA]]", prompt)
 
-    def test_required_pending_search_media_uses_one_reviewable_slot(self):
+    def test_required_pending_search_media_never_uses_a_model_protocol_slot(self):
         prompt = evidence_for_model({
             "results": [],
             "media": [],
@@ -4653,22 +4663,24 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 "url": "https://img.example.com/provider-preview.jpg",
             }],
             "media_pending": True,
-        }, require_relevant_image=True, allow_pending_media_slot=True)
+        }, require_relevant_image=True)
         self.assertIn("图片正在后台审核", prompt)
-        self.assertEqual(prompt.count("[[YUANBAO_MEDIA]]"), 2)
-        self.assertNotIn("正在生成图片", prompt)
+        self.assertIn("不要输出任何媒体占位符", prompt)
+        self.assertNotIn("[[YUANBAO_MEDIA", prompt)
 
-    def test_reviewed_search_media_is_given_to_model_as_direct_markdown(self):
+    def test_reviewed_search_media_is_bound_to_a_source_for_frontend_placement(self):
         prompt = evidence_for_model({
             "results": [], "media_pending": False,
             "media": [{
                 "id": "media-1", "caption": "大会现场",
                 "url": "https://img.example.com/conference.jpg",
+                "source_id": "source-1",
                 "source_title": "AI 新闻", "source_url": "https://news.example.com/ai",
             }],
         })
-        self.assertIn("![大会现场](https://img.example.com/conference.jpg)", prompt)
-        self.assertIn("直接写成 ![准确说明](URL)", prompt)
+        self.assertIn("source_id=source-1", prompt)
+        self.assertIn("前端会按 source_id", prompt)
+        self.assertNotIn("![大会现场]", prompt)
         self.assertNotIn("[[YUANBAO_MEDIA]]", prompt)
 
     def test_search_preferences_have_fast_balanced_defaults_and_public_state(self):

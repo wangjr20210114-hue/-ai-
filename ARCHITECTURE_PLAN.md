@@ -195,8 +195,8 @@ sequenceDiagram
     Search-)Media: 图片候选（异步）
     Answer-->>UI: 首字与持续文本
     Media->>Media: 网页抓取 + 视觉审核
-    Media-->>UI: search_media 增量事件
-    UI->>UI: 审核中预览替换为通过图片，或移除
+    Media-->>UI: 审核图片 + source_id
+    UI->>UI: 仅在同 source_id 的引用段落后插图
 ```
 
 ## 6. 分阶段修改优先级
@@ -208,14 +208,18 @@ sequenceDiagram
 1. 新增集中策略 `progressive_media_for_plan()`。
 2. 普通富搜索在 SearchPro 返回证据后即可进入回答生成。
 3. 网页抓取与视觉审核继续后台运行，通过既有 `search_media` SSE 事件合并。
-4. 计划器认为图片有明显帮助时，回答可以放置一个受控媒体槽；前端先展示“审核中”的来源主图，审核后替换或移除。
-5. 图片生成仍等待审核图片，因为这些图片会作为生成 Provider 的输入参考。
-6. `search_config.media_delivery` 暴露 `disabled / progressive / blocking`，便于诊断。
+4. 模型只输出正文和普通来源链接，不生成任何内部媒体占位符，也不自行拼接图片 Markdown。
+5. 每张审核图片携带稳定 `source_id`；前端只在引用同一来源的段落后插入图片，来源 URL 或 ID 不一致时直接放弃。
+6. 审核前的 Provider 预览不进入正文；审核失败或正文没有精确来源引用时不插图。
+7. 图片生成仍等待审核图片，因为这些图片会作为生成 Provider 的输入参考。
+8. `search_config.media_delivery` 暴露 `disabled / progressive / blocking`，便于诊断。
 
 验收标准：
 
 - 搜索事实和引用不减少。
 - 标准搜索的最终回答模型不再等待 `page_media + vision`。
+- 新回答内容中不存在 `YUANBAO_MEDIA` 等内部协议。
+- 图片必须同时满足视觉审核、`source_id` 匹配和正文精确引用；否则不插入。
 - 生图参考链路仍只使用审核后的 HTTPS 图片。
 - 媒体失败不影响文字回答。
 
@@ -247,6 +251,26 @@ sequenceDiagram
 2. 所有 Conversation、Store、Blob key 加入 `tenant_id/user_id`。
 3. 每个 Action 在服务端重新做资源归属和角色校验。
 4. 增加跨租户访问、重放和越权测试。
+
+### P0-D：利用已购买的 EdgeOne 个人版
+
+先区分两个产品层：
+
+- EdgeOne 个人版主要提升站点的动静态加速能力和配额，并支持智能加速、HTTP/3、图片即时处理等增值能力；它可以缩短浏览器到 EdgeOne 的网络耗时，但不会自动消除 Agent 内部的模型、SearchPro 和视觉审核等待。
+- EdgeOne Makers 的公开文档目前仍只公布免费版运行配额，商业版具体算力差异尚未公开。因此应以 Makers 控制台的实际套餐说明和运行指标为准，不能把 EdgeOne 个人版直接等同为更快的 Agent CPU。
+
+可立即利用：
+
+1. 为静态构建产物启用长缓存、智能压缩和预热；HTML 使用短缓存，带 hash 的 JS/CSS/字体使用长期不可变缓存。
+2. 若已额外开通智能加速或 HTTP/3，可用于页面资源和 SSE 网络链路；`/chat`、用户数据和 Action 接口禁止边缘缓存。
+3. Cloud Functions 默认中国大陆区域是广州。如果主要用户与外部服务在华北，可在 Preview 先将 `mainlandRegions` 设为 `ap-beijing`，比较 p50/p95 后再决定是否用于生产。
+4. 使用个人版更长的指标查询周期和实时日志任务，建立 TTFT、5xx、SSE 中断与缓存命中率仪表盘。
+
+官方边界参考：
+
+- [EdgeOne 套餐选型对比](https://intl.cloud.tencent.com/zh/document/product/1145/55650)
+- [EdgeOne Makers Cloud Functions 区域配置](https://pages.edgeone.ai/document/cloud-functions)
+- [EdgeOne Makers 商业版说明](https://pages.edgeone.ai/document/pricing-and-plans)
 
 ### P1-A：拆分搜索服务边界
 
@@ -310,7 +334,7 @@ agents/chat/
 
 1. `dev` 部署到 Preview 环境，不直接部署 Production。
 2. 用固定的 20 个搜索问题分别跑 3 次，记录 main 与 dev 的 TTFT、完成时间、媒体到达时间和结果正确性。
-3. 先给 10% Preview 会话开启渐进媒体，观察错误率和媒体槽移除率。
+3. 先给 10% Preview 会话开启渐进媒体，观察错误率、`source_id` 匹配率和无匹配放弃率。
 4. 若文字 TTFT 无明显改善，优先检查能力规划与 SearchPro，而不是继续优化图片并发。
 5. 回滚只需关闭渐进媒体策略或将 Preview 切回 main；不要改写 main 历史。
 

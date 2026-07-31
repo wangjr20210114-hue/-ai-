@@ -146,6 +146,56 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('one.jpg');
   });
 
+  it('places reviewed media only after the paragraph citing its exact source', () => {
+    const sourceBound = {
+      ...searchMeta.media[0],
+      source_id: 'source-1',
+      source_url: 'https://news.example/ai',
+      vision_reviewed: true,
+    };
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer
+        content={'第一段解释。[AI 新闻](https://news.example/ai)\n\n第二段补充影响。'}
+        searchMeta={{ ...searchMeta, media: [sourceBound], images: [sourceBound.url] }}
+      />,
+    );
+    expect(html.indexOf('第一段解释')).toBeLessThan(html.indexOf('one.jpg'));
+    expect(html.indexOf('one.jpg')).toBeLessThan(html.indexOf('第二段补充影响'));
+    expect((html.match(/one\.jpg/g) || [])).toHaveLength(1);
+  });
+
+  it('fails closed when media source identity does not match the cited source', () => {
+    const mismatched = {
+      ...searchMeta.media[0],
+      source_id: 'source-1',
+      source_url: 'https://other.example/wrong',
+      vision_reviewed: true,
+    };
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer
+        content={'第一段解释。[AI 新闻](https://news.example/ai)\n\n第二段。'}
+        searchMeta={{ ...searchMeta, media: [mismatched], images: [mismatched.url] }}
+      />,
+    );
+    expect(html).not.toContain('one.jpg');
+  });
+
+  it('does not insert an unreviewed fallback even when its source is cited', () => {
+    const unreviewed = {
+      ...searchMeta.media[0],
+      source_id: 'source-1',
+      source_url: 'https://news.example/ai',
+      vision_reviewed: false,
+    };
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer
+        content={'第一段解释。[AI 新闻](https://news.example/ai)\n\n第二段。'}
+        searchMeta={{ ...searchMeta, media: [unreviewed], images: [unreviewed.url] }}
+      />,
+    );
+    expect(html).not.toContain('one.jpg');
+  });
+
   it('renders a model-authored Markdown image at its exact streaming position', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer
@@ -171,7 +221,7 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('**重点内容**');
   });
 
-  it('keeps an explicit model media slot visible during streaming', () => {
+  it('keeps a historical media slot compatible without exposing its marker', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer
         streaming
@@ -183,7 +233,7 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('YUANBAO_MEDIA');
   });
 
-  it('fills a streaming media slot with a provider preview before vision review completes', () => {
+  it('does not expose a provider preview before vision review completes', () => {
     const preview = { ...searchMeta.media[0], id: 'preview-one', preview: true };
     const html = renderToStaticMarkup(
       <MarkdownRenderer
@@ -192,8 +242,8 @@ describe('MarkdownRenderer', () => {
         searchMeta={{ ...searchMeta, media: [], images: [], preview_media: [preview], media_pending: true }}
       />,
     );
-    expect(html).toContain('one.jpg');
-    expect(html).toContain('图片核实中');
+    expect(html).not.toContain('one.jpg');
+    expect(html).not.toContain('YUANBAO_MEDIA');
   });
 
   it('does not retain a rejected preview after media review finishes', () => {

@@ -306,6 +306,7 @@ export interface SearchMeta {
     result_limit: number;
     image_limit: number;
     parallel_image_search: boolean;
+    media_delivery?: 'disabled' | 'progressive' | 'blocking';
     provider_request_count: number;
     page_fetch_limit: number;
     turn_provider_calls?: number;
