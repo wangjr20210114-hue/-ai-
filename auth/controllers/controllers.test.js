@@ -36,6 +36,18 @@ test('session Controller creates an isolated guest and then reuses its signed co
   assert.equal((await reused.json()).identity.id, first.identity.id);
 });
 
+test('session Controller fails closed when the signing secret is unavailable', async () => {
+  const response = await handleSession({
+    request: new Request('https://example.com/auth/session'),
+    env: {},
+  });
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), {
+    error: 'Authentication is not configured',
+    code: 'AUTH_NOT_CONFIGURED',
+  });
+});
+
 test('session Controller exposes WeChat only when OAuth and identity storage are ready', async () => {
   const incomplete = await handleSession({
     request: new Request('https://example.com/auth/session'),
