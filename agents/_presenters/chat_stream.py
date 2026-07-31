@@ -90,7 +90,7 @@ def tool_progress_event(tool_name: str, status: str) -> dict[str, Any]:
     return progress_event(stage, status, activity=activity)
 
 
-def _evidence_payload(
+def search_evidence_payload(
     evidence: SearchEvidence | Mapping[str, Any],
 ) -> dict[str, Any]:
     if isinstance(evidence, SearchEvidence):
@@ -150,7 +150,7 @@ class ChatStreamPresenter:
         return self.frame(
             {
                 "type": "search_results",
-                "payload": _evidence_payload(evidence),
+                "payload": search_evidence_payload(evidence),
             },
             event="sources",
         )
@@ -168,7 +168,7 @@ class ChatStreamPresenter:
         return self.frame(
             {
                 "type": "search_media",
-                "payload": _evidence_payload(evidence),
+                "payload": search_evidence_payload(evidence),
             },
             event="media",
         )

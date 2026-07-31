@@ -10,6 +10,40 @@ from agents._domain.search.evidence import (
 
 
 class SearchEvidenceTests(unittest.TestCase):
+    def test_model_evidence_contains_sources_but_no_generated_answer_or_media_markup(self):
+        evidence = SearchEvidence(
+            query="Floris 架构",
+            sources=(
+                SearchSource(
+                    id="source-1",
+                    title="架构资料",
+                    url="https://example.test/architecture",
+                    snippet="经过检索的事实",
+                    published_at="2026-07-31",
+                ),
+            ),
+            media=(
+                ReviewedMedia(
+                    id="media-1",
+                    url="https://cdn.example.test/architecture.jpg",
+                    source_id="source-1",
+                    source_url="https://example.test/architecture",
+                    vision_reviewed=True,
+                    caption="Floris 界面",
+                ),
+            ),
+            total=1,
+        )
+
+        model_evidence = evidence.for_model()
+
+        self.assertIn("[架构资料](https://example.test/architecture)", model_evidence)
+        self.assertIn("source-1", model_evidence)
+        self.assertNotIn("https://cdn.example.test/architecture.jpg", model_evidence)
+        self.assertNotIn("最终回答", model_evidence)
+        self.assertNotIn("![", model_evidence)
+        self.assertNotIn("MEDIA_SLOT", model_evidence)
+
     def test_rejects_duplicate_source_ids(self):
         with self.assertRaisesRegex(ValueError, "duplicate source id"):
             SearchEvidence(

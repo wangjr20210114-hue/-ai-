@@ -1133,6 +1133,7 @@ def build_production_tools(
     search_result_limit: int = 8,
     search_image_limit: int = 8,
     parallel_image_search: bool = True,
+    include_legacy_search: bool = True,
     enabled_skills: set[str] | None = None,
     planned_route_stops: list[dict[str, str]] | None = None,
     route_user_message: str = "",
@@ -3734,6 +3735,12 @@ def build_production_tools(
         (propose_workflow, "propose_workflow", "用户明确要求建立跨时间、多步骤的持续提醒或计划时创建工作流提案。steps 每项包含 offset_minutes、title、body、action_prompt，可用 depends_on=['step_1'] 建立 DAG 依赖；失败时需要回退提示的步骤可增加 compensation={title,body,action_prompt}。默认按顺序依赖。必须由用户确认后才会激活，依赖步骤需用户标记完成后才推进。"),
         (ask_user_clarification, "ask_user_clarification", "所有问答场景统一的必要信息收集入口。只有缺少该字段会阻断所有安全有用的回答，或无法唯一确定真实副作用对象时才能调用；“知道后更好”、可选偏好和用户尚未决定都不得调用，应直接在正文给出 2–3 套带假设与取舍的方案。这条边界适用于所有主题，禁止套用固定画像问题。本轮最多调用一次并只收最少必要字段；能由当前上下文、已核实结果、其他字段或安全默认值推导出的字段不得再问。有限候选优先 single/multi，能用是/否表达就用 boolean，只缺日期用 date、日期已知只缺时刻用 time、两者都缺才用 datetime，仅答案无法枚举时用 text。卡片提交后由前端自动把答案作为对话补充信息继续推理，不要要求用户再次发送，也不要重复询问已提交字段。"),
     ]
+    if not include_legacy_search:
+        definitions = [
+            definition
+            for definition in definitions
+            if definition[1] != "rich_search"
+        ]
     active = (
         enabled_skills
         if enabled_skills is not None

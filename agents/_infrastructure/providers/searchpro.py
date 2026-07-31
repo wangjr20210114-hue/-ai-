@@ -73,6 +73,7 @@ class SearchProGateway:
             image_limit=request.image_limit,
             target_date=request.target_date,
             strict_date=request.strict_date,
+            parallel_queries=request.parallel_queries,
             media_callback=publish if progressive else None,
             background_tasks=background_tasks if progressive else None,
             include_media=request.media_mode != "disabled",

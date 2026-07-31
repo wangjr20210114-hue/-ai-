@@ -31,6 +31,7 @@ class SearchRequest:
     depth: str = "standard"
     result_limit: int = 8
     image_limit: int = 0
+    parallel_queries: bool = True
     target_date: str = ""
     strict_date: bool = False
     force_refresh: bool = False
@@ -66,6 +67,7 @@ class SearchRequest:
             "depth": self.depth,
             "result_limit": self.result_limit,
             "image_limit": self.image_limit,
+            "parallel_queries": self.parallel_queries,
             "target_date": self.target_date,
             "strict_date": self.strict_date,
             "include_media": self.media_mode != "disabled",

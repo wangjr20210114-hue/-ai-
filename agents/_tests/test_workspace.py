@@ -1741,7 +1741,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("不同选择会明显改变后续结果时，应先用 ask_user_clarification", SYSTEM_PROMPT)
 
     def test_every_qa_scene_keeps_full_history_clarification_available(self):
-        source = (Path(__file__).parents[1] / "chat" / "index.py").read_text(encoding="utf-8")
+        source = (
+            Path(__file__).parents[1]
+            / "_application"
+            / "chat"
+            / "turn_controller.py"
+        ).read_text(encoding="utf-8")
         graph_source = (Path(__file__).parents[1] / "chat" / "_graph.py").read_text(encoding="utf-8")
         self.assertNotIn("if not clarification_tool_available", source)
         self.assertIn('required_name and "ask_user_clarification" in allowed_tool_names', graph_source)
@@ -1791,7 +1796,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pages[0]["image"], "https://qqpublic.qpic.cn/news.jpg")
 
     def test_temporal_policy_is_derived_after_capability_planning(self):
-        source = (Path(__file__).parents[1] / "chat" / "index.py").read_text(encoding="utf-8")
+        source = (
+            Path(__file__).parents[1]
+            / "_application"
+            / "chat"
+            / "turn_controller.py"
+        ).read_text(encoding="utf-8")
         planned = source.index("capability_plan, planner_timed_out = await plan_capabilities_bounded")
         strict_date = source.index('explicit_today = bool(capability_plan.get("strict_today_only"))')
         self.assertLess(planned, strict_date)
