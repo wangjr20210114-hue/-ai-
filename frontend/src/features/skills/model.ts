@@ -2,6 +2,36 @@ import type { InstalledSkill } from '../../types';
 
 export type MarketplaceView = 'catalog' | 'installed' | 'dependencies' | 'docs' | 'upload';
 
+export function missingSkillRequirements(
+  skill: InstalledSkill,
+  installedIds: ReadonlySet<string>,
+): string[] {
+  return (skill.requires || []).filter((id) => !installedIds.has(id));
+}
+
+export function skillInstallOrder(
+  catalog: InstalledSkill[],
+  targetId: string,
+): string[] {
+  const skills = new Map(catalog.map((skill) => [skill.id, skill]));
+  const order: string[] = [];
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (id: string) => {
+    if (visited.has(id)) return;
+    if (visiting.has(id)) throw new Error(`Invalid Skill dependency cycle: ${id}`);
+    const skill = skills.get(id);
+    if (!skill) throw new Error(`Missing Skill dependency: ${id}`);
+    visiting.add(id);
+    for (const required of skill.requires || []) visit(required);
+    visiting.delete(id);
+    visited.add(id);
+    order.push(id);
+  };
+  visit(targetId);
+  return order;
+}
+
 export function localizedSkillText(
   values: Record<string, string> | undefined,
   fallback: string,

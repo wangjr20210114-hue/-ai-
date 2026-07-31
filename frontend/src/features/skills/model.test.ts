@@ -4,6 +4,8 @@ import type { InstalledSkill } from '../../types';
 import {
   filterMarketplaceSkills,
   localizedSkillText,
+  missingSkillRequirements,
+  skillInstallOrder,
   skillIsInstalled,
 } from './model';
 
@@ -67,5 +69,22 @@ describe('Skill marketplace Model', () => {
       language: 'en',
       preferences: {},
     }).map((item) => item.id)).toEqual(['maps']);
+  });
+
+  it('orders prerequisites and rejects missing or cyclic dependency data', () => {
+    const graph = [
+      skill({ id: 'core', requires: [] }),
+      skill({ id: 'maps', requires: ['core'] }),
+      skill({ id: 'calendar', requires: ['maps'] }),
+    ];
+    expect(skillInstallOrder(graph, 'calendar')).toEqual(['core', 'maps', 'calendar']);
+    expect(missingSkillRequirements(graph[2], new Set(['core']))).toEqual(['maps']);
+    expect(() => skillInstallOrder([
+      skill({ id: 'a', requires: ['b'] }),
+      skill({ id: 'b', requires: ['a'] }),
+    ], 'a')).toThrow(/cycle/i);
+    expect(() => skillInstallOrder([
+      skill({ id: 'calendar', requires: ['missing'] }),
+    ], 'calendar')).toThrow(/Missing Skill dependency/);
   });
 });

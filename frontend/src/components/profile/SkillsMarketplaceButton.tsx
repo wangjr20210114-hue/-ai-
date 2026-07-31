@@ -1,7 +1,7 @@
 import { Button, Tag } from 'tdesign-react';
 import { AppIcon } from 'tdesign-icons-react';
 import { createPortal } from 'react-dom';
-import { useSkillMarketplaceController } from '../../features/skills/useSkillMarketplaceController';
+import { useSkillMarketplaceController } from '../../features/skills/controller/useSkillMarketplaceController';
 import type { MarketplaceView } from '../../features/skills/model';
 import type { InstalledSkill } from '../../types';
 
