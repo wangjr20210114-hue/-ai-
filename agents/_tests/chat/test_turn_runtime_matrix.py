@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -20,8 +21,10 @@ class _ConversationStore:
         self.langgraph_store = FakeStore()
         self.langgraph_checkpointer = FakeCheckpointer([])
         self.metadata: dict = {}
+        self.append_count = 0
 
     async def append_message(self, **_values) -> None:
+        self.append_count += 1
         return None
 
     async def get_conversation(self, **_values) -> dict:
@@ -83,14 +86,20 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         plan: dict,
         *,
         planner_timed_out: bool = False,
-    ) -> str:
-        store = _ConversationStore()
+        store: _ConversationStore | None = None,
+        conversation_id: str = "",
+        body_updates: dict | None = None,
+    ) -> tuple[str, _ConversationStore]:
+        store = store or _ConversationStore()
         ctx = SimpleNamespace(
-            conversation_id=f"runtime-{name}",
+            conversation_id=conversation_id or f"runtime-{name}",
             run_id=f"run-{name}",
             store=store,
             request=SimpleNamespace(
-                body={"message": f"exercise {name}"},
+                body={
+                    "message": f"exercise {name}",
+                    **(body_updates or {}),
+                },
                 headers=auth_headers(membership="plus"),
             ),
             env=auth_env(),
@@ -154,7 +163,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             "completed",
             name,
         )
-        return wire
+        return wire, store
 
     async def test_representative_plans_construct_tools_and_finish_streams(self):
         plans = {
@@ -218,6 +227,50 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
                     plan,
                     planner_timed_out=name == "planner_timeout",
                 )
+
+    async def test_location_retry_closes_the_first_run_and_persists_once(self):
+        store = _ConversationStore()
+        conversation_id = "runtime-location-retry"
+        location_plan = _plan(needs_current_location=True)
+
+        first_wire, _ = await self._run(
+            "location-first",
+            location_plan,
+            store=store,
+            conversation_id=conversation_id,
+            body_updates={"message": "Where am I?"},
+        )
+        self.assertIn("browser_location_request", first_wire)
+        self.assertEqual(store.append_count, 1)
+        self.assertEqual(
+            store.metadata["yuanbao_chat_run_v1"]["status"],
+            "completed",
+        )
+
+        retry_wire, _ = await self._run(
+            "location-second",
+            location_plan,
+            store=store,
+            conversation_id=conversation_id,
+            body_updates={
+                "message": "Where am I?",
+                "_location_retry": True,
+                "location_request": {"state": "granted"},
+                "current_location": {
+                    "latitude": 39.9042,
+                    "longitude": 116.4074,
+                    "accuracy_meters": 20,
+                    "captured_at": int(time.time() * 1000),
+                    "coordinate_type": "wgs84",
+                },
+            },
+        )
+        self.assertNotIn("event: error", retry_wire)
+        self.assertEqual(store.append_count, 1)
+        self.assertEqual(
+            store.metadata["yuanbao_chat_run_v1"]["status"],
+            "completed",
+        )
 
 
 if __name__ == "__main__":

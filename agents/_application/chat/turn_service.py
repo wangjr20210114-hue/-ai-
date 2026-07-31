@@ -946,7 +946,9 @@ def clarification_answer_value(body: dict, field_id: str) -> str:
 
 
 def should_persist_user_message(body: dict) -> bool:
-    return not clarification_response_id(body)
+    return not clarification_response_id(body) and not bool(
+        body.get("_location_retry")
+    )
 
 
 def graph_user_message(
