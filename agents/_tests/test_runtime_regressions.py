@@ -19,6 +19,8 @@ from agents.proactive.index import handler as proactive_handler
 from agents.stop.index import handler as stop_handler
 from agents.system_internal.index import _expected_tick_after
 from agents.chat.index import run_cancelled
+from agents._shared.auth import scoped_conversation_id
+from agents._tests.auth_helpers import TEST_USER_ID, authenticated_context
 
 
 class FakeStore:
@@ -54,12 +56,12 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         stores = FakeProactiveStores()
         refreshed = empty_proactive_state()
         refreshed["preferences"]["daily_limit"] = 3
-        ctx = SimpleNamespace(
+        ctx = authenticated_context(SimpleNamespace(
             env={}, store=stores, conversation_id="settings-conversation",
             request=SimpleNamespace(body={
                 "operation": "update_preferences", "preferences": {"daily_limit": 3},
             }, headers={}),
-        )
+        ))
         with patch(
             "agents.proactive.index.run_proactive_tick",
             AsyncMock(return_value=(refreshed, {"signals": 0})),
@@ -72,10 +74,10 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
     async def test_page_open_forces_one_memory_first_refresh(self):
         stores = FakeProactiveStores()
         state = empty_proactive_state()
-        ctx = SimpleNamespace(
+        ctx = authenticated_context(SimpleNamespace(
             env={}, store=stores, conversation_id="page-open-conversation",
             request=SimpleNamespace(body={"operation": "page_open"}, headers={}),
-        )
+        ))
         with patch(
             "agents.proactive.index._run_tick_with_memory",
             AsyncMock(return_value=(state, {"signals": 0})),
@@ -87,7 +89,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_document_signal_immediately_creates_one_proactive_opportunity(self):
         stores = FakeProactiveStores()
-        ctx = SimpleNamespace(
+        ctx = authenticated_context(SimpleNamespace(
             env={}, store=stores, conversation_id="document-conversation",
             request=SimpleNamespace(body={
                 "operation": "ingest_signal",
@@ -98,7 +100,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
                     "filename": "TEST-方案.pdf", "is_paper": False,
                 },
             }, headers={}),
-        )
+        ))
         first = await proactive_handler(ctx)
         second = await proactive_handler(ctx)
         self.assertTrue(first["signal_created"])
@@ -109,7 +111,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_foreign_document_can_proactively_offer_translation_without_persisting_preview(self):
         stores = FakeProactiveStores()
-        ctx = SimpleNamespace(
+        ctx = authenticated_context(SimpleNamespace(
             env={}, store=stores, conversation_id="translation-opportunity",
             request=SimpleNamespace(body={
                 "operation": "ingest_signal",
@@ -122,7 +124,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
                     "preview": "Abstract. This paper presents a new evaluation method for language models.",
                 },
             }, headers={}),
-        )
+        ))
         model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=(
             '{"should_notify":true,"type":"translation_review","title":"先读中文版",'
             '"body":"这份论文主要是英文，翻译后可以直接阅读。",'
@@ -139,7 +141,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_generated_image_signal_runs_semantic_judgment_once(self):
         stores = FakeProactiveStores()
-        ctx = SimpleNamespace(
+        ctx = authenticated_context(SimpleNamespace(
             env={}, store=stores, conversation_id="image-conversation",
             request=SimpleNamespace(body={
                 "operation": "ingest_signal",
@@ -151,7 +153,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
                     "has_reference_image": False,
                 },
             }, headers={}),
-        )
+        ))
         model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=(
             '{"should_notify":true,"type":"image_iteration","title":"生成移动端适配版",'
             '"body":"当前横幅还可以补一版竖屏构图。",'
@@ -198,9 +200,14 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_stop_delegates_public_id_to_makers_abort(self):
         store = FakeConversationStore()
-        await write_chat_run(store, "conversation-1", run_id="run-1", status="running")
+        physical_id = scoped_conversation_id(
+            SimpleNamespace(),
+            TEST_USER_ID,
+            "conversation-1",
+        )
+        await write_chat_run(store, physical_id, run_id="run-1", status="running")
         targets = []
-        ctx = SimpleNamespace(
+        ctx = authenticated_context(SimpleNamespace(
             env={},
             store=store,
             request=SimpleNamespace(body={"conversation_id": "conversation-1"}, headers={}),
@@ -210,11 +217,11 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
                     or SimpleNamespace(aborted=True, run_id="run-1")
                 ),
             ),
-        )
+        ))
         response = await stop_handler(ctx)
         self.assertEqual(targets, ["conversation-1"])
         self.assertEqual(response["status"], "aborted")
-        self.assertEqual((await read_chat_run(store, "conversation-1"))["status"], "cancelled")
+        self.assertEqual((await read_chat_run(store, physical_id))["status"], "cancelled")
 
     def test_chat_producer_honors_both_makers_stop_states(self):
         self.assertTrue(run_cancelled({"status": "cancel_requested"}))

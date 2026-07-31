@@ -53,7 +53,7 @@ export default function AppSettingsButton() {
   const [skillCatalog, setSkillCatalog] = useState<InstalledSkill[]>([]);
   const [mottoDrafts, setMottoDrafts] = useState<string[]>([]);
   const [resetVisible, setResetVisible] = useState(false);
-  const [resetPassword, setResetPassword] = useState('');
+  const [resetConfirmation, setResetConfirmation] = useState('');
   const [resetError, setResetError] = useState('');
   const [providerUsage, setProviderUsage] = useState<ProviderUsageSummary | null>(null);
   const [providerUsageLoading, setProviderUsageLoading] = useState(false);
@@ -228,14 +228,14 @@ export default function AppSettingsButton() {
       .slice(0, 10),
   });
   const clearAllData = async () => {
-    if (!resetPassword) {
+    if (resetConfirmation !== 'DELETE') {
       setResetError(t('dataClearPasswordRequired'));
       return;
     }
     setBusy('reset');
     setResetError('');
     try {
-      await resetApplicationData(conversationId, resetPassword);
+      await resetApplicationData(conversationId, resetConfirmation);
       setResetVisible(false);
       setVisible(false);
       MessagePlugin.success(t('dataClearSucceeded'));
@@ -244,7 +244,7 @@ export default function AppSettingsButton() {
         window.location.reload();
       }, 500);
     } catch (error) {
-      const key = error instanceof DataResetError && error.code === 'INVALID_PASSWORD'
+      const key = error instanceof DataResetError && error.code === 'INVALID_CONFIRMATION'
         ? 'dataClearPasswordIncorrect'
         : error instanceof DataResetError && error.code === 'RESET_NOT_CONFIGURED'
           ? 'dataClearUnavailable'
@@ -526,7 +526,7 @@ export default function AppSettingsButton() {
             variant="outline"
             icon={<DeleteIcon />}
             onClick={() => {
-              setResetPassword('');
+              setResetConfirmation('');
               setResetError('');
               setResetVisible(true);
             }}
@@ -555,13 +555,13 @@ export default function AppSettingsButton() {
         <label className="data-clear-password">
           <span>{t('dataClearPassword')}</span>
           <input
-            type="password"
-            autoComplete="current-password"
-            value={resetPassword}
+            type="text"
+            autoComplete="off"
+            value={resetConfirmation}
             disabled={busy === 'reset'}
             placeholder={t('dataClearPasswordPlaceholder')}
             onChange={(event) => {
-              setResetPassword(event.target.value);
+              setResetConfirmation(event.target.value);
               setResetError('');
             }}
             onKeyDown={(event) => {

@@ -16,7 +16,11 @@
 ## 1. 如何配置我们的项目？
 
 ### 1.1 进入EdgeMaker控制台并创建项目
-首先，拷贝我们的项目main分支，然后进入[EdgeMaker控制台](https://console.cloud.tencent.com/edgeone/makers)，接下来在 Maker 中关联你的 github 账户，接下来创建一个项目并导入main分支。项目就创建好了。
+进入 [EdgeMaker 控制台](https://console.cloud.tencent.com/edgeone/makers)，关联 GitHub 后创建项目并选择仓库和分支。
+
+- 正式基线项目使用 `main`。
+- 架构开发与验收必须新建独立 Maker 项目（例如 `floris-mvc-dev`），且只绑定 `dev`。
+- **不得把 `dev` 绑定、部署或改配到现有 `ai-active-agent-floris` 项目。** 两个项目的项目 ID、部署记录、域名和环境变量彼此独立。
 
 ### 1.2 配置环境变量
 **第一步**，点击已创建好的项目
@@ -39,8 +43,14 @@
 | DEEPSEEK_API_KEY       | ********* | Deepseek语言模型                            | 全部环境 |
 | TENCENT_MAP_SERVER_KEY | ********* | 腾讯地图服务                            | 全部环境 |
 | AI_GATEWAY_BASE_URL    | ********* | -                            | 全部环境 |
-| TENCENT_MEETING_TOKEN  | ********* | 腾讯会议api                            | 预览     |
-| DATA_CLEAR_PASSWORD    | ********* | 清空数据库的密码(自己设置) | 全部环境 |
+| JWT_SECRET             | ********* | 至少 32 字符；签名多用户/Guest 会话   | 全部环境 |
+| DEFAULT_TENANT_ID      | floris    | 默认租户标识                           | 全部环境 |
+| DATABASE_URL           | ********* | Neon 身份、OAuth 绑定和权益账本         | 全部环境 |
+| WECHAT_OPEN_APP_ID     | ********* | 微信开放平台网站应用 ID（可选）         | 全部环境 |
+| WECHAT_OPEN_APP_SECRET | ********* | 微信开放平台密钥（仅服务端，可选）       | 全部环境 |
+| WECHAT_OPEN_CALLBACK_URL | ********* | 微信 OAuth 回调地址（可选）           | 全部环境 |
+
+启用微信登录前，先在 Neon 执行 `db/migrations/001_identity_and_entitlements.sql`。只有 App ID、App Secret 与 `DATABASE_URL` 同时可用时，前端才会展示可用的微信登录入口；缺失配置时系统仍可安全运行 Guest 模式。
 
 ### 1.3 Preview or Production 部署
 
@@ -53,11 +63,11 @@
 
 <img width="600" height="400" alt="image" src="https://github.com/user-attachments/assets/02a35773-1a34-4c21-8bbc-023385169b15" />
 
-**第三步**，选择**main 分支**并点击确定，然后等待部署成功
+**第三步**，在独立开发项目中选择 **dev 分支**并创建 Preview。正式项目仍只跟踪 **main 分支**。点击确定后等待部署成功。
 
 <img width="600" height="400" alt="image" src="https://github.com/user-attachments/assets/3b5767d1-d57e-43de-961d-9e20c9f4051b" />
 
-**Production 流程：** 操作方式和 Preview 相同，只需把预览环境改为**生产**即可。生产环境可以自定义域名以持久化，域名获取与配置可问AI。
+**Production 流程：** 只有经过明确合并发布决策后，才在正式项目的 `main` 上操作。不要为了测试 `dev` 修改 `ai-active-agent-floris` 的分支、环境变量或域名。
 ## 2. 如何直接体验我们的项目？
 ### 2.1 开始一个新的对话！
 废话不多说，直接上图（这个在你刚进去的时候，可爱的Floris也会贴心为你介绍哦~）
@@ -68,7 +78,7 @@
 
 <img width="1770" height="867" alt="image" src="https://github.com/user-attachments/assets/2536c220-be5f-4c29-b21d-5fbb53757121" />
 
-打开**Skill工厂**，里面是我们的各种能力，其中**通用问答与创作**能力和**主动式Agent**是我们的核心能力，覆盖所有的回答，不可关闭。我们将其他所有能力都封装成Skill，在业务逻辑上将他们独立开来，并为未来的拓展提供了接口，可以实现功能上的热插拔。目前接口是代码层面的，未来考虑做成更友好的图形交互模式。
+打开全页 **Skill 广场**，可查看全部/已安装 Skill、依赖图、组件 API 文档，并下载已安装的标准包。**通用问答与创作**和**主动式 Agent**是游客也可使用的必开系统 Skill；其他 Skill 需要微信登录并按会员权益安装。内置能力统一使用 `SKILL.md + floris.json`，用户 ZIP 只会进入 Makers Blob 的待审核区，审核后台完成前不会安装或执行。
 
 ### 2.3 设置
 
@@ -153,7 +163,7 @@ Floris不仅是你的好伙伴，它还是一个大画家，你可以让它画�
 它还会给你相似图片的对比图，为你提供左右两种按键，方便对比！
 
 ### 3.7 Skill分离设计
-Floris的技能是独立的，想探索Floris的程序猿兄弟们可以很方便的为Floris添加新的技能，让它更加强大！
+Floris 的技能是独立、可安装并有依赖关系的标准包。系统 Skill 与未来审核通过的用户 Skill 都通过最小权限组件 API 工作，身份、租户、会员和副作用确认由服务端确定性校验，不交给模型判断。详细的修改前/后架构图、MVC 边界和优先级见 [ARCHITECTURE_PLAN.md](./ARCHITECTURE_PLAN.md)。
 
 ### 3.8 一些用户友好的功能
 - Floris会从你的行程，你的喜欢，你的习惯推测一些事情分享给你，它会把这些写到醒目的位置

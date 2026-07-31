@@ -26,6 +26,7 @@ import { markdownToPlainText } from '../common/richContent';
 import { getStoredLanguage, translate, useLanguage } from '../../i18n';
 import type { AssistantChainPosition } from './assistantMessageChain';
 import { requestRightWorkspaceOpen } from '../../services/workspaceEvents';
+import { progressTranslationKey } from '../../features/chat/progressModel';
 
 interface Props {
   message: ChatMessage;
@@ -826,13 +827,21 @@ function MessageBubble({
   const searchStatus = typeof message.skill?.data?.statusText === 'string'
     ? message.skill.data.statusText
     : t('understandingRequest');
+  const visibleProgress = (message.progress || [])
+    .filter((step) => step.stage !== 'complete')
+    .slice(-5);
+  const activeProgress = [...visibleProgress].reverse().find(
+    (step) => step.status === 'active',
+  ) || visibleProgress[visibleProgress.length - 1];
   const progressStatus = message.content
     ? (message.skill?.intent === 'search'
       ? (message.searchResults?.media_pending
         ? t('writingReviewing')
         : t('organizingVerifiedAnswer'))
       : t('organizingAnswer'))
-    : searchStatus;
+    : activeProgress
+      ? t(progressTranslationKey(activeProgress))
+      : searchStatus;
   const isImageCreation = Boolean(message.streaming && message.skill?.intent === 'image');
   const markdownRender = {
     content: publicAssistantMarkdown(
@@ -859,10 +868,27 @@ function MessageBubble({
             <>
               {/* 搜索动画 */}
               {!isUser && message.streaming && (
-                isImageCreation ? <ImageCreationProgress message={message} /> : <div className={`search-progress ${message.content ? 'has-content' : ''}`}>
-                  <div className="image-generating-spinner" />
-                  <span className="search-progress-status" title={progressStatus}>{progressStatus}</span>
-                  <span className="image-generating-dots"><span>.</span><span>.</span><span>.</span></span>
+                isImageCreation ? <ImageCreationProgress message={message} /> : <div className="structured-progress-shell">
+                  <div className={`search-progress ${message.content ? 'has-content' : ''}`}>
+                    <div className="image-generating-spinner" />
+                    <span className="search-progress-status" title={progressStatus}>{progressStatus}</span>
+                    <span className="image-generating-dots"><span>.</span><span>.</span><span>.</span></span>
+                  </div>
+                  {!message.content && visibleProgress.length > 0 && (
+                    <ol className="structured-progress" aria-label={t('progressSafetyNote')} title={t('progressSafetyNote')}>
+                      {visibleProgress.map((step) => (
+                        <li
+                          key={`${step.stage}:${step.activity}`}
+                          className={`is-${step.status}`}
+                        >
+                          <span aria-hidden="true">
+                            {step.status === 'completed' ? '✓' : step.status === 'skipped' ? '–' : '•'}
+                          </span>
+                          {t(progressTranslationKey(step))}
+                        </li>
+                      ))}
+                    </ol>
+                  )}
                 </div>
               )}
               {markdownRender.content && <MarkdownRenderer

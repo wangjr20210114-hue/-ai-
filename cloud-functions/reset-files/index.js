@@ -1,7 +1,7 @@
 import { getStore } from '@edgeone/pages-blob';
-import { currentUser } from '../../auth/current-user.js';
+import { currentUser, tenantPrefix } from '../../auth/current-user.js';
 
-const STORE_NAMES = ['yuanbao-files', 'yuanbao-acceptance-shared', 'yuanbao-auth'];
+const STORE_NAMES = ['yuanbao-files'];
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -10,23 +10,17 @@ function json(data, status = 200) {
   });
 }
 
-function secureEqual(left, right) {
-  const first = new TextEncoder().encode(String(left || ''));
-  const second = new TextEncoder().encode(String(right || ''));
-  let difference = first.length ^ second.length;
-  const length = Math.max(first.length, second.length);
-  for (let index = 0; index < length; index += 1) {
-    difference |= (first[index] || 0) ^ (second[index] || 0);
+async function clearStore(store, prefix) {
+  let deleted = 0;
+  for (let page = 0; page < 1000; page += 1) {
+    const { blobs = [] } = await store.list({ prefix, consistency: 'strong' });
+    if (!blobs.length) break;
+    for (let offset = 0; offset < blobs.length; offset += 20) {
+      await Promise.all(blobs.slice(offset, offset + 20).map((item) => store.delete(item.key)));
+    }
+    deleted += blobs.length;
   }
-  return difference === 0;
-}
-
-async function clearStore(store) {
-  const { blobs } = await store.list({ consistency: 'strong' });
-  for (let offset = 0; offset < blobs.length; offset += 20) {
-    await Promise.all(blobs.slice(offset, offset + 20).map((item) => store.delete(item.key)));
-  }
-  return blobs.length;
+  return deleted;
 }
 
 async function listConversationIds(store, userId) {
@@ -68,12 +62,11 @@ async function clearConversations(store, userId) {
 export async function onRequest(context) {
   const { request, env = {} } = context;
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
-  const user = await currentUser(request, env);
+  let user;
+  try { user = await currentUser(request, env); } catch { return json({ error: 'Unauthorized' }, 401); }
   const body = await request.json().catch(() => ({}));
-  const configured = String(env.DATA_CLEAR_PASSWORD || '');
-  if (!configured) return json({ error: '数据清理功能暂不可用', code: 'RESET_NOT_CONFIGURED' }, 503);
-  if (!secureEqual(body.password, configured)) {
-    return json({ error: '密码不正确', code: 'INVALID_PASSWORD' }, 403);
+  if (String(body.confirmation || '') !== 'DELETE') {
+    return json({ error: '请输入 DELETE 确认删除自己的数据', code: 'INVALID_CONFIRMATION' }, 403);
   }
 
   const conversationStore = context.__conversationStore || context.agent?.store;
@@ -96,7 +89,7 @@ export async function onRequest(context) {
   ]));
   const [conversationsDeleted, ...storeCounts] = await Promise.all([
     clearConversations(conversationStore, user.id),
-    ...STORE_NAMES.map((name) => clearStore(stores[name])),
+    ...STORE_NAMES.map((name) => clearStore(stores[name], tenantPrefix(user))),
   ]);
   return json({
     ok: true,
@@ -106,7 +99,6 @@ export async function onRequest(context) {
 }
 
 export const __test = {
-  secureEqual,
   clearStore,
   listConversationIds,
   clearConversations,

@@ -6,6 +6,12 @@ import StatusIndicator from './StatusIndicator';
 import { activeProactiveNotifications, proactiveFallbackLines, proactiveHeaderLines, proactiveReminderLines } from '../profile/proactiveNotifications';
 import { useLanguage } from '../../i18n';
 import { FEATURE_DOCUMENT_URL } from '../../constants';
+import {
+  currentAuthSession,
+  ensureAuthSession,
+  startWechatLogin,
+  type AuthSession,
+} from '../../services/auth';
 
 const THEME_KEY = 'travel-theme';
 
@@ -40,6 +46,9 @@ export default function Header({
   );
   const notificationKey = displayLines.map((item) => item.id).join('|');
   const [reminderIndex, setReminderIndex] = useState(0);
+  const [authSession, setAuthSession] = useState<AuthSession | null>(
+    currentAuthSession(),
+  );
   const activeLine = displayLines[reminderIndex % Math.max(1, displayLines.length)];
 
   useEffect(() => {
@@ -53,6 +62,16 @@ export default function Header({
     }, 6000);
     return () => window.clearInterval(timer);
   }, [displayLines.length]);
+
+  useEffect(() => {
+    if (!connected) return undefined;
+    void ensureAuthSession().then(setAuthSession).catch(() => {});
+    const changed = (event: Event) => {
+      setAuthSession((event as CustomEvent<AuthSession>).detail);
+    };
+    window.addEventListener('floris:auth-changed', changed);
+    return () => window.removeEventListener('floris:auth-changed', changed);
+  }, [connected]);
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -129,6 +148,25 @@ export default function Header({
         )}
       </div>
       <div className="header-actions">
+        {authSession && (
+          <button
+            type="button"
+            className={`header-account ${authSession.identity.auth_type === 'guest' ? 'is-guest' : 'is-user'}`}
+            title={authSession.identity.auth_type === 'guest' ? t('wechatLogin') : authSession.identity.display_name}
+            onClick={authSession.identity.auth_type === 'guest'
+              ? () => startWechatLogin('/chatBot')
+              : undefined}
+          >
+            {authSession.identity.avatar_url
+              ? <img src={authSession.identity.avatar_url} alt="" referrerPolicy="no-referrer" />
+              : <span aria-hidden="true">
+                {authSession.identity.auth_type === 'guest'
+                  ? t('guestAvatarGlyph')
+                  : t('wechatAvatarGlyph')}
+              </span>}
+            <b>{authSession.identity.auth_type === 'guest' ? t('wechatLogin') : authSession.identity.display_name}</b>
+          </button>
+        )}
         <a
           data-onboarding="github"
           className="header-icon-link"

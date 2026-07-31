@@ -1,1 +1,0 @@
-"""Vision understanding Skill."""

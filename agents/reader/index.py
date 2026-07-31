@@ -6,6 +6,7 @@ import time
 from ..chat._llm import get_model
 from ..chat._protocol import StreamDeltaNormalizer, public_error
 from .._shared.auth import require_user
+from .._shared.entitlements import require_skill_access
 from .._shared.http import error
 
 
@@ -30,7 +31,11 @@ def _text(content):
 
 
 async def handler(ctx):
-    require_user(ctx)
+    identity = require_user(ctx)
+    try:
+        require_skill_access(identity, "paper-reading")
+    except PermissionError as exc:
+        return error(str(exc), 403, code="SKILL_ACCESS_DENIED")
     body = ctx.request.body or {}
     action = str(body.get("action") or "")
     text = str(body.get("text") or "").strip()

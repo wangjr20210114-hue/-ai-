@@ -2,14 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { onRequest, __test } from './index.js';
+import { authenticatedRequest, TEST_AUTH_ENV } from '../../test-utils/auth.js';
+
+const PREFIX = 'tenants/floris/users/11111111-1111-4111-8111-111111111111/';
 
 class FakeStore {
   constructor(keys = []) {
     this.keys = [...keys];
   }
 
-  async list() {
-    return { blobs: this.keys.map((key) => ({ key })) };
+  async list({ prefix = '' } = {}) {
+    return { blobs: this.keys.filter((key) => key.startsWith(prefix)).map((key) => ({ key })) };
   }
 
   async delete(key) {
@@ -35,25 +38,19 @@ class FakeConversationStore {
   }
 }
 
-function request(password, operation = 'clear') {
-  return new Request('https://example.com/reset-files', {
+function request(confirmation, operation = 'clear') {
+  return authenticatedRequest('https://example.com/reset-files', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password, operation }),
+    body: JSON.stringify({ confirmation, operation }),
   });
 }
 
-test('password comparison does not accept empty or partial values', () => {
-  assert.equal(__test.secureEqual('', 'secret'), false);
-  assert.equal(__test.secureEqual('sec', 'secret'), false);
-  assert.equal(__test.secureEqual('secret', 'secret'), true);
-});
-
-test('wrong password leaves every Makers Blob store untouched', async () => {
-  const stores = Object.fromEntries(__test.STORE_NAMES.map((name) => [name, new FakeStore([`${name}/test`])]));
+test('wrong confirmation leaves the Makers Blob store untouched', async () => {
+  const stores = Object.fromEntries(__test.STORE_NAMES.map((name) => [name, new FakeStore([`${PREFIX}${name}/test`])]));
   const response = await onRequest({
-    request: request('wrong'),
-    env: { DATA_CLEAR_PASSWORD: 'secret' },
+    request: await request('wrong'),
+    env: TEST_AUTH_ENV,
     __stores: stores,
     __conversationStore: new FakeConversationStore(['yb7_keep']),
   });
@@ -61,14 +58,15 @@ test('wrong password leaves every Makers Blob store untouched', async () => {
   for (const store of Object.values(stores)) assert.equal(store.keys.length, 1);
 });
 
-test('valid password clears files, acceptance records and scheduler claims', async () => {
+test('valid confirmation clears only this user files and conversations', async () => {
   const stores = Object.fromEntries(__test.STORE_NAMES.map((name) => [name, new FakeStore([
-    `${name}/one`,
-    `${name}/two`,
+    `${PREFIX}${name}/one`,
+    `${PREFIX}${name}/two`,
+    `tenants/floris/users/22222222-2222-4222-8222-222222222222/${name}/keep`,
   ])]));
   const response = await onRequest({
-    request: request('secret'),
-    env: { DATA_CLEAR_PASSWORD: 'secret' },
+    request: await request('DELETE'),
+    env: TEST_AUTH_ENV,
     __stores: stores,
     __conversationStore: new FakeConversationStore(['yb7_one', 'yb7_two']),
   });
@@ -77,18 +75,20 @@ test('valid password clears files, acceptance records and scheduler claims', asy
   assert.equal(data.conversations_deleted, 2);
   assert.deepEqual(data.deleted, {
     'yuanbao-files': 2,
-    'yuanbao-acceptance-shared': 2,
-    'yuanbao-auth': 2,
   });
-  for (const store of Object.values(stores)) assert.equal(store.keys.length, 0);
+  for (const store of Object.values(stores)) {
+    assert.deepEqual(store.keys, [
+      `tenants/floris/users/22222222-2222-4222-8222-222222222222/yuanbao-files/keep`,
+    ]);
+  }
 });
 
 test('inspect returns conversation ids without deleting any Makers data', async () => {
   const conversations = new FakeConversationStore(['yb7_one', 'yb7_two']);
-  const stores = Object.fromEntries(__test.STORE_NAMES.map((name) => [name, new FakeStore([`${name}/one`])]));
+  const stores = Object.fromEntries(__test.STORE_NAMES.map((name) => [name, new FakeStore([`${PREFIX}${name}/one`])]));
   const response = await onRequest({
-    request: request('secret', 'inspect'),
-    env: { DATA_CLEAR_PASSWORD: 'secret' },
+    request: await request('DELETE', 'inspect'),
+    env: TEST_AUTH_ENV,
     __stores: stores,
     __conversationStore: conversations,
   });

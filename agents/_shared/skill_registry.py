@@ -1,9 +1,10 @@
-"""Declarative, discoverable Skill registry and restricted Makers runtime SDK.
+"""Standard Agent Skills registry and restricted Makers/component runtime SDK.
 
-A Skill is installed by adding ``agents/skills/<package>/manifest.py``.  The
-manifest owns product metadata, semantic capabilities, tool names, dependencies
-and requested Makers permissions.  An optional adapter entry point may return
-additional LangChain tools without editing the central chat graph.
+A Skill package lives at ``agents/skill_packages/<skill-id>`` and contains the
+open-standard ``SKILL.md`` plus a Floris-specific ``floris.json`` extension.
+The extension owns machine-readable capabilities, dependencies, entitlements
+and least-privilege runtime contracts. An optional adapter entry point may
+return additional LangChain tools without editing the central chat graph.
 
 Existing FLORIS business functions remain in their current modules.  Their
 manifests claim ownership of those tools, so migration does not rewrite or
@@ -15,19 +16,21 @@ from __future__ import annotations
 
 import importlib
 import inspect
-import pkgutil
+import json
 import re
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 
-SKILL_MANIFEST_SCHEMA_VERSION = 1
+SKILL_MANIFEST_SCHEMA_VERSION = 2
 _SKILL_ID = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 _CAPABILITY_ID = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 _TOOL_ID = re.compile(r"^[a-z][a-z0-9_]{1,95}$")
 _ACTION_ID = re.compile(r"^[a-z][a-z0-9_]{1,95}$")
+_SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$")
 _PERMISSIONS = {
     "makers.state",
     "makers.checkpointer",
@@ -37,7 +40,15 @@ _PERMISSIONS = {
     "conversation.read",
     "user.read",
     "browser.location",
+    "components.system",
 }
+from .component_api import (  # noqa: E402
+    COMPONENT_PERMISSIONS,
+    component_permission,
+    known_component_actions,
+)
+
+_PERMISSIONS.update(COMPONENT_PERMISSIONS)
 
 
 def _runtime_root_package() -> str:
@@ -65,6 +76,11 @@ class SkillToolBinding:
 @dataclass(frozen=True)
 class SkillManifest:
     id: str
+    version: str
+    kind: str
+    publisher: Mapping[str, Any]
+    required_plan: str
+    package_path: str
     order: int
     default_enabled: bool
     locked: bool
@@ -90,6 +106,8 @@ class SkillManifest:
     prompt_topic: str
     prompt_instructions: str
     prompt_recovery_tools: tuple[str, ...]
+    component_actions: tuple[str, ...]
+    skill_instructions: str
 
     def public_dict(self, env: Mapping[str, Any] | None = None) -> dict[str, Any]:
         runtime_env = env or {}
@@ -100,6 +118,11 @@ class SkillManifest:
         )
         return {
             "id": self.id,
+            "version": self.version,
+            "kind": self.kind,
+            "publisher": dict(self.publisher),
+            "required_plan": self.required_plan,
+            "package_path": self.package_path,
             "order": self.order,
             "default_enabled": self.default_enabled,
             "locked": self.locked,
@@ -113,6 +136,7 @@ class SkillManifest:
             "icon": self.icon,
             "name": dict(self.names),
             "description": dict(self.descriptions),
+            "component_actions": list(self.component_actions),
         }
 
 
@@ -130,10 +154,13 @@ class SkillRuntimeContext:
         "_model",
         "_tracer",
         "_browser_location",
+        "_components",
+        "_kind",
     )
 
     def __init__(self, manifest: SkillManifest, runtime: Mapping[str, Any]):
         self.skill_id = manifest.id
+        self._kind = manifest.kind
         self.permissions = manifest.permissions
         self.conversation_id = (
             str(runtime.get("conversation_id") or "")
@@ -176,6 +203,11 @@ class SkillRuntimeContext:
             if "browser.location" in self.permissions
             else {}
         )
+        self._components = (
+            runtime.get("components")
+            if isinstance(runtime.get("components"), Mapping)
+            else {}
+        )
 
     @property
     def state_store(self):
@@ -211,6 +243,27 @@ class SkillRuntimeContext:
         if not clean_name:
             raise ValueError("Makers Blob store name is required")
         return get_store(clean_name, consistency=consistency)
+
+    def component(self, action: str):
+        """Return one host-provided typed component action after permission checks."""
+        clean_action = str(action or "").strip()
+        if clean_action not in known_component_actions():
+            raise ValueError(f"Unknown Floris component action {clean_action!r}")
+        permission = component_permission(clean_action)
+        if (
+            permission not in self.permissions
+            and not (
+                self._kind == "system"
+                and "components.system" in self.permissions
+            )
+        ):
+            raise PermissionError(
+                f"Skill {self.skill_id} did not declare component permission {permission}"
+            )
+        handler = self._components.get(clean_action)
+        if not callable(handler):
+            raise RuntimeError(f"Component action {clean_action} is unavailable")
+        return handler
 
     def trace(self, name: str, attributes: Mapping[str, Any] | None = None) -> None:
         self.require("makers.trace")
@@ -248,11 +301,21 @@ def _localized(value: Any, fallback: str) -> Mapping[str, str]:
 
 
 def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
-    if int(raw.get("schema_version") or 0) != SKILL_MANIFEST_SCHEMA_VERSION:
+    schema_version = int(raw.get("schema_version") or 0)
+    if schema_version not in {1, SKILL_MANIFEST_SCHEMA_VERSION}:
         raise ValueError(f"{source}: unsupported Skill manifest schema")
     skill_id = str(raw.get("id") or "").strip()
     if not _SKILL_ID.fullmatch(skill_id):
         raise ValueError(f"{source}: invalid Skill id {skill_id!r}")
+    version = str(raw.get("version") or "1.0.0").strip()
+    if not _SEMVER.fullmatch(version):
+        raise ValueError(f"{source}: invalid Skill version {version!r}")
+    kind = str(raw.get("kind") or "system").strip()
+    if kind not in {"system", "community", "user"}:
+        raise ValueError(f"{source}: invalid Skill kind {kind!r}")
+    required_plan = str(raw.get("required_plan") or "free").strip()
+    if required_plan not in {"guest", "free", "plus", "pro"}:
+        raise ValueError(f"{source}: invalid required plan {required_plan!r}")
     capabilities = _string_tuple(raw.get("capabilities"))
     if any(not _CAPABILITY_ID.fullmatch(item) for item in capabilities):
         raise ValueError(f"{source}: invalid capability id")
@@ -284,6 +347,27 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
     if unknown_permissions:
         raise ValueError(
             f"{source}: unknown Makers permissions {sorted(unknown_permissions)}"
+        )
+    if kind != "system" and "components.system" in permissions:
+        raise ValueError(f"{source}: only system Skills may request components.system")
+    component_actions = _string_tuple(raw.get("component_actions"))
+    unknown_component_actions = set(component_actions) - set(
+        known_component_actions()
+    )
+    if unknown_component_actions:
+        raise ValueError(
+            f"{source}: unknown component actions {sorted(unknown_component_actions)}"
+        )
+    missing_component_permissions = {
+        component_permission(action)
+        for action in component_actions
+        if component_permission(action) not in permissions
+        and not (kind == "system" and "components.system" in permissions)
+    }
+    if missing_component_permissions:
+        raise ValueError(
+            f"{source}: component actions require permissions "
+            f"{sorted(missing_component_permissions)}"
         )
     ui = raw.get("ui") if isinstance(raw.get("ui"), Mapping) else {}
     planner = (
@@ -322,6 +406,15 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         raise ValueError(f"{source}: invalid planner recovery tool")
     return SkillManifest(
         id=skill_id,
+        version=version,
+        kind=kind,
+        publisher=MappingProxyType(dict(
+            raw.get("publisher")
+            if isinstance(raw.get("publisher"), Mapping)
+            else {"id": "floris", "name": "Floris", "verified": kind == "system"}
+        )),
+        required_plan=required_plan,
+        package_path=str(raw.get("_package_path") or ""),
         order=max(-10_000, min(10_000, int(raw.get("order") or 0))),
         default_enabled=bool(raw.get("default_enabled", True)),
         locked=bool(raw.get("locked", False)),
@@ -347,8 +440,14 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         descriptions=_localized(ui.get("description"), ""),
         planner_summary=str(planner.get("summary") or "").strip()[:600],
         prompt_topic=str(planner.get("topic") or "").strip()[:64],
-        prompt_instructions=str(planner.get("instructions") or "").strip()[:4000],
+        prompt_instructions=str(
+            planner.get("instructions")
+            or raw.get("_skill_instructions")
+            or ""
+        ).strip()[:4000],
         prompt_recovery_tools=recovery_tools,
+        component_actions=component_actions,
+        skill_instructions=str(raw.get("_skill_instructions") or "").strip()[:12_000],
     )
 
 
@@ -428,26 +527,43 @@ def parse_skill_manifests(
 
 @lru_cache(maxsize=1)
 def skill_manifests() -> tuple[SkillManifest, ...]:
-    package = importlib.import_module(f"{_runtime_root_package()}.skills")
     discovered: list[SkillManifest] = []
-    prefix = f"{package.__name__}."
-    for module_info in sorted(
-        pkgutil.iter_modules(package.__path__, prefix),
-        key=lambda item: item.name,
-    ):
-        if not module_info.ispkg:
+    packages_root = Path(__file__).resolve().parents[1] / "skill_packages"
+    for package_path in sorted(packages_root.iterdir() if packages_root.exists() else []):
+        if not package_path.is_dir():
             continue
-        manifest_module_name = f"{module_info.name}.manifest"
-        try:
-            module = importlib.import_module(manifest_module_name)
-        except ModuleNotFoundError as exc:
-            if exc.name == manifest_module_name:
-                continue
-            raise
-        raw = getattr(module, "MANIFEST", None)
-        if not isinstance(raw, Mapping):
-            raise ValueError(f"{manifest_module_name}: MANIFEST must be a mapping")
-        discovered.append(_parse_manifest(raw, manifest_module_name))
+        skill_doc = package_path / "SKILL.md"
+        extension = package_path / "floris.json"
+        if not skill_doc.exists() or not extension.exists():
+            raise ValueError(
+                f"{package_path}: every Skill package requires SKILL.md and floris.json"
+            )
+        doc = skill_doc.read_text(encoding="utf-8")
+        if not doc.startswith("---\n") or "\n---\n" not in doc[4:]:
+            raise ValueError(f"{skill_doc}: invalid SKILL.md frontmatter")
+        frontmatter, instructions = doc[4:].split("\n---\n", 1)
+        metadata: dict[str, str] = {}
+        for line in frontmatter.splitlines():
+            key, separator, value = line.partition(":")
+            if separator:
+                metadata[key.strip()] = value.strip().strip("\"'")
+        if metadata.get("name") != package_path.name:
+            raise ValueError(
+                f"{skill_doc}: frontmatter name must equal directory name"
+            )
+        if not metadata.get("description"):
+            raise ValueError(f"{skill_doc}: description is required")
+        raw = json.loads(extension.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError(f"{extension}: floris.json must be an object")
+        raw = {
+            **raw,
+            "_package_path": str(package_path.relative_to(packages_root.parent)),
+            "_skill_instructions": instructions,
+        }
+        if str(raw.get("id") or "") != metadata["name"]:
+            raise ValueError(f"{extension}: id must match SKILL.md name")
+        discovered.append(_parse_manifest(raw, str(extension)))
     if not discovered:
         raise RuntimeError("No Skill manifests were discovered")
     return _validate_registry(discovered)
@@ -476,6 +592,60 @@ def locked_skill_ids() -> frozenset[str]:
     return frozenset(
         manifest.id for manifest in skill_manifests() if manifest.locked
     )
+
+
+def skill_dependency_graph() -> dict[str, Any]:
+    manifests = skill_manifests()
+    return {
+        "nodes": [
+            {
+                "id": manifest.id,
+                "version": manifest.version,
+                "kind": manifest.kind,
+                "locked": manifest.locked,
+                "required_plan": manifest.required_plan,
+                "name": dict(manifest.names),
+            }
+            for manifest in manifests
+        ],
+        "edges": [
+            {
+                "from": manifest.id,
+                "to": dependency,
+                "type": "requires",
+            }
+            for manifest in manifests
+            for dependency in manifest.requires
+        ] + [
+            {
+                "from": manifest.id,
+                "to": dependency,
+                "type": "recommends",
+            }
+            for manifest in manifests
+            for dependency in manifest.recommends
+        ],
+    }
+
+
+def public_skill_package(skill_id: str) -> dict[str, Any]:
+    manifest = skill_manifest(skill_id)
+    if manifest is None or not manifest.package_path:
+        raise ValueError("Skill package does not exist")
+    package_path = Path(__file__).resolve().parents[1] / manifest.package_path
+    skill_doc = package_path / "SKILL.md"
+    extension = package_path / "floris.json"
+    return {
+        "format": "floris-skill-package",
+        "format_version": 1,
+        "id": manifest.id,
+        "version": manifest.version,
+        "filename": f"{manifest.id}-{manifest.version}.floris-skill.json",
+        "files": {
+            "SKILL.md": skill_doc.read_text(encoding="utf-8"),
+            "floris.json": json.loads(extension.read_text(encoding="utf-8")),
+        },
+    }
 
 
 def resolve_enabled_skills(values: Iterable[str]) -> frozenset[str]:

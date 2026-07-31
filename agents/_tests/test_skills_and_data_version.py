@@ -3,13 +3,15 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from agents._shared.auth import scoped_conversation_id
+from agents._shared.auth import AuthError, scoped_conversation_id
+from agents._shared.component_api import public_component_api
 from agents._shared.data_version import CONVERSATION_PREFIX, DATA_GENERATION
 from agents._shared.intelligence import DEFAULT_SKILL_PREFERENCES, empty_intelligence_state
 from agents._shared.proactive import proactive_namespace
 from agents._shared.workspace import _namespace as workspace_namespace
 from agents.chat._ui_tools import build_production_tools
 from agents.intelligence.index import handler as intelligence_handler
+from agents._tests.auth_helpers import TEST_USER_ID, authenticated_context
 
 
 class FakeStore:
@@ -29,23 +31,40 @@ class SkillAndDataVersionTests(unittest.TestCase):
         class Ctx:
             conversation_id = "conversation-1"
 
-        scoped = scoped_conversation_id(Ctx(), "local-user")
-        self.assertEqual(scoped, f"{CONVERSATION_PREFIX}conversation-1")
+        scoped = scoped_conversation_id(Ctx(), TEST_USER_ID)
+        self.assertRegex(scoped, rf"^{CONVERSATION_PREFIX}[0-9a-f]{{32}}$")
         self.assertLessEqual(len(scoped), 36)
-        self.assertEqual(scoped_conversation_id(Ctx(), "local-user", scoped), scoped)
-        long_scoped = scoped_conversation_id(Ctx(), "local-user", "legacy-" + "x" * 80)
+        self.assertNotEqual(scoped_conversation_id(Ctx(), TEST_USER_ID, scoped), scoped)
+        long_scoped = scoped_conversation_id(Ctx(), TEST_USER_ID, "legacy-" + "x" * 80)
         self.assertTrue(long_scoped.startswith(CONVERSATION_PREFIX))
         self.assertEqual(len(long_scoped), 36)
-        self.assertIn(DATA_GENERATION, workspace_namespace("local-user")[0])
-        self.assertIn(DATA_GENERATION, proactive_namespace("local-user")[0])
+        self.assertIn(DATA_GENERATION, workspace_namespace(TEST_USER_ID)[0])
+        self.assertIn(DATA_GENERATION, proactive_namespace(TEST_USER_ID)[0])
 
     def test_current_capabilities_default_to_enabled(self):
         state = empty_intelligence_state()
         self.assertEqual(state["skill_preferences"], DEFAULT_SKILL_PREFERENCES)
         self.assertTrue(all(state["skill_preferences"].values()))
 
+    def test_tool_factory_has_no_implicit_single_user_identity(self):
+        with self.assertRaises(AuthError):
+            build_production_tools(object())
+
+    def test_skill_progress_component_forbids_free_form_labels(self):
+        action = next(
+            item
+            for item in public_component_api()["actions"]
+            if item["id"] == "chat.progress.publish"
+        )
+        self.assertNotIn("label", action["input"])
+        self.assertIn("planning", action["input"]["stage"])
+
     def test_calendar_can_run_without_map_but_map_tools_are_hidden(self):
-        tools = build_production_tools(object(), enabled_skills={"calendar"})
+        tools = build_production_tools(
+            object(),
+            enabled_skills={"calendar"},
+            user_id=TEST_USER_ID,
+        )
         names = {tool.name for tool in tools}
         self.assertEqual(names, {
             "ask_user_clarification",
@@ -60,13 +79,13 @@ class SkillAndDataVersionTests(unittest.TestCase):
 class SkillPreferenceEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_locked_proactive_skill_cannot_be_disabled(self):
         store = FakeStore()
-        ctx = SimpleNamespace(
+        ctx = authenticated_context(SimpleNamespace(
             request=SimpleNamespace(body={
                 "operation": "update_skill_preferences",
                 "preferences": {"maps": False, "proactive-agent": False},
-            }),
+            }, headers={}),
             store=SimpleNamespace(langgraph_store=store),
-        )
+        ))
         response = await intelligence_handler(ctx)
         self.assertFalse(response["skill_preferences"]["maps"])
         self.assertTrue(response["skill_preferences"]["proactive-agent"])
@@ -85,6 +104,7 @@ class SkillPreferenceEndpointTests(unittest.IsolatedAsyncioTestCase):
             object(),
             env={"TENCENT_MEETING_TOKEN": "configured"},
             enabled_skills={"web-search", "vision", "image-studio", "paper-reading", "tencent-meeting"},
+            user_id=TEST_USER_ID,
         )
         names = {tool.name for tool in tools}
         self.assertIn("rich_search", names)
@@ -98,6 +118,7 @@ class SkillPreferenceEndpointTests(unittest.IsolatedAsyncioTestCase):
         linked = build_production_tools(
             object(), env={"TENCENT_MEETING_TOKEN": "configured"},
             enabled_skills={"calendar", "tencent-meeting"},
+            user_id=TEST_USER_ID,
         )
         self.assertEqual(
             {tool.name for tool in linked},

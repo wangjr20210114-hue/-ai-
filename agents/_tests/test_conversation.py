@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from agents.conversation.index import handler
 from agents._shared.data_version import CONVERSATION_PREFIX
+from agents._tests.auth_helpers import auth_env, auth_headers
 
 
 class FakeConversationStore:
@@ -27,21 +28,21 @@ class ConversationRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_append_uses_native_makers_message_shape(self):
         store = FakeConversationStore()
         ctx = SimpleNamespace(
-            conversation_id="conversation-role", env={},
-            request=SimpleNamespace(body={"role": "ai", "content": "已恢复回答", "metadata": {"id": "client-ai-1"}}, headers={}),
+            conversation_id="conversation-role", env=auth_env(),
+            request=SimpleNamespace(body={"role": "ai", "content": "已恢复回答", "metadata": {"id": "client-ai-1"}}, headers=auth_headers()),
             store=store,
         )
         response = await handler(ctx)
         self.assertEqual(response, {"message_id": "native-message-1"})
         self.assertEqual(store.messages[0]["role"], "assistant")
-        self.assertEqual(store.messages[0]["conversation_id"], f"{CONVERSATION_PREFIX}conversation-role")
+        self.assertRegex(store.messages[0]["conversation_id"], rf"^{CONVERSATION_PREFIX}[0-9a-f]{{32}}$")
         self.assertEqual(store.messages[0]["metadata"]["client_message_id"], "client-ai-1")
 
     async def test_first_user_message_sets_native_conversation_title(self):
         store = FakeConversationStore()
         ctx = SimpleNamespace(
-            conversation_id="conversation-title", env={},
-            request=SimpleNamespace(body={"role": "user", "content": "最近AI有什么新进展", "metadata": {"id": "client-user-1"}}, headers={}),
+            conversation_id="conversation-title", env=auth_env(),
+            request=SimpleNamespace(body={"role": "user", "content": "最近AI有什么新进展", "metadata": {"id": "client-user-1"}}, headers=auth_headers()),
             store=store,
         )
         await handler(ctx)

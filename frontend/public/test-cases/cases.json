@@ -2891,7 +2891,7 @@
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
       "【Preview 地址栏】在域名后输入 /system，并保留控制台生成的 eo_token/eo_time 参数；回车。若浏览器插件拦截该 JSON 路由，可在终端使用 curl -L 并启用临时 Cookie jar 做同一只读 GET，不要把签名写进验收备注。",
-      "【/system JSON】确认 HTTP 200、status=ok、scope=public、scheduler.schedule=0 8 * * *、timezone=Asia/Shanghai、identity.mode=single_user；details 应明确详细状态位于 /system_internal 且需要 Makers 会话请求头。",
+      "【/system JSON】确认 HTTP 200、status=ok、scope=public、scheduler.schedule=0 8 * * *、timezone=Asia/Shanghai、identity.mode=multi_user，且返回当前会话的 tenant_id/auth_type/membership；details 应明确详细状态位于 /system_internal 且需要 Makers 会话请求头。",
       "【目标应用左栏】点击设置→主动式服务→立即检查，在 Network 查看 /proactive 响应中的 Run 状态；不要在地址栏手工添加内部请求头。",
       "【目标网页】刷新后再次打开 /system；有未读风险时 Header 应显示自然短句，无真实提醒时仅轮播用户设置的诗意短句，不向空白对话注入消息。",
       "【验收站】回到 OPS-01，按实际结果选择“通过/失败/阻塞/不适用”；备注写明实际现象、关键请求状态和复现条件，不要填写密钥。",

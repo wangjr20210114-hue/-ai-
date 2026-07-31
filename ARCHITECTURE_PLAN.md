@@ -21,6 +21,17 @@ FLORIS 已经不是一个简单聊天页，而是一个以 LangGraph 为中枢�
 
 本分支已完成第一阶段低风险改造：**搜索事实证据仍在关键路径，网页图片抓取与视觉审核改为渐进交付；只有图片生成需要审核后的参考图时才阻塞等待。**
 
+在后续讨论中，产品目标已从单人演示扩展为可匿名使用、微信优先登录、多租户隔离、可安装 Skill 平台和未来会员体系。以下原则成为后续改造的硬约束：
+
+1. **Makers 原生能力优先。** Conversation Store、LangGraph Checkpointer / Store、Blob、Cloud Functions、Agent Runtime、Tracing 和部署能力能复用就不自建。
+2. **模型只负责生成，不负责安全边界。** 身份、租户、Skill 权限、依赖、会员权益、媒体插入与副作用确认都由确定性服务端规则执行。
+3. **缓存证据，不缓存答案。** 缓存只能缩短搜索、规范化和业务决策准备时间；最终回答每轮都结合当前上下文重新生成。
+4. **展示可验证进度，不展示原始思维链。** 用户看到阶段、工具、来源数量、耗时和降级状态，而不是模型内部隐式推理。
+5. **`main` 始终保持发布基线。** 全部架构与实现工作只进入 `dev`，通过 Preview 和回归测试后再单独决定是否合并。
+6. **采用适配 Serverless/React 的分层 MVC。** Model 不依赖 HTTP/React，Controller 只做鉴权、校验和用例编排，View 只负责 JSON/SSE Presenter 或 React 呈现；EdgeOne `index.py/onRequest` 保持为薄路由适配器。
+
+截至本次 `dev` 实施，纯多用户身份、标准 Skill 包、全页 Skill 广场、组件 API、上传待审核、证据缓存/single-flight 和可信结构化进度均已进入代码；支付仍只保留接口，用户 Skill 审核执行与后台管理按约定未开放。
+
 ## 2. 线上体验记录
 
 本次通过生产站点 `https://floris.jlutx.com/chatBot` 各执行一次真实请求。它们是单样本观察，不替代正式压测。
@@ -44,7 +55,7 @@ FLORIS 已经不是一个简单聊天页，而是一个以 LangGraph 为中枢�
 
 核心指标应是 `TTFT`、回答完成时间、搜索 Provider 时间、媒体阶段时间、成功率和取消率的 p50/p95，而不是只看整轮总时长。
 
-## 3. 当前架构
+## 3. 修改前架构（`main` 基线）
 
 ```mermaid
 flowchart LR
@@ -108,7 +119,7 @@ sequenceDiagram
 - 网页抓取和视觉审核各自内部并行，但整个媒体阶段仍在最终回答之前。
 - 默认 `image_limit=8`，普通新闻问答也会付出完整视觉链路成本。
 
-### 4.2 P0：身份与数据隔离仅适合受控的个人部署
+### 4.2 P0：`main` 基线的身份与数据隔离仅适合受控的个人部署
 
 - Python `require_user()` 固定返回 `local-user / owner`。
 - Node `currentUser()` 同样固定返回 `local-user / owner`。
@@ -153,31 +164,264 @@ sequenceDiagram
 ## 5. 目标架构
 
 ```mermaid
-flowchart LR
-    U["React 客户端"] --> GW["Edge API Gateway<br/>身份 / 限流 / Request ID"]
-    GW --> O["Chat Orchestrator<br/>薄编排层"]
+flowchart TB
+    subgraph FV["前端 MVC"]
+        V["View<br/>React 页面 / 卡片 / 可信进度"]
+        FC["Controller<br/>Hooks / 事件 / 请求编排"]
+        FM["Model<br/>类型 / 选择器 / 状态规则"]
+        V --> FC
+        FC --> FM
+    end
 
-    O --> R["语义路由与执行策略"]
-    R --> SG["Search Gateway"]
-    R --> DA["领域适配器<br/>地图 / 日历 / 会议 / 论文 / 生图"]
+    FC --> MW["Makers Middleware<br/>签名 Cookie / 限流 / Request ID"]
 
-    SG --> C["短 TTL 证据缓存<br/>请求去重"]
-    C --> SP["Search Provider"]
-    SP --> EV["结构化事实证据"]
-    EV --> AS["Answer Synthesizer"]
-    AS -->|"立即流式输出"| U
+    subgraph BC["服务端 Controller"]
+        RA["薄 Route Adapter<br/>index.py / onRequest"]
+        UC["Use-case Controller<br/>鉴权 / 校验 / 编排"]
+        PV["JSON / SSE View<br/>固定 Schema Presenter"]
+        RA --> UC
+        UC --> PV
+    end
+    MW --> RA
+    PV --> FC
 
-    SP --> MQ["后台媒体任务"]
-    MQ --> HP["受限网页抓取<br/>连接池 / 可取消"]
-    HP --> VV["视觉审核"]
-    VV -->|"search_media 事件"| U
+    subgraph BM["服务端 Model"]
+        ID["Identity / Tenant / Entitlement"]
+        SK["Skill Package / Dependency / Permission"]
+        SE["Search Evidence / TTL / Cache Key"]
+        WS["Workspace / Action / Conversation"]
+    end
+    UC --> ID
+    UC --> SK
+    UC --> SE
+    UC --> WS
 
-    O --> ES["Conversation / Checkpoint Store"]
-    DA --> DS["租户化业务数据存储"]
-    O --> OB["Tracing / Metrics / Cost"]
-    SG --> OB
-    DA --> OB
+    subgraph INF["Makers 优先的 Infrastructure"]
+        CS["Conversation Store"]
+        CP["LangGraph Store / Checkpointer"]
+        B["Makers Blob"]
+        TR["Makers Tracing"]
+        PG["Neon<br/>身份绑定 / 会员 / 支付账本"]
+    end
+    BM --> INF
+
+    SK --> SG["标准 Skill Runtime<br/>系统 Skill / 组件 API"]
+    SG -. "仅审核通过后" .-> US["用户 Skill 受限执行"]
+    SE --> EC["短 TTL 证据缓存 + single-flight"]
+    EC --> SP["Tencent SearchPro"]
+    SP --> AS["Answer Synthesizer<br/>每轮重新生成"]
+    AS --> PV
+    SP --> MP["后台网页抓取 / 视觉审核"]
+    MP -->|"source_id 精确绑定"| PV
 ```
+
+### 5.0 MVC 在本项目中的边界
+
+这里采用的不是传统服务端模板 MVC，而是与 EdgeOne Agent Runtime、Cloud Functions 和 React 相匹配的分层 MVC：
+
+| 层 | Python Agent | Cloud Functions | React |
+| --- | --- | --- | --- |
+| Model | `agents/_models/` 与无 HTTP 依赖的领域模块 | `auth/`、权益、身份 Repository、领域规则 | `frontend/src/features/*/model.ts`、类型、选择器 |
+| Controller | `agents/_controllers/`；Route 入口只委托 | `onRequest` 只做协议适配并调用身份/存储用例 | `use*Controller.ts` Hooks 负责请求、状态和用户动作 |
+| View | `agents/_views/` 的 JSON/SSE Presenter | 固定 JSON Response Presenter | `components/` 只渲染 Controller 状态 |
+
+依赖方向必须保持 `Route → Controller → Model/Repository → View Presenter`。Model 不读取 `ctx.request`、不构造 React 元素；View 不直接访问 Provider、数据库或 `authorizedFetch`。大文件按功能逐步迁移，避免一次性重写 2500 行 Chat Agent 造成行为回归。
+
+### 5.1 Makers 能力映射与不造轮子边界
+
+| 需求 | 首选能力 | 决策 |
+| --- | --- | --- |
+| 对话消息、会话索引 | Makers Conversation Store | 直接复用 `userId` 索引；服务端补充 `tenant_id/owner_user_id` 校验 |
+| LangGraph checkpoint、用户偏好、工作区 | Makers Checkpointer / LangGraph Store | 直接复用；所有 namespace 由可信身份派生 |
+| Skill 包、用户上传、图片与文档 | Makers Blob | 直接复用；安装元数据强一致读，公开资源按需使用最终一致 |
+| Agent 编排与长任务 | Makers Agent Runtime | 直接复用，不另建常驻 Agent 服务 |
+| OAuth 回调、权益 API、Webhook | Makers Cloud Functions | 直接复用，密钥只在服务端环境变量 |
+| 日志、链路阶段、模型与工具追踪 | Makers Tracing | 直接复用，并补充产品级 TTFT 指标 |
+| 小型边缘配置、限流计数 | Makers KV | 仅在 Edge Functions 使用；不作为 Python Agent 主数据库 |
+| 微信身份唯一性、租户成员关系、订单和支付幂等 | Neon Serverless Postgres | Makers 官方认证方案使用的事务型数据库；仅保存 Makers Store 不适合承担的关系/账本数据 |
+| 页面与 SSE 网络加速 | EdgeOne 个人版 | 静态资源长缓存、HTTP/3/智能加速；动态聊天和用户数据禁止 CDN 缓存 |
+
+Makers Blob 可以保存结构化 JSON，但用户唯一约束、OAuth 账号绑定、订单幂等和支付账本需要事务与唯一索引，因此不把 Blob 强行改造成关系数据库。Neon 是补位层，不会复制 Conversation、Checkpoint、Blob 或 Trace。
+
+### 5.2 身份、租户与匿名能力
+
+```mermaid
+flowchart LR
+    V["访问者"] --> S["GET /auth/session"]
+    S -->|"无登录态"| G["签名 Guest Session<br/>HttpOnly / SameSite=Lax"]
+    S -->|"已有登录态"| A["Authenticated Session"]
+    V -->|"微信登录"| W["微信开放平台 OAuth 2.0<br/>authorization_code"]
+    W --> CF["Makers Cloud Function 回调"]
+    CF --> DB["Neon 用户/OAuth 绑定"]
+    DB --> A
+
+    G --> GE["Guest Entitlements"]
+    GE --> C1["core：必开"]
+    GE --> C2["proactive-agent：必开"]
+    GE -. "不可安装/调用" .-> O["其他 Skill"]
+
+    A --> E["Entitlement Resolver"]
+    E --> I["已安装 Skill"]
+    I --> D["依赖闭包 + 会员门槛 + Provider 配置"]
+    D --> T["最终工具集合"]
+```
+
+身份载荷至少包含：
+
+```text
+tenant_id
+user_id
+auth_type: guest | wechat
+roles
+membership: guest | free | plus | pro
+session_version
+expires_at
+```
+
+规则：
+
+1. 浏览器不能通过 Header 自报 `tenant_id/user_id/roles/membership`。
+2. Middleware 做低成本早拒绝，Agent 和 Cloud Function 在业务入口再次验证签名会话。
+3. 匿名用户获得稳定但可过期的 Guest ID，只能运行 `core` 与 `proactive-agent`；后端工具构造仍是最终权限边界。
+4. 微信 `AppSecret`、OAuth access token 和 Skill 私密凭据从不进入前端或普通日志。
+5. Conversation、Store 和 Blob 的 key 都从服务端身份派生；所有写操作再次校验资源 owner。
+6. 多用户是唯一运行模式，不保留固定 Owner 或单用户兼容分支；部署必须配置签名密钥，微信与数据库未配置时仍可签发 Guest 会话。
+
+### 5.3 标准 Skill 平台
+
+`main` 基线的 `manifest.py` 只是内部 Python 配置，并不是真正可分发的 Skill。`dev` 已删除这套双重清单，运行时只读取标准 `SKILL.md` 与 Floris 扩展 `floris.json`：
+
+```text
+skill-name/
+├── SKILL.md                 # Agent Skills 标准：name + description + 指令
+├── floris.json              # Floris 扩展：版本、依赖、权限、组件 API、会员门槛
+├── scripts/                 # 可选；审核后进入受限执行环境
+├── references/              # 可选；按需加载
+└── assets/                  # 可选；模板、图标、静态资源
+```
+
+`SKILL.md` 遵循开放的 [Agent Skills Specification](https://agentskills.io/specification)，并采用渐进加载：
+
+1. 启动时只读取 `name + description`。
+2. Skill 被路由命中后才加载正文指令。
+3. `references/scripts/assets` 仅在确有需要时加载。
+
+`floris.json` 是平台扩展，不篡改开放标准。当前 schema v2 已声明：
+
+```text
+schema_version, id, version, kind(system|user), publisher
+capabilities, tools, component_actions
+permissions, requires, recommends, degrade_when_capabilities
+required_plan, default_enabled, locked
+adapter, preference_hook, env_keys, provider_env, credential
+```
+
+`conflicts`、版本校验和、最低运行时版本、审核签名和撤回状态属于用户 Skill 执行阶段的后续 schema；在审核后台上线前不伪造这些能力。
+
+组件调用不暴露 DOM 或任意后端对象，而是使用版本化的受限 Action：
+
+```text
+chat.progress.publish
+search.evidence.publish
+search.media.publish
+workspace.action.propose
+workspace.state.read
+files.scoped.read / files.scoped.upload
+maps.place.select
+calendar.change.propose
+image.result.publish
+```
+
+系统 Skill 可以申请全部已注册接口；用户 Skill 只能调用清单声明、审核批准、运行时再次授权的接口。未知权限、未知组件、循环依赖、版本不满足或会员权益不足时一律失败关闭。
+
+当前依赖图：
+
+```mermaid
+flowchart LR
+    CORE["core<br/>必开"]
+    PRO["proactive-agent<br/>必开"] -. "推荐" .-> CAL["calendar"]
+    PRO -. "推荐" .-> MAP["maps"]
+    CAL -. "推荐" .-> MAP
+    MEET["tencent-meeting"] -->|"必须"| CAL
+    IMG["image-studio"] -. "推荐" .-> VIS["vision"]
+    IMG -. "推荐" .-> WEB["web-search"]
+    PAPER["paper-reading"] -. "推荐" .-> WEB
+```
+
+Skill 广场目标页面包括：
+
+- 全部 / 已安装 / 系统 Skill / 社区 Skill 分类；
+- 搜索、能力标签、版本、发布者、审核状态和会员门槛；
+- 安装、卸载、启用、停用、更新和依赖自动安装预览；
+- 依赖图、循环/冲突提示和“为何不可安装”说明；
+- 系统组件 API 文档、最小 Skill 模板和本地校验说明；
+- 用户上传到 Makers Blob，状态为 `pending_review`；后台审核未完成前绝不进入运行时；
+- 版本锁定、校验和、撤回/隔离、回滚和兼容性检查；
+- 评分、收藏、下载量、权限变更提示、发布者签名等后续能力。
+
+### 5.4 缓存边界
+
+```mermaid
+flowchart LR
+    Q["归一化查询 + 日期边界 + Provider 版本"] --> K["缓存键"]
+    K --> H{"Makers Store 命中?"}
+    H -->|"是"| E["结构化搜索证据"]
+    H -->|"否"| SF["单飞请求"]
+    SF --> P["SearchPro"]
+    P --> E
+    E --> M["当前会话记忆 / 人格 / 用户要求"]
+    M --> L["回答模型每轮重新生成"]
+    L --> A["新回答"]
+```
+
+允许缓存：
+
+- Provider 原始/规范化结果、来源去重结果、发布日期核验；
+- 视觉审核结论、公开页面提取结果；
+- 确定性的业务解析中间结果；
+- TTL、Provider 版本、来源和生成时间。
+
+禁止缓存：
+
+- 最终回答文本、语气、人格化表达；
+- 包含当前私密会话、长期记忆或未脱敏用户数据的 Prompt；
+- 模型隐式推理；
+- 副作用执行结果的“可重复执行”假象。
+
+当前实现中，时效/严格日期内容 TTL 为 2 分钟，普通证据 10 分钟，深度检索 15 分钟；Provider 版本、搜索深度、日期边界、结果数和媒体策略全部进入 key。后续可由真实命中率与陈旧率再调整。缓存命中后依然进入 Answer Synthesizer。
+
+### 5.5 会员与支付预留
+
+第一阶段只定义接口和权益，不发起真实扣款：
+
+```text
+MembershipPlan: guest | free | plus | pro
+EntitlementProvider.resolve(identity)
+BillingProvider.createCheckout(...)
+BillingProvider.verifyWebhook(...)
+BillingProvider.listTransactions(...)
+```
+
+Skill 使用资格、模型档位、搜索深度、并发数和配额全部通过 entitlement 解析，不在前端硬编码。未来支付回调必须具备签名校验、订单唯一键、幂等写入、金额/币种核对和审计日志；在这些条件具备前，UI 只显示“即将开放”，不能模拟充值成功。
+
+### 5.6 用户可见的“思考过程”
+
+不展示或保存模型原始 chain-of-thought。SSE 只发布由编排器生成的结构化事件：
+
+```text
+request_received
+planning
+plan_completed
+search_started
+evidence_received
+source_validation
+answer_synthesis
+answer_streaming
+media_review
+completed / degraded / failed
+```
+
+每个事件只包含 `stage/status/activity/source` 固定枚举。前端文案从本地 i18n 表生成，不接收模型自由文本；请求发出时立即显示客户端 `planning`，服务端随后确认检索、核验、综合和完成阶段。它让等待有反馈，但明确不是模型隐藏思维链。
 
 目标搜索时序：
 
@@ -237,20 +481,13 @@ sequenceDiagram
    - 搜索成功率 > 99%。
 4. 在 CI 加入模拟慢 Provider 的关键路径测试。
 
-### P0-C：明确个人站或多租户的安全边界
-
-个人站方案：
-
-1. EdgeOne 网关增加登录或访问白名单。
-2. 所有 Owner Action 只允许平台校验后的请求。
-3. README 明确站点不可匿名开放。
-
-多租户方案：
+### P0-C：建立纯多用户安全边界（`dev` 已实施）
 
 1. 从可信平台 Header / Session 获取用户身份，禁止客户端自报身份。
 2. 所有 Conversation、Store、Blob key 加入 `tenant_id/user_id`。
 3. 每个 Action 在服务端重新做资源归属和角色校验。
 4. 增加跨租户访问、重放和越权测试。
+5. 未登录访问者签发独立 Guest 身份；不保留 `local-user`、固定 Owner 或单用户兼容分支。
 
 ### P0-D：利用已购买的 EdgeOne 个人版
 
@@ -284,13 +521,13 @@ sequenceDiagram
 
 改用支持连接池和取消的异步 HTTP 客户端；统一总 deadline，而不是多个局部 timeout 叠加。
 
-### P1-B：增加短 TTL 证据缓存与请求合并
+### P1-B：增加短 TTL 证据缓存与请求合并（`dev` 已实施第一版）
 
 1. key 包含归一化查询、严格日期、目标日期、搜索深度和 Provider 版本。
-2. “最近/今天”类内容 TTL 2–5 分钟，稳定知识 30–60 分钟。
+2. “最近/今天”类内容 TTL 2 分钟，普通证据 10 分钟，深度检索 15 分钟。
 3. 只缓存结构化证据，不缓存最终人格化回答。
 4. 同一时刻的相同请求使用 single-flight 合并。
-5. 用户显式要求刷新时绕过缓存。
+5. 用户显式要求“重新搜索/刷新”时，由 Controller 的固定规则绕过缓存；回答模型不能自行决定是否读旧证据。
 
 ### P1-C：提升来源质量
 
@@ -301,26 +538,25 @@ sequenceDiagram
 
 ### P1-D：拆薄 Chat Orchestrator
 
-建议目录：
+采用的目录：
 
 ```text
-agents/chat/
-  endpoint.py
-  orchestration/
-    planner.py
-    execution_policy.py
-    stream.py
-    persistence.py
-  domains/
-    search.py
-    places.py
-    calendar.py
-    meeting.py
-    papers.py
-    images.py
+agents/
+  _models/          # 身份、Skill、搜索证据等领域 Model
+  _controllers/     # 用例编排
+  _views/           # JSON / SSE Presenter
+  _shared/          # Makers/Provider Repository 与基础设施适配
+  skill_packages/   # SKILL.md + floris.json
+  skill_adapters/   # 审核可信的 Python 适配器
+  <route>/index.py  # 薄 EdgeOne Route Adapter
+
+frontend/src/
+  features/<domain>/model.ts
+  features/<domain>/use*Controller.ts
+  components/       # React View
 ```
 
-`endpoint.py` 只负责鉴权、输入校验、创建 run 和返回 SSE；领域模块不直接控制全局流。
+新功能从一开始遵循该边界；现有 Chat、Workspace、Proactive 大入口按测试保护逐步迁移。`index.py` 最终只负责协议适配、Controller 委托和返回 SSE，领域模块不直接控制全局 UI。
 
 ### P2：前端与平台工程
 
@@ -332,12 +568,42 @@ agents/chat/
 
 ## 7. 发布与回滚建议
 
-1. `dev` 部署到 Preview 环境，不直接部署 Production。
+1. 新建独立 Makers 项目（建议名 `floris-mvc-dev`），只绑定 `dev` 并部署 Preview；不得复用、重绑或改配现有 `ai-active-agent-floris` 项目，也不直接部署 Production。
 2. 用固定的 20 个搜索问题分别跑 3 次，记录 main 与 dev 的 TTFT、完成时间、媒体到达时间和结果正确性。
 3. 先给 10% Preview 会话开启渐进媒体，观察错误率、`source_id` 匹配率和无匹配放弃率。
 4. 若文字 TTFT 无明显改善，优先检查能力规划与 SearchPro，而不是继续优化图片并发。
-5. 回滚只需关闭渐进媒体策略或将 Preview 切回 main；不要改写 main 历史。
+5. 回滚只在独立项目中选择上一份 `dev` Preview 或关闭该项目；不要把开发项目切到 `main`，更不要改写 main 历史。
 
-## 8. 本分支范围
+## 8. `dev` 分支实施范围与优先级
 
-本次只实施 P0-A，并加入测试与本计划书。身份系统、缓存、Provider 替换、目录大拆分和生产部署不在本次改动中，避免在缺少产品与平台约束时一次引入过大的风险。
+本计划是 `dev` 的持续目标，不再只限于 P0-A。实施顺序：
+
+1. **已完成：可信身份与权益底座。** Guest 签名会话、微信 OAuth 适配器、租户 namespace、匿名仅两项核心 Skill、会员/支付接口定义；删除固定 Owner 身份。
+2. **已完成：MVC 基础边界。** 新增服务端 Model/Controller/View 与前端 feature Model/Controller，Skill 路由和广场已迁移；Chat 等历史大入口继续渐进拆分。
+3. **已完成：标准 Skill 包与服务端权限。** 内置能力使用 `SKILL.md + floris.json`，具备安装状态、依赖闭包、会员门槛、组件 API 注册表和上传待审核状态。
+4. **已完成：结构化搜索进度。** 本地立即显示 planning；后端只发送固定枚举的工具、核验、回答和媒体事件。
+5. **已完成：证据缓存与 single-flight 第一版。** 只复用结构化证据，回答模型每轮重新生成；具备 TTL、用户隔离和并发合并测试。
+6. **已完成：完整 Skill 广场第一版。** 从弹窗升级为全页覆盖层，支持返回聊天、安装管理、依赖图、组件 API 文档、下载和待审核上传。
+7. **下一步：搜索服务拆分与网络栈。** 连接池、真正取消、统一 deadline、Provider 熔断与来源多样性。
+8. **下一步：继续拆薄 Chat/Workspace/Proactive、E2E 和性能门禁。**
+
+所有阶段都必须：
+
+- 只提交到 `dev`；
+- 先在独立 Makers 项目的 Preview 验证；
+- 永不修改、重绑或部署到 `ai-active-agent-floris`；
+- 保持 `main` 提交与历史不变；
+- 对身份、依赖、缓存、SSE 协议和跨租户访问增加自动化测试；
+- 无环境变量或外部服务不可用时安全降级，不能伪造登录、会员、支付或审核成功。
+
+## 9. 官方能力依据
+
+- [EdgeOne Makers Agents](https://pages.edgeone.ai/document/agents)
+- [Makers Conversation Storage](https://pages.edgeone.ai/document/agents-conversation-storage)
+- [Makers Storage Overview](https://pages.edgeone.ai/document/storage-overview)
+- [Makers Blob](https://pages.edgeone.ai/document/blob-storage)
+- [Makers KV](https://pages.edgeone.ai/document/kv-storage)
+- [Makers Cloud Functions](https://pages.edgeone.ai/document/cloud-functions)
+- [Makers Agent Authentication](https://pages.edgeone.ai/document/agents-authentication)
+- [Agent Skills Specification](https://agentskills.io/specification)
+- [腾讯云微信授权登录说明](https://cloud.tencent.com/document/product/1441/68675)

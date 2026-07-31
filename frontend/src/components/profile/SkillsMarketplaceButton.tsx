@@ -1,113 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Dialog, MessagePlugin, Tag } from 'tdesign-react';
+import { Button, Tag } from 'tdesign-react';
 import { AppIcon } from 'tdesign-icons-react';
-import { useAppState } from '../../store/appState';
-import { configureSkillConnection, skillsOperation } from '../../services/api';
-import { useLanguage } from '../../i18n';
-import type { InstalledSkill, SkillConnectionState } from '../../types';
+import { createPortal } from 'react-dom';
+import { useSkillMarketplaceController } from '../../features/skills/useSkillMarketplaceController';
+import type { MarketplaceView } from '../../features/skills/model';
+import type { InstalledSkill } from '../../types';
 
 export default function SkillsMarketplaceButton() {
-  const { conversationId } = useAppState();
-  const { t, language } = useLanguage();
-  const [visible, setVisible] = useState(false);
-  const [preferences, setPreferences] = useState<Record<string, boolean>>({});
-  const [catalog, setCatalog] = useState<InstalledSkill[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [savingId, setSavingId] = useState('');
-  const [connections, setConnections] = useState<Record<string, SkillConnectionState>>({});
-  const [tokenDrafts, setTokenDrafts] = useState<Record<string, string>>({});
-
-  const refresh = useCallback(async (): Promise<boolean> => {
-    setLoading(true);
-    try {
-      const result = await skillsOperation(conversationId);
-      setPreferences(result.preferences);
-      setCatalog(result.catalog);
-      setConnections(result.connections);
-      return true;
-    } catch {
-      MessagePlugin.error(t('skillsReadFailed'));
-      return false;
-    } finally { setLoading(false); }
-  }, [conversationId, t]);
-
-  const openMarketplace = useCallback(async () => {
-    if (catalog.length) {
-      setVisible(true);
-      void refresh();
-      return;
-    }
-    if (await refresh()) setVisible(true);
-  }, [catalog.length, refresh]);
-
-  useEffect(() => {
-    const open = () => { void openMarketplace(); };
-    window.addEventListener('yuanbao:open-skills', open);
-    return () => window.removeEventListener('yuanbao:open-skills', open);
-  }, [openMarketplace]);
-
-  const enabledCount = useMemo(
-    () => catalog.filter((skill) => skill.locked || preferences[skill.id] !== false).length,
-    [catalog, preferences],
-  );
-  const skillText = useCallback((
-    values: Record<string, string> | undefined,
-    fallback: string,
-  ) => values?.[language] || values?.['zh-CN'] || values?.en || fallback, [language]);
-  const skillName = useCallback((skillId: string) => {
-    const skill = catalog.find((item) => item.id === skillId);
-    return skill ? skillText(skill.name, skill.id) : skillId;
-  }, [catalog, skillText]);
-  const save = async (skillId: string, enabled: boolean) => {
-    const skill = catalog.find((item) => item.id === skillId);
-    if (!skill || skill.locked) return;
-    const next = { ...preferences, [skillId]: enabled };
-    const autoEnabled = enabled
-      ? (skill.requires || []).filter((dependency) => next[dependency] === false)
-      : [];
-    autoEnabled.forEach((dependency) => { next[dependency] = true; });
-    setSavingId(skillId);
-    try {
-      const result = await skillsOperation(conversationId, next);
-      setPreferences(result.preferences);
-      setCatalog(result.catalog);
-      window.dispatchEvent(new CustomEvent('yuanbao:skills-changed', { detail: result.preferences }));
-      if (autoEnabled.length) {
-        MessagePlugin.success(t('skillsDependenciesEnabled', { names: autoEnabled.map((id) => {
-          return skillName(id);
-        }).join('、') }));
-      } else {
-        MessagePlugin.success(t('skillStateChanged', { name: skillText(skill.name, skill.id), state: enabled ? t('enabled') : t('disabled') }));
-      }
-    } catch {
-      MessagePlugin.error(t('skillsSaveFailed'));
-    } finally { setSavingId(''); }
-  };
-  const saveConnection = async (skillId: string) => {
-    const token = String(tokenDrafts[skillId] || '').trim();
-    if (!token) return;
-    setSavingId(skillId);
-    try {
-      const state = await configureSkillConnection(conversationId, skillId, token);
-      setCatalog(state.skill_catalog || []);
-      setConnections(state.skill_connections || {});
-      setTokenDrafts((current) => ({ ...current, [skillId]: '' }));
-      MessagePlugin.success(t('skillTokenSaved'));
-    } catch {
-      MessagePlugin.error(t('skillTokenSaveFailed'));
-    } finally { setSavingId(''); }
-  };
-  const disconnect = async (skillId: string) => {
-    setSavingId(skillId);
-    try {
-      const state = await configureSkillConnection(conversationId, skillId);
-      setCatalog(state.skill_catalog || []);
-      setConnections(state.skill_connections || {});
-      MessagePlugin.success(t('skillDisconnected'));
-    } catch {
-      MessagePlugin.error(t('skillTokenSaveFailed'));
-    } finally { setSavingId(''); }
-  };
+  const controller = useSkillMarketplaceController();
+  const {
+    catalog, closeMarketplace, connections, disconnect, download, enabledCount, isInstalled,
+    language, loading, login, marketplace, openMarketplace, query, refresh,
+    save, saveConnection, savingId, setQuery, setTokenDrafts, setView,
+    skillName, skillText, t, tokenDrafts, upload, uploadRef,
+    uploads, view, visible, visibleSkills,
+  } = controller;
 
   return <>
     <Button
@@ -119,99 +25,260 @@ export default function SkillsMarketplaceButton() {
       loading={loading && !visible}
       onClick={() => void openMarketplace()}
     >{t('skillsMarketplace')}</Button>
-    <Dialog
-      visible={visible}
-      header={t('skillsMarketplace')}
-      width={760}
-      placement="center"
-      dialogClassName="secondary-dialog skills-marketplace-modal"
-      footer={false}
-      onClose={() => setVisible(false)}
-      onCancel={() => setVisible(false)}
-    >
-      <div className="skills-marketplace-head">
-        <div><strong>{t('composeSkills')}</strong><span>{t('skillsStoredNatively')}</span></div>
-        <Tag theme="primary" variant="light">{loading ? t('loading') : t('enabledCount', { enabled: enabledCount, total: catalog.length })}</Tag>
-      </div>
-      <div className="skills-marketplace" aria-busy={loading}>
-        {catalog.map((skill) => {
-          const enabled = skill.locked || preferences[skill.id] !== false;
-          const missingRecommended = (skill.recommends || []).filter((id) => preferences[id] === false);
-          const missingRequired = (skill.requires || []).filter((id) => preferences[id] === false);
-          const blocked = enabled && missingRequired.length > 0;
-          const connected = skill.configured;
-          const connection = connections[skill.id];
-          const credentialInstructions = skill.credential?.instructions
-            ? skillText(skill.credential.instructions, '')
-            : '';
-          return <article className={`skill-market-card ${enabled ? 'is-enabled' : 'is-disabled'}`} key={skill.id}>
-            <div className="skill-market-icon" aria-hidden="true">{skill.icon}</div>
-            <div className="skill-market-content">
-              <div className="skill-market-title">
-                <strong>{skillText(skill.name, skill.id)}</strong>
-                {skill.locked && <Tag size="small">{t('core')}</Tag>}
-                {skill.external && <Tag size="small" theme={connected ? 'success' : 'warning'}>{connected ? t('connected') : t('waitingConnection')}</Tag>}
-              </div>
-              <p>{skillText(skill.description, '')}</p>
-              {blocked && <div className="skill-dependency-note is-blocked">{t('requiresSkills', { names: missingRequired.map((id) => {
-                return skillName(id);
-              }).join('、') })}</div>}
-              {!blocked && enabled && missingRecommended.length > 0 && <div className="skill-dependency-note">{t('recommendsSkills', { names: missingRecommended.map((id) => {
-                return skillName(id);
-              }).join('、') })}</div>}
-              {skill.external && skill.credential?.kind === 'token' && (
-                <div
-                  className={`skill-credential-region ${connected ? 'is-connected' : 'is-disconnected'}`}
-                  key={`${skill.id}:${connected ? 'connected' : 'disconnected'}`}
-                >
-                  {!connected ? <>
-                    {credentialInstructions && <div className="skill-credential-help">{credentialInstructions}</div>}
-                    <div className="skill-credential-editor">
-                      <input
-                        type="password"
-                        autoComplete="off"
-                        value={tokenDrafts[skill.id] || ''}
-                        disabled={savingId === skill.id}
-                        placeholder={t('skillTokenPlaceholder')}
-                        onChange={(event) => setTokenDrafts((current) => ({
-                          ...current,
-                          [skill.id]: event.target.value,
-                        }))}
-                      />
-                      <Button size="small" theme="primary" loading={savingId === skill.id} disabled={!String(tokenDrafts[skill.id] || '').trim()} onClick={() => void saveConnection(skill.id)}>{t('saveConnection')}</Button>
-                    </div>
-                    <div className="skill-credential-actions">
-                      {skill.connect_url && <button className="skill-install-link" type="button" onClick={() => window.open(skill.connect_url, '_blank', 'noopener,noreferrer')}>{t('getTokenOfficial')}</button>}
-                      {skill.credential.help_url && <button className="skill-install-link" type="button" onClick={() => window.open(skill.credential?.help_url, '_blank', 'noopener,noreferrer')}>{t('viewOfficialGuide')}</button>}
-                    </div>
-                  </> : (
-                    <div className="skill-credential-connected">
-                      {connection?.expires_at && <span>{t('connectionExpiresAt', { time: new Date(connection.expires_at * 1000).toLocaleString() })}</span>}
-                      {connection?.configured && <button className="skill-install-link is-danger" type="button" disabled={savingId === skill.id} onClick={() => void disconnect(skill.id)}>{t('disconnectSkill')}</button>}
-                    </div>
-                  )}
-                </div>
-              )}
-              {skill.external && !skill.credential?.kind && !connected && skill.connect_url && <button className="skill-install-link" type="button" onClick={() => window.open(skill.connect_url, '_blank', 'noopener,noreferrer')}>{t('connectExternalSkill')}</button>}
+    {visible && typeof document !== 'undefined' && createPortal(
+      <div className="skills-page" role="dialog" aria-modal="true" aria-label={t('skillsMarketplace')}>
+        <header className="skills-page-header">
+          <button
+            type="button"
+            className="skills-page-back"
+            onClick={(event) => {
+              event.stopPropagation();
+              closeMarketplace();
+            }}
+          >
+            <span aria-hidden="true">←</span>{t('backToMain')}
+          </button>
+          <div className="skills-page-brand">
+            <span className="skills-page-logo" aria-hidden="true">{t('skillLogoGlyph')}</span>
+            <div><strong>{t('skillsMarketplace')}</strong><small>{t('standardSkillsSubtitle')}</small></div>
+          </div>
+          <div className="skills-page-account">
+            <Tag theme="primary" variant="light">
+              {marketplace?.entitlements.plan || t('guestPlan')}
+            </Tag>
+            <span>{marketplace?.identity.display_name || t('guestUser')}</span>
+            {marketplace?.identity.auth_type === 'guest' && (
+              <Button size="small" theme="primary" onClick={login}>
+                {t('wechatLogin')}
+              </Button>
+            )}
+          </div>
+        </header>
+
+        <div className="skills-page-layout">
+          <aside className="skills-page-nav">
+            {([
+              ['catalog', t('allSkills'), '◇'],
+              ['installed', t('installedSkills'), '✓'],
+              ['dependencies', t('dependencyGraph'), '⌘'],
+              ['docs', t('componentApiDocs'), '</>'],
+              ['upload', t('uploadSkill'), '↑'],
+            ] as Array<[MarketplaceView, string, string]>).map(([id, label, icon]) => (
+              <button
+                type="button"
+                key={id}
+                className={view === id ? 'is-active' : ''}
+                onClick={() => setView(id)}
+              ><span aria-hidden="true">{icon}</span>{label}</button>
+            ))}
+            <div className="skills-page-nav-note">
+              <strong>{t('makersNative')}</strong>
+              <span>{t('makersNativeSkillNote')}</span>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={enabled}
-              aria-label={t('toggleSkill', { action: enabled ? t('disableAction') : t('enableAction'), name: skillText(skill.name, skill.id) })}
-              title={t('toggleSkill', { action: enabled ? t('disableAction') : t('enableAction'), name: skillText(skill.name, skill.id) })}
-              className={`skill-toggle ${enabled ? 'is-on' : ''}`}
-              disabled={skill.locked || loading || savingId === skill.id}
-              onClick={() => void save(skill.id, !enabled)}
-            ><span /></button>
-          </article>;
-        })}
-        {!catalog.length && !loading && <div className="conversation-list-empty">{t('noSkills')}</div>}
-      </div>
-      <div className="skills-marketplace-footer">
-        <span>{t('disabledSkillHint')}</span>
-        <Button variant="outline" loading={loading} onClick={() => void refresh()}>{t('refreshStatus')}</Button>
-      </div>
-    </Dialog>
+          </aside>
+
+          <main className="skills-page-main" aria-busy={loading}>
+            {(view === 'catalog' || view === 'installed') && <>
+              <section className="skills-page-hero">
+                <div>
+                  <span className="skills-page-eyebrow">{t('skillsEyebrow')}</span>
+                  <h1>{view === 'installed' ? t('installedSkills') : t('composeSkills')}</h1>
+                  <p>{t('standardSkillsDescription')}</p>
+                </div>
+                <div className="skills-page-stat">
+                  <strong>{enabledCount}</strong><span>/ {catalog.length} {t('installed')}</span>
+                </div>
+              </section>
+              <div className="skills-page-toolbar">
+                <label>
+                  <span aria-hidden="true">⌕</span>
+                  <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('searchSkills')} />
+                </label>
+                <Button variant="outline" loading={loading} onClick={() => void refresh()}>{t('refreshStatus')}</Button>
+              </div>
+              <section className="skills-page-grid">
+                {visibleSkills.map((skill) => {
+                  const installed = isInstalled(skill);
+                  const connected = skill.configured;
+                  const connection = connections[skill.id];
+                  const missingRequired = (skill.requires || []).filter((id) => !isInstalled(
+                    catalog.find((item) => item.id === id) || { id } as InstalledSkill,
+                  ));
+                  return <article className={`skills-page-card ${installed ? 'is-installed' : ''}`} key={skill.id}>
+                    <div className="skills-page-card-top">
+                      <span className="skills-page-card-icon" aria-hidden="true">{skill.icon}</span>
+                      <div>
+                        <div className="skills-page-card-title">
+                          <h2>{skillText(skill.name, skill.id)}</h2>
+                          {skill.publisher?.verified && <span title={t('verifiedPublisher')}>✓</span>}
+                        </div>
+                        <small>{t('skillPublisherVersion', {
+                          publisher: skill.publisher?.name || 'Floris',
+                          version: skill.version || '1.0.0',
+                        })}</small>
+                      </div>
+                      <Tag size="small" theme={skill.kind === 'system' ? 'primary' : 'default'}>
+                        {skill.kind === 'system' ? t('systemSkill') : t('communitySkill')}
+                      </Tag>
+                    </div>
+                    <p>{skillText(skill.description, '')}</p>
+                    <div className="skills-page-card-meta">
+                      <span>{skill.required_plan || 'free'}</span>
+                      <span>{t('componentApiCount', {
+                        count: (skill.component_actions || []).length,
+                      })}</span>
+                      {skill.locked && <span>{t('alwaysOn')}</span>}
+                    </div>
+                    {!!skill.requires?.length && (
+                      <div className={`skill-dependency-note ${missingRequired.length ? 'is-blocked' : ''}`}>
+                        {t('requiresSkills', { names: skill.requires.map(skillName).join('、') })}
+                      </div>
+                    )}
+                    {skill.external && installed && skill.credential?.kind === 'token' && (
+                      <div className="skill-credential-region">
+                        {!connected ? <>
+                          <p>{skillText(skill.credential.instructions, '')}</p>
+                          <div className="skill-credential-editor">
+                            <input
+                              type="password"
+                              autoComplete="off"
+                              value={tokenDrafts[skill.id] || ''}
+                              placeholder={t('skillTokenPlaceholder')}
+                              onChange={(event) => setTokenDrafts((current) => ({
+                                ...current,
+                                [skill.id]: event.target.value,
+                              }))}
+                            />
+                            <Button size="small" loading={savingId === skill.id} onClick={() => void saveConnection(skill.id)}>
+                              {t('saveConnection')}
+                            </Button>
+                          </div>
+                        </> : <div className="skill-credential-connected">
+                          <span>{connection?.expires_at ? t('connectionExpiresAt', {
+                            time: new Date(connection.expires_at * 1000).toLocaleString(language),
+                          }) : t('connected')}</span>
+                          <button type="button" className="skill-install-link is-danger" onClick={() => void disconnect(skill.id)}>
+                            {t('disconnectSkill')}
+                          </button>
+                        </div>}
+                      </div>
+                    )}
+                    <div className="skills-page-card-actions">
+                      {installed && (
+                        <button type="button" onClick={() => void download(skill.id)}>
+                          {t('downloadPackage')}
+                        </button>
+                      )}
+                      <Button
+                        size="small"
+                        theme={installed ? 'default' : 'primary'}
+                        variant={installed ? 'outline' : 'base'}
+                        disabled={skill.locked || loading}
+                        loading={savingId === skill.id}
+                        onClick={() => void save(skill, !installed)}
+                      >
+                        {skill.locked
+                          ? t('alwaysOn')
+                          : !skill.eligible && skill.eligibility_reason === 'login_required'
+                            ? t('loginToInstall')
+                            : installed ? t('uninstall') : t('install')}
+                      </Button>
+                    </div>
+                  </article>;
+                })}
+              </section>
+            </>}
+
+            {view === 'dependencies' && (
+              <section className="skills-page-section">
+                <span className="skills-page-eyebrow">{t('dependencyEyebrow')}</span>
+                <h1>{t('dependencyGraph')}</h1>
+                <p>{t('dependencyGraphHint')}</p>
+                <div className="skill-graph">
+                  {(marketplace?.dependency_graph.nodes || []).map((node) => {
+                    const outgoing = marketplace?.dependency_graph.edges.filter((edge) => edge.from === node.id) || [];
+                    return <article key={node.id}>
+                      <div className="skill-graph-node">
+                        <strong>{skillText(node.name, node.id)}</strong>
+                        <small>{node.id} · {node.required_plan}</small>
+                      </div>
+                      <div className="skill-graph-edges">
+                        {outgoing.map((edge) => <div key={`${edge.from}-${edge.to}-${edge.type}`} className={edge.type}>
+                          <span>{edge.type === 'requires'
+                            ? t('requiredDependencyEdge')
+                            : t('recommendedDependencyEdge')}</span>
+                          <b>{skillName(edge.to)}</b>
+                        </div>)}
+                        {!outgoing.length && <span>{t('noDependencies')}</span>}
+                      </div>
+                    </article>;
+                  })}
+                </div>
+              </section>
+            )}
+
+            {view === 'docs' && (
+              <section className="skills-page-section">
+                <span className="skills-page-eyebrow">{t('componentApiEyebrow', {
+                  version: marketplace?.component_api.version || '',
+                })}</span>
+                <h1>{t('componentApiDocs')}</h1>
+                <p>{t('componentApiHint')}</p>
+                <div className="component-api-security">
+                  <b>{t('securityBoundary')}</b>
+                  <span>{t('componentApiSecurity')}</span>
+                </div>
+                <div className="component-api-list">
+                  {(marketplace?.component_api.actions || []).map((action) => <article key={action.id}>
+                    <code>{action.id}</code>
+                    <Tag size="small">{action.permission}</Tag>
+                    <p>{action.description}</p>
+                    <dl>{Object.entries(action.input).map(([name, type]) => <div key={name}><dt>{name}</dt><dd>{type}</dd></div>)}</dl>
+                  </article>)}
+                </div>
+              </section>
+            )}
+
+            {view === 'upload' && (
+              <section className="skills-page-section">
+                <span className="skills-page-eyebrow">{t('userSkillsEyebrow')}</span>
+                <h1>{t('uploadSkill')}</h1>
+                <p>{t('uploadSkillHint')}</p>
+                {marketplace?.identity.auth_type === 'guest' ? (
+                  <div className="skills-login-gate">
+                    <strong>{t('loginRequiredForSkills')}</strong>
+                    <p>{t('loginSkillReason')}</p>
+                    <Button theme="primary" onClick={login}>{t('wechatLogin')}</Button>
+                  </div>
+                ) : <>
+                  <div className="skill-upload-drop">
+                    <span aria-hidden="true">{t('skillZipGlyph')}</span>
+                    <strong>{t('selectSkillZip')}</strong>
+                    <small>{t('skillReviewPending')}</small>
+                    <input
+                      ref={uploadRef}
+                      type="file"
+                      accept=".zip,application/zip,application/x-zip-compressed"
+                      onChange={(event) => void upload(event.target.files?.[0])}
+                    />
+                    <Button theme="primary" loading={savingId === 'upload'} onClick={() => uploadRef.current?.click()}>
+                      {t('chooseFile')}
+                    </Button>
+                  </div>
+                  <div className="skill-upload-list">
+                    {uploads.map((item) => <article key={item.id}>
+                      <div><strong>{item.name}</strong><small>{new Date(item.submitted_at).toLocaleString(language)}</small></div>
+                      <Tag theme="warning">{t('pendingReview')}</Tag>
+                    </article>)}
+                    {!uploads.length && <p>{t('noSkillUploads')}</p>}
+                  </div>
+                </>}
+              </section>
+            )}
+          </main>
+        </div>
+      </div>,
+      document.body,
+    )}
   </>;
 }

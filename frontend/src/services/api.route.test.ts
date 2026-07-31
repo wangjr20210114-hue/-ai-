@@ -4,6 +4,48 @@ import type { MakersMapPlace, MakersRoutePlan } from '../types';
 
 afterEach(() => vi.unstubAllGlobals());
 
+const TEST_AUTH_SESSION = {
+  identity: {
+    id: 'test:test-user',
+    subject_id: 'test-user',
+    tenant_id: 'test',
+    username: 'tester',
+    display_name: 'Tester',
+    avatar_url: '',
+    auth_type: 'wechat',
+    membership: 'free',
+    roles: ['user'],
+  },
+  entitlements: {
+    plan: 'free',
+    limits: {},
+    payment_available: false,
+  },
+  login: {
+    wechat_available: true,
+    wechat_start_url: '/auth/wechat/start',
+    logout_url: '/auth/logout',
+  },
+};
+
+function authenticatedFetch(
+  handler: (input: RequestInfo | URL, init?: RequestInit) => Response | Promise<Response>,
+) {
+  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).startsWith('/auth/session')) {
+      return Promise.resolve(new Response(JSON.stringify(TEST_AUTH_SESSION), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }));
+    }
+    return Promise.resolve(handler(input, init));
+  });
+}
+
+function applicationCalls(fetchMock: ReturnType<typeof authenticatedFetch>) {
+  return fetchMock.mock.calls.filter(([input]) => !String(input).startsWith('/auth/session'));
+}
+
 describe('planMakersRoute', () => {
   it('sends the calendar order unchanged and disables route optimization', async () => {
     const places: MakersMapPlace[] = [
@@ -26,7 +68,7 @@ describe('planMakersRoute', () => {
         taxi: { low: 0, high: 0 },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ route }), {
+    const fetchMock = authenticatedFetch(() => new Response(JSON.stringify({ route }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     }));
@@ -34,7 +76,7 @@ describe('planMakersRoute', () => {
 
     await planMakersRoute('test-conversation', places, 'walking', 'least_time');
 
-    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const init = applicationCalls(fetchMock)[0][1] as RequestInit;
     const body = JSON.parse(String(init.body)) as { places: MakersMapPlace[]; optimize: boolean; mode: string; strategy: string };
     expect(body.places.map((item) => item.name)).toEqual(['早餐店', '北京站', '锦江之星']);
     expect(body.optimize).toBe(false);
@@ -62,12 +104,14 @@ describe('getProviderUsage', () => {
       },
       providers: [],
     };
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 })));
+    vi.stubGlobal('fetch', authenticatedFetch(
+      () => new Response(JSON.stringify(payload), { status: 200 }),
+    ));
     await expect(getProviderUsage('yb7_provider-usage')).resolves.toEqual(payload);
   });
 
   it('rejects an HTML fallback or malformed 200 response instead of crashing settings', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<!doctype html>', {
+    vi.stubGlobal('fetch', authenticatedFetch(() => new Response('<!doctype html>', {
       status: 200,
       headers: { 'content-type': 'text/html' },
     })));
@@ -77,20 +121,22 @@ describe('getProviderUsage', () => {
 
 describe('resetApplicationData', () => {
   it('requires both Makers state and Blob data to be cleared', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
+    const responses = [
+      new Response(JSON.stringify({
         ok: true,
         conversation_ids: ['yb7_one', 'yb7_two', 'yb7_three'],
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
+      }), { status: 200 }),
+      new Response(JSON.stringify({
         ok: true,
         state_items_deleted: 9,
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
+      }), { status: 200 }),
+      new Response(JSON.stringify({
         ok: true,
         conversations_deleted: 3,
         deleted: { 'yuanbao-files': 4, 'yuanbao-acceptance-shared': 2, 'yuanbao-auth': 1 },
-      }), { status: 200 }));
+      }), { status: 200 }),
+    ];
+    const fetchMock = authenticatedFetch(() => responses.shift()!);
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(resetApplicationData('yb7_reset-test', 'secret')).resolves.toEqual({
@@ -98,53 +144,56 @@ describe('resetApplicationData', () => {
       state_items_deleted: 9,
       files_deleted: 7,
     });
-    expect(fetchMock.mock.calls.map((item) => item[0])).toEqual(['/reset-files', '/reset', '/reset-files']);
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
-      password: 'secret',
+    const calls = applicationCalls(fetchMock);
+    expect(calls.map((item) => item[0])).toEqual(['/reset-files', '/reset', '/reset-files']);
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({
+      confirmation: 'secret',
       operation: 'inspect',
     });
-    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
-      password: 'secret',
+    expect(JSON.parse(String(calls[1][1]?.body))).toEqual({
+      confirmation: 'secret',
       conversation_ids: ['yb7_one', 'yb7_two', 'yb7_three'],
     });
-    expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual({
-      password: 'secret',
+    expect(JSON.parse(String(calls[2][1]?.body))).toEqual({
+      confirmation: 'secret',
       operation: 'clear',
     });
   });
 
   it('does not delete conversations until Makers checkpoints and state are cleared', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
+    const responses = [
+      new Response(JSON.stringify({
         ok: true,
         conversation_ids: ['yb7_history'],
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
+      }), { status: 200 }),
+      new Response(JSON.stringify({
         ok: true,
         state_items_deleted: 4,
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
+      }), { status: 200 }),
+      new Response(JSON.stringify({
         ok: true,
         conversations_deleted: 1,
         deleted: {},
-      }), { status: 200 }));
+      }), { status: 200 }),
+    ];
+    const fetchMock = authenticatedFetch(() => responses.shift()!);
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(resetApplicationData('yb7_reset-test', 'secret')).resolves.toMatchObject({
       conversations_deleted: 1,
       state_items_deleted: 4,
     });
-    expect(fetchMock.mock.calls.map((item) => JSON.parse(String(item[1]?.body)).operation || 'state'))
+    expect(applicationCalls(fetchMock).map((item) => JSON.parse(String(item[1]?.body)).operation || 'state'))
       .toEqual(['inspect', 'state', 'clear']);
   });
 
   it('exposes a stable error code instead of a server message', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    vi.stubGlobal('fetch', authenticatedFetch(() => new Response(JSON.stringify({
       error: 'internal wording',
-      code: 'INVALID_PASSWORD',
+      code: 'INVALID_CONFIRMATION',
     }), { status: 403 })));
     await expect(resetApplicationData('yb7_reset-test', 'wrong')).rejects.toMatchObject({
-      code: 'INVALID_PASSWORD',
+      code: 'INVALID_CONFIRMATION',
     });
   });
 });

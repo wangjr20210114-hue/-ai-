@@ -1,0 +1,42 @@
+{
+  "schema_version": 2,
+  "id": "tencent-meeting",
+  "version": "1.0.0",
+  "kind": "system",
+  "publisher": {"id": "tencent-meeting", "name": "Tencent Meeting + Floris", "verified": true},
+  "required_plan": "free",
+  "order": 80,
+  "default_enabled": true,
+  "capabilities": ["meeting_action"],
+  "plan_flags": ["needs_meeting_action"],
+  "tools": [{"name": "propose_meeting", "capability": "meeting_action"}],
+  "action_kinds": ["meeting_create"],
+  "requires": ["calendar"],
+  "permissions": ["makers.state", "makers.trace", "conversation.read", "user.read", "components.calendar"],
+  "env_keys": ["TENCENT_MEETING_TOKEN", "TENCENT_MEETING_SKILL_VERSION"],
+  "external": true,
+  "provider_env": ["TENCENT_MEETING_TOKEN"],
+  "connect_url": "https://meeting.tencent.com/ai-skill.html",
+  "credential": {
+    "kind": "token",
+    "env_key": "TENCENT_MEETING_TOKEN",
+    "ttl_seconds": 604800,
+    "help_url": "https://meeting.tencent.com/support/topic/2233/index.html",
+    "instructions": {
+      "zh-CN": "打开腾讯会议 AI Skill 专区并登录个人账号，复制专属 Token 后粘贴到这里。Floris 只在服务端保存七天。",
+      "zh-TW": "開啟騰訊會議 AI Skill 專區並登入個人帳號，複製專屬 Token 後貼到這裡。Floris 只在服務端保存七天。",
+      "en": "Open Tencent Meeting AI Skill, sign in, and paste the personal token. Floris stores it server-side for seven days."
+    }
+  },
+  "component_actions": ["calendar.change.propose"],
+  "ui": {
+    "icon": "会",
+    "name": {"zh-CN": "腾讯会议", "zh-TW": "騰訊會議", "en": "Tencent Meeting"},
+    "description": {"zh-CN": "创建真实腾讯会议，并把会议号和链接写入日程。", "zh-TW": "建立真實騰訊會議，並把會議號和連結寫入日程。", "en": "Create real Tencent Meetings and write the number and link into the calendar."}
+  },
+  "planner": {
+    "topic": "meeting",
+    "summary": "Prepare a Tencent Meeting proposal linked to a calendar item.",
+    "recovery_tools": ["propose_meeting"]
+  }
+}

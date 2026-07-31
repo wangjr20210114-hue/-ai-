@@ -1,8 +1,7 @@
-"""Owner-only application data reset backed by EdgeOne Makers stores."""
+"""Authenticated self-service reset backed by tenant-scoped Makers stores."""
 
 from __future__ import annotations
 
-import hmac
 import re
 
 from .._shared.auth import require_user
@@ -33,7 +32,11 @@ def _restore_makers_store_asyncio(store) -> None:
         globals_map.setdefault("asyncio", asyncio)
 
 
-async def _delete_application_namespaces(store) -> int:
+async def _delete_application_namespaces(
+    store,
+    user_id: str,
+    conversation_ids: list[str],
+) -> int:
     if store is None:
         return 0
     _restore_makers_store_asyncio(store)
@@ -43,11 +46,14 @@ async def _delete_application_namespaces(store) -> int:
         page = await store.alist_namespaces(limit=100, offset=offset)
         if not page:
             break
-        namespaces.extend(
-            tuple(str(part) for part in namespace)
-            for namespace in page
-            if namespace and str(namespace[0]).startswith("yuanbao_")
-        )
+        for namespace in page:
+            candidate = tuple(str(part) for part in namespace)
+            if (
+                len(candidate) >= 2
+                and candidate[0].startswith("yuanbao_")
+                and candidate[1] in {user_id, *conversation_ids}
+            ):
+                namespaces.append(candidate)
         if len(page) < 100:
             break
         offset += len(page)
@@ -97,12 +103,8 @@ async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
     body = ctx.request.body or {}
-    supplied = str(body.get("password") or "")
-    configured = str((getattr(ctx, "env", {}) or {}).get("DATA_CLEAR_PASSWORD") or "")
-    if not configured:
-        return error("数据清理功能暂不可用", 503, code="RESET_NOT_CONFIGURED")
-    if not supplied or not hmac.compare_digest(supplied, configured):
-        return error("密码不正确", 403, code="INVALID_PASSWORD")
+    if str(body.get("confirmation") or "") != "DELETE":
+        return error("请输入 DELETE 确认删除自己的数据", 403, code="INVALID_CONFIRMATION")
 
     langgraph_store = ctx.store.langgraph_store
     current = await load_intelligence_state(langgraph_store, user_id)
@@ -113,8 +115,13 @@ async def handler(ctx):
         for skill_id, enabled in DEFAULT_SKILL_PREFERENCES.items()
     }
 
-    checkpoints_deleted = await _delete_checkpoints(ctx, _conversation_ids(body))
-    state_items_deleted = await _delete_application_namespaces(langgraph_store)
+    conversation_ids = _conversation_ids(body)
+    checkpoints_deleted = await _delete_checkpoints(ctx, conversation_ids)
+    state_items_deleted = await _delete_application_namespaces(
+        langgraph_store,
+        user_id,
+        conversation_ids,
+    )
 
     clean_intelligence = empty_intelligence_state()
     clean_intelligence["skill_preferences"] = skills

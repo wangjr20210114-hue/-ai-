@@ -29,15 +29,46 @@ test('conversation, state, object and schedule infrastructure reuse EdgeOne Make
   assert.doesNotMatch(chat + messages, /yuanbao_chat_runs_v1|chat_runs/);
 });
 
-test('personal demo uses one fixed owner without an application database', async () => {
-  const [currentUser, agentAuth, manifest] = await Promise.all([
+test('runtime is pure multi-user with signed sessions and tenant-scoped storage', async () => {
+  const [
+    currentUser,
+    session,
+    agentAuth,
+    workspace,
+    proactive,
+    intelligence,
+    frontendState,
+    manifest,
+    migration,
+  ] = await Promise.all([
     read('auth/current-user.js'),
+    read('auth/session.js'),
     read('agents/_shared/auth.py'),
+    read('agents/_shared/workspace.py'),
+    read('agents/_shared/proactive.py'),
+    read('agents/_shared/intelligence.py'),
+    read('frontend/src/store/appState.ts'),
     read('package.json'),
+    read('db/migrations/001_identity_and_entitlements.sql'),
   ]);
-  assert.match(currentUser, /local-user/);
-  assert.match(agentAuth, /USER_WORKSPACE_ID/);
-  assert.doesNotMatch(currentUser + agentAuth + manifest, /JWT_SECRET|DATABASE_URL|neondatabase|bcrypt|tenant:/i);
+  const runtimeIdentitySources = [
+    currentUser,
+    session,
+    agentAuth,
+    workspace,
+    proactive,
+    intelligence,
+    frontendState,
+  ].join('\n');
+  assert.match(currentUser + session + agentAuth, /JWT_SECRET/);
+  assert.match(session, /tenantPrefix/);
+  assert.match(manifest, /@neondatabase\/serverless/);
+  assert.match(migration, /ROW LEVEL SECURITY/);
+  assert.match(migration, /FORCE ROW LEVEL SECURITY/);
+  assert.doesNotMatch(
+    runtimeIdentitySources,
+    /AUTH_MODE|local-user|USER_WORKSPACE_ID|single_user|fixed owner/i,
+  );
 });
 
 test('release gates execute the Makers production chain', async () => {
@@ -169,22 +200,22 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.doesNotMatch(styles, /themeDiagonalReveal 1100ms/);
 });
 
-test('Tencent Meeting uses only the optional personal official MCP Skill', async () => {
+test('Tencent Meeting uses only the optional user-connected official MCP Skill', async () => {
   const [provider, tools, envExample, skillsApi, manifest, registry] = await Promise.all([
     read('agents/_shared/side_effects.py'),
     read('agents/chat/_ui_tools.py'),
     read('.env.example'),
     read('frontend/src/services/api.ts'),
-    read('agents/skills/tencent_meeting/manifest.py'),
+    read('agents/skill_packages/tencent-meeting/floris.json'),
     read('agents/_shared/skill_registry.py'),
   ]);
   assert.match(provider, /mcp\.meeting\.tencent\.com/);
   assert.match(provider, /X-Tencent-Meeting-Token/);
   assert.match(envExample, /TENCENT_MEETING_TOKEN/);
   assert.doesNotMatch(provider + envExample, /TENCENT_MEETING_SECRET_ID|X-TC-Signature/);
-  assert.match(manifest, /"external": True/);
-  assert.match(manifest, /"provider_env": \["TENCENT_MEETING_TOKEN"\]/);
-  assert.match(manifest, /"requires": \["calendar"\]/);
+  assert.equal(JSON.parse(manifest).external, true);
+  assert.deepEqual(JSON.parse(manifest).provider_env, ['TENCENT_MEETING_TOKEN']);
+  assert.deepEqual(JSON.parse(manifest).requires, ['calendar']);
   assert.match(tools, /skill_is_configured/);
   assert.match(registry, /def skill_is_configured/);
   assert.match(skillsApi, /intelligenceOperation/);
@@ -194,15 +225,17 @@ test('Tencent Meeting uses only the optional personal official MCP Skill', async
 });
 
 test('settings and Skills open on lightweight configuration reads', async () => {
-  const [settings, skills, api, intelligence, library, paperApi, input, registry] = await Promise.all([
+  const [settings, skills, skillsController, api, intelligenceController, library, paperApi, input, registry, styles] = await Promise.all([
     read('frontend/src/components/profile/AppSettingsButton.tsx'),
     read('frontend/src/components/profile/SkillsMarketplaceButton.tsx'),
+    read('frontend/src/features/skills/useSkillMarketplaceController.ts'),
     read('frontend/src/services/api.ts'),
-    read('agents/intelligence/index.py'),
+    read('agents/_controllers/intelligence_controller.py'),
     read('cloud-functions/library/index.js'),
     read('frontend/src/services/paperApi.ts'),
     read('frontend/src/components/chat/InputBar.tsx'),
     read('agents/_shared/skill_registry.py'),
+    read('frontend/src/index.css'),
   ]);
   const settingsOpenEffects = settings.slice(0, settings.indexOf('const setPreferences'));
   assert.doesNotMatch(settingsOpenEffects, /proactiveOperation\(conversationId,\s*['"]refresh['"]/);
@@ -213,11 +246,48 @@ test('settings and Skills open on lightweight configuration reads', async () => 
   assert.match(library, /searchParams\.get\('view'\) === 'settings'/);
   assert.doesNotMatch(skills, /skill-market-skeleton/);
   assert.doesNotMatch(api, /skillsOperation[\s\S]{0,800}system_internal/);
-  assert.match(intelligence, /public_skill_catalog/);
-  assert.match(skills, /setCatalog\(result\.catalog\)/);
+  assert.match(intelligenceController, /public_intelligence_view/);
+  assert.match(skillsController, /skillMarketplaceOperation\(conversationId\)/);
+  assert.match(skillsController, /setMarketplace\(result\)/);
   assert.doesNotMatch(skills, /skillsCatalog/);
-  assert.match(registry, /pkgutil\.iter_modules/);
+  assert.match(registry, /SKILL\.md/);
+  assert.match(registry, /floris\.json/);
+  assert.doesNotMatch(registry, /pkgutil\.iter_modules/);
   assert.doesNotMatch(input, /web_search|webSearch|Checkbox/);
+  assert.match(skills, /createPortal/);
+  assert.match(skills, /document\.body/);
+  assert.match(styles, /\.skills-page\s*\{[\s\S]*?z-index:\s*5000/);
+});
+
+test('new multi-user and Skill surfaces follow the layered MVC boundary', async () => {
+  const [
+    skillRoute,
+    skillController,
+    skillModel,
+    skillView,
+    marketplaceView,
+    marketplaceController,
+    marketplaceModel,
+  ] = await Promise.all([
+    read('agents/skills/index.py'),
+    read('agents/_controllers/skills_controller.py'),
+    read('agents/_models/skill_marketplace.py'),
+    read('agents/_views/skill_marketplace.py'),
+    read('frontend/src/components/profile/SkillsMarketplaceButton.tsx'),
+    read('frontend/src/features/skills/useSkillMarketplaceController.ts'),
+    read('frontend/src/features/skills/model.ts'),
+  ]);
+  assert.match(skillRoute, /handle_skills/);
+  assert.doesNotMatch(skillRoute, /load_intelligence_state|public_skill_catalog/);
+  assert.match(skillController, /decorate_catalog/);
+  assert.match(skillController, /marketplace_view/);
+  assert.match(skillModel, /def decorate_catalog/);
+  assert.doesNotMatch(skillModel, /ctx\.|\bhandler\(|\bResponse\(/);
+  assert.match(skillView, /def marketplace_view/);
+  assert.match(marketplaceView, /useSkillMarketplaceController/);
+  assert.doesNotMatch(marketplaceView, /authorizedFetch|skillMarketplaceOperation/);
+  assert.match(marketplaceController, /skillMarketplaceOperation/);
+  assert.match(marketplaceModel, /filterMarketplaceSkills/);
 });
 
 test('runtime does not reimplement generic tracing, queue or cron services', async () => {
@@ -237,7 +307,7 @@ test('runtime does not reimplement generic tracing, queue or cron services', asy
   assert.doesNotMatch(system + tick, /OPS_ALERT_WEBHOOK|PROACTIVE_OPS_WEBHOOK|Sentry|OpenTelemetry/);
 });
 
-test('owner data reset reuses Makers storage and never embeds the reset password', async () => {
+test('self-service reset only deletes the authenticated Makers namespace', async () => {
   const [agentReset, fileReset, settings, envExample] = await Promise.all([
     read('agents/reset/index.py'),
     read('cloud-functions/reset-files/index.js'),
@@ -252,7 +322,10 @@ test('owner data reset reuses Makers storage and never embeds the reset password
   assert.match(fileReset, /context\.agent\?\.store/);
   assert.match(fileReset, /listConversations/);
   assert.match(fileReset, /deleteConversation/);
-  assert.match(agentReset + fileReset + envExample, /DATA_CLEAR_PASSWORD/);
+  assert.match(agentReset + fileReset, /DELETE/);
+  assert.match(fileReset, /tenantPrefix\(user\)/);
+  assert.doesNotMatch(fileReset, /yuanbao-acceptance-shared|yuanbao-auth/);
+  assert.doesNotMatch(agentReset + fileReset + envExample, /DATA_CLEAR_PASSWORD/);
   assert.match(settings, /resetApplicationData/);
   assert.doesNotMatch(agentReset + fileReset + settings + envExample, /wangjryyds/);
 });

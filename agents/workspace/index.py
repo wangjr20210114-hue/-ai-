@@ -22,6 +22,7 @@ from .._shared.auth import require_user, scoped_conversation_id
 from .._shared.intelligence import load_intelligence_state, skill_runtime_env
 from .._shared.http import error
 from .._shared.skill_registry import skill_manifest, unavailable_skills_for_action
+from .._shared.entitlements import effective_skill_preferences
 from .._shared.workspace import (
     active_map_payload,
     apply_calendar_changes,
@@ -42,7 +43,6 @@ from .._shared.workspace import (
     seal_action_snapshot,
     start_provider_call,
     verify_action_snapshot,
-    USER_WORKSPACE_ID,
 )
 from ..chat._llm import get_model
 
@@ -220,7 +220,10 @@ async def handler(ctx):
     state = await load_user_workspace(store, conversation_id, user_id)
     intelligence = await load_intelligence_state(store, user_id)
     runtime_env = skill_runtime_env(ctx.env, intelligence)
-    enabled_skills = intelligence.get("skill_preferences") or {}
+    enabled_skills = effective_skill_preferences(
+        identity,
+        intelligence.get("skill_preferences"),
+    )
     workspace_id = user_id
     try:
         if operation == "get":

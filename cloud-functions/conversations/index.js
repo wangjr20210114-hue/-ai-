@@ -1,4 +1,4 @@
-import { currentUser } from '../../auth/current-user.js';
+import { currentUser, scopedConversationId } from '../../auth/current-user.js';
 
 const CONVERSATION_PREFIX = 'yb7_';
 
@@ -34,20 +34,29 @@ function publicConversation(item) {
   const metadata = item?.metadata && typeof item.metadata === 'object' ? item.metadata : {};
   const createdAt = timestampMs(item?.createdAt);
   return {
-    conversationId: String(item?.conversationId || ''),
+    conversationId: String(metadata.client_conversation_id || item?.conversationId || ''),
     createdAt,
     lastMessageAt: timestampMs(item?.lastMessageAt, createdAt),
     messageCount: Number(item?.messageCount || 0),
-    metadata: { ...metadata, user_id: undefined, title: String(metadata.title || '历史对话') },
+    metadata: {
+      title: String(metadata.title || '历史对话'),
+      ...(metadata.yuanbao_chat_run_v1
+        ? { yuanbao_chat_run_v1: metadata.yuanbao_chat_run_v1 }
+        : {}),
+    },
   };
 }
 
 export async function onRequest(context) {
-  const { request } = context;
+  const { request, env = {} } = context;
   const store = context.agent?.store;
   if (!store) return json({ error: 'Makers conversation store is unavailable' }, 503);
   let user;
-  user = await currentUser();
+  try {
+    user = await currentUser(request, env);
+  } catch {
+    return json({ error: 'Unauthorized' }, 401);
+  }
 
   if (request.method === 'GET') {
     const result = await store.listConversations({ userId: user.id, limit: 100, order: 'desc' });
@@ -59,7 +68,13 @@ export async function onRequest(context) {
     const body = await request.json().catch(() => ({}));
     if (body.operation !== 'append_message') return json({ error: 'Unsupported conversation operation' }, 400);
     let conversationId;
-    try { conversationId = normalizeConversationId(body.conversation_id); } catch { return json({ error: 'Invalid conversation id' }, 400); }
+    let clientConversationId;
+    try {
+      clientConversationId = normalizeConversationId(body.conversation_id);
+      conversationId = await scopedConversationId(user, clientConversationId);
+    } catch {
+      return json({ error: 'Invalid conversation id' }, 400);
+    }
     const content = typeof body.content === 'string' ? body.content : '';
     const role = body.role === 'ai' ? 'assistant' : body.role;
     if (!['user', 'assistant', 'system'].includes(role) || !content) return json({ error: 'Invalid conversation message' }, 400);
@@ -68,13 +83,25 @@ export async function onRequest(context) {
       conversationId, role, content, userId: user.id,
       metadata: {
         ...(body.metadata && typeof body.metadata === 'object' ? body.metadata : {}),
-        client_message_id: String(body.metadata?.id || ''), source: 'yuanbao-web', owner_user_id: user.id,
+        client_message_id: String(body.metadata?.id || ''),
+        client_conversation_id: clientConversationId,
+        source: 'yuanbao-web',
+        owner_user_id: user.id,
+        tenant_id: user.tenant_id,
       },
     });
     let conversation = await store.getConversation({ conversationId });
     const currentTitle = String(conversation?.metadata?.title || '');
     if (role === 'user' && (!currentTitle || currentTitle === '新对话' || currentTitle === '历史对话')) {
-      conversation = await store.updateConversation({ conversationId, metadata: { title: titleFromMessage(content), owner_user_id: user.id } });
+      conversation = await store.updateConversation({
+        conversationId,
+        metadata: {
+          title: titleFromMessage(content),
+          client_conversation_id: clientConversationId,
+          owner_user_id: user.id,
+          tenant_id: user.tenant_id,
+        },
+      });
     }
     return json({ message_id: messageId, conversation: publicConversation(conversation) });
   }

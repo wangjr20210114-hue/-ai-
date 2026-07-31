@@ -1,5 +1,6 @@
 import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
+import { requireSkillAccess } from '../../auth/entitlements.js';
 import { DOWNLOAD_PART_BYTES, MAX_FILE_BYTES } from './config.js';
 const SUPPORTED_TYPES = new Map([
   ['application/pdf', ['.pdf']],
@@ -34,6 +35,9 @@ export async function onRequest(context) {
   const { request, env } = context;
   let user;
   try { user = await currentUser(request, env); } catch { return json({ error: 'Unauthorized' }, 401); }
+  try { requireSkillAccess(user, 'paper-reading'); } catch (error) {
+    return json({ error: error.message, code: error.code }, error.status || 403);
+  }
   const prefix = tenantPrefix(user, env);
   const store = context.__store || getStore({ name: 'yuanbao-files', consistency: 'strong' });
 

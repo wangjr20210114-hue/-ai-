@@ -31,6 +31,9 @@ from agents.chat.index import (
 from agents.workspace.index import _learn_from_activated_route
 
 
+TEST_USER_ID = "test:route-dialogue"
+
+
 PLACE = {
     "schema_version": 1,
     "place_id": "poi-gugong",
@@ -769,6 +772,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             None,
             store=FakeStore(),
             conversation_id="route-branch-choice",
+            user_id=TEST_USER_ID,
             env={"TENCENT_MAP_SERVER_KEY": "map-key"},
         )
         route_tool = next(
@@ -822,6 +826,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             object(),
             store=FakeStore(),
             conversation_id="calendar-place-resolution",
+            user_id=TEST_USER_ID,
             env={"TENCENT_MAP_KEY": "key"},
             enabled_skills={"maps", "calendar"},
             planned_calendar_place_resolution=True,
@@ -865,6 +870,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             object(),
             store=FakeStore(),
             conversation_id="calendar-semantic-landmark",
+            user_id=TEST_USER_ID,
             env={"TENCENT_MAP_KEY": "key"},
             enabled_skills={"maps", "calendar"},
             planned_calendar_place_resolution=True,
@@ -900,6 +906,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             object(),
             store=FakeStore(),
             conversation_id="calendar-unique-correction",
+            user_id=TEST_USER_ID,
             env={"TENCENT_MAP_KEY": "key"},
             enabled_skills={"maps", "calendar"},
             planned_calendar_place_resolution=True,
@@ -958,6 +965,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             None,
             store=FakeStore(),
             conversation_id="route-typo-cache",
+            user_id=TEST_USER_ID,
             env={"TENCENT_MAP_SERVER_KEY": "map-key"},
         )
         route_tool = next(
@@ -1025,6 +1033,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             None,
             store=FakeStore(),
             conversation_id="route-exact-cache",
+            user_id=TEST_USER_ID,
             env={"TENCENT_MAP_SERVER_KEY": "map-key"},
         )
         route_tool = next(

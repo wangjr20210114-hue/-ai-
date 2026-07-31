@@ -31,6 +31,15 @@ from .._shared.proactive import load_proactive_state, propose_workflow as create
 from .._shared.provider_metering import record_provider_usage, record_vision_diagnostics
 from .._shared.place_cache import load_place_cache, save_place_cache
 from .._shared.route_cache import load_route_cache, save_route_cache
+from .._shared.evidence_cache import (
+    get_or_compute_search_evidence,
+    save_search_evidence,
+)
+from .._shared.auth import required_user_id
+from .._models.search_evidence import (
+    evidence_ttl_seconds,
+    search_evidence_key,
+)
 from .._shared.skill_registry import (
     build_adapter_tools,
     capability_skill_map,
@@ -1114,12 +1123,13 @@ def build_production_tools(
     progressive_media: bool = False,
     media_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     background_tasks: list[asyncio.Task] | None = None,
-    user_id: str = "local-user",
+    user_id: str = "",
     initial_visual_references: list[str] | None = None,
     media_enabled: bool = True,
     planned_media_preferred: bool = False,
     planned_search_query: str = "",
     planned_image_query: str = "",
+    force_search_refresh: bool = False,
     search_result_limit: int = 8,
     search_image_limit: int = 8,
     parallel_image_search: bool = True,
@@ -1138,6 +1148,7 @@ def build_production_tools(
     tracer: Any = None,
     makers_checkpointer: Any = None,
 ) -> list[StructuredTool]:
+    user_id = required_user_id(user_id)
     runtime_env = env or {}
     place_skill_id = capability_skill_map().get("places", "")
     calendar_skill_id = capability_skill_map().get("calendar_action", "")
@@ -3287,6 +3298,23 @@ def build_production_tools(
             clean_depth = depth if depth in {"basic", "standard", "deep"} else "standard"
             target_date = str(time_scope.get("target_date") or "")
             strict_date = bool(time_scope.get("strict_date"))
+            cache_key = search_evidence_key(
+                query=clean_query,
+                image_query=clean_image_query,
+                depth=clean_depth,
+                result_limit=search_result_limit,
+                image_limit=search_image_limit,
+                parallel_queries=parallel_image_search,
+                target_date=target_date,
+                strict_date=strict_date,
+                include_media=media_enabled,
+            )
+            cache_ttl = evidence_ttl_seconds(
+                clean_query,
+                target_date=target_date,
+                strict_date=strict_date,
+                depth=clean_depth,
+            )
 
             async def run_once() -> str:
                 nonlocal turn_visual_references, rich_search_provider_calls
@@ -3307,26 +3335,69 @@ def build_production_tools(
                     if media_callback is not None:
                         await media_callback(completed)
 
-                rich_search_provider_calls += 1
-                try:
-                    metadata = await provider_rich_search(
-                        runtime_env,
-                        clean_query,
-                        image_query=clean_image_query,
-                        depth=clean_depth,
-                        target_date=target_date,
-                        strict_date=strict_date,
-                        media_callback=publish_enriched_media if progressive_media and media_enabled else None,
-                        background_tasks=background_tasks if progressive_media and media_enabled else None,
-                        include_media=media_enabled,
-                        result_limit=search_result_limit,
-                        image_limit=search_image_limit,
-                        parallel_queries=parallel_image_search,
+                async def publish_and_cache_media(enriched: dict[str, Any]) -> None:
+                    await save_search_evidence(
+                        store,
+                        user_id,
+                        cache_key,
+                        {**enriched, "media_pending": False},
+                        ttl_seconds=cache_ttl,
                     )
-                finally:
-                    await record_provider_usage(
-                        store, user_id, "wsa", "requests", 1, source="rich_search",
-                    )
+                    await publish_enriched_media(enriched)
+
+                async def provider_call() -> dict[str, Any]:
+                    nonlocal rich_search_provider_calls
+                    rich_search_provider_calls += 1
+                    try:
+                        return await provider_rich_search(
+                            runtime_env,
+                            clean_query,
+                            image_query=clean_image_query,
+                            depth=clean_depth,
+                            target_date=target_date,
+                            strict_date=strict_date,
+                            media_callback=(
+                                publish_and_cache_media
+                                if progressive_media and media_enabled
+                                else None
+                            ),
+                            background_tasks=(
+                                background_tasks
+                                if progressive_media and media_enabled
+                                else None
+                            ),
+                            include_media=media_enabled,
+                            result_limit=search_result_limit,
+                            image_limit=search_image_limit,
+                            parallel_queries=parallel_image_search,
+                        )
+                    finally:
+                        await record_provider_usage(
+                            store,
+                            user_id,
+                            "wsa",
+                            "requests",
+                            1,
+                            source="rich_search",
+                        )
+
+                cached = await get_or_compute_search_evidence(
+                    store,
+                    user_id,
+                    cache_key,
+                    provider_call,
+                    ttl_seconds=cache_ttl,
+                    bypass_cache=force_search_refresh,
+                )
+                metadata = cached.metadata
+                metadata["cache"] = {
+                    "kind": "evidence_only",
+                    "hit": cached.cache_hit,
+                    "coalesced": cached.coalesced,
+                    "ttl_seconds": cache_ttl,
+                    "answer_cached": False,
+                    "bypassed": force_search_refresh,
+                }
                 if not progressive_media:
                     await record_vision_diagnostics(
                         store,

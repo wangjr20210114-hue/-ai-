@@ -1,4 +1,13 @@
 import { getStore } from '@edgeone/pages-blob';
+import { listActiveUsers } from '../../auth/identity-repository.js';
+import {
+  publicIdentity,
+  scopedConversationId,
+  sessionCookie,
+  signSessionToken,
+} from '../../auth/session.js';
+
+const SCHEDULE_SESSION_TTL_SECONDS = 10 * 60;
 
 function response(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -34,8 +43,8 @@ async function acquireTick(store, userId) {
   }
 }
 
-export async function tickUser(request, store) {
-  const userId = 'local-user';
+export async function tickUser(request, store, identity, env = {}) {
+  const userId = identity.id;
   const lockKey = await acquireTick(store, userId);
   if (!lockKey) {
     return { user_id: userId, status: 200, ok: true, skipped: true, reason: 'tick_already_claimed' };
@@ -48,7 +57,21 @@ export async function tickUser(request, store) {
     if (!['host', 'content-length', 'connection'].includes(name.toLowerCase())) headers.set(name, value);
   }
   headers.set('Content-Type', 'application/json');
-  headers.set('makers-conversation-id', `yuanbao-proactive-${userId}`);
+  headers.set('makers-conversation-id', await scopedConversationId(identity, 'proactive-schedule'));
+  const token = await signSessionToken({
+    sub: identity.subject_id,
+    tenant_id: identity.tenant_id,
+    username: identity.username,
+    display_name: identity.display_name,
+    avatar_url: identity.avatar_url,
+    auth_type: identity.auth_type,
+    membership: identity.membership,
+    roles: identity.roles,
+    session_version: identity.session_version,
+  }, env, SCHEDULE_SESSION_TTL_SECONDS);
+  headers.set('Cookie', sessionCookie(token, {
+    maxAge: SCHEDULE_SESSION_TTL_SECONDS,
+  }).split(';', 1)[0]);
   try {
     const result = await fetch(target, {
       method: 'POST',
@@ -65,12 +88,35 @@ export async function tickUser(request, store) {
 }
 
 export async function onRequest(context) {
-  const { request } = context;
+  const { request, env = {} } = context;
   if (request.method !== 'POST') return response({ error: 'Method not allowed' }, 405);
   const store = context.__store || getStore({ name: 'yuanbao-auth', consistency: 'strong' });
   try {
-    const result = await tickUser(request, store);
-    return response(result, result.status);
+    const users = context.__users || await listActiveUsers(env);
+    const identities = users.map((user) => publicIdentity({
+      sub: user.user_id,
+      tenant_id: user.tenant_id,
+      username: user.display_name,
+      display_name: user.display_name,
+      avatar_url: user.avatar_url,
+      auth_type: 'wechat',
+      membership: user.membership,
+      roles: user.roles,
+      session_version: user.session_version,
+    }));
+    const results = [];
+    for (let offset = 0; offset < identities.length; offset += 8) {
+      results.push(...await Promise.all(
+        identities.slice(offset, offset + 8).map((identity) => (
+          tickUser(request, store, identity, env)
+        )),
+      ));
+    }
+    return response({
+      ok: results.every((item) => item.ok),
+      users_scanned: results.length,
+      results,
+    }, results.some((item) => !item.ok) ? 207 : 200);
   } catch (error) {
     console.error('[proactive-tick] scheduled scan failed', error);
     return response({ error: 'proactive_schedule_failed' }, 500);

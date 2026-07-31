@@ -11,9 +11,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from .auth import required_user_id
 from .data_version import namespace
 from .skill_registry import default_skill_preferences, locked_skill_ids
-from .workspace import USER_WORKSPACE_ID
 
 
 SCHEMA_VERSION = 2
@@ -124,11 +124,12 @@ def _value(item: Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def intelligence_namespace(user_id: str = USER_WORKSPACE_ID) -> tuple[str, str]:
-    return namespace("intelligence", str(user_id or USER_WORKSPACE_ID))
+def intelligence_namespace(user_id: str) -> tuple[str, str]:
+    return namespace("intelligence", required_user_id(user_id))
 
 
-async def load_intelligence_state(store: Any, user_id: str = USER_WORKSPACE_ID) -> dict[str, Any]:
+async def load_intelligence_state(store: Any, user_id: str = "") -> dict[str, Any]:
+    user_id = required_user_id(user_id)
     state = empty_intelligence_state()
     if store is None:
         return state
@@ -288,8 +289,9 @@ def public_skill_connections(
 
 
 async def save_intelligence_state(
-    store: Any, state: dict[str, Any], user_id: str = USER_WORKSPACE_ID,
+    store: Any, state: dict[str, Any], user_id: str = "",
 ) -> dict[str, Any]:
+    user_id = required_user_id(user_id)
     saved = copy.deepcopy(state)
     saved["schema_version"] = SCHEMA_VERSION
     saved["revision"] = int(saved.get("revision") or 0) + 1

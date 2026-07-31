@@ -1,0 +1,26 @@
+{
+  "schema_version": 2,
+  "id": "core",
+  "version": "1.0.0",
+  "kind": "system",
+  "publisher": {"id": "floris", "name": "Floris", "verified": true},
+  "required_plan": "guest",
+  "order": 0,
+  "default_enabled": true,
+  "locked": true,
+  "capabilities": ["papers"],
+  "plan_flags": ["needs_papers"],
+  "tools": [{"name": "search_arxiv", "capability": "papers"}],
+  "permissions": ["makers.state", "makers.model", "makers.trace", "conversation.read", "user.read", "components.system"],
+  "component_actions": ["chat.progress.publish", "search.evidence.publish"],
+  "ui": {
+    "icon": "◆",
+    "name": {"zh-CN": "通用问答与创作", "zh-TW": "通用問答與創作", "en": "General chat and creation"},
+    "description": {"zh-CN": "问答、写作、翻译、总结与自然对话。核心能力始终开启。", "zh-TW": "問答、寫作、翻譯、總結與自然對話。核心能力始終開啟。", "en": "Chat, writing, translation, summarization, and natural conversation."}
+  },
+  "planner": {
+    "topic": "paper",
+    "summary": "Verifiable academic paper discovery with author, institution, topic and date filtering.",
+    "recovery_tools": ["search_arxiv"]
+  }
+}

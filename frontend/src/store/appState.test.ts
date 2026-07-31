@@ -35,7 +35,7 @@ describe('app state reducer', () => {
     const restored = [{ ...userMessage, id: 'restored', content: 'after restart' }];
     const updated = reducer(initialState, { type: 'HYDRATE_MESSAGES', payload: restored });
 
-    expect(updated.userId).toBe('local-user');
+    expect(updated.userId).toBe('');
     expect(updated.conversationId).toBe('default-conversation');
     expect(updated.messages[0].content).toBe('after restart');
   });

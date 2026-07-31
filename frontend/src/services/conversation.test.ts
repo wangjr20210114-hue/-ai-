@@ -95,7 +95,7 @@ describe('mergeMessages', () => {
       { id: 'checkpoint-ai', role: 'ai', content: '这是回答', ts: 1 },
     ];
     const local: ChatMessage[] = [
-      { id: 'local-user', role: 'user', content: '今天有什么新闻', ts: 1_784_000_000_000 },
+      { id: 'test-user', role: 'user', content: '今天有什么新闻', ts: 1_784_000_000_000 },
       { id: 'local-ai', role: 'ai', content: '这是回答', ts: 1_784_000_001_000 },
     ];
     const merged = mergeMessages(remote, local);
@@ -168,7 +168,7 @@ describe('mergeMessages', () => {
       id: 'checkpoint-user', role: 'user', content: '最近 AI 有什么进展', ts: 1,
     }];
     const local: ChatMessage[] = [
-      { id: 'local-user', role: 'user', content: '最近 AI 有什么进展', ts: 10 },
+      { id: 'test-user', role: 'user', content: '最近 AI 有什么进展', ts: 10 },
       {
         id: 'live-ai', role: 'ai', content: '第一条进展正在输出', ts: 11, streaming: true,
         searchResults: {
@@ -187,7 +187,7 @@ describe('mergeMessages', () => {
   it('preserves an empty thinking placeholder while the remote run is active', () => {
     const remote: ChatMessage[] = [{ id: 'checkpoint-user', role: 'user', content: '问题', ts: 1 }];
     const local: ChatMessage[] = [
-      { id: 'local-user', role: 'user', content: '问题', ts: 10 },
+      { id: 'test-user', role: 'user', content: '问题', ts: 10 },
       { id: 'live-ai', role: 'ai', content: '', ts: 11, streaming: true },
     ];
     expect(mergeMessages(remote, local, { preserveStreaming: true }).map((item) => item.id))

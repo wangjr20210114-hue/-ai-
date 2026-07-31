@@ -1,145 +1,106 @@
-# FLORIS Skill plug-in contract
+# FLORIS standard Skill contract
 
-An installed Skill is one package under `agents/skills/`. The runtime discovers
-its `manifest.py` at process start, validates the complete registry, exposes it
-in the Skills marketplace, applies its dependencies before graph construction,
-and registers its optional LangChain tools. Adding a Skill does not require
-editing the central chat graph or a keyword router.
+`agents/skills/` is now only the `/skills` HTTP route. Installable packages are
+stored under `agents/skill_packages/<skill-id>/` and always contain:
 
-`agents/skills/index.py` is also a read-only catalog endpoint. Its main purpose
-is to make EdgeOne Makers include the whole Skill tree when it converts the
-source package from `agents` to `pages_agents`; the registry resolves either
-runtime package name automatically.
+- `SKILL.md`: open Agent Skills instructions with `name` and `description`
+  frontmatter.
+- `floris.json`: version, publisher, dependencies, plan requirement,
+  least-privilege permissions, component actions, and optional trusted adapter.
 
-Existing FLORIS Skills use manifests to claim their current business tools.
-Provider calls, validation, confirmation Actions, persistence, and UI payloads
-remain in their existing modules. The manifest is an integration boundary, not
-a replacement for that business logic.
+The runtime registry reads only these two files. The retired Python
+`manifest.py` format is not a second source of truth.
 
-## Localized catalog metadata is not a model prompt
+## Minimal package
 
-`ui.name` and `ui.description` carry `zh-CN`, `zh-TW`, and `en` so an installed
-Skill can describe itself in the three supported interface languages without a
-central frontend catalog. The browser renders only the current locale (with a
-small fallback); these strings are not injected into LangChain or sent to the
-model. Planner text belongs under `planner.summary` and
-`planner.instructions`, and is selected only for a semantically relevant turn.
+```text
+agents/skill_packages/weather-alerts/
+├── SKILL.md
+└── floris.json
+```
 
-## Minimal Skill
+`SKILL.md`:
 
-Create `agents/skills/weather_alerts/__init__.py` and
-`agents/skills/weather_alerts/manifest.py`:
+```markdown
+---
+name: weather-alerts
+description: Check verified weather evidence and prepare reviewable alerts.
+---
 
-```python
-MANIFEST = {
-    "schema_version": 1,
-    "id": "weather-alerts",
-    "order": 90,
-    "default_enabled": True,
-    "capabilities": ["weather_alert"],
-    "tools": [
-        {"name": "prepare_weather_alert", "capability": "weather_alert"},
-    ],
-    "action_kinds": ["weather_alert_create"],
-    "adapter": "agents.skills.weather_alerts.adapter:build_tools",
-    "preference_hook": (
-        "agents.skills.weather_alerts.lifecycle:on_preference_changed"
-    ),
-    "permissions": [
-        "makers.model",
-        "makers.state",
-        "makers.trace",
-        "conversation.read",
-        "user.read",
-    ],
-    "env_keys": ["WEATHER_API_KEY"],
-    "provider_env": ["WEATHER_API_KEY"],
-    "ui": {
-        "icon": "☂",
-        "name": {
-            "zh-CN": "天气提醒",
-            "zh-TW": "天氣提醒",
-            "en": "Weather alerts",
-        },
-        "description": {
-            "zh-CN": "查询天气并准备提醒。",
-            "zh-TW": "查詢天氣並準備提醒。",
-            "en": "Check weather and prepare an alert.",
-        },
+# Weather alerts
+
+Use verified provider observations. Never invent current weather.
+```
+
+`floris.json`:
+
+```json
+{
+  "schema_version": 2,
+  "id": "weather-alerts",
+  "version": "1.0.0",
+  "kind": "community",
+  "publisher": {
+    "id": "publisher-id",
+    "name": "Publisher",
+    "verified": false
+  },
+  "required_plan": "free",
+  "order": 90,
+  "default_enabled": false,
+  "locked": false,
+  "capabilities": ["weather_alert"],
+  "tools": [
+    {
+      "name": "prepare_weather_alert",
+      "capability": "weather_alert"
+    }
+  ],
+  "permissions": [
+    "makers.model",
+    "makers.state",
+    "makers.trace",
+    "conversation.read",
+    "user.read",
+    "components.chat"
+  ],
+  "component_actions": ["chat.progress.publish"],
+  "env_keys": ["WEATHER_API_KEY"],
+  "provider_env": ["WEATHER_API_KEY"],
+  "adapter": "agents.skill_adapters.weather_alerts:build_tools",
+  "ui": {
+    "icon": "☂",
+    "name": {
+      "zh-CN": "天气提醒",
+      "zh-TW": "天氣提醒",
+      "en": "Weather alerts"
     },
-    "planner": {
-        "topic": "weather",
-        "summary": "Current weather and weather-triggered alerts.",
-        "instructions": (
-            "Use weather_alert only when current weather or a weather-triggered "
-            "alert is required. Never invent provider observations."
-        ),
-    },
+    "description": {
+      "zh-CN": "查询天气并准备可审核提醒。",
+      "zh-TW": "查詢天氣並準備可審核提醒。",
+      "en": "Check weather and prepare a reviewable alert."
+    }
+  },
+  "planner": {
+    "topic": "weather",
+    "summary": "Current weather and weather-triggered alerts."
+  }
 }
 ```
 
-Then implement a synchronous builder in `adapter.py`. The tools themselves may
-be asynchronous:
+Trusted Python adapters live in `agents/skill_adapters/`. They receive
+`SkillRuntimeContext`, not the raw request context. Undeclared Makers handles,
+environment keys, and component actions are denied.
 
-```python
-from langchain_core.tools import StructuredTool
+An uploaded user ZIP is stored in the authenticated Makers Blob namespace with
+`pending_review` status. Upload never means install or execute. The review
+backend is intentionally left unavailable until the future administration
+surface is implemented.
 
+Run the standard package validator before release:
 
-def build_tools(context):
-    async def prepare_weather_alert(city: str) -> str:
-        # This reuses the Makers-backed model already selected by FLORIS.
-        response = await context.model.ainvoke(
-            [{"role": "user", "content": f"Normalize this city name: {city}"}]
-        )
-        context.trace("normalized_city", {"city": city})
-        # context.state_store is also available because makers.state was declared.
-        return str(response.content)
-
-    return [
-        StructuredTool.from_function(
-            coroutine=prepare_weather_alert,
-            name="prepare_weather_alert",
-            description="Resolve a city, query verified weather, and prepare an alert.",
-        )
-    ]
+```bash
+for package in agents/skill_packages/*; do
+  python /path/to/skill-creator/scripts/quick_validate.py "$package"
+done
 ```
-
-After redeployment the Skill is present in the marketplace and can be selected
-semantically by capability ID. No central `if skill_id == ...` registration is
-required.
-
-## Makers capabilities
-
-Adapters receive `SkillRuntimeContext`, not the raw application context. Access
-is denied unless the matching permission is declared:
-
-- `makers.model`: the current Makers/LangChain model, usable through `ainvoke`,
-  structured output, or tool calling.
-- `makers.state`: the Makers LangGraph Store handle.
-- `makers.checkpointer`: the Makers LangGraph checkpointer.
-- `makers.blob`: `context.blob_store(name)` backed by EdgeOne Pages Blob.
-- `makers.trace`: `context.trace(...)` and the trace handle.
-- `conversation.read`, `user.read`: scoped identifiers.
-- `browser.location`: the request-scoped fresh browser fix only.
-
-`env_keys` also acts as an allow-list: an adapter cannot read undeclared
-environment values through the runtime context. `provider_env` marks a Skill as
-not configured until all listed keys are available. `requires` is a hard
-dependency; `recommends` is only a marketplace hint.
-
-`action_kinds` declares reviewable workspace Actions owned by the Skill. The
-confirmation endpoint checks the owner and all hard dependencies from the
-registry before committing. The Action's provider execution and validation
-remain explicit business code; merely naming an Action does not grant a plug-in
-an unrestricted commit path.
-
-`preference_hook` is optional. It receives the same restricted runtime context
-and the new enabled state when that Skill's stored preference changes. This is
-the extension point for synchronizing Skill-owned Makers state; it avoids
-adding Skill IDs to the settings endpoint.
-
-Repository code remains trusted deployment code, so permissions are a runtime
-contract and accidental-access guard, not an operating-system sandbox. A Skill
-that performs a real side effect must still return a reviewable Action and use
-the existing confirmation/commit boundary; it must not commit from an ordinary
-planning tool.

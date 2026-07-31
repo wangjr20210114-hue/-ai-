@@ -25,17 +25,26 @@ def conversation_title(content: str) -> str:
 
 async def ensure_conversation_title(
     conversation_store: Any, conversation_id: str, content: str, user_id: str,
+    *,
+    tenant_id: str = "",
+    client_conversation_id: str = "",
 ) -> None:
     if not hasattr(conversation_store, "get_conversation") or not hasattr(conversation_store, "update_conversation"):
         return
     conversation = await conversation_store.get_conversation(conversation_id=conversation_id)
     metadata = _field(conversation, "metadata", {}) or {}
     current = str(metadata.get("title") or "") if isinstance(metadata, dict) else ""
+    updates = {
+        "owner_user_id": str(user_id or ""),
+        "tenant_id": str(tenant_id or ""),
+        "client_conversation_id": str(client_conversation_id or ""),
+    }
     if current in {"", "新对话", "历史对话"}:
-        await conversation_store.update_conversation(
-            conversation_id=conversation_id,
-            metadata={"title": conversation_title(content), "owner_user_id": user_id},
-        )
+        updates["title"] = conversation_title(content)
+    await conversation_store.update_conversation(
+        conversation_id=conversation_id,
+        metadata=updates,
+    )
 
 
 def _field(value: Any, name: str, default: Any = None) -> Any:

@@ -18,6 +18,9 @@ from agents.chat._calendar_context import calendar_context
 from agents.chat._ui_tools import build_production_tools
 
 
+TEST_USER_ID = "test:map-calendar"
+
+
 PLACE_A = {
     "schema_version": 1,
     "place_id": "tencent:a",
@@ -121,7 +124,7 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
             PLACE_A["place_id"]: PLACE_A,
             PLACE_B["place_id"]: PLACE_B,
         }
-        await save_workspace(store, "local-user", state)
+        await save_workspace(store, TEST_USER_ID, state)
         route = {
             "provider": "tencent",
             "mode": "driving",
@@ -139,6 +142,7 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=store,
                 conversation_id="route-map",
+                user_id=TEST_USER_ID,
                 env={},
             )
             route_tool = next(tool for tool in tools if tool.name == "plan_route_between_places")
@@ -163,7 +167,7 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
             PLACE_A["place_id"]: PLACE_A,
             PLACE_B["place_id"]: PLACE_B,
         }
-        await save_workspace(store, "local-user", state)
+        await save_workspace(store, TEST_USER_ID, state)
         route = {
             "provider": "tencent",
             "mode": "driving",
@@ -181,6 +185,7 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=store,
                 conversation_id="route-map-no-calendar",
+                user_id=TEST_USER_ID,
                 env={},
                 enabled_skills={"maps", "proactive-agent"},
             )
@@ -232,11 +237,12 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
                 "place": PLACE_A,
             },
         }])[0]
-        await save_workspace(store, "local-user", state)
+        await save_workspace(store, TEST_USER_ID, state)
         tools = build_production_tools(
             None,
             store=store,
             conversation_id="calendar-duration",
+            user_id=TEST_USER_ID,
             env={},
         )
         calendar_tool = next(tool for tool in tools if tool.name == "propose_calendar_changes")
@@ -269,11 +275,12 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
             },
         }])
         state["place_candidates"] = {}
-        await save_workspace(store, "local-user", state)
+        await save_workspace(store, TEST_USER_ID, state)
         tools = build_production_tools(
             None,
             store=store,
             conversation_id="calendar-map",
+            user_id=TEST_USER_ID,
             env={},
         )
         map_tool = next(tool for tool in tools if tool.name == "prepare_map_recommendation")

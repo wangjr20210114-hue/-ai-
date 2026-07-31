@@ -2,6 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { tickUser } from './index.js';
+import { TEST_AUTH_ENV } from '../../test-utils/auth.js';
+
+const IDENTITY = {
+  id: 'floris:11111111-1111-4111-8111-111111111111',
+  subject_id: '11111111-1111-4111-8111-111111111111',
+  tenant_id: 'floris',
+  username: 'tester',
+  display_name: '测试用户',
+  avatar_url: '',
+  auth_type: 'wechat',
+  membership: 'free',
+  roles: ['user'],
+  session_version: 1,
+};
 
 function fakeStore({ duplicate = false, duplicateCode = 'PRECONDITION_FAILED' } = {}) {
   const calls = { set: [], deleted: [] };
@@ -34,13 +48,14 @@ test('scheduled bridge forwards one tick to the proactive Agent', async (t) => {
     headers: { 'x-test-schedule': '1' },
   });
 
-  const result = await tickUser(request, store);
+  const result = await tickUser(request, store, IDENTITY, TEST_AUTH_ENV);
 
   assert.equal(result.status, 200);
   assert.equal(new URL(forwarded.url).pathname, '/proactive');
   assert.equal(new URL(forwarded.url).search, '?eo_time=1');
   assert.equal(JSON.parse(forwarded.init.body).trigger, 'edgeone_schedule');
-  assert.equal(forwarded.init.headers.get('makers-conversation-id'), 'yuanbao-proactive-local-user');
+  assert.match(forwarded.init.headers.get('makers-conversation-id'), /^yb7_[0-9a-f]{32}$/);
+  assert.match(forwarded.init.headers.get('cookie'), /^floris_session=/);
   assert.equal(store.calls.set[0].options.onlyIfNew, true);
   assert.deepEqual(store.calls.deleted, []);
 });
@@ -54,6 +69,8 @@ for (const duplicateCode of ['PRECONDITION_FAILED', '412']) {
     const result = await tickUser(
       new Request('https://preview.example/proactive-tick', { method: 'POST' }),
       store,
+      IDENTITY,
+      TEST_AUTH_ENV,
     );
     assert.equal(result.status, 200);
     assert.equal(result.skipped, true);
@@ -70,6 +87,8 @@ test('downstream failure releases the Makers Blob claim', async (t) => {
   const result = await tickUser(
     new Request('https://preview.example/proactive-tick', { method: 'POST' }),
     store,
+    IDENTITY,
+    TEST_AUTH_ENV,
   );
   assert.equal(result.status, 503);
   assert.equal(result.ok, false);

@@ -4,6 +4,7 @@ import sys
 import types
 import unittest
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -16,7 +17,9 @@ from agents._shared.skill_registry import (
     parse_skill_manifests,
     planner_topic_tools,
     public_skill_catalog,
+    public_skill_package,
     resolve_enabled_skills,
+    skill_dependency_graph,
     skill_manifests,
     tool_skill_map,
     unavailable_skills_for_action,
@@ -30,6 +33,8 @@ from agents._shared.intelligence import (
 from agents.skills.index import handler as skills_handler
 from agents.chat._capability_plan import required_tools_for_plan
 from agents.chat._ui_tools import build_production_tools
+from agents._tests.auth_helpers import authenticated_namespace
+from agents._tests.auth_helpers import TEST_USER_ID
 
 
 def _manifest(**changes):
@@ -89,9 +94,9 @@ class SkillRegistryContractTests(unittest.TestCase):
         ):
             self.assertEqual(
                 registry_module._runtime_module_name(
-                    "agents.skills.proactive_agent.lifecycle"
+                    "agents.skill_adapters.proactive_agent"
                 ),
-                "pages_agents.skills.proactive_agent.lifecycle",
+                "pages_agents.skill_adapters.proactive_agent",
             )
 
     def test_public_catalog_and_provider_readiness_are_manifest_driven(self):
@@ -107,6 +112,38 @@ class SkillRegistryContractTests(unittest.TestCase):
         )
         self.assertEqual(meeting["credential"]["kind"], "token")
         self.assertEqual(meeting["credential"]["ttl_seconds"], 7 * 24 * 60 * 60)
+
+    def test_every_built_in_is_a_downloadable_standard_skill_package(self):
+        for manifest in skill_manifests():
+            with self.subTest(skill=manifest.id):
+                package_path = (
+                    Path(registry_module.__file__).resolve().parents[1]
+                    / manifest.package_path
+                )
+                self.assertTrue((package_path / "SKILL.md").is_file())
+                self.assertTrue((package_path / "floris.json").is_file())
+                package = public_skill_package(manifest.id)
+                self.assertEqual(package["id"], manifest.id)
+                self.assertEqual(
+                    package["files"]["floris.json"]["id"],
+                    manifest.id,
+                )
+                self.assertIn(
+                    f"name: {manifest.id}",
+                    package["files"]["SKILL.md"],
+                )
+
+    def test_dependency_graph_is_deterministic_and_matches_manifests(self):
+        graph = skill_dependency_graph()
+        self.assertEqual(
+            {node["id"] for node in graph["nodes"]},
+            {manifest.id for manifest in skill_manifests()},
+        )
+        self.assertIn({
+            "from": "tencent-meeting",
+            "to": "calendar",
+            "type": "requires",
+        }, graph["edges"])
 
     def test_personal_skill_token_is_private_and_expires_after_one_week(self):
         state = empty_intelligence_state()
@@ -231,6 +268,7 @@ class SkillRegistryContractTests(unittest.TestCase):
         tools = build_production_tools(
             object(),
             env={"TENCENT_MEETING_TOKEN": "configured"},
+            user_id=TEST_USER_ID,
         )
         names = {tool.name for tool in tools}
         owners = tool_skill_map()
@@ -248,8 +286,8 @@ class SkillRegistryContractTests(unittest.TestCase):
 
 class SkillCatalogRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_packaging_entry_point_exposes_the_same_read_only_catalog(self):
-        response = await skills_handler(SimpleNamespace(
-            request=SimpleNamespace(body={}),
+        response = await skills_handler(authenticated_namespace(
+            request=SimpleNamespace(body={}, headers={}),
             env={},
         ))
         self.assertEqual(

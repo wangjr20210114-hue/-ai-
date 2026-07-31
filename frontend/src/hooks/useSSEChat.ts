@@ -1,18 +1,23 @@
 import { useEffect, useRef } from 'react';
 import { MessagePlugin } from 'tdesign-react';
 import { bootstrapApp, proactiveOperation } from '../services/api';
-import { withEdgeOneAuth } from '../services/auth';
+import { ensureAuthSession, withEdgeOneAuth } from '../services/auth';
 import { presentableChatError } from '../services/chatError';
 import { durableMessageCount, hasDurableAssistantPayload, isDurableChatMessage, makersConversationHeaders, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../services/conversation';
 import { splitSseFrames } from '../services/sse';
 import { useAppDispatch, useAppState } from '../store/appState';
-import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, WorkspaceAction } from '../types';
+import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, StructuredProgressStep, WorkspaceAction } from '../types';
 import { translate, type TranslationKey } from '../i18n';
 import {
   browserLocationRequestContext,
   currentBrowserLocation,
   requestBrowserLocationForChat,
 } from '../services/browserLocation';
+import {
+  initialPlanningProgress,
+  mergeProgressStep,
+  normalizeProgressEvent,
+} from '../features/chat/progressModel';
 
 type ClientEvent = { type: string; payload: Record<string, unknown> };
 
@@ -174,6 +179,7 @@ class SSEChatClient {
   }
 
   private async cancelMakerRun(): Promise<'confirmed' | 'local'> {
+    await ensureAuthSession();
     const stopController = new AbortController();
     const stopTimer = window.setTimeout(() => stopController.abort(), STOP_TIMEOUT_MS);
     const requestStop = (signal?: AbortSignal) => fetch(withEdgeOneAuth('/stop'), {
@@ -274,6 +280,7 @@ class SSEChatClient {
       // the product's one-minute ceiling; once headers/data arrive, return to
       // the shorter idle watchdog so a stalled stream still stops quickly.
       armWatchdog(CHAT_INITIAL_RESPONSE_TIMEOUT_MS);
+      await ensureAuthSession();
       const browserLocation = currentBrowserLocation();
       const locationRequest = browserLocationRequestContext();
       const response = await fetch(withEdgeOneAuth('/chat'), {
@@ -365,6 +372,16 @@ class SSEChatClient {
                   },
                 });
                 break;
+              case 'progress_event': {
+                const step = normalizeProgressEvent(event.payload);
+                if (step) {
+                  this.emit({
+                    type: 'progress_event',
+                    payload: { id: streamId, step },
+                  });
+                }
+                break;
+              }
               case 'map_action':
               case 'calendar_action':
               case 'side_effect_action':
@@ -594,6 +611,7 @@ export function useSSEChat() {
           const streamMessage: ChatMessage = {
             id: streamId || `ai-stream-${Date.now()}`, role: 'ai', content: '', ts: Date.now(), streaming: true,
             skill: { intent: 'chat', mode: 'immediate', content: '', icon: '✨', action_label: '', params: {}, data: { status: 'thinking', statusText: translate('understandingRequest') } },
+            progress: [initialPlanningProgress()],
           };
           streams.set(streamMessage.id, streamMessage);
           const current = cached(id).filter((item) => item.id !== streamMessage.id && !item.failed);
@@ -654,6 +672,16 @@ export function useSSEChat() {
           const intent = event.payload.intent === 'image' || current.skill?.intent === 'image' ? 'image' : 'search';
           const skill = { intent, mode: 'immediate', content: '', icon: intent === 'image' ? '🎨' : '🔍', action_label: '', params: {}, data: { status: String(event.payload.status || 'searching'), statusText: String(event.payload.statusText || translate('processingInformation')) } } as ChatMessage['skill'];
           streams.set(streamId, { ...current, skill }); patch(id, streamId, { skill }); break;
+        }
+        case 'progress_event': {
+          const current = streams.get(streamId);
+          const step = event.payload.step as StructuredProgressStep | undefined;
+          if (!current || !step) break;
+          const progress = mergeProgressStep(current.progress, step);
+          const next = { ...current, progress };
+          streams.set(streamId, next);
+          patch(id, streamId, { progress });
+          break;
         }
         case 'search_results': {
           const current = streams.get(streamId); const incoming = event.payload as unknown as Partial<SearchMeta>;

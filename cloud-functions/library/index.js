@@ -1,5 +1,6 @@
 import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
+import { requireSkillAccess } from '../../auth/entitlements.js';
 
 const DATA_GENERATION = 'v7_20260724_clear';
 
@@ -58,6 +59,9 @@ export async function onRequest(context) {
   const { request, env } = context;
   let user;
   try { user = await currentUser(request, env); } catch { return json({ error: 'Unauthorized' }, 401); }
+  try { requireSkillAccess(user, 'paper-reading'); } catch (error) {
+    return json({ error: error.message, code: error.code }, error.status || 403);
+  }
   const prefix = tenantPrefix(user, env);
   const keys = {
     index: `${prefix}library/${DATA_GENERATION}/index.json`,

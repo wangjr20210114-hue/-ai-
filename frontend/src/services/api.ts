@@ -1,4 +1,4 @@
-import type { ChatMessage, ConversationSummary, TravelPlan, ScheduleItem, StoredFileInfo, MakersMapPlace, MakersRouteMode, MakersRouteStrategy, MakersRoutePlan, WorkspaceAction, ProactiveState, MakersIntelligenceState, ProviderUsageSummary, InstalledSkill } from '../types';
+import type { ChatMessage, ConversationSummary, TravelPlan, ScheduleItem, StoredFileInfo, MakersMapPlace, MakersRouteMode, MakersRouteStrategy, MakersRoutePlan, WorkspaceAction, ProactiveState, MakersIntelligenceState, ProviderUsageSummary, InstalledSkill, SkillMarketplaceState, SkillUploadRecord } from '../types';
 
 import { authorizedFetch, withEdgeOneAuth } from './auth';
 import { createConversationId, makersConversationHeaders } from './conversation';
@@ -49,7 +49,7 @@ export interface WorkspaceResponse {
   deleted_plan_id?: string;
 }
 
-export type DataResetErrorCode = 'INVALID_PASSWORD' | 'RESET_NOT_CONFIGURED' | 'RESET_FAILED';
+export type DataResetErrorCode = 'INVALID_CONFIRMATION' | 'RESET_NOT_CONFIGURED' | 'RESET_FAILED';
 
 export class DataResetError extends Error {
   code: DataResetErrorCode;
@@ -62,18 +62,18 @@ export class DataResetError extends Error {
 }
 
 function dataResetErrorCode(value: unknown): DataResetErrorCode {
-  if (value === 'INVALID_PASSWORD' || value === 'RESET_NOT_CONFIGURED') return value;
+  if (value === 'INVALID_CONFIRMATION' || value === 'RESET_NOT_CONFIGURED') return value;
   return 'RESET_FAILED';
 }
 
 export async function resetApplicationData(
   conversationId: string,
-  password: string,
+  confirmation: string,
 ): Promise<{ conversations_deleted: number; state_items_deleted: number; files_deleted: number }> {
   const inspect = await authorizedFetch('/reset-files', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password, operation: 'inspect' }),
+    body: JSON.stringify({ confirmation, operation: 'inspect' }),
   });
   const inspectData = await inspect.json().catch(() => ({})) as {
     code?: string;
@@ -85,7 +85,7 @@ export async function resetApplicationData(
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...makersConversationHeaders(conversationId) },
     body: JSON.stringify({
-      password,
+      confirmation,
       conversation_ids: inspectData.conversation_ids || [],
     }),
   });
@@ -98,7 +98,7 @@ export async function resetApplicationData(
   const resetFiles = await authorizedFetch('/reset-files', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password, operation: 'clear' }),
+    body: JSON.stringify({ confirmation, operation: 'clear' }),
   });
   const fileData = await resetFiles.json().catch(() => ({})) as {
     code?: string;
@@ -222,6 +222,106 @@ export async function configureSkillConnection(
     token ? 'configure_skill_connection' : 'disconnect_skill_connection',
     token ? { skill_id: skillId, token } : { skill_id: skillId },
   );
+}
+
+export async function skillMarketplaceOperation(
+  conversationId: string,
+): Promise<SkillMarketplaceState> {
+  const response = await authorizedFetch('/skills', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...makersConversationHeaders(conversationId),
+    },
+    body: JSON.stringify({ operation: 'catalog' }),
+  });
+  const data = await response.json().catch(() => ({})) as SkillMarketplaceState & { error?: string };
+  if (!response.ok || !Array.isArray(data.skills) || !data.dependency_graph || !data.component_api) {
+    throw new Error(data.error || 'Could not load Skill marketplace');
+  }
+  return data;
+}
+
+export async function downloadSkillPackage(
+  conversationId: string,
+  skillId: string,
+): Promise<void> {
+  const response = await authorizedFetch('/skills', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...makersConversationHeaders(conversationId),
+    },
+    body: JSON.stringify({ operation: 'package', skill_id: skillId }),
+  });
+  const data = await response.json().catch(() => ({})) as {
+    package?: { filename: string };
+    error?: string;
+  };
+  if (!response.ok || !data.package) throw new Error(data.error || 'Skill package download failed');
+  const blob = new Blob([JSON.stringify(data.package, null, 2)], {
+    type: 'application/vnd.floris.skill+json',
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = data.package.filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function listSkillUploads(): Promise<SkillUploadRecord[]> {
+  const response = await authorizedFetch('/skill-uploads');
+  const data = await response.json().catch(() => ({})) as {
+    uploads?: SkillUploadRecord[];
+    error?: string;
+  };
+  if (!response.ok || !Array.isArray(data.uploads)) throw new Error(data.error || 'Skill uploads unavailable');
+  return data.uploads;
+}
+
+export async function uploadSkillPackage(file: File): Promise<SkillUploadRecord> {
+  const created = await authorizedFetch('/skill-uploads', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      operation: 'create',
+      name: file.name,
+      content_type: file.type || 'application/zip',
+      size: file.size,
+    }),
+  });
+  const intent = await created.json().catch(() => ({})) as {
+    upload_id?: string;
+    storage_key?: string;
+    url?: string;
+    error?: string;
+  };
+  if (!created.ok || !intent.upload_id || !intent.storage_key || !intent.url) {
+    throw new Error(intent.error || 'Could not create Skill upload');
+  }
+  const stored = await fetch(intent.url, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'application/zip' },
+    body: file,
+  });
+  if (!stored.ok) throw new Error(`Skill upload failed: HTTP ${stored.status}`);
+  const completed = await authorizedFetch('/skill-uploads', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      operation: 'complete',
+      upload_id: intent.upload_id,
+      storage_key: intent.storage_key,
+      name: file.name,
+    }),
+  });
+  const result = await completed.json().catch(() => ({})) as {
+    upload?: SkillUploadRecord;
+    error?: string;
+  };
+  if (!completed.ok || !result.upload) throw new Error(result.error || 'Could not submit Skill for review');
+  return result.upload;
 }
 
 export async function streamImageEdit(

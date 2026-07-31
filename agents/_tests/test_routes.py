@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from agents.routes.index import handler
+from agents._tests.auth_helpers import auth_env, auth_headers
 
 
 PLACES = [
@@ -29,8 +30,8 @@ class RouteCacheTests(unittest.IsolatedAsyncioTestCase):
     async def test_identical_route_reuses_makers_store(self):
         store = FakeStore()
         ctx = SimpleNamespace(
-            env={},
-            request=SimpleNamespace(body={"places": PLACES, "optimize": False}, headers={}),
+            env=auth_env(),
+            request=SimpleNamespace(body={"places": PLACES, "optimize": False}, headers=auth_headers()),
             store=SimpleNamespace(langgraph_store=store),
         )
         route = {
@@ -55,13 +56,13 @@ class RouteCacheTests(unittest.IsolatedAsyncioTestCase):
     async def test_route_action_strategy_reuses_the_matching_cache_key(self):
         store = FakeStore()
         ctx = SimpleNamespace(
-            env={},
+            env=auth_env(),
             request=SimpleNamespace(body={
                 "places": PLACES,
                 "optimize": False,
                 "mode": "driving",
                 "strategy": "least_time",
-            }, headers={}),
+            }, headers=auth_headers()),
             store=SimpleNamespace(langgraph_store=store),
         )
         route = {

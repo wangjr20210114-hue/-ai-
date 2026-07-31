@@ -18,8 +18,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from .auth import required_user_id
 from .data_version import namespace
-from .workspace import USER_WORKSPACE_ID, load_user_workspace, recover_stale_actions, save_user_workspace
+from .workspace import load_user_workspace, recover_stale_actions, save_user_workspace
 from .tencent_location import get_current_weather, plan_verified_route
 from .provider_metering import record_provider_usage
 
@@ -208,11 +209,12 @@ def _merge_preferences(value: Any) -> dict[str, Any]:
     return base
 
 
-def proactive_namespace(user_id: str = USER_WORKSPACE_ID) -> tuple[str, str]:
-    return namespace("proactive", str(user_id or USER_WORKSPACE_ID))
+def proactive_namespace(user_id: str) -> tuple[str, str]:
+    return namespace("proactive", required_user_id(user_id))
 
 
-async def load_proactive_state(store: Any, user_id: str = USER_WORKSPACE_ID) -> dict[str, Any]:
+async def load_proactive_state(store: Any, user_id: str = "") -> dict[str, Any]:
+    user_id = required_user_id(user_id)
     state = empty_proactive_state()
     if store is None:
         return state
@@ -305,8 +307,9 @@ def _prune(state: dict[str, Any]) -> None:
 
 
 async def save_proactive_state(
-    store: Any, state: dict[str, Any], user_id: str = USER_WORKSPACE_ID,
+    store: Any, state: dict[str, Any], user_id: str = "",
 ) -> dict[str, Any]:
+    user_id = required_user_id(user_id)
     saved = copy.deepcopy(state)
     saved["schema_version"] = SCHEMA_VERSION
     saved["revision"] = int(saved.get("revision") or 0) + 1
@@ -1007,12 +1010,13 @@ async def run_proactive_tick(
     store: Any,
     now: int | None = None,
     env: dict[str, Any] | None = None,
-    user_id: str = USER_WORKSPACE_ID,
+    user_id: str = "",
     memory_signals: list[dict[str, Any]] | None = None,
     memory_checked: bool = False,
     collect_scheduled: bool = True,
     semantic_model: Any = None,
 ) -> tuple[dict[str, Any], dict[str, int]]:
+    user_id = required_user_id(user_id)
     timestamp = int(now or time.time())
     state = await load_proactive_state(store, user_id)
     last_tick = state.get("last_tick") or {}

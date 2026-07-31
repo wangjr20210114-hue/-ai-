@@ -424,7 +424,7 @@ window.CASE_PROCEDURES = {
   ],
   'OPS-01': [
     S('Preview 地址栏或终端', '在域名后输入“/system”并保留 eo_token/eo_time。若浏览器扩展显示 ERR_BLOCKED_BY_CLIENT，用 curl -L 加临时 Cookie jar执行同一只读 GET；不要把签名复制进备注。', 'HTTP 200 且返回 JSON；浏览器客户端拦截可由只读 curl 结果排除，不误判成应用 401。'),
-    S('/system 公共 JSON', '核对 status=ok、scope=public、scheduler 的 0 8 * * * / Asia/Shanghai、identity.mode=single_user，以及 details.path=/system_internal。', '只显示公共配置和内部详情入口，不出现 Secret、Key、Cookie、Store 内容。'),
+    S('/system 公共 JSON', '核对 status=ok、scope=public、scheduler 的 0 8 * * * / Asia/Shanghai、identity.mode=multi_user，以及当前会话的 tenant_id/auth_type/membership 和 details.path=/system_internal。', '只显示当前签名会话的公开身份、公共配置和内部详情入口，不出现 Secret、Key、Cookie、Store 内容。'),
     S('目标应用左栏', '点击“设置”→“主动式服务”→“立即检查”，再在 Network 查看 /proactive 响应。不要在地址栏伪造 makers-conversation-id。', '响应可见 schedule_upcoming、weather_risk、calendar_changed 等状态；成功项为 succeeded，密钥不出现在响应。'),
     S('浏览器', '刷新应用后再次打开 /system。', '只读刷新不创建重复 Action；有未读风险时 Header 显示自然提醒，无真实提醒时仅显示用户设置的诗意短句，不向对话注入消息。'),
   ],

@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { onRequest, __test } from './index.js';
+import { authenticatedRequest, TEST_AUTH_ENV } from '../../test-utils/auth.js';
+
+const PREFIX = 'tenants/floris/users/11111111-1111-4111-8111-111111111111/';
 
 function mockStore(bytes) {
   return {
@@ -13,8 +16,11 @@ function mockStore(bytes) {
 
 async function call(store, method, suffix = '') {
   return onRequest({
-    request: new Request(`https://example.test/files?key=uploads%2Fdemo%2Flarge.pdf${suffix}`, { method }),
-    env: {},
+    request: await authenticatedRequest(
+      `https://example.test/files?key=${encodeURIComponent(`${PREFIX}uploads/demo/large.pdf`)}${suffix}`,
+      { method },
+    ),
+    env: TEST_AUTH_ENV,
     __store: store,
   });
 }

@@ -529,7 +529,7 @@ async def resolve_image_reference(result: dict[str, Any], prefer_blob: bool = Fa
     if not prefer_blob and provider_url.startswith("https://"):
         return provider_url
     key = str(result.get("storage_key") or "")
-    if key.startswith("generated/"):
+    if "/generated/" in key or key.startswith("generated/"):
         try:
             from pages_blob import get_store
             body = await get_store("yuanbao-files", consistency="strong").get(key, type="bytes")
@@ -545,12 +545,14 @@ async def generate_image(
     env: dict[str, Any],
     prompt: str,
     reference_images: list[str] | None = None,
-    user_id: str = "local-user",
+    user_id: str = "",
 ) -> dict[str, Any]:
     api_key = str(env.get("HUNYUAN_IMAGE_API_KEY") or "").strip()
     base_url = str(env.get("HUNYUAN_IMAGE_BASE_URL") or "https://tokenhub.tencentmaas.com").rstrip("/")
     model = str(env.get("HUNYUAN_IMAGE_MODEL") or "hy-image-v3.0")
-    storage_prefix = ""
+    from .auth import required_user_id, tenant_storage_prefix
+
+    storage_prefix = tenant_storage_prefix(required_user_id(user_id))
     references = [str(url).strip() for url in (reference_images or []) if str(url).startswith(("https://", "data:image/"))][:3]
     failures: list[str] = []
 

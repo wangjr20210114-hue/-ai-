@@ -33,10 +33,19 @@ async def handler(ctx):
         metadata={
             **metadata,
             "client_message_id": str(metadata.get("id") or ""),
+            "client_conversation_id": str(raw_conversation_id),
             "source": "yuanbao-web",
             "owner_user_id": user_id,
+            "tenant_id": str(identity["tenant_id"]),
         },
     )
     if role == "user" and hasattr(ctx.store, "get_conversation") and hasattr(ctx.store, "update_conversation"):
-        await ensure_conversation_title(ctx.store, conversation_id, content, user_id)
+        await ensure_conversation_title(
+            ctx.store,
+            conversation_id,
+            content,
+            user_id,
+            tenant_id=str(identity["tenant_id"]),
+            client_conversation_id=str(raw_conversation_id),
+        )
     return {"message_id": str(message_id)}

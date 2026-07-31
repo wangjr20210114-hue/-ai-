@@ -13,6 +13,7 @@ from agents._shared.provider_metering import (
 )
 from agents._shared.vision import _usage_fields
 from agents.provider_usage import index as provider_usage
+from agents._tests.auth_helpers import TEST_USER_ID, authenticated_context
 
 
 class FakeStore:
@@ -52,11 +53,11 @@ class ProviderUsageTests(unittest.IsolatedAsyncioTestCase):
             "total_tokens": 321,
             "created_at": 2_000_000_000,
         }]
-        store.values[(intelligence_namespace("local-user"), "state")] = state
-        ctx = SimpleNamespace(
+        store.values[(intelligence_namespace(TEST_USER_ID), "state")] = state
+        ctx = authenticated_context(SimpleNamespace(
             env={"DEEPSEEK_API_KEY": "secret-value"},
             store=SimpleNamespace(langgraph_store=store),
-        )
+        ), roles=["admin"])
         payload = {
             "is_available": True,
             "balance_infos": [{
@@ -81,10 +82,10 @@ class ProviderUsageTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("private_field", encoded)
 
     async def test_missing_deepseek_key_does_not_create_a_provider_card(self):
-        ctx = SimpleNamespace(
+        ctx = authenticated_context(SimpleNamespace(
             env={},
             store=SimpleNamespace(langgraph_store=FakeStore()),
-        )
+        ))
         result = await provider_usage.handler(ctx)
         self.assertEqual(result["providers"], [])
 
@@ -92,14 +93,14 @@ class ProviderUsageTests(unittest.IsolatedAsyncioTestCase):
         store = FakeStore()
         now = 2_000_000_000
         await record_provider_usage(
-            store, "local-user", "wsa", "requests", 2,
+            store, TEST_USER_ID, "wsa", "requests", 2,
             source="test", created_at=now,
         )
         await record_provider_usage(
-            store, "local-user", "hunyuan", "vision_tokens", 123,
+            store, TEST_USER_ID, "hunyuan", "vision_tokens", 123,
             input_tokens=100, output_tokens=23, source="test", created_at=now,
         )
-        state = store.values[(metering_namespace("local-user"), "state")]
+        state = store.values[(metering_namespace(TEST_USER_ID), "state")]
         summary = provider_metering_summary(state, now)
         self.assertEqual(summary["daily"]["wsa.requests"], 2)
         self.assertEqual(summary["monthly"]["hunyuan.vision_tokens"], 123)

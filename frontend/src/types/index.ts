@@ -171,6 +171,11 @@ export interface MakersIntelligenceState {
 
 export interface InstalledSkill {
   id: string;
+  version?: string;
+  kind?: 'system' | 'community' | 'user';
+  publisher?: { id: string; name: string; verified: boolean };
+  required_plan?: 'guest' | 'free' | 'plus' | 'pro';
+  package_path?: string;
   order: number;
   default_enabled: boolean;
   locked: boolean;
@@ -190,6 +195,71 @@ export interface InstalledSkill {
   icon: string;
   name: Record<string, string>;
   description: Record<string, string>;
+  component_actions?: string[];
+  eligible?: boolean;
+  installed?: boolean;
+  eligibility_reason?: 'login_required' | 'membership_required' | '';
+}
+
+export interface SkillDependencyGraph {
+  nodes: Array<{
+    id: string;
+    version: string;
+    kind: NonNullable<InstalledSkill['kind']>;
+    locked: boolean;
+    required_plan: InstalledSkill['required_plan'];
+    name: Record<string, string>;
+  }>;
+  edges: Array<{ from: string; to: string; type: 'requires' | 'recommends' }>;
+}
+
+export interface SkillComponentApi {
+  version: string;
+  actions: Array<{
+    id: string;
+    permission: string;
+    description: string;
+    input: Record<string, string>;
+  }>;
+  security: {
+    identity_source: string;
+    model_is_authorization_boundary: boolean;
+    tenant_prefix_required: boolean;
+    raw_chain_of_thought_allowed: boolean;
+  };
+}
+
+export interface SkillMarketplaceState {
+  skills: InstalledSkill[];
+  preferences: Record<string, boolean>;
+  connections: Record<string, SkillConnectionState>;
+  entitlements: {
+    plan: 'guest' | 'free' | 'plus' | 'pro';
+    limits: Record<string, string | number>;
+    payment_available: boolean;
+  };
+  dependency_graph: SkillDependencyGraph;
+  component_api: SkillComponentApi;
+  identity: {
+    user_id: string;
+    subject_id: string;
+    tenant_id: string;
+    display_name: string;
+    avatar_url: string;
+    auth_type: 'guest' | 'wechat';
+    membership: 'guest' | 'free' | 'plus' | 'pro';
+    roles: string[];
+  };
+}
+
+export interface SkillUploadRecord {
+  id: string;
+  name: string;
+  storage_key: string;
+  status: 'pending_review' | 'approved' | 'rejected';
+  review_available: boolean;
+  size: number;
+  submitted_at: number;
 }
 
 export interface SkillConnectionState {
@@ -242,6 +312,35 @@ export interface SkillInfo {
   action_label: string;  // 按钮文案
   params: SkillParams;
   data: Record<string, unknown>;
+}
+
+export type StructuredProgressStage =
+  | 'planning'
+  | 'retrieval'
+  | 'verification'
+  | 'synthesis'
+  | 'finalizing'
+  | 'complete';
+
+export type StructuredProgressActivity =
+  | 'general'
+  | 'web_search'
+  | 'paper_search'
+  | 'place_search'
+  | 'route_planning'
+  | 'calendar_preparation'
+  | 'meeting_preparation'
+  | 'image_generation'
+  | 'image_review'
+  | 'component_action';
+
+export interface StructuredProgressStep {
+  schema_version: 1;
+  stage: StructuredProgressStage;
+  status: 'active' | 'completed' | 'skipped';
+  activity: StructuredProgressActivity;
+  source: 'controller' | 'client';
+  updated_at: number;
 }
 
 export interface PaperInfo {
@@ -323,6 +422,8 @@ export interface ChatMessage {
   failed?: boolean;         // 瞬时失败提示；不写入本地缓存或 Makers 历史
   proactive?: boolean;      // 主动服务在空白新对话中生成的持久开场消息
   followUps?: string[];
+  /** Controller lifecycle only; never model chain-of-thought or free-form reasoning. */
+  progress?: StructuredProgressStep[];
 
   // 通用技能数据
   skill?: SkillInfo;

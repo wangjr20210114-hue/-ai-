@@ -112,7 +112,6 @@ from agents._shared.tencent_location import (
     search_verified_places_nearby,
 )
 from agents._shared.workspace import (
-    USER_WORKSPACE_ID,
     apply_calendar_changes,
     calendar_change_warnings,
     begin_action_execution,
@@ -166,6 +165,12 @@ from agents._shared.intelligence import (
 )
 from agents._shared.proactive_memory import infer_memory_reminder
 from agents.workspace.index import handler
+from agents._tests.auth_helpers import (
+    TEST_USER_ID,
+    auth_env,
+    auth_headers,
+    authenticated_namespace,
+)
 
 
 PLACE = {
@@ -303,7 +308,7 @@ class RecoveringStructuredPlannerModel(StructuredPlannerModel):
 class FakeRequest:
     def __init__(self, body, headers=None):
         self.body = body
-        self.headers = headers or {}
+        self.headers = {**auth_headers(), **(headers or {})}
 
 
 class FakeStores:
@@ -316,7 +321,7 @@ class FakeContext:
         self.conversation_id = "conversation-1"
         self.store = FakeStores(store)
         self.request = FakeRequest(body)
-        self.env = {}
+        self.env = auth_env()
 
 
 class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
@@ -340,13 +345,18 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("本轮上下文", message)
         self.assertNotIn("配置异常", message)
 
-    def test_personal_runtime_uses_one_fixed_owner_and_versioned_conversation_id(self):
-        ctx = SimpleNamespace(request=FakeRequest({}), conversation_id="conversation-personal")
-        self.assertEqual(require_user(ctx)["user_id"], USER_WORKSPACE_ID)
-        self.assertEqual(require_user(ctx)["roles"], ["owner"])
-        self.assertTrue(scoped_conversation_id(ctx, USER_WORKSPACE_ID).endswith("conversation-personal"))
-        self.assertTrue(scoped_conversation_id(ctx, USER_WORKSPACE_ID).startswith(CONVERSATION_PREFIX))
-        self.assertLessEqual(len(scoped_conversation_id(ctx, USER_WORKSPACE_ID)), 36)
+    def test_runtime_requires_one_signed_multi_user_identity(self):
+        ctx = SimpleNamespace(
+            request=FakeRequest({}),
+            conversation_id="conversation-multi-user",
+            user_id=TEST_USER_ID,
+            env=auth_env(),
+        )
+        self.assertEqual(require_user(ctx)["user_id"], TEST_USER_ID)
+        self.assertEqual(require_user(ctx)["roles"], ["user"])
+        scoped = scoped_conversation_id(ctx, TEST_USER_ID)
+        self.assertRegex(scoped, rf"^{CONVERSATION_PREFIX}[0-9a-f]{{32}}$")
+        self.assertLessEqual(len(scoped), 36)
 
     def test_long_history_is_trimmed_at_human_boundary(self):
         messages = [SimpleNamespace(type="human", content=f"q{index}") if index % 3 == 0
@@ -1329,9 +1339,15 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         ]
         langgraph_store = FakeStore()
         from agents._shared.data_version import namespace as data_namespace
-        from agents._shared.data_version import scoped_conversation
         await langgraph_store.aput(
-            data_namespace("message_meta", scoped_conversation("restore-rich")),
+            data_namespace(
+                "message_meta",
+                scoped_conversation_id(
+                    SimpleNamespace(),
+                    TEST_USER_ID,
+                    "restore-rich",
+                ),
+            ),
             "latest_extras",
             {
                 "original_content": "## 故宫历史",
@@ -1344,7 +1360,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             langgraph_checkpointer=FakeCheckpointer(messages),
             langgraph_store=langgraph_store,
         )
-        response = await messages_handler(SimpleNamespace(conversation_id="restore-rich", store=store))
+        response = await messages_handler(authenticated_namespace(conversation_id="restore-rich", store=store))
         ai_message = next(item for item in response["messages"] if item["role"] == "ai")
         self.assertEqual(ai_message["searchResults"]["media"], [{"id": "media-1"}])
         self.assertIn("palace.jpg", ai_message["content"])
@@ -1360,7 +1376,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             langgraph_checkpointer=FakeCheckpointer(messages),
             langgraph_store=FakeStore(),
         )
-        response = await messages_handler(SimpleNamespace(conversation_id="restore-role", store=store))
+        response = await messages_handler(authenticated_namespace(conversation_id="restore-role", store=store))
         self.assertEqual(
             [(item["role"], item["content"]) for item in response["messages"]],
             [("user", "最近AI有什么新进展"), ("ai", "这是恢复后的回答")],
@@ -1387,7 +1403,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             langgraph_checkpointer=FakeCheckpointer(messages),
             langgraph_store=FakeStore(),
         )
-        response = await messages_handler(SimpleNamespace(conversation_id="restore-clarification", store=store))
+        response = await messages_handler(authenticated_namespace(conversation_id="restore-clarification", store=store))
         restored = response["messages"]
         self.assertEqual([item["role"] for item in restored], ["user", "ai", "user", "ai"])
         self.assertEqual(restored[0]["content"], "帮我安排旅行")
@@ -1424,7 +1440,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             langgraph_checkpointer=FakeCheckpointer(messages),
             langgraph_store=FakeStore(),
         )
-        response = await messages_handler(SimpleNamespace(conversation_id="restore-silent-clarification", store=store))
+        response = await messages_handler(authenticated_namespace(conversation_id="restore-silent-clarification", store=store))
         restored = response["messages"]
         self.assertEqual([item["role"] for item in restored], ["user", "ai", "ai"])
         self.assertEqual(restored[1]["clarification"], clarification)
@@ -1446,7 +1462,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             langgraph_checkpointer=FakeCheckpointer(messages),
             langgraph_store=FakeStore(),
         )
-        response = await messages_handler(SimpleNamespace(conversation_id="restore-map-empty", store=store))
+        response = await messages_handler(authenticated_namespace(conversation_id="restore-map-empty", store=store))
         restored = next(item for item in response["messages"] if item["role"] == "ai")
         self.assertIn("点击", restored["content"])
         self.assertEqual(restored["workspaceActions"][0]["id"], action["id"])
@@ -1470,7 +1486,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             langgraph_checkpointer=FakeCheckpointer(messages),
             langgraph_store=FakeStore(),
         )
-        response = await messages_handler(SimpleNamespace(conversation_id="restore-image-duplicate", store=store))
+        response = await messages_handler(authenticated_namespace(conversation_id="restore-image-duplicate", store=store))
         restored = [item for item in response["messages"] if item["role"] == "ai"]
         self.assertEqual(len(restored), 1)
         self.assertEqual(restored[0]["content"], "图片已经生成，可以继续修改围巾颜色。")
@@ -1496,7 +1512,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             action["result"] = {"ok": True, "image_url": url}
             put_action(workspace, action)
         store_data = FakeStore()
-        await save_workspace(store_data, USER_WORKSPACE_ID, workspace)
+        await save_workspace(store_data, TEST_USER_ID, workspace)
         checkpoint_action = {**first, "result": {**first["result"], "versions": image_versions(workspace, "cat-group")[:1]}}
         messages = [
             {"type": "human", "content": "画一只猫", "id": "u-image"},
@@ -1507,7 +1523,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             langgraph_checkpointer=FakeCheckpointer(messages),
             langgraph_store=store_data,
         )
-        response = await messages_handler(SimpleNamespace(conversation_id="restore-image", store=store))
+        response = await messages_handler(authenticated_namespace(conversation_id="restore-image", store=store))
         action = next(item for item in response["messages"] if item["role"] == "ai")["workspaceActions"][0]
         self.assertEqual(
             [item["image_url"] for item in action["result"]["versions"]],
@@ -1525,7 +1541,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             langgraph_checkpointer=FakeCheckpointer(messages),
             langgraph_store=FakeStore(),
         )
-        response = await messages_handler(SimpleNamespace(conversation_id="restore-failed", store=store))
+        response = await messages_handler(authenticated_namespace(conversation_id="restore-failed", store=store))
         self.assertEqual(
             [(item["role"], item["content"]) for item in response["messages"]],
             [("user", "恢复测试"), ("ai", "恢复成功")],
@@ -2186,9 +2202,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "id": "next", "title": "参观故宫", "start_time": now + 3600,
             "duration_minutes": 120, "location": "故宫", "done": False,
         }
-        await save_workspace(store, "local-user", workspace)
-        state, stats = await run_proactive_tick(store, now)
-        repeated, repeated_stats = await run_proactive_tick(store, now + 60)
+        await save_workspace(store, TEST_USER_ID, workspace)
+        state, stats = await run_proactive_tick(
+            store, now, user_id=TEST_USER_ID,
+        )
+        repeated, repeated_stats = await run_proactive_tick(
+            store, now + 60, user_id=TEST_USER_ID,
+        )
         self.assertEqual(stats["notifications_created"], 1)
         self.assertEqual(repeated_stats["notifications_created"], 0)
         public = public_proactive_state(repeated, now)
@@ -2204,8 +2224,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         }
         update_preferences(state, {"enabled": False, "daily_limit": 2})
         mutate_notification(state, "ntf-1", "snooze", 100, 500)
-        await save_proactive_state(store, state)
-        restored = await load_proactive_state(store)
+        await save_proactive_state(store, state, TEST_USER_ID)
+        restored = await load_proactive_state(store, TEST_USER_ID)
         self.assertTrue(restored["preferences"]["enabled"])
         self.assertEqual(restored["preferences"]["daily_limit"], 2)
         self.assertEqual(restored["notifications"]["ntf-1"]["status"], "snoozed")
@@ -2430,10 +2450,14 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "operation": "create",
             "event": {"title": "参观故宫", "start_time": 100, "place": PLACE},
         }])[0]
-        await save_workspace(store, "local-user", workspace)
+        await save_workspace(store, TEST_USER_ID, workspace)
 
-        from_old_conversation = await load_user_workspace(store, "conversation-old")
-        from_new_conversation = await load_user_workspace(store, "conversation-new")
+        from_old_conversation = await load_user_workspace(
+            store, "conversation-old", TEST_USER_ID,
+        )
+        from_new_conversation = await load_user_workspace(
+            store, "conversation-new", TEST_USER_ID,
+        )
 
         self.assertIn(event["id"], from_old_conversation["schedules"])
         self.assertIn(event["id"], from_new_conversation["schedules"])
@@ -2449,7 +2473,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             }],
         }))
         self.assertEqual(len(response["schedules"]), 1)
-        proactive = public_proactive_state(await load_proactive_state(store))
+        proactive = public_proactive_state(await load_proactive_state(store, TEST_USER_ID))
         self.assertTrue(any(item["type"] == "schedule_upcoming" for item in proactive["notifications"]))
 
     async def test_legacy_conversation_workspace_is_not_inherited(self):
@@ -2576,7 +2600,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             requires_confirmation=True,
         )
         put_action(state, action)
-        await save_workspace(store, USER_WORKSPACE_ID, state)
+        await save_workspace(store, TEST_USER_ID, state)
 
         updated = await handler(FakeContext(store, {
             "operation": "update_meeting_action",
@@ -2591,7 +2615,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(edited["version"], 2)
         self.assertEqual(edited["payload"]["missing_fields"], [])
         self.assertIn("时间重叠", edited["payload"]["warnings"][0])
-        verify_action_snapshot((await load_workspace(store, USER_WORKSPACE_ID))["actions"][action["id"]])
+        verify_action_snapshot((await load_workspace(store, TEST_USER_ID))["actions"][action["id"]])
 
     def test_calendar_context_exposes_current_user_schedule_ids_and_beijing_time(self):
         state = empty_workspace()
@@ -2650,12 +2674,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         state = empty_workspace()
         action = new_action("map_recommendation", {"title": "推荐", "places": [PLACE]}, requires_confirmation=False)
         put_action(state, action)
-        await save_workspace(store, USER_WORKSPACE_ID, state)
+        await save_workspace(store, TEST_USER_ID, state)
         before = await handler(FakeContext(store, {"operation": "get"}))
         self.assertIsNone(before["map"])
         after = await handler(FakeContext(store, {"operation": "activate_map", "action_id": action["id"], "version": 1}))
         self.assertEqual(after["map"]["places"][0]["place_id"], "poi-1")
-        proactive = await load_proactive_state(store)
+        proactive = await load_proactive_state(store, TEST_USER_ID)
         self.assertEqual(proactive["checkpoints"]["route_change"]["schedule_count"], 0)
         self.assertTrue(any(event["type"] == "route_changed" for event in proactive["events"].values()))
 
@@ -2738,7 +2762,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             return [{**PLACE, "place_id": f"poi-{query}", "name": query}]
 
         with patch("agents.chat._ui_tools.provider_search_places", new=provider):
-            tools = build_production_tools(None, store=FakeStore(), conversation_id="partial-map", env={})
+            tools = build_production_tools(
+                None, store=FakeStore(), conversation_id="partial-map",
+                user_id=TEST_USER_ID, env={},
+            )
             tool = next(item for item in tools if item.name == "recommend_places_on_map")
             result = json.loads(await tool.ainvoke({
                 "queries": ["真实餐馆", "未核实餐馆"],
@@ -2760,7 +2787,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             return []
 
         with patch("agents.chat._ui_tools.provider_search_places", new=provider):
-            tools = build_production_tools(None, store=FakeStore(), conversation_id="empty-map", env={})
+            tools = build_production_tools(
+                None, store=FakeStore(), conversation_id="empty-map",
+                user_id=TEST_USER_ID, env={},
+            )
             tool = next(item for item in tools if item.name == "recommend_places_on_map")
             with self.assertRaisesRegex(ValueError, "所有候选地点都未通过真实地点服务核实"):
                 await tool.ainvoke({
@@ -2786,7 +2816,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "title": "入住桔子酒店",
             "extra": {"place": anchor},
         }
-        await save_user_workspace(store, state)
+        await save_user_workspace(store, state, TEST_USER_ID)
         breakfast_places = [
             {
                 **PLACE,
@@ -2819,6 +2849,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=store,
                 conversation_id="nearby-breakfast",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
             )
             tool = next(item for item in tools if item.name == "recommend_nearby_places_on_map")
@@ -2877,6 +2908,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=FakeStore(),
                 conversation_id="nearby-browser-location",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
                 browser_current_location=browser_location,
             )
@@ -2928,6 +2960,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=FakeStore(),
                 conversation_id="current-location-address",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
                 browser_current_location=browser_location,
             )
@@ -2949,6 +2982,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=FakeStore(),
                 conversation_id="current-location-unavailable",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
                 browser_current_location=None,
             )
@@ -2972,6 +3006,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=FakeStore(),
                 conversation_id="nearby-browser-location-missing",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
                 browser_current_location=None,
             )
@@ -3037,6 +3072,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=FakeStore(),
                 conversation_id="alternative-nearby-restaurants",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
             )
             tool = next(item for item in tools if item.name == "recommend_nearby_places_on_map")
@@ -3072,7 +3108,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         store = FakeStore()
         state = empty_workspace()
         state["place_candidates"][anchor["place_id"]] = anchor
-        await save_user_workspace(store, state)
+        await save_user_workspace(store, state, TEST_USER_ID)
         with patch(
             "agents.chat._ui_tools.provider_search_places_nearby",
             new=AsyncMock(return_value=[]),
@@ -3081,6 +3117,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=store,
                 conversation_id="strict-nearby",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "key"},
             )
             tool = next(item for item in tools if item.name == "recommend_nearby_places_on_map")
@@ -3136,6 +3173,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=FakeStore(),
                 conversation_id="verified-route",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
             )
             route_tool = next(item for item in tools if item.name == "plan_route_between_places")
@@ -3204,6 +3242,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=store,
                 conversation_id="ordered-itinerary",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
             )
             route_tool = next(item for item in tools if item.name == "plan_route_between_places")
@@ -3226,7 +3265,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(planner.await_args.kwargs["optimize"])
         self.assertIn("绝不能重新排序", result["response_constraint"])
-        saved = await load_user_workspace(store)
+        saved = await load_user_workspace(store, user_id=TEST_USER_ID)
         self.assertEqual(saved["latest_route_plan"]["id"], result["route_plan_id"])
         self.assertEqual(
             saved["route_plans"][result["route_plan_id"]]["id"],
@@ -3273,6 +3312,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=store,
                 conversation_id="restore-dropped-origin",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
                 planned_route_stops=planned_stops,
                 planned_route_city="北京",
@@ -3330,6 +3370,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=store,
                 conversation_id="browser-origin-planned-stops",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
                 planned_route_stops=planned_stops,
                 planned_route_uses_current_location=True,
@@ -3349,7 +3390,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             [item["place_id"] for item in planner.await_args.args[1]],
             ["browser-current-location", "summer-palace", "forbidden-city"],
         )
-        saved = await load_user_workspace(store)
+        saved = await load_user_workspace(store, user_id=TEST_USER_ID)
         self.assertNotIn(
             "browser-current-location",
             saved["place_candidates"],
@@ -3383,6 +3424,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=FakeStore(),
                 conversation_id="intermediate-stop-ambiguity",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
             )
             route_tool = next(item for item in tools if item.name == "plan_route_between_places")
@@ -3419,6 +3461,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=FakeStore(),
                 conversation_id="semantic-candidate-route",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
             )
             route_tool = next(
@@ -3492,6 +3535,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=FakeStore(),
                 conversation_id="canonical-provider-place",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
                 place_disambiguation_model=model,
             )
@@ -3527,6 +3571,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=FakeStore(),
                 conversation_id="route-timeout-fill-card",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
                 map_preferences={"search_timeout_seconds": 3},
             )
@@ -3598,6 +3643,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=store,
                 conversation_id="route-multiple-card-state",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
             )
             route_tool = next(
@@ -3676,11 +3722,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "distance_meters": 62_800,
             "duration_seconds": 9_720,
         }
-        await save_user_workspace(store, state)
+        await save_user_workspace(store, state, TEST_USER_ID)
         tools = build_production_tools(
             None,
             store=store,
             conversation_id="route-calendar",
+            user_id=TEST_USER_ID,
             env={"TENCENT_MAP_SERVER_KEY": "map-key"},
         )
         calendar_tool = next(item for item in tools if item.name == "propose_calendar_changes")
@@ -3740,11 +3787,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         }
         state["latest_route_plan"] = route_plan
         state["route_plans"] = {route_plan["id"]: route_plan}
-        await save_user_workspace(store, state)
+        await save_user_workspace(store, state, TEST_USER_ID)
         tools = build_production_tools(
             None,
             store=store,
             conversation_id="route-calendar-instant-markers",
+            user_id=TEST_USER_ID,
             env={"TENCENT_MAP_SERVER_KEY": "map-key"},
         )
         calendar_tool = next(
@@ -3848,11 +3896,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             intended_route["id"]: intended_route,
             latest_route["id"]: latest_route,
         }
-        await save_user_workspace(store, state)
+        await save_user_workspace(store, state, TEST_USER_ID)
         tools = build_production_tools(
             None,
             store=store,
             conversation_id="route-calendar-recent-source",
+            user_id=TEST_USER_ID,
             env={"TENCENT_MAP_SERVER_KEY": "map-key"},
         )
         calendar_tool = next(
@@ -3923,11 +3972,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "distance_meters": 7_884,
             "duration_seconds": 1_380,
         }
-        await save_user_workspace(store, state)
+        await save_user_workspace(store, state, TEST_USER_ID)
         tools = build_production_tools(
             None,
             store=store,
             conversation_id="route-calendar-browser-origin",
+            user_id=TEST_USER_ID,
             env={"TENCENT_MAP_SERVER_KEY": "map-key"},
         )
         calendar_tool = next(
@@ -3990,7 +4040,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             headquarters["place_id"]: headquarters,
             restaurant["place_id"]: restaurant,
         }
-        await save_user_workspace(store, state)
+        await save_user_workspace(store, state, TEST_USER_ID)
         route = {
             "provider": "tencent",
             "mode": "driving",
@@ -4007,6 +4057,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=store,
                 conversation_id="workspace-alias-route",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
             )
             route_tool = next(item for item in tools if item.name == "plan_route_between_places")
@@ -4061,6 +4112,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=FakeStore(),
                 conversation_id="ambiguous-route",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
             )
             route_tool = next(item for item in tools if item.name == "plan_route_between_places")
@@ -4137,6 +4189,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=store,
                 conversation_id="resume-route-place-ids",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
             )
             route_tool = next(
@@ -4181,6 +4234,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=store,
                 conversation_id="resume-route-place-ids",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
                 planned_route_stops=plan["route_stops"],
                 planned_route_city="北京",
@@ -4263,6 +4317,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 None,
                 store=FakeStore(),
                 conversation_id="ambiguous-nearby-anchor",
+                user_id=TEST_USER_ID,
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
             )
             route_tool = next(
@@ -4286,7 +4341,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_clarification_tool_converts_finite_text_options_to_single_choice(self):
         tools = build_production_tools(
-            None, store=FakeStore(), conversation_id="clarification-policy", env={},
+            None, store=FakeStore(), conversation_id="clarification-policy",
+            user_id=TEST_USER_ID, env={},
         )
         clarification = next(item for item in tools if item.name == "ask_user_clarification")
         self.assertIn("阻断所有安全有用的回答", clarification.description)
@@ -4323,7 +4379,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "operation": "create",
             "event": {"title": "B", "start_time": now + 7500, "duration_minutes": 60, "place": second_place},
         }])
-        await save_workspace(store, USER_WORKSPACE_ID, state)
+        await save_workspace(store, TEST_USER_ID, state)
         proactive = empty_proactive_state()
         signals = [{
             "type": "route_risk", "source": "provider_route",
@@ -4332,22 +4388,25 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "action": "调整时间", "evidence": {}, "occurred_at": now,
         }]
         process_schedule_signals(proactive, signals, now)
-        await save_proactive_state(store, proactive)
+        await save_proactive_state(store, proactive, TEST_USER_ID)
         with patch("agents.workspace.index.collect_provider_signals", AsyncMock(return_value=([], {}))):
             response = await handler(FakeContext(store, {
                 "operation": "save_travel_plan",
                 "plan": {"title": "路线变更", "destination": "北京", "days": 1},
             }))
         self.assertEqual(response["travel_plan"]["title"], "路线变更")
-        refreshed = public_proactive_state(await load_proactive_state(store))
+        refreshed = public_proactive_state(await load_proactive_state(store, TEST_USER_ID))
         self.assertFalse(any(item["type"] == "route_risk" for item in refreshed["notifications"]))
 
     async def test_calendar_tool_accepts_flat_model_wire_shape(self):
         store = FakeStore()
         state = empty_workspace()
         state["place_candidates"][PLACE["place_id"]] = PLACE
-        await save_workspace(store, USER_WORKSPACE_ID, state)
-        tools = build_production_tools(None, store=store, conversation_id="c-flat", env={})
+        await save_workspace(store, TEST_USER_ID, state)
+        tools = build_production_tools(
+            None, store=store, conversation_id="c-flat",
+            user_id=TEST_USER_ID, env={},
+        )
         calendar_tool = next(tool for tool in tools if tool.name == "propose_calendar_changes")
         result = json.loads(await calendar_tool.ainvoke({
             "summary": "北海公园行程",
@@ -4368,8 +4427,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         store = FakeStore()
         state = empty_workspace()
         state["place_candidates"][PLACE["place_id"]] = PLACE
-        await save_workspace(store, USER_WORKSPACE_ID, state)
-        tools = build_production_tools(None, store=store, conversation_id="calendar-route", env={})
+        await save_workspace(store, TEST_USER_ID, state)
+        tools = build_production_tools(
+            None, store=store, conversation_id="calendar-route",
+            user_id=TEST_USER_ID, env={},
+        )
         calendar_tool = next(tool for tool in tools if tool.name == "propose_calendar_changes")
         result = json.loads(await calendar_tool.ainvoke({
             "summary": "沿用上一轮核实地点",
@@ -4397,9 +4459,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 "duration_minutes": 60,
             },
         }])[0]
-        await save_workspace(store, USER_WORKSPACE_ID, state)
+        await save_workspace(store, TEST_USER_ID, state)
         tools = build_production_tools(
-            None, store=store, conversation_id="calendar-partial", env={},
+            None, store=store, conversation_id="calendar-partial",
+            user_id=TEST_USER_ID, env={},
         )
         calendar_tool = next(
             tool for tool in tools if tool.name == "propose_calendar_changes"
@@ -4427,7 +4490,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_calendar_tool_reports_all_missing_targets_without_action(self):
         tools = build_production_tools(
-            None, store=FakeStore(), conversation_id="calendar-missing", env={},
+            None, store=FakeStore(), conversation_id="calendar-missing",
+            user_id=TEST_USER_ID, env={},
         )
         calendar_tool = next(
             tool for tool in tools if tool.name == "propose_calendar_changes"
@@ -4446,11 +4510,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_calendar_online_location_uses_model_protocol_enum(self):
         store = FakeStore()
-        await save_workspace(store, USER_WORKSPACE_ID, empty_workspace())
+        await save_workspace(store, TEST_USER_ID, empty_workspace())
         tools = build_production_tools(
             None,
             store=store,
             conversation_id="calendar-online",
+            user_id=TEST_USER_ID,
             env={},
             enabled_skills={"calendar"},
         )
@@ -4475,11 +4540,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_calendar_tool_resolves_explicit_location_when_planner_omits_place_step(self):
         store = FakeStore()
-        await save_workspace(store, USER_WORKSPACE_ID, empty_workspace())
+        await save_workspace(store, TEST_USER_ID, empty_workspace())
         tools = build_production_tools(
             None,
             store=store,
             conversation_id="calendar-location-fallback",
+            user_id=TEST_USER_ID,
             env={"TENCENT_MAP_SERVER_KEY": "test-key"},
             enabled_skills={"calendar", "maps"},
         )
@@ -4517,8 +4583,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "operation": "create",
             "event": {"title": "评审", "start_time": 1_800_000_000, "duration_minutes": 60, "place": PLACE},
         }])[0]
-        await save_workspace(store, USER_WORKSPACE_ID, state)
-        tools = build_production_tools(None, store=store, conversation_id="calendar-end", env={})
+        await save_workspace(store, TEST_USER_ID, state)
+        tools = build_production_tools(
+            None, store=store, conversation_id="calendar-end",
+            user_id=TEST_USER_ID, env={},
+        )
         calendar_tool = next(tool for tool in tools if tool.name == "propose_calendar_changes")
         end_iso = "2027-01-15T17:40:00+08:00"
         result = json.loads(await calendar_tool.ainvoke({
@@ -4528,7 +4597,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         event = result["action"]["payload"]["changes"][0]["event"]
         self.assertGreater(event["duration_minutes"], 60)
 
-    async def test_rich_search_executes_once_per_turn_without_cross_turn_cache(self):
+    async def test_rich_search_reuses_evidence_but_not_turn_response_state(self):
         store = FakeStore()
         metadata = {
             "query": "合并后的 AI 新闻查询", "results": [], "media": [], "images": [],
@@ -4537,7 +4606,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         provider = AsyncMock(return_value=metadata)
         with patch("agents.chat._ui_tools.provider_rich_search", new=provider):
             tools = build_production_tools(
-                None, store=store, conversation_id="search-one", env={}, media_enabled=False,
+                None, store=store, conversation_id="search-one",
+                user_id=TEST_USER_ID, env={}, media_enabled=False,
                 planned_search_query="合并后的 AI 新闻查询",
             )
             tool = next(item for item in tools if item.name == "rich_search")
@@ -4555,15 +4625,23 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(provider.await_args.kwargs["parallel_queries"])
 
             next_turn_tools = build_production_tools(
-                None, store=store, conversation_id="search-two", env={}, media_enabled=False,
+                None, store=store, conversation_id="search-two",
+                user_id=TEST_USER_ID, env={}, media_enabled=False,
                 planned_search_query="合并后的 AI 新闻查询",
             )
             next_tool = next(item for item in next_turn_tools if item.name == "rich_search")
-            fresh = json.loads(await next_tool.ainvoke({"query": "任意改写"}))
-            self.assertEqual(provider.await_count, 2)
-            self.assertNotIn("cache_hit", fresh["search_results"])
-            self.assertEqual(fresh["search_results"]["search_config"]["turn_tool_invocations"], 1)
-            self.assertEqual(fresh["search_results"]["search_config"]["turn_provider_calls"], 1)
+            reused = json.loads(await next_tool.ainvoke({"query": "任意改写"}))
+            self.assertEqual(provider.await_count, 1)
+            self.assertEqual(reused["search_results"]["cache"], {
+                "kind": "evidence_only",
+                "hit": True,
+                "coalesced": False,
+                "ttl_seconds": 600,
+                "answer_cached": False,
+                "bypassed": False,
+            })
+            self.assertEqual(reused["search_results"]["search_config"]["turn_tool_invocations"], 1)
+            self.assertEqual(reused["search_results"]["search_config"]["turn_provider_calls"], 0)
 
     async def test_rich_search_audit_matrix_never_duplicates_provider_calls(self):
         scenarios = [
@@ -4579,7 +4657,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 })
                 with patch("agents.chat._ui_tools.provider_rich_search", new=provider):
                     tools = build_production_tools(
-                        None, store=FakeStore(), conversation_id=f"audit-{index}", env={},
+                        None, store=FakeStore(), conversation_id=f"audit-{index}",
+                        user_id=TEST_USER_ID, env={},
                         planned_search_query=planned_query, planned_image_query=image_query,
                     )
                     tool = next(item for item in tools if item.name == "rich_search")
@@ -4590,7 +4669,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(config["turn_tool_invocations"], 2)
                     self.assertEqual(config["turn_provider_calls"], 1)
 
-    async def test_progressive_rich_search_publishes_enriched_media_without_cache(self):
+    async def test_progressive_rich_search_caches_only_completed_reviewed_media(self):
         store = FakeStore()
         background_tasks = []
         published = []
@@ -4621,7 +4700,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("agents.chat._ui_tools.provider_rich_search", new=AsyncMock(side_effect=provider)) as mocked:
             tools = build_production_tools(
-                None, store=store, conversation_id="progressive-search", env={},
+                None, store=store, conversation_id="progressive-search",
+                user_id=TEST_USER_ID, env={},
                 media_enabled=True, progressive_media=True, media_callback=publish,
                 background_tasks=background_tasks, planned_search_query="AI 新闻",
             )
@@ -4636,15 +4716,20 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             next_background_tasks = []
             media_gate.clear()
             next_turn_tools = build_production_tools(
-                None, store=store, conversation_id="progressive-search-2", env={},
+                None, store=store, conversation_id="progressive-search-2",
+                user_id=TEST_USER_ID, env={},
                 media_enabled=True, progressive_media=True, media_callback=publish,
                 background_tasks=next_background_tasks, planned_search_query="AI 新闻",
             )
             next_turn_tool = next(item for item in next_turn_tools if item.name == "rich_search")
-            await next_turn_tool.ainvoke({"query": "不同措辞"})
+            reused = json.loads(await next_turn_tool.ainvoke({"query": "不同措辞"}))
             media_gate.set()
             await asyncio.gather(*next_background_tasks)
-            self.assertEqual(mocked.await_count, 2)
+            self.assertEqual(mocked.await_count, 1)
+            self.assertEqual(next_background_tasks, [])
+            self.assertTrue(reused["search_results"]["cache"]["hit"])
+            self.assertFalse(reused["search_results"]["cache"]["answer_cached"])
+            self.assertEqual(reused["search_results"]["images"], enriched["images"])
 
     def test_pending_search_media_never_promises_image_generation(self):
         prompt = evidence_for_model({
@@ -4731,7 +4816,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "operation": "direct_calendar_changes",
             "changes": [{"operation": "update", "schedule_id": schedule_id, "event": {"title": "新标题"}}],
         }))
-        proactive = public_proactive_state(await load_proactive_state(store))
+        proactive = public_proactive_state(await load_proactive_state(store, TEST_USER_ID))
         upcoming = [item for item in proactive["notifications"] if item["type"] == "schedule_upcoming"]
         self.assertEqual(len(upcoming), 1)
         self.assertIn("新标题", upcoming[0]["body"])
@@ -4740,7 +4825,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "operation": "direct_calendar_changes",
             "changes": [{"operation": "delete", "schedule_id": schedule_id}],
         }))
-        proactive = public_proactive_state(await load_proactive_state(store))
+        proactive = public_proactive_state(await load_proactive_state(store, TEST_USER_ID))
         self.assertFalse(any(item["type"] == "schedule_upcoming" for item in proactive["notifications"]))
 
     def test_tencent_polyline_delta_decode(self):
@@ -5498,6 +5583,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             None,
             store=FakeStore(),
             conversation_id="paper-candidates",
+            user_id=TEST_USER_ID,
             env={},
             paper_discovery_model=discovery_model,
         )
@@ -5584,6 +5670,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             None,
             store=FakeStore(),
             conversation_id="paper-makers-fallback",
+            user_id=TEST_USER_ID,
             env={"WSA_API_KEY": "test-key"},
             paper_discovery_model=EvidenceModel(),
         )
@@ -5637,6 +5724,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             None,
             store=FakeStore(),
             conversation_id="paper-model-first",
+            user_id=TEST_USER_ID,
             env={"WSA_API_KEY": "test-key"},
             paper_discovery_model=CandidateModel(),
         )
@@ -5704,7 +5792,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(papers, [verified])
 
     async def test_arxiv_tool_accepts_author_and_year_without_topic(self):
-        tools = build_production_tools(None, store=FakeStore(), conversation_id="papers", env={})
+        tools = build_production_tools(
+            None, store=FakeStore(), conversation_id="papers",
+            user_id=TEST_USER_ID, env={},
+        )
         tool = next(item for item in tools if item.name == "search_arxiv")
         with patch("agents.chat._ui_tools.provider_search_arxiv", new=AsyncMock(return_value=[])) as provider:
             result = await tool.ainvoke({"author": "Zhi-Hua Zhou", "year": 2026, "limit": 5})
@@ -5714,11 +5805,16 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_optional_meeting_tool_is_hidden_until_personal_token_exists(self):
-        hidden = build_production_tools(None, store=FakeStore(), conversation_id="meeting", env={})
+        hidden = build_production_tools(
+            None, store=FakeStore(), conversation_id="meeting",
+            user_id=TEST_USER_ID, env={},
+        )
         self.assertNotIn("propose_meeting", {tool.name for tool in hidden})
-        personal = build_production_tools(None, store=FakeStore(), conversation_id="meeting", env={
-            "TENCENT_MEETING_TOKEN": "personal-token",
-        })
+        personal = build_production_tools(
+            None, store=FakeStore(), conversation_id="meeting",
+            user_id=TEST_USER_ID,
+            env={"TENCENT_MEETING_TOKEN": "personal-token"},
+        )
         self.assertIn("propose_meeting", {tool.name for tool in personal})
 
     def test_personal_tencent_meeting_skill_uses_official_mcp_transport(self):
@@ -5785,7 +5881,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "end_time": "2099-07-22T10:15:00+08:00",
         }, requires_confirmation=True)
         put_action(state, action)
-        await save_workspace(store, USER_WORKSPACE_ID, state)
+        await save_workspace(store, TEST_USER_ID, state)
         result = {
             "ok": True, "subject": "联调会议", "meeting_id": "meeting-1",
             "meeting_code": "123456789", "join_url": "https://meeting.tencent.com/dm/example",
@@ -5812,7 +5908,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         }))
         plan = saved["travel_plan"]
         self.assertTrue(plan["id"].startswith("travel_"))
-        restored = await load_user_workspace(store, user_id="local-user")
+        restored = await load_user_workspace(store, user_id=TEST_USER_ID)
         self.assertIn(plan["id"], restored["travel_plans"])
         deleted = await handler(FakeContext(store, {"operation": "delete_travel_plan", "plan_id": plan["id"]}))
         self.assertEqual(deleted["deleted_plan_id"], plan["id"])
@@ -5820,6 +5916,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
     async def test_arxiv_tool_preserves_user_author_year_and_limit_constraints(self):
         tools = build_production_tools(
             None, store=FakeStore(), conversation_id="papers", env={},
+            user_id=TEST_USER_ID,
             paper_constraints={"author": "Zhi-Hua Zhou", "year": 2026, "limit": 5},
         )
         tool = next(item for item in tools if item.name == "search_arxiv")
@@ -5831,7 +5928,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_image_retries_share_one_turn_group(self):
         store = FakeStore()
-        tools = build_production_tools(None, store=store, conversation_id="image-turn", env={})
+        tools = build_production_tools(
+            None, store=store, conversation_id="image-turn",
+            user_id=TEST_USER_ID, env={},
+        )
         tool = next(item for item in tools if item.name == "propose_image")
         failed = {"ok": False, "error": "temporary provider failure", "image_url": ""}
         with patch("agents.chat._ui_tools.provider_generate_image", new=AsyncMock(return_value=failed)):
@@ -5843,6 +5943,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         reference = "data:image/jpeg;base64,ZmFrZQ=="
         tools = build_production_tools(
             None, store=FakeStore(), conversation_id="image-reference", env={},
+            user_id=TEST_USER_ID,
             initial_visual_references=[reference],
         )
         tool = next(item for item in tools if item.name == "propose_image")
@@ -5850,7 +5951,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         with patch("agents.chat._ui_tools.provider_generate_image", new=AsyncMock(return_value=result)) as provider:
             action = json.loads(await tool.ainvoke({"prompt": "按参考图生成卡通版"}))["action"]
         self.assertEqual(action["payload"]["reference_image_urls"], [reference])
-        provider.assert_awaited_once_with({}, "按参考图生成卡通版", [reference], user_id="local-user")
+        provider.assert_awaited_once_with(
+            {},
+            "按参考图生成卡通版",
+            [reference],
+            user_id=TEST_USER_ID,
+        )
 
     async def test_rich_search_merges_fact_and_visual_intent_into_one_provider_call(self):
         def request(*_args, **_kwargs):
@@ -5931,7 +6037,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_vision_review_timeout({"RICH_SEARCH_VISION_TIMEOUT_SECONDS": "1"}), 2.0)
         self.assertEqual(_vision_review_timeout({"RICH_SEARCH_VISION_TIMEOUT_SECONDS": "4"}), 4.0)
 
-    async def test_exact_repeat_runs_a_fresh_search_in_each_turn(self):
+    async def test_exact_repeat_reuses_only_search_evidence_across_turns(self):
         store = FakeStore()
         metadata = {
             "query": "AI 新闻", "results": [], "media": [], "images": [],
@@ -5946,13 +6052,14 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                     None,
                     store=store,
                     conversation_id=conversation_id,
+                    user_id=TEST_USER_ID,
                     env={},
                     planned_search_query="AI 近期重要进展",
                     media_enabled=False,
                 )
                 tool = next(item for item in tools if item.name == "rich_search")
                 await tool.ainvoke({"query": "模型本次生成的不同搜索措辞"})
-        self.assertEqual(provider.await_count, 2)
+        self.assertEqual(provider.await_count, 1)
 
     def test_free_vision_fallback_chain_keeps_hunyuan_primary(self):
         providers = vision_providers({
@@ -6084,7 +6191,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "agents._shared.side_effects._persist_generated_image",
             new=AsyncMock(return_value={"storage_key": "generated/test.jpg", "image_url": "/files?key=generated/test.jpg"}),
         ):
-            result = await generate_image(env, "蓝色圆点")
+            result = await generate_image(
+                env, "蓝色圆点", user_id=TEST_USER_ID,
+            )
         self.assertTrue(result["ok"])
         self.assertEqual(result["provider"], "hunyuan")
         self.assertEqual(result["storage_key"], "generated/test.jpg")
@@ -6106,7 +6215,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "agents._shared.side_effects._persist_generated_bytes",
             new=AsyncMock(return_value=persisted),
         ):
-            result = await generate_image(env, "一只猫")
+            result = await generate_image(
+                env, "一只猫", user_id=TEST_USER_ID,
+            )
         self.assertTrue(result["ok"])
         self.assertEqual(result["provider"], "cloudflare")
         self.assertTrue(result["prompt_translated"])
@@ -6135,7 +6246,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "agents._shared.side_effects._persist_generated_bytes",
             new=AsyncMock(return_value={"storage_key": "generated/test.jpg", "image_url": "/files?key=generated/test.jpg"}),
         ):
-            result = await generate_image(env, "一只猫")
+            result = await generate_image(
+                env, "一只猫", user_id=TEST_USER_ID,
+            )
         self.assertEqual(result["provider"], "cloudflare")
         self.assertFalse(result["fallback"])
         self.assertEqual(cloudflare.call_count, 1)
@@ -6160,7 +6273,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 "image_url": "/files?key=result",
             }),
         ):
-            result = await generate_image(env, "一只戴紫色围巾的橘猫")
+            result = await generate_image(
+                env,
+                "一只戴紫色围巾的橘猫",
+                user_id=TEST_USER_ID,
+            )
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["provider"], "cloudflare")

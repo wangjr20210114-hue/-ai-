@@ -104,8 +104,11 @@ async def handler(ctx):
             "meeting": bool(ctx.env.get("TENCENT_MEETING_TOKEN")),
         },
         "identity": {
-            "mode": "single_user",
+            "mode": "multi_user",
             "user_id": user_id,
+            "tenant_id": identity.get("tenant_id"),
+            "auth_type": identity.get("auth_type"),
+            "membership": identity.get("membership"),
             "roles": identity.get("roles") or [],
         },
     }

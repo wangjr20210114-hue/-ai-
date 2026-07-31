@@ -7,7 +7,7 @@ import {
 } from './appState';
 import { getOrCreateConversationId, loadLocalConversations, saveLocalConversations } from '../services/conversation';
 
-export function AppProvider({ children, userId = 'local-user' }: { children: ReactNode; userId?: string }) {
+export function AppProvider({ children, userId = '' }: { children: ReactNode; userId?: string }) {
   const [state, dispatch] = useReducer(
     reducer,
     initialState,

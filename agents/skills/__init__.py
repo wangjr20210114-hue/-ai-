@@ -1,6 +1,6 @@
-"""Drop-in FLORIS Skill packages.
+"""HTTP route package for the standard Skill marketplace.
 
-Each child package supplies ``manifest.py`` and may optionally expose an
-adapter declared by that manifest. The registry discovers packages at runtime;
-no central list must be edited when a new Skill is added.
+Installable packages live under ``agents/skill_packages`` and trusted runtime
+adapters under ``agents/skill_adapters``. This namespace no longer contains a
+second Python-only manifest format.
 """

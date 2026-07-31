@@ -48,6 +48,7 @@ from .._shared.intelligence import (
     skill_runtime_env,
 )
 from .._shared.auth import require_user, scoped_conversation_id
+from .._shared.entitlements import effective_skill_preferences
 from .._shared.data_version import namespace as data_namespace
 from .._shared.makers_conversation import (
     RUNNING_STATES,
@@ -57,6 +58,7 @@ from .._shared.makers_conversation import (
     write_chat_run,
 )
 from .._shared.http import error
+from .._models.search_evidence import force_refresh_requested
 from .._shared.workspace import load_user_workspace
 from .._shared.vision import describe_reference_images
 from .._shared.provider_metering import record_vision_diagnostics
@@ -67,6 +69,7 @@ from .._shared.proactive import (
     public_proactive_state,
     save_proactive_state,
 )
+from .._views.chat_progress import progress_event, tool_progress_event
 
 WEEKDAY_LABELS = (
     ("Monday", "周一"),
@@ -1236,7 +1239,8 @@ async def handler(ctx):
     stage_timings_ms: dict[str, int | bool] = {}
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
-    conversation_id = scoped_conversation_id(ctx, user_id)
+    raw_conversation_id = str(getattr(ctx, "conversation_id", "") or "")
+    conversation_id = scoped_conversation_id(ctx, user_id, raw_conversation_id)
     body = ctx.request.body or {}
     message = body.get("message") or body.get("text") or ""
     clarification_id = clarification_response_id(body)
@@ -1318,11 +1322,20 @@ async def handler(ctx):
                 user_id=user_id,
                 metadata={
                     "client_message_id": str(body.get("client_message_id") or ""),
+                    "client_conversation_id": raw_conversation_id,
                     "source": "yuanbao-chat",
                     "owner_user_id": user_id,
+                    "tenant_id": str(identity["tenant_id"]),
                 },
             )
-            await ensure_conversation_title(ctx.store, conversation_id, message, user_id)
+            await ensure_conversation_title(
+                ctx.store,
+                conversation_id,
+                message,
+                user_id,
+                tenant_id=str(identity["tenant_id"]),
+                client_conversation_id=raw_conversation_id,
+            )
         except Exception:
             # LangGraph checkpoints remain authoritative if generic conversation
             # indexing is temporarily unavailable.
@@ -1410,7 +1423,10 @@ async def handler(ctx):
     )))
     parallel_image_search = bool(search_preferences.get("parallel_image_search", True))
     map_preferences = intelligence.get("map_preferences") or {}
-    skill_preferences = intelligence.get("skill_preferences") or {}
+    skill_preferences = effective_skill_preferences(
+        identity,
+        intelligence.get("skill_preferences"),
+    )
     enabled_skills = set(enabled_skills_from_preferences(skill_preferences))
     disabled_skills = sorted(known_skill_ids() - enabled_skills)
     vision_enabled = capability_is_enabled(
@@ -1730,6 +1746,11 @@ async def handler(ctx):
     async def publish_media(metadata: dict) -> None:
         nonlocal latest_enriched_media
         latest_enriched_media = metadata
+        await queue.put(ctx.utils.sse(progress_event(
+            "verification",
+            "completed",
+            activity="image_review",
+        )))
         await queue.put(ctx.utils.sse({
             "type": "search_media",
             "payload": {
@@ -1786,6 +1807,7 @@ async def handler(ctx):
         planned_media_preferred=bool(capability_plan.get("needs_images")),
         planned_search_query=str(capability_plan.get("search_query") or ""),
         planned_image_query=str(capability_plan.get("image_query") or ""),
+        force_search_refresh=force_refresh_requested(message),
         search_result_limit=search_result_limit,
         search_image_limit=search_image_limit,
         parallel_image_search=parallel_image_search,
@@ -1989,6 +2011,16 @@ async def handler(ctx):
             run_diagnostics: dict = {}
             cancelled = False
             clarification_emitted = False
+            synthesis_started = False
+            await queue.put(ctx.utils.sse(progress_event(
+                "planning",
+                "completed",
+            )))
+            await queue.put(ctx.utils.sse(progress_event(
+                "retrieval" if graph_tool_names else "synthesis",
+                "active",
+                activity="component_action" if graph_tool_names else "general",
+            )))
             if bool(body.get("_diagnostics")):
                 await queue.put(ctx.utils.sse({
                     "type": "stage_timing",
@@ -2148,6 +2180,17 @@ async def handler(ctx):
                                 if isinstance(metadata, dict):
                                     pending_search_results = metadata
                                     await queue.put(ctx.utils.sse({"type": "search_results", "payload": metadata}))
+                                    await queue.put(ctx.utils.sse(progress_event(
+                                        "retrieval",
+                                        "completed",
+                                        activity="web_search",
+                                    )))
+                                    if metadata.get("media_pending"):
+                                        await queue.put(ctx.utils.sse(progress_event(
+                                            "verification",
+                                            "active",
+                                            activity="image_review",
+                                        )))
                                     pending_search_results = None
                                 papers = action.get("papers")
                                 if (
@@ -2172,6 +2215,10 @@ async def handler(ctx):
                                 ):
                                     pending_papers = action
                                 await queue.put(ctx.utils.sse({"type": "tool_result", "name": "search_arxiv", "content": "论文结果已准备"}))
+                                await queue.put(ctx.utils.sse(tool_progress_event(
+                                    "search_arxiv",
+                                    "completed",
+                                )))
                                 continue
                             if action and action.get("ui_action") == "clarification_action":
                                 clarification_emitted = True
@@ -2202,6 +2249,10 @@ async def handler(ctx):
                                     }
                                 )
                             )
+                            await queue.put(ctx.utils.sse(tool_progress_event(
+                                getattr(streamed_message, "name", ""),
+                                "completed",
+                            )))
                             continue
 
                         tool_calls = getattr(streamed_message, "tool_calls", None) or []
@@ -2214,10 +2265,20 @@ async def handler(ctx):
                                     else ""
                                 )
                                 await queue.put(ctx.utils.sse({"type": "tool_call", "name": name}))
+                                if name:
+                                    await queue.put(ctx.utils.sse(
+                                        tool_progress_event(name, "active")
+                                    ))
                             continue
 
                         content = _text_content(getattr(streamed_message, "content", ""))
                         if content and not suppress_decision_prose:
+                            if not synthesis_started:
+                                synthesis_started = True
+                                await queue.put(ctx.utils.sse(progress_event(
+                                    "synthesis",
+                                    "active",
+                                )))
                             normalized_content = stream_delta.push(content)
                             delta, reset_required = public_stream.push(normalized_content)
                             if reset_required:
@@ -2308,6 +2369,18 @@ async def handler(ctx):
                     # Stop the visible cursor immediately when answer tokens
                     # finish. The already-running follow-up job may land a
                     # moment later, but it must never create a second pause.
+                    await queue.put(ctx.utils.sse(progress_event(
+                        "synthesis",
+                        "completed",
+                    )))
+                    await queue.put(ctx.utils.sse(progress_event(
+                        "finalizing",
+                        "completed",
+                    )))
+                    await queue.put(ctx.utils.sse(progress_event(
+                        "complete",
+                        "completed",
+                    )))
                     await queue.put(ctx.utils.sse({"type": "answer_complete"}))
                     if follow_up_task is not None:
                         if not clarification_emitted and not run_error:

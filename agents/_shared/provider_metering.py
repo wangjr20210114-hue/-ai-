@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .data_version import namespace
+from .auth import required_user_id
 
 
 STATE_KEY = "state"
@@ -32,7 +33,7 @@ def _item_value(item: Any) -> dict[str, Any] | None:
 
 
 def metering_namespace(user_id: str) -> tuple[str, ...]:
-    return namespace("provider_metering", str(user_id or "local-user"))
+    return namespace("provider_metering", required_user_id(user_id))
 
 
 def empty_provider_metering_state() -> dict[str, Any]:
@@ -79,7 +80,7 @@ async def record_provider_usage(
         return False
     if not clean_provider or not clean_metric or numeric_amount <= 0:
         return False
-    lock_key = str(user_id or "local-user")
+    lock_key = required_user_id(user_id)
     lock = _locks.setdefault(lock_key, asyncio.Lock())
     try:
         async with lock:

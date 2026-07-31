@@ -4,12 +4,13 @@ from types import SimpleNamespace
 from agents._shared.data_version import namespace
 from agents._shared.intelligence import DEFAULT_SKILL_PREFERENCES
 from agents.reset.index import handler
+from agents._tests.auth_helpers import TEST_USER_ID, authenticated_context
 
 
 class FakeLangGraphStore:
     def __init__(self):
         self.values = {
-            (namespace("intelligence", "local-user"), "state"): {
+            (namespace("intelligence", TEST_USER_ID), "state"): {
                 "skill_preferences": {
                     **DEFAULT_SKILL_PREFERENCES,
                     "web-search": False,
@@ -17,10 +18,10 @@ class FakeLangGraphStore:
                 },
                 "memories": {"memory-1": {"value": "remove"}},
             },
-            (namespace("workspace", "local-user"), "state"): {
+            (namespace("workspace", "yb7_first"), "state"): {
                 "schedules": {"schedule-1": {"title": "remove"}},
             },
-            (namespace("proactive", "local-user"), "state"): {
+            (namespace("proactive", TEST_USER_ID), "state"): {
                 "notifications": {"notification-1": {"title": "remove"}},
             },
         }
@@ -65,29 +66,29 @@ class FakeConversationStore:
         self.conversations = ["yb7_first", "yb7_second"]
 
 
-def context(password):
+def context(confirmation):
     langgraph_store = FakeLangGraphStore()
     store = FakeConversationStore(langgraph_store)
-    return SimpleNamespace(
-        env={"DATA_CLEAR_PASSWORD": "configured-secret"},
+    return authenticated_context(SimpleNamespace(
+        env={},
         request=SimpleNamespace(body={
-            "password": password,
+            "confirmation": confirmation,
             "conversation_ids": ["yb7_first", "yb7_second"],
-        }),
+        }, headers={}),
         store=store,
-    )
+    ))
 
 
 class ResetTests(unittest.IsolatedAsyncioTestCase):
-    async def test_wrong_password_changes_nothing(self):
+    async def test_wrong_confirmation_changes_nothing(self):
         ctx = context("wrong")
         response = await handler(ctx)
         self.assertEqual(response["status_code"], 403)
-        self.assertEqual(response["body"]["code"], "INVALID_PASSWORD")
+        self.assertEqual(response["body"]["code"], "INVALID_CONFIRMATION")
         self.assertEqual(ctx.store.conversations, ["yb7_first", "yb7_second"])
 
     async def test_reset_clears_data_and_preserves_only_skill_preferences(self):
-        ctx = context("configured-secret")
+        ctx = context("DELETE")
         response = await handler(ctx)
         self.assertTrue(response["ok"])
         self.assertIn("asyncio", FakeLangGraphStore.abatch.__globals__)
@@ -95,7 +96,7 @@ class ResetTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(ctx.store.langgraph_checkpointer.deleted), {"yb7_first", "yb7_second"})
 
         intelligence_item = await ctx.store.langgraph_store.aget(
-            namespace("intelligence", "local-user"), "state",
+            namespace("intelligence", TEST_USER_ID), "state",
         )
         intelligence = intelligence_item["value"]
         self.assertFalse(intelligence["skill_preferences"]["web-search"])
@@ -109,7 +110,7 @@ class ResetTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_reset_deletes_checkpoints_for_large_history(self):
-        ctx = context("configured-secret")
+        ctx = context("DELETE")
         conversation_ids = [f"yb7_conversation_{index}" for index in range(20)]
         ctx.request.body["conversation_ids"] = conversation_ids
         response = await handler(ctx)

@@ -91,7 +91,7 @@ async def handler(ctx):
     metering_state = await load_provider_metering_state(store, user_id)
     providers = []
     deepseek_key = str(env.get("DEEPSEEK_API_KEY") or "").strip()
-    if deepseek_key:
+    if deepseek_key and "admin" in identity.get("roles", []):
         providers.append(_fetch_deepseek_balance(deepseek_key, now))
     return {
         "refreshed_at": now,

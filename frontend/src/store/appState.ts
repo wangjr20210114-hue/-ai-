@@ -80,9 +80,9 @@ export type Action =
   | { type: 'CLEAR_ALL_STREAMING'; payload: Record<string, never> };
 
 export const initialState: AppState = {
-  userId: 'local-user',
+  userId: '',
   conversationId: 'default-conversation',
-  sessionId: 'local-user',
+  sessionId: '',
   connected: false,
   theme: initialTheme(),
   thinking: false,

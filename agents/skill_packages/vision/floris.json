@@ -1,0 +1,21 @@
+{
+  "schema_version": 2,
+  "id": "vision",
+  "version": "1.0.0",
+  "kind": "system",
+  "publisher": {"id": "floris", "name": "Floris", "verified": true},
+  "required_plan": "free",
+  "order": 20,
+  "default_enabled": true,
+  "capabilities": ["vision_analysis"],
+  "plan_flags": ["needs_images"],
+  "tools": [{"name": "analyze_images_parallel", "capability": "vision_analysis", "required": false}],
+  "permissions": ["makers.model", "makers.trace", "conversation.read", "user.read", "components.search"],
+  "component_actions": ["search.media.publish"],
+  "ui": {
+    "icon": "◉",
+    "name": {"zh-CN": "视觉理解", "zh-TW": "視覺理解", "en": "Vision understanding"},
+    "description": {"zh-CN": "理解上传图片，并核验搜索图片与问题的相关性。", "zh-TW": "理解上傳圖片，並核驗搜尋圖片與問題的相關性。", "en": "Understand uploaded images and verify searched-image relevance."}
+  },
+  "planner": {"topic": "image", "summary": "Understand attached images or review public image evidence."}
+}

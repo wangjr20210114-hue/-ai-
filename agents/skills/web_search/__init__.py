@@ -1,1 +1,0 @@
-"""Live web-search Skill."""

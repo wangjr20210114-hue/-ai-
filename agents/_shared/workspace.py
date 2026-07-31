@@ -16,10 +16,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .data_version import namespace
+from .auth import required_user_id
 
 
 SCHEMA_VERSION = 1
-USER_WORKSPACE_ID = "local-user"
 _workspace_write_locks: dict[str, asyncio.Lock] = {}
 
 
@@ -28,7 +28,7 @@ class WorkspaceConflictError(RuntimeError):
 
 
 def _workspace_write_lock(conversation_id: str) -> asyncio.Lock:
-    key = str(conversation_id or USER_WORKSPACE_ID)
+    key = required_user_id(conversation_id)
     lock = _workspace_write_locks.get(key)
     if lock is None:
         lock = asyncio.Lock()
@@ -63,6 +63,7 @@ def _item_value(item: Any) -> dict[str, Any] | None:
 
 
 async def load_workspace(store: Any, conversation_id: str) -> dict[str, Any]:
+    conversation_id = required_user_id(conversation_id)
     if store is None:
         return empty_workspace()
     item = await store.aget(_namespace(conversation_id), "state")
@@ -87,6 +88,7 @@ async def load_workspace(store: Any, conversation_id: str) -> dict[str, Any]:
 
 
 async def save_workspace(store: Any, conversation_id: str, state: dict[str, Any]) -> dict[str, Any]:
+    conversation_id = required_user_id(conversation_id)
     expected_revision = int(state.get("revision") or 0)
     async with _workspace_write_lock(conversation_id):
         if store is not None:
@@ -108,16 +110,16 @@ async def save_workspace(store: Any, conversation_id: str, state: dict[str, Any]
 
 
 async def load_user_workspace(
-    store: Any, _legacy_conversation_id: str = "", user_id: str = USER_WORKSPACE_ID,
+    store: Any, _legacy_conversation_id: str = "", user_id: str = "",
 ) -> dict[str, Any]:
     """Load only the explicit user namespace; old conversation state is never inherited."""
-    return await load_workspace(store, str(user_id or USER_WORKSPACE_ID))
+    return await load_workspace(store, required_user_id(user_id))
 
 
 async def save_user_workspace(
-    store: Any, state: dict[str, Any], user_id: str = USER_WORKSPACE_ID,
+    store: Any, state: dict[str, Any], user_id: str = "",
 ) -> dict[str, Any]:
-    return await save_workspace(store, str(user_id or USER_WORKSPACE_ID), state)
+    return await save_workspace(store, required_user_id(user_id), state)
 
 
 def new_action(kind: str, payload: dict[str, Any], *, requires_confirmation: bool) -> dict[str, Any]:
