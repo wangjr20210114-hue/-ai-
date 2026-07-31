@@ -12,6 +12,7 @@ from agents._infrastructure.makers.provider_usage_repository import (
     record_provider_usage,
 )
 from agents._infrastructure.providers.vision import _usage_fields
+from agents._controllers import provider_usage_controller
 from agents.provider_usage import index as provider_usage
 from agents._tests.auth_helpers import TEST_USER_ID, authenticated_context
 
@@ -44,7 +45,9 @@ class FakeResponse:
 
 class ProviderUsageTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        provider_usage._deepseek_cache.update({"expires_at": 0, "value": None})
+        provider_usage_controller._deepseek_cache.update(
+            {"expires_at": 0, "value": None}
+        )
 
     async def test_endpoint_returns_only_safe_balance_fields_and_recorded_usage(self):
         store = FakeStore()
@@ -68,8 +71,8 @@ class ProviderUsageTests(unittest.IsolatedAsyncioTestCase):
                 "private_field": "must-not-leak",
             }],
         }
-        with patch("agents.provider_usage.index.time.time", return_value=2_000_000_000), patch(
-            "agents.provider_usage.index.urllib.request.urlopen",
+        with patch("agents._controllers.provider_usage_controller.time.time", return_value=2_000_000_000), patch(
+            "agents._controllers.provider_usage_controller.urllib.request.urlopen",
             return_value=FakeResponse(payload),
         ):
             result = await provider_usage.handler(ctx)

@@ -40,7 +40,7 @@ class RouteCacheTests(unittest.IsolatedAsyncioTestCase):
             "fare": {"currency": "CNY", "basis": "test", "self_driving": {"estimate": 1, "toll": 0}, "taxi": {"low": 10, "high": 12}},
         }
         planner = AsyncMock(return_value=route)
-        with patch("agents.routes.index.plan_verified_route", planner):
+        with patch("agents._controllers.routes_controller.plan_verified_route", planner):
             first = await handler(ctx)
             second = await handler(ctx)
         self.assertFalse(first["route"]["cache"]["hit"])
@@ -76,7 +76,7 @@ class RouteCacheTests(unittest.IsolatedAsyncioTestCase):
             },
         }
         planner = AsyncMock(return_value=route)
-        with patch("agents.routes.index.plan_verified_route", planner):
+        with patch("agents._controllers.routes_controller.plan_verified_route", planner):
             first = await handler(ctx)
             second = await handler(ctx)
 

@@ -1,6 +1,6 @@
-"""Thin EdgeOne route adapter for the chat turn application."""
+"""Controller exports for one orchestrated chat turn."""
 
-from .._controllers.chat_controller import (
+from .._application.chat.turn_controller import (
     ChatTurnController,
     SYSTEM_PROMPT,
     SYSTEM_PROMPT_SECTIONS,
@@ -29,11 +29,6 @@ from .._controllers.chat_controller import (
     tools_for_capability_stage,
 )
 
-
-async def handler(ctx):
-    return await ChatTurnController(ctx).handle()
-
-
 __all__ = (
     "ChatTurnController",
     "SYSTEM_PROMPT",
@@ -52,7 +47,6 @@ __all__ = (
     "dynamic_system_prompt",
     "empty_generation_error",
     "graph_user_message",
-    "handler",
     "location_clarification_copy",
     "normalize_browser_current_location",
     "normalize_browser_location_request",

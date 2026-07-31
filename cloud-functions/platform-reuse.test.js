@@ -9,7 +9,7 @@ const read = (path) => readFile(resolve(root, path), 'utf8');
 test('conversation, state, object and schedule infrastructure reuse EdgeOne Makers', async () => {
   const [chat, messages, files, config] = await Promise.all([
     read('agents/_application/chat/turn_controller.py'),
-    read('agents/messages/index.py'),
+    read('agents/_controllers/messages_controller.py'),
     read('cloud-functions/files/index.js'),
     read('edgeone.json'),
   ]);
@@ -167,7 +167,7 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
     read('frontend/src/services/chatError.ts'),
     read('agents/_infrastructure/skills/builtin_operations.py'),
     read('agents/chat/_graph.py'),
-    read('agents/workspace/index.py'),
+    read('agents/_controllers/workspace_controller.py'),
     read('frontend/src/components/chat/MessageBubble.tsx'),
     read('frontend/src/components/chat/clarificationSubmission.ts'),
     read('agents/chat/_capability_plan.py'),
@@ -308,7 +308,7 @@ test('new multi-user and Skill surfaces follow the layered MVC boundary', async 
 
 test('runtime does not reimplement generic tracing, queue or cron services', async () => {
   const [system, tick, proactive, skillRuntime, adapters] = await Promise.all([
-    read('agents/system_internal/index.py'),
+    read('agents/_controllers/system_controller.py'),
     read('cloud-functions/proactive-tick/index.js'),
     read('agents/_application/proactive/service.py'),
     read('agents/_application/skills/runtime_ports.py'),
@@ -342,7 +342,7 @@ test('runtime does not reimplement generic tracing, queue or cron services', asy
 
 test('self-service reset only deletes the authenticated Makers namespace', async () => {
   const [agentReset, fileReset, settings, envExample] = await Promise.all([
-    read('agents/reset/index.py'),
+    read('agents/_controllers/reset_controller.py'),
     read('cloud-functions/reset-files/index.js'),
     read('frontend/src/components/profile/AppSettingsButton.tsx'),
     read('.env.example'),

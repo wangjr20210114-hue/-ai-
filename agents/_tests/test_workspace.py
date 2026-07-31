@@ -4399,7 +4399,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         }]
         process_schedule_signals(proactive, signals, now)
         await save_proactive_state(store, proactive, TEST_USER_ID)
-        with patch("agents.workspace.index.collect_provider_signals", AsyncMock(return_value=([], {}))):
+        with patch("agents._controllers.workspace_controller.collect_provider_signals", AsyncMock(return_value=([], {}))):
             response = await handler(FakeContext(store, {
                 "operation": "save_travel_plan",
                 "plan": {"title": "路线变更", "destination": "北京", "days": 1},
@@ -5897,7 +5897,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "meeting_code": "123456789", "join_url": "https://meeting.tencent.com/dm/example",
         }
         body = {"operation": "confirm_action", "action_id": action["id"], "version": action["version"]}
-        with patch("agents.workspace.index.create_tencent_meeting", AsyncMock(return_value=result)) as provider:
+        with patch("agents._controllers.workspace_controller.create_tencent_meeting", AsyncMock(return_value=result)) as provider:
             first = await handler(FakeContext(store, body))
             second = await handler(FakeContext(store, {
                 "operation": "confirm_action", "action_id": action["id"], "version": first["action"]["version"],

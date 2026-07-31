@@ -28,7 +28,7 @@ from agents.chat.index import (
     normalize_browser_current_location,
     normalize_browser_location_request,
 )
-from agents.workspace.index import _learn_from_activated_route
+from agents._controllers.workspace_controller import _learn_from_activated_route
 
 
 TEST_USER_ID = "test:route-dialogue"

@@ -17,7 +17,7 @@ from agents._application.proactive.service import empty_proactive_state, process
 from agents._infrastructure.providers.tencent_location import plan_driving_route
 from agents.proactive.index import handler as proactive_handler
 from agents.stop.index import handler as stop_handler
-from agents.system_internal.index import _expected_tick_after
+from agents._controllers.system_controller import _expected_tick_after
 from agents.chat.index import run_cancelled
 from agents._infrastructure.makers.identity import scoped_conversation_id
 from agents._tests.auth_helpers import TEST_USER_ID, authenticated_context
@@ -63,7 +63,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
             }, headers={}),
         ))
         with patch(
-            "agents.proactive.index.run_proactive_tick",
+            "agents._controllers.proactive_controller.run_proactive_tick",
             AsyncMock(return_value=(refreshed, {"signals": 0})),
         ) as tick:
             response = await proactive_handler(ctx)
@@ -79,7 +79,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
             request=SimpleNamespace(body={"operation": "page_open"}, headers={}),
         ))
         with patch(
-            "agents.proactive.index._run_tick_with_memory",
+            "agents._controllers.proactive_controller._run_tick_with_memory",
             AsyncMock(return_value=(state, {"signals": 0})),
         ) as refresh:
             response = await proactive_handler(ctx)
@@ -131,7 +131,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
             '"action_prompt":"请把“research.pdf”翻译成简体中文，保留标题层级和术语一致性",'
             '"priority":"normal","confidence":0.94,"expires_in_hours":72,"reason":"正文语言与界面语言不同"}'
         ))))
-        with patch("agents.proactive.index.get_model", return_value=model):
+        with patch("agents._controllers.proactive_controller.get_model", return_value=model):
             response = await proactive_handler(ctx)
         self.assertEqual(response["notifications"][0]["type"], "opportunity_translation_review")
         self.assertEqual(response["notifications"][0]["evidence"]["storage_key"], "uploads/file-en")
@@ -160,7 +160,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
             '"action_prompt":"基于刚生成的图片制作9:16移动端版本并保留标题区域",'
             '"priority":"low","confidence":0.9,"expires_in_hours":24,"reason":"已有明确活动页用途"}'
         ))))
-        with patch("agents.proactive.index.get_model", return_value=model):
+        with patch("agents._controllers.proactive_controller.get_model", return_value=model):
             first = await proactive_handler(ctx)
             second = await proactive_handler(ctx)
         self.assertIn("signal_created", first, first)
