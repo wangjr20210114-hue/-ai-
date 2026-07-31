@@ -15,7 +15,7 @@ from ..search.search_use_case import SearchExecution, SearchUseCase
 from ...chat._graph import build_graph, grounded_route_stream_answer
 from ...chat._llm import get_model
 from ..._infrastructure.skills import build_system_skill_tools
-from ..._shared.skill_registry import (
+from ..._application.skills.registry import (
     capability_is_enabled,
     enabled_skills_from_preferences,
     known_skill_ids,
@@ -39,7 +39,7 @@ from ...chat._protocol import (
     safe_error_diagnostics,
 )
 from ...chat._calendar_context import calendar_context, latest_route_context
-from ..._shared.intelligence import (
+from ..._application.intelligence.service import (
     apply_automatic_memory_candidates,
     confirmed_memory_context,
     extract_automatic_memory_candidates,
@@ -49,26 +49,26 @@ from ..._shared.intelligence import (
     usage_summary,
     skill_runtime_env,
 )
-from ..._shared.auth import require_user, scoped_conversation_id
-from ..._shared.entitlements import effective_skill_preferences
-from ..._shared.data_version import namespace as data_namespace
-from ..._shared.makers_conversation import (
+from ..._infrastructure.makers.identity import require_user, scoped_conversation_id
+from ..._domain.entitlements.policy import effective_skill_preferences
+from ..._infrastructure.makers.data_version import namespace as data_namespace
+from ..._infrastructure.makers.conversation_repository import (
     RUNNING_STATES,
     ensure_conversation_title,
     is_stale,
     read_chat_run,
     write_chat_run,
 )
-from ..._shared.http import error
+from ..._infrastructure.http import error
 from ..._models.search_evidence import force_refresh_requested
-from ..._shared.workspace import load_user_workspace
-from ..._shared.vision import describe_reference_images
-from ..._shared.provider_metering import (
+from ..._application.workspace.service import load_user_workspace
+from ..._infrastructure.providers.vision import describe_reference_images
+from ..._infrastructure.makers.provider_usage_repository import (
     record_provider_usage,
     record_vision_diagnostics,
 )
-from ..._shared.opportunities import detect_opportunity, opportunity_signal
-from ..._shared.proactive import (
+from ..._application.proactive.opportunities import detect_opportunity, opportunity_signal
+from ..._application.proactive.service import (
     load_proactive_state,
     process_schedule_signals,
     public_proactive_state,

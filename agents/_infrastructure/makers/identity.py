@@ -10,7 +10,7 @@ import time
 from typing import Any
 
 from ..._domain.identity import TenantIdentity
-from ..._shared.data_version import CONVERSATION_PREFIX
+from .data_version import CONVERSATION_PREFIX
 
 
 class AuthError(ValueError):

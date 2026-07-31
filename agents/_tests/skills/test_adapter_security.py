@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agents._shared.skill_registry import (
+from agents._application.skills.registry import (
     build_adapter_tools,
     parse_skill_manifests,
 )
@@ -66,7 +66,7 @@ class SkillAdapterSecurityTests(unittest.TestCase):
         ])
         try:
             with patch(
-                "agents._shared.skill_registry.skill_manifests",
+                "agents._application.skills.registry.skill_manifests",
                 return_value=parsed,
             ):
                 with self.assertRaisesRegex(ValueError, "required tools"):
@@ -87,7 +87,7 @@ class SkillAdapterSecurityTests(unittest.TestCase):
         ])
         try:
             with patch(
-                "agents._shared.skill_registry.skill_manifests",
+                "agents._application.skills.registry.skill_manifests",
                 return_value=parsed,
             ):
                 with self.assertRaisesRegex(ValueError, "duplicate or unnamed"):

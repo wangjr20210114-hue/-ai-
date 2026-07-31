@@ -7,15 +7,15 @@ from .._models.skill_marketplace import (
     downloadable_skill,
     marketplace_identity,
 )
-from .._shared.auth import require_user
-from .._shared.component_api import public_component_api
-from .._shared.entitlements import effective_skill_preferences, public_entitlements
-from .._shared.intelligence import (
+from .._infrastructure.makers.identity import require_user
+from .._application.skills.component_api import public_component_api
+from .._domain.entitlements.policy import effective_skill_preferences, public_entitlements
+from .._application.intelligence.service import (
     load_intelligence_state,
     public_skill_connections,
     skill_runtime_env,
 )
-from .._shared.skill_registry import (
+from .._application.skills.registry import (
     public_skill_catalog,
     public_skill_package,
     skill_dependency_graph,

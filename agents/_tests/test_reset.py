@@ -1,8 +1,8 @@
 import unittest
 from types import SimpleNamespace
 
-from agents._shared.data_version import namespace
-from agents._shared.intelligence import DEFAULT_SKILL_PREFERENCES
+from agents._infrastructure.makers.data_version import namespace
+from agents._application.intelligence.service import DEFAULT_SKILL_PREFERENCES
 from agents.reset.index import handler
 from agents._tests.auth_helpers import TEST_USER_ID, authenticated_context
 

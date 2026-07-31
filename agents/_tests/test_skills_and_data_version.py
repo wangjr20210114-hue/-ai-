@@ -3,12 +3,12 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from agents._shared.auth import AuthError, scoped_conversation_id
-from agents._shared.component_api import public_component_api
-from agents._shared.data_version import CONVERSATION_PREFIX, DATA_GENERATION
-from agents._shared.intelligence import DEFAULT_SKILL_PREFERENCES, empty_intelligence_state
-from agents._shared.proactive import proactive_namespace
-from agents._shared.workspace import _namespace as workspace_namespace
+from agents._infrastructure.makers.identity import AuthError, scoped_conversation_id
+from agents._application.skills.component_api import public_component_api
+from agents._infrastructure.makers.data_version import CONVERSATION_PREFIX, DATA_GENERATION
+from agents._application.intelligence.service import DEFAULT_SKILL_PREFERENCES, empty_intelligence_state
+from agents._application.proactive.service import proactive_namespace
+from agents._application.workspace.service import _namespace as workspace_namespace
 from agents._infrastructure.skills.builtin_operations import build_system_skill_tools
 from agents.intelligence.index import handler as intelligence_handler
 from agents._tests.auth_helpers import TEST_USER_ID, authenticated_context

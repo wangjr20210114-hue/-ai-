@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
-from .._shared.entitlements import allowed_skill_ids
+from .._domain.entitlements.policy import allowed_skill_ids
 
 
 PUBLIC_IDENTITY_FIELDS = (

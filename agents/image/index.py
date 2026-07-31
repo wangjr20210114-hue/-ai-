@@ -4,14 +4,14 @@ from __future__ import annotations
 import asyncio
 import time
 
-from .._shared.side_effects import generate_image, resolve_image_reference
-from .._shared.auth import require_user, scoped_conversation_id
-from .._shared.http import error
-from .._shared.intelligence import load_intelligence_state
-from .._shared.provider_metering import record_provider_usage
-from .._shared.skill_registry import capability_is_enabled
-from .._shared.entitlements import effective_skill_preferences
-from .._shared.workspace import (
+from .._infrastructure.providers.side_effects import generate_image, resolve_image_reference
+from .._infrastructure.makers.identity import require_user, scoped_conversation_id
+from .._infrastructure.http import error
+from .._application.intelligence.service import load_intelligence_state
+from .._infrastructure.makers.provider_usage_repository import record_provider_usage
+from .._application.skills.registry import capability_is_enabled
+from .._domain.entitlements.policy import effective_skill_preferences
+from .._application.workspace.service import (
     begin_action_execution,
     finish_provider_call,
     get_action,

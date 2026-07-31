@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 
 from agents.conversation.index import handler
-from agents._shared.data_version import CONVERSATION_PREFIX
+from agents._infrastructure.makers.data_version import CONVERSATION_PREFIX
 from agents._tests.auth_helpers import auth_env, auth_headers
 
 

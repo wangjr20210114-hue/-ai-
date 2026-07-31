@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import re
 
-from .._shared.auth import require_user
-from .._shared.http import error
-from .._shared.intelligence import (
+from .._infrastructure.makers.identity import require_user
+from .._infrastructure.http import error
+from .._application.intelligence.service import (
     DEFAULT_SKILL_PREFERENCES,
     LOCKED_SKILL_IDS,
     empty_intelligence_state,

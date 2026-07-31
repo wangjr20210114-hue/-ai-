@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from ..search.search_use_case import SearchRequest
-from ..._shared.entitlements import public_entitlements
+from ..._domain.entitlements.policy import public_entitlements
 
 
 def answer_tool_names(required_tools: Iterable[str]) -> tuple[str, ...]:

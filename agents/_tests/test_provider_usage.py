@@ -5,13 +5,13 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agents._shared.intelligence import empty_intelligence_state, intelligence_namespace
-from agents._shared.provider_metering import (
+from agents._application.intelligence.service import empty_intelligence_state, intelligence_namespace
+from agents._infrastructure.makers.provider_usage_repository import (
     metering_namespace,
     provider_metering_summary,
     record_provider_usage,
 )
-from agents._shared.vision import _usage_fields
+from agents._infrastructure.providers.vision import _usage_fields
 from agents.provider_usage import index as provider_usage
 from agents._tests.auth_helpers import TEST_USER_ID, authenticated_context
 

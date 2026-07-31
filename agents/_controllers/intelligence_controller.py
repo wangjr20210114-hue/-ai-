@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .._shared.intelligence import (
+from .._application.intelligence.service import (
     DEFAULT_MAP_PREFERENCES,
     DEFAULT_SKILL_PREFERENCES,
     confirm_memory,
@@ -16,14 +16,14 @@ from .._shared.intelligence import (
     configure_skill_connection,
     disconnect_skill_connection,
 )
-from .._shared.proactive import load_proactive_state, save_proactive_state, update_preferences
-from .._shared.auth import require_user
-from .._shared.entitlements import (
+from .._application.proactive.service import load_proactive_state, save_proactive_state, update_preferences
+from .._infrastructure.makers.identity import require_user
+from .._domain.entitlements.policy import (
     allowed_skill_ids,
     effective_skill_preferences,
 )
-from .._shared.http import error
-from .._shared.skill_registry import (
+from .._infrastructure.http import error
+from .._application.skills.registry import (
     run_preference_hooks,
     skill_manifest,
 )

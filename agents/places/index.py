@@ -2,14 +2,14 @@
 
 import asyncio
 
-from .._shared.tencent_location import search_verified_places_bounded
-from .._shared.auth import require_user
-from .._shared.intelligence import load_intelligence_state
-from .._shared.http import error
-from .._shared.provider_metering import record_provider_usage
-from .._shared.place_cache import load_place_cache, save_place_cache
-from .._shared.skill_registry import capability_is_enabled
-from .._shared.entitlements import effective_skill_preferences
+from .._infrastructure.providers.tencent_location import search_verified_places_bounded
+from .._infrastructure.makers.identity import require_user
+from .._application.intelligence.service import load_intelligence_state
+from .._infrastructure.http import error
+from .._infrastructure.makers.provider_usage_repository import record_provider_usage
+from .._infrastructure.makers.place_repository import load_place_cache, save_place_cache
+from .._application.skills.registry import capability_is_enabled
+from .._domain.entitlements.policy import effective_skill_preferences
 
 
 async def handler(ctx):

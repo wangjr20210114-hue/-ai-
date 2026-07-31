@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from agents._shared.component_api import COMPONENT_API_VERSION
-from agents._shared.skill_registry import (
+from agents._application.skills.component_api import COMPONENT_API_VERSION
+from agents._application.skills.registry import (
     SkillRuntimeContext,
     parse_skill_manifests,
 )

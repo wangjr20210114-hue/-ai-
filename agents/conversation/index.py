@@ -7,9 +7,9 @@ message records in the Node generic-store envelope before Python reads them.
 
 from __future__ import annotations
 
-from .._shared.auth import require_user, scoped_conversation_id
-from .._shared.http import error
-from .._shared.makers_conversation import ensure_conversation_title
+from .._infrastructure.makers.identity import require_user, scoped_conversation_id
+from .._infrastructure.http import error
+from .._infrastructure.makers.conversation_repository import ensure_conversation_title
 
 
 async def handler(ctx):

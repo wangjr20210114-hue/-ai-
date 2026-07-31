@@ -1,4 +1,4 @@
-from ..._shared.proactive import (
+from ..._application.proactive.service import (
     load_proactive_state,
     save_proactive_state,
     update_preferences,

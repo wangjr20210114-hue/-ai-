@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from .._shared.proactive import (
+from .._application.proactive.service import (
     cancel_workflow,
     collect_workflow_signals,
     load_proactive_state,
@@ -20,25 +20,25 @@ from .._shared.proactive import (
     ingest_workspace_signal,
     classify_weather_risk,
 )
-from .._shared.opportunities import (
+from .._application.proactive.opportunities import (
     detect_uploaded_file_opportunity,
     detect_generated_image_opportunity,
     file_opportunity_signal,
     opportunity_signal,
 )
-from .._shared.intelligence import (
+from .._application.intelligence.service import (
     confirmed_memory_context,
     load_intelligence_state,
     record_feedback,
     save_intelligence_state,
 )
-from .._shared.proactive_memory import infer_memory_reminder
-from .._shared.auth import require_user
-from .._shared.http import error
-from .._shared.tencent_location import get_current_weather
-from .._shared.provider_metering import record_provider_usage
-from .._shared.skill_registry import capability_is_enabled
-from .._shared.entitlements import effective_skill_preferences
+from .._application.proactive.memory import infer_memory_reminder
+from .._infrastructure.makers.identity import require_user
+from .._infrastructure.http import error
+from .._infrastructure.providers.tencent_location import get_current_weather
+from .._infrastructure.makers.provider_usage_repository import record_provider_usage
+from .._application.skills.registry import capability_is_enabled
+from .._domain.entitlements.policy import effective_skill_preferences
 from ..chat._llm import get_model
 
 

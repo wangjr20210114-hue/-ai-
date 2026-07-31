@@ -4,10 +4,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from agents._shared.route_cache import route_cache_key
-from agents._shared.intelligence import normalize_map_preferences
-from agents._shared.skill_registry import planner_topic_instructions
-from agents._shared.tencent_location import plan_verified_route, search_verified_places_bounded
+from agents._infrastructure.makers.route_repository import route_cache_key
+from agents._application.intelligence.service import normalize_map_preferences
+from agents._application.skills.registry import planner_topic_instructions
+from agents._infrastructure.providers.tencent_location import plan_verified_route, search_verified_places_bounded
 from agents.chat._capability_plan import (
     parse_capability_plan,
 )
@@ -481,15 +481,15 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         corrected = {**PLACE, "name": "天安门", "place_id": "poi-tiananmen"}
         with (
             patch(
-                "agents._shared.tencent_location.search_places",
+                "agents._infrastructure.providers.tencent_location.search_places",
                 AsyncMock(return_value=[]),
             ),
             patch(
-                "agents._shared.tencent_location.search_place_suggestions",
+                "agents._infrastructure.providers.tencent_location.search_place_suggestions",
                 AsyncMock(return_value=[corrected]),
             ) as suggestions,
             patch(
-                "agents._shared.tencent_location.search_osm_places",
+                "agents._infrastructure.providers.tencent_location.search_osm_places",
                 AsyncMock(return_value=[]),
             ) as osm,
         ):
@@ -509,15 +509,15 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         west_station = {**PLACE, "name": "北京西站", "place_id": "poi-beijing-west"}
         with (
             patch(
-                "agents._shared.tencent_location.search_places",
+                "agents._infrastructure.providers.tencent_location.search_places",
                 AsyncMock(return_value=[east_station]),
             ),
             patch(
-                "agents._shared.tencent_location.search_place_suggestions",
+                "agents._infrastructure.providers.tencent_location.search_place_suggestions",
                 AsyncMock(return_value=[west_station]),
             ) as suggestions,
             patch(
-                "agents._shared.tencent_location.search_osm_places",
+                "agents._infrastructure.providers.tencent_location.search_osm_places",
                 AsyncMock(return_value=[]),
             ) as osm,
         ):
@@ -533,15 +533,15 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         east_station = {**PLACE, "name": "北京站", "place_id": "poi-beijing-station"}
         with (
             patch(
-                "agents._shared.tencent_location.search_places",
+                "agents._infrastructure.providers.tencent_location.search_places",
                 AsyncMock(return_value=[east_station]),
             ),
             patch(
-                "agents._shared.tencent_location.search_place_suggestions",
+                "agents._infrastructure.providers.tencent_location.search_place_suggestions",
                 AsyncMock(return_value=[]),
             ),
             patch(
-                "agents._shared.tencent_location.search_osm_places",
+                "agents._infrastructure.providers.tencent_location.search_osm_places",
                 AsyncMock(return_value=[]),
             ),
         ):
@@ -565,11 +565,11 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         }
         with (
             patch(
-                "agents._shared.tencent_location.search_places",
+                "agents._infrastructure.providers.tencent_location.search_places",
                 AsyncMock(return_value=[exact, branch]),
             ),
             patch(
-                "agents._shared.tencent_location.search_place_suggestions",
+                "agents._infrastructure.providers.tencent_location.search_place_suggestions",
                 AsyncMock(return_value=[]),
             ) as suggestions,
         ):
@@ -599,11 +599,11 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         }
         with (
             patch(
-                "agents._shared.tencent_location.search_places",
+                "agents._infrastructure.providers.tencent_location.search_places",
                 AsyncMock(return_value=[exact]),
             ),
             patch(
-                "agents._shared.tencent_location.search_place_suggestions",
+                "agents._infrastructure.providers.tencent_location.search_place_suggestions",
                 AsyncMock(return_value=[exact, branch]),
             ) as suggestions,
         ):
@@ -806,11 +806,11 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "agents._shared.tencent_location.search_places",
+                "agents._infrastructure.providers.tencent_location.search_places",
                 AsyncMock(return_value=[place]),
             ),
             patch(
-                "agents._shared.tencent_location.asyncio.wait_for",
+                "agents._infrastructure.providers.tencent_location.asyncio.wait_for",
                 side_effect=capture_wait_for,
             ),
         ):
@@ -1103,7 +1103,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 }]},
             }
 
-        with patch("agents._shared.tencent_location._get", side_effect=provider):
+        with patch("agents._infrastructure.providers.tencent_location._get", side_effect=provider):
             route = await plan_verified_route(
                 "key", [browser, PLACE], mode="transit",
             )
@@ -1145,7 +1145,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 ]},
             }
 
-        with patch("agents._shared.tencent_location._get", side_effect=provider):
+        with patch("agents._infrastructure.providers.tencent_location._get", side_effect=provider):
             route = await plan_verified_route(
                 "key",
                 [PLACE, destination],
@@ -1175,7 +1175,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 }]},
             }
 
-        with patch("agents._shared.tencent_location._get", side_effect=provider):
+        with patch("agents._infrastructure.providers.tencent_location._get", side_effect=provider):
             await plan_verified_route(
                 "key", [PLACE, destination], strategy="least_cost",
             )

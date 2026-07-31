@@ -15,7 +15,7 @@ from typing import Any, Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .._shared.skill_registry import (
+from .._application.skills.registry import (
     capability_skill_map,
     capability_tools_map,
     known_skill_ids,

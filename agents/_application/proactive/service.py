@@ -1,0 +1,1196 @@
+"""Proactive Event/Run/Notification application service.
+
+The first production collector is deliberately deterministic: it turns the
+user-owned schedule workspace into deduplicated facts and notifications. No
+browser session or chat request is required for a scheduled tick.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import copy
+import json
+import time
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from pydantic import BaseModel
+
+from ..._domain.proactive.models import WeatherRiskDecision
+from ..._domain.proactive.policy import stable_id as _stable_id
+from ..._infrastructure.makers.data_version import namespace
+from ..._infrastructure.makers.identity import required_user_id
+from ..._infrastructure.makers.provider_usage_repository import record_provider_usage
+from ..._infrastructure.providers.tencent_location import (
+    get_current_weather,
+    plan_verified_route,
+)
+from ..workspace.service import (
+    load_user_workspace,
+    recover_stale_actions,
+    save_user_workspace,
+)
+
+
+SCHEMA_VERSION = 1
+BEIJING = timezone(timedelta(hours=8))
+STATE_KEY = "state"
+TERMINAL_RUNS = {"succeeded", "skipped", "failed", "cancelled"}
+
+
+async def classify_weather_risk(
+    model: Any,
+    weather: dict[str, Any],
+    *,
+    schedule: dict[str, Any] | None = None,
+    timeout_seconds: float = 6,
+) -> dict[str, Any]:
+    """Classify practical weather risk without a condition-word list."""
+    if model is None:
+        return {"actionable": False, "priority": "normal"}
+    gate = model.with_structured_output(
+        WeatherRiskDecision,
+        method="function_calling",
+        include_raw=True,
+    )
+    prompt = (
+        "Assess the supplied provider weather facts in the context of the "
+        "optional schedule. Do not answer the user. actionable=true only when "
+        "the conditions create a practical travel, safety, comfort, or "
+        "preparation issue worth proactively notifying the user. Ordinary "
+        "conditions that need no preparation are false. priority must be "
+        "normal or high."
+    )
+    try:
+        response = await asyncio.wait_for(
+            gate.ainvoke([
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": json.dumps({
+                        "weather": copy.deepcopy(weather),
+                        "schedule": copy.deepcopy(schedule) if schedule else None,
+                    }, ensure_ascii=False, default=str),
+                },
+            ]),
+            timeout=max(1.0, min(15.0, float(timeout_seconds))),
+        )
+        parsed = response.get("parsed") if isinstance(response, dict) else response
+        if isinstance(parsed, BaseModel):
+            parsed = parsed.model_dump()
+        if isinstance(parsed, dict):
+            return {
+                "actionable": bool(parsed.get("actionable")),
+                "priority": (
+                    str(parsed.get("priority") or "normal")
+                    if str(parsed.get("priority") or "normal") in {"normal", "high"}
+                    else "normal"
+                ),
+            }
+    except Exception:
+        pass
+    return {"actionable": False, "priority": "normal"}
+
+
+def default_preferences() -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "autonomy_mode": "propose",
+        "timezone": "Asia/Shanghai",
+        "quiet_hours": {"enabled": True, "start": "22:00", "end": "08:00"},
+        "daily_limit": 5,
+        "lookahead_hours": 24,
+        "window_limit": 10,
+        "provider_schedule_limit": 6,
+        "route_gap_hours": 3,
+        "travel_buffer_minutes": 15,
+        # These are presentation-only fallbacks. They never enter the
+        # notification window or compete with a real proactive reminder.
+        "fallback_mottos": [
+            "鱼儿水中游，永远不会回首～",
+            "风会记得每一片认真生长的叶子。",
+            "慢一点也没关系，星光总会找到夜路。",
+            "把今天走稳，远方自然会靠近。",
+            "云有云的方向，你也有自己的节奏。",
+            "认真生活的人，总会遇见温柔的回声。",
+            "不必追赶所有风，只选一阵与你同行。",
+            "把小事做好，时间会替你铺成路。",
+            "灯火再远，也从脚下这一程开始。",
+            "留一点从容，给正在发生的好事。",
+        ],
+        "types": {
+            "schedule_conflict": True,
+            "tight_transfer": True,
+            "schedule_upcoming": True,
+            "weather_risk": True,
+            "route_risk": True,
+            "workflow_step_due": True,
+            "opportunity_search_update": True,
+            "opportunity_writing_improvement": True,
+            "opportunity_translation_review": True,
+            "opportunity_image_iteration": True,
+            "opportunity_document_next_step": True,
+            "opportunity_task_next_step": True,
+            "memory_context_reminder": True,
+        },
+    }
+
+
+def empty_proactive_state() -> dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "revision": 0,
+        "preferences": default_preferences(),
+        "events": {},
+        "runs": {},
+        "observations": [],
+        "notifications": {},
+        "reminder_window": [],
+        "workflows": {},
+        "checkpoints": {},
+        "last_tick": None,
+        "tick_lease": None,
+    }
+
+
+def _item_value(item: Any) -> dict[str, Any] | None:
+    if item is None:
+        return None
+    value = item.get("value") if isinstance(item, dict) else getattr(item, "value", None)
+    return value if isinstance(value, dict) else None
+
+
+def _merge_preferences(value: Any) -> dict[str, Any]:
+    base = default_preferences()
+    if not isinstance(value, dict):
+        return base
+    for key in (
+        "enabled", "autonomy_mode", "timezone", "daily_limit",
+        "lookahead_hours", "window_limit", "provider_schedule_limit",
+        "route_gap_hours", "travel_buffer_minutes",
+    ):
+        if key in value:
+            base[key] = copy.deepcopy(value[key])
+    if isinstance(value.get("quiet_hours"), dict):
+        base["quiet_hours"].update(copy.deepcopy(value["quiet_hours"]))
+    if isinstance(value.get("types"), dict):
+        base["types"].update({str(k): bool(v) for k, v in value["types"].items()})
+    if isinstance(value.get("fallback_mottos"), list):
+        mottos: list[str] = []
+        for item in value["fallback_mottos"]:
+            text = " ".join(str(item or "").replace("\x00", "").split()).strip()[:80]
+            if text and text not in mottos:
+                mottos.append(text)
+            if len(mottos) >= 10:
+                break
+        base["fallback_mottos"] = mottos
+    # Proactive Agent is a locked core safety/assistance capability. Existing
+    # persisted false values are migrated back to true on every load.
+    base["enabled"] = True
+    if base["autonomy_mode"] not in {"observe", "remind", "propose", "low_risk_auto"}:
+        base["autonomy_mode"] = "propose"
+    base["daily_limit"] = max(0, min(50, int(base["daily_limit"] or 0)))
+    base["lookahead_hours"] = max(1, min(168, int(base["lookahead_hours"] or 24)))
+    base["window_limit"] = max(1, min(10, int(base["window_limit"] or 10)))
+    base["provider_schedule_limit"] = max(2, min(12, int(base["provider_schedule_limit"] or 6)))
+    base["route_gap_hours"] = max(1, min(8, int(base["route_gap_hours"] or 3)))
+    base["travel_buffer_minutes"] = max(0, min(120, int(
+        base["travel_buffer_minutes"]
+        if base["travel_buffer_minutes"] is not None
+        else 15
+    )))
+    return base
+
+
+def proactive_namespace(user_id: str) -> tuple[str, str]:
+    return namespace("proactive", required_user_id(user_id))
+
+
+async def load_proactive_state(store: Any, user_id: str = "") -> dict[str, Any]:
+    user_id = required_user_id(user_id)
+    state = empty_proactive_state()
+    if store is None:
+        return state
+    value = _item_value(await store.aget(proactive_namespace(user_id), STATE_KEY))
+    if not value:
+        return state
+    state.update(copy.deepcopy(value))
+    if "reminder_window" not in value:
+        # A missing field means this is a pre-window state and should be
+        # migrated from its newest active notifications. An explicit empty
+        # list is meaningful and must remain empty.
+        state["reminder_window"] = None
+    state["preferences"] = _merge_preferences(state.get("preferences"))
+    for key in ("events", "runs", "notifications", "workflows", "checkpoints"):
+        if not isinstance(state.get(key), dict):
+            state[key] = {}
+    if not isinstance(state.get("observations"), list):
+        state["observations"] = []
+    return state
+
+
+def _active_notification(item: Any, now: int) -> bool:
+    if not isinstance(item, dict) or item.get("dismissed_at"):
+        return False
+    if str(item.get("status") or "unread") not in {"unread", "snoozed"}:
+        return False
+    expires_at = int(item.get("expires_at") or 0)
+    return not expires_at or expires_at > now
+
+
+def _normalize_reminder_window(state: dict[str, Any], now: int) -> list[str]:
+    """Keep a bounded first-come-first-served view over active notifications."""
+    notifications = state.setdefault("notifications", {})
+    limit = int(_merge_preferences(state.get("preferences")).get("window_limit") or 10)
+    raw_window = state.get("reminder_window")
+    if not isinstance(raw_window, list):
+        raw_window = []
+    normalized: list[str] = []
+    for raw_id in raw_window:
+        notification_id = str(raw_id or "")
+        if (
+            notification_id
+            and notification_id not in normalized
+            and _active_notification(notifications.get(notification_id), now)
+        ):
+            normalized.append(notification_id)
+    queued = sorted(
+        (
+            item for item in notifications.values()
+            if _active_notification(item, now)
+            and str(item.get("id") or "") not in normalized
+        ),
+        key=lambda item: (
+            int(item.get("created_at") or 0),
+            str(item.get("id") or ""),
+        ),
+    )
+    normalized.extend(
+        str(item.get("id") or "")
+        for item in queued
+        if str(item.get("id") or "")
+    )
+    state["reminder_window"] = normalized[:limit]
+    return state["reminder_window"]
+
+
+def _place_in_reminder_window(
+    state: dict[str, Any], notification: dict[str, Any], now: int, *, memory_refresh: bool,
+) -> tuple[bool, bool]:
+    """Place by FCFS; a full window queues new work without replacing history."""
+    window = _normalize_reminder_window(state, now)
+    notification_id = str(notification["id"])
+    notification["window_origin"] = "memory" if memory_refresh else "operation"
+    if notification_id in window:
+        return True, False
+    notification["window_queued_at"] = now
+    return False, False
+
+
+def _prune(state: dict[str, Any]) -> None:
+    for key, limit in (("events", 240), ("runs", 240), ("notifications", 240), ("workflows", 100)):
+        values = state.get(key) or {}
+        if len(values) <= limit:
+            continue
+        ordered = sorted(
+            values.values(), key=lambda item: float(item.get("updated_at") or item.get("created_at") or 0), reverse=True,
+        )
+        state[key] = {str(item["id"]): item for item in ordered[:limit]}
+    state["observations"] = list(state.get("observations") or [])[-600:]
+
+
+async def save_proactive_state(
+    store: Any, state: dict[str, Any], user_id: str = "",
+) -> dict[str, Any]:
+    user_id = required_user_id(user_id)
+    saved = copy.deepcopy(state)
+    saved["schema_version"] = SCHEMA_VERSION
+    saved["revision"] = int(saved.get("revision") or 0) + 1
+    _prune(saved)
+    if store is not None:
+        await store.aput(proactive_namespace(user_id), STATE_KEY, saved)
+    return saved
+
+
+def _observation(state: dict[str, Any], run_id: str, status: str, step: str, now: int, **payload: Any) -> None:
+    state.setdefault("observations", []).append({
+        "id": f"obs_{uuid.uuid4().hex}",
+        "run_id": run_id,
+        "status": status,
+        "step": step,
+        "payload": payload,
+        "created_at": now,
+    })
+
+
+def _schedule_end(item: dict[str, Any]) -> int:
+    return int(item.get("start_time") or 0) + max(1, int(item.get("duration_minutes") or 60)) * 60
+
+
+def collect_schedule_signals(schedules: list[dict[str, Any]], now: int, lookahead_hours: int = 24) -> list[dict[str, Any]]:
+    horizon = now + max(1, lookahead_hours) * 3600
+    future = sorted(
+        [
+            item for item in schedules
+            if (
+                int(item.get("start_time") or 0) <= horizon
+                and _schedule_end(item) > now
+                and not item.get("done")
+            )
+        ],
+        key=lambda item: int(item.get("start_time") or 0),
+    )
+    signals: list[dict[str, Any]] = []
+    for index, item in enumerate(future):
+        schedule_id = str(item.get("id") or "")
+        if not schedule_id:
+            continue
+        start = int(item.get("start_time") or 0)
+        if start >= now:
+            signals.append({
+                "type": "schedule_upcoming",
+                "dedup_key": f"schedule_upcoming:{schedule_id}:{start}",
+                "priority": "normal",
+                "subject_ids": [schedule_id],
+                "title": "即将开始",
+                "detail": f"{item.get('title') or '未命名日程'}将在24小时内开始",
+                "action": f"请帮我为即将开始的“{item.get('title') or '日程'}”做准备，检查地点、路线、天气和需要携带的东西",
+                "evidence": {"schedule": copy.deepcopy(item)},
+                "occurred_at": now,
+            })
+        if index == 0:
+            continue
+        previous = future[index - 1]
+        previous_end = _schedule_end(previous)
+        current_start = int(item.get("start_time") or 0)
+        pair = f"{previous.get('id')}:{previous.get('start_time')}:{schedule_id}:{start}"
+        if current_start < previous_end:
+            signals.append({
+                "type": "schedule_conflict",
+                "dedup_key": f"schedule_conflict:{pair}",
+                "priority": "high",
+                "subject_ids": [str(previous.get("id") or ""), schedule_id],
+                "title": "发现日程冲突",
+                "detail": f"“{previous.get('title') or '上一项日程'}”与“{item.get('title') or '下一项日程'}”时间重叠",
+                "action": "请检查我最近的日程冲突，并给出最合适的调整方案",
+                "evidence": {"previous": copy.deepcopy(previous), "current": copy.deepcopy(item)},
+                "occurred_at": now,
+            })
+        elif (
+            previous.get("location") and item.get("location")
+            and str(previous.get("location")) != str(item.get("location"))
+            and current_start - previous_end < 30 * 60
+        ):
+            signals.append({
+                "type": "tight_transfer",
+                "dedup_key": f"tight_transfer:{pair}",
+                "priority": "high",
+                "subject_ids": [str(previous.get("id") or ""), schedule_id],
+                "title": "行程衔接较紧",
+                "detail": f"“{previous.get('title') or '上一项日程'}”后不足30分钟就要前往{item.get('location')}",
+                "action": "请检查我最近两项日程之间的真实路线和通勤时间，必要时建议调整",
+                "evidence": {"previous": copy.deepcopy(previous), "current": copy.deepcopy(item)},
+                "occurred_at": now,
+            })
+    priority = {"high": 0, "normal": 1, "low": 2}
+    return sorted(signals, key=lambda item: (priority.get(str(item.get("priority")), 9), str(item["dedup_key"])))
+
+
+def _verified_place(schedule: dict[str, Any]) -> dict[str, Any] | None:
+    extra = schedule.get("extra") or {}
+    place = extra.get("place") if isinstance(extra, dict) else None
+    if not isinstance(place, dict):
+        return None
+    if not str(place.get("place_id") or ""):
+        return None
+    if not isinstance(place.get("latitude"), (int, float)) or not isinstance(place.get("longitude"), (int, float)):
+        return None
+    return place
+
+
+async def collect_provider_signals(
+    env: dict[str, Any],
+    schedules: list[dict[str, Any]],
+    now: int,
+    lookahead_hours: int = 24,
+    preferences: dict[str, Any] | None = None,
+    semantic_model: Any = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Collect bounded weather/route risks; provider failures stay observations."""
+    settings = _merge_preferences(preferences)
+    provider_schedule_limit = int(settings["provider_schedule_limit"])
+    route_gap_seconds = int(settings["route_gap_hours"]) * 3600
+    travel_buffer_seconds = int(settings["travel_buffer_minutes"]) * 60
+    horizon = now + max(1, lookahead_hours) * 3600
+    future = sorted(
+        [item for item in schedules if now <= int(item.get("start_time") or 0) <= horizon and not item.get("done")],
+        key=lambda item: int(item.get("start_time") or 0),
+    )[:provider_schedule_limit]
+    key = str(env.get("TENCENT_MAP_SERVER_KEY") or env.get("TENCENT_MAP_KEY") or env.get("VITE_TENCENT_MAP_KEY") or "")
+    signals: list[dict[str, Any]] = []
+    diagnostics: dict[str, Any] = {
+        "weather_checked": 0,
+        "routes_checked": 0,
+        "weather_facts": [],
+        "route_facts": [],
+        "errors": [],
+    }
+    for schedule in future[:min(3, provider_schedule_limit)]:
+        place = _verified_place(schedule)
+        if not place:
+            continue
+        try:
+            weather = await get_current_weather(key, place)
+            diagnostics["weather_checked"] += 1
+            condition = str(weather.get("weather") or "")
+            diagnostics["weather_facts"].append({
+                "schedule_id": str(schedule.get("id") or ""),
+                "schedule_title": str(schedule.get("title") or ""),
+                "place_id": str(place.get("place_id") or ""),
+                "condition": condition,
+                "temperature": weather.get("temperature"),
+                "humidity": weather.get("humidity"),
+                "observed_at": now,
+            })
+            risk = await classify_weather_risk(
+                semantic_model,
+                weather,
+                schedule=schedule,
+            )
+            if risk["actionable"]:
+                schedule_id = str(schedule.get("id") or "")
+                start = int(schedule.get("start_time") or 0)
+                signals.append({
+                    "type": "weather_risk",
+                    "dedup_key": f"weather_risk:{schedule_id}:{start}:{condition}",
+                    "priority": risk["priority"],
+                    "subject_ids": [schedule_id],
+                    "title": "行程天气需要关注",
+                    "detail": f"“{schedule.get('title') or '日程'}”所在地当前天气为{condition}",
+                    "action": f"请结合“{schedule.get('title') or '日程'}”的时间和地点，检查天气风险并给出准备建议",
+                    "evidence": {"schedule": copy.deepcopy(schedule), "weather": weather},
+                    "occurred_at": now,
+                })
+        except Exception as exc:
+            diagnostics["errors"].append({"collector": "weather", "schedule_id": schedule.get("id"), "error": str(exc)[:240]})
+
+    for previous, current in zip(future, future[1:]):
+        previous_place = _verified_place(previous)
+        current_place = _verified_place(current)
+        available = int(current.get("start_time") or 0) - _schedule_end(previous)
+        if not previous_place or not current_place or available <= 0 or available > route_gap_seconds:
+            continue
+        try:
+            route = await plan_verified_route(key, [previous_place, current_place])
+            diagnostics["routes_checked"] += 1
+            required = int(route.get("duration_seconds") or 0) + travel_buffer_seconds
+            diagnostics["route_facts"].append({
+                "previous_schedule_id": str(previous.get("id") or ""),
+                "current_schedule_id": str(current.get("id") or ""),
+                "available_seconds": available,
+                "route_duration_seconds": int(route.get("duration_seconds") or 0),
+                "distance_meters": float(route.get("distance_meters") or 0),
+                "provider": str(route.get("provider") or ""),
+                "travel_buffer_seconds": travel_buffer_seconds,
+                "observed_at": now,
+            })
+            if required > available:
+                pair = f"{previous.get('id')}:{previous.get('start_time')}:{current.get('id')}:{current.get('start_time')}"
+                signals.append({
+                    "type": "route_risk",
+                    "dedup_key": f"route_risk:{pair}",
+                    "priority": "high",
+                    "subject_ids": [str(previous.get("id") or ""), str(current.get("id") or "")],
+                    "title": "真实通勤时间可能不足",
+                    "detail": f"两项日程之间有{max(0, available // 60)}分钟，当前路线预计需{max(1, int(route.get('duration_seconds') or 0) // 60)}分钟",
+                    "action": "请根据真实路线重新检查这两项日程，并给出调整时间或地点的方案",
+                    "evidence": {"previous": copy.deepcopy(previous), "current": copy.deepcopy(current), "route": route},
+                    "occurred_at": now,
+                })
+        except Exception as exc:
+            diagnostics["errors"].append({"collector": "route", "schedule_ids": [previous.get("id"), current.get("id")], "error": str(exc)[:240]})
+    return signals, diagnostics
+
+
+def propose_workflow(
+    state: dict[str, Any], *, title: str, steps: list[dict[str, Any]], reason: str, now: int,
+) -> dict[str, Any]:
+    """Create a versioned workflow proposal. Activation always needs confirmation."""
+    clean_title = str(title or "").strip()[:120]
+    if not clean_title:
+        raise ValueError("工作流标题不能为空")
+    clean_steps: list[dict[str, Any]] = []
+    for index, item in enumerate(steps[:20]):
+        if not isinstance(item, dict):
+            continue
+        step_title = str(item.get("title") or "").strip()[:160]
+        if not step_title:
+            continue
+        raw_compensation = item.get("compensation") if isinstance(item.get("compensation"), dict) else {}
+        compensation_title = str(raw_compensation.get("title") or "").strip()[:160]
+        compensation = None
+        if compensation_title:
+            compensation = {
+                "title": compensation_title,
+                "body": str(raw_compensation.get("body") or "")[:1000],
+                "action_prompt": str(raw_compensation.get("action_prompt") or "")[:1000],
+            }
+        clean_steps.append({
+            "id": f"step_{index + 1}",
+            "offset_minutes": max(0, min(525_600, int(item.get("offset_minutes") or 0))),
+            "title": step_title,
+            "body": str(item.get("body") or "")[:1000],
+            "action_prompt": str(item.get("action_prompt") or "")[:1000],
+            "depends_on": [str(value) for value in (item.get("depends_on") or []) if str(value).strip()][:10],
+            "_explicit_depends": "depends_on" in item,
+            "status": "pending",
+            "attempt": 0,
+            "last_error": "",
+            "compensation": compensation,
+            "due_at": None,
+            "emitted_at": None,
+            "compensation_emitted_at": None,
+        })
+    if not clean_steps:
+        raise ValueError("工作流至少需要一个有效步骤")
+    valid_ids = {step["id"] for step in clean_steps}
+    for index, step in enumerate(clean_steps):
+        normalized: list[str] = []
+        for raw in step["depends_on"]:
+            dependency = f"step_{int(raw)}" if raw.isdigit() else raw
+            if dependency in valid_ids and dependency != step["id"] and dependency not in normalized:
+                normalized.append(dependency)
+        # Sequential is the safe default unless the model explicitly supplied dependencies.
+        if index > 0 and not normalized and not step.pop("_explicit_depends", False):
+            normalized = [clean_steps[index - 1]["id"]]
+        else:
+            step.pop("_explicit_depends", None)
+        step["depends_on"] = normalized
+    # A repeated model turn can phrase the same requested workflow with slightly
+    # different step bodies or reasons.  While a proposal with the same title is
+    # still pending or active, return it instead of creating a second card that
+    # the user must reconcile manually.  Completed/rejected/cancelled workflows
+    # do not block a later run with the same human-facing title.
+    title_identity = " ".join(clean_title.casefold().split())
+    for pending in state.setdefault("workflows", {}).values():
+        if not isinstance(pending, dict) or pending.get("status") not in {"awaiting_confirmation", "active"}:
+            continue
+        pending_title = " ".join(str(pending.get("title") or "").casefold().split())
+        if pending_title == title_identity:
+            return copy.deepcopy(pending)
+    canonical = repr((clean_title, [
+        (step["offset_minutes"], step["title"], step["body"], step["depends_on"], step.get("compensation"))
+        for step in clean_steps
+    ]))
+    workflow_id = _stable_id("workflow", canonical)
+    existing = state["workflows"].get(workflow_id)
+    if isinstance(existing, dict) and existing.get("status") in {"awaiting_confirmation", "active"}:
+        return copy.deepcopy(existing)
+    workflow = {
+        "id": workflow_id,
+        "title": clean_title,
+        "reason": str(reason or "用户希望建立持久工作流")[:500],
+        "status": "awaiting_confirmation",
+        "version": 1,
+        "steps": clean_steps,
+        "anchor_at": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    state["workflows"][workflow_id] = workflow
+    return copy.deepcopy(workflow)
+
+
+def decide_workflow(state: dict[str, Any], workflow_id: str, version: int, accept: bool, now: int) -> dict[str, Any]:
+    workflow = state.get("workflows", {}).get(workflow_id)
+    if not isinstance(workflow, dict) or workflow.get("status") != "awaiting_confirmation":
+        raise ValueError("工作流提案不存在或已处理")
+    if int(workflow.get("version") or 0) != int(version):
+        raise ValueError("工作流版本已变化")
+    workflow["status"] = "active" if accept else "rejected"
+    workflow["version"] = int(workflow["version"]) + 1
+    workflow["updated_at"] = now
+    if accept:
+        workflow["anchor_at"] = now
+        for step in workflow.get("steps") or []:
+            step["due_at"] = now + int(step.get("offset_minutes") or 0) * 60
+    else:
+        _retire_workflow_notifications(state, workflow_id, now)
+    return copy.deepcopy(workflow)
+
+
+def _retire_workflow_notifications(
+    state: dict[str, Any], workflow_id: str, now: int, step_id: str | None = None,
+) -> None:
+    """Hide workflow notifications as soon as their workflow/step is resolved."""
+    for notification in state.setdefault("notifications", {}).values():
+        if not isinstance(notification, dict) or notification.get("dismissed_at"):
+            continue
+        evidence = notification.get("evidence") if isinstance(notification.get("evidence"), dict) else {}
+        if str(evidence.get("workflow_id") or "") != workflow_id:
+            continue
+        if step_id is not None and str(evidence.get("step_id") or "") != step_id:
+            continue
+        notification.update({
+            "status": "dismissed",
+            "dismissed_at": now,
+            "updated_at": now,
+            "version": int(notification.get("version") or 1) + 1,
+        })
+
+
+def collect_workflow_signals(state: dict[str, Any], now: int) -> list[dict[str, Any]]:
+    signals: list[dict[str, Any]] = []
+    for workflow in state.get("workflows", {}).values():
+        if workflow.get("status") != "active":
+            continue
+        step_status = {str(item.get("id")): str(item.get("status")) for item in workflow.get("steps") or []}
+        for step in workflow.get("steps") or []:
+            if step.get("status") == "failed" and not step.get("compensation_emitted_at"):
+                compensation = step.get("compensation") if isinstance(step.get("compensation"), dict) else None
+                signals.append({
+                    "type": "workflow_compensation_due" if compensation else "workflow_step_failed",
+                    "source": "workflow_scheduler",
+                    "dedup_key": f"workflow_compensation:{workflow.get('id')}:{step.get('id')}:{step.get('attempt', 0)}",
+                    "priority": "high",
+                    "subject_ids": [str(workflow.get("id") or ""), str(step.get("id") or "")],
+                    "title": str((compensation or {}).get("title") or f"步骤失败：{step.get('title') or workflow.get('title') or '工作流'}"),
+                    "detail": str((compensation or {}).get("body") or step.get("last_error") or "需要人工决定重试或终止"),
+                    "action": str((compensation or {}).get("action_prompt") or "请帮我核对失败原因并决定下一步"),
+                    "evidence": {
+                        "workflow_id": workflow.get("id"), "step_id": step.get("id"),
+                        "workflow_phase": "compensation" if compensation else "failure",
+                    },
+                    "occurred_at": now,
+                })
+                step["status"] = "compensating" if compensation else "attention_required"
+                step["compensation_emitted_at"] = now
+                continue
+            if step.get("status") != "pending" or int(step.get("due_at") or 0) > now:
+                continue
+            if any(step_status.get(str(dependency)) not in {"completed", "skipped", "compensated"} for dependency in step.get("depends_on") or []):
+                continue
+            signals.append({
+                "type": "workflow_step_due",
+                "source": "workflow_scheduler",
+                "dedup_key": (
+                    f"workflow_step_due:{workflow.get('id')}:{step.get('id')}:"
+                    f"{int(step.get('attempt') or 0)}:{step.get('due_at')}"
+                ),
+                "priority": "normal",
+                "subject_ids": [str(workflow.get("id") or ""), str(step.get("id") or "")],
+                "title": str(step.get("title") or workflow.get("title") or "工作流提醒"),
+                "detail": str(step.get("body") or workflow.get("reason") or "工作流步骤已到期"),
+                "action": str(step.get("action_prompt") or "请帮我继续处理这个工作流步骤"),
+                "evidence": {"workflow_id": workflow.get("id"), "step_id": step.get("id")},
+                "occurred_at": now,
+            })
+            step["status"] = "notified"
+            step["emitted_at"] = now
+        if workflow.get("steps") and all(step.get("status") in {"completed", "skipped", "compensated"} for step in workflow["steps"]):
+            workflow["status"] = "completed"
+            workflow["updated_at"] = now
+            _retire_workflow_notifications(state, str(workflow.get("id") or ""), now)
+    return signals
+
+
+def decide_workflow_step(
+    state: dict[str, Any], workflow_id: str, step_id: str, operation: str, now: int,
+) -> dict[str, Any]:
+    workflow = state.get("workflows", {}).get(workflow_id)
+    if not isinstance(workflow, dict) or workflow.get("status") != "active":
+        raise ValueError("工作流不存在或当前未运行")
+    step = next((item for item in workflow.get("steps") or [] if item.get("id") == step_id), None)
+    if not isinstance(step, dict):
+        raise ValueError("工作流步骤不存在或已处理")
+    status = str(step.get("status") or "")
+    if operation not in {"complete", "skip", "fail", "retry", "compensate"}:
+        raise ValueError("不支持的工作流步骤操作")
+    if operation in {"complete", "skip", "fail"} and status not in {"pending", "notified"}:
+        raise ValueError("工作流步骤当前不能处理")
+    if operation == "retry" and status not in {"failed", "compensating", "attention_required"}:
+        raise ValueError("只有失败步骤可以重试")
+    if operation == "compensate" and status not in {"failed", "compensating", "attention_required"}:
+        raise ValueError("当前步骤不需要补偿")
+    if operation == "complete":
+        step["status"] = "completed"
+        step["resolved_at"] = now
+    elif operation == "skip":
+        step["status"] = "skipped"
+        step["resolved_at"] = now
+    elif operation == "fail":
+        step["status"] = "failed"
+        step["last_error"] = "用户标记步骤失败"
+        step["resolved_at"] = now
+    elif operation == "retry":
+        step.update({
+            "status": "pending", "due_at": now, "emitted_at": None, "resolved_at": None,
+            "compensation_emitted_at": None, "last_error": "", "attempt": int(step.get("attempt") or 0) + 1,
+        })
+    else:
+        step["status"] = "compensated"
+        step["resolved_at"] = now
+    _retire_workflow_notifications(state, workflow_id, now, step_id)
+    workflow["version"] = int(workflow.get("version") or 1) + 1
+    workflow["updated_at"] = now
+    if all(item.get("status") in {"completed", "skipped", "compensated"} for item in workflow.get("steps") or []):
+        workflow["status"] = "completed"
+        _retire_workflow_notifications(state, workflow_id, now)
+    return copy.deepcopy(workflow)
+
+
+def cancel_workflow(state: dict[str, Any], workflow_id: str, version: int, now: int) -> dict[str, Any]:
+    workflow = state.get("workflows", {}).get(workflow_id)
+    if not isinstance(workflow, dict) or workflow.get("status") not in {"awaiting_confirmation", "active"}:
+        raise ValueError("工作流不存在或已结束")
+    if int(workflow.get("version") or 0) != int(version):
+        raise ValueError("工作流版本已变化")
+    workflow.update({"status": "cancelled", "version": int(workflow["version"]) + 1, "updated_at": now})
+    _retire_workflow_notifications(state, workflow_id, now)
+    return copy.deepcopy(workflow)
+
+
+def _parse_clock(value: Any, default: tuple[int, int]) -> tuple[int, int]:
+    try:
+        hour, minute = str(value).split(":", 1)
+        parsed = int(hour), int(minute)
+        if 0 <= parsed[0] <= 23 and 0 <= parsed[1] <= 59:
+            return parsed
+    except (TypeError, ValueError):
+        pass
+    return default
+
+
+def _quiet_until(preferences: dict[str, Any], now: int) -> int:
+    quiet = preferences.get("quiet_hours") or {}
+    if not quiet.get("enabled"):
+        return 0
+    local_now = datetime.fromtimestamp(now, BEIJING)
+    start_hour, start_minute = _parse_clock(quiet.get("start"), (22, 0))
+    end_hour, end_minute = _parse_clock(quiet.get("end"), (8, 0))
+    current = local_now.hour * 60 + local_now.minute
+    start = start_hour * 60 + start_minute
+    end = end_hour * 60 + end_minute
+    in_quiet = start <= current < end if start < end else current >= start or current < end
+    if not in_quiet:
+        return 0
+    end_date = local_now.date()
+    if start >= end and current >= start:
+        end_date += timedelta(days=1)
+    target = datetime.combine(end_date, datetime.min.time(), BEIJING).replace(hour=end_hour, minute=end_minute)
+    return int(target.timestamp())
+
+
+def _created_today(notification: dict[str, Any], now: int) -> bool:
+    if notification.get("dismissed_at"):
+        return False
+    created = int(notification.get("created_at") or 0)
+    return datetime.fromtimestamp(created, BEIJING).date() == datetime.fromtimestamp(now, BEIJING).date()
+
+
+def reconcile_schedule_notifications(
+    state: dict[str, Any], signals: list[dict[str, Any]], affected_schedule_ids: set[str], now: int,
+) -> dict[str, int]:
+    """Refresh or retire notifications whose source schedule was edited/deleted."""
+    valid = {str(signal.get("dedup_key") or ""): signal for signal in signals}
+    refreshed = superseded = 0
+    notifications = state.setdefault("notifications", {})
+    for event in state.setdefault("events", {}).values():
+        subjects = {str(value) for value in (event.get("subject_ids") or [])}
+        if not subjects.intersection(affected_schedule_ids):
+            continue
+        dedup_key = str(event.get("dedup_key") or "")
+        signal = valid.get(dedup_key)
+        related = [item for item in notifications.values() if item.get("event_id") == event.get("id")]
+        if signal is not None:
+            event["payload"] = copy.deepcopy(signal)
+            event["updated_at"] = now
+            for notification in related:
+                if notification.get("dismissed_at"):
+                    continue
+                notification.update({
+                    "title": str(signal.get("title") or "主动提醒"),
+                    "body": str(signal.get("detail") or ""),
+                    "reason": str(signal.get("detail") or ""),
+                    "action_prompt": str(signal.get("action") or ""),
+                    "priority": str(signal.get("priority") or "normal"),
+                    "evidence": copy.deepcopy(signal.get("evidence") or {}),
+                    "updated_at": now,
+                    "version": int(notification.get("version") or 1) + 1,
+                })
+                refreshed += 1
+            continue
+        for notification in related:
+            if notification.get("dismissed_at"):
+                continue
+            notification.update({
+                "status": "superseded",
+                "dismissed_at": now,
+                "updated_at": now,
+                "version": int(notification.get("version") or 1) + 1,
+            })
+            superseded += 1
+    return {"refreshed": refreshed, "superseded": superseded}
+
+
+def process_schedule_signals(state: dict[str, Any], signals: list[dict[str, Any]], now: int) -> dict[str, int]:
+    preferences = _merge_preferences(state.get("preferences"))
+    state["preferences"] = preferences
+    stats = {
+        "signals": len(signals),
+        "events_created": 0,
+        "runs_created": 0,
+        "notifications_created": 0,
+        "window_replaced": 0,
+        "window_queued": 0,
+        "skipped": 0,
+    }
+    daily_count = sum(1 for item in state.get("notifications", {}).values() if _created_today(item, now))
+    for signal in signals:
+        memory_refresh = str(signal.get("window_policy") or "") == "memory_refresh"
+        cooldown_seconds = max(0, int(signal.get("cooldown_seconds") or 0))
+        if cooldown_seconds and any(
+            item.get("type") == signal.get("type")
+            and not item.get("dismissed_at")
+            and now - int(item.get("created_at") or 0) < cooldown_seconds
+            for item in state.get("notifications", {}).values()
+        ):
+            stats["skipped"] += 1
+            continue
+        dedup_key = str(signal["dedup_key"])
+        event_id = _stable_id("evt", dedup_key)
+        if event_id in state.setdefault("events", {}):
+            stats["skipped"] += 1
+            continue
+        event = {
+            "id": event_id,
+            "type": signal["type"],
+            "source": str(signal.get("source") or "schedule_collector"),
+            "dedup_key": dedup_key,
+            "subject_ids": signal.get("subject_ids") or [],
+            "payload": copy.deepcopy(signal),
+            "occurred_at": int(signal.get("occurred_at") or now),
+            "created_at": now,
+            "updated_at": now,
+        }
+        state["events"][event_id] = event
+        stats["events_created"] += 1
+        run_id = _stable_id("run", event_id)
+        run = {
+            "id": run_id,
+            "event_id": event_id,
+            "status": "created",
+            "intent": str(signal["type"]),
+            "trigger_origin": str(signal.get("source") or "scheduled_collector"),
+            "reason": "",
+            "created_at": now,
+            "updated_at": now,
+        }
+        state.setdefault("runs", {})[run_id] = run
+        stats["runs_created"] += 1
+        _observation(state, run_id, "created", "event_ingested", now, event_id=event_id, dedup_key=dedup_key)
+
+        allowed_type = bool((preferences.get("types") or {}).get(str(signal["type"]), True))
+        allowed = bool(preferences.get("enabled")) and allowed_type and preferences.get("autonomy_mode") != "observe"
+        reason = ""
+        if not preferences.get("enabled"):
+            reason = "proactive_disabled"
+        elif preferences.get("autonomy_mode") == "observe":
+            reason = "observe_only"
+        elif not allowed_type:
+            reason = "notification_type_disabled"
+        elif (
+            not memory_refresh
+            and str(signal.get("priority") or "normal") != "high"
+            and daily_count >= int(preferences.get("daily_limit") or 0)
+        ):
+            allowed = False
+            reason = "daily_limit_reached"
+        _observation(state, run_id, "policy_checked", "notification_policy", now, allowed=allowed, reason=reason)
+        if not allowed:
+            run.update({"status": "skipped", "reason": reason, "updated_at": now})
+            stats["skipped"] += 1
+            continue
+
+        notification_id = _stable_id("ntf", dedup_key)
+        snoozed_until = _quiet_until(preferences, now)
+        notification = {
+            "id": notification_id,
+            "event_id": event_id,
+            "run_id": run_id,
+            "type": str(signal["type"]),
+            "title": str(signal.get("title") or "主动提醒"),
+            "body": str(signal.get("detail") or ""),
+            "reason": str(signal.get("detail") or ""),
+            "action_prompt": str(signal.get("action") or ""),
+            "priority": str(signal.get("priority") or "normal"),
+            "evidence": copy.deepcopy(signal.get("evidence") or {}),
+            "status": "snoozed" if snoozed_until else "unread",
+            "version": 1,
+            "snoozed_until": snoozed_until or None,
+            "read_at": None,
+            "dismissed_at": None,
+            "expires_at": int(signal.get("expires_at") or 0) or None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        state.setdefault("notifications", {})[notification_id] = notification
+        placed, replaced = _place_in_reminder_window(
+            state, notification, now, memory_refresh=memory_refresh,
+        )
+        if not placed:
+            stats["window_queued"] += 1
+            run.update({"status": "succeeded", "reason": "notification_queued", "updated_at": now})
+            _observation(
+                state, run_id, "succeeded", "notification_queued", now,
+                notification_id=notification_id,
+            )
+        if not memory_refresh:
+            daily_count += 1
+        stats["notifications_created"] += 1
+        if replaced:
+            stats["window_replaced"] += 1
+        run.update({"status": "succeeded", "reason": "notification_created", "updated_at": now})
+        _observation(state, run_id, "succeeded", "notification_created", now, notification_id=notification_id)
+    return stats
+
+
+def ingest_workspace_signal(
+    state: dict[str, Any], *, signal_type: str, dedup_key: str, payload: dict[str, Any], now: int,
+) -> tuple[dict[str, Any], bool]:
+    allowed = {
+        "file_uploaded", "image_generated", "calendar_changed",
+        "route_changed", "preference_changed", "browser_location_weather",
+    }
+    normalized_type = str(signal_type or "")
+    if normalized_type not in allowed:
+        raise ValueError("不支持的工作区信号类型")
+    normalized_key = str(dedup_key or "").strip()
+    if not normalized_key:
+        raise ValueError("工作区信号缺少去重键")
+    event_id = _stable_id("evt", f"{normalized_type}:{normalized_key}")
+    existing = state.setdefault("events", {}).get(event_id)
+    if isinstance(existing, dict):
+        return copy.deepcopy(existing), False
+    event = {
+        "id": event_id,
+        "type": normalized_type,
+        "source": "workspace",
+        "dedup_key": normalized_key,
+        "subject_ids": [],
+        "payload": copy.deepcopy(payload),
+        "occurred_at": now,
+        "created_at": now,
+        "updated_at": now,
+    }
+    state["events"][event_id] = event
+    run_id = _stable_id("run", event_id)
+    state.setdefault("runs", {})[run_id] = {
+        "id": run_id,
+        "event_id": event_id,
+        "status": "succeeded",
+        "intent": normalized_type,
+        "trigger_origin": "workspace_change",
+        "reason": "signal_persisted",
+        "created_at": now,
+        "updated_at": now,
+    }
+    _observation(state, run_id, "succeeded", "workspace_signal_persisted", now, event_id=event_id)
+    return copy.deepcopy(event), True
+
+
+async def run_proactive_tick(
+    store: Any,
+    now: int | None = None,
+    env: dict[str, Any] | None = None,
+    user_id: str = "",
+    memory_signals: list[dict[str, Any]] | None = None,
+    memory_checked: bool = False,
+    collect_scheduled: bool = True,
+    semantic_model: Any = None,
+) -> tuple[dict[str, Any], dict[str, int]]:
+    user_id = required_user_id(user_id)
+    timestamp = int(now or time.time())
+    state = await load_proactive_state(store, user_id)
+    last_tick = state.get("last_tick") or {}
+    if timestamp - int(last_tick.get("started_at") or 0) < 60:
+        return state, {
+            "throttled": 1, "signals": 0, "events_created": 0,
+            "runs_created": 0, "notifications_created": 0,
+            "window_replaced": 0, "skipped": 0,
+        }
+    lease = state.get("tick_lease") or {}
+    if int(lease.get("until") or 0) > timestamp:
+        return state, {
+            "locked": 1, "signals": 0, "events_created": 0,
+            "runs_created": 0, "notifications_created": 0,
+            "window_replaced": 0, "skipped": 0,
+        }
+    lease_owner = f"tick_{uuid.uuid4().hex}"
+    state["tick_lease"] = {"owner": lease_owner, "until": timestamp + 120, "acquired_at": timestamp}
+    state = await save_proactive_state(store, state, user_id)
+    recovered_actions: list[dict[str, Any]] = []
+    schedules: list[dict[str, Any]] = []
+    signals: list[dict[str, Any]] = []
+    provider_diagnostics: dict[str, Any] = {
+        "weather_checked": 0,
+        "routes_checked": 0,
+        "weather_facts": [],
+        "route_facts": [],
+        "errors": [],
+    }
+    if collect_scheduled:
+        workspace = await load_user_workspace(store, user_id=user_id)
+        recovered_actions = recover_stale_actions(workspace, timestamp)
+        if recovered_actions:
+            await save_user_workspace(store, workspace, user_id)
+        preferences = _merge_preferences(state.get("preferences"))
+        schedules = list((workspace.get("schedules") or {}).values())
+        signals = collect_schedule_signals(schedules, timestamp, int(preferences["lookahead_hours"]))
+        signals.extend(collect_workflow_signals(state, timestamp))
+        provider_signals, provider_diagnostics = await collect_provider_signals(
+            env or {},
+            schedules,
+            timestamp,
+            int(preferences["lookahead_hours"]),
+            preferences,
+            semantic_model,
+        )
+        # Realtime weather uses geocoding plus weather (two Tencent requests);
+        # a successful Tencent route contributes one route request. Fallback
+        # OSM routes are intentionally excluded from the Tencent counter.
+        tencent_route_calls = sum(
+            1 for fact in provider_diagnostics.get("route_facts", [])
+            if str(fact.get("provider") or "") == "tencent"
+        )
+        tencent_map_calls = int(provider_diagnostics.get("weather_checked") or 0) * 2 + tencent_route_calls
+        if tencent_map_calls:
+            await record_provider_usage(
+                store,
+                user_id,
+                "tencent_maps",
+                "requests",
+                tencent_map_calls,
+                source="proactive_tick",
+            )
+        signals.extend(provider_signals)
+    stats = process_schedule_signals(state, signals, timestamp)
+    if memory_signals:
+        memory_stats = process_schedule_signals(state, memory_signals, timestamp)
+        for key, value in memory_stats.items():
+            stats[key] = int(stats.get(key) or 0) + int(value or 0)
+    for fact in provider_diagnostics.get("weather_facts", []):
+        _observation(
+            state,
+            _stable_id("run", f"weather:{fact.get('schedule_id')}:{timestamp}"),
+            "observed",
+            "weather_checked",
+            timestamp,
+            **copy.deepcopy(fact),
+        )
+    for fact in provider_diagnostics.get("route_facts", []):
+        _observation(
+            state,
+            _stable_id(
+                "run",
+                f"route:{fact.get('previous_schedule_id')}:{fact.get('current_schedule_id')}:{timestamp}",
+            ),
+            "observed",
+            "route_checked",
+            timestamp,
+            **copy.deepcopy(fact),
+        )
+    stats["actions_reconciliation_required"] = len(recovered_actions)
+    if collect_scheduled:
+        state["checkpoints"]["schedule_collector"] = {
+            "last_scan_at": timestamp,
+            "schedule_count": len(schedules),
+            "signal_count": len(signals),
+            "provider": provider_diagnostics,
+        }
+    if memory_checked:
+        state["checkpoints"]["memory_window_scan"] = {
+            "checked_at": timestamp,
+            "candidate_created": bool(memory_signals),
+            "window_size": len(_normalize_reminder_window(state, timestamp)),
+        }
+    state["last_tick"] = {"started_at": timestamp, "finished_at": int(time.time()), "stats": stats}
+    state["tick_lease"] = None
+    saved = await save_proactive_state(store, state, user_id)
+    return saved, stats
+
+
+def public_proactive_state(state: dict[str, Any], now: int | None = None) -> dict[str, Any]:
+    timestamp = int(now or time.time())
+    window = _normalize_reminder_window(state, timestamp)
+    notifications = [
+        copy.deepcopy(state.get("notifications", {}).get(notification_id))
+        for notification_id in window
+        if isinstance(state.get("notifications", {}).get(notification_id), dict)
+    ]
+    for item in notifications:
+        snoozed_until = int(item.get("snoozed_until") or 0)
+        if item.get("status") == "snoozed" and snoozed_until <= timestamp:
+            item["status"] = "unread"
+            item["snoozed_until"] = None
+    runs = sorted(state.get("runs", {}).values(), key=lambda item: int(item.get("updated_at") or 0), reverse=True)[:50]
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "revision": int(state.get("revision") or 0),
+        "preferences": copy.deepcopy(state.get("preferences") or default_preferences()),
+        "notifications": notifications,
+        "workflows": copy.deepcopy(sorted(
+            state.get("workflows", {}).values(),
+            key=lambda item: int(item.get("updated_at") or 0),
+            reverse=True,
+        )[:100]),
+        "runs": copy.deepcopy(runs),
+        "checkpoints": copy.deepcopy(state.get("checkpoints") or {}),
+        "last_tick": copy.deepcopy(state.get("last_tick")),
+    }
+
+
+def update_preferences(state: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        key: changes[key]
+        for key in (
+            "autonomy_mode", "timezone", "daily_limit",
+            "lookahead_hours", "window_limit", "quiet_hours", "types",
+            "fallback_mottos", "provider_schedule_limit", "route_gap_hours",
+            "travel_buffer_minutes",
+        )
+        if key in changes
+    }
+    merged = copy.deepcopy(state.get("preferences") or {})
+    merged.update(allowed)
+    state["preferences"] = _merge_preferences(merged)
+    return state["preferences"]
+
+
+def mutate_notification(state: dict[str, Any], notification_id: str, operation: str, now: int, until: int = 0) -> dict[str, Any]:
+    notification = state.get("notifications", {}).get(notification_id)
+    if not isinstance(notification, dict):
+        raise ValueError("提醒不存在")
+    if operation == "mark_read":
+        notification["status"] = "read"
+        notification["read_at"] = notification.get("read_at") or now
+    elif operation == "dismiss":
+        notification["status"] = "dismissed"
+        notification["dismissed_at"] = now
+    elif operation == "snooze":
+        target = int(until or now + 3600)
+        if target <= now:
+            raise ValueError("稍后提醒时间必须晚于当前时间")
+        notification["status"] = "snoozed"
+        notification["snoozed_until"] = target
+    else:
+        raise ValueError("不支持的提醒操作")
+    if operation in {"mark_read", "dismiss"}:
+        state["reminder_window"] = [
+            item_id for item_id in _normalize_reminder_window(state, now)
+            if item_id != notification_id
+        ]
+    notification["version"] = int(notification.get("version") or 1) + 1
+    notification["updated_at"] = now
+    return copy.deepcopy(notification)

@@ -8,7 +8,7 @@ from typing import Any, Mapping
 from agents._application.search.ports import MediaCallback
 from agents._application.search.search_use_case import SearchExecution, SearchRequest
 from agents._domain.search.evidence import ReviewedMedia, SearchEvidence, SearchSource
-from agents._shared.rich_search import rich_search as provider_rich_search
+from agents._infrastructure.providers.rich_search import rich_search as provider_rich_search
 
 
 def _to_evidence(metadata: Mapping[str, Any]) -> SearchEvidence:

@@ -43,10 +43,10 @@ test('runtime is pure multi-user with signed sessions and tenant-scoped storage'
   ] = await Promise.all([
     read('auth/current-user.js'),
     read('auth/session.js'),
-    read('agents/_shared/auth.py'),
-    read('agents/_shared/workspace.py'),
-    read('agents/_shared/proactive.py'),
-    read('agents/_shared/intelligence.py'),
+    read('agents/_infrastructure/makers/identity.py'),
+    read('agents/_application/workspace/service.py'),
+    read('agents/_application/proactive/service.py'),
+    read('agents/_application/intelligence/service.py'),
     read('frontend/src/store/appState.ts'),
     read('package.json'),
     read('db/migrations/001_identity_and_entitlements.sql'),
@@ -202,12 +202,12 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
 
 test('Tencent Meeting uses only the optional user-connected official MCP Skill', async () => {
   const [provider, tools, envExample, skillsApi, manifest, registry] = await Promise.all([
-    read('agents/_shared/side_effects.py'),
+    read('agents/_infrastructure/providers/side_effects.py'),
     read('agents/_infrastructure/skills/builtin_operations.py'),
     read('.env.example'),
     read('frontend/src/services/api.ts'),
     read('agents/skill_packages/tencent-meeting/floris.json'),
-    read('agents/_shared/skill_registry.py'),
+    read('agents/_application/skills/registry.py'),
   ]);
   assert.match(provider, /mcp\.meeting\.tencent\.com/);
   assert.match(provider, /X-Tencent-Meeting-Token/);
@@ -234,7 +234,7 @@ test('settings and Skills open on lightweight configuration reads', async () => 
     read('cloud-functions/library/index.js'),
     read('frontend/src/services/paperApi.ts'),
     read('frontend/src/components/chat/InputBar.tsx'),
-    read('agents/_shared/skill_registry.py'),
+    read('agents/_application/skills/registry.py'),
     read('frontend/src/index.css'),
     read('frontend/src/components/common/Header.tsx'),
   ]);
@@ -310,7 +310,7 @@ test('runtime does not reimplement generic tracing, queue or cron services', asy
   const [system, tick, proactive, skillRuntime, adapters] = await Promise.all([
     read('agents/system_internal/index.py'),
     read('cloud-functions/proactive-tick/index.js'),
-    read('agents/_shared/proactive.py'),
+    read('agents/_application/proactive/service.py'),
     read('agents/_application/skills/runtime_ports.py'),
     Promise.all([
       'core',

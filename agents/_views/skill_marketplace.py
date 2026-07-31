@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from .._shared.http import response
+from .._infrastructure.http import response
 
 
 def marketplace_view(

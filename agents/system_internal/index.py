@@ -6,10 +6,10 @@ import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-from .._shared.auth import require_user
-from .._shared.intelligence import load_intelligence_state, usage_summary
-from .._shared.proactive import load_proactive_state
-from .._shared.workspace import load_user_workspace
+from .._infrastructure.makers.identity import require_user
+from .._application.intelligence.service import load_intelligence_state, usage_summary
+from .._application.proactive.service import load_proactive_state
+from .._application.workspace.service import load_user_workspace
 
 
 BEIJING = timezone(timedelta(hours=8))

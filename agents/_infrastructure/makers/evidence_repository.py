@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from agents._application.search.ports import EvidenceRecord
 from agents._domain.search.evidence import SearchEvidence
-from agents._shared.evidence_cache import (
+from agents._infrastructure.makers.evidence_cache import (
     load_search_evidence,
     save_search_evidence,
 )

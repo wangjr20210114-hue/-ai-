@@ -8,8 +8,8 @@ import time
 import uuid
 from datetime import datetime
 
-from .._shared.side_effects import create_tencent_meeting, generate_image, resolve_image_reference
-from .._shared.proactive import (
+from .._infrastructure.providers.side_effects import create_tencent_meeting, generate_image, resolve_image_reference
+from .._application.proactive.service import (
     collect_provider_signals,
     collect_schedule_signals,
     ingest_workspace_signal,
@@ -18,12 +18,12 @@ from .._shared.proactive import (
     reconcile_schedule_notifications,
     save_proactive_state,
 )
-from .._shared.auth import require_user, scoped_conversation_id
-from .._shared.intelligence import load_intelligence_state, skill_runtime_env
-from .._shared.http import error
-from .._shared.skill_registry import skill_manifest, unavailable_skills_for_action
-from .._shared.entitlements import effective_skill_preferences
-from .._shared.workspace import (
+from .._infrastructure.makers.identity import require_user, scoped_conversation_id
+from .._application.intelligence.service import load_intelligence_state, skill_runtime_env
+from .._infrastructure.http import error
+from .._application.skills.registry import skill_manifest, unavailable_skills_for_action
+from .._domain.entitlements.policy import effective_skill_preferences
+from .._application.workspace.service import (
     active_map_payload,
     apply_calendar_changes,
     apply_calendar_changes_best_effort,

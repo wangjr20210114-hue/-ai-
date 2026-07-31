@@ -4,9 +4,9 @@ import json
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from agents._shared.intelligence import normalize_map_preferences
-from agents._shared.tencent_location import plan_verified_route
-from agents._shared.workspace import (
+from agents._application.intelligence.service import normalize_map_preferences
+from agents._infrastructure.providers.tencent_location import plan_verified_route
+from agents._application.workspace.service import (
     WorkspaceConflictError,
     apply_calendar_changes,
     apply_calendar_changes_best_effort,
@@ -104,11 +104,11 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
         failure = RuntimeError("Tencent unavailable")
         with (
             patch(
-                "agents._shared.tencent_location.plan_driving_route",
+                "agents._infrastructure.providers.tencent_location.plan_driving_route",
                 new=AsyncMock(side_effect=failure),
             ) as tencent,
             patch(
-                "agents._shared.tencent_location._get_public",
+                "agents._infrastructure.providers.tencent_location._get_public",
                 new=AsyncMock(),
             ) as public_provider,
         ):

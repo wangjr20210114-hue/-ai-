@@ -10,7 +10,7 @@ from agents._models.search_evidence import (
     force_refresh_requested,
     search_evidence_key,
 )
-from agents._shared.evidence_cache import (
+from agents._infrastructure.makers.evidence_cache import (
     get_or_compute_search_evidence,
     load_search_evidence,
     save_search_evidence,

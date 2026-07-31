@@ -8,8 +8,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import agents._shared.skill_registry as registry_module
-from agents._shared.skill_registry import (
+import agents._application.skills.registry as registry_module
+from agents._application.skills.registry import (
     SkillRuntimeContext,
     build_adapter_tools,
     default_skill_preferences,
@@ -24,7 +24,7 @@ from agents._shared.skill_registry import (
     tool_skill_map,
     unavailable_skills_for_action,
 )
-from agents._shared.intelligence import (
+from agents._application.intelligence.service import (
     configure_skill_connection,
     empty_intelligence_state,
     public_skill_connections,
@@ -90,7 +90,7 @@ class SkillRegistryContractTests(unittest.TestCase):
         with patch.object(
             registry_module,
             "__package__",
-            "pages_agents._shared",
+            "pages_agents._application.skills",
         ):
             self.assertEqual(
                 registry_module._runtime_module_name(
@@ -117,7 +117,7 @@ class SkillRegistryContractTests(unittest.TestCase):
         for manifest in skill_manifests():
             with self.subTest(skill=manifest.id):
                 package_path = (
-                    Path(registry_module.__file__).resolve().parents[1]
+                    Path(registry_module.__file__).resolve().parents[2]
                     / manifest.package_path
                 )
                 self.assertTrue((package_path / "SKILL.md").is_file())
@@ -248,7 +248,7 @@ class SkillRegistryContractTests(unittest.TestCase):
         model = object()
         try:
             with patch(
-                "agents._shared.skill_registry.skill_manifests",
+                "agents._application.skills.registry.skill_manifests",
                 return_value=(manifest,),
             ):
                 tools = build_adapter_tools(

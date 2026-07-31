@@ -73,22 +73,22 @@ from agents._infrastructure.skills.builtin_operations import (
 )
 from agents.chat._protocol import PublicStreamFilter, StreamDeltaNormalizer, action_fallback_content, checkpoint_recovery_needed, dsml_tool_calls, public_content, public_error, safe_error_diagnostics
 from agents.messages.index import handler as messages_handler
-from agents._shared.side_effects import (
+from agents._infrastructure.providers.side_effects import (
     _cloudflare_image_prompt,
     _post_cloudflare_image,
     _post_image_v3,
     _post_tencent_meeting_mcp,
     generate_image,
 )
-from agents._shared.vision import (
+from agents._infrastructure.providers.vision import (
     VisionProvider,
     _post_completion,
     describe_reference_images,
     vision_providers,
 )
-from agents._shared.auth import require_user, scoped_conversation_id
-from agents._shared.data_version import CONVERSATION_PREFIX
-from agents._shared.rich_search import (
+from agents._infrastructure.makers.identity import require_user, scoped_conversation_id
+from agents._infrastructure.makers.data_version import CONVERSATION_PREFIX
+from agents._infrastructure.providers.rich_search import (
     _filter_for_target_date,
     _parse_pages,
     _review_image,
@@ -97,21 +97,21 @@ from agents._shared.rich_search import (
     evidence_for_model,
     rich_search as run_rich_search,
 )
-from agents._shared.arxiv import (
+from agents._infrastructure.providers.arxiv import (
     _best_title_match,
     _canonical_arxiv_id,
     _dblp_profile,
     _search_openalex_sync,
     search_arxiv,
 )
-from agents._shared.tencent_location import (
+from agents._infrastructure.providers.tencent_location import (
     decode_polyline,
     place_distance_meters,
     reverse_geocode,
     search_verified_places,
     search_verified_places_nearby,
 )
-from agents._shared.workspace import (
+from agents._application.workspace.service import (
     apply_calendar_changes,
     calendar_change_warnings,
     begin_action_execution,
@@ -131,7 +131,7 @@ from agents._shared.workspace import (
     verify_action_snapshot,
     validate_calendar_change_window,
 )
-from agents._shared.proactive import (
+from agents._application.proactive.service import (
     classify_weather_risk,
     collect_schedule_signals,
     collect_workflow_signals,
@@ -148,7 +148,7 @@ from agents._shared.proactive import (
     update_preferences,
     ingest_workspace_signal,
 )
-from agents._shared.intelligence import (
+from agents._application.intelligence.service import (
     apply_automatic_memory_candidates,
     confirm_memory,
     confirmed_memory_context,
@@ -163,7 +163,7 @@ from agents._shared.intelligence import (
     save_intelligence_state,
     usage_summary,
 )
-from agents._shared.proactive_memory import infer_memory_reminder
+from agents._application.proactive.memory import infer_memory_reminder
 from agents.workspace.index import handler
 from agents._tests.auth_helpers import (
     TEST_USER_ID,
@@ -1338,7 +1338,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             {"type": "ai", "content": "## 故宫历史", "id": "a1"},
         ]
         langgraph_store = FakeStore()
-        from agents._shared.data_version import namespace as data_namespace
+        from agents._infrastructure.makers.data_version import namespace as data_namespace
         await langgraph_store.aput(
             data_namespace(
                 "message_meta",
@@ -2447,7 +2447,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     def test_usage_budget_summary_is_date_bounded(self):
         state = empty_intelligence_state()
-        with patch("agents._shared.intelligence.time.time", return_value=1_800_000_000):
+        with patch("agents._application.intelligence.service.time.time", return_value=1_800_000_000):
             record_usage(state, 10, 5, 15, "chat")
         summary = usage_summary(state, 1_800_000_000)
         self.assertEqual(summary["daily_tokens"], 15)
@@ -4875,7 +4875,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             },
         ]}
         with patch(
-            "agents._shared.tencent_location._get",
+            "agents._infrastructure.providers.tencent_location._get",
             new=AsyncMock(return_value=response),
         ) as request:
             places = await search_verified_places_nearby(
@@ -4903,7 +4903,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "ad_info": {"city": "北京市"},
         }]}
         with patch(
-            "agents._shared.tencent_location._get",
+            "agents._infrastructure.providers.tencent_location._get",
             new=AsyncMock(return_value=response),
         ):
             places = await search_verified_places_nearby(
@@ -4917,9 +4917,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_place_search_falls_back_when_primary_results_do_not_match_query(self):
         target = {**PLACE, "place_id": "osm:lake", "name": "查干湖", "provider": "openstreetmap"}
-        with patch("agents._shared.tencent_location.search_places", new=AsyncMock(return_value=[PLACE])), \
-             patch("agents._shared.tencent_location.search_place_suggestions", new=AsyncMock(return_value=[])), \
-             patch("agents._shared.tencent_location.search_osm_places", new=AsyncMock(return_value=[target])) as fallback:
+        with patch("agents._infrastructure.providers.tencent_location.search_places", new=AsyncMock(return_value=[PLACE])), \
+             patch("agents._infrastructure.providers.tencent_location.search_place_suggestions", new=AsyncMock(return_value=[])), \
+             patch("agents._infrastructure.providers.tencent_location.search_osm_places", new=AsyncMock(return_value=[target])) as fallback:
             places = await search_verified_places("map-key", "查干湖")
         self.assertEqual(places[0]["name"], "查干湖")
         fallback.assert_awaited_once()
@@ -4931,9 +4931,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "name": "TRB Hutong",
             "address": "北京市东城区沙滩北街23号",
         }
-        with patch("agents._shared.tencent_location.search_places", new=AsyncMock(return_value=[primary])), \
-             patch("agents._shared.tencent_location.search_place_suggestions", new=AsyncMock(return_value=[primary])), \
-             patch("agents._shared.tencent_location.search_osm_places", new=AsyncMock(return_value=[])) as fallback:
+        with patch("agents._infrastructure.providers.tencent_location.search_places", new=AsyncMock(return_value=[primary])), \
+             patch("agents._infrastructure.providers.tencent_location.search_place_suggestions", new=AsyncMock(return_value=[primary])), \
+             patch("agents._infrastructure.providers.tencent_location.search_osm_places", new=AsyncMock(return_value=[])) as fallback:
             places = await search_verified_places("map-key", "TRB Hutong北京胡同创意西餐厅", city="北京")
         self.assertEqual(places[0]["place_id"], "tencent:trb-hutong")
         fallback.assert_not_awaited()
@@ -4952,13 +4952,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "address": "北京市朝阳区三里屯路19号",
         }
         with patch(
-            "agents._shared.tencent_location.search_places",
+            "agents._infrastructure.providers.tencent_location.search_places",
             new=AsyncMock(return_value=[generic, restaurant]),
         ), patch(
-            "agents._shared.tencent_location.search_place_suggestions",
+            "agents._infrastructure.providers.tencent_location.search_place_suggestions",
             new=AsyncMock(return_value=[]),
         ), patch(
-            "agents._shared.tencent_location.search_osm_places",
+            "agents._infrastructure.providers.tencent_location.search_osm_places",
             new=AsyncMock(return_value=[]),
         ) as fallback:
             places = await search_verified_places("map-key", "BOTTEGA意库三里屯", city="北京")
@@ -4977,13 +4977,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "category": "地名地址:行政地名",
         }
         with patch(
-            "agents._shared.tencent_location.search_places",
+            "agents._infrastructure.providers.tencent_location.search_places",
             new=AsyncMock(return_value=[generic]),
         ), patch(
-            "agents._shared.tencent_location.search_place_suggestions",
+            "agents._infrastructure.providers.tencent_location.search_place_suggestions",
             new=AsyncMock(return_value=[]),
         ), patch(
-            "agents._shared.tencent_location.search_osm_places",
+            "agents._infrastructure.providers.tencent_location.search_osm_places",
             new=AsyncMock(return_value=[]),
         ) as fallback:
             places = await search_verified_places("map-key", "BOTTEGA意库三里屯", city="北京")
@@ -5214,7 +5214,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             },
         }
         with patch(
-            "agents._shared.tencent_location._get",
+            "agents._infrastructure.providers.tencent_location._get",
             new=AsyncMock(return_value=response),
         ) as provider:
             result = await reverse_geocode("map-key", {
@@ -5241,7 +5241,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     def test_vision_review_uses_multimodal_model_and_dedicated_tokenhub_key(self):
         response = {"choices": [{"message": {"content": '{"description":"发布会现场","relevant":true}'}}]}
-        with patch("agents._shared.rich_search._json_request", return_value=response) as request:
+        with patch("agents._infrastructure.providers.rich_search._json_request", return_value=response) as request:
             description, outcome = _review_image(
                 {"HUNYUAN_IMAGE_API_KEY": "vision-key"},
                 {"url": "https://example.com/news.jpg", "context": "AI 发布会"},
@@ -5263,7 +5263,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             {"url": "https://example.com/2.jpg", "source_url": "https://source.example/2", "source_title": "二", "context": "广告"},
         ]
         with patch(
-            "agents._shared.rich_search.vision_completion",
+            "agents._infrastructure.providers.rich_search.vision_completion",
             new=AsyncMock(side_effect=responses),
         ) as request:
             reviewed, diagnostics = await _vision_filter({"HUNYUAN_IMAGE_API_KEY": "vision-key"}, "AI 新闻", candidates)
@@ -5283,7 +5283,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             for index in range(1, 7)
         ]
         with patch(
-            "agents._shared.rich_search.vision_completion",
+            "agents._infrastructure.providers.rich_search.vision_completion",
             new=AsyncMock(return_value=(response, {"provider": "hunyuan"})),
         ) as request:
             reviewed, diagnostics = await _vision_filter(
@@ -5308,7 +5308,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             for index in range(1, 11)
         ]
         with patch(
-            "agents._shared.rich_search.vision_completion",
+            "agents._infrastructure.providers.rich_search.vision_completion",
             new=AsyncMock(return_value=(response, {"provider": "hunyuan"})),
         ) as request:
             reviewed, diagnostics = await _vision_filter(
@@ -5333,7 +5333,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "promotional": True,
         }, ensure_ascii=False)
         with patch(
-            "agents._shared.rich_search.vision_completion",
+            "agents._infrastructure.providers.rich_search.vision_completion",
             new=AsyncMock(return_value=(response, {"provider": "hunyuan"})),
         ):
             reviewed, diagnostics = await _vision_filter(
@@ -5372,7 +5372,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             ensure_ascii=False,
         )
         with patch(
-            "agents._shared.rich_search.vision_completion",
+            "agents._infrastructure.providers.rich_search.vision_completion",
             new=AsyncMock(return_value=(response, {"provider": "hunyuan"})),
         ) as request:
             reviewed, diagnostics = await _vision_filter(
@@ -5415,7 +5415,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "promotional": False,
         }, ensure_ascii=False)
         with patch(
-            "agents._shared.rich_search.vision_completion",
+            "agents._infrastructure.providers.rich_search.vision_completion",
             new=AsyncMock(return_value=(response, {"provider": "hunyuan"})),
         ) as request:
             await _vision_filter(
@@ -5453,16 +5453,16 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "pdf_url": "https://publisher.example/paper.pdf",
         }
         with patch(
-            "agents._shared.arxiv._search_arxiv_sync",
+            "agents._infrastructure.providers.arxiv._search_arxiv_sync",
             return_value=[],
         ), patch(
-            "agents._shared.arxiv._search_dblp_sync",
+            "agents._infrastructure.providers.arxiv._search_dblp_sync",
             return_value=[],
         ), patch(
-            "agents._shared.arxiv._search_openalex_sync",
+            "agents._infrastructure.providers.arxiv._search_openalex_sync",
             return_value=[],
         ), patch(
-            "agents._shared.arxiv._search_crossref_sync",
+            "agents._infrastructure.providers.arxiv._search_crossref_sync",
             return_value=[crossref_paper],
         ) as crossref:
             papers = await search_arxiv(
@@ -5482,7 +5482,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
     def test_dblp_identity_resolution_accepts_two_token_signature_order(self):
         verified_root = object()
         with patch(
-            "agents._shared.arxiv._dblp_profile_cached",
+            "agents._infrastructure.providers.arxiv._dblp_profile_cached",
             side_effect=[
                 ("", None),
                 ("14/6370-1", verified_root),
@@ -5542,7 +5542,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             },
         }]}
         with patch(
-            "agents._shared.arxiv.urllib.request.urlopen",
+            "agents._infrastructure.providers.arxiv.urllib.request.urlopen",
             side_effect=[Response(author_payload), Response(work_payload)],
         ):
             papers = _search_openalex_sync(
@@ -5770,19 +5770,19 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "source": "DBLP",
         }
         with patch(
-            "agents._shared.arxiv._lookup_arxiv_ids_sync",
+            "agents._infrastructure.providers.arxiv._lookup_arxiv_ids_sync",
             return_value=[verified],
         ) as exact_lookup, patch(
-            "agents._shared.arxiv._search_dblp_sync",
+            "agents._infrastructure.providers.arxiv._search_dblp_sync",
             return_value=[dblp],
         ), patch(
-            "agents._shared.arxiv._search_arxiv_sync",
+            "agents._infrastructure.providers.arxiv._search_arxiv_sync",
             return_value=[{"title": "Wrong Homonym"}],
         ) as broad_lookup, patch(
-            "agents._shared.arxiv._search_openalex_sync",
+            "agents._infrastructure.providers.arxiv._search_openalex_sync",
             return_value=[],
         ), patch(
-            "agents._shared.arxiv._search_crossref_sync",
+            "agents._infrastructure.providers.arxiv._search_crossref_sync",
             return_value=[],
         ) as crossref:
             papers = await search_arxiv(
@@ -5840,7 +5840,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             def __exit__(self, *_args): return None
             def read(self, _limit): return json.dumps(payload).encode("utf-8")
 
-        with patch("agents._shared.side_effects.urllib.request.urlopen", return_value=Response()) as opened:
+        with patch("agents._infrastructure.providers.side_effects.urllib.request.urlopen", return_value=Response()) as opened:
             result = _post_tencent_meeting_mcp(
                 {"TENCENT_MEETING_TOKEN": "secret"}, "产品周会",
                 "2026-07-21T15:00:00+08:00", "2026-07-21T16:00:00+08:00",
@@ -5873,7 +5873,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             def __exit__(self, *_args): return None
             def read(self, _limit): return json.dumps(payload).encode("utf-8")
 
-        with patch("agents._shared.side_effects.urllib.request.urlopen", return_value=Response()):
+        with patch("agents._infrastructure.providers.side_effects.urllib.request.urlopen", return_value=Response()):
             result = _post_tencent_meeting_mcp(
                 {"TENCENT_MEETING_TOKEN": "secret"}, "产品周会",
                 "2026-07-21T15:00:00+08:00", "2026-07-21T16:00:00+08:00",
@@ -5972,7 +5972,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         def request(*_args, **_kwargs):
             return {"Pages": []}
 
-        with patch("agents._shared.rich_search._json_request", side_effect=request) as provider:
+        with patch("agents._infrastructure.providers.rich_search._json_request", side_effect=request) as provider:
             result = await run_rich_search(
                 {"WSA_API_KEY": "test"}, "factual query", "visual query", "basic",
             )
@@ -5991,8 +5991,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "passage": "<p>报道</p><img src='http://img.example.com/hero.jpg'>",
         }
         with (
-            patch("agents._shared.rich_search._json_request", return_value={"Pages": [page]}),
-            patch("agents._shared.rich_search.collect_page_media", new=AsyncMock(return_value=[])),
+            patch("agents._infrastructure.providers.rich_search._json_request", return_value={"Pages": [page]}),
+            patch("agents._infrastructure.providers.rich_search.collect_page_media", new=AsyncMock(return_value=[])),
         ):
             result = await run_rich_search(
                 {"WSA_API_KEY": "test"}, "AI 新闻", "AI 发布会现场", "basic", image_limit=2,
@@ -6022,8 +6022,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "passage": "今天发布",
         }]
         with (
-            patch("agents._shared.rich_search._json_request", return_value={"Pages": pages}),
-            patch("agents._shared.rich_search.collect_page_media", new=AsyncMock(return_value=[])),
+            patch("agents._infrastructure.providers.rich_search._json_request", return_value={"Pages": pages}),
+            patch("agents._infrastructure.providers.rich_search.collect_page_media", new=AsyncMock(return_value=[])),
         ):
             result = await run_rich_search(
                 {"WSA_API_KEY": "test"},
@@ -6121,7 +6121,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,ZmFrZQ=="}},
         ]
         with patch(
-            "agents._shared.vision.urllib.request.urlopen",
+            "agents._infrastructure.providers.vision.urllib.request.urlopen",
             return_value=Response(),
         ) as urlopen:
             result = _post_completion(provider, content, 200, 2)
@@ -6134,7 +6134,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_user_reference_image_uses_multimodal_provider_once(self):
         with patch(
-            "agents._shared.vision.vision_completion",
+            "agents._infrastructure.providers.vision.vision_completion",
             new=AsyncMock(return_value=("一只戴红围巾的猫", {"provider": "cloudflare"})),
         ) as completion:
             description, diagnostics = await describe_reference_images(
@@ -6146,7 +6146,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_multiple_reference_images_use_one_hy_vision_request_each(self):
         with patch(
-            "agents._shared.vision.vision_completion",
+            "agents._infrastructure.providers.vision.vision_completion",
             new=AsyncMock(side_effect=[
                 ("第一张图片", {"provider": "hunyuan"}),
                 ("第二张图片", {"provider": "hunyuan"}),
@@ -6182,9 +6182,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             Response({"id": "job-1", "status": "completed", "data": [{"url": "https://example.com/generated.jpg"}]}),
         ]
         with patch(
-            "agents._shared.side_effects.urllib.request.urlopen",
+            "agents._infrastructure.providers.side_effects.urllib.request.urlopen",
             side_effect=responses,
-        ) as urlopen, patch("agents._shared.side_effects.time.sleep"):
+        ) as urlopen, patch("agents._infrastructure.providers.side_effects.time.sleep"):
             result = _post_image_v3(
                 "https://tokenhub.tencentmaas.com", "secret", "hy-image-v3.0", "蓝色圆点",
             )
@@ -6195,10 +6195,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
     async def test_hunyuan_v3_generation_persists_provider_result(self):
         env = {"HUNYUAN_IMAGE_API_KEY": "secret", "HUNYUAN_IMAGE_MODEL": "hy-image-v3.0"}
         with patch(
-            "agents._shared.side_effects._post_image_v3",
+            "agents._infrastructure.providers.side_effects._post_image_v3",
             return_value={"ok": True, "image_url": "https://example.com/generated.jpg", "model": "hy-image-v3.0"},
         ) as provider, patch(
-            "agents._shared.side_effects._persist_generated_image",
+            "agents._infrastructure.providers.side_effects._persist_generated_image",
             new=AsyncMock(return_value={"storage_key": "generated/test.jpg", "image_url": "/files?key=generated/test.jpg"}),
         ):
             result = await generate_image(
@@ -6216,13 +6216,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         }
         persisted = {"storage_key": "generated/test.jpg", "image_url": "/files?key=generated/test.jpg"}
         with patch(
-            "agents._shared.side_effects._cloudflare_image_prompt",
+            "agents._infrastructure.providers.side_effects._cloudflare_image_prompt",
             return_value="an orange cat",
         ) as translator, patch(
-            "agents._shared.side_effects._post_cloudflare_image",
+            "agents._infrastructure.providers.side_effects._post_cloudflare_image",
             return_value=(b"jpeg", "image/jpeg"),
         ) as provider, patch(
-            "agents._shared.side_effects._persist_generated_bytes",
+            "agents._infrastructure.providers.side_effects._persist_generated_bytes",
             new=AsyncMock(return_value=persisted),
         ):
             result = await generate_image(
@@ -6245,15 +6245,15 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "IMAGE_PROVIDER_ORDER": "cloudflare,hunyuan",
         }
         with patch(
-            "agents._shared.side_effects._cloudflare_image_prompt",
+            "agents._infrastructure.providers.side_effects._cloudflare_image_prompt",
             return_value="an orange cat",
         ), patch(
-            "agents._shared.side_effects._post_cloudflare_image",
+            "agents._infrastructure.providers.side_effects._post_cloudflare_image",
             return_value=(b"jpeg", "image/jpeg"),
         ) as cloudflare, patch(
-            "agents._shared.side_effects._post_image",
+            "agents._infrastructure.providers.side_effects._post_image",
         ) as hunyuan, patch(
-            "agents._shared.side_effects._persist_generated_bytes",
+            "agents._infrastructure.providers.side_effects._persist_generated_bytes",
             new=AsyncMock(return_value={"storage_key": "generated/test.jpg", "image_url": "/files?key=generated/test.jpg"}),
         ):
             result = await generate_image(
@@ -6271,13 +6271,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "IMAGE_PROVIDER_ORDER": "cloudflare,hunyuan",
         }
         with patch(
-            "agents._shared.side_effects._cloudflare_image_prompt",
+            "agents._infrastructure.providers.side_effects._cloudflare_image_prompt",
             side_effect=RuntimeError("translation response shape changed"),
         ), patch(
-            "agents._shared.side_effects._post_cloudflare_image",
+            "agents._infrastructure.providers.side_effects._post_cloudflare_image",
             return_value=(b"png", "image/png"),
         ) as cloudflare, patch(
-            "agents._shared.side_effects._persist_generated_bytes",
+            "agents._infrastructure.providers.side_effects._persist_generated_bytes",
             new=AsyncMock(return_value={
                 "storage_key": "generated/result.png",
                 "image_url": "/files?key=result",
@@ -6315,7 +6315,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 }).encode("utf-8")
 
         with patch(
-            "agents._shared.side_effects.urllib.request.urlopen",
+            "agents._infrastructure.providers.side_effects.urllib.request.urlopen",
             return_value=Response(),
         ) as urlopen:
             translated = _cloudflare_image_prompt(
@@ -6346,7 +6346,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 }).encode("utf-8")
 
         with patch(
-            "agents._shared.side_effects.urllib.request.urlopen",
+            "agents._infrastructure.providers.side_effects.urllib.request.urlopen",
             return_value=Response(),
         ) as urlopen:
             prompt = "An orange cat wearing a blue scarf."
@@ -6375,7 +6375,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 }).encode("utf-8")
 
         with patch(
-            "agents._shared.side_effects.urllib.request.urlopen",
+            "agents._infrastructure.providers.side_effects.urllib.request.urlopen",
             return_value=Response(),
         ) as urlopen:
             body, content_type = _post_cloudflare_image(
@@ -6401,10 +6401,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 return b"png"
 
         with patch(
-            "agents._shared.side_effects._reference_bytes",
+            "agents._infrastructure.providers.side_effects._reference_bytes",
             return_value=(b"source", "image/jpeg"),
         ), patch(
-            "agents._shared.side_effects.urllib.request.urlopen",
+            "agents._infrastructure.providers.side_effects.urllib.request.urlopen",
             return_value=Response(),
         ) as urlopen:
             body, content_type = _post_cloudflare_image(
@@ -6435,10 +6435,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
         failed = urllib.error.HTTPError("https://example.com", 422, "schema", {}, None)
         with patch(
-            "agents._shared.side_effects._reference_bytes",
+            "agents._infrastructure.providers.side_effects._reference_bytes",
             return_value=(b"source", "image/jpeg"),
         ), patch(
-            "agents._shared.side_effects.urllib.request.urlopen",
+            "agents._infrastructure.providers.side_effects.urllib.request.urlopen",
             side_effect=[failed, Response()],
         ) as urlopen:
             body, content_type = _post_cloudflare_image(
@@ -6472,10 +6472,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "result": base64.b64encode(b"jpeg").decode("ascii"),
         })
         with patch(
-            "agents._shared.side_effects._reference_bytes",
+            "agents._infrastructure.providers.side_effects._reference_bytes",
             return_value=(b"source", "image/jpeg"),
         ), patch(
-            "agents._shared.side_effects.urllib.request.urlopen",
+            "agents._infrastructure.providers.side_effects.urllib.request.urlopen",
             side_effect=[rejected, succeeded],
         ) as urlopen:
             body, content_type = _post_cloudflare_image(

@@ -18,7 +18,7 @@ from ._history import (
 )
 from ._protocol import action_fallback_content, dsml_tool_calls, public_content
 from ._capability_plan import next_required_tool
-from .._shared.skill_registry import skill_manifests, tool_skill_map
+from .._application.skills.registry import skill_manifests, tool_skill_map
 from ._llm import _is_quota_error, _is_transient_gateway_error
 
 

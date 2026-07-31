@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from .._models.skill_marketplace import decorate_catalog
-from .._shared.entitlements import effective_skill_preferences, public_entitlements
-from .._shared.intelligence import (
+from .._domain.entitlements.policy import effective_skill_preferences, public_entitlements
+from .._application.intelligence.service import (
     public_intelligence_state,
     public_skill_connections,
     skill_runtime_env,
 )
-from .._shared.skill_registry import public_skill_catalog
+from .._application.skills.registry import public_skill_catalog
 
 
 def public_intelligence_view(

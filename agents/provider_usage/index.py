@@ -8,9 +8,9 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from .._shared.auth import require_user
-from .._shared.intelligence import load_intelligence_state, usage_summary
-from .._shared.provider_metering import load_provider_metering_state, provider_metering_summary
+from .._infrastructure.makers.identity import require_user
+from .._application.intelligence.service import load_intelligence_state, usage_summary
+from .._infrastructure.makers.provider_usage_repository import load_provider_metering_state, provider_metering_summary
 
 
 DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance"

@@ -3,14 +3,14 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from agents._shared.opportunities import (
+from agents._application.proactive.opportunities import (
     detect_generated_image_opportunity,
     detect_opportunity,
     file_opportunity_signal,
     opportunity_signal,
     parse_opportunity,
 )
-from agents._shared.proactive import empty_proactive_state, process_schedule_signals, public_proactive_state
+from agents._application.proactive.service import empty_proactive_state, process_schedule_signals, public_proactive_state
 from agents.chat.index import _document_context
 
 

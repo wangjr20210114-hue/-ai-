@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 import unittest
 
-from agents._shared.skill_registry import (
+from agents._application.skills.registry import (
     locked_skill_ids,
     skill_manifests,
     tool_skill_map,

@@ -1,8 +1,8 @@
 """Stop endpoint — delegate cancellation to the Makers Agent runtime."""
 
-from .._shared.auth import require_user, scoped_conversation_id
-from .._shared.http import error
-from .._shared.makers_conversation import RUNNING_STATES, read_chat_run, write_chat_run
+from .._infrastructure.makers.identity import require_user, scoped_conversation_id
+from .._infrastructure.http import error
+from .._infrastructure.makers.conversation_repository import RUNNING_STATES, read_chat_run, write_chat_run
 
 async def handler(ctx):
     identity = require_user(ctx)

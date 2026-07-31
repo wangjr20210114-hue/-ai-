@@ -3,11 +3,11 @@
 import json
 import logging
 
-from .._shared.workspace import active_map_payload, image_versions, load_user_workspace, public_action
-from .._shared.auth import require_user, scoped_conversation_id
-from .._shared.data_version import namespace as data_namespace
-from .._shared.http import error
-from .._shared.makers_conversation import public_chat_run, read_chat_run
+from .._application.workspace.service import active_map_payload, image_versions, load_user_workspace, public_action
+from .._infrastructure.makers.identity import require_user, scoped_conversation_id
+from .._infrastructure.makers.data_version import namespace as data_namespace
+from .._infrastructure.http import error
+from .._infrastructure.makers.conversation_repository import public_chat_run, read_chat_run
 from ..chat._protocol import action_fallback_content, public_content
 
 

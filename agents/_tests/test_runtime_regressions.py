@@ -6,20 +6,20 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from agents._shared.makers_conversation import (
+from agents._infrastructure.makers.conversation_repository import (
     public_chat_run,
     read_chat_run,
     write_chat_run,
 )
-from agents._shared.http import error
-from agents._shared.proactive import collect_provider_signals
-from agents._shared.proactive import empty_proactive_state, process_schedule_signals
-from agents._shared.tencent_location import plan_driving_route
+from agents._infrastructure.http import error
+from agents._application.proactive.service import collect_provider_signals
+from agents._application.proactive.service import empty_proactive_state, process_schedule_signals
+from agents._infrastructure.providers.tencent_location import plan_driving_route
 from agents.proactive.index import handler as proactive_handler
 from agents.stop.index import handler as stop_handler
 from agents.system_internal.index import _expected_tick_after
 from agents.chat.index import run_cancelled
-from agents._shared.auth import scoped_conversation_id
+from agents._infrastructure.makers.identity import scoped_conversation_id
 from agents._tests.auth_helpers import TEST_USER_ID, authenticated_context
 
 
@@ -250,7 +250,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
                 "routes": [{"distance": 4824, "duration": 24, "polyline": []}],
             },
         }
-        with patch("agents._shared.tencent_location._get", AsyncMock(return_value=response)):
+        with patch("agents._infrastructure.providers.tencent_location._get", AsyncMock(return_value=response)):
             route = await plan_driving_route("key", places)
         self.assertEqual(route["duration_seconds"], 24 * 60)
         self.assertEqual(route["schema_version"], 2)
@@ -267,7 +267,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
             "toll": 0,
             "taxi_fare": {"fare": 50},
         }]}}
-        with patch("agents._shared.tencent_location._get", AsyncMock(return_value=response)):
+        with patch("agents._infrastructure.providers.tencent_location._get", AsyncMock(return_value=response)):
             route = await plan_driving_route("key", places)
         self.assertEqual(route["fare"]["self_driving"]["toll"], 0)
         self.assertEqual(route["fare"]["taxi"]["provider_estimate"], 50)
@@ -285,8 +285,8 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         route = {"provider": "tencent", "duration_seconds": 1800, "distance_meters": 5000}
         weather = {"weather": "晴", "temperature": 28, "humidity": 55}
         with (
-            patch("agents._shared.proactive.get_current_weather", AsyncMock(return_value=weather)),
-            patch("agents._shared.proactive.plan_verified_route", AsyncMock(return_value=route)),
+            patch("agents._application.proactive.service.get_current_weather", AsyncMock(return_value=weather)),
+            patch("agents._application.proactive.service.plan_verified_route", AsyncMock(return_value=route)),
         ):
             signals, diagnostics = await collect_provider_signals({"TENCENT_MAP_KEY": "key"}, schedules, now)
         self.assertEqual(len(diagnostics["weather_facts"]), 2)

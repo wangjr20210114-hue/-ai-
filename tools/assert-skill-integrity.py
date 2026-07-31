@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from agents._infrastructure.skills import build_system_skill_tools  # noqa: E402
-from agents._shared.skill_registry import (  # noqa: E402
+from agents._application.skills.registry import (  # noqa: E402
     SYSTEM_ADAPTER_PREFIX,
     locked_skill_ids,
     skill_manifests,

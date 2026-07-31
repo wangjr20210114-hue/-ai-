@@ -5,9 +5,9 @@ import time
 
 from ..chat._llm import get_model
 from ..chat._protocol import StreamDeltaNormalizer, public_error
-from .._shared.auth import require_user
-from .._shared.entitlements import require_skill_access
-from .._shared.http import error
+from .._infrastructure.makers.identity import require_user
+from .._domain.entitlements.policy import require_skill_access
+from .._infrastructure.http import error
 
 
 PROMPTS = {
