@@ -7,10 +7,6 @@ import type { ChatMessage, ClarificationPrompt, TravelPlan, SkillInfo, MeetingRe
 import type { ChatClient } from '../../../services/chatClient';
 import { proactiveOperation, workspaceOperation } from '../../../app/apiComposition';
 import TravelPlanCard from '../../../components/travel/TravelPlanCard';
-import PaperListCard from '../../../components/paper/PaperListCard';
-import PaperInlineReader from '../../../components/paper/PaperInlineReader';
-import ImageStudioCard from '../../../components/image/ImageStudioCard';
-import MarkdownRenderer from '../../../components/common/MarkdownRenderer';
 import { followUpDraftAction } from '../../../components/chat/followUps';
 import { generatedImageOpportunitySignal, nextWholeHourRange, usableMapPlaces } from '../../../components/chat/workspaceUi';
 import { hasTextSelectionInside } from '../../../components/chat/scrollSelection';
@@ -26,7 +22,10 @@ import { markdownToPlainText } from '../../../components/common/richContent';
 import { getStoredLanguage, translate, useLanguage } from '../../../i18n';
 import type { AssistantChainPosition } from '../../../components/chat/assistantMessageChain';
 import { requestRightWorkspaceOpen } from '../../../services/workspaceEvents';
-import { progressTranslationKey } from '../../../shared/ui/progressLabel';
+import { PaperRenderer } from './renderers/PaperRenderer';
+import { ProgressRenderer } from './renderers/ProgressRenderer';
+import { TextRenderer } from './renderers/TextRenderer';
+import { WorkspaceActionRenderer } from './renderers/WorkspaceActionRenderer';
 
 interface Props {
   message: ChatMessage;
@@ -347,30 +346,6 @@ function MeetingConfirmationCard({
         >{warnings.length ? t('acceptConflictsCreate') : t('createTencentMeeting')}</Button>
       </>}
       <Button size="small" variant="outline" disabled={busy} onClick={() => void onCancel()}>{t('cancel')}</Button>
-    </div>
-  </div>;
-}
-
-function ImageCreationProgress({ message }: { message: ChatMessage }) {
-  const { t } = useLanguage();
-  const reference = message.searchResults?.media?.[0];
-  const [step, setStep] = useState(0);
-  const steps = reference?.alt
-    ? [t('paintingReference', { name: `${reference.alt.slice(0, 28)}${reference.alt.length > 28 ? '…' : ''}` }), t('paintingCartoon'), t('paintingDetail'), t('paintingReveal')]
-    : [t('paintingUnderstand'), t('paintingCompose'), t('paintingDetail'), t('paintingReveal')];
-  useEffect(() => {
-    const timer = window.setInterval(() => setStep((value) => (value + 1) % steps.length), 1800);
-    return () => window.clearInterval(timer);
-  }, [steps.length]);
-  return <div className="image-generation-canvas">
-    <div className="image-generation-wash" style={reference?.url ? { backgroundImage: `url(${reference.url})` } : undefined}>
-      <div className="image-painting-overlay">
-        <span />
-        <div className="image-painting-copy" aria-live="polite">
-          <strong>{steps[step]}</strong>
-          <small>{t('paintingWait')}</small>
-        </div>
-      </div>
     </div>
   </div>;
 }
@@ -824,24 +799,6 @@ function MessageBubble({
     }
   };
 
-  const searchStatus = typeof message.skill?.data?.statusText === 'string'
-    ? message.skill.data.statusText
-    : t('understandingRequest');
-  const visibleProgress = (message.progress || [])
-    .filter((step) => step.stage !== 'complete')
-    .slice(-5);
-  const activeProgress = [...visibleProgress].reverse().find(
-    (step) => step.status === 'active',
-  ) || visibleProgress[visibleProgress.length - 1];
-  const progressStatus = message.content
-    ? (message.skill?.intent === 'search'
-      ? (message.searchResults?.media_pending
-        ? t('writingReviewing')
-        : t('organizingVerifiedAnswer'))
-      : t('organizingAnswer'))
-    : activeProgress
-      ? t(progressTranslationKey(activeProgress))
-      : searchStatus;
   const isImageCreation = Boolean(message.streaming && message.skill?.intent === 'image');
   const markdownRender = {
     content: publicAssistantMarkdown(
@@ -867,31 +824,8 @@ function MessageBubble({
           ) : (
             <>
               {/* 搜索动画 */}
-              {!isUser && message.streaming && (
-                isImageCreation ? <ImageCreationProgress message={message} /> : <div className="structured-progress-shell">
-                  <div className={`search-progress ${message.content ? 'has-content' : ''}`}>
-                    <div className="image-generating-spinner" />
-                    <span className="search-progress-status" title={progressStatus}>{progressStatus}</span>
-                    <span className="image-generating-dots"><span>.</span><span>.</span><span>.</span></span>
-                  </div>
-                  {!message.content && visibleProgress.length > 0 && (
-                    <ol className="structured-progress" aria-label={t('progressSafetyNote')} title={t('progressSafetyNote')}>
-                      {visibleProgress.map((step) => (
-                        <li
-                          key={`${step.stage}:${step.activity}`}
-                          className={`is-${step.status}`}
-                        >
-                          <span aria-hidden="true">
-                            {step.status === 'completed' ? '✓' : step.status === 'skipped' ? '–' : '•'}
-                          </span>
-                          {t(progressTranslationKey(step))}
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                </div>
-              )}
-              {markdownRender.content && <MarkdownRenderer
+              <ProgressRenderer message={message} />
+              {markdownRender.content && <TextRenderer
                 content={markdownRender.content}
                 searchMeta={markdownRender.searchMeta}
                 streaming={markdownRender.streaming}
@@ -942,81 +876,22 @@ function MessageBubble({
                   {retryingAnswer ? t('retrying') : t('retryGeneration')}
                 </button>
               )}
-              {!message.streaming && workspaceActions.map((action) => {
-                const busy = workspaceBusy === action.id;
-                if (action.kind === 'map_recommendation') {
-                  const calendarAlreadyProposed = workspaceActions.some(
-                    (item) => item.kind === 'calendar_changes',
-                  );
-                  return (
-                    <div className="workspace-map-actions" key={action.id}>
-                      <button
-                        type="button"
-                        className="workspace-map-action"
-                        disabled={busy || action.status === 'cancelled'}
-                        onClick={() => void handleWorkspaceAction(action, 'activate_map')}
-                      >
-                        {busy ? t('openingMap') : action.payload.action_text || t('viewPlacesOnMap')}
-                      </button>
-                      {action.payload.calendar_offer && !calendarAlreadyProposed && (
-                        <button
-                          type="button"
-                          className="workspace-map-action"
-                          disabled={generationActive || Boolean(workspaceBusy)}
-                          onClick={() => { void requestRouteCalendarProposal(action); }}
-                        >
-                          {workspaceBusy === `calendar:${action.id}` ? t('processing') : t('addSchedule')}
-                        </button>
-                      )}
-                    </div>
-                  );
-                }
-                if (action.kind === 'image_generate' && action.status !== 'awaiting_confirmation') {
-                  return (
-                    <ImageStudioCard
-                      key={action.id}
-                      action={action}
-                      conversationId={conversationId}
-                      onUpdated={replaceWorkspaceAction}
-                    />
-                  );
-                }
-                if (action.kind === 'meeting_create') {
-                  return <MeetingConfirmationCard
-                    key={action.id}
-                    action={action}
-                    busy={busy}
-                    onUpdate={(input) => handleWorkspaceAction(action, 'update_meeting_action', input)}
-                    onConfirm={() => handleWorkspaceAction(action, 'confirm_action')}
-                    onCancel={() => handleWorkspaceAction(action, 'cancel_action')}
-                  />;
-                }
-                const title = action.kind === 'calendar_changes'
-                  ? action.payload.summary || t('applyCalendarChanges')
-                  : t('generateImagePrompt', { prompt: String(action.payload.prompt || '') });
-                const result = action.result || {};
-                return (
-                  <div key={action.id} className="workspace-confirm-card">
-                    <div className="workspace-confirm-title">{title}</div>
-                    {action.payload.warnings?.map((warning) => (
-                      <div key={warning} className="workspace-confirm-warning">{t('warningContinue', { warning })}</div>
-                    ))}
-                    {action.status === 'awaiting_confirmation' ? (
-                      <div className="workspace-confirm-actions">
-                        <Button size="small" theme="primary" loading={busy} onClick={() => void handleWorkspaceAction(action, 'confirm_action')}>{t('confirm')}</Button>
-                        <Button size="small" variant="outline" disabled={busy} onClick={() => void handleWorkspaceAction(action, 'cancel_action')}>{t('cancel')}</Button>
-                      </div>
-                    ) : (
-                      <div className={`workspace-action-status status-${action.status}`}>
-                        {action.status === 'succeeded' ? t('completed') : action.status === 'cancelled' ? t('cancelled') : action.status === 'reconciliation_required' ? t('needsReview', { error: action.error || t('externalResultUnknown') }) : action.status === 'failed' ? t('failedWithReason', { error: action.error || t('executionFailed') }) : t('processing')}
-                      </div>
-                    )}
-                    {typeof result.join_url === 'string' && result.join_url && <a href={result.join_url} target="_blank" rel="noreferrer">{t('joinTencentMeeting')}</a>}
-                    {typeof result.trace_id === 'string' && result.trace_id && <div className="workspace-confirm-meta">{t('traceId', { id: result.trace_id })}</div>}
-                    {typeof result.image_url === 'string' && result.image_url && <img className="workspace-generated-image" src={result.image_url} alt={String(action.payload.prompt || t('generatedImage'))} />}
-                  </div>
-                );
-              })}
+              {!message.streaming && <WorkspaceActionRenderer
+                actions={workspaceActions}
+                busyKey={workspaceBusy}
+                conversationId={conversationId}
+                generationActive={generationActive}
+                onAction={handleWorkspaceAction}
+                onRouteCalendarProposal={requestRouteCalendarProposal}
+                onReplace={replaceWorkspaceAction}
+                renderMeeting={(action, busy) => <MeetingConfirmationCard
+                  action={action}
+                  busy={busy}
+                  onUpdate={(input) => handleWorkspaceAction(action, 'update_meeting_action', input)}
+                  onConfirm={() => handleWorkspaceAction(action, 'confirm_action')}
+                  onCancel={() => handleWorkspaceAction(action, 'cancel_action')}
+                />}
+              />}
               {!message.streaming && markdownRender.content.trim() && isAssistantChainTail && (
                 <div className="answer-action-group">
                   <button type="button" className="answer-action-button" title={t('saveImage')} aria-label={t('saveImage')} disabled={answerSaving} onPointerDown={(event) => event.stopPropagation()} onClick={() => { void saveAnswerImage(); }}>
@@ -1153,21 +1028,7 @@ function MessageBubble({
           </div>
         )}
 
-        {/* === 论文列表 + 内联阅读器（气泡下方） === */}
-        {message.papers && message.papers.length > 0 && !message.streaming && (
-          <div style={{ marginTop: 12, width: '100%' }}>
-            <PaperListCard message={message} />
-          </div>
-        )}
-
-        {message.paperFileId && !message.streaming && (
-          <PaperInlineReader
-            fileId={message.paperFileId}
-            fileName={message.paperFileName || t('pdfDocument')}
-            title={message.paperTitle || message.paperFileName || t('pdfReading')}
-            assistantEnabled={Boolean(message.paperIsPaper)}
-          />
-        )}
+        <PaperRenderer message={message} />
 
         {/* 搜索结果不再单独展示卡片，已由 AI 自然穿插在 Markdown 回答中 */}
 

@@ -594,7 +594,7 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
             AGENTS_ROOT
             / "_application"
             / "chat"
-            / "turn_controller.py"
+            / "turn_service.py"
         ).read_text(encoding="utf-8")
         graph_source = (AGENTS_ROOT / "chat" / "_graph.py").read_text(encoding="utf-8")
         self.assertNotIn("if not clarification_tool_available", source)

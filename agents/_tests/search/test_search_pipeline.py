@@ -48,7 +48,7 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
             AGENTS_ROOT
             / "_application"
             / "chat"
-            / "turn_controller.py"
+            / "turn_service.py"
         ).read_text(encoding="utf-8")
         planned = source.index("capability_plan, planner_timed_out = await plan_capabilities_bounded")
         strict_date = source.index('explicit_today = bool(capability_plan.get("strict_today_only"))')

@@ -1,17 +1,21 @@
 import MarkdownRenderer from '../../../../components/common/MarkdownRenderer';
-import type { ChatMessage } from '../../../../shared/types';
+import type { SearchMeta } from '../../../../shared/types';
 
 
 export function TextRenderer({
-  message,
+  content,
+  searchMeta,
+  streaming,
 }: {
-  message: ChatMessage;
+  content: string;
+  searchMeta?: SearchMeta;
+  streaming?: boolean;
 }) {
   return (
     <MarkdownRenderer
-      content={message.content}
-      searchMeta={message.searchResults}
-      streaming={message.streaming}
+      content={content}
+      searchMeta={searchMeta}
+      streaming={streaming}
     />
   );
 }

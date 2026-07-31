@@ -19,6 +19,20 @@ IDENTITY = {
 
 
 class ChatTurnBoundaryTests(unittest.TestCase):
+    def test_controller_is_a_bounded_delegate_without_runtime_dependencies(self):
+        controller_path = (
+            Path(__file__).parents[2]
+            / "_application"
+            / "chat"
+            / "turn_controller.py"
+        )
+        source = controller_path.read_text(encoding="utf-8")
+
+        self.assertLessEqual(len(source.splitlines()), 100)
+        self.assertIn("ChatTurnService(ctx)", source)
+        self.assertNotIn("_infrastructure", source)
+        self.assertNotIn("SearchPro", source)
+
     def test_planned_search_is_not_an_answer_graph_tool(self):
         self.assertEqual(
             answer_tool_names(("rich_search", "search_arxiv")),
@@ -92,7 +106,7 @@ class ChatTurnBoundaryTests(unittest.TestCase):
             Path(__file__).parents[2]
             / "_application"
             / "chat"
-            / "turn_controller.py"
+            / "turn_service.py"
         )
         source = controller_path.read_text(encoding="utf-8")
 

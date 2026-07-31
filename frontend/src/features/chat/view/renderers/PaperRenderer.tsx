@@ -1,0 +1,25 @@
+import PaperInlineReader from '../../../../components/paper/PaperInlineReader';
+import PaperListCard from '../../../../components/paper/PaperListCard';
+import type { ChatMessage } from '../../../../shared/types';
+import { useLanguage } from '../../../../i18n';
+
+
+export function PaperRenderer({ message }: { message: ChatMessage }) {
+  const { t } = useLanguage();
+  if (message.streaming) return null;
+  return <>
+    {message.papers && message.papers.length > 0 && (
+      <div style={{ marginTop: 12, width: '100%' }}>
+        <PaperListCard message={message} />
+      </div>
+    )}
+    {message.paperFileId && (
+      <PaperInlineReader
+        fileId={message.paperFileId}
+        fileName={message.paperFileName || t('pdfDocument')}
+        title={message.paperTitle || message.paperFileName || t('pdfReading')}
+        assistantEnabled={Boolean(message.paperIsPaper)}
+      />
+    )}
+  </>;
+}

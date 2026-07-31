@@ -1,16 +1,8 @@
-import type { ReactNode } from 'react';
-
 import type { ChatMessage } from '../../../../shared/types';
-
-
-export interface MessageViewContext {
-  streaming?: boolean;
-}
 
 export interface MessageContentRenderer {
   id: string;
   canRender(message: ChatMessage): boolean;
-  render(message: ChatMessage, context: MessageViewContext): ReactNode;
 }
 
 function descriptor(
@@ -20,7 +12,6 @@ function descriptor(
   return Object.freeze({
     id,
     canRender,
-    render: () => null,
   });
 }
 
