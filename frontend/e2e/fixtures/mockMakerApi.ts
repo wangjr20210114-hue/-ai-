@@ -161,7 +161,27 @@ function json(route: Route, body: unknown) {
   });
 }
 
-export async function installMockMakerApi(page: Page) {
+export interface MockMakerApiOptions {
+  identity?: Record<string, unknown>;
+  messages?: Array<Record<string, unknown>>;
+  messageState?: {
+    schedules?: Array<Record<string, unknown>>;
+    map_places?: Array<Record<string, unknown>>;
+    map_title?: string;
+  };
+  workspace?: Record<string, unknown>;
+  chatEvents?: Array<Record<string, unknown>>;
+  onChatRequest?: (request: {
+    body: Record<string, unknown>;
+    headers: Record<string, string>;
+  }) => void;
+}
+
+export async function installMockMakerApi(
+  page: Page,
+  options: MockMakerApiOptions = {},
+) {
+  const identity = { ...marketplace.identity, ...(options.identity || {}) };
   await page.addInitScript(() => {
     localStorage.setItem('floris-onboarding-preference', JSON.stringify({
       enabled: true,
@@ -172,7 +192,7 @@ export async function installMockMakerApi(page: Page) {
   });
 
   await page.route('**/auth/session', (route) => json(route, {
-    identity: marketplace.identity,
+    identity,
     entitlements: {
       plan: 'guest',
       limits: {
@@ -195,9 +215,10 @@ export async function installMockMakerApi(page: Page) {
     path: resolve(process.cwd(), 'public/floris-chat-light.jpg'),
   }));
   await page.route('**/messages', (route) => json(route, {
-    messages: richMessages,
-    schedules: [],
-    map_places: [],
+    messages: options.messages || richMessages,
+    schedules: options.messageState?.schedules || [],
+    map_places: options.messageState?.map_places || [],
+    map_title: options.messageState?.map_title || '',
     workspace_revision: 1,
     workspace_actions: [],
     run: null,
@@ -240,8 +261,34 @@ export async function installMockMakerApi(page: Page) {
     schedules: [],
     map: null,
     actions: [],
+    ...(options.workspace || {}),
   }));
-  await page.route('**/skill_marketplace', (route) => json(route, marketplace));
+  await page.route('**/skill_marketplace', (route) => json(route, {
+    ...marketplace,
+    identity,
+  }));
+  await page.route('**/library**', (route) => json(route, {
+    items: [],
+    folders: [],
+    settings: { auto_organize: true },
+  }));
+  if (options.chatEvents) {
+    await page.route('**/chat', async (route) => {
+      const request = route.request();
+      options.onChatRequest?.({
+        body: request.postDataJSON() as Record<string, unknown>,
+        headers: request.headers(),
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream; charset=utf-8',
+        body: [
+          ...options.chatEvents!.map((event) => `data: ${JSON.stringify(event)}\n\n`),
+          'data: [DONE]\n\n',
+        ].join(''),
+      });
+    });
+  }
   await page.route('**/provider_usage', (route) => json(route, {
     refreshed_at: now,
     usage: {
