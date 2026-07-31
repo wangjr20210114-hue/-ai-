@@ -115,7 +115,7 @@ sequenceDiagram
 ### 4.1 P0：搜索媒体阻塞首字
 
 - `agents/chat/index.py` 原先固定传入 `progressive_media=False`。
-- `agents/_shared/rich_search.py` 的 SearchPro、网页抓取、视觉审核按阶段串行。
+- 原 `agents/_shared/rich_search.py` 的 SearchPro、网页抓取、视觉审核按阶段串行；当前实现已迁至 application/domain/infrastructure 边界。
 - 网页抓取和视觉审核各自内部并行，但整个媒体阶段仍在最终回答之前。
 - 默认 `image_limit=8`，普通新闻问答也会付出完整视觉链路成本。
 
@@ -221,9 +221,9 @@ flowchart TB
 
 | 层 | Python Agent | Cloud Functions | React |
 | --- | --- | --- | --- |
-| Model | `agents/_models/` 与无 HTTP 依赖的领域模块 | `auth/`、权益、身份 Repository、领域规则 | `frontend/src/features/*/model.ts`、类型、选择器 |
+| Model | `agents/_domain/` 与 `_application/` 中无 HTTP 依赖的用例 | `auth/`、权益、身份 Repository、领域规则 | `frontend/src/features/*/model/`、类型、选择器 |
 | Controller | `agents/_controllers/`；Route 入口只委托 | `onRequest` 只做协议适配并调用身份/存储用例 | `use*Controller.ts` Hooks 负责请求、状态和用户动作 |
-| View | `agents/_views/` 的 JSON/SSE Presenter | 固定 JSON Response Presenter | `components/` 只渲染 Controller 状态 |
+| View | `agents/_presenters/` 的 JSON/SSE Presenter；`_views/` 仅保留兼容出口 | 固定 JSON Response Presenter | `features/*/view/` 与共享组件只渲染 Controller 状态 |
 
 依赖方向必须保持 `Route → Controller → Model/Repository → View Presenter`。Model 不读取 `ctx.request`、不构造 React 元素；View 不直接访问 Provider、数据库或 `authorizedFetch`。大文件按功能逐步迁移，避免一次性重写 2500 行 Chat Agent 造成行为回归。
 
@@ -542,18 +542,22 @@ sequenceDiagram
 
 ```text
 agents/
-  _models/          # 身份、Skill、搜索证据等领域 Model
-  _controllers/     # 用例编排
-  _views/           # JSON / SSE Presenter
-  _shared/          # Makers/Provider Repository 与基础设施适配
+  _domain/          # 身份、权益、搜索证据等纯领域 Model
+  _application/     # Chat/Search/Workspace 等用例与 Port
+  _controllers/     # 薄协议 Controller
+  _presenters/      # JSON / SSE Presenter
+  _infrastructure/  # Makers Repository 与 Provider Adapter
   skill_packages/   # SKILL.md + floris.json
   _skill_adapters/  # 审核可信、不会被 Makers 暴露为路由的 Python 适配器
   <route>/index.py  # 薄 EdgeOne Route Adapter
 
 frontend/src/
-  features/<domain>/model.ts
-  features/<domain>/use*Controller.ts
-  components/       # React View
+  app/                       # Composition Root
+  features/<domain>/model/   # 领域状态与 API Client
+  features/<domain>/controller/
+  features/<domain>/view/    # React View / Renderer
+  shared/                    # 签名会话、HTTP/SSE 与公共 Contract
+  styles/                    # tokens、reset 与 feature 样式入口
 ```
 
 新功能从一开始遵循该边界；现有 Chat、Workspace、Proactive 大入口按测试保护逐步迁移。`index.py` 最终只负责协议适配、Controller 委托和返回 SSE，领域模块不直接控制全局 UI。
@@ -600,8 +604,9 @@ EdgeOne 的 `agents/skills/` 是保留目录，Skill 广场路由固定使用
 4. **已完成：结构化搜索进度。** 本地立即显示 planning；后端只发送固定枚举的工具、核验、回答和媒体事件。
 5. **已完成：证据缓存与 single-flight 第一版。** 只复用结构化证据，回答模型每轮重新生成；具备 TTL、用户隔离和并发合并测试。
 6. **已完成：完整 Skill 广场第一版。** 从弹窗升级为全页覆盖层，支持返回聊天、安装管理、依赖图、组件 API 文档、下载和待审核上传。
-7. **下一步：搜索服务拆分与网络栈。** 连接池、真正取消、统一 deadline、Provider 熔断与来源多样性。
-8. **下一步：继续拆薄 Chat/Workspace/Proactive、E2E 和性能门禁。**
+7. **已完成：确定性搜索用例与流式边界。** ChatTurnController 只委托 ChatTurnService；SearchUseCase 在回答图之前执行唯一一次已规划搜索，回答图不再获得重复搜索决策；ChatStreamPresenter 独占公开 SSE Contract，并保持审核媒体的精确 `source_id` 绑定。
+8. **已完成：共享层、前端 MVC 与回归套件拆分。** 删除 `_shared`，统一 Node/Python 权益 Contract；聊天、搜索、日程、地图、论文、设置按 feature model/controller/view 划分；全局 CSS 与 6495 行 Workspace 测试单体已拆分，并有体量、归属、视觉和产品级 E2E 门禁。
+9. **后续性能专项：搜索网络栈。** 在不绕开 Makers 能力的前提下继续评估共享连接池、真正取消、统一 deadline、Provider 熔断与来源多样性；这不改变本轮已完成的确定性搜索编排边界。
 
 所有阶段都必须：
 

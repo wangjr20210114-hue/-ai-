@@ -76,8 +76,13 @@
 ```bash
 edgeone makers build
 npm run test:edgeone-build-routes
-edgeone makers deploy .edgeone -n <独立开发项目名> -e production
+npm run check:deploy-target
+edgeone makers deploy .edgeone -n floris-mvc-dev-5925b93 -e preview --json
 ```
+
+本仓库的开发部署守卫还会核对项目 ID `makers-x91pbqwetj8l`、当前分支
+`dev`、干净工作区以及未变化的 `main` 基线。CLI 首次初始化限制只适用于
+独立开发项目自身；日常架构验收始终部署 Preview。
 
 Skill 广场使用 `/skill_marketplace`；不要使用 EdgeOne 保留的
 `agents/skills/`。可信 Python 适配器放在 `agents/_skill_adapters/`，避免
