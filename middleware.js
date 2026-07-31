@@ -1,7 +1,6 @@
 import {
   sessionConstants,
   readCookie,
-  verifySessionToken,
 } from './auth/session.js';
 
 const PUBLIC_PREFIXES = [
@@ -12,13 +11,11 @@ const PUBLIC_PREFIXES = [
 ];
 
 export async function middleware(context) {
-  const { request, next, env = {} } = context;
+  const { request, next } = context;
   const path = new URL(request.url).pathname;
   if (PUBLIC_PREFIXES.some((prefix) => path.startsWith(prefix))) return next();
   const token = readCookie(request.headers, sessionConstants.cookieName);
-  try {
-    await verifySessionToken(token, env);
-  } catch {
+  if (!token) {
     return new Response(JSON.stringify({
       error: 'Authentication session is required',
       code: 'UNAUTHORIZED',
@@ -30,6 +27,10 @@ export async function middleware(context) {
       },
     });
   }
+  // Edge middleware is a coarse request gate. Trusted Agent and Cloud
+  // Function controllers verify the signature, tenant and entitlements using
+  // their own Maker runtime env, avoiding a second environment-dependent HMAC
+  // decision before the request reaches its authoritative boundary.
   return next();
 }
 
