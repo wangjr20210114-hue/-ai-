@@ -605,6 +605,13 @@ async def rich_search(
             "result_limit": limit,
             "image_limit": image_limit,
             "parallel_image_search": bool(parallel_queries),
+            "media_delivery": (
+                "disabled"
+                if not include_media or image_limit == 0
+                else "progressive"
+                if media_callback is not None and background_tasks is not None
+                else "blocking"
+            ),
             "provider_request_count": 1,
             "visual_query_merged": distinct_visual_query,
             "provider_timeout_seconds": provider_timeout,
@@ -703,6 +710,7 @@ async def rich_search(
 
 def evidence_for_model(
     metadata: dict[str, Any], *, require_relevant_image: bool = False,
+    allow_pending_media_slot: bool = False,
 ) -> str:
     sources = "\n".join(
         f"- {item.get('id') or 'source'} | 类型={item.get('source') or 'web'} | [{item['title']}]({item['url']})"
@@ -714,8 +722,19 @@ def evidence_for_model(
         f"{' | 视觉审核暂不可用，仅作文章主图降级' if item.get('vision_fallback') or item.get('vision_reviewed') is False else ''}"
         for item in metadata.get("media", [])
     ) or "无通过视觉筛选的图片，不要插图。"
+    pending_slot_available = bool(
+        metadata.get("media_pending")
+        and metadata.get("preview_media")
+        and require_relevant_image
+        and allow_pending_media_slot
+    )
     media_status = (
-        "图片尚未审核完成，本轮不要插图，也不要声称正在生成图片。"
+        (
+            "图片正在后台审核。若图片对事实解释确有帮助，请在最相关的事实段落后单独输出一行 "
+            "[[YUANBAO_MEDIA]]；前端会先标注为审核中，并在审核结束后替换或移除。"
+            if pending_slot_available
+            else "图片尚未审核完成，本轮不要插图，也不要声称正在生成图片。"
+        )
         if metadata.get("media_pending") else
         "这里只列出审核通过的图片；若标记为“视觉审核暂不可用”，只能把它当作与来源绑定的文章主图谨慎使用。"
         "没有列出的真实图片 URL 就表示本轮无合格配图。"
@@ -742,5 +761,10 @@ def evidence_for_model(
         "若采用网页或视频，直接在相关段落使用上面给出的 Markdown 链接；若采用图片，必须把上面给出的完整 URL"
         "直接写成 ![准确说明](URL)，由你决定它所在的段落和顺序。"
         "前端会就地渲染为网页卡片、视频卡片或带来源图片。不要把资源统一罗列或堆在回答末尾。"
-        "不要输出任何媒体占位符，不要使用未提供的图片 URL，不要插入无关素材。"
+        + (
+            "除上面明确允许的一处 [[YUANBAO_MEDIA]] 外，不要输出其他媒体占位符；"
+            if pending_slot_available
+            else "不要输出任何媒体占位符；"
+        )
+        + "不要使用未提供的图片 URL，不要插入无关素材。"
     )

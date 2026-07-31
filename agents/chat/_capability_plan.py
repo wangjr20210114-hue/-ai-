@@ -795,6 +795,22 @@ def media_enabled_for_plan(
     )
 
 
+def progressive_media_for_plan(
+    plan: dict[str, Any], planner_timed_out: bool = False,
+) -> bool:
+    """Keep optional search media off the answer's critical path.
+
+    SearchPro evidence is still required before synthesis. Page scraping and
+    visual review can finish progressively because the frontend already merges
+    ``search_media`` events into the active answer. Image generation is the one
+    exception: it consumes reviewed search images as provider references, so
+    that capability must keep the blocking media path.
+    """
+    return bool(planner_timed_out or plan.get("needs_web_search")) and not bool(
+        plan.get("needs_image_generation")
+    )
+
+
 def next_required_tool(
     required_tools: Iterable[str],
     used_tool_names: Iterable[str],

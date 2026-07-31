@@ -191,9 +191,10 @@ function MarkdownRenderer({
       ? reviewedMedia
       : uniqueMediaAssets(searchMeta?.media_pending ? searchMeta.preview_media || [] : []);
   }, [searchMeta?.media, searchMeta?.media_pending, searchMeta?.preview_media]);
-  // New answers contain ordinary model-authored Markdown images. Keep only a
-  // narrow compatibility transform for historical messages that still carry
-  // the former internal media marker; never guess a placement for new text.
+  // Reviewed images normally arrive as model-authored Markdown. Progressive
+  // searches may also carry one deliberate media slot so a provider preview
+  // can be replaced or removed after background visual review. Never guess a
+  // placement when neither contract is present.
   const cleanedContent = useMemo(() => {
     const mediaPlacedContent = replaceLegacyMediaSlots(content, visibleMedia);
     return replaceCitationMarkers(

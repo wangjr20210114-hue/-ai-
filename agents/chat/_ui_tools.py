@@ -3347,6 +3347,9 @@ def build_production_tools(
                     "evidence": evidence_for_model(
                         metadata,
                         require_relevant_image=planned_media_preferred,
+                        allow_pending_media_slot=(
+                            progressive_media and planned_media_preferred
+                        ),
                     ),
                 }, ensure_ascii=False)
 

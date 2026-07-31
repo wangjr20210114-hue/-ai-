@@ -24,6 +24,7 @@ from ._capability_plan import (
     fallback_tools_for_prompt_topics,
     media_enabled_for_plan,
     plan_capabilities_bounded,
+    progressive_media_for_plan,
     required_tools_for_plan,
 )
 from ._followups import generate_followups, should_generate_followups
@@ -1765,11 +1766,13 @@ async def handler(ctx):
             "limit": capability_plan.get("paper_limit") or 0,
         },
         temporal_context=temporal_context,
-        # Wait for the bounded, concurrent visual review before final answer
-        # synthesis. The answer model therefore receives verified image URLs
-        # and can place them directly with ordinary Markdown instead of relying
-        # on a frontend-guessed position or a late media patch.
-        progressive_media=False,
+        # Search evidence remains on the answer's critical path, while page
+        # scraping and visual review normally arrive through search_media.
+        # Image generation is the exception because its provider references
+        # must already be reviewed before the generation tool runs.
+        progressive_media=progressive_media_for_plan(
+            capability_plan, planner_timed_out=planner_timed_out,
+        ),
         media_callback=publish_media,
         background_tasks=background_tasks,
         user_id=user_id,

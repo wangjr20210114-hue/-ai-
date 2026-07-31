@@ -23,6 +23,7 @@ from agents.chat._capability_plan import (
     plan_capabilities,
     plan_capabilities_bounded,
     plan_required_clarification,
+    progressive_media_for_plan,
     select_prompt_topics,
     next_required_tool,
     required_tool_for_plan,
@@ -1748,6 +1749,22 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "needs_web_search": False,
             "needs_images": False,
         }, 2, planner_timed_out=True))
+
+    def test_search_media_is_progressive_except_when_generation_needs_references(self):
+        self.assertTrue(progressive_media_for_plan({
+            "needs_web_search": True,
+            "needs_images": True,
+            "needs_image_generation": False,
+        }))
+        self.assertFalse(progressive_media_for_plan({
+            "needs_web_search": True,
+            "needs_images": True,
+            "needs_image_generation": True,
+        }))
+        self.assertTrue(progressive_media_for_plan(
+            {"needs_web_search": False},
+            planner_timed_out=True,
+        ))
 
     def test_searchpro_html_passage_exposes_provider_article_image(self):
         pages = _parse_pages({"Response": {"Pages": [{
@@ -4567,6 +4584,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         store = FakeStore()
         background_tasks = []
         published = []
+        media_gate = asyncio.Event()
         base = {
             "query": "AI 新闻", "results": [], "media": [], "images": [],
             "total": 0, "media_pending": True,
@@ -4583,6 +4601,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
         async def provider(*_args, media_callback=None, background_tasks=None, **_kwargs):
             async def finish_media():
+                await media_gate.wait()
                 await media_callback(enriched)
             background_tasks.append(asyncio.create_task(finish_media()))
             return base
@@ -4599,10 +4618,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             tool = next(item for item in tools if item.name == "rich_search")
             first = json.loads(await tool.ainvoke({"query": "AI 新闻"}))
             self.assertTrue(first["search_results"]["media_pending"])
+            self.assertFalse(background_tasks[0].done())
+            media_gate.set()
             await asyncio.gather(*background_tasks)
             self.assertEqual(published[0]["images"], enriched["images"])
 
             next_background_tasks = []
+            media_gate.clear()
             next_turn_tools = build_production_tools(
                 None, store=store, conversation_id="progressive-search-2", env={},
                 media_enabled=True, progressive_media=True, media_callback=publish,
@@ -4610,6 +4632,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             )
             next_turn_tool = next(item for item in next_turn_tools if item.name == "rich_search")
             await next_turn_tool.ainvoke({"query": "不同措辞"})
+            media_gate.set()
             await asyncio.gather(*next_background_tasks)
             self.assertEqual(mocked.await_count, 2)
 
@@ -4621,6 +4644,19 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("不要声称正在生成图片", prompt)
         self.assertIn("不要输出任何媒体占位符", prompt)
         self.assertNotIn("[[YUANBAO_MEDIA]]", prompt)
+
+    def test_required_pending_search_media_uses_one_reviewable_slot(self):
+        prompt = evidence_for_model({
+            "results": [],
+            "media": [],
+            "preview_media": [{
+                "url": "https://img.example.com/provider-preview.jpg",
+            }],
+            "media_pending": True,
+        }, require_relevant_image=True, allow_pending_media_slot=True)
+        self.assertIn("图片正在后台审核", prompt)
+        self.assertEqual(prompt.count("[[YUANBAO_MEDIA]]"), 2)
+        self.assertNotIn("正在生成图片", prompt)
 
     def test_reviewed_search_media_is_given_to_model_as_direct_markdown(self):
         prompt = evidence_for_model({
