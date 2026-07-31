@@ -2,8 +2,8 @@ import type {
   StructuredProgressActivity,
   StructuredProgressStage,
   StructuredProgressStep,
-} from '../../types';
-import type { TranslationKey } from '../../i18n';
+} from '../../../types';
+import type { TranslationKey } from '../../../i18n';
 
 const STAGES = new Set<StructuredProgressStage>([
   'planning',

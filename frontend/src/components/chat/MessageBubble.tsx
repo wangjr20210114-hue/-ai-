@@ -26,7 +26,7 @@ import { markdownToPlainText } from '../common/richContent';
 import { getStoredLanguage, translate, useLanguage } from '../../i18n';
 import type { AssistantChainPosition } from './assistantMessageChain';
 import { requestRightWorkspaceOpen } from '../../services/workspaceEvents';
-import { progressTranslationKey } from '../../features/chat/progressModel';
+import { progressTranslationKey } from '../../features/search/model/progressModel';
 
 interface Props {
   message: ChatMessage;
