@@ -3,9 +3,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { RichMediaAsset, SearchMeta } from '../../types';
 import { isSafeRemoteUrl, linkBareCitations, replaceCitationMarkers, sourceLabel } from './richContent';
-import { translate, useLanguage } from '../../i18n';
-
-const MEDIA_SLOT = /\[\[YUANBAO_MEDIA(?:\s*:\s*(\d+))?\]\]/g;
+import { useLanguage } from '../../i18n';
+import {
+  remarkSourceBoundMedia,
+  stripLegacyMediaMarkers,
+} from '../../features/search/sourceBoundMedia';
 
 // Code highlighting and math typesetting are heavy and many conversations
 // never use them. Load them after first paint, then upgrade the rendering.
@@ -49,80 +51,15 @@ function useMarkdownEnhancements(): MarkdownEnhancements | null {
   return enhancements;
 }
 
-function markdownAlt(value: string): string {
-  return value.replace(/[[\]\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 180) || translate('answerImage');
-}
-
-function mediaMarkdown(asset: RichMediaAsset): string {
-  return `\n\n![${markdownAlt(asset.caption || asset.alt || '')}](${asset.url})\n\n`;
-}
-
-function normalizedRemoteUrl(value: string): string {
-  try {
-    const url = new URL(value);
-    url.hash = '';
-    return url.toString().replace(/\/$/, '');
-  } catch {
-    return value.trim().replace(/\/$/, '');
-  }
-}
-
-function replaceLegacyMediaSlots(content: string, media: RichMediaAsset[] = []): string {
-  let nextIndex = 0;
-  const placed = content.replace(MEDIA_SLOT, (_slot, explicitIndex: string | undefined) => {
-    const requested = explicitIndex ? Math.max(0, Number(explicitIndex) - 1) : nextIndex++;
-    const asset = media[requested];
-    if (!asset || !isSafeRemoteUrl(asset.url)) return '';
-    return mediaMarkdown(asset);
-  });
-  return placed.replace(/\[\[YUANBAO_MEDIA[^\]]*$/, '');
-}
-
-function placeSourceBoundMedia(
-  content: string,
-  media: RichMediaAsset[] = [],
-  sources: SearchMeta['results'] = [],
-): string {
-  let placed = content;
-  const usedSources = new Set<string>();
-  for (const asset of media) {
-    if (
-      !asset.source_id
-      || usedSources.has(asset.source_id)
-      || !isSafeRemoteUrl(asset.url)
-      || placed.includes(`](${asset.url})`)
-    ) {
-      continue;
-    }
-    const source = sources.find((item) => item.id === asset.source_id);
-    if (
-      !source
-      || !isSafeRemoteUrl(source.url)
-      || (
-        asset.source_url
-        && normalizedRemoteUrl(asset.source_url) !== normalizedRemoteUrl(source.url)
-      )
-    ) {
-      continue;
-    }
-    const sourceUrlIndex = placed.indexOf(source.url);
-    if (
-      sourceUrlIndex < 2
-      || placed.slice(sourceUrlIndex - 2, sourceUrlIndex) !== ']('
-    ) {
-      continue;
-    }
-    const citationEnd = sourceUrlIndex + source.url.length;
-    const paragraphEnd = placed.indexOf('\n\n', citationEnd);
-    const insertAt = paragraphEnd < 0 ? placed.length : paragraphEnd;
-    const insertion = `\n\n${mediaMarkdown(asset).trim()}`;
-    placed = `${placed.slice(0, insertAt)}${insertion}${placed.slice(insertAt)}`;
-    usedSources.add(asset.source_id);
-  }
-  return placed;
-}
-
-function RichImage({ asset }: { asset: RichMediaAsset }) {
+function RichImage({
+  asset,
+  sourceId,
+  boundMediaId,
+}: {
+  asset: RichMediaAsset;
+  sourceId?: string;
+  boundMediaId?: string;
+}) {
   const [failed, setFailed] = useState(false);
   const { t } = useLanguage();
   if (failed) return null;
@@ -134,6 +71,8 @@ function RichImage({ asset }: { asset: RichMediaAsset }) {
         loading="eager"
         decoding="async"
         draggable={false}
+        data-source-id={sourceId}
+        data-source-bound-media={boundMediaId}
         onError={() => setFailed(true)}
       />
       {(asset.caption || asset.source_url) && (
@@ -241,21 +180,20 @@ function MarkdownRenderer({
   const sources = useMemo(() => searchMeta?.results || [], [searchMeta?.results]);
   const visibleMedia = useMemo(
     () => uniqueMediaAssets(searchMeta?.media || [])
-      .filter((asset) => asset.vision_reviewed !== false),
+      .filter((asset) => asset.vision_reviewed === true),
     [searchMeta?.media],
   );
-  // Legacy slots are cleaned for old conversations, but new answers never ask
-  // the model to emit an internal media protocol. A reviewed image is inserted
-  // only after a paragraph containing the exact source URL named by its
-  // source_id; unmatched media fails closed instead of guessing a position.
   const cleanedContent = useMemo(() => {
-    const legacyPlacedContent = replaceLegacyMediaSlots(content, visibleMedia);
     const linkedContent = replaceCitationMarkers(
-      linkBareCitations(legacyPlacedContent, sources),
+      linkBareCitations(stripLegacyMediaMarkers(content), sources),
       sources,
     );
-    return placeSourceBoundMedia(linkedContent, visibleMedia, sources);
-  }, [content, sources, visibleMedia]);
+    return linkedContent;
+  }, [content, sources]);
+  const sourceBoundMediaPlugin = useMemo(
+    () => remarkSourceBoundMedia({ sources, media: visibleMedia }),
+    [sources, visibleMedia],
+  );
   const providerCalls = searchMeta?.search_config?.turn_provider_calls;
   const toolInvocations = searchMeta?.search_config?.turn_tool_invocations;
   const hasSearchMeta = Boolean(searchMeta);
@@ -304,15 +242,36 @@ function MarkdownRenderer({
         title={compactCitation ? url : undefined}
       >{compactCitation ? `${t('viewSource')} · ${citationHost}` : children}</a>;
     },
-    img: ({ src, alt }: { src?: string; alt?: string }) => {
+    img: ({
+      src,
+      alt,
+      ...properties
+    }: {
+      src?: string;
+      alt?: string;
+      'data-source-bound-media'?: string;
+      'data-source-id'?: string;
+    }) => {
       const url = typeof src === 'string' ? src : '';
       if (!isSafeRemoteUrl(url)) return null;
-      const reviewed = visibleMedia.find((asset) => sameUrl(asset.url, url));
-      // A searched answer may render only URLs that survived this turn's
-      // visual review. This also removes a provisional URL when review
-      // later rejects it. Non-search Markdown keeps normal image support.
-      if (hasSearchMeta && !reviewed) return null;
-      return <RichImage asset={reviewed || {
+      const boundMediaId = properties['data-source-bound-media'];
+      const boundSourceId = properties['data-source-id'];
+      if (hasSearchMeta) {
+        const source = sources.find((item) => item.id === boundSourceId);
+        const reviewed = visibleMedia.find((asset) => (
+          asset.id === boundMediaId
+          && asset.source_id === boundSourceId
+          && asset.source_url === source?.url
+          && asset.url === url
+        ));
+        if (!reviewed) return null;
+        return <RichImage
+          asset={reviewed}
+          sourceId={boundSourceId}
+          boundMediaId={boundMediaId}
+        />;
+      }
+      return <RichImage asset={{
           id: `md-${url.slice(-20)}`,
           kind: 'image', url,
           alt: alt || '', caption: alt || '',
@@ -328,7 +287,9 @@ function MarkdownRenderer({
       data-search-tool-invocations={typeof toolInvocations === 'number' ? toolInvocations : undefined}
     >
       <ReactMarkdown
-        remarkPlugins={enhancements ? [enhancements.remarkMath, remarkGfm] : [remarkGfm]}
+        remarkPlugins={enhancements
+          ? [enhancements.remarkMath, remarkGfm, sourceBoundMediaPlugin]
+          : [remarkGfm, sourceBoundMediaPlugin]}
         rehypePlugins={enhancements ? [enhancements.rehypeKatex] : []}
         components={markdownComponents}
       >

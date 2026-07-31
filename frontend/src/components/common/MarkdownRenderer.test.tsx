@@ -113,16 +113,15 @@ describe('MarkdownRenderer', () => {
     expect(html).toContain('target="_blank"');
   });
 
-  it('replaces model-selected media slots in paragraph order instead of appending a gallery', () => {
+  it('strips legacy media markers and never uses them to place images', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer
         content={'第一条进展。\n\n[[YUANBAO_MEDIA]]\n\n第二条进展。\n\n[[YUANBAO_MEDIA]]\n\n结论。'}
         searchMeta={searchMeta}
       />,
     );
-    expect(html.indexOf('第一条进展')).toBeLessThan(html.indexOf('one.jpg'));
-    expect(html.indexOf('one.jpg')).toBeLessThan(html.indexOf('第二条进展'));
-    expect(html.indexOf('第二条进展')).toBeLessThan(html.indexOf('two.jpg'));
+    expect(html).not.toContain('one.jpg');
+    expect(html).not.toContain('two.jpg');
     expect(html).not.toContain('YUANBAO_MEDIA');
   });
 
@@ -162,6 +161,8 @@ describe('MarkdownRenderer', () => {
     expect(html.indexOf('第一段解释')).toBeLessThan(html.indexOf('one.jpg'));
     expect(html.indexOf('one.jpg')).toBeLessThan(html.indexOf('第二段补充影响'));
     expect((html.match(/one\.jpg/g) || [])).toHaveLength(1);
+    expect(html).toContain('data-source-id="source-1"');
+    expect(html).toContain('data-source-bound-media="one"');
   });
 
   it('fails closed when media source identity does not match the cited source', () => {
@@ -196,19 +197,22 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('one.jpg');
   });
 
-  it('renders a model-authored Markdown image at its exact streaming position', () => {
+  it('rejects a model-authored searched image even when its URL was reviewed', () => {
+    const sourceBound = {
+      ...searchMeta.media[0],
+      source_id: 'source-1',
+      source_url: 'https://news.example/ai',
+      vision_reviewed: true,
+    };
     const html = renderToStaticMarkup(
       <MarkdownRenderer
         streaming
         content={'第一段仍在流式生成。\n\n![第一张](https://img.example/one.jpg)\n\n第二段尚未完成'}
-        searchMeta={{ ...searchMeta, media: [searchMeta.media[0]], images: [searchMeta.images[0]] }}
+        searchMeta={{ ...searchMeta, media: [sourceBound], images: [sourceBound.url] }}
       />,
     );
     expect(html).toContain('is-streaming');
-    expect(html).toContain('one.jpg');
-    expect(html.indexOf('第一段仍在流式生成')).toBeLessThan(html.indexOf('one.jpg'));
-    expect(html.indexOf('one.jpg')).toBeLessThan(html.indexOf('第二段尚未完成'));
-    expect((html.match(/one\.jpg/g) || [])).toHaveLength(1);
+    expect(html).not.toContain('one.jpg');
   });
 
   it('renders Markdown formatting while the answer is still streaming', () => {
@@ -221,7 +225,7 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('**重点内容**');
   });
 
-  it('keeps a historical media slot compatible without exposing its marker', () => {
+  it('hides historical media that has only a legacy slot', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer
         streaming
@@ -229,7 +233,7 @@ describe('MarkdownRenderer', () => {
         searchMeta={{ ...searchMeta, media: [searchMeta.media[0]], images: [searchMeta.images[0]] }}
       />,
     );
-    expect(html).toContain('one.jpg');
+    expect(html).not.toContain('one.jpg');
     expect(html).not.toContain('YUANBAO_MEDIA');
   });
 
@@ -258,12 +262,22 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('图片核实中');
   });
 
-  it('does not repeat visually identical reviewed images with the same caption', () => {
-    const duplicate = { ...searchMeta.media[0], id: 'duplicate', url: 'https://img.example/duplicate.jpg' };
+  it('does not repeat source-bound reviewed images with the same caption', () => {
+    const sourceBound = {
+      ...searchMeta.media[0],
+      source_id: 'source-1',
+      source_url: 'https://news.example/ai',
+      vision_reviewed: true,
+    };
+    const duplicate = {
+      ...sourceBound,
+      id: 'duplicate',
+      url: 'https://img.example/duplicate.jpg',
+    };
     const html = renderToStaticMarkup(
       <MarkdownRenderer
-        content={'第一段。\n\n![第一张](https://img.example/one.jpg)\n\n![重复图片](https://img.example/duplicate.jpg)\n\n第二段。'}
-        searchMeta={{ ...searchMeta, media: [searchMeta.media[0], duplicate] }}
+        content={'第一段。[来源](https://news.example/ai)\n\n第二段。'}
+        searchMeta={{ ...searchMeta, media: [sourceBound, duplicate] }}
       />,
     );
     expect(html).toContain('one.jpg');
