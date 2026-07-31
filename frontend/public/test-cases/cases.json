@@ -3092,9 +3092,9 @@
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
       "【安全说明】不要通过断网、杀进程或修改生产 Provider 来制造真实副作用的“结果未知”；该分支使用仓库内置 Mock 自动化验证。",
-      "【本地终端】进入仓库根目录，运行：python -m unittest agents._tests.test_workspace.WorkspaceUnitTests.test_provider_unknown_result_requires_manual_reconciliation。",
+      "【本地终端】进入仓库根目录，运行：python -m unittest agents._tests.workspace.test_workflows.WorkspaceWorkflowTests.test_provider_unknown_result_requires_manual_reconciliation。",
       "【本地终端】确认输出 Ran 1 test 且 OK；该测试使用内存 FakeStore，不调用腾讯会议、生图、地图或任何真实 Provider。",
-      "【本地终端】再运行：python -m unittest agents._tests.test_workspace.WorkspaceUnitTests.test_expired_execution_requires_reconciliation_and_never_retries。",
+      "【本地终端】再运行：python -m unittest agents._tests.workspace.test_workflows.WorkspaceWorkflowTests.test_expired_execution_requires_reconciliation_and_never_retries。",
       "【验收站】上传终端结果截图；只有两条测试均通过，才能将本用例记为通过。没有本地仓库/终端时标“阻塞”，禁止拿 Production 试错。",
       "【验收站】回到 SEC-02，按实际结果选择“通过/失败/阻塞/不适用”；备注写明实际现象、关键请求状态和复现条件，不要填写密钥。",
       "【验收站】在“证据”上传页面截图、Network/Console 截图或短录屏；等待提示已保存到 Makers Blob，再刷新测试站确认附件仍可打开。"

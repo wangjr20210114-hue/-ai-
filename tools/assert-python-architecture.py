@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENTS = ROOT / "agents"
+MAX_TEST_FILE_LINES = 1_500
 FORBIDDEN_DOMAIN_PARTS = {
     "_application",
     "_controllers",
@@ -37,6 +38,18 @@ def main() -> None:
     if shared.exists():
         failures.append("agents/_shared must not exist")
 
+    legacy_workspace_suite = AGENTS / "_tests" / "test_workspace.py"
+    if legacy_workspace_suite.exists():
+        failures.append("agents/_tests/test_workspace.py must remain split by domain")
+
+    for path in (AGENTS / "_tests").rglob("test_*.py"):
+        line_count = len(path.read_text(encoding="utf-8").splitlines())
+        if line_count > MAX_TEST_FILE_LINES:
+            failures.append(
+                f"{path.relative_to(ROOT)} has {line_count} lines "
+                f"(maximum {MAX_TEST_FILE_LINES})"
+            )
+
     for path in AGENTS.rglob("*.py"):
         if "__pycache__" in path.parts:
             continue
@@ -56,7 +69,10 @@ def main() -> None:
         raise SystemExit(
             "Python architecture check failed:\n- " + "\n- ".join(sorted(failures))
         )
-    print("Python architecture passed: domain is pure and agents/_shared is absent.")
+    print(
+        "Python architecture passed: domain is pure, agents/_shared is absent, "
+        "and test files remain bounded."
+    )
 
 
 if __name__ == "__main__":

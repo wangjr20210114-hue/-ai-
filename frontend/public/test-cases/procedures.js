@@ -448,8 +448,8 @@ window.CASE_PROCEDURES = {
   ],
   'SEC-02': [
     S('安全确认', '不要断生产网络、杀线上进程或修改真实 Provider；本用例只运行仓库内 FakeStore 自动测试。', '没有任何腾讯会议、生图、地图或其他真实副作用请求。'),
-    S('仓库根目录终端', '运行：python -m unittest agents._tests.test_workspace.WorkspaceUnitTests.test_provider_unknown_result_requires_manual_reconciliation', '输出“Ran 1 test”与“OK”；状态进入 reconciliation_required，系统不盲目重试。'),
-    S('仓库根目录终端', '运行：python -m unittest agents._tests.test_workspace.WorkspaceUnitTests.test_expired_execution_requires_reconciliation_and_never_retries', '输出“Ran 1 test”与“OK”；过期执行不自动重放，依赖步骤保持阻塞。'),
+    S('仓库根目录终端', '运行：python -m unittest agents._tests.workspace.test_workflows.WorkspaceWorkflowTests.test_provider_unknown_result_requires_manual_reconciliation', '输出“Ran 1 test”与“OK”；状态进入 reconciliation_required，系统不盲目重试。'),
+    S('仓库根目录终端', '运行：python -m unittest agents._tests.workspace.test_workflows.WorkspaceWorkflowTests.test_expired_execution_requires_reconciliation_and_never_retries', '输出“Ran 1 test”与“OK”；过期执行不自动重放，依赖步骤保持阻塞。'),
     S('验收站', '上传两次终端结果截图；没有本地仓库/运行环境时选择“阻塞”。', '只有两条命令都 OK 才标通过；不得用 Production 试错替代。'),
   ],
   'LIMIT-01': [
