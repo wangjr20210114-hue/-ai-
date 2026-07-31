@@ -1,0 +1,5 @@
+.proactive-conversation-actions { display: grid; gap: 8px; margin-top: 12px; }
+.proactive-conversation-item { display: grid; gap: 5px; padding: 9px 10px; border: 1px solid var(--app-border); border-radius: 10px; background: var(--app-panel-2); }
+.proactive-conversation-item > span { font-size: 12px; font-weight: 600; }
+.proactive-conversation-item > small { color: var(--app-text-3); line-height: 1.5; }
+.proactive-conversation-item > div { display: flex; flex-wrap: wrap; gap: 3px; }

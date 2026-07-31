@@ -1,0 +1,302 @@
+/* ============================================================
+   Paper Reader 全屏论文阅读器
+   ============================================================ */
+.paper-reader-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding:
+    max(12px, env(safe-area-inset-top))
+    max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
+  animation: paperBackdropIn 180ms ease-out both;
+}
+
+.paper-reader {
+  width: min(1480px, 100%);
+  height: min(960px, calc(100dvh - 24px));
+  max-height: 100%;
+  background: var(--app-bg);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  animation: paperReaderIn 300ms var(--motion-ease-out) both;
+}
+.paper-reader-overlay.is-expanded { padding: 0; }
+.paper-reader.is-expanded {
+  width: 100vw;
+  height: 100dvh;
+  max-height: none;
+  border-radius: 0;
+}
+.paper-reader:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+}
+
+.paper-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-bg-2);
+  flex-shrink: 0;
+  gap: 12px;
+}
+.paper-toolbar-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.paper-toolbar-title > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.paper-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.paper-zoom-value {
+  min-width: 46px;
+  text-align: center;
+  font-size: 12px;
+}
+.paper-toolbar .t-button,
+.paper-inline-toolbar .t-button,
+.paper-ai-content .t-button,
+.paper-control {
+  transition:
+    transform 160ms var(--motion-ease-out),
+    box-shadow 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    opacity 180ms ease !important;
+}
+.paper-toolbar .t-button:hover,
+.paper-inline-toolbar .t-button:hover,
+.paper-ai-content .t-button:hover,
+.paper-control:hover {
+  transform: translateY(-1px) scale(1.015);
+  box-shadow: 0 6px 18px rgba(35, 49, 83, .12);
+}
+.paper-toolbar .t-button:active,
+.paper-inline-toolbar .t-button:active,
+.paper-ai-content .t-button:active,
+.paper-control:active {
+  transform: scale(.96);
+}
+
+.paper-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+.paper-compatible-view {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  background: #525659;
+  text-align: center;
+  scrollbar-gutter: stable;
+}
+
+.paper-ai-side {
+  width: 400px;
+  border-left: 1px solid var(--app-border);
+  display: flex;
+  flex-direction: column;
+  background: var(--app-bg-2);
+  flex-shrink: 0;
+}
+
+.paper-ai-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--app-border);
+  flex-shrink: 0;
+}
+
+.paper-ai-tab {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--app-text-3);
+  border-bottom: 2px solid transparent;
+  transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease, transform 160ms var(--motion-ease-out);
+}
+.paper-ai-tab:hover { background: color-mix(in srgb, var(--td-brand-color) 7%, transparent); }
+.paper-ai-tab:active { transform: scale(.97); }
+
+.paper-ai-tab.active {
+  color: var(--td-brand-color);
+  border-bottom-color: var(--td-brand-color);
+  font-weight: 600;
+}
+
+.paper-ai-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.paper-ai-empty {
+  margin-top: 40%;
+  color: var(--app-text-3);
+  text-align: center;
+}
+
+.paper-ai-result {
+  max-height: none;
+  overflow: visible;
+}
+
+.paper-translation-history,
+.paper-current-translation {
+  display: block;
+}
+
+.paper-translation-history-title {
+  margin-bottom: 18px;
+  color: var(--app-text-3);
+  font-size: 12px;
+}
+
+.paper-translation-entry {
+  margin-bottom: 24px;
+}
+
+.paper-translation-meta {
+  margin-bottom: 8px;
+  color: var(--app-text-3);
+  font-size: 11px;
+}
+
+.paper-current-translation {
+  margin-top: 24px;
+}
+
+.settings-language-select { width: 100%; max-width: 280px; padding: 8px 10px; border: 1px solid var(--app-border-strong); border-radius: 8px; color: var(--app-text); background: var(--app-panel); font: inherit; }
+.settings-language-hint { margin-top: 6px; color: var(--app-text-3); font-size: 11px; }
+
+.ctx-menu-item:hover {
+  background: rgba(var(--app-accent-rgb), 0.08) !important;
+  transform: translateX(2px);
+}
+.ctx-menu-item { transition: transform 150ms var(--motion-ease-out), background-color 150ms ease !important; }
+
+.paper-inline-reader {
+  width: min(100%, 680px);
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 13px;
+  background: #525659;
+  box-shadow: 0 10px 30px rgba(31, 46, 82, .08);
+  animation: paperControlIn 240ms var(--motion-ease-out) both;
+}
+.paper-inline-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--app-bg-2);
+  border-bottom: 1px solid var(--app-border);
+}
+.paper-inline-toolbar > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.paper-inline-toolbar > div { display: flex; flex-shrink: 0; gap: 6px; }
+.paper-inline-preview {
+  position: relative;
+  height: 420px;
+  overflow: hidden;
+  background: #525659;
+}
+.paper-inline-frame {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+.paper-loading-state,
+.paper-load-error {
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: rgba(255,255,255,.8);
+  font-size: 12px;
+}
+.paper-load-error span { color: rgba(255,255,255,.65); }
+
+@keyframes paperBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes paperReaderIn {
+  from { opacity: 0; transform: translateY(14px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes paperControlIn {
+  from { opacity: 0; transform: translateY(6px) scale(.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ============================================================
+   PDF.js TextLayer - 原生文本选择
+   ============================================================ */
+.pdf-text-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  opacity: 0.25;
+  line-height: 1;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  user-select: text;
+  forced-color-adjust: none;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.pdf-text-layer span,
+.pdf-text-layer br {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.pdf-text-layer ::selection {
+  background: rgba(var(--app-accent-rgb), 0.3);
+}

@@ -6,11 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "check:boundaries": "node scripts/check-feature-boundaries.mjs && node --test scripts/check-feature-boundaries.node-test.mjs && node scripts/check-legacy-front-end.mjs",
+    "check:boundaries": "node scripts/check-feature-boundaries.mjs && node --test scripts/check-feature-boundaries.node-test.mjs && node scripts/check-legacy-front-end.mjs && node scripts/check-css-ownership.mjs",
+    "check:css": "node scripts/check-css-ownership.mjs",
     "check:i18n": "node scripts/check-i18n-labels.mjs",
     "lint": "eslint .",
     "test:e2e": "playwright test",
-    "test": "npm run check:i18n && vitest run",
+    "test": "npm run check:i18n && vitest run --exclude e2e/**",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -1,0 +1,97 @@
+/* ============ Makers 生产行程工作台 ============ */
+.makers-workspace .my-panel-card {
+  margin-bottom: 0;
+}
+.makers-map-card {
+  padding: 10px;
+  overflow: hidden;
+}
+.makers-map {
+  position: relative;
+}
+.makers-map-title {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--app-text);
+  margin: 1px 2px 8px;
+}
+.makers-map-canvas {
+  width: 100%;
+  height: 220px;
+  border-radius: 10px;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(var(--app-accent-rgb), 0.08), rgba(var(--app-accent-soft-rgb), 0.06)),
+    var(--app-panel-2);
+}
+.makers-map.is-updating::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset: 28px 0 28px;
+  border-radius: 10px;
+  background: radial-gradient(circle at center, rgba(var(--app-accent-rgb), 0.22), transparent 68%);
+  animation: mapUpdateWave 1.05s ease-out;
+}
+.makers-map-fallback {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 44px;
+  max-height: 190px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--app-panel) 88%, transparent);
+  backdrop-filter: blur(8px);
+  color: var(--app-text-2);
+  font-size: 11px;
+  line-height: 1.65;
+}
+.makers-map-loading {
+  position: absolute;
+  left: 50%;
+  top: 132px;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  padding: 7px 10px;
+  border-radius: 999px;
+  color: var(--app-text-2);
+  background: color-mix(in srgb, var(--app-panel) 90%, transparent);
+  box-shadow: var(--app-shadow);
+  font-size: 11px;
+}
+.makers-map-fallback strong { display: block; margin-bottom: 6px; color: var(--app-text); }
+.makers-map-fallback-places { display: grid; gap: 5px; margin-bottom: 8px; }
+.makers-map-fallback-places > div { display: grid; padding: 5px 6px; border-radius: 6px; background: rgba(var(--app-accent-rgb), .06); }
+.makers-map-fallback-places b { color: var(--app-text); font-size: 11px; }
+.makers-map-fallback-places span { color: var(--app-text-3); font-size: 10px; }
+.makers-place-chips {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 7px 1px 1px;
+}
+
+.workspace-map-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 10px;
+}
+
+.workspace-map-action {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--td-brand-color);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.workspace-map-action:disabled { color: #8b94a8; cursor: default; }

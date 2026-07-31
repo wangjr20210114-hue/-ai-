@@ -1,0 +1,10 @@
+@media (max-width: 680px) {
+  .app-settings-grid { grid-template-columns: 1fr; }
+  .provider-usage-grid { grid-template-columns: 1fr; }
+  .app-settings-danger-section { align-items: stretch; flex-direction: column; }
+}
+
+.right-panel-toggle .t-icon,
+.theme-toggle .t-icon { font-size: 22px; }
+.right-panel-toggle,
+.theme-toggle { width: 38px !important; height: 38px !important; }

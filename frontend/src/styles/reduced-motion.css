@@ -1,0 +1,29 @@
+/* Respect the system's Reduce Motion preference: keep state changes visible,
+   but remove spatial movement, blur and smooth scrolling. */
+@media (prefers-reduced-motion: reduce) {
+  html.theme-transitioning::view-transition-old(root),
+html.theme-transitioning::view-transition-new(root) {
+    animation: none !important;
+  }
+
+  html:focus-within {
+    scroll-behavior: auto;
+  }
+
+  *,
+*::before,
+*::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  :where(button, a[href], summary, select, input[type='checkbox'], input[type='radio'], [role='button'], [role='switch'], .t-button):hover,
+:where(button, a[href], summary, select, input[type='checkbox'], input[type='radio'], [role='button'], [role='switch'], .t-button):active {
+    transform: none !important;
+    filter: none !important;
+  }
+  :where(.t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell):hover,
+:where(.t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell):active { transform: none !important; }
+}

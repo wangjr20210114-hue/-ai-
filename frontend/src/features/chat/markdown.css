@@ -1,0 +1,165 @@
+.msg-bubble.ai .markdown-body h1 {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  color: var(--app-text);
+}
+.msg-bubble.ai .markdown-body h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 8px 0 4px;
+  color: var(--app-text);
+}
+.msg-bubble.ai .markdown-body h3 {
+  font-size: 13.5px;
+  font-weight: 600;
+  margin: 6px 0 2px;
+  color: var(--app-text);
+}
+.msg-bubble.ai .markdown-body p {
+  margin: 3px 0;
+  line-height: 1.55;
+}
+.msg-bubble.ai .markdown-body ul,
+.msg-bubble.ai .markdown-body ol {
+  margin: 2px 0;
+  padding-left: 18px;
+}
+.msg-bubble.ai .markdown-body li {
+  margin: 1px 0;
+  line-height: 1.5;
+}
+.msg-bubble.ai .markdown-body ul li { list-style: disc; }
+.msg-bubble.ai .markdown-body ol li { list-style: decimal; }
+.msg-bubble.ai .markdown-body strong { font-weight: 600; }
+.msg-bubble.ai .markdown-body em { font-style: italic; }
+.msg-bubble.ai .markdown-body blockquote {
+  border-left: 3px solid var(--td-brand-color);
+  padding-left: 8px;
+  margin: 4px 0;
+  color: var(--app-text-2);
+  font-size: 12.5px;
+}
+.msg-bubble.ai .markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--app-border);
+  margin: 6px 0;
+}
+.msg-bubble.ai .markdown-body a {
+  color: var(--td-brand-color);
+  text-decoration: none;
+}
+
+/* 搜索来源只作为回答末尾的可选证据层。 */
+
+/* 搜索结果图片网格 */
+.msg-bubble.ai .markdown-body code {
+  background: var(--app-panel-2);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  overflow-wrap: anywhere;
+}
+.md-code-shell {
+  max-width: 100%;
+  margin: 8px 0;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 9px;
+  background: #101521;
+}
+.md-code-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 0 10px 0 13px;
+  color: #9aa8bd;
+  background: #171e2d;
+  font-size: 11px;
+}
+.md-code-toolbar button {
+  padding: 3px 8px;
+  border: 1px solid #344158;
+  border-radius: 5px;
+  color: #dce6f5;
+  background: #222c3f;
+  cursor: pointer;
+}
+.md-code-toolbar button:hover { background: #2d3a51; }
+.msg-bubble.ai .markdown-body .md-code-block {
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border: 0;
+  border-radius: 0;
+  background: #101521;
+  color: #d7e1f0;
+  -webkit-overflow-scrolling: touch;
+}
+.md-code-block .hljs-keyword,
+.md-code-block .hljs-selector-tag,
+.md-code-block .hljs-literal { color: #c792ea; }
+.md-code-block .hljs-string,
+.md-code-block .hljs-regexp,
+.md-code-block .hljs-attr { color: #c3e88d; }
+.md-code-block .hljs-number,
+.md-code-block .hljs-symbol { color: #f78c6c; }
+.md-code-block .hljs-title,
+.md-code-block .hljs-built_in,
+.md-code-block .hljs-type { color: #82aaff; }
+.md-code-block .hljs-comment,
+.md-code-block .hljs-quote { color: #697a95; font-style: italic; }
+.md-code-block .hljs-variable,
+.md-code-block .hljs-template-variable { color: #f07178; }
+.msg-bubble.ai .markdown-body .md-code-block code {
+  display: block;
+  min-width: max-content;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.msg-bubble.ai .markdown-body table,
+.travel-plan-markdown .markdown-body table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 12.5px;
+  width: 100%;
+  display: table;
+}
+.md-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 6px 0;
+}
+.msg-bubble.ai .markdown-body th,
+.travel-plan-markdown .markdown-body th {
+  border: 1px solid var(--app-border);
+  padding: 5px 8px;
+  font-weight: 600;
+  background: var(--app-panel-2);
+  text-align: left;
+}
+.msg-bubble.ai .markdown-body td,
+.travel-plan-markdown .markdown-body td {
+  border: 1px solid var(--app-border);
+  padding: 5px 8px;
+  text-align: left;
+}
+.msg-bubble.ai .markdown-body tr,
+.travel-plan-markdown .markdown-body tr {
+  display: table-row;
+}
+.msg-bubble.ai .markdown-body thead,
+.travel-plan-markdown .markdown-body thead {
+  display: table-header-group;
+}
+.msg-bubble.ai .markdown-body tbody,
+.travel-plan-markdown .markdown-body tbody {
+  display: table-row-group;
+}

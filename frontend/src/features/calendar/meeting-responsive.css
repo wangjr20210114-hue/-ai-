@@ -1,0 +1,3 @@
+@media (max-width: 720px) {
+  .meeting-confirm-times { grid-template-columns: 1fr; }
+}

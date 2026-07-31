@@ -1,0 +1,184 @@
+/* ============ Floris newcomer tour ============ */
+.floris-onboarding {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  color: var(--app-text);
+  font-family: inherit;
+  pointer-events: none;
+}
+.floris-onboarding-interaction-lock {
+  position: fixed;
+  z-index: 0;
+  inset: 0;
+  pointer-events: auto;
+  touch-action: none;
+}
+.floris-onboarding-welcome-scrim,
+.floris-onboarding-blur {
+  position: fixed;
+  z-index: 1;
+  background: rgba(235, 240, 248, .62);
+  -webkit-backdrop-filter: blur(7px) saturate(.82);
+  backdrop-filter: blur(7px) saturate(.82);
+  pointer-events: none;
+}
+.floris-onboarding-welcome-scrim { inset: 0; background: rgba(229, 235, 245, .72); }
+.floris-onboarding-blur.is-top { top: 0; right: 0; left: 0; }
+.floris-onboarding-blur.is-bottom { right: 0; bottom: 0; left: 0; }
+.floris-onboarding-blur.is-left { left: 0; }
+.floris-onboarding-blur.is-right { right: 0; }
+[theme-mode='dark'] .floris-onboarding-welcome-scrim,
+[theme-mode='dark'] .floris-onboarding-blur {
+  background: rgba(7, 12, 23, .72);
+  -webkit-backdrop-filter: blur(7px) saturate(.72);
+  backdrop-filter: blur(7px) saturate(.72);
+}
+.floris-onboarding-focus-ring {
+  position: fixed;
+  z-index: 2;
+  border: 2px solid rgba(var(--app-accent-rgb), .92);
+  border-radius: 16px;
+  box-shadow:
+    0 0 0 4px rgba(var(--app-accent-rgb), .13),
+    0 12px 34px rgba(var(--app-accent-rgb), .2);
+  pointer-events: none;
+  animation: floris-tour-ring 2.2s ease-in-out infinite;
+}
+.floris-onboarding-card {
+  position: fixed;
+  z-index: 4;
+  display: grid;
+  gap: 13px;
+  max-height: calc(100dvh - 32px);
+  padding: 20px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--td-brand-color) 28%, var(--app-border));
+  border-radius: 21px;
+  color: var(--app-text);
+  background:
+    radial-gradient(circle at 100% 0, rgba(var(--app-accent-rgb), .12), transparent 42%),
+    var(--app-panel);
+  box-shadow: 0 24px 70px rgba(24, 36, 64, .24), 0 3px 12px rgba(24, 36, 64, .08);
+  pointer-events: auto;
+  animation: floris-tour-card-in 420ms var(--motion-ease-smooth) both;
+}
+[theme-mode='dark'] .floris-onboarding-card {
+  border-color: rgba(var(--app-accent-rgb), .38);
+  box-shadow: 0 26px 78px rgba(0, 0, 0, .5), 0 3px 14px rgba(0, 0, 0, .25);
+}
+.floris-onboarding-card.is-welcome { width: min(438px, calc(100vw - 32px)) !important; padding: 25px; gap: 15px; }
+.floris-onboarding-cat-mark { display: flex; align-items: flex-start; justify-content: space-between; height: 44px; }
+.floris-onboarding-cat-mark img {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(var(--app-accent-rgb), .2);
+  border-radius: 15px;
+  object-fit: cover;
+  box-shadow: 0 7px 20px rgba(var(--app-accent-rgb), .18);
+}
+.floris-onboarding-cat-mark span { color: var(--td-brand-color); font-size: 21px; animation: floris-tour-sparkle 2.4s ease-in-out infinite; }
+.floris-onboarding-card h2 { margin: 0; font-size: 16px; font-weight: 690; line-height: 1.72; letter-spacing: .01em; }
+.floris-onboarding-card.is-welcome h2 { font-size: 24px; line-height: 1.35; letter-spacing: -.02em; }
+.floris-onboarding-welcome-copy { display: grid; gap: 7px; }
+.floris-onboarding-welcome-copy p,
+.floris-onboarding-hint-copy { margin: 0; color: var(--app-text-2); font-size: 13px; line-height: 1.72; }
+.floris-onboarding-welcome-copy a {
+  color: var(--td-brand-color);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--td-brand-color) 42%, transparent);
+  text-underline-offset: 3px;
+  transition: color 160ms ease, text-decoration-color 160ms ease;
+}
+.floris-onboarding-welcome-copy a:hover,
+.floris-onboarding-welcome-copy a:focus-visible {
+  color: var(--td-brand-color-hover);
+  text-decoration-color: currentColor;
+}
+.floris-onboarding-welcome-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 3px; }
+.floris-onboarding-welcome-actions button,
+.floris-onboarding-next {
+  min-height: 42px;
+  border: 1px solid var(--app-border);
+  border-radius: 13px;
+  color: var(--app-text-2);
+  background: var(--app-panel-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: translate 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background-color 180ms ease;
+}
+.floris-onboarding-welcome-actions button:hover,
+.floris-onboarding-next:hover { translate: 0 -1px; border-color: rgba(var(--app-accent-rgb), .42); box-shadow: 0 8px 18px rgba(var(--app-accent-rgb), .12); }
+.floris-onboarding-welcome-actions button:active,
+.floris-onboarding-next:active { translate: 0 0; }
+.floris-onboarding-welcome-actions button.is-primary,
+.floris-onboarding-next {
+  border-color: var(--td-brand-color);
+  color: #fff;
+  background: linear-gradient(135deg, var(--td-brand-color), color-mix(in srgb, var(--td-brand-color) 74%, #7967e8));
+}
+.floris-onboarding-card-head { display: flex; align-items: center; gap: 10px; }
+.floris-onboarding-card-head > span { flex: 0 0 auto; color: var(--app-text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.floris-onboarding-card-head i {
+  position: relative;
+  height: 3px;
+  flex: 1;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--app-border);
+}
+.floris-onboarding-card-head i::after {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--tour-progress);
+  border-radius: inherit;
+  background: var(--td-brand-color);
+  content: '';
+  transition: width 360ms var(--motion-ease-smooth);
+}
+.floris-onboarding-next {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  justify-self: end;
+  min-width: 112px;
+  padding: 0 16px;
+}
+.floris-onboarding-next svg { width: 16px; height: 16px; transition: translate 180ms ease; }
+.floris-onboarding-next:hover svg { translate: 2px 0; }
+.is-onboarding-locked { user-select: none; }
+.is-onboarding-locked [data-onboarding-tour-disabled='true'] {
+  opacity: 1;
+  filter: none;
+}
+
+@keyframes floris-tour-card-in {
+  from { opacity: 0; translate: 0 10px; scale: .975; }
+  to { opacity: 1; translate: 0 0; scale: 1; }
+}
+@keyframes floris-tour-ring {
+  0%,
+100% { box-shadow: 0 0 0 4px rgba(var(--app-accent-rgb), .12), 0 12px 34px rgba(var(--app-accent-rgb), .18); }
+  50% { box-shadow: 0 0 0 8px rgba(var(--app-accent-rgb), .05), 0 16px 38px rgba(var(--app-accent-rgb), .24); }
+}
+@keyframes floris-tour-sparkle {
+  0%,
+100% { rotate: -8deg; scale: .9; opacity: .72; }
+  50% { rotate: 8deg; scale: 1.08; opacity: 1; }
+}
+
+@media (max-width: 560px) {
+  .floris-onboarding-card,
+.floris-onboarding-card.is-welcome {
+    right: 12px !important;
+    left: 12px !important;
+    width: auto !important;
+    max-width: none;
+    padding: 18px;
+  }
+  .floris-onboarding-card.is-welcome h2 { font-size: 21px; }
+  .floris-onboarding-welcome-actions { grid-template-columns: 1fr; }
+}

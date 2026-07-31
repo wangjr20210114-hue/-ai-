@@ -1,0 +1,69 @@
+/* ============ 左侧对话历史 ============ */
+.conversation-sidebar {
+  width: var(--left-pane-width, 252px);
+  flex: 0 0 var(--left-pane-width, 252px);
+  min-height: 0;
+  padding: 14px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--app-panel-2);
+}
+
+.conversation-sidebar-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 2px 2px 14px;
+}
+
+.conversation-sidebar-title {
+  color: var(--app-text);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.conversation-sidebar-close,
+.conversation-sidebar-backdrop {
+  display: none;
+}
+
+.conversation-history-label {
+  margin: 18px 7px 8px;
+  color: var(--app-text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.conversation-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.conversation-sidebar-tools { flex: 0 0 auto; margin-top: 10px; border-top: 1px solid var(--app-border); padding-top: 8px; }
+.conversation-sidebar-tools .my-panel-card { padding: 8px 4px; border: 0; }
+.conversation-sidebar-tools .section-title { font-size: 12px; }
+.sidebar-reminders { flex: 0 0 auto; max-height: 40%; margin-top: 9px; padding-top: 9px; overflow: auto; border-top: 1px solid var(--app-border); }
+.sidebar-reminders-heading { display: flex; align-items: center; gap: 6px; padding: 0 5px 6px; color: var(--app-text-2); font-size: 12px; font-weight: 650; }
+.sidebar-reminders-heading > span { display: inline-flex; align-items: center; gap: 5px; }
+.sidebar-reminders-heading b { min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; color: #fff; background: #e34d59; font-size: 9px; line-height: 17px; text-align: center; }
+.sidebar-reminders-heading button { margin-left: auto; border: 0; color: var(--app-text-3); background: transparent; cursor: pointer; }
+.sidebar-reminders-empty { padding: 7px 6px 3px; color: var(--app-text-3); font-size: 10.5px; }
+.sidebar-reminder { margin: 4px 2px; padding: 8px; border: 1px solid rgba(var(--app-accent-rgb), .14); border-radius: 9px; background: rgba(var(--app-accent-rgb), .04); }
+.sidebar-reminder.priority-high { border-color: rgba(227, 77, 89, .28); background: rgba(227, 77, 89, .05); }
+.sidebar-reminder strong { display: block; overflow: hidden; color: var(--app-text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-reminder p { display: -webkit-box; margin: 3px 0 4px; overflow: hidden; color: var(--app-text-3); font-size: 10px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.sidebar-reminder small { display: block; margin-bottom: 3px; color: var(--app-text-3); font-size: 9px; }
+.sidebar-reminder > div { display: flex; gap: 7px; }
+.sidebar-reminder > div button { padding: 0; border: 0; color: var(--td-brand-color); background: transparent; font-size: 9.5px; cursor: pointer; }
+.sidebar-reminder > div button:not(:first-child) { color: var(--app-text-3); }
+.sidebar-reminder > div button:disabled { opacity: .5; cursor: default; }
+.workspace-confirm-warning { margin-top: 7px; padding: 7px 8px; border-radius: 8px; color: #8a5a00; background: #fff7e6; font-size: 11px; line-height: 1.5; }

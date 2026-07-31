@@ -1,0 +1,96 @@
+/* Reviewed media stays answer-width and is inserted only after its exact source_id citation. */
+.msg-bubble.ai .markdown-body img {
+  width: 100%;
+  max-width: 100%;
+  max-height: 520px;
+  border-radius: 0;
+  display: block;
+  margin: 6px 0;
+  object-fit: contain;
+}
+
+/* 结构化富媒体：图片始终携带说明、来源和失败回退 */
+.rich-media-figure {
+  display: block !important;
+  width: calc(100% - 16px);
+  max-width: calc(100% - 16px);
+  margin: 12px 8px;
+  border: 1px solid var(--app-border);
+  box-sizing: border-box;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--app-panel-2);
+}
+.rich-media-figure.is-preview {
+  border-style: dashed;
+}
+.msg-bubble.ai .markdown-body .rich-media-figure img {
+  width: 100%;
+  max-width: 100%;
+  max-height: 520px;
+  margin: 0;
+  border-radius: 0;
+  object-fit: contain;
+  background: var(--app-panel-2);
+}
+.rich-media-figure figcaption {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  gap: 6px 10px;
+  padding: 8px 10px;
+  color: var(--app-text-2);
+  font-size: 11.5px;
+  line-height: 1.45;
+  border-top: 1px solid var(--app-border);
+}
+.rich-media-caption-text {
+  flex: 1 1 240px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.rich-media-figure figcaption a {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 10.5px;
+}
+.rich-media-generated {
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--td-brand-color);
+  background: rgba(var(--app-accent-rgb), 0.09);
+  font-size: 10px;
+  font-weight: 600;
+}
+.rich-media-reviewing {
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--td-brand-color);
+  background: color-mix(in srgb, var(--td-brand-color) 9%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* URL-only Markdown evidence is rendered as a compact inline citation. */
+.msg-bubble.ai .markdown-body a.md-citation-link {
+  display: inline-block;
+  position: relative;
+  z-index: 1;
+  margin: 0 2px;
+  font-size: 0.76em;
+  line-height: 1.35;
+  vertical-align: 0.08em;
+  color: var(--td-brand-color);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--td-brand-color) 35%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.msg-bubble.ai .markdown-body a.md-citation-link:hover {
+  text-decoration-color: currentColor;
+}

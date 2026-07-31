@@ -1,0 +1,80 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: var(--app-font-family);
+  color: var(--app-text);
+  background: var(--app-bg);
+  background-image:
+    radial-gradient(circle at 12% 8%, var(--app-bg-grad-1), transparent 38%),
+    radial-gradient(circle at 88% 4%, var(--app-bg-grad-2), transparent 36%);
+  background-attachment: fixed;
+  overflow: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+html.theme-transitioning::view-transition-old(root),
+html.theme-transitioning::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+:where(button, input, textarea, select, option) {
+  font-family: inherit;
+}
+
+html.theme-transitioning::view-transition-new(root) {
+  z-index: 99999;
+  animation: themeDiagonalReveal 280ms cubic-bezier(.2, .72, .18, 1) both;
+}
+
+html.theme-transitioning::view-transition-old(root) {
+  z-index: 99998;
+  animation: themeDiagonalFadeOld 280ms cubic-bezier(.2, .72, .18, 1) both;
+}
+
+@keyframes themeDiagonalReveal {
+  0% {
+    clip-path: circle(0 at 100% 0);
+    filter: blur(6px) saturate(.9);
+    opacity: .62;
+  }
+  48% {
+    filter: blur(2px) saturate(.96);
+    opacity: .9;
+  }
+  100% {
+    clip-path: circle(150vmax at 100% 0);
+    filter: blur(0) saturate(1);
+    opacity: 1;
+  }
+}
+
+@keyframes themeDiagonalFadeOld {
+  from {
+    filter: blur(0);
+    opacity: 1;
+  }
+  to {
+    filter: blur(3px);
+    opacity: .78;
+  }
+}
+
+:root[theme-mode='dark'] body {
+  background-image:
+    radial-gradient(circle at 14% 5%, var(--app-bg-grad-1), transparent 38%),
+    radial-gradient(circle at 86% 8%, var(--app-bg-grad-2), transparent 34%),
+    radial-gradient(circle, rgba(232, 222, 255, 0.22) 0 1px, transparent 1.35px);
+  background-size: auto, auto, 48px 48px;
+}

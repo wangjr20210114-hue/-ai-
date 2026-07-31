@@ -1,0 +1,112 @@
+/* ============================================================
+   Floris 风格主题：干净、现代、双主题（浅色 / 深色）
+   - 通过 [theme-mode] 切换 TDesign 内置主题
+   - 同时定义一套 --app-* 变量供自定义组件取色
+   ============================================================ */
+
+/* ---------- 浅色（默认）：橙色暖调 ---------- */
+:root {
+  --app-font-family: 'Songti SC', 'STSong', 'SimSun', 'Noto Serif CJK SC', serif;
+  --td-font-family: var(--app-font-family);
+  --app-bg: #fff8f0;
+  --app-bg-grad-1: rgba(242, 139, 66, 0.13);
+  --app-bg-grad-2: rgba(255, 194, 112, 0.12);
+  --app-panel: #fffdf9;
+  --app-panel-2: #fff5e8;
+  --app-border: rgba(117, 67, 34, 0.1);
+  --app-border-strong: rgba(117, 67, 34, 0.16);
+  --app-text: #34261d;
+  --app-text-2: #745f50;
+  --app-text-3: #a58d7c;
+  --app-user-bubble: linear-gradient(135deg, #f28b42, #df632d);
+  --app-user-text: #ffffff;
+  --app-ai-bubble: #fffdfa;
+  --app-shadow: 0 1px 3px rgba(111, 59, 28, 0.06), 0 7px 22px rgba(146, 76, 31, 0.07);
+  --app-accent-rgb: 226, 107, 45;
+  --app-accent-soft-rgb: 242, 139, 66;
+  --app-brand: var(--td-brand-color);
+  --chat-skin: url('/floris-chat-light.jpg');
+  --chat-skin-overlay: rgba(255, 253, 249, 0.7);
+  --motion-press: 120ms;
+  --motion-fast: 180ms;
+  --motion-enter: 280ms;
+  --motion-reveal: 240ms;
+  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* 4px 基线间距系统 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --td-brand-color: #df6b2d;
+  --td-brand-color-hover: #f28b42;
+  --td-brand-color-active: #bd4f1d;
+  --td-radius-default: 10px;
+  --td-radius-medium: 12px;
+}
+
+/* TDesign's light selector is more specific than :root, so keep its full
+   component palette aligned with Floris instead of falling back to blue. */
+:root[theme-mode='light'] {
+  --td-brand-color-1: #fff4e8;
+  --td-brand-color-2: #ffe4cc;
+  --td-brand-color-3: #ffc89e;
+  --td-brand-color-4: #f9a96b;
+  --td-brand-color-5: #f28b42;
+  --td-brand-color-6: #e87832;
+  --td-brand-color-7: #df6b2d;
+  --td-brand-color-8: #bd4f1d;
+  --td-brand-color-9: #923a15;
+  --td-brand-color-10: #69280f;
+  --td-brand-color: #df6b2d;
+  --td-brand-color-hover: #f28b42;
+  --td-brand-color-focus: #ffe4cc;
+  --td-brand-color-active: #bd4f1d;
+  --td-brand-color-disabled: #ffc89e;
+  --td-brand-color-light: #fff4e8;
+  --td-brand-color-light-hover: #ffe4cc;
+}
+
+/* ---------- 深色：紫色夜空 ---------- */
+:root[theme-mode='dark'] {
+  --app-bg: #100c1d;
+  --app-bg-grad-1: rgba(139, 92, 246, 0.2);
+  --app-bg-grad-2: rgba(88, 67, 180, 0.18);
+  --app-panel: #181325;
+  --app-panel-2: #211a32;
+  --app-border: rgba(214, 196, 255, 0.1);
+  --app-border-strong: rgba(214, 196, 255, 0.18);
+  --app-text: rgba(248, 244, 255, 0.94);
+  --app-text-2: rgba(229, 219, 255, 0.68);
+  --app-text-3: rgba(207, 192, 238, 0.46);
+  --app-user-bubble: linear-gradient(135deg, #7c3aed, #a855f7);
+  --app-user-text: #ffffff;
+  --app-ai-bubble: #241b35;
+  --app-shadow: 0 8px 28px rgba(5, 2, 14, 0.4), 0 0 0 1px rgba(167, 139, 250, 0.04);
+  --app-accent-rgb: 167, 139, 250;
+  --app-accent-soft-rgb: 139, 92, 246;
+  --chat-skin: url('/floris-chat-dark.jpg');
+  --chat-skin-overlay: rgba(16, 12, 29, 0.66);
+
+  --td-brand-color: #a78bfa;
+  --td-brand-color-hover: #c4b5fd;
+  --td-brand-color-active: #8b5cf6;
+  --td-brand-color-1: #211739;
+  --td-brand-color-2: #352552;
+  --td-brand-color-3: #503975;
+  --td-brand-color-4: #7251a4;
+  --td-brand-color-5: #8b5cf6;
+  --td-brand-color-6: #9d78f5;
+  --td-brand-color-7: #a78bfa;
+  --td-brand-color-8: #c4b5fd;
+  --td-brand-color-9: #ddd6fe;
+  --td-brand-color-10: #ede9fe;
+  --td-brand-color-focus: #352552;
+  --td-brand-color-disabled: #7251a4;
+  --td-brand-color-light: #211739;
+  --td-brand-color-light-hover: #352552;
+}

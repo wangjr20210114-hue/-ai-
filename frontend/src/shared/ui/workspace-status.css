@@ -1,0 +1,3 @@
+.workspace-action-status { margin-top: 8px; font-size: 13px; }
+.workspace-action-status.status-succeeded { color: #158452; }
+.workspace-action-status.status-failed { color: #c9353a; }

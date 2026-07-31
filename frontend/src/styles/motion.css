@@ -1,0 +1,109 @@
+/* ============ 动画 ============ */
+@keyframes cardSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes typingDotPulse {
+  0%,
+100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.typing-dots span {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--td-brand-color);
+  animation: typingDotPulse 1.2s infinite;
+}
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+
+/* Secondary surfaces opened from the main workspace */
+.secondary-dialog {
+  width: min(760px, calc(100vw - 32px)) !important;
+  max-width: calc(100vw - 32px) !important;
+  max-height: min(88dvh, 860px);
+  margin: 0 !important;
+  display: flex !important;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+.header-proactive-ticker.is-fallback {
+  border-color: color-mix(in srgb, var(--app-border) 78%, var(--app-brand) 22%);
+  background: color-mix(in srgb, var(--app-panel) 94%, var(--app-brand) 6%);
+  color: var(--app-text-3);
+}
+.header-proactive-ticker.is-fallback { cursor: default; }
+
+.t-dialog__wrap:has(.secondary-dialog) .t-dialog__position.t-dialog--center {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  padding:
+    max(16px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+  box-sizing: border-box;
+}
+
+.secondary-dialog .t-dialog__header,
+.secondary-dialog .t-dialog__footer {
+  flex: 0 0 auto;
+}
+
+.secondary-dialog .t-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-settings-modal .t-dialog__body {
+  padding-bottom: 18px;
+}
+
+.skills-marketplace-modal {
+  width: min(900px, calc(100vw - 32px)) !important;
+}
+
+.skills-marketplace-modal .t-dialog__body {
+  display: flex !important;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.skills-marketplace-modal .skills-marketplace {
+  min-height: 0;
+  max-height: none;
+  flex: 1 1 auto;
+}

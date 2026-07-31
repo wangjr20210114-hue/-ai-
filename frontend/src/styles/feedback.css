@@ -1,0 +1,49 @@
+/* Brief, purposeful feedback inspired by Apple's motion guidance. */
+:where(button, a[href], summary, select, input[type='checkbox'], input[type='radio'], [role='button'], [role='switch'], .t-button) {
+  transform-origin: center;
+  transition:
+    transform var(--motion-press) var(--motion-ease-out),
+    filter var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    opacity var(--motion-fast) ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :where(button, a[href], summary, select, input[type='checkbox'], input[type='radio'], [role='button'], [role='switch'], .t-button):not(:disabled):hover {
+    transform: translateY(-1px);
+    filter: brightness(1.025);
+  }
+}
+
+:where(button, a[href], summary, select, input[type='checkbox'], input[type='radio'], [role='button'], [role='switch'], .t-button):not(:disabled):active {
+  transform: translateY(0) scale(0.97);
+  filter: brightness(0.98);
+  transition-duration: 70ms;
+}
+
+:where(button, a[href], summary, select, input[type='checkbox'], input[type='radio'], [role='button'], [role='switch'], .t-button):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--td-brand-color) 68%, transparent);
+  outline-offset: 2px;
+}
+
+:where(button, .t-button):disabled {
+  transform: none;
+  filter: none;
+}
+
+:where(.t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell) {
+  transition:
+    transform var(--motion-press) var(--motion-ease-out),
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    opacity var(--motion-fast) ease;
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  :where(.t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell):hover { transform: translateY(-1px); }
+}
+:where(.t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell):active { transform: scale(.98); transition-duration: 70ms; }

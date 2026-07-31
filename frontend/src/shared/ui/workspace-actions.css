@@ -1,0 +1,11 @@
+.workspace-confirm-card {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--app-border, #dce2ef);
+  border-radius: 10px;
+  background: rgba(var(--app-accent-rgb), 0.06);
+}
+
+.workspace-confirm-title { font-weight: 600; line-height: 1.55; }
+.workspace-confirm-meta { margin-top: 4px; color: var(--app-text-secondary, #687086); font-size: 12px; }
+.workspace-confirm-actions { display: flex; gap: 8px; margin-top: 10px; }
