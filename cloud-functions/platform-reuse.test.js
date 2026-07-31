@@ -8,7 +8,7 @@ const read = (path) => readFile(resolve(root, path), 'utf8');
 
 test('conversation, state, object and schedule infrastructure reuse EdgeOne Makers', async () => {
   const [chat, messages, files, config] = await Promise.all([
-    read('agents/_application/chat/turn_controller.py'),
+    read('agents/_application/chat/turn_service.py'),
     read('agents/_controllers/messages_controller.py'),
     read('cloud-functions/files/index.js'),
     read('edgeone.json'),
@@ -168,11 +168,11 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
     read('agents/_infrastructure/skills/builtin_operations.py'),
     read('agents/chat/_graph.py'),
     read('agents/_controllers/workspace_controller.py'),
-    read('frontend/src/components/chat/MessageBubble.tsx'),
+    read('frontend/src/features/chat/view/MessageBubble.tsx'),
     read('frontend/src/components/chat/clarificationSubmission.ts'),
     read('agents/chat/_capability_plan.py'),
-    read('agents/_application/chat/turn_controller.py'),
-    read('frontend/src/index.css'),
+    read('agents/_application/chat/turn_service.py'),
+    read('frontend/src/styles/reset.css'),
   ]);
   assert.match(files, /image\/png/);
   assert.match(library, /manual_folder/);
@@ -205,7 +205,7 @@ test('Tencent Meeting uses only the optional user-connected official MCP Skill',
     read('agents/_infrastructure/providers/side_effects.py'),
     read('agents/_infrastructure/skills/builtin_operations.py'),
     read('.env.example'),
-    read('frontend/src/services/api.ts'),
+    read('frontend/src/app/apiComposition.ts'),
     read('agents/skill_packages/tencent-meeting/floris.json'),
     read('agents/_application/skills/registry.py'),
   ]);
@@ -228,14 +228,14 @@ test('settings and Skills open on lightweight configuration reads', async () => 
   const [settings, skills, skillsController, api, intelligenceController, library, paperApi, input, registry, styles, header] = await Promise.all([
     read('frontend/src/components/profile/AppSettingsButton.tsx'),
     read('frontend/src/components/profile/SkillsMarketplaceButton.tsx'),
-    read('frontend/src/features/skills/useSkillMarketplaceController.ts'),
-    read('frontend/src/services/api.ts'),
+    read('frontend/src/features/skills/controller/useSkillMarketplaceController.ts'),
+    read('frontend/src/app/apiComposition.ts'),
     read('agents/_controllers/intelligence_controller.py'),
     read('cloud-functions/library/index.js'),
     read('frontend/src/services/paperApi.ts'),
     read('frontend/src/components/chat/InputBar.tsx'),
     read('agents/_application/skills/registry.py'),
-    read('frontend/src/index.css'),
+    read('frontend/src/features/skills/page.css'),
     read('frontend/src/components/common/Header.tsx'),
   ]);
   const settingsOpenEffects = settings.slice(0, settings.indexOf('const setPreferences'));
@@ -278,13 +278,13 @@ test('new multi-user and Skill surfaces follow the layered MVC boundary', async 
   ] = await Promise.all([
     read('agents/skill_marketplace/index.py'),
     read('middleware.js'),
-    read('frontend/src/services/api.ts'),
+    read('frontend/src/app/apiComposition.ts'),
     read('agents/skill_packages/proactive-agent/floris.json'),
     read('agents/_controllers/skills_controller.py'),
     read('agents/_models/skill_marketplace.py'),
     read('agents/_views/skill_marketplace.py'),
     read('frontend/src/components/profile/SkillsMarketplaceButton.tsx'),
-    read('frontend/src/features/skills/useSkillMarketplaceController.ts'),
+    read('frontend/src/features/skills/controller/useSkillMarketplaceController.ts'),
     read('frontend/src/features/skills/model.ts'),
   ]);
   assert.match(skillRoute, /handle_skills/);
@@ -365,12 +365,12 @@ test('self-service reset only deletes the authenticated Makers namespace', async
 
 test('production frontend has no active FastAPI or WebSocket transport fallback', async () => {
   const sources = await Promise.all([
-    read('frontend/src/App.tsx'),
+    read('frontend/src/app/App.tsx'),
     read('frontend/src/main.tsx'),
     read('frontend/src/services/auth.ts'),
     read('frontend/src/services/paperApi.ts'),
     read('frontend/src/components/chat/InputBar.tsx'),
-    read('frontend/src/components/chat/MessageBubble.tsx'),
+    read('frontend/src/features/chat/view/MessageBubble.tsx'),
     read('frontend/src/components/travel/TravelPlanCard.tsx'),
     read('frontend/src/components/travel/RouteMap.tsx'),
     read('frontend/vite.config.ts'),
@@ -380,10 +380,11 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
     active,
     /["'`]\/api\/|useWebSocket|new WebSocket|X-Agent-Token|127\.0\.0\.1:8000|target:\s*["'`]ws/,
   );
-  assert.match(active, /useSSEChat/);
+  assert.match(active, /useChatController/);
+  assert.doesNotMatch(active, /useSSEChat/);
   assert.doesNotMatch(active, /AuthGate|loginAppSession|registerAppSession/);
-  const chatClient = await read('frontend/src/hooks/useSSEChat.ts');
-  const stopRequest = chatClient.match(/fetch\(withEdgeOneAuth\('\/stop'\)[\s\S]*?body: JSON\.stringify/);
+  const chatClient = await read('frontend/src/features/chat/controller/chatRuntime.ts');
+  const stopRequest = chatClient.match(/const requestStop[\s\S]*?authorizedFetch\('\/stop'[\s\S]*?body: JSON\.stringify/);
   assert.ok(stopRequest);
   assert.doesNotMatch(stopRequest[0], /makersConversationHeaders/);
   assert.doesNotMatch(
