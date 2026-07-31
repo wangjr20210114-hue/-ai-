@@ -51,6 +51,7 @@ from ..._application.intelligence.service import (
 )
 from ..._infrastructure.makers.identity import require_user, scoped_conversation_id
 from ..._domain.entitlements.policy import effective_skill_preferences
+from ..._domain.search.evidence import SearchEvidence
 from ..._infrastructure.makers.data_version import namespace as data_namespace
 from ..._infrastructure.makers.conversation_repository import (
     RUNNING_STATES,

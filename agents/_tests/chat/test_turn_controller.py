@@ -113,6 +113,23 @@ class ChatTurnBoundaryTests(unittest.TestCase):
         self.assertIn("search_use_case.execute(", source)
         self.assertIn("answer_tool_names(", source)
 
+    def test_turn_service_imports_its_search_evidence_annotation(self):
+        service_path = (
+            Path(__file__).parents[2]
+            / "_application"
+            / "chat"
+            / "turn_service.py"
+        )
+        tree = ast.parse(service_path.read_text(encoding="utf-8"))
+        imported_names = {
+            alias.asname or alias.name
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+        }
+
+        self.assertIn("SearchEvidence", imported_names)
+
 
 if __name__ == "__main__":
     unittest.main()
