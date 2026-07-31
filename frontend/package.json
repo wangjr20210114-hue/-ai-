@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "check:boundaries": "node scripts/check-feature-boundaries.mjs && node --test scripts/check-feature-boundaries.test.mjs",
     "check:i18n": "node scripts/check-i18n-labels.mjs",
     "lint": "eslint .",
     "test": "npm run check:i18n && vitest run",
