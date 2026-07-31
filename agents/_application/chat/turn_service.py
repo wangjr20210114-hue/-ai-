@@ -1604,6 +1604,17 @@ async def _handle(ctx):
         and not bool(body.get("_location_retry"))
         and not str(capability_plan.get("blocked_skill") or "").strip()
     ):
+        # This response ends the first transport so the browser can obtain a
+        # fresh location and retry the same logical turn. Close the Maker run
+        # before emitting the retry request; otherwise the signed retry sees a
+        # stale "running" owner and is rejected with 409.
+        await write_chat_run(
+            ctx.store,
+            conversation_id,
+            run_id=run_id,
+            status="completed",
+        )
+
         async def request_browser_location():
             yield presenter.frame({
                 "type": "browser_location_request",
@@ -1858,7 +1869,6 @@ async def _handle(ctx):
             # must already be reviewed before the generation tool runs.
             progressive_media=progressive_media_for_plan(
                 capability_plan,
-                search_image_limit,
                 planner_timed_out=planner_timed_out,
             ),
             media_callback=publish_media,
