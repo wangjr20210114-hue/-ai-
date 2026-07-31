@@ -69,7 +69,11 @@ from .._shared.proactive import (
     public_proactive_state,
     save_proactive_state,
 )
-from .._views.chat_progress import progress_event, tool_progress_event
+from .._presenters.chat_stream import (
+    ChatStreamPresenter,
+    progress_event,
+    tool_progress_event,
+)
 
 WEEKDAY_LABELS = (
     ("Monday", "周一"),
@@ -1236,6 +1240,7 @@ def capability_planning_message(
 
 async def handler(ctx):
     handler_started_at = time.monotonic()
+    presenter = ChatStreamPresenter()
     stage_timings_ms: dict[str, int | bool] = {}
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
@@ -1581,11 +1586,11 @@ async def handler(ctx):
         and not str(capability_plan.get("blocked_skill") or "").strip()
     ):
         async def request_browser_location():
-            yield ctx.utils.sse({
+            yield presenter.frame({
                 "type": "browser_location_request",
                 "payload": {"reason": "semantic_capability_plan"},
             })
-            yield b"data: [DONE]\n\n"
+            yield presenter.transport_done()
 
         return ctx.utils.stream_sse(request_browser_location())
     if (
@@ -1746,21 +1751,18 @@ async def handler(ctx):
     async def publish_media(metadata: dict) -> None:
         nonlocal latest_enriched_media
         latest_enriched_media = metadata
-        await queue.put(ctx.utils.sse(progress_event(
+        await queue.put(presenter.frame(progress_event(
             "verification",
             "completed",
             activity="image_review",
         )))
-        await queue.put(ctx.utils.sse({
-            "type": "search_media",
-            "payload": {
-                "query": metadata.get("query", ""),
-                "media": metadata.get("media", []),
-                "images": metadata.get("images", []),
-                "media_pending": False,
-                "vision_diagnostics": metadata.get("vision_diagnostics", {}),
-                "timings_ms": metadata.get("timings_ms", {}),
-            },
+        await queue.put(presenter.media({
+            "query": metadata.get("query", ""),
+            "media": metadata.get("media", []),
+            "images": metadata.get("images", []),
+            "media_pending": False,
+            "vision_diagnostics": metadata.get("vision_diagnostics", {}),
+            "timings_ms": metadata.get("timings_ms", {}),
         }))
 
     graph_setup_started_at = time.monotonic()
@@ -2012,17 +2014,17 @@ async def handler(ctx):
             cancelled = False
             clarification_emitted = False
             synthesis_started = False
-            await queue.put(ctx.utils.sse(progress_event(
+            await queue.put(presenter.frame(progress_event(
                 "planning",
                 "completed",
             )))
-            await queue.put(ctx.utils.sse(progress_event(
+            await queue.put(presenter.frame(progress_event(
                 "retrieval" if graph_tool_names else "synthesis",
                 "active",
                 activity="component_action" if graph_tool_names else "general",
             )))
             if bool(body.get("_diagnostics")):
-                await queue.put(ctx.utils.sse({
+                await queue.put(presenter.frame({
                     "type": "stage_timing",
                     "timings_ms": stage_timings_ms,
                 }))
@@ -2071,7 +2073,7 @@ async def handler(ctx):
                 final_answer_parts.clear()
                 stream_delta.reset()
                 if public_stream.reset():
-                    await queue.put(ctx.utils.sse({"type": "ai_response_reset"}))
+                    await queue.put(presenter.frame({"type": "ai_response_reset"}))
 
             async def emit_public(content: str) -> None:
                 if not content:
@@ -2080,7 +2082,7 @@ async def handler(ctx):
                 if buffer_public_answer:
                     pending_ai_content.append(content)
                 else:
-                    await queue.put(ctx.utils.sse({"type": "ai_response", "content": content}))
+                    await queue.put(presenter.token(content))
 
             async def persist_answer_extras(follow_ups: list[str] | None = None) -> None:
                 """Persist media independently from optional post-answer jobs.
@@ -2113,10 +2115,10 @@ async def handler(ctx):
                     for tool in graph_tools
                 )
             ):
-                await queue.put(ctx.utils.sse({"type": "tool_call", "name": "image_generation_planning"}))
+                await queue.put(presenter.frame({"type": "tool_call", "name": "image_generation_planning"}))
             if tool_setup_error:
                 await queue.put(
-                    ctx.utils.sse({"type": "error_message", "content": tool_setup_error})
+                    presenter.error("tool_setup_error", tool_setup_error)
                 )
             try:
                 config = {
@@ -2179,14 +2181,14 @@ async def handler(ctx):
                                 metadata = action.get("search_results")
                                 if isinstance(metadata, dict):
                                     pending_search_results = metadata
-                                    await queue.put(ctx.utils.sse({"type": "search_results", "payload": metadata}))
-                                    await queue.put(ctx.utils.sse(progress_event(
+                                    await queue.put(presenter.sources(metadata))
+                                    await queue.put(presenter.frame(progress_event(
                                         "retrieval",
                                         "completed",
                                         activity="web_search",
                                     )))
                                     if metadata.get("media_pending"):
-                                        await queue.put(ctx.utils.sse(progress_event(
+                                        await queue.put(presenter.frame(progress_event(
                                             "verification",
                                             "active",
                                             activity="image_review",
@@ -2202,7 +2204,7 @@ async def handler(ctx):
                                 ):
                                     pending_papers = {"papers": papers, "topic": metadata.get("query", "") if isinstance(metadata, dict) else ""}
                                 await queue.put(
-                                    ctx.utils.sse({
+                                    presenter.frame({
                                         "type": "tool_result",
                                         "name": getattr(streamed_message, "name", ""),
                                         "content": "富搜索来源和媒体已准备",
@@ -2214,15 +2216,15 @@ async def handler(ctx):
                                     "paper_assistant", skill_preferences,
                                 ):
                                     pending_papers = action
-                                await queue.put(ctx.utils.sse({"type": "tool_result", "name": "search_arxiv", "content": "论文结果已准备"}))
-                                await queue.put(ctx.utils.sse(tool_progress_event(
+                                await queue.put(presenter.frame({"type": "tool_result", "name": "search_arxiv", "content": "论文结果已准备"}))
+                                await queue.put(presenter.frame(tool_progress_event(
                                     "search_arxiv",
                                     "completed",
                                 )))
                                 continue
                             if action and action.get("ui_action") == "clarification_action":
                                 clarification_emitted = True
-                                await queue.put(ctx.utils.sse({
+                                await queue.put(presenter.frame({
                                     "type": "clarification_action",
                                     "payload": action,
                                 }))
@@ -2235,13 +2237,13 @@ async def handler(ctx):
                                 # immediately so a slow final prose pass cannot hide a
                                 # verified map or a safe confirmation card at the
                                 # platform's request deadline.
-                                await queue.put(ctx.utils.sse({
+                                await queue.put(presenter.frame({
                                     "type": action["ui_action"],
                                     "payload": action,
                                 }))
                                 continue
                             await queue.put(
-                                ctx.utils.sse(
+                                presenter.frame(
                                     {
                                         "type": "tool_result",
                                         "name": getattr(streamed_message, "name", ""),
@@ -2249,7 +2251,7 @@ async def handler(ctx):
                                     }
                                 )
                             )
-                            await queue.put(ctx.utils.sse(tool_progress_event(
+                            await queue.put(presenter.frame(tool_progress_event(
                                 getattr(streamed_message, "name", ""),
                                 "completed",
                             )))
@@ -2264,9 +2266,9 @@ async def handler(ctx):
                                     if isinstance(tool_call, dict)
                                     else ""
                                 )
-                                await queue.put(ctx.utils.sse({"type": "tool_call", "name": name}))
+                                await queue.put(presenter.frame({"type": "tool_call", "name": name}))
                                 if name:
-                                    await queue.put(ctx.utils.sse(
+                                    await queue.put(presenter.frame(
                                         tool_progress_event(name, "active")
                                     ))
                             continue
@@ -2275,7 +2277,7 @@ async def handler(ctx):
                         if content and not suppress_decision_prose:
                             if not synthesis_started:
                                 synthesis_started = True
-                                await queue.put(ctx.utils.sse(progress_event(
+                                await queue.put(presenter.frame(progress_event(
                                     "synthesis",
                                     "active",
                                 )))
@@ -2284,13 +2286,13 @@ async def handler(ctx):
                             if reset_required:
                                 pending_ai_content.clear()
                                 final_answer_parts.clear()
-                                await queue.put(ctx.utils.sse({"type": "ai_response_reset"}))
+                                await queue.put(presenter.frame({"type": "ai_response_reset"}))
                             await emit_public(delta)
                 tail, reset_required = public_stream.finish()
                 if reset_required:
                     pending_ai_content.clear()
                     final_answer_parts.clear()
-                    await queue.put(ctx.utils.sse({"type": "ai_response_reset"}))
+                    await queue.put(presenter.frame({"type": "ai_response_reset"}))
                 await emit_public(tail)
                 # Manual AIMessage fallbacks are durable in the Makers
                 # checkpoint but are not emitted as LLM token events. Flush
@@ -2328,7 +2330,7 @@ async def handler(ctx):
                     if any(action.get("action", {}).get("kind") == "image_generate" for action in pending_actions):
                         final_content = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", final_content).strip()
                     if final_content:
-                        await queue.put(ctx.utils.sse({"type": "ai_response", "content": final_content}))
+                        await queue.put(presenter.token(final_content))
             except Exception as exc:
                 logging.exception("chat stream failed conversation=%s", conversation_id)
                 run_error = public_error(exc)
@@ -2336,10 +2338,10 @@ async def handler(ctx):
                     exc, stage="graph_stream",
                 )
                 await queue.put(
-                    ctx.utils.sse({"type": "error_message", "content": run_error})
+                    presenter.error("generation_error", run_error)
                 )
                 if bool(body.get("_diagnostics")):
-                    await queue.put(ctx.utils.sse({
+                    await queue.put(presenter.frame({
                         "type": "error_diagnostics",
                         "payload": run_diagnostics,
                     }))
@@ -2362,26 +2364,26 @@ async def handler(ctx):
                 if empty_error:
                     run_error = empty_error
                     await queue.put(
-                        ctx.utils.sse({"type": "error_message", "content": run_error})
+                        presenter.error("empty_generation", run_error)
                     )
                 follow_ups: list[str] = []
                 if final_answer:
                     # Stop the visible cursor immediately when answer tokens
                     # finish. The already-running follow-up job may land a
                     # moment later, but it must never create a second pause.
-                    await queue.put(ctx.utils.sse(progress_event(
+                    await queue.put(presenter.frame(progress_event(
                         "synthesis",
                         "completed",
                     )))
-                    await queue.put(ctx.utils.sse(progress_event(
+                    await queue.put(presenter.frame(progress_event(
                         "finalizing",
                         "completed",
                     )))
-                    await queue.put(ctx.utils.sse(progress_event(
+                    await queue.put(presenter.frame(progress_event(
                         "complete",
                         "completed",
                     )))
-                    await queue.put(ctx.utils.sse({"type": "answer_complete"}))
+                    await queue.put(presenter.done(run_id))
                     if follow_up_task is not None:
                         if not clarification_emitted and not run_error:
                             try:
@@ -2395,7 +2397,7 @@ async def handler(ctx):
                         elif not follow_up_task.done():
                             follow_up_task.cancel()
                     if follow_ups:
-                        await queue.put(ctx.utils.sse({"type": "follow_ups", "payload": {"items": follow_ups}}))
+                        await queue.put(presenter.frame({"type": "follow_ups", "payload": {"items": follow_ups}}))
                     try:
                         await persist_answer_extras(follow_ups)
                     except Exception as exc:
@@ -2500,19 +2502,16 @@ async def handler(ctx):
                                 proactive_state = await save_proactive_state(
                                     ctx.store.langgraph_store, proactive_state, user_id,
                                 )
-                                await queue.put(ctx.utils.sse({
+                                await queue.put(presenter.frame({
                                     "type": "proactive_update",
                                     "payload": public_proactive_state(proactive_state),
                                 }))
                     except Exception as exc:
                         logging.warning("answer extras generation failed: %s", exc)
                 if pending_search_results is not None:
-                    await queue.put(ctx.utils.sse({
-                        "type": "search_results",
-                        "payload": pending_search_results,
-                    }))
+                    await queue.put(presenter.sources(pending_search_results))
                 if pending_papers is not None:
-                    await queue.put(ctx.utils.sse({"type": "paper_results", "payload": pending_papers}))
+                    await queue.put(presenter.frame({"type": "paper_results", "payload": pending_papers}))
                 latest_run = await read_chat_run(ctx.store, conversation_id)
                 owns_run = not (
                     isinstance(latest_run, dict)
@@ -2536,7 +2535,7 @@ async def handler(ctx):
                         await save_intelligence_state(ctx.store.langgraph_store, latest_intelligence, user_id)
                     except Exception as exc:
                         logging.warning("usage persistence failed: %s", exc)
-                    await queue.put(ctx.utils.sse({
+                    await queue.put(presenter.frame({
                         "type": "usage",
                         "input_tokens": usage[0],
                         "output_tokens": usage[1],
@@ -2552,7 +2551,7 @@ async def handler(ctx):
                         queue.get(), timeout=HEARTBEAT_SECONDS
                     )
                 except asyncio.TimeoutError:
-                    yield ctx.utils.sse(
+                    yield presenter.frame(
                         {"type": "ping", "ts": int(time.time() * 1000)}
                     )
                     continue
@@ -2573,6 +2572,6 @@ async def handler(ctx):
             if producer.done():
                 with contextlib.suppress(asyncio.CancelledError):
                     await producer
-        yield b"data: [DONE]\n\n"
+        yield presenter.transport_done()
 
     return ctx.utils.stream_sse(gen())
