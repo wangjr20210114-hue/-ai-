@@ -1,4 +1,4 @@
-"""Verified production tools for the Makers travel workspace."""
+"""Turn-local business operations supplied to trusted system Skill adapters."""
 
 from __future__ import annotations
 
@@ -16,31 +16,31 @@ from urllib.parse import urlparse
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .._shared.tencent_location import (
+from ..._shared.tencent_location import (
     place_distance_meters,
     plan_verified_route as provider_plan_route,
     reverse_geocode as provider_reverse_geocode,
     search_verified_places_bounded as provider_search_places,
     search_verified_places_nearby as provider_search_places_nearby,
 )
-from .._shared.web_media import collect_page_images as provider_collect_page_images
-from .._shared.rich_search import evidence_for_model, rich_search as provider_rich_search
-from .._shared.side_effects import generate_image as provider_generate_image, resolve_image_reference
-from .._shared.arxiv import search_arxiv as provider_search_arxiv
-from .._shared.proactive import load_proactive_state, propose_workflow as create_workflow_proposal, save_proactive_state
-from .._shared.provider_metering import record_provider_usage, record_vision_diagnostics
-from .._shared.place_cache import load_place_cache, save_place_cache
-from .._shared.route_cache import load_route_cache, save_route_cache
-from .._shared.evidence_cache import (
+from ..._shared.web_media import collect_page_images as provider_collect_page_images
+from ..._shared.rich_search import evidence_for_model, rich_search as provider_rich_search
+from ..._shared.side_effects import generate_image as provider_generate_image, resolve_image_reference
+from ..._shared.arxiv import search_arxiv as provider_search_arxiv
+from ..._shared.proactive import load_proactive_state, propose_workflow as create_workflow_proposal, save_proactive_state
+from ..._shared.provider_metering import record_provider_usage, record_vision_diagnostics
+from ..._shared.place_cache import load_place_cache, save_place_cache
+from ..._shared.route_cache import load_route_cache, save_route_cache
+from ..._shared.evidence_cache import (
     get_or_compute_search_evidence,
     save_search_evidence,
 )
-from .._shared.auth import required_user_id
-from .._models.search_evidence import (
+from ..._shared.auth import required_user_id
+from ..._models.search_evidence import (
     evidence_ttl_seconds,
     search_evidence_key,
 )
-from .._shared.skill_registry import (
+from ..._shared.skill_registry import (
     build_adapter_tools,
     capability_skill_map,
     default_skill_preferences,
@@ -48,11 +48,11 @@ from .._shared.skill_registry import (
     resolve_enabled_skills,
     tool_skill_map,
 )
-from .._application.skills.runtime_ports import (
+from ..._application.skills.runtime_ports import (
     SKILL_SERVICE_NAMES,
     ToolOperationService,
 )
-from .._shared.workspace import (
+from ..._shared.workspace import (
     begin_action_execution,
     apply_calendar_changes,
     calendar_change_warnings,
@@ -1117,7 +1117,7 @@ async def verify_place_queries_parallel(
     return selected, all_candidates, missing
 
 
-def build_production_tools(
+def build_system_skill_tools(
     model, *, store=None, conversation_id: str = "", env: dict | None = None,
     place_disambiguation_model=None,
     paper_discovery_model=None,

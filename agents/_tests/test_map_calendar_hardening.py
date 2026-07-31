@@ -15,7 +15,7 @@ from agents._shared.workspace import (
     save_workspace,
 )
 from agents.chat._calendar_context import calendar_context
-from agents.chat._ui_tools import build_production_tools
+from agents._infrastructure.skills.builtin_operations import build_system_skill_tools
 
 
 TEST_USER_ID = "test:map-calendar"
@@ -135,10 +135,10 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
             "fare": {},
         }
         with patch(
-            "agents.chat._ui_tools.provider_plan_route",
+            "agents._infrastructure.skills.builtin_operations.provider_plan_route",
             new=AsyncMock(return_value=route),
         ):
-            tools = build_production_tools(
+            tools = build_system_skill_tools(
                 None,
                 store=store,
                 conversation_id="route-map",
@@ -178,10 +178,10 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
             "fare": {},
         }
         with patch(
-            "agents.chat._ui_tools.provider_plan_route",
+            "agents._infrastructure.skills.builtin_operations.provider_plan_route",
             new=AsyncMock(return_value=route),
         ):
-            tools = build_production_tools(
+            tools = build_system_skill_tools(
                 None,
                 store=store,
                 conversation_id="route-map-no-calendar",
@@ -238,7 +238,7 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
             },
         }])[0]
         await save_workspace(store, TEST_USER_ID, state)
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None,
             store=store,
             conversation_id="calendar-duration",
@@ -276,7 +276,7 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
         }])
         state["place_candidates"] = {}
         await save_workspace(store, TEST_USER_ID, state)
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None,
             store=store,
             conversation_id="calendar-map",

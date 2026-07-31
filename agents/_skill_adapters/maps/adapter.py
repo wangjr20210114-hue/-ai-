@@ -1,4 +1,4 @@
-from ...chat._ui_tools import RoutePlanInput
+from ..._infrastructure.skills.builtin_operations import RoutePlanInput
 from .._tool_factory import build_service_tools
 
 
@@ -32,4 +32,3 @@ def build_tools(context):
         },
         schemas={"plan_route_between_places": RoutePlanInput},
     )
-

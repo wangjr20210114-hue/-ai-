@@ -32,7 +32,7 @@ from agents._shared.intelligence import (
 )
 from agents.skill_marketplace.index import handler as skills_handler
 from agents.chat._capability_plan import required_tools_for_plan
-from agents.chat._ui_tools import build_production_tools
+from agents._infrastructure.skills.builtin_operations import build_system_skill_tools
 from agents._tests.auth_helpers import authenticated_namespace
 from agents._tests.auth_helpers import TEST_USER_ID
 
@@ -265,7 +265,7 @@ class SkillRegistryContractTests(unittest.TestCase):
         self.assertEqual(observed["env"], {"TEST_VISIBLE": "yes"})
 
     def test_every_built_in_tool_has_one_manifest_owner(self):
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             object(),
             env={"TENCENT_MEETING_TOKEN": "configured"},
             user_id=TEST_USER_ID,

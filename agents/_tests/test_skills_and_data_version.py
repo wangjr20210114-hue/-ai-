@@ -9,7 +9,7 @@ from agents._shared.data_version import CONVERSATION_PREFIX, DATA_GENERATION
 from agents._shared.intelligence import DEFAULT_SKILL_PREFERENCES, empty_intelligence_state
 from agents._shared.proactive import proactive_namespace
 from agents._shared.workspace import _namespace as workspace_namespace
-from agents.chat._ui_tools import build_production_tools
+from agents._infrastructure.skills.builtin_operations import build_system_skill_tools
 from agents.intelligence.index import handler as intelligence_handler
 from agents._tests.auth_helpers import TEST_USER_ID, authenticated_context
 
@@ -48,7 +48,7 @@ class SkillAndDataVersionTests(unittest.TestCase):
 
     def test_tool_factory_has_no_implicit_single_user_identity(self):
         with self.assertRaises(AuthError):
-            build_production_tools(object())
+            build_system_skill_tools(object())
 
     def test_skill_progress_component_forbids_free_form_labels(self):
         action = next(
@@ -60,7 +60,7 @@ class SkillAndDataVersionTests(unittest.TestCase):
         self.assertIn("planning", action["input"]["stage"])
 
     def test_calendar_can_run_without_map_but_map_tools_are_hidden(self):
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             object(),
             enabled_skills={"calendar"},
             user_id=TEST_USER_ID,
@@ -99,7 +99,7 @@ class SkillPreferenceEndpointTests(unittest.IsolatedAsyncioTestCase):
         ))
 
     def test_tool_catalog_respects_each_disabled_skill(self):
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             object(),
             env={"TENCENT_MEETING_TOKEN": "configured"},
             enabled_skills={"web-search", "vision", "image-studio", "paper-reading", "tencent-meeting"},
@@ -114,7 +114,7 @@ class SkillPreferenceEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("propose_meeting", names)
         self.assertNotIn("propose_calendar_changes", names)
         self.assertNotIn("search_places", names)
-        linked = build_production_tools(
+        linked = build_system_skill_tools(
             object(), env={"TENCENT_MEETING_TOKEN": "configured"},
             enabled_skills={"calendar", "tencent-meeting"},
             user_id=TEST_USER_ID,

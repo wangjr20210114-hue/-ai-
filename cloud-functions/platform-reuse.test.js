@@ -8,7 +8,7 @@ const read = (path) => readFile(resolve(root, path), 'utf8');
 
 test('conversation, state, object and schedule infrastructure reuse EdgeOne Makers', async () => {
   const [chat, messages, files, config] = await Promise.all([
-    read('agents/chat/index.py'),
+    read('agents/_application/chat/turn_controller.py'),
     read('agents/messages/index.py'),
     read('cloud-functions/files/index.js'),
     read('edgeone.json'),
@@ -165,13 +165,13 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
     read('cloud-functions/library/index.js'),
     read('frontend/src/services/paperApi.ts'),
     read('frontend/src/services/chatError.ts'),
-    read('agents/chat/_ui_tools.py'),
+    read('agents/_infrastructure/skills/builtin_operations.py'),
     read('agents/chat/_graph.py'),
     read('agents/workspace/index.py'),
     read('frontend/src/components/chat/MessageBubble.tsx'),
     read('frontend/src/components/chat/clarificationSubmission.ts'),
     read('agents/chat/_capability_plan.py'),
-    read('agents/chat/index.py'),
+    read('agents/_application/chat/turn_controller.py'),
     read('frontend/src/index.css'),
   ]);
   assert.match(files, /image\/png/);
@@ -203,7 +203,7 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
 test('Tencent Meeting uses only the optional user-connected official MCP Skill', async () => {
   const [provider, tools, envExample, skillsApi, manifest, registry] = await Promise.all([
     read('agents/_shared/side_effects.py'),
-    read('agents/chat/_ui_tools.py'),
+    read('agents/_infrastructure/skills/builtin_operations.py'),
     read('.env.example'),
     read('frontend/src/services/api.ts'),
     read('agents/skill_packages/tencent-meeting/floris.json'),
@@ -216,7 +216,7 @@ test('Tencent Meeting uses only the optional user-connected official MCP Skill',
   assert.equal(JSON.parse(manifest).external, true);
   assert.deepEqual(JSON.parse(manifest).provider_env, ['TENCENT_MEETING_TOKEN']);
   assert.deepEqual(JSON.parse(manifest).requires, ['calendar']);
-  assert.match(tools, /skill_is_configured/);
+  assert.match(tools, /build_adapter_tools/);
   assert.match(registry, /def skill_is_configured/);
   assert.match(skillsApi, /intelligenceOperation/);
   assert.match(skillsApi, /makersConversationHeaders\(conversationId\)/);
@@ -307,10 +307,22 @@ test('new multi-user and Skill surfaces follow the layered MVC boundary', async 
 });
 
 test('runtime does not reimplement generic tracing, queue or cron services', async () => {
-  const [system, tick, proactive] = await Promise.all([
+  const [system, tick, proactive, skillRuntime, adapters] = await Promise.all([
     read('agents/system_internal/index.py'),
     read('cloud-functions/proactive-tick/index.js'),
     read('agents/_shared/proactive.py'),
+    read('agents/_application/skills/runtime_ports.py'),
+    Promise.all([
+      'core',
+      'proactive_agent',
+      'web_search',
+      'vision',
+      'image_studio',
+      'maps',
+      'calendar',
+      'paper_reading',
+      'tencent_meeting',
+    ].map((name) => read(`agents/_skill_adapters/${name}/adapter.py`))).then((values) => values.join('\n')),
   ]);
   assert.match(tick, /@edgeone\/pages-blob/);
   assert.match(tick, /onlyIfNew/);
@@ -320,7 +332,12 @@ test('runtime does not reimplement generic tracing, queue or cron services', asy
   assert.match(system, /["']schedule["']:\s*["']0 8 \* \* \*["']/);
   assert.doesNotMatch(system, /["']schedule["']:\s*["']0 \* \* \* \*["']/);
   assert.match(proactive, /Policy|policy|notification/i);
-  assert.doesNotMatch(system + tick, /OPS_ALERT_WEBHOOK|PROACTIVE_OPS_WEBHOOK|Sentry|OpenTelemetry/);
+  assert.match(skillRuntime, /ToolOperationService/);
+  assert.doesNotMatch(
+    system + tick + skillRuntime + adapters,
+    /OPS_ALERT_WEBHOOK|PROACTIVE_OPS_WEBHOOK|Sentry|OpenTelemetry|Redis|BullMQ|Celery|APScheduler|node-cron|sqlite|boto3|new WebSocket/i,
+  );
+  assert.doesNotMatch(adapters, /pages_blob|get_store|langgraph_checkpointer|langgraph_store/);
 });
 
 test('self-service reset only deletes the authenticated Makers namespace', async () => {

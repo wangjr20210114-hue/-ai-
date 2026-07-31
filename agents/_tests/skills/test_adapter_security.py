@@ -35,7 +35,7 @@ class SkillAdapterSecurityTests(unittest.TestCase):
     def test_system_adapter_must_live_under_trusted_package(self):
         with self.assertRaisesRegex(ValueError, "trusted system adapter"):
             parse_skill_manifests([
-                manifest(adapter="agents.chat._ui_tools:build_tools"),
+                manifest(adapter="agents._infrastructure.skills.builtin_operations:build_tools"),
             ])
 
     def test_non_system_skill_adapter_is_never_executable(self):

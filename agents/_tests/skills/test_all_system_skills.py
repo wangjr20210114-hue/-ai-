@@ -8,7 +8,7 @@ from agents._shared.skill_registry import (
     skill_manifests,
     tool_skill_map,
 )
-from agents.chat._ui_tools import build_production_tools
+from agents._infrastructure.skills.builtin_operations import build_system_skill_tools
 
 
 class AllSystemSkillAdapterTests(unittest.TestCase):
@@ -27,7 +27,7 @@ class AllSystemSkillAdapterTests(unittest.TestCase):
                 )
 
     def test_production_tools_exactly_match_manifest_ownership(self):
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             object(),
             env={"TENCENT_MEETING_TOKEN": "configured"},
             user_id="adapter-user",
@@ -38,7 +38,7 @@ class AllSystemSkillAdapterTests(unittest.TestCase):
         self.assertEqual(set(names), set(tool_skill_map()))
 
     def test_guest_receives_only_locked_core_and_proactive_tools(self):
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             object(),
             env={"TENCENT_MEETING_TOKEN": "configured"},
             user_id="guest-user",
@@ -60,7 +60,7 @@ class AllSystemSkillAdapterTests(unittest.TestCase):
         )
 
     def test_disabled_optional_skills_are_not_loaded(self):
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             object(),
             user_id="adapter-user",
             enabled_skills=set(),

@@ -64,10 +64,10 @@ from agents.chat.index import (
     should_persist_user_message,
     tools_for_capability_stage,
 )
-from agents.chat._ui_tools import (
+from agents._infrastructure.skills.builtin_operations import (
     _paper_candidate_ids_from_model,
     _paper_candidates_from_searchpro,
-    build_production_tools,
+    build_system_skill_tools,
     preserve_planned_route_stops,
     verify_place_queries_parallel,
 )
@@ -2771,8 +2771,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 return []
             return [{**PLACE, "place_id": f"poi-{query}", "name": query}]
 
-        with patch("agents.chat._ui_tools.provider_search_places", new=provider):
-            tools = build_production_tools(
+        with patch("agents._infrastructure.skills.builtin_operations.provider_search_places", new=provider):
+            tools = build_system_skill_tools(
                 None, store=FakeStore(), conversation_id="partial-map",
                 user_id=TEST_USER_ID, env={},
             )
@@ -2796,8 +2796,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         async def provider(_map_key, query, *, city, limit):
             return []
 
-        with patch("agents.chat._ui_tools.provider_search_places", new=provider):
-            tools = build_production_tools(
+        with patch("agents._infrastructure.skills.builtin_operations.provider_search_places", new=provider):
+            tools = build_system_skill_tools(
                 None, store=FakeStore(), conversation_id="empty-map",
                 user_id=TEST_USER_ID, env={},
             )
@@ -2849,13 +2849,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         with patch(
-            "agents.chat._ui_tools.provider_search_places",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
             new=AsyncMock(),
         ) as anchor_provider, patch(
-            "agents.chat._ui_tools.provider_search_places_nearby",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places_nearby",
             new=AsyncMock(return_value=breakfast_places),
         ) as nearby_provider:
-            tools = build_production_tools(
+            tools = build_system_skill_tools(
                 None,
                 store=store,
                 conversation_id="nearby-breakfast",
@@ -2908,13 +2908,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "distance_to_anchor_meters": 180.0,
         }
         with patch(
-            "agents.chat._ui_tools.provider_search_places",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
             new=AsyncMock(),
         ) as place_search, patch(
-            "agents.chat._ui_tools.provider_search_places_nearby",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places_nearby",
             new=AsyncMock(return_value=[park]),
         ) as nearby_search:
-            tools = build_production_tools(
+            tools = build_system_skill_tools(
                 None,
                 store=FakeStore(),
                 conversation_id="nearby-browser-location",
@@ -2963,10 +2963,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "nearby_landmark": "吉林大学前卫南区",
         }
         with patch(
-            "agents.chat._ui_tools.provider_reverse_geocode",
+            "agents._infrastructure.skills.builtin_operations.provider_reverse_geocode",
             new=AsyncMock(return_value=resolved),
         ) as provider:
-            tools = build_production_tools(
+            tools = build_system_skill_tools(
                 None,
                 store=FakeStore(),
                 conversation_id="current-location-address",
@@ -2985,10 +2985,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_current_location_tool_without_browser_fix_skips_provider(self):
         with patch(
-            "agents.chat._ui_tools.provider_reverse_geocode",
+            "agents._infrastructure.skills.builtin_operations.provider_reverse_geocode",
             new=AsyncMock(),
         ) as provider:
-            tools = build_production_tools(
+            tools = build_system_skill_tools(
                 None,
                 store=FakeStore(),
                 conversation_id="current-location-unavailable",
@@ -3006,13 +3006,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_nearby_current_location_without_browser_fix_never_searches_provider(self):
         with patch(
-            "agents.chat._ui_tools.provider_search_places",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
             new=AsyncMock(),
         ) as place_search, patch(
-            "agents.chat._ui_tools.provider_search_places_nearby",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places_nearby",
             new=AsyncMock(),
         ) as nearby_search:
-            tools = build_production_tools(
+            tools = build_system_skill_tools(
                 None,
                 store=FakeStore(),
                 conversation_id="nearby-browser-location-missing",
@@ -3072,13 +3072,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             return [restaurant] if anchor["place_id"] == "samsung-tower" else []
 
         with patch(
-            "agents.chat._ui_tools.provider_search_places",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
             new=AsyncMock(side_effect=anchor_provider),
         ) as anchor_lookup, patch(
-            "agents.chat._ui_tools.provider_search_places_nearby",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places_nearby",
             new=AsyncMock(side_effect=nearby_provider),
         ) as nearby_lookup:
-            tools = build_production_tools(
+            tools = build_system_skill_tools(
                 None,
                 store=FakeStore(),
                 conversation_id="alternative-nearby-restaurants",
@@ -3120,10 +3120,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         state["place_candidates"][anchor["place_id"]] = anchor
         await save_user_workspace(store, state, TEST_USER_ID)
         with patch(
-            "agents.chat._ui_tools.provider_search_places_nearby",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places_nearby",
             new=AsyncMock(return_value=[]),
         ) as nearby_provider:
-            tools = build_production_tools(
+            tools = build_system_skill_tools(
                 None,
                 store=store,
                 conversation_id="strict-nearby",
@@ -3176,10 +3176,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "duration_seconds": 2_100,
             "fare": {"taxi_fare": 46},
         }
-        with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
-             patch("agents.chat._ui_tools.provider_search_places_nearby", new=AsyncMock(return_value=[hotel])) as nearby, \
-             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
-            tools = build_production_tools(
+        with patch("agents._infrastructure.skills.builtin_operations.provider_search_places", new=place_provider), \
+             patch("agents._infrastructure.skills.builtin_operations.provider_search_places_nearby", new=AsyncMock(return_value=[hotel])) as nearby, \
+             patch("agents._infrastructure.skills.builtin_operations.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
+            tools = build_system_skill_tools(
                 None,
                 store=FakeStore(),
                 conversation_id="verified-route",
@@ -3246,9 +3246,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "fare": {"taxi": {"low": 120, "high": 150}},
         }
         store = FakeStore()
-        with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
-             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
-            tools = build_production_tools(
+        with patch("agents._infrastructure.skills.builtin_operations.provider_search_places", new=place_provider), \
+             patch("agents._infrastructure.skills.builtin_operations.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
+            tools = build_system_skill_tools(
                 None,
                 store=store,
                 conversation_id="ordered-itinerary",
@@ -3316,9 +3316,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             {"query": "桔子酒店", "near_query": ""},
         ]
         store = FakeStore()
-        with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
-             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
-            tools = build_production_tools(
+        with patch("agents._infrastructure.skills.builtin_operations.provider_search_places", new=place_provider), \
+             patch("agents._infrastructure.skills.builtin_operations.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
+            tools = build_system_skill_tools(
                 None,
                 store=store,
                 conversation_id="restore-dropped-origin",
@@ -3374,9 +3374,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         }
         planned_stops = [{"query": "颐和园"}, {"query": "故宫"}]
         store = FakeStore()
-        with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
-             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
-            tools = build_production_tools(
+        with patch("agents._infrastructure.skills.builtin_operations.provider_search_places", new=place_provider), \
+             patch("agents._infrastructure.skills.builtin_operations.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
+            tools = build_system_skill_tools(
                 None,
                 store=store,
                 conversation_id="browser-origin-planned-stops",
@@ -3428,9 +3428,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         async def place_provider(_key, query, *, city, limit):
             return places[query]
 
-        with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
-             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock()) as planner:
-            tools = build_production_tools(
+        with patch("agents._infrastructure.skills.builtin_operations.provider_search_places", new=place_provider), \
+             patch("agents._infrastructure.skills.builtin_operations.provider_plan_route", new=AsyncMock()) as planner:
+            tools = build_system_skill_tools(
                 None,
                 store=FakeStore(),
                 conversation_id="intermediate-stop-ambiguity",
@@ -3465,9 +3465,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         async def place_provider(_key, query, *, city, limit):
             return [origin] if query == "北京站" else candidates
 
-        with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
-             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock()) as planner:
-            tools = build_production_tools(
+        with patch("agents._infrastructure.skills.builtin_operations.provider_search_places", new=place_provider), \
+             patch("agents._infrastructure.skills.builtin_operations.provider_plan_route", new=AsyncMock()) as planner:
+            tools = build_system_skill_tools(
                 None,
                 store=FakeStore(),
                 conversation_id="semantic-candidate-route",
@@ -3535,13 +3535,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "fare": {},
         }
         with patch(
-            "agents.chat._ui_tools.provider_search_places",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
             new=place_provider,
         ), patch(
-            "agents.chat._ui_tools.provider_plan_route",
+            "agents._infrastructure.skills.builtin_operations.provider_plan_route",
             new=AsyncMock(return_value=route),
         ) as planner:
-            tools = build_production_tools(
+            tools = build_system_skill_tools(
                 None,
                 store=FakeStore(),
                 conversation_id="canonical-provider-place",
@@ -3568,16 +3568,16 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             raise TimeoutError("provider deadline")
 
         with patch(
-            "agents.chat._ui_tools.provider_search_places",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
             new=place_provider,
         ), patch(
-            "agents.chat._ui_tools.load_place_cache",
+            "agents._infrastructure.skills.builtin_operations.load_place_cache",
             new=AsyncMock(return_value=None),
         ), patch(
-            "agents.chat._ui_tools.provider_plan_route",
+            "agents._infrastructure.skills.builtin_operations.provider_plan_route",
             new=AsyncMock(),
         ) as planner:
-            tools = build_production_tools(
+            tools = build_system_skill_tools(
                 None,
                 store=FakeStore(),
                 conversation_id="route-timeout-fill-card",
@@ -3643,13 +3643,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
         store = FakeStore()
         with patch(
-            "agents.chat._ui_tools.provider_search_places",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
             new=place_provider,
         ), patch(
-            "agents.chat._ui_tools.provider_plan_route",
+            "agents._infrastructure.skills.builtin_operations.provider_plan_route",
             new=AsyncMock(),
         ) as planner:
-            tools = build_production_tools(
+            tools = build_system_skill_tools(
                 None,
                 store=store,
                 conversation_id="route-multiple-card-state",
@@ -3733,7 +3733,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "duration_seconds": 9_720,
         }
         await save_user_workspace(store, state, TEST_USER_ID)
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None,
             store=store,
             conversation_id="route-calendar",
@@ -3798,7 +3798,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         state["latest_route_plan"] = route_plan
         state["route_plans"] = {route_plan["id"]: route_plan}
         await save_user_workspace(store, state, TEST_USER_ID)
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None,
             store=store,
             conversation_id="route-calendar-instant-markers",
@@ -3907,7 +3907,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             latest_route["id"]: latest_route,
         }
         await save_user_workspace(store, state, TEST_USER_ID)
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None,
             store=store,
             conversation_id="route-calendar-recent-source",
@@ -3983,7 +3983,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "duration_seconds": 1_380,
         }
         await save_user_workspace(store, state, TEST_USER_ID)
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None,
             store=store,
             conversation_id="route-calendar-browser-origin",
@@ -4059,11 +4059,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "fare": {},
         }
         with patch(
-            "agents.chat._ui_tools.provider_search_places",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
             new=AsyncMock(side_effect=[[headquarters], [restaurant]]),
         ) as search, \
-             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
-            tools = build_production_tools(
+             patch("agents._infrastructure.skills.builtin_operations.provider_plan_route", new=AsyncMock(return_value=route)) as planner:
+            tools = build_system_skill_tools(
                 None,
                 store=store,
                 conversation_id="workspace-alias-route",
@@ -4115,10 +4115,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         async def place_provider(_key, query, *, city, limit):
             return [station] if query == "北京站" else [hospital]
 
-        with patch("agents.chat._ui_tools.provider_search_places", new=place_provider), \
-             patch("agents.chat._ui_tools.provider_search_places_nearby", new=AsyncMock(return_value=hotels)), \
-             patch("agents.chat._ui_tools.provider_plan_route", new=AsyncMock()) as planner:
-            tools = build_production_tools(
+        with patch("agents._infrastructure.skills.builtin_operations.provider_search_places", new=place_provider), \
+             patch("agents._infrastructure.skills.builtin_operations.provider_search_places_nearby", new=AsyncMock(return_value=hotels)), \
+             patch("agents._infrastructure.skills.builtin_operations.provider_plan_route", new=AsyncMock()) as planner:
+            tools = build_system_skill_tools(
                 None,
                 store=FakeStore(),
                 conversation_id="ambiguous-route",
@@ -4193,9 +4193,9 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         store = FakeStore()
         search = AsyncMock(side_effect=place_provider)
         planner = AsyncMock(return_value=route)
-        with patch("agents.chat._ui_tools.provider_search_places", new=search), \
-             patch("agents.chat._ui_tools.provider_plan_route", new=planner):
-            tools = build_production_tools(
+        with patch("agents._infrastructure.skills.builtin_operations.provider_search_places", new=search), \
+             patch("agents._infrastructure.skills.builtin_operations.provider_plan_route", new=planner):
+            tools = build_system_skill_tools(
                 None,
                 store=store,
                 conversation_id="resume-route-place-ids",
@@ -4240,7 +4240,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 answers,
             )
             resumed_route = resumed_arguments["plan_route_between_places"]
-            resumed_tools = build_production_tools(
+            resumed_tools = build_system_skill_tools(
                 None,
                 store=store,
                 conversation_id="resume-route-place-ids",
@@ -4311,19 +4311,19 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "agents.chat._ui_tools.provider_search_places",
+                "agents._infrastructure.skills.builtin_operations.provider_search_places",
                 new=place_provider,
             ),
             patch(
-                "agents.chat._ui_tools.provider_search_places_nearby",
+                "agents._infrastructure.skills.builtin_operations.provider_search_places_nearby",
                 new=AsyncMock(),
             ) as nearby,
             patch(
-                "agents.chat._ui_tools.provider_plan_route",
+                "agents._infrastructure.skills.builtin_operations.provider_plan_route",
                 new=AsyncMock(),
             ) as planner,
         ):
-            tools = build_production_tools(
+            tools = build_system_skill_tools(
                 None,
                 store=FakeStore(),
                 conversation_id="ambiguous-nearby-anchor",
@@ -4350,7 +4350,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         planner.assert_not_awaited()
 
     async def test_clarification_tool_converts_finite_text_options_to_single_choice(self):
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None, store=FakeStore(), conversation_id="clarification-policy",
             user_id=TEST_USER_ID, env={},
         )
@@ -4413,7 +4413,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         state = empty_workspace()
         state["place_candidates"][PLACE["place_id"]] = PLACE
         await save_workspace(store, TEST_USER_ID, state)
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None, store=store, conversation_id="c-flat",
             user_id=TEST_USER_ID, env={},
         )
@@ -4438,7 +4438,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         state = empty_workspace()
         state["place_candidates"][PLACE["place_id"]] = PLACE
         await save_workspace(store, TEST_USER_ID, state)
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None, store=store, conversation_id="calendar-route",
             user_id=TEST_USER_ID, env={},
         )
@@ -4470,7 +4470,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             },
         }])[0]
         await save_workspace(store, TEST_USER_ID, state)
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None, store=store, conversation_id="calendar-partial",
             user_id=TEST_USER_ID, env={},
         )
@@ -4499,7 +4499,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["calendar_snapshot"]["schedule_count"], 1)
 
     async def test_calendar_tool_reports_all_missing_targets_without_action(self):
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None, store=FakeStore(), conversation_id="calendar-missing",
             user_id=TEST_USER_ID, env={},
         )
@@ -4521,7 +4521,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
     async def test_calendar_online_location_uses_model_protocol_enum(self):
         store = FakeStore()
         await save_workspace(store, TEST_USER_ID, empty_workspace())
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None,
             store=store,
             conversation_id="calendar-online",
@@ -4551,7 +4551,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
     async def test_calendar_tool_resolves_explicit_location_when_planner_omits_place_step(self):
         store = FakeStore()
         await save_workspace(store, TEST_USER_ID, empty_workspace())
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None,
             store=store,
             conversation_id="calendar-location-fallback",
@@ -4567,7 +4567,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "address": "北京市东城区东长安街",
         }
         with patch(
-            "agents.chat._ui_tools.provider_search_places",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
             AsyncMock(return_value=[verified_place]),
         ) as provider:
             result = json.loads(await calendar_tool.ainvoke({
@@ -4594,7 +4594,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "event": {"title": "评审", "start_time": 1_800_000_000, "duration_minutes": 60, "place": PLACE},
         }])[0]
         await save_workspace(store, TEST_USER_ID, state)
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None, store=store, conversation_id="calendar-end",
             user_id=TEST_USER_ID, env={},
         )
@@ -4614,8 +4614,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "total": 0, "media_pending": False, "timings_ms": {"search": 1, "page_media": 0, "vision": 0, "total": 1},
         }
         provider = AsyncMock(return_value=metadata)
-        with patch("agents.chat._ui_tools.provider_rich_search", new=provider):
-            tools = build_production_tools(
+        with patch("agents._infrastructure.skills.builtin_operations.provider_rich_search", new=provider):
+            tools = build_system_skill_tools(
                 None, store=store, conversation_id="search-one",
                 user_id=TEST_USER_ID, env={}, media_enabled=False,
                 planned_search_query="合并后的 AI 新闻查询",
@@ -4634,7 +4634,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(provider.await_args.kwargs["image_limit"], 8)
             self.assertTrue(provider.await_args.kwargs["parallel_queries"])
 
-            next_turn_tools = build_production_tools(
+            next_turn_tools = build_system_skill_tools(
                 None, store=store, conversation_id="search-two",
                 user_id=TEST_USER_ID, env={}, media_enabled=False,
                 planned_search_query="合并后的 AI 新闻查询",
@@ -4665,8 +4665,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                     "query": planned_query, "results": [], "media": [], "images": [],
                     "total": 0, "media_pending": False,
                 })
-                with patch("agents.chat._ui_tools.provider_rich_search", new=provider):
-                    tools = build_production_tools(
+                with patch("agents._infrastructure.skills.builtin_operations.provider_rich_search", new=provider):
+                    tools = build_system_skill_tools(
                         None, store=FakeStore(), conversation_id=f"audit-{index}",
                         user_id=TEST_USER_ID, env={},
                         planned_search_query=planned_query, planned_image_query=image_query,
@@ -4708,8 +4708,8 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         async def publish(metadata):
             published.append(metadata)
 
-        with patch("agents.chat._ui_tools.provider_rich_search", new=AsyncMock(side_effect=provider)) as mocked:
-            tools = build_production_tools(
+        with patch("agents._infrastructure.skills.builtin_operations.provider_rich_search", new=AsyncMock(side_effect=provider)) as mocked:
+            tools = build_system_skill_tools(
                 None, store=store, conversation_id="progressive-search",
                 user_id=TEST_USER_ID, env={},
                 media_enabled=True, progressive_media=True, media_callback=publish,
@@ -4725,7 +4725,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
             next_background_tasks = []
             media_gate.clear()
-            next_turn_tools = build_production_tools(
+            next_turn_tools = build_system_skill_tools(
                 None, store=store, conversation_id="progressive-search-2",
                 user_id=TEST_USER_ID, env={},
                 media_enabled=True, progressive_media=True, media_callback=publish,
@@ -5589,7 +5589,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                 }
 
         discovery_model = PaperCandidateModel()
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None,
             store=FakeStore(),
             conversation_id="paper-candidates",
@@ -5599,7 +5599,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
         tool = next(item for item in tools if item.name == "search_arxiv")
         with patch(
-            "agents.chat._ui_tools.provider_search_arxiv",
+            "agents._infrastructure.skills.builtin_operations.provider_search_arxiv",
             new=AsyncMock(return_value=[]),
         ) as provider:
             await tool.ainvoke({
@@ -5676,7 +5676,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
                     }
                 return {"parsed": self.schema(candidates=[])}
 
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None,
             store=FakeStore(),
             conversation_id="paper-makers-fallback",
@@ -5693,13 +5693,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "date": "2026",
         }]}
         with patch(
-            "agents.chat._ui_tools.provider_search_arxiv",
+            "agents._infrastructure.skills.builtin_operations.provider_search_arxiv",
             new=AsyncMock(return_value=[]),
         ), patch(
-            "agents.chat._ui_tools.provider_rich_search",
+            "agents._infrastructure.skills.builtin_operations.provider_rich_search",
             new=AsyncMock(return_value=search_metadata),
         ) as search, patch(
-            "agents.chat._ui_tools.record_provider_usage",
+            "agents._infrastructure.skills.builtin_operations.record_provider_usage",
             new=AsyncMock(),
         ):
             result = json.loads(await tool.ainvoke({
@@ -5730,7 +5730,7 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "year": 2026,
             "pdf_url": "https://arxiv.org/pdf/2604.10767.pdf",
         }
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None,
             store=FakeStore(),
             conversation_id="paper-model-first",
@@ -5740,10 +5740,10 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
         tool = next(item for item in tools if item.name == "search_arxiv")
         with patch(
-            "agents.chat._ui_tools.provider_search_arxiv",
+            "agents._infrastructure.skills.builtin_operations.provider_search_arxiv",
             new=AsyncMock(return_value=[verified]),
         ), patch(
-            "agents.chat._ui_tools.provider_rich_search",
+            "agents._infrastructure.skills.builtin_operations.provider_rich_search",
             new=AsyncMock(),
         ) as search:
             result = json.loads(await tool.ainvoke({
@@ -5802,12 +5802,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(papers, [verified])
 
     async def test_arxiv_tool_accepts_author_and_year_without_topic(self):
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None, store=FakeStore(), conversation_id="papers",
             user_id=TEST_USER_ID, env={},
         )
         tool = next(item for item in tools if item.name == "search_arxiv")
-        with patch("agents.chat._ui_tools.provider_search_arxiv", new=AsyncMock(return_value=[])) as provider:
+        with patch("agents._infrastructure.skills.builtin_operations.provider_search_arxiv", new=AsyncMock(return_value=[])) as provider:
             result = await tool.ainvoke({"author": "Zhi-Hua Zhou", "year": 2026, "limit": 5})
         self.assertIn('"papers": []', result)
         provider.assert_awaited_once_with(
@@ -5815,12 +5815,12 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_optional_meeting_tool_is_hidden_until_personal_token_exists(self):
-        hidden = build_production_tools(
+        hidden = build_system_skill_tools(
             None, store=FakeStore(), conversation_id="meeting",
             user_id=TEST_USER_ID, env={},
         )
         self.assertNotIn("propose_meeting", {tool.name for tool in hidden})
-        personal = build_production_tools(
+        personal = build_system_skill_tools(
             None, store=FakeStore(), conversation_id="meeting",
             user_id=TEST_USER_ID,
             env={"TENCENT_MEETING_TOKEN": "personal-token"},
@@ -5924,13 +5924,13 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(deleted["deleted_plan_id"], plan["id"])
 
     async def test_arxiv_tool_preserves_user_author_year_and_limit_constraints(self):
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None, store=FakeStore(), conversation_id="papers", env={},
             user_id=TEST_USER_ID,
             paper_constraints={"author": "Zhi-Hua Zhou", "year": 2026, "limit": 5},
         )
         tool = next(item for item in tools if item.name == "search_arxiv")
-        with patch("agents.chat._ui_tools.provider_search_arxiv", new=AsyncMock(return_value=[])) as provider:
+        with patch("agents._infrastructure.skills.builtin_operations.provider_search_arxiv", new=AsyncMock(return_value=[])) as provider:
             await tool.ainvoke({"titles": ["Unrelated title"], "limit": 20})
         provider.assert_awaited_once_with(
             "", 5, ["Unrelated title"], "Zhi-Hua Zhou", 2026, "", 0, 0,
@@ -5938,27 +5938,27 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_image_retries_share_one_turn_group(self):
         store = FakeStore()
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None, store=store, conversation_id="image-turn",
             user_id=TEST_USER_ID, env={},
         )
         tool = next(item for item in tools if item.name == "propose_image")
         failed = {"ok": False, "error": "temporary provider failure", "image_url": ""}
-        with patch("agents.chat._ui_tools.provider_generate_image", new=AsyncMock(return_value=failed)):
+        with patch("agents._infrastructure.skills.builtin_operations.provider_generate_image", new=AsyncMock(return_value=failed)):
             first = json.loads(await tool.ainvoke({"prompt": "first"}))["action"]
             second = json.loads(await tool.ainvoke({"prompt": "retry"}))["action"]
         self.assertEqual(first["payload"]["group_id"], second["payload"]["group_id"])
 
     async def test_uploaded_reference_image_is_handed_to_image_provider_without_model_copying_data(self):
         reference = "data:image/jpeg;base64,ZmFrZQ=="
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None, store=FakeStore(), conversation_id="image-reference", env={},
             user_id=TEST_USER_ID,
             initial_visual_references=[reference],
         )
         tool = next(item for item in tools if item.name == "propose_image")
         result = {"ok": True, "image_url": "https://example.com/generated.png"}
-        with patch("agents.chat._ui_tools.provider_generate_image", new=AsyncMock(return_value=result)) as provider:
+        with patch("agents._infrastructure.skills.builtin_operations.provider_generate_image", new=AsyncMock(return_value=result)) as provider:
             action = json.loads(await tool.ainvoke({"prompt": "按参考图生成卡通版"}))["action"]
         self.assertEqual(action["payload"]["reference_image_urls"], [reference])
         provider.assert_awaited_once_with(
@@ -6054,11 +6054,11 @@ class WorkspaceUnitTests(unittest.IsolatedAsyncioTestCase):
             "total": 0, "media_pending": False,
         }
         with patch(
-            "agents.chat._ui_tools.provider_rich_search",
+            "agents._infrastructure.skills.builtin_operations.provider_rich_search",
             new=AsyncMock(return_value=metadata),
         ) as provider:
             for conversation_id in ("cache-turn-1", "cache-turn-2"):
-                tools = build_production_tools(
+                tools = build_system_skill_tools(
                     None,
                     store=store,
                     conversation_id=conversation_id,

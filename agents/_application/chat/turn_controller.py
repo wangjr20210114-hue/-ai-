@@ -14,7 +14,7 @@ from .turn_context import answer_tool_names, search_request_for_plan
 from ..search.search_use_case import SearchExecution, SearchUseCase
 from ...chat._graph import build_graph, grounded_route_stream_answer
 from ...chat._llm import get_model
-from ...chat._ui_tools import build_production_tools
+from ..._infrastructure.skills import build_system_skill_tools
 from ..._shared.skill_registry import (
     capability_is_enabled,
     enabled_skills_from_preferences,
@@ -1829,7 +1829,7 @@ async def _handle(ctx):
         # Component tools are constructed only after planned evidence is ready,
         # so image generation can consume reviewed references without exposing
         # search as an answer-graph tool.
-        return build_production_tools(
+        return build_system_skill_tools(
             model,
             # Only multi-candidate Tencent suggestion sets need semantic review.
             # This fixed-schema pass uses the non-thinking Flash profile; unique

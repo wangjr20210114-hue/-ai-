@@ -11,7 +11,7 @@ from agents._shared.tencent_location import plan_verified_route, search_verified
 from agents.chat._capability_plan import (
     parse_capability_plan,
 )
-from agents.chat._ui_tools import (
+from agents._infrastructure.skills.builtin_operations import (
     RoutePlanInput,
     _learned_route_preference,
     _place_resolution,
@@ -20,7 +20,7 @@ from agents.chat._ui_tools import (
     _prioritize_provider_candidates_for_city,
     _provider_city_consensus,
     _rank_verified_workspace_matches,
-    build_production_tools,
+    build_system_skill_tools,
 )
 from agents.chat.index import (
     clarification_answer_value,
@@ -768,7 +768,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 return [station]
             return [wanda_cbd, wanda_fengtai]
 
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None,
             store=FakeStore(),
             conversation_id="route-branch-choice",
@@ -780,7 +780,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             if item.name == "plan_route_between_places"
         )
         with patch(
-            "agents.chat._ui_tools.provider_search_places",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
             new=place_provider,
         ):
             result = json.loads(await route_tool.ainvoke({
@@ -822,7 +822,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(observed_timeouts[0], 17.0)
 
     async def test_calendar_place_lookup_enforces_choice_and_fill_cards(self):
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             object(),
             store=FakeStore(),
             conversation_id="calendar-place-resolution",
@@ -837,7 +837,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             {**PLACE, "place_id": "poi-gugong-north", "address": "北门"},
         ]
         with patch(
-            "agents.chat._ui_tools.provider_search_places",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
             AsyncMock(return_value=matches),
         ):
             choice = json.loads(await search_tool.ainvoke({
@@ -849,7 +849,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(choice["clarification"]["fields"][0]["options"]), 2)
 
         with patch(
-            "agents.chat._ui_tools.provider_search_places",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
             AsyncMock(return_value=[]),
         ):
             fill = json.loads(await search_tool.ainvoke({
@@ -866,7 +866,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             "name": "故宫博物院-午门",
             "address": "北京市东城区景山前街4号",
         }
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             object(),
             store=FakeStore(),
             conversation_id="calendar-semantic-landmark",
@@ -877,7 +877,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         search_tool = next(tool for tool in tools if tool.name == "search_places")
         with patch(
-            "agents.chat._ui_tools.provider_search_places",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
             AsyncMock(return_value=[PLACE, entrance]),
         ):
             result = json.loads(await search_tool.ainvoke({
@@ -902,7 +902,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 "evidence": "tencent_place_suggestion",
             },
         }
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             object(),
             store=FakeStore(),
             conversation_id="calendar-unique-correction",
@@ -913,7 +913,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         search_tool = next(tool for tool in tools if tool.name == "search_places")
         with patch(
-            "agents.chat._ui_tools.provider_search_places",
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
             AsyncMock(return_value=[corrected]),
         ):
             result = json.loads(await search_tool.ainvoke({
@@ -961,7 +961,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             "duration_seconds": 3_720,
             "fare": {},
         }
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None,
             store=FakeStore(),
             conversation_id="route-typo-cache",
@@ -974,11 +974,11 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         with (
             patch(
-                "agents.chat._ui_tools.provider_search_places",
+                "agents._infrastructure.skills.builtin_operations.provider_search_places",
                 new=place_provider,
             ),
             patch(
-                "agents.chat._ui_tools.provider_plan_route",
+                "agents._infrastructure.skills.builtin_operations.provider_plan_route",
                 new=AsyncMock(return_value=route),
             ),
         ):
@@ -1029,7 +1029,7 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
             "duration_seconds": 2_100,
             "fare": {},
         }
-        tools = build_production_tools(
+        tools = build_system_skill_tools(
             None,
             store=FakeStore(),
             conversation_id="route-exact-cache",
@@ -1042,11 +1042,11 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         with (
             patch(
-                "agents.chat._ui_tools.provider_search_places",
+                "agents._infrastructure.skills.builtin_operations.provider_search_places",
                 new=place_provider,
             ),
             patch(
-                "agents.chat._ui_tools.provider_plan_route",
+                "agents._infrastructure.skills.builtin_operations.provider_plan_route",
                 new=AsyncMock(return_value=route),
             ),
         ):
