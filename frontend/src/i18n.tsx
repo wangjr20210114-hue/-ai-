@@ -505,6 +505,13 @@ const catalog = {
   loginToInstall: ['登录后安装', '登入後安裝', 'Sign in to install', '登录后安装喵', '登录后安装'],
   membershipRequired: ['当前会员等级无法安装此 Skill', '目前會員等級無法安裝此 Skill', 'Your current plan cannot install this Skill', '当前会员等级不能安装喵', '当前会员等级无法安装此 Skill'],
   wechatLogin: ['微信登录', '微信登入', 'WeChat sign in', '微信登录喵', '微信登录'],
+  wechatLoginUnavailable: [
+    '微信登录尚未配置，当前可继续使用游客模式',
+    '微信登入尚未設定，目前可繼續使用訪客模式',
+    'WeChat sign-in is not configured; you can continue as a guest',
+    '微信登录还没准备好，先以游客身份玩耍喵',
+    '微信登录尚未配置；当前使用游客模式',
+  ],
   guestUser: ['游客', '訪客', 'Guest', '游客喵', '游客'],
   downloadPackage: ['下载标准包', '下載標準套件', 'Download package', '下载标准包喵', '下载标准包'],
   skillDownloadFailed: ['Skill 包下载失败', 'Skill 套件下載失敗', 'Skill package download failed', 'Skill 包下载失败喵', 'Skill 包下载失败'],

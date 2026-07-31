@@ -10,7 +10,7 @@ import {
   skillsOperation,
   uploadSkillPackage,
 } from '../../services/api';
-import { startWechatLogin } from '../../services/auth';
+import { currentAuthSession, startWechatLogin } from '../../services/auth';
 import { useAppState } from '../../store/appState';
 import type {
   InstalledSkill,
@@ -41,6 +41,7 @@ export function useSkillMarketplaceController() {
   const [tokenDrafts, setTokenDrafts] = useState<Record<string, string>>({});
   const uploadRef = useRef<HTMLInputElement>(null);
   const suppressOpenUntilRef = useRef(0);
+  const wechatAvailable = currentAuthSession()?.login.wechat_available === true;
 
   const catalog = useMemo(
     () => marketplace?.skills || [],
@@ -126,7 +127,11 @@ export function useSkillMarketplaceController() {
   const save = async (skill: InstalledSkill, enabled: boolean) => {
     if (skill.locked) return;
     if (!skill.eligible) {
-      if (skill.eligibility_reason === 'login_required') startWechatLogin('/chatBot');
+      if (skill.eligibility_reason === 'login_required' && wechatAvailable) {
+        startWechatLogin('/chatBot');
+      } else if (skill.eligibility_reason === 'login_required') {
+        MessagePlugin.warning(t('wechatLoginUnavailable'));
+      }
       else MessagePlugin.warning(t('membershipRequired'));
       return;
     }
@@ -229,7 +234,10 @@ export function useSkillMarketplaceController() {
     isInstalled,
     language,
     loading,
-    login: () => startWechatLogin('/chatBot'),
+    login: () => {
+      if (wechatAvailable) startWechatLogin('/chatBot');
+      else MessagePlugin.warning(t('wechatLoginUnavailable'));
+    },
     marketplace,
     openMarketplace,
     preferences,
@@ -251,5 +259,6 @@ export function useSkillMarketplaceController() {
     view,
     visible,
     visibleSkills,
+    wechatAvailable,
   };
 }

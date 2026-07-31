@@ -12,7 +12,7 @@ export default function SkillsMarketplaceButton() {
     language, loading, login, marketplace, openMarketplace, query, refresh,
     save, saveConnection, savingId, setQuery, setTokenDrafts, setView,
     skillName, skillText, t, tokenDrafts, upload, uploadRef,
-    uploads, view, visible, visibleSkills,
+    uploads, view, visible, visibleSkills, wechatAvailable,
   } = controller;
 
   return <>
@@ -47,7 +47,7 @@ export default function SkillsMarketplaceButton() {
               {marketplace?.entitlements.plan || t('guestPlan')}
             </Tag>
             <span>{marketplace?.identity.display_name || t('guestUser')}</span>
-            {marketplace?.identity.auth_type === 'guest' && (
+            {marketplace?.identity.auth_type === 'guest' && wechatAvailable && (
               <Button size="small" theme="primary" onClick={login}>
                 {t('wechatLogin')}
               </Button>
@@ -173,7 +173,11 @@ export default function SkillsMarketplaceButton() {
                         size="small"
                         theme={installed ? 'default' : 'primary'}
                         variant={installed ? 'outline' : 'base'}
-                        disabled={skill.locked || loading}
+                        disabled={skill.locked
+                          || loading
+                          || (!skill.eligible
+                            && skill.eligibility_reason === 'login_required'
+                            && !wechatAvailable)}
                         loading={savingId === skill.id}
                         onClick={() => void save(skill, !installed)}
                       >
@@ -248,7 +252,9 @@ export default function SkillsMarketplaceButton() {
                   <div className="skills-login-gate">
                     <strong>{t('loginRequiredForSkills')}</strong>
                     <p>{t('loginSkillReason')}</p>
-                    <Button theme="primary" onClick={login}>{t('wechatLogin')}</Button>
+                    {wechatAvailable
+                      ? <Button theme="primary" onClick={login}>{t('wechatLogin')}</Button>
+                      : <small>{t('wechatLoginUnavailable')}</small>}
                   </div>
                 ) : <>
                   <div className="skill-upload-drop">

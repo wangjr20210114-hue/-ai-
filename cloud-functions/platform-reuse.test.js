@@ -225,7 +225,7 @@ test('Tencent Meeting uses only the optional user-connected official MCP Skill',
 });
 
 test('settings and Skills open on lightweight configuration reads', async () => {
-  const [settings, skills, skillsController, api, intelligenceController, library, paperApi, input, registry, styles] = await Promise.all([
+  const [settings, skills, skillsController, api, intelligenceController, library, paperApi, input, registry, styles, header] = await Promise.all([
     read('frontend/src/components/profile/AppSettingsButton.tsx'),
     read('frontend/src/components/profile/SkillsMarketplaceButton.tsx'),
     read('frontend/src/features/skills/useSkillMarketplaceController.ts'),
@@ -236,6 +236,7 @@ test('settings and Skills open on lightweight configuration reads', async () => 
     read('frontend/src/components/chat/InputBar.tsx'),
     read('agents/_shared/skill_registry.py'),
     read('frontend/src/index.css'),
+    read('frontend/src/components/common/Header.tsx'),
   ]);
   const settingsOpenEffects = settings.slice(0, settings.indexOf('const setPreferences'));
   assert.doesNotMatch(settingsOpenEffects, /proactiveOperation\(conversationId,\s*['"]refresh['"]/);
@@ -257,6 +258,9 @@ test('settings and Skills open on lightweight configuration reads', async () => 
   assert.match(skills, /createPortal/);
   assert.match(skills, /document\.body/);
   assert.match(styles, /\.skills-page\s*\{[\s\S]*?z-index:\s*5000/);
+  assert.match(header, /login\.wechat_available/);
+  assert.match(skillsController, /wechatLoginUnavailable/);
+  assert.match(skills, /wechatAvailable/);
 });
 
 test('new multi-user and Skill surfaces follow the layered MVC boundary', async () => {

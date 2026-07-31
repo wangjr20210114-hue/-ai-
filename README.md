@@ -68,6 +68,8 @@
 <img width="600" height="400" alt="image" src="https://github.com/user-attachments/assets/3b5767d1-d57e-43de-961d-9e20c9f4051b" />
 
 **Production 流程：** 只有经过明确合并发布决策后，才在正式项目的 `main` 上操作。不要为了测试 `dev` 修改 `ai-active-agent-floris` 的分支、环境变量或域名。
+
+若使用 CLI 创建“直接上传型”独立开发项目，Makers 要求该项目先完成一次 Production 初始化，之后才能创建 Preview。这里的 Production 仅指**新开发项目自己的环境**：项目名必须唯一，上传内容必须来自已推送的 `dev` 提交，仍不得复用或改配正式项目。
 ## 2. 如何直接体验我们的项目？
 ### 2.1 开始一个新的对话！
 废话不多说，直接上图（这个在你刚进去的时候，可爱的Floris也会贴心为你介绍哦~）

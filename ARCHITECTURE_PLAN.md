@@ -568,11 +568,22 @@ frontend/src/
 
 ## 7. 发布与回滚建议
 
-1. 新建独立 Makers 项目（建议名 `floris-mvc-dev`），只绑定 `dev` 并部署 Preview；不得复用、重绑或改配现有 `ai-active-agent-floris` 项目，也不直接部署 Production。
-2. 用固定的 20 个搜索问题分别跑 3 次，记录 main 与 dev 的 TTFT、完成时间、媒体到达时间和结果正确性。
-3. 先给 10% Preview 会话开启渐进媒体，观察错误率、`source_id` 匹配率和无匹配放弃率。
-4. 若文字 TTFT 无明显改善，优先检查能力规划与 SearchPro，而不是继续优化图片并发。
-5. 回滚只在独立项目中选择上一份 `dev` Preview 或关闭该项目；不要把开发项目切到 `main`，更不要改写 main 历史。
+1. Git 集成时，新建独立 Makers 项目，只绑定 `dev` 并部署 Preview；不得复用、重绑或改配现有 `ai-active-agent-floris` 项目。
+2. CLI 直接上传型项目存在平台限制：新项目必须先完成一次自身的 Production 初始化，之后才能部署 Preview。该 Production 只属于唯一命名的开发项目，内容必须对应已推送的 `dev` 提交，不等于把开发代码发布到正式项目。
+3. 用固定的 20 个搜索问题分别跑 3 次，记录 main 与 dev 的 TTFT、完成时间、媒体到达时间和结果正确性。
+4. 先给 10% Preview 会话开启渐进媒体，观察错误率、`source_id` 匹配率和无匹配放弃率。
+5. 若文字 TTFT 无明显改善，优先检查能力规划与 SearchPro，而不是继续优化图片并发。
+6. 回滚只在独立项目中选择上一份 `dev` 部署或关闭该项目；不要把开发项目切到 `main`，更不要改写 main 历史。
+
+### 7.1 本轮隔离部署记录
+
+- 日期：2026-07-31
+- Git 源：`dev@5925b93ac9f5e82c90ae79e0ad4574a00785d87b`
+- 独立 Makers 项目：`floris-mvc-dev-5925b93`
+- 项目 ID：`makers-x91pbqwetj8l`
+- 首次部署 ID：`dprvrjr11bgt`
+- Provider：CLI Direct Upload；平台要求先初始化该新项目自己的 Production
+- 安全结论：未链接、未读取、未修改、未部署 `ai-active-agent-floris`
 
 ## 8. `dev` 分支实施范围与优先级
 

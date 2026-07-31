@@ -50,6 +50,8 @@ export default function Header({
     currentAuthSession(),
   );
   const activeLine = displayLines[reminderIndex % Math.max(1, displayLines.length)];
+  const authIsGuest = authSession?.identity.auth_type === 'guest';
+  const guestCanLogin = Boolean(authIsGuest && authSession?.login.wechat_available);
 
   useEffect(() => {
     setReminderIndex(0);
@@ -152,8 +154,11 @@ export default function Header({
           <button
             type="button"
             className={`header-account ${authSession.identity.auth_type === 'guest' ? 'is-guest' : 'is-user'}`}
-            title={authSession.identity.auth_type === 'guest' ? t('wechatLogin') : authSession.identity.display_name}
-            onClick={authSession.identity.auth_type === 'guest'
+            title={authIsGuest
+              ? t(guestCanLogin ? 'wechatLogin' : 'guestUser')
+              : authSession.identity.display_name}
+            aria-disabled={authIsGuest && !guestCanLogin}
+            onClick={guestCanLogin
               ? () => startWechatLogin('/chatBot')
               : undefined}
           >
@@ -164,7 +169,9 @@ export default function Header({
                   ? t('guestAvatarGlyph')
                   : t('wechatAvatarGlyph')}
               </span>}
-            <b>{authSession.identity.auth_type === 'guest' ? t('wechatLogin') : authSession.identity.display_name}</b>
+            <b>{authIsGuest
+              ? t(guestCanLogin ? 'wechatLogin' : 'guestUser')
+              : authSession.identity.display_name}</b>
           </button>
         )}
         <a
