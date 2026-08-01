@@ -1,5 +1,5 @@
-import TravelPlanCard from '../../../components/travel/TravelPlanCard';
 import type { ChatMessage } from '../../../shared/types';
+import TravelPlanCard from './TravelPlanCard';
 
 
 export function MapRenderer({ message }: { message: ChatMessage }) {

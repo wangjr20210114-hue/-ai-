@@ -7,6 +7,7 @@
   padding: 20px;
   background: color-mix(in srgb, var(--color-bg-mask, #0f172a) 52%, transparent);
   backdrop-filter: blur(8px);
+  animation: authBackdropIn 180ms ease-out both;
 }
 
 .auth-dialog {
@@ -17,6 +18,17 @@
   border-radius: 22px;
   background: var(--color-bg-elevated, #fff);
   box-shadow: 0 24px 80px rgb(15 23 42 / 24%);
+  transform-origin: 50% 42%;
+  animation: authDialogIn 320ms var(--motion-ease-out) both;
+}
+
+.auth-overlay.is-closing {
+  pointer-events: none;
+  animation: authBackdropOut 180ms ease-in both;
+}
+
+.auth-overlay.is-closing .auth-dialog {
+  animation: authDialogOut 180ms ease-in both;
 }
 
 .auth-dialog-close {
@@ -31,7 +43,53 @@
   color: var(--color-text-secondary, #64748b);
   font-size: 24px;
   cursor: pointer;
+  transition: color 160ms ease, background-color 160ms ease, transform 160ms var(--motion-ease-out);
 }
+
+.auth-dialog-close:hover {
+  color: var(--color-text-primary, #172033);
+  background: color-mix(in srgb, var(--td-brand-color) 9%, transparent);
+  transform: rotate(4deg) scale(1.04);
+}
+
+.auth-dialog-close:active { transform: scale(.94); }
+.auth-dialog-close:focus-visible { outline: 3px solid rgb(91 140 255 / 18%); }
+
+.header-account {
+  display: flex;
+  max-width: 140px;
+  height: 32px;
+  padding: 3px 9px 3px 4px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  background: var(--app-panel);
+  color: var(--app-text-2);
+  transition: color 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 220ms ease, transform 180ms var(--motion-ease-out);
+}
+
+.header-account.is-guest {
+  cursor: pointer;
+  border-color: color-mix(in srgb, var(--td-brand-color) 28%, var(--app-border));
+  color: var(--td-brand-color);
+}
+
+.header-account:hover {
+  border-color: color-mix(in srgb, var(--td-brand-color) 52%, var(--app-border));
+  background: color-mix(in srgb, var(--app-panel) 92%, var(--td-brand-color) 8%);
+  box-shadow: 0 8px 22px rgb(var(--app-accent-rgb) / 12%);
+  transform: translateY(-1px);
+}
+
+.header-account:active { transform: translateY(0) scale(.98); }
+.header-account:focus-visible { outline: 3px solid rgb(var(--app-accent-rgb) / 18%); outline-offset: 2px; }
+.header-account img,
+.header-account > span { display: grid; place-items: center; width: 24px; height: 24px; flex: 0 0 24px; border-radius: 50%; background: rgba(var(--app-accent-rgb), .12); font-size: 10px; transition: transform 220ms var(--motion-ease-out); }
+.header-account:hover img,
+.header-account:hover > span { transform: scale(1.06); }
+.header-account img { object-fit: cover; }
+.header-account b { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 
 .auth-dialog-brand {
   display: grid;
@@ -44,6 +102,7 @@
   background: linear-gradient(135deg, #5b8cff, #7658d6);
   font-size: 24px;
   font-weight: 800;
+  animation: authBrandIn 460ms 80ms var(--motion-ease-out) both;
 }
 
 .auth-dialog h2,
@@ -66,6 +125,7 @@
   color: var(--color-text-primary, #172033);
   font-size: 13px;
   font-weight: 650;
+  animation: authContentIn 260ms 70ms var(--motion-ease-out) both;
 }
 
 .auth-field input {
@@ -80,6 +140,7 @@
   background: var(--color-bg-primary, #fff);
   font: inherit;
   font-weight: 450;
+  transition: border-color 180ms ease, box-shadow 220ms ease, background-color 180ms ease, transform 160ms ease;
 }
 
 .auth-field input:focus {
@@ -91,6 +152,7 @@
   display: grid;
   gap: 10px;
   margin-top: 18px;
+  animation: authContentIn 260ms 110ms var(--motion-ease-out) both;
 }
 
 .auth-divider {
@@ -100,6 +162,7 @@
   margin: 22px 0 14px;
   color: var(--color-text-placeholder, #94a3b8);
   font-size: 12px;
+  animation: authContentIn 260ms 140ms var(--motion-ease-out) both;
 }
 
 .auth-divider::before,
@@ -118,6 +181,7 @@
   background: #fff1f0;
   font-size: 13px;
   line-height: 1.45;
+  animation: authErrorIn 220ms var(--motion-ease-out) both;
 }
 
 .auth-guest-continue {
@@ -127,7 +191,11 @@
   color: var(--color-text-secondary, #64748b);
   background: transparent;
   cursor: pointer;
+  transition: color 160ms ease, transform 160ms var(--motion-ease-out);
 }
+
+.auth-guest-continue:hover { color: var(--td-brand-color); transform: translateY(-1px); }
+.auth-guest-continue:active { transform: translateY(0) scale(.98); }
 
 .auth-account-card {
   display: grid;
@@ -137,6 +205,7 @@
   padding: 14px;
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: 14px;
+  animation: authContentIn 260ms 70ms var(--motion-ease-out) both;
 }
 
 .auth-account-card img,
@@ -167,9 +236,42 @@
   color: var(--color-text-secondary, #64748b);
 }
 
+@keyframes authBackdropIn { from { opacity: 0; } }
+@keyframes authBackdropOut { to { opacity: 0; } }
+@keyframes authDialogIn {
+  from { opacity: 0; transform: translateY(12px) scale(.975); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes authDialogOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(8px) scale(.985); }
+}
+@keyframes authBrandIn {
+  from { opacity: 0; transform: translateY(8px) rotate(-5deg) scale(.9); }
+  to { opacity: 1; transform: translateY(0) rotate(0) scale(1); }
+}
+@keyframes authContentIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes authErrorIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @media (max-width: 520px) {
   .auth-overlay { padding: 12px; align-items: end; }
-  .auth-dialog { padding: 30px 20px 24px; border-radius: 20px 20px 12px 12px; }
+  .auth-dialog { padding: 30px 20px 24px; border-radius: 20px 20px 12px 12px; animation-name: authSheetIn; }
+  .auth-overlay.is-closing .auth-dialog { animation-name: authSheetOut; }
   .auth-account-card { grid-template-columns: 44px minmax(0, 1fr); }
   .auth-account-card .t-button { grid-column: 1 / -1; }
+}
+
+@keyframes authSheetIn {
+  from { opacity: 0; transform: translateY(28px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes authSheetOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(24px); }
 }

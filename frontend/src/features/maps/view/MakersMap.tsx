@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from 'tdesign-react';
-import { planMakersRoute, proactiveOperation } from '../../app/apiComposition';
-import { useAppDispatch } from '../../store/appState';
-import type { MakersMapPlace, MakersRouteMode, MakersRoutePlan, MakersRouteStrategy } from '../../shared/types';
-import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
-import { shouldPlanMakersRoute } from './makersMapRouting';
-import { translate, useLanguage } from '../../i18n';
+import { useAppDispatch } from '../../../store/appState';
+import type { MakersMapPlace, MakersRouteMode, MakersRoutePlan, MakersRouteStrategy } from '../../../shared/types';
+import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from '../model/makersMapLocation';
+import { shouldPlanMakersRoute } from '../model/makersMapRouting';
+import { translate, useLanguage } from '../../../i18n';
 import {
   BROWSER_LOCATION_EVENT,
   clearBrowserLocation,
   currentBrowserLocation,
   publishBrowserLocation,
-} from '../../services/browserLocation';
+} from '../../../services/browserLocation';
+import { useMapsController } from '../controller/useMapsController';
 
 interface Props {
   conversationId: string;
@@ -82,6 +82,7 @@ export default function MakersMap({
 }: Props) {
   const { t } = useLanguage();
   const dispatch = useAppDispatch();
+  const { ingestSignal, planVerifiedRoute } = useMapsController(conversationId);
   const containerRef = useRef<HTMLDivElement>(null);
   const [animating, setAnimating] = useState(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
@@ -132,7 +133,7 @@ export default function MakersMap({
           address: t('sessionOnlyLocation'),
         });
         const localDay = new Date().toLocaleDateString('en-CA');
-        void proactiveOperation(conversationId, 'ingest_signal', {
+        void ingestSignal({
           signal_type: 'browser_location_weather',
           dedup_key: `${localDay}:${latitude.toFixed(2)}:${longitude.toFixed(2)}`,
           payload: { latitude, longitude },
@@ -159,7 +160,7 @@ export default function MakersMap({
       },
       LOCATION_OPTIONS,
     );
-  }, [conversationId, dispatch, t]);
+  }, [dispatch, ingestSignal, t]);
 
   useEffect(() => {
     const syncSharedLocation = () => {
@@ -265,11 +266,11 @@ export default function MakersMap({
     let disposed = false;
     setRoute(null);
     setRouteError('');
-    void planMakersRoute(conversationId, places, routeMode, routeStrategy)
+    void planVerifiedRoute(places, routeMode, routeStrategy)
       .then((next) => { if (!disposed) setRoute(next); })
       .catch((error) => { if (!disposed) setRouteError(error instanceof Error ? error.message : t('routePlanningFailed')); });
     return () => { disposed = true; };
-  }, [conversationId, places, revision, routeMode, routeStrategy, showRoute, t]);
+  }, [places, planVerifiedRoute, revision, routeMode, routeStrategy, showRoute, t]);
 
   useEffect(() => {
     if (!displayPlaces.length) return;

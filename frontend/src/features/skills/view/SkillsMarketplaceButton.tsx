@@ -1,9 +1,9 @@
 import { Button, Tag } from 'tdesign-react';
 import { AppIcon } from 'tdesign-icons-react';
 import { createPortal } from 'react-dom';
-import { useSkillMarketplaceController } from '../../features/skills/controller/useSkillMarketplaceController';
-import type { MarketplaceView } from '../../features/skills/model';
-import type { InstalledSkill } from '../../shared/types';
+import { useSkillMarketplaceController } from '../controller/useSkillMarketplaceController';
+import type { MarketplaceView } from '../model';
+import type { InstalledSkill } from '../../../shared/types';
 
 export default function SkillsMarketplaceButton() {
   const controller = useSkillMarketplaceController();

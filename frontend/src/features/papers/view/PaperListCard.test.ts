@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { PaperInfo } from '../../shared/types';
+import type { PaperInfo } from '../../../shared/types';
 import {
   dedupePapers,
   paperArxivHref,
   paperDownloadId,
   paperSourceHref,
-} from '../../services/paperUtils';
+} from '../../../services/paperUtils';
 
 const paper = (id: string, title: string): PaperInfo => ({
   arxiv_id: id, title, authors: 'Author', year: 2026, abstract_zh: '',

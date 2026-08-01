@@ -2,13 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { AddIcon, DeleteIcon, DownloadIcon, EditIcon, FileIcon, FolderIcon, RefreshIcon } from 'tdesign-icons-react';
-import {
-  createReadingFolder, deleteSavedPaper, getReadingLibrary, moveReadingItem,
-  fetchPaperFile, preloadPaperFile, renameReadingFolder, type ReadingFolder, type ReadingSettings, type SavedPaper,
-} from '../../services/paperApi';
-import { createZip } from '../../services/zip';
-import PaperFullReader from '../paper/PaperFullReader';
-import { useLanguage } from '../../i18n';
+import { createZip } from '../../../services/zip';
+import PaperFullReader from './PaperFullReader';
+import { useLanguage } from '../../../i18n';
+import { usePapersController } from '../controller/usePapersController';
+import type {
+  ReadingFolder,
+  ReadingSettings,
+  SavedPaper,
+} from '../model/types';
 
 function saveBlob(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
@@ -18,6 +20,16 @@ function saveBlob(blob: Blob, name: string) {
 
 export default function ReadingLibraryPanel() {
   const { t } = useLanguage();
+  const { api } = usePapersController();
+  const {
+    createReadingFolder,
+    deleteSavedPaper,
+    fetchPaperFile,
+    getReadingLibrary,
+    moveReadingItem,
+    preloadPaperFile,
+    renameReadingFolder,
+  } = api;
   const [items, setItems] = useState<SavedPaper[]>([]);
   const [folders, setFolders] = useState<ReadingFolder[]>([]);
   const [settings, setSettings] = useState<ReadingSettings>({ auto_organize: true });
@@ -34,7 +46,7 @@ export default function ReadingLibraryPanel() {
       setExpanded((current) => data.folders.reduce((next, folder) => ({ ...next, [folder.id]: current[folder.id] ?? true }), current));
     } catch { MessagePlugin.error(t('readingLoadFailed')); }
     finally { setLoading(false); }
-  }, [t]);
+  }, [getReadingLibrary, t]);
 
   useEffect(() => {
     void load(); const refresh = () => { void load(); };

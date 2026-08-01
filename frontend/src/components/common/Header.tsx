@@ -3,7 +3,12 @@ import { Button } from 'tdesign-react';
 import { ChevronLeftIcon, ChevronRightIcon, LogoGithubIcon, MenuIcon, ModeDarkIcon, ModeLightIcon, NotificationIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
-import { activeProactiveNotifications, proactiveFallbackLines, proactiveHeaderLines, proactiveReminderLines } from '../profile/proactiveNotifications';
+import {
+  activeProactiveNotifications,
+  proactiveFallbackLines,
+  proactiveHeaderLines,
+  proactiveReminderLines,
+} from '../../features/settings/model';
 import { useLanguage } from '../../i18n';
 import { FEATURE_DOCUMENT_URL } from '../../constants';
 import {

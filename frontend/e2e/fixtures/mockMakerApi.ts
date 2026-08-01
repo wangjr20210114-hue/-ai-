@@ -264,6 +264,25 @@ export async function installMockMakerApi(
     actions: [],
     ...(options.workspace || {}),
   }));
+  await page.route('**/intelligence', (route) => json(route, {
+    search_preferences: {
+      result_limit: 8,
+      image_limit: 8,
+      parallel_image_search: true,
+    },
+    map_preferences: {
+      service_mode: 'balanced',
+      place_result_limit: 6,
+      route_stop_limit: 8,
+      search_timeout_seconds: 30,
+      preferred_route_mode: 'driving',
+      route_strategy: 'time_then_cost',
+      near_time_tolerance_minutes: 10,
+      learn_route_preferences: true,
+    },
+    skill_preferences: {},
+    skill_catalog: [],
+  }));
   await page.route('**/skill_marketplace', (route) => json(route, {
     ...marketplace,
     identity,

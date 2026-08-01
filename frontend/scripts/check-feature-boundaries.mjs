@@ -27,6 +27,9 @@ export function assertImportAllowed(sourcePath, targetPath) {
     if (layer === 'controller') return targetLayer !== 'view';
     return true;
   }
+  if (layer === 'view' && targetLayer === 'view') {
+    return new RegExp(`^features/${otherFeature}/view(?:/index)?$`).test(target);
+  }
   return layer === 'controller' && targetLayer === 'model';
 }
 

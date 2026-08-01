@@ -19,4 +19,4 @@ export function permissionAfterLocationFailure(
   if (errorCode === 1 || browserPermission === 'denied') return 'denied';
   return browserPermission === 'granted' ? 'granted' : 'prompt';
 }
-import { translate } from '../../i18n';
+import { translate } from '../../../i18n';

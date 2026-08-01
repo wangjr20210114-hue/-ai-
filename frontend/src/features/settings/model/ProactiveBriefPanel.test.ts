@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { activeProactiveNotifications, proactiveFallbackLines, proactiveHeaderLines, proactiveReminderLines } from './proactiveNotifications';
-import type { ProactiveNotification } from '../../shared/types';
+import type { ProactiveNotification } from '../../../shared/types';
 
 function notification(id: string, patch: Partial<ProactiveNotification> = {}): ProactiveNotification {
   return {

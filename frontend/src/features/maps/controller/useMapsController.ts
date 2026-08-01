@@ -1,6 +1,18 @@
 import { useCallback, useState } from 'react';
 
-import { planRoute, searchPlaces } from '../model/client';
+import type {
+  MakersMapPlace,
+  MakersRouteMode,
+  MakersRouteStrategy,
+} from '../../../shared/types';
+import { workspaceOperation } from '../../calendar/model/client';
+import { proactiveOperation } from '../../settings/model/client';
+import {
+  planMakersRoute,
+  planRoute,
+  searchMakersPlaces,
+  searchPlaces,
+} from '../model/client';
 
 
 export function useMapsController(conversationId: string) {
@@ -29,5 +41,45 @@ export function useMapsController(conversationId: string) {
       throw value;
     }
   }, [conversationId]);
-  return { places, route, error, search, plan };
+  const searchVerifiedPlaces = useCallback(
+    (query: string, city = '全国') => searchMakersPlaces(
+      conversationId,
+      query,
+      city,
+    ),
+    [conversationId],
+  );
+  const planVerifiedRoute = useCallback(
+    (
+      verifiedPlaces: MakersMapPlace[],
+      mode?: MakersRouteMode,
+      strategy?: MakersRouteStrategy,
+    ) => planMakersRoute(conversationId, verifiedPlaces, mode, strategy),
+    [conversationId],
+  );
+  const updateWorkspace = useCallback(
+    (operation: string, input: Record<string, unknown> = {}) => (
+      workspaceOperation(conversationId, operation, input)
+    ),
+    [conversationId],
+  );
+  const ingestSignal = useCallback(
+    (input: Record<string, unknown>) => proactiveOperation(
+      conversationId,
+      'ingest_signal',
+      input,
+    ),
+    [conversationId],
+  );
+  return {
+    places,
+    route,
+    error,
+    search,
+    plan,
+    searchVerifiedPlaces,
+    planVerifiedRoute,
+    updateWorkspace,
+    ingestSignal,
+  };
 }

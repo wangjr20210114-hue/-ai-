@@ -168,7 +168,7 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
     read('agents/_infrastructure/skills/builtin_operations.py'),
     read('agents/chat/_graph.py'),
     read('agents/_controllers/workspace_controller.py'),
-    read('frontend/src/features/chat/view/MessageBubble.tsx'),
+    read('frontend/src/features/chat/view/renderers/ClarificationCard.tsx'),
     read('frontend/src/components/chat/clarificationSubmission.ts'),
     read('agents/chat/_capability_plan.py'),
     read('agents/_application/chat/turn_service.py'),
@@ -183,10 +183,7 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.match(chatGraph, /工具暂时没有完成/);
   assert.match(chatGraph, /isinstance\(exc, ValueError\)/);
   assert.match(workspace, /collect_schedule_signals/);
-  const clarificationCard = messageBubble.slice(
-    messageBubble.indexOf('function ClarificationCard'),
-    messageBubble.indexOf('function MeetingConfirmationCard'),
-  );
+  const clarificationCard = messageBubble;
   assert.match(clarificationSubmission, /activity: 'clarification_answered'/);
   assert.match(clarificationSubmission, /interaction_mode: 'clarification'/);
   assert.doesNotMatch(clarificationSubmission, /\bclient_message:/);
@@ -205,7 +202,7 @@ test('Tencent Meeting uses only the optional user-connected official MCP Skill',
     read('agents/_infrastructure/providers/side_effects.py'),
     read('agents/_infrastructure/skills/builtin_operations.py'),
     read('.env.example'),
-    read('frontend/src/app/apiComposition.ts'),
+    read('frontend/src/features/settings/model/client.ts'),
     read('agents/skill_packages/tencent-meeting/floris.json'),
     read('agents/_application/skills/registry.py'),
   ]);
@@ -219,17 +216,21 @@ test('Tencent Meeting uses only the optional user-connected official MCP Skill',
   assert.match(tools, /build_adapter_tools/);
   assert.match(registry, /def skill_is_configured/);
   assert.match(skillsApi, /intelligenceOperation/);
-  assert.match(skillsApi, /makersConversationHeaders\(conversationId\)/);
+  assert.match(skillsApi, /['"]makers-conversation-id['"]:\s*conversationId/);
   assert.doesNotMatch(skillsApi, /skillsOperation[\s\S]{0,800}authorizedFetch\('\/system(?:_internal)?'/);
   assert.doesNotMatch(provider + envExample, /MEETING_BRIDGE|shutil\.which\("tmeet"\)|create_subprocess_exec/);
 });
 
 test('settings and Skills open on lightweight configuration reads', async () => {
   const [settings, skills, skillsController, api, intelligenceController, library, paperApi, input, registry, styles, header] = await Promise.all([
-    read('frontend/src/components/profile/AppSettingsButton.tsx'),
-    read('frontend/src/components/profile/SkillsMarketplaceButton.tsx'),
+    Promise.all([
+      read('frontend/src/features/settings/view/AppSettingsButton.tsx'),
+      read('frontend/src/features/settings/controller/useSettingsController.ts'),
+      read('frontend/src/features/settings/model/client.ts'),
+    ]).then((sources) => sources.join('\n')),
+    read('frontend/src/features/skills/view/SkillsMarketplaceButton.tsx'),
     read('frontend/src/features/skills/controller/useSkillMarketplaceController.ts'),
-    read('frontend/src/app/apiComposition.ts'),
+    read('frontend/src/features/skills/model/client.ts'),
     read('agents/_controllers/intelligence_controller.py'),
     read('cloud-functions/library/index.js'),
     read('frontend/src/services/paperApi.ts'),
@@ -239,8 +240,8 @@ test('settings and Skills open on lightweight configuration reads', async () => 
     read('frontend/src/components/common/Header.tsx'),
   ]);
   const settingsOpenEffects = settings.slice(0, settings.indexOf('const setPreferences'));
-  assert.doesNotMatch(settingsOpenEffects, /proactiveOperation\(conversationId,\s*['"]refresh['"]/);
-  assert.match(settings, /proactiveOperation\(conversationId,\s*['"]refresh['"]/);
+  assert.doesNotMatch(settingsOpenEffects, /runProactive\(['"]refresh['"]/);
+  assert.match(settings, /runProactive\(['"]refresh['"]/);
   assert.match(settings, /getReadingSettings\(\)/);
   assert.doesNotMatch(settings, /settingsReady|settings-loading-state/);
   assert.match(paperApi, /\/library\?view=settings/);
@@ -281,12 +282,12 @@ test('new multi-user and Skill surfaces follow the layered MVC boundary', async 
   ] = await Promise.all([
     read('agents/skill_marketplace/index.py'),
     read('middleware.js'),
-    read('frontend/src/app/apiComposition.ts'),
+    read('frontend/src/features/skills/model/client.ts'),
     read('agents/skill_packages/proactive-agent/floris.json'),
     read('agents/_controllers/skills_controller.py'),
     read('agents/_models/skill_marketplace.py'),
     read('agents/_views/skill_marketplace.py'),
-    read('frontend/src/components/profile/SkillsMarketplaceButton.tsx'),
+    read('frontend/src/features/skills/view/SkillsMarketplaceButton.tsx'),
     read('frontend/src/features/skills/controller/useSkillMarketplaceController.ts'),
     read('frontend/src/features/skills/model.ts'),
   ]);
@@ -294,8 +295,8 @@ test('new multi-user and Skill surfaces follow the layered MVC boundary', async 
   assert.doesNotMatch(skillRoute, /load_intelligence_state|public_skill_catalog/);
   assert.match(middleware, /\/skill_marketplace\/:path\*/);
   assert.doesNotMatch(middleware, /['"]\/skills\/:path\*/);
-  assert.match(api, /authorizedFetch\('\/skill_marketplace'/);
-  assert.doesNotMatch(api, /authorizedFetch\('\/skills'/);
+  assert.match(api, /requestJson(?:<[^>]+>)?\('\/skill_marketplace'/);
+  assert.doesNotMatch(api, /requestJson(?:<[^>]+>)?\('\/skills'/);
   assert.match(proactiveManifest, /agents\._skill_adapters\.proactive_agent/);
   assert.doesNotMatch(proactiveManifest, /agents\.skill_adapters/);
   assert.match(skillController, /decorate_catalog/);
@@ -347,7 +348,11 @@ test('self-service reset only deletes the authenticated Makers namespace', async
   const [agentReset, fileReset, settings, envExample] = await Promise.all([
     read('agents/_controllers/reset_controller.py'),
     read('cloud-functions/reset-files/index.js'),
-    read('frontend/src/components/profile/AppSettingsButton.tsx'),
+    Promise.all([
+      read('frontend/src/features/settings/view/AppSettingsButton.tsx'),
+      read('frontend/src/features/settings/controller/useSettingsController.ts'),
+      read('frontend/src/features/settings/model/client.ts'),
+    ]).then((sources) => sources.join('\n')),
     read('.env.example'),
   ]);
   assert.match(agentReset, /ctx\.store\.langgraph_store/);
@@ -374,8 +379,11 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
     read('frontend/src/services/paperApi.ts'),
     read('frontend/src/components/chat/InputBar.tsx'),
     read('frontend/src/features/chat/view/MessageBubble.tsx'),
-    read('frontend/src/components/travel/TravelPlanCard.tsx'),
-    read('frontend/src/components/travel/RouteMap.tsx'),
+    read('frontend/src/features/chat/view/renderers/MessageBubbleView.tsx'),
+    read('frontend/src/features/chat/view/renderers/MessagePrimaryRenderer.tsx'),
+    read('frontend/src/features/chat/controller/useMessageBubbleController.ts'),
+    read('frontend/src/features/maps/view/TravelPlanCard.tsx'),
+    read('frontend/src/features/maps/view/RouteMap.tsx'),
     read('frontend/vite.config.ts'),
   ]);
   const active = sources.join('\n');

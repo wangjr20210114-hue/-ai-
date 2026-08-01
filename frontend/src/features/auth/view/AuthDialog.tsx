@@ -2,6 +2,7 @@ import { Button } from 'tdesign-react';
 import { LogoGithubIcon } from 'tdesign-icons-react';
 
 import { useLanguage } from '../../../i18n';
+import { CLOUDBASE_NETWORK_UNAVAILABLE } from '../controller/authError';
 import { useAuthController } from '../controller/useAuthController';
 
 export default function AuthDialog() {
@@ -14,10 +15,16 @@ export default function AuthDialog() {
     ? t('authInvalidEmail')
     : auth.error === 'invalid_code'
       ? t('authInvalidCode')
-      : auth.error;
+      : auth.error === CLOUDBASE_NETWORK_UNAVAILABLE
+        ? t('authNetworkUnavailable')
+        : auth.error;
 
   return (
-    <div className="auth-overlay" role="presentation" onMouseDown={() => auth.setVisible(false)}>
+    <div
+      className={`auth-overlay${auth.closing ? ' is-closing' : ''}`}
+      role="presentation"
+      onMouseDown={() => auth.setVisible(false)}
+    >
       <section
         className="auth-dialog"
         role="dialog"

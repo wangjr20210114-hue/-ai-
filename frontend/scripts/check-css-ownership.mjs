@@ -42,8 +42,8 @@ for (const file of cssFiles) {
   const label = relative(frontendRoot, file).split(sep).join('/');
   const source = readFileSync(file, 'utf8');
   const lineCount = source.split(/\r?\n/).length - 1;
-  if (file !== entryPath && lineCount > 900) {
-    failures.push(`${label} has ${lineCount} lines (maximum 900)`);
+  if (file !== entryPath && lineCount > 400) {
+    failures.push(`${label} has ${lineCount} lines (maximum 400)`);
   }
   if (/媒体槽|YUANBAO_MEDIA|model.+media slot/i.test(source)) {
     failures.push(`${label} contains a legacy model-directed media-slot marker`);

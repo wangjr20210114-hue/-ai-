@@ -36,4 +36,6 @@
 @import "../features/chat/history-controls.css";
 @import "../styles/workspace-responsive.css";
 @import "../styles/reduced-motion.css";
-@import "../styles/responsive.css";
+@import "../styles/responsive-base.css";
+@import "../styles/responsive-tablet.css";
+@import "../styles/responsive-mobile.css";

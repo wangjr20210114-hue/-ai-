@@ -5,7 +5,11 @@ import type { UploadFile } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ChatMessage, WSMessage } from '../../shared/types';
 import type { ChatClient } from '../../services/chatClient';
-import { proactiveOperation, saveConversationMessage, uploadDocument } from '../../app/apiComposition';
+import {
+  saveConversationMessage,
+  uploadDocument,
+} from '../../features/chat/model/client';
+import { proactiveOperation } from '../../features/settings/model/client';
 import { registerReadingItem } from '../../services/paperApi';
 import { getStoredLanguage, translate, useLanguage } from '../../i18n';
 

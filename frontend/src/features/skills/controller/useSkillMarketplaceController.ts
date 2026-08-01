@@ -3,13 +3,12 @@ import { MessagePlugin } from 'tdesign-react';
 
 import { useLanguage } from '../../../i18n';
 import {
-  configureSkillConnection,
   downloadSkillPackage,
   listSkillUploads,
   skillMarketplaceOperation,
-  skillsOperation,
   uploadSkillPackage,
-} from '../../../app/apiComposition';
+} from '../model/client';
+import { intelligenceOperation } from '../../settings/model/client';
 import {
   openAuthDialog,
 } from '../../../shared/auth/session';
@@ -26,6 +25,36 @@ import {
   type MarketplaceView,
   skillIsInstalled,
 } from '../model';
+
+
+async function skillsOperation(
+  conversationId: string,
+  preferences?: Record<string, boolean>,
+) {
+  const intelligence = await intelligenceOperation(
+    conversationId,
+    preferences ? 'update_skill_preferences' : 'get',
+    preferences ? { preferences } : {},
+  );
+  return {
+    preferences: intelligence.skill_preferences || {},
+    providers: intelligence.providers || {},
+    catalog: intelligence.skill_catalog || [],
+    connections: intelligence.skill_connections || {},
+  };
+}
+
+function configureSkillConnection(
+  conversationId: string,
+  skillId: string,
+  token?: string,
+) {
+  return intelligenceOperation(
+    conversationId,
+    token ? 'configure_skill_connection' : 'disconnect_skill_connection',
+    token ? { skill_id: skillId, token } : { skill_id: skillId },
+  );
+}
 
 
 export function useSkillMarketplaceController() {

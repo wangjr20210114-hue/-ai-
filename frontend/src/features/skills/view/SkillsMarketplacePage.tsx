@@ -1,4 +1,4 @@
-import SkillsMarketplaceButton from '../../../components/profile/SkillsMarketplaceButton';
+import SkillsMarketplaceButton from './SkillsMarketplaceButton';
 
 
 export function SkillsMarketplacePage() {

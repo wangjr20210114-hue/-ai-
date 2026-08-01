@@ -18,3 +18,27 @@ export function calendarOperation(
     body: JSON.stringify({ operation, ...input }),
   });
 }
+
+export async function workspaceOperation(
+  conversationId: string,
+  operation: string,
+  input: Record<string, unknown> = {},
+): Promise<CalendarWorkspaceResponse> {
+  const data = await calendarOperation(conversationId, operation, input);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('yuanbao:proactive-refresh', {
+      detail: { operation, response: data },
+    }));
+    if (Array.isArray(data.schedules)) {
+      window.dispatchEvent(new CustomEvent('yuanbao:workspace-changed', {
+        detail: data,
+      }));
+      if (Array.isArray(data.changed) && data.changed.length > 0) {
+        window.dispatchEvent(new CustomEvent('yuanbao:calendar-changed', {
+          detail: data,
+        }));
+      }
+    }
+  }
+  return data;
+}

@@ -1,6 +1,10 @@
 .sidebar-settings-button { justify-content: flex-start; color: var(--app-text-2); }
 .app-settings-dialog { display: grid; gap: 14px; max-height: 70vh; overflow-y: auto; padding-right: 4px; }
-.app-settings-section { border: 1px solid var(--app-border); border-radius: 12px; padding: 14px; background: var(--app-panel-2); }
+.app-settings-section { border: 1px solid var(--app-border); border-radius: 12px; padding: 14px; background: var(--app-panel-2); animation: settingsSectionIn 260ms var(--motion-ease-out) both; transition: border-color 180ms ease, box-shadow 220ms ease, transform 180ms var(--motion-ease-out); }
+.app-settings-section:nth-child(2) { animation-delay: 35ms; }
+.app-settings-section:nth-child(3) { animation-delay: 70ms; }
+.app-settings-section:nth-child(n + 4) { animation-delay: 105ms; }
+.app-settings-section:hover { border-color: color-mix(in srgb, var(--td-brand-color) 24%, var(--app-border)); box-shadow: 0 8px 24px rgba(25, 32, 50, .07); transform: translateY(-1px); }
 .app-settings-section h3 { margin: 0 0 6px; font-size: 15px; }
 .app-settings-section > p { margin: 0 0 12px; color: var(--app-text-3); font-size: 12px; line-height: 1.6; }
 .app-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
@@ -41,3 +45,5 @@
 }
 .onboarding-settings-switch input:checked + span::after { translate: 18px 0; background: #fff; }
 .onboarding-settings-switch input:focus-visible + span { box-shadow: 0 0 0 3px rgba(var(--app-accent-rgb), .18); }
+
+@keyframes settingsSectionIn { from { opacity: 0; transform: translateY(7px); } }

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { MessagePlugin } from 'tdesign-react';
-import { bootstrapApp, proactiveOperation } from '../../../app/apiComposition';
+import { bootstrapApp } from '../model/client';
+import { proactiveOperation } from '../../settings/model/client';
 import { authorizedFetch, ensureAuthSession } from '../../../shared/auth/session';
 import { presentableChatError } from '../../../services/chatError';
 import { durableMessageCount, hasDurableAssistantPayload, isDurableChatMessage, makersConversationHeaders, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../../../services/conversation';

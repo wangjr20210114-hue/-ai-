@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo, useState } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { RichMediaAsset, SearchMeta } from '../../shared/types';
@@ -8,48 +8,7 @@ import {
   remarkSourceBoundMedia,
   stripLegacyMediaMarkers,
 } from '../../features/search/sourceBoundMedia';
-
-// Code highlighting and math typesetting are heavy and many conversations
-// never use them. Load them after first paint, then upgrade the rendering.
-interface MarkdownEnhancements {
-  hljs: typeof import('highlight.js/lib/common').default;
-  remarkMath: typeof import('remark-math').default;
-  rehypeKatex: typeof import('rehype-katex').default;
-}
-
-let enhancementsCache: MarkdownEnhancements | null = null;
-let enhancementsPromise: Promise<MarkdownEnhancements> | null = null;
-
-// Exported so tests can preload the async chunks before a sync render.
-export function loadMarkdownEnhancements(): Promise<MarkdownEnhancements> {
-  if (!enhancementsPromise) {
-    enhancementsPromise = Promise.all([
-      import('highlight.js/lib/common'),
-      import('remark-math'),
-      import('rehype-katex'),
-      import('katex/dist/katex.min.css'),
-    ]).then(([hljsModule, remarkMathModule, rehypeKatexModule]) => {
-      enhancementsCache = {
-        hljs: hljsModule.default,
-        remarkMath: remarkMathModule.default,
-        rehypeKatex: rehypeKatexModule.default,
-      };
-      return enhancementsCache;
-    });
-  }
-  return enhancementsPromise;
-}
-
-function useMarkdownEnhancements(): MarkdownEnhancements | null {
-  const [enhancements, setEnhancements] = useState<MarkdownEnhancements | null>(() => enhancementsCache);
-  useEffect(() => {
-    if (enhancements) return;
-    let alive = true;
-    void loadMarkdownEnhancements().then((loaded) => { if (alive) setEnhancements(loaded); });
-    return () => { alive = false; };
-  }, [enhancements]);
-  return enhancements;
-}
+import { useMarkdownEnhancements } from './markdownEnhancements';
 
 function RichImage({
   asset,

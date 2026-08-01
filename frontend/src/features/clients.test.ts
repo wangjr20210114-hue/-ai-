@@ -11,7 +11,14 @@ import { routes as skillRoutes } from './skills/model/client';
 
 describe('feature route ownership', () => {
   it('assigns each endpoint to exactly one model client', () => {
-    expect(chatRoutes).toEqual(['/chat', '/conversation', '/messages', '/stop']);
+    expect(chatRoutes).toEqual([
+      '/chat',
+      '/conversation',
+      '/conversations',
+      '/files',
+      '/messages',
+      '/stop',
+    ]);
     expect(paperRoutes.every(
       (route) => ['/papers', '/reader', '/library'].includes(route),
     )).toBe(true);

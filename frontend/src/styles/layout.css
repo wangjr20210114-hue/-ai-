@@ -224,11 +224,6 @@ html.is-resizing-workspace * {
 .header-brand-group { min-width: 0; gap: 9px; }
 .header-brand-group { justify-self: start; }
 .header-actions { justify-self: end; flex: 0 0 auto; gap: 12px; }
-.header-account { display: flex; max-width: 140px; height: 32px; padding: 3px 9px 3px 4px; align-items: center; gap: 7px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-panel); color: var(--app-text-2); }
-.header-account.is-guest { cursor: pointer; border-color: color-mix(in srgb, var(--td-brand-color) 28%, var(--app-border)); color: var(--td-brand-color); }
-.header-account img, .header-account > span { display: grid; place-items: center; width: 24px; height: 24px; flex: 0 0 24px; border-radius: 50%; background: rgba(var(--app-accent-rgb), .12); font-size: 10px; }
-.header-account img { object-fit: cover; }
-.header-account b { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .header-icon-link {
   width: 32px;
   height: 32px;

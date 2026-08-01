@@ -1,5 +1,5 @@
-import type { ProactiveNotification } from '../../shared/types';
-import { translate } from '../../i18n';
+import type { ProactiveNotification } from '../../../shared/types';
+import { translate } from '../../../i18n';
 
 export interface ProactiveReminderLine {
   id: string;

@@ -482,6 +482,7 @@ const catalog = {
   authInvalidEmail: ['请输入有效的邮箱地址', '請輸入有效的信箱地址', 'Enter a valid email address', '请输入有效的邮箱地址喵', '请输入有效的邮箱地址'],
   authInvalidCode: ['请输入邮件中的有效验证码', '請輸入郵件中的有效驗證碼', 'Enter the valid code from your email', '请输入邮件里的有效验证码喵', '请输入邮件中的有效验证码'],
   authNotConfigured: ['登录服务尚未配置，当前仍可正常使用游客聊天。', '登入服務尚未設定，目前仍可正常使用訪客聊天。', 'Sign-in is not configured yet. Guest chat remains available.', '登录服务还没配置好，游客聊天仍然能正常用喵。', '登录服务尚未配置；游客聊天仍可正常使用。'],
+  authNetworkUnavailable: ['无法连接 CloudBase，通常是当前域名未加入 Web 安全来源或网络受限；体验版若不能新增域名，需要升级后配置。你仍可继续以游客身份聊天。', '無法連線 CloudBase，通常是目前網域未加入 Web 安全來源或網路受限；體驗版若無法新增網域，需要升級後設定。你仍可繼續以訪客身分聊天。', 'CloudBase could not be reached, usually because this domain is missing from the Web security allowlist or the network is restricted. If the trial plan cannot add the domain, upgrade before configuring it. Guest chat remains available.', '连不上 CloudBase 喵，通常是当前域名没加入 Web 安全来源或网络受限；体验版如果不能新增域名，需要升级后配置。你仍可继续当游客聊天。', '无法连接 CloudBase，通常是当前域名未加入 Web 安全来源或网络受限；体验版若不能新增域名，需要升级后配置。游客聊天仍可使用。'],
   florisAvatarGlyph: ['F', 'F', 'F', 'F', 'F'],
   accountAvatarGlyph: ['账', '帳', 'A', '账', '账'],
 

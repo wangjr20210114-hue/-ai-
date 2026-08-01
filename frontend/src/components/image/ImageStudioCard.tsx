@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { DownloadIcon } from 'tdesign-icons-react';
-import { streamImageEdit } from '../../app/apiComposition';
+import { streamImageEdit } from '../../features/image-studio/model/client';
 import { withEdgeOneAuth } from '../../services/auth';
 import { requestRaw } from '../../shared/transport/httpClient';
 import { createZip } from '../../services/zip';

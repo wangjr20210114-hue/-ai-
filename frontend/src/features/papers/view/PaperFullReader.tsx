@@ -6,19 +6,15 @@ import { useEffect, useRef, useState } from 'react';
 import { Button, Loading, MessagePlugin, Textarea, Tag } from 'tdesign-react';
 import { CloseIcon, FullscreenExitIcon, FullscreenIcon } from 'tdesign-icons-react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { fetchPaperFile } from '../../services/paperApi';
 import {
   loadPdf, extractParagraphs, isNonInteractiveParagraph,
   type PDFDocumentProxy, type Paragraph,
-} from '../../services/pdf';
-import {
-  translateParagraph, summarizeParagraph,
-  analyzePaper, paperQA, loadPaperAssistantResults, savePaperAssistantResult,
-  type PaperAssistantResult,
-} from '../../services/paperApi';
-import MarkdownRenderer from '../common/MarkdownRenderer';
-import { useLanguage } from '../../i18n';
-import { translationsInTimeOrder } from './paperHistory';
+} from '../../../services/pdf';
+import MarkdownRenderer from '../../../components/common/MarkdownRenderer';
+import { useLanguage } from '../../../i18n';
+import { usePapersController } from '../controller/usePapersController';
+import type { PaperAssistantResult } from '../model/types';
+import { translationsInTimeOrder } from '../model/paperHistory';
 
 interface Props {
   fileId: string;
@@ -49,6 +45,16 @@ interface PageData {
 
 export default function PaperFullReader({ fileId, title, fileSize, partSize, assistantEnabled = true, onClose }: Props) {
   const { t, language } = useLanguage();
+  const { api } = usePapersController();
+  const {
+    analyzePaper,
+    fetchPaperFile,
+    loadPaperAssistantResults,
+    paperQA,
+    savePaperAssistantResult,
+    summarizeParagraph,
+    translateParagraph,
+  } = api;
   const readerRef = useRef<HTMLDivElement>(null);
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const textLayerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -88,7 +94,7 @@ export default function PaperFullReader({ fileId, title, fileSize, partSize, ass
         if (!cancelled) setHistoryLoading(false);
       });
     return () => { cancelled = true; };
-  }, [fileId]);
+  }, [fileId, loadPaperAssistantResults]);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,7 +126,7 @@ export default function PaperFullReader({ fileId, title, fileSize, partSize, ass
       }
     })();
     return () => { cancelled = true; window.clearTimeout(fetchTimer); fetchController.abort(); };
-  }, [fileId, fileSize, partSize, t]);
+  }, [fetchPaperFile, fileId, fileSize, partSize, t]);
 
   useEffect(() => {
     const previous = document.body.style.overflow;

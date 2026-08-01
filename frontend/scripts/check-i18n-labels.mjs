@@ -16,7 +16,9 @@ const allowedFixedUiLiterals = new Set(['Floris', 'PDF', 'arXiv']);
 // These literals are protocol/content parsers, provider defaults, prompt
 // delimiters, or single-character brand icons. They are not fixed UI labels.
 const allowedRuntimeLiterals = new Map([
-  ['app/apiComposition.ts', ['全国']],
+  ['features/maps/controller/useMapsController.ts', ['全国']],
+  ['features/maps/model/client.ts', ['全国']],
+  ['features/settings/controller/useSettingsController.ts', ['全国']],
   ['services/conversation.ts', [
     '地点已经核实，请点击下方按钮显示地点',
     '地点已经过真实地点服务核实',
@@ -27,7 +29,7 @@ const allowedRuntimeLiterals = new Map([
     '历史对话',
   ]],
   ['services/reading.ts', ['第 ${pageNumber} 页']],
-  ['components/paper/PaperFullReader.tsx', ['第 ${page.pageNum} 页']],
+  ['features/papers/view/PaperFullReader.tsx', ['第 ${page.pageNum} 页']],
   ['components/chat/MessageBubble.tsx', ['生成图片', '绘制', '已识别为论文']],
 ]);
 

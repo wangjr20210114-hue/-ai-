@@ -3,7 +3,7 @@ import { useChatController } from '../features/chat/controller/useChatController
 import { useAppState } from '../store/appState';
 import Header from '../components/common/Header';
 import ChatInterface from '../components/chat/ChatInterface';
-import EdgeOnePlatformPanel from '../features/settings/view/EdgeOnePlatformPanel';
+import { EdgeOnePlatformPanel } from '../features/settings/view';
 import type { ChatClient } from '../services/chatClient';
 import type { RefObject } from 'react';
 import ConversationSidebar from '../components/conversation/ConversationSidebar';

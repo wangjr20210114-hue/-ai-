@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   currentAuthSession,
@@ -13,12 +13,15 @@ import {
   startGithubLogin,
   verifyEmailOtp,
 } from '../model/cloudbaseClient';
+import { normalizeAuthError } from './authError';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const OTP_COOLDOWN_SECONDS = 60;
 
 export function useAuthController() {
   const [visible, setVisible] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const closeTimer = useRef<number | null>(null);
   const [session, setSession] = useState<AuthSession | null>(currentAuthSession());
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -27,11 +30,33 @@ export function useAuthController() {
   const [busy, setBusy] = useState<'email' | 'verify' | 'github' | 'logout' | ''>('');
   const [error, setError] = useState('');
 
+  const clearCloseTimer = useCallback(() => {
+    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  }, []);
+
   const open = useCallback(() => {
+    clearCloseTimer();
+    setClosing(false);
     setVisible(true);
     setError('');
     void ensureAuthSession().then(setSession).catch(() => undefined);
-  }, []);
+  }, [clearCloseTimer]);
+
+  const setDialogVisible = useCallback((next: boolean) => {
+    clearCloseTimer();
+    if (next) {
+      setClosing(false);
+      setVisible(true);
+      return;
+    }
+    setClosing(true);
+    closeTimer.current = window.setTimeout(() => {
+      setVisible(false);
+      setClosing(false);
+      closeTimer.current = null;
+    }, 180);
+  }, [clearCloseTimer]);
 
   useEffect(() => {
     window.addEventListener(OPEN_AUTH_DIALOG_EVENT, open);
@@ -44,6 +69,8 @@ export function useAuthController() {
       window.removeEventListener('floris:auth-changed', changed);
     };
   }, [open]);
+
+  useEffect(() => clearCloseTimer, [clearCloseTimer]);
 
   useEffect(() => {
     if (cooldown <= 0) return undefined;
@@ -67,7 +94,7 @@ export function useAuthController() {
       setCodeSent(true);
       setCooldown(OTP_COOLDOWN_SECONDS);
     } catch (reason) {
-      setError(String((reason as Error)?.message || reason));
+      setError(normalizeAuthError(reason));
     } finally {
       setBusy('');
     }
@@ -83,9 +110,9 @@ export function useAuthController() {
     try {
       const next = await verifyEmailOtp(code.trim());
       setSession(next);
-      setVisible(false);
+      setDialogVisible(false);
     } catch (reason) {
-      setError(String((reason as Error)?.message || reason));
+      setError(normalizeAuthError(reason));
     } finally {
       setBusy('');
     }
@@ -97,7 +124,7 @@ export function useAuthController() {
     try {
       await startGithubLogin();
     } catch (reason) {
-      setError(String((reason as Error)?.message || reason));
+      setError(normalizeAuthError(reason));
       setBusy('');
     }
   };
@@ -110,9 +137,9 @@ export function useAuthController() {
       setSession(next);
       setCode('');
       setCodeSent(false);
-      setVisible(false);
+      setDialogVisible(false);
     } catch (reason) {
-      setError(String((reason as Error)?.message || reason));
+      setError(normalizeAuthError(reason));
     } finally {
       setBusy('');
     }
@@ -121,6 +148,7 @@ export function useAuthController() {
   return {
     busy,
     cloudBaseConfigured,
+    closing,
     code,
     codeSent,
     cooldown,
@@ -132,7 +160,7 @@ export function useAuthController() {
     session,
     setCode,
     setEmail,
-    setVisible,
+    setVisible: setDialogVisible,
     verifyCode,
     visible,
   };

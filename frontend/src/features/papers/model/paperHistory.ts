@@ -1,4 +1,4 @@
-import type { PaperAssistantResult } from '../../services/paperApi';
+import type { PaperAssistantResult } from './types';
 
 /** Keep the reader timeline append-only: older translations remain above the latest one. */
 export function translationsInTimeOrder(items: PaperAssistantResult[]): PaperAssistantResult[] {

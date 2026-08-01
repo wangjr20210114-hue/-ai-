@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
-import { createNewConversation, listConversations } from '../../app/apiComposition';
+import {
+  createNewConversation,
+  listConversations,
+} from '../../features/chat/model/client';
 import { reconcileConversationSummary, setActiveConversationId } from '../../services/conversation';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ConversationSummary } from '../../shared/types';
 import { formatConversationTime } from '../../services/time';
-import AppSettingsButton from '../profile/AppSettingsButton';
-import SkillsMarketplaceButton from '../profile/SkillsMarketplaceButton';
-import ProactiveBriefPanel from '../profile/ProactiveBriefPanel';
+import { AppSettingsButton, ProactiveBriefPanel } from '../../features/settings/view';
+import { SkillsMarketplaceButton } from '../../features/skills/view';
 import { translate, useLanguage } from '../../i18n';
 
 interface Props {

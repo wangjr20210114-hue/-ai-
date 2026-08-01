@@ -1,9 +1,10 @@
 import { useCallback, useState } from 'react';
 
+import * as paperApi from '../../../services/paperApi';
 import { loadLibrary, readPaper, searchPapers } from '../model/client';
 
 
-export function usePapersController(conversationId: string) {
+export function usePapersController(conversationId = '') {
   const [data, setData] = useState<unknown>(null);
   const [error, setError] = useState('');
   const run = useCallback(async (operation: () => Promise<unknown>) => {
@@ -25,5 +26,6 @@ export function usePapersController(conversationId: string) {
       () => readPaper(conversationId, input),
     ),
     library: () => run(() => loadLibrary()),
+    api: paperApi,
   };
 }

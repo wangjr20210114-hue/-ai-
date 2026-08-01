@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import MarkdownRenderer, { loadMarkdownEnhancements } from './MarkdownRenderer';
+import MarkdownRenderer from './MarkdownRenderer';
+import { loadMarkdownEnhancements } from './markdownEnhancements';
 import type { SearchMeta } from '../../shared/types';
 import { LanguageProvider } from '../../i18n';
 

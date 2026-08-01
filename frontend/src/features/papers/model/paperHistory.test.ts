@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PaperAssistantResult } from '../../services/paperApi';
+import type { PaperAssistantResult } from './types';
 import { translationsInTimeOrder } from './paperHistory';
 
 describe('translationsInTimeOrder', () => {

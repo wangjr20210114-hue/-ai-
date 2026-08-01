@@ -46,6 +46,7 @@
   border: 1px solid color-mix(in srgb, var(--td-brand-color) 24%, var(--app-border));
   border-radius: 12px;
   background: color-mix(in srgb, var(--td-brand-color) 4%, var(--app-ai-bubble));
+  animation: cardSlideIn 260ms var(--motion-ease-out) both;
 }
 .clarification-card > strong { display: block; font-size: 14px; }
 .clarification-card > p { margin: 5px 0 12px; color: var(--app-text-2); font-size: 13px; }
@@ -82,7 +83,9 @@
   cursor: not-allowed;
 }
 .clarification-option-list { display: flex; flex-wrap: wrap; gap: 7px; }
-.clarification-option { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border: 1px solid var(--app-border); border-radius: 8px; color: var(--app-text); font-size: 12px; cursor: pointer; }
+.clarification-option { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border: 1px solid var(--app-border); border-radius: 8px; color: var(--app-text); font-size: 12px; cursor: pointer; transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease, box-shadow 180ms ease, transform 160ms var(--motion-ease-out); }
+.clarification-option:hover { border-color: color-mix(in srgb, var(--td-brand-color) 48%, var(--app-border)); background: color-mix(in srgb, var(--td-brand-color) 5%, transparent); transform: translateY(-1px); }
+.clarification-option:active { transform: translateY(0) scale(.98); }
 .clarification-option:has(input:checked) { border-color: var(--td-brand-color); background: color-mix(in srgb, var(--td-brand-color) 9%, transparent); }
 .clarification-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .followup-section {
