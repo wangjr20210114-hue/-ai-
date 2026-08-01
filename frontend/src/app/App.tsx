@@ -10,6 +10,7 @@ import ConversationSidebar from '../components/conversation/ConversationSidebar'
 import { useLanguage } from '../i18n';
 import { OPEN_RIGHT_WORKSPACE_EVENT } from '../services/workspaceEvents';
 import FlorisOnboarding from '../components/onboarding/FlorisOnboarding';
+import AuthDialog from '../features/auth/view/AuthDialog';
 
 const LEFT_PANE_MIN = 190;
 const LEFT_PANE_MAX = 420;
@@ -189,6 +190,7 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
         </div>
       )}
       <FlorisOnboarding connected={connected} revealArea={revealOnboardingArea} />
+      <AuthDialog />
     </div>
   );
 }

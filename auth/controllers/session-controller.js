@@ -28,6 +28,8 @@ function sessionView(identity, request, env, headers = {}) {
     identity,
     entitlements: publicEntitlements(identity),
     login: {
+      cloudbase_available: true,
+      cloudbase_session_url: '/auth/cloudbase/session',
       wechat_available: wechat.available,
       wechat_mode: wechat.mode,
       wechat_start_url: '/auth/wechat/start',

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, MessagePlugin } from 'tdesign-react';
+import { Button } from 'tdesign-react';
 import { ChevronLeftIcon, ChevronRightIcon, LogoGithubIcon, MenuIcon, ModeDarkIcon, ModeLightIcon, NotificationIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
@@ -9,10 +9,8 @@ import { FEATURE_DOCUMENT_URL } from '../../constants';
 import {
   currentAuthSession,
   ensureAuthSession,
-  startWechatLogin,
+  openAuthDialog,
   type AuthSession,
-  wechatLoginLabelKey,
-  wechatLoginUnavailableKey,
 } from '../../services/auth';
 
 const THEME_KEY = 'travel-theme';
@@ -53,17 +51,6 @@ export default function Header({
   );
   const activeLine = displayLines[reminderIndex % Math.max(1, displayLines.length)];
   const authIsGuest = authSession?.identity.auth_type === 'guest';
-  const guestCanLogin = Boolean(authIsGuest && authSession?.login.wechat_available);
-  const wechatLoginLabel = t(wechatLoginLabelKey(authSession));
-
-  const handleAccountClick = () => {
-    if (!authIsGuest) return;
-    if (guestCanLogin) {
-      startWechatLogin('/chatBot');
-      return;
-    }
-    MessagePlugin.warning(t(wechatLoginUnavailableKey(authSession)));
-  };
 
   useEffect(() => {
     setReminderIndex(0);
@@ -167,20 +154,20 @@ export default function Header({
             type="button"
             className={`header-account ${authSession.identity.auth_type === 'guest' ? 'is-guest' : 'is-user'}`}
             title={authIsGuest
-              ? wechatLoginLabel
+              ? t('authSignIn')
               : authSession.identity.display_name}
-            aria-label={authIsGuest ? wechatLoginLabel : authSession.identity.display_name}
-            onClick={authIsGuest ? handleAccountClick : undefined}
+            aria-label={authIsGuest ? t('authSignIn') : authSession.identity.display_name}
+            onClick={openAuthDialog}
           >
             {authSession.identity.avatar_url
               ? <img src={authSession.identity.avatar_url} alt="" referrerPolicy="no-referrer" />
               : <span aria-hidden="true">
                 {authSession.identity.auth_type === 'guest'
                   ? t('guestAvatarGlyph')
-                  : t('wechatAvatarGlyph')}
+                  : t('accountAvatarGlyph')}
               </span>}
             <b>{authIsGuest
-              ? wechatLoginLabel
+              ? t('authSignIn')
               : authSession.identity.display_name}</b>
           </button>
         )}

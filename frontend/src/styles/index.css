@@ -2,6 +2,7 @@
 @import "../styles/reset.css";
 @import "../styles/feedback.css";
 @import "../styles/layout.css";
+@import "../features/auth/styles.css";
 @import "../features/chat/styles.css";
 @import "../features/search/styles.css";
 @import "../features/chat/markdown.css";

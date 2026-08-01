@@ -167,7 +167,7 @@ export async function scopedConversationId(user, conversationId) {
 export function publicIdentity(payload) {
   const tenantId = safeSegment(payload.tenant_id, 'default');
   const subjectId = safeSegment(payload.sub || payload.subject_id, 'anonymous');
-  const authType = ['guest', 'wechat'].includes(payload.auth_type)
+  const authType = ['guest', 'wechat', 'cloudbase'].includes(payload.auth_type)
     ? payload.auth_type
     : 'guest';
   const membership = ['guest', 'free', 'plus', 'pro'].includes(payload.membership)
@@ -181,6 +181,9 @@ export function publicIdentity(payload) {
     display_name: String(payload.display_name || payload.username || '').slice(0, 120),
     avatar_url: String(payload.avatar_url || '').slice(0, 1000),
     auth_type: authType,
+    auth_providers: Array.isArray(payload.auth_providers)
+      ? payload.auth_providers.map(String).filter(Boolean).slice(0, 8)
+      : [],
     membership,
     roles: Array.isArray(payload.roles)
       ? payload.roles.map(String).filter(Boolean).slice(0, 8)

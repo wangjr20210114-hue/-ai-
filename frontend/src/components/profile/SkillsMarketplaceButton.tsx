@@ -12,8 +12,7 @@ export default function SkillsMarketplaceButton() {
     language, loading, login, marketplace, openMarketplace, query, refresh,
     save, saveConnection, savingId, setQuery, setTokenDrafts, setView,
     skillName, skillText, t, tokenDrafts, upload, uploadRef,
-    uploads, view, visible, visibleSkills, wechatAvailable,
-    wechatLoginLabel, wechatLoginUnavailable,
+    uploads, view, visible, visibleSkills, loginLabel,
   } = controller;
 
   return <>
@@ -50,7 +49,7 @@ export default function SkillsMarketplaceButton() {
             <span>{marketplace?.identity.display_name || t('guestUser')}</span>
             {marketplace?.identity.auth_type === 'guest' && (
               <Button size="small" theme="primary" onClick={login}>
-                {wechatLoginLabel}
+                {loginLabel}
               </Button>
             )}
           </div>
@@ -174,11 +173,7 @@ export default function SkillsMarketplaceButton() {
                         size="small"
                         theme={installed ? 'default' : 'primary'}
                         variant={installed ? 'outline' : 'base'}
-                        disabled={skill.locked
-                          || loading
-                          || (!skill.eligible
-                            && skill.eligibility_reason === 'login_required'
-                            && !wechatAvailable)}
+                        disabled={skill.locked || loading}
                         loading={savingId === skill.id}
                         onClick={() => void save(skill, !installed)}
                       >
@@ -253,9 +248,7 @@ export default function SkillsMarketplaceButton() {
                   <div className="skills-login-gate">
                     <strong>{t('loginRequiredForSkills')}</strong>
                     <p>{t('loginSkillReason')}</p>
-                    {wechatAvailable
-                      ? <Button theme="primary" onClick={login}>{wechatLoginLabel}</Button>
-                      : <small>{wechatLoginUnavailable}</small>}
+                    <Button theme="primary" onClick={login}>{loginLabel}</Button>
                   </div>
                 ) : <>
                   <div className="skill-upload-drop">

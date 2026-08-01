@@ -45,7 +45,9 @@
 | AI_GATEWAY_BASE_URL    | ********* | -                            | 全部环境 |
 | JWT_SECRET             | ********* | 至少 32 字符；签名多用户/Guest 会话   | 全部环境 |
 | DEFAULT_TENANT_ID      | floris    | 默认租户标识                           | 全部环境 |
-| DATABASE_URL           | ********* | Neon 身份、OAuth 绑定和权益账本         | 全部环境 |
+| CLOUDBASE_ENV_ID       | floris-auth-d3gd1pvebd6321d35 | CloudBase 身份环境；当前值也有代码默认值 | 全部环境 |
+| CLOUDBASE_REGION       | ap-shanghai | CloudBase 身份地域                    | 全部环境 |
+| DATABASE_URL           | ********* | 仅旧微信通道使用的 Neon 连接（可选）     | 全部环境 |
 | WECHAT_OPEN_APP_ID     | ********* | 微信开放平台网站应用 ID（可选）         | 全部环境 |
 | WECHAT_OPEN_APP_SECRET | ********* | 微信开放平台密钥（仅服务端，可选）       | 全部环境 |
 | WECHAT_OPEN_CALLBACK_URL | ********* | 微信 OAuth 回调地址（可选）           | 全部环境 |
@@ -53,7 +55,13 @@
 | WECHAT_OFFICIAL_ACCOUNT_APP_SECRET | ********* | 微信公众号 App Secret（仅服务端，可选） | 全部环境 |
 | WECHAT_OFFICIAL_ACCOUNT_CALLBACK_URL | ********* | 公众号网页 OAuth 回调地址（可选） | 全部环境 |
 
-启用微信登录前，先在 Neon 执行 `db/migrations/001_identity_and_entitlements.sql`。同一个登录入口会由服务端按请求的 `MicroMessenger` User-Agent 自适应：普通浏览器使用微信开放平台网站应用二维码（`snsapi_login`），微信内置浏览器使用公众号网页授权（`snsapi_userinfo`）。两种通道分别读取自己的 App ID、App Secret 和回调地址，不能用小程序凭据替代。当前通道只有在对应凭据与 `DATABASE_URL` 同时可用时才进入 OAuth；缺失配置时入口会如实提示并继续安全运行 Guest 模式。
+当前主登录使用 CloudBase 内置邮箱验证码，GitHub 是次级入口，游客无需登录即可正常聊天。前端只使用 CloudBase Publishable Key；它会随 Vite 构建公开，不能替换为 SecretId、SecretKey 或管理员 token。登录后的 CloudBase access token 会交给 `/auth/cloudbase/session`，由服务端调用官方 `/auth/v1/user/me` 验真后再签发 Floris 自己的 HttpOnly 会话，浏览器资料和 CloudBase 用户组不会被直接信任为 Floris 权限。
+
+在 CloudBase PostgreSQL 的 SQL 编辑器依次执行 `db/migrations/001_identity_and_entitlements.sql` 和 `db/migrations/002_cloudbase_identity_adapter.sql`，即可把首次登录前的 Guest subject 原子绑定到正式账号，并保留 Makers Conversation、Store 与 Blob 的既有命名空间。迁移尚未执行时，登录会安全降级为按 CloudBase UID 确定性派生的 Floris subject，不阻塞登录或游客聊天，但无法保留首次登录前的 Guest 历史。
+
+CloudBase「环境配置 → 安全来源」还需加入当前开发站域名（只填域名、不带 `https://`）。GitHub OAuth 的 `redirectTo` 也必须属于该安全域名。自定义域名后再追加正式域名即可，不要求现在为了开发登录提前注册域名。
+
+微信登录代码保留为可选兼容 Adapter，但当前不开启。以后启用时，仍需独立的微信开放平台/公众号凭据和 `DATABASE_URL`；小程序凭据不能替代它们。缺失配置不会影响 CloudBase 登录或 Guest 模式。
 
 ### 1.3 Preview or Production 部署
 
@@ -101,7 +109,7 @@ Makers 将其自动发布为无意的 HTTP 路由。
 
 <img width="1770" height="867" alt="image" src="https://github.com/user-attachments/assets/2536c220-be5f-4c29-b21d-5fbb53757121" />
 
-打开全页 **Skill 广场**，可查看全部/已安装 Skill、依赖图、组件 API 文档，并下载已安装的标准包。**通用问答与创作**和**主动式 Agent**是游客也可使用的必开系统 Skill；其他 Skill 需要微信登录并按会员权益安装。游客请求实时资讯但没有实时搜索权益时，不会被安装提示打断，而是明确无法实时核验并由基础模型继续回答。内置能力统一使用 `SKILL.md + floris.json`，用户 ZIP 只会进入 Makers Blob 的待审核区，审核后台完成前不会安装或执行。
+打开全页 **Skill 广场**，可查看全部/已安装 Skill、依赖图、组件 API 文档，并下载已安装的标准包。**通用问答与创作**和**主动式 Agent**是游客也可使用的必开系统 Skill；其他 Skill 需要登录并按会员权益安装。游客请求实时资讯但没有实时搜索权益时，不会被安装提示打断，而是明确无法实时核验并由基础模型继续回答。内置能力统一使用 `SKILL.md + floris.json`，用户 ZIP 只会进入 Makers Blob 的待审核区，审核后台完成前不会安装或执行。
 
 ### 2.3 设置
 

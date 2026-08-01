@@ -258,10 +258,11 @@ test('settings and Skills open on lightweight configuration reads', async () => 
   assert.match(skills, /createPortal/);
   assert.match(skills, /document\.body/);
   assert.match(styles, /\.skills-page\s*\{[\s\S]*?z-index:\s*5000/);
-  assert.match(header, /login\.wechat_available/);
-  assert.match(header, /wechatLoginUnavailable/);
+  assert.match(header, /openAuthDialog/);
+  assert.doesNotMatch(header, /wechatLoginUnavailable|login\.wechat_available/);
   assert.doesNotMatch(header, /aria-disabled=/);
-  assert.match(skillsController, /wechatLoginUnavailable/);
+  assert.match(skillsController, /openAuthDialog/);
+  assert.doesNotMatch(skillsController, /wechatLoginUnavailable|startWechatLogin/);
   assert.match(skills, /identity\.auth_type === 'guest'/);
 });
 

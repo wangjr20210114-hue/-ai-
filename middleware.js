@@ -5,6 +5,7 @@ import {
 
 const PUBLIC_PREFIXES = [
   '/auth/session',
+  '/auth/cloudbase/session',
   '/auth/wechat/start',
   '/auth/wechat/callback',
   '/auth/logout',

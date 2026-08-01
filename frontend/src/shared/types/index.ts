@@ -246,7 +246,7 @@ export interface SkillMarketplaceState {
     tenant_id: string;
     display_name: string;
     avatar_url: string;
-    auth_type: 'guest' | 'wechat';
+    auth_type: 'guest' | 'wechat' | 'cloudbase';
     membership: 'guest' | 'free' | 'plus' | 'pro';
     roles: string[];
   };

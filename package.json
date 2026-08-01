@@ -4,7 +4,7 @@
   "version": "5.1.0",
   "type": "module",
   "scripts": {
-    "test": "node --test auth/session.test.js auth/controllers/controllers.test.js middleware.test.js cloud-functions/platform-reuse.test.js cloud-functions/acceptance/index.test.js cloud-functions/files/index.test.js cloud-functions/papers/index.test.js cloud-functions/proactive-tick/index.test.js cloud-functions/reset-files/index.test.js cloud-functions/skill-uploads/index.test.js tools/tests/makers-deploy-target.test.mjs",
+    "test": "node --test auth/session.test.js auth/controllers/controllers.test.js auth/controllers/cloudbase-controller.test.js middleware.test.js cloud-functions/platform-reuse.test.js cloud-functions/acceptance/index.test.js cloud-functions/files/index.test.js cloud-functions/papers/index.test.js cloud-functions/proactive-tick/index.test.js cloud-functions/reset-files/index.test.js cloud-functions/skill-uploads/index.test.js tools/tests/makers-deploy-target.test.mjs",
     "check:skills": "python tools/assert-skill-integrity.py",
     "check:entitlements": "node tools/generate-entitlement-contract.mjs --check && node --test tools/tests/entitlement-contract.test.mjs",
     "check:architecture": "python tools/assert-python-architecture.py && python tools/split-workspace-tests.py --check",

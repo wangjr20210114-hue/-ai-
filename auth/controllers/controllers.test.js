@@ -29,6 +29,8 @@ test('session Controller creates an isolated guest and then reuses its signed co
   const first = await created.json();
   assert.equal(first.identity.auth_type, 'guest');
   assert.equal(first.identity.membership, 'guest');
+  assert.equal(first.login.cloudbase_available, true);
+  assert.equal(first.login.cloudbase_session_url, '/auth/cloudbase/session');
   assert.equal(first.login.wechat_available, false);
   assert.equal(first.login.wechat_mode, 'qr');
   assert.match(first.identity.id, /^floris:/);

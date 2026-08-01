@@ -47,3 +47,15 @@ test('public authentication routes remain available before a session exists', as
   assert.equal(response.status, 200);
   assert.equal(await response.text(), 'public');
 });
+
+test('CloudBase token exchange remains public while its Controller verifies the token', async () => {
+  const response = await middleware({
+    request: new Request('https://example.com/auth/cloudbase/session', {
+      method: 'POST',
+    }),
+    next: async () => new Response('public'),
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), 'public');
+});

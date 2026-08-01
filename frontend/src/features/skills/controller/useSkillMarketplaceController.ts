@@ -11,10 +11,7 @@ import {
   uploadSkillPackage,
 } from '../../../app/apiComposition';
 import {
-  currentAuthSession,
-  startWechatLogin,
-  wechatLoginLabelKey,
-  wechatLoginUnavailableKey,
+  openAuthDialog,
 } from '../../../shared/auth/session';
 import { useAppState } from '../../../store/appState';
 import type {
@@ -46,10 +43,6 @@ export function useSkillMarketplaceController() {
   const [tokenDrafts, setTokenDrafts] = useState<Record<string, string>>({});
   const uploadRef = useRef<HTMLInputElement>(null);
   const suppressOpenUntilRef = useRef(0);
-  const authSession = currentAuthSession();
-  const wechatAvailable = authSession?.login.wechat_available === true;
-  const wechatLoginLabel = t(wechatLoginLabelKey(authSession));
-  const wechatLoginUnavailable = t(wechatLoginUnavailableKey(authSession));
 
   const catalog = useMemo(
     () => marketplace?.skills || [],
@@ -135,11 +128,7 @@ export function useSkillMarketplaceController() {
   const save = async (skill: InstalledSkill, enabled: boolean) => {
     if (skill.locked) return;
     if (!skill.eligible) {
-      if (skill.eligibility_reason === 'login_required' && wechatAvailable) {
-        startWechatLogin('/chatBot');
-      } else if (skill.eligibility_reason === 'login_required') {
-        MessagePlugin.warning(t(wechatLoginUnavailableKey(authSession)));
-      }
+      if (skill.eligibility_reason === 'login_required') openAuthDialog();
       else MessagePlugin.warning(t('membershipRequired'));
       return;
     }
@@ -242,10 +231,8 @@ export function useSkillMarketplaceController() {
     isInstalled,
     language,
     loading,
-    login: () => {
-      if (wechatAvailable) startWechatLogin('/chatBot');
-      else MessagePlugin.warning(t(wechatLoginUnavailableKey(authSession)));
-    },
+    login: openAuthDialog,
+    loginLabel: t('authSignIn'),
     marketplace,
     openMarketplace,
     preferences,
@@ -267,8 +254,5 @@ export function useSkillMarketplaceController() {
     view,
     visible,
     visibleSkills,
-    wechatAvailable,
-    wechatLoginLabel,
-    wechatLoginUnavailable,
   };
 }

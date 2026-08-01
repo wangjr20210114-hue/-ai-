@@ -7,7 +7,8 @@ export interface SessionIdentity {
   username: string;
   display_name: string;
   avatar_url: string;
-  auth_type: 'guest' | 'wechat';
+  auth_type: 'guest' | 'wechat' | 'cloudbase';
+  auth_providers: string[];
   membership: 'guest' | 'free' | 'plus' | 'pro';
   roles: string[];
 }
@@ -29,6 +30,8 @@ export interface AuthSession {
     payment_available: boolean;
   };
   login: {
+    cloudbase_available: boolean;
+    cloudbase_session_url: string;
     wechat_available: boolean;
     wechat_mode: 'qr' | 'in_app';
     wechat_start_url: string;
@@ -91,6 +94,13 @@ export const withSession = withEdgeOneAuth;
 
 export function currentAuthSession(): AuthSession | null {
   return cachedAuthSession;
+}
+
+export const OPEN_AUTH_DIALOG_EVENT = 'floris:open-auth';
+
+export function openAuthDialog(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(OPEN_AUTH_DIALOG_EVENT));
 }
 
 export async function ensureAuthSession(force = false): Promise<AuthSession> {

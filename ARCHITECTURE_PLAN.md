@@ -21,7 +21,7 @@ FLORIS 已经不是一个简单聊天页，而是一个以 LangGraph 为中枢�
 
 本分支已完成第一阶段低风险改造：**搜索事实证据仍在关键路径，网页图片抓取与视觉审核改为渐进交付；只有图片生成需要审核后的参考图时才阻塞等待。**
 
-在后续讨论中，产品目标已从单人演示扩展为可匿名使用、微信优先登录、多租户隔离、可安装 Skill 平台和未来会员体系。以下原则成为后续改造的硬约束：
+在后续讨论中，产品目标已从单人演示扩展为可匿名使用、CloudBase 邮箱主登录与 GitHub 次级登录、多租户隔离、可安装 Skill 平台和未来会员体系。以下原则成为后续改造的硬约束：
 
 1. **Makers 原生能力优先。** Conversation Store、LangGraph Checkpointer / Store、Blob、Cloud Functions、Agent Runtime、Tracing 和部署能力能复用就不自建。
 2. **模型只负责生成，不负责安全边界。** 身份、租户、Skill 权限、依赖、会员权益、媒体插入与副作用确认都由确定性服务端规则执行。
@@ -201,7 +201,7 @@ flowchart TB
         CP["LangGraph Store / Checkpointer"]
         B["Makers Blob"]
         TR["Makers Tracing"]
-        PG["Neon<br/>身份绑定 / 会员 / 支付账本"]
+        PG["CloudBase PostgreSQL<br/>身份绑定 / 会员 / 支付账本"]
     end
     BM --> INF
 
@@ -238,10 +238,10 @@ flowchart TB
 | OAuth 回调、权益 API、Webhook | Makers Cloud Functions | 直接复用，密钥只在服务端环境变量 |
 | 日志、链路阶段、模型与工具追踪 | Makers Tracing | 直接复用，并补充产品级 TTFT 指标 |
 | 小型边缘配置、限流计数 | Makers KV | 仅在 Edge Functions 使用；不作为 Python Agent 主数据库 |
-| 微信身份唯一性、租户成员关系、订单和支付幂等 | Neon Serverless Postgres | Makers 官方认证方案使用的事务型数据库；仅保存 Makers Store 不适合承担的关系/账本数据 |
+| CloudBase 身份唯一性、租户成员关系、订单和支付幂等 | CloudBase PostgreSQL | 复用认证环境内的事务型数据库；仅保存 Makers Store 不适合承担的关系/账本数据 |
 | 页面与 SSE 网络加速 | EdgeOne 个人版 | 静态资源长缓存、HTTP/3/智能加速；动态聊天和用户数据禁止 CDN 缓存 |
 
-Makers Blob 可以保存结构化 JSON，但用户唯一约束、OAuth 账号绑定、订单幂等和支付账本需要事务与唯一索引，因此不把 Blob 强行改造成关系数据库。Neon 是补位层，不会复制 Conversation、Checkpoint、Blob 或 Trace。
+Makers Blob 可以保存结构化 JSON，但用户唯一约束、OAuth 账号绑定、订单幂等和支付账本需要事务与唯一索引，因此不把 Blob 强行改造成关系数据库。CloudBase PostgreSQL 是身份补位层，不会复制 Conversation、Checkpoint、Blob 或 Trace。
 
 ### 5.2 身份、租户与匿名能力
 
@@ -250,11 +250,11 @@ flowchart LR
     V["访问者"] --> S["GET /auth/session"]
     S -->|"无登录态"| G["签名 Guest Session<br/>HttpOnly / SameSite=Lax"]
     S -->|"已有登录态"| A["Authenticated Session"]
-    V -->|"普通浏览器扫码"| W["微信开放平台网站应用<br/>snsapi_login"]
-    V -->|"微信内点击"| WX["公众号网页 OAuth<br/>snsapi_userinfo"]
-    W --> CF["Makers Cloud Function 回调"]
+    V -->|"邮箱验证码"| W["CloudBase Auth<br/>signInWithOtp"]
+    V -->|"其他登录方式"| WX["CloudBase GitHub OAuth"]
+    W --> CF["CloudBase token → Floris Session Bridge"]
     WX --> CF
-    CF --> DB["Neon 用户/OAuth 绑定"]
+    CF --> DB["CloudBase PostgreSQL 身份绑定"]
     DB --> A
 
     G --> GE["Guest Entitlements"]
@@ -273,7 +273,7 @@ flowchart LR
 ```text
 tenant_id
 user_id
-auth_type: guest | wechat
+auth_type: guest | cloudbase | wechat
 roles
 membership: guest | free | plus | pro
 session_version
@@ -285,9 +285,9 @@ expires_at
 1. 浏览器不能通过 Header 自报 `tenant_id/user_id/roles/membership`。
 2. Middleware 做低成本早拒绝，Agent 和 Cloud Function 在业务入口再次验证签名会话。
 3. 匿名用户获得稳定但可过期的 Guest ID，只能运行 `core` 与 `proactive-agent`；后端工具构造仍是最终权限边界。
-4. 微信 `AppSecret`、OAuth access token 和 Skill 私密凭据从不进入前端或普通日志。
+4. CloudBase SecretId/SecretKey、OAuth access token、微信 `AppSecret` 和 Skill 私密凭据从不进入前端或普通日志；前端仅持有可公开的 Publishable Key。
 5. Conversation、Store 和 Blob 的 key 都从服务端身份派生；所有写操作再次校验资源 owner。
-6. 多用户是唯一运行模式，不保留固定 Owner 或单用户兼容分支；部署必须配置签名密钥，微信与数据库未配置时仍可签发 Guest 会话。
+6. 多用户是唯一运行模式，不保留固定 Owner 或单用户兼容分支；部署必须配置签名密钥，CloudBase 或可选微信通道不可用时仍可签发 Guest 会话。
 
 ### 5.3 标准 Skill 平台
 
