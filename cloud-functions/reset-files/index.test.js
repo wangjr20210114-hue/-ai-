@@ -5,6 +5,7 @@ import { onRequest, __test } from './index.js';
 import { authenticatedRequest, TEST_AUTH_ENV } from '../../test-utils/auth.js';
 
 const PREFIX = 'tenants/floris/users/11111111-1111-4111-8111-111111111111/';
+const OWNER = 'floris:11111111-1111-4111-8111-111111111111';
 
 class FakeStore {
   constructor(keys = []) {
@@ -28,7 +29,10 @@ class FakeConversationStore {
   async listConversations({ after } = {}) {
     if (after) return { items: [], nextCursor: undefined };
     return {
-      items: this.ids.slice(0, 100).map((conversationId) => ({ conversationId })),
+      items: this.ids.slice(0, 100).map((conversationId) => ({
+        conversationId,
+        metadata: { owner_user_id: OWNER, tenant_id: 'floris' },
+      })),
       nextCursor: this.ids.length > 100 ? 'next-page' : undefined,
     };
   }

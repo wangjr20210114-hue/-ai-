@@ -1,5 +1,6 @@
 export {
   AuthError,
+  conversationIndexUserId,
   currentUser,
   publicIdentity,
   scopedConversationId,

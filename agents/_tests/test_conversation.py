@@ -35,6 +35,7 @@ class ConversationRouteTests(unittest.IsolatedAsyncioTestCase):
         response = await handler(ctx)
         self.assertEqual(response, {"message_id": "native-message-1"})
         self.assertEqual(store.messages[0]["role"], "assistant")
+        self.assertRegex(store.messages[0]["user_id"], r"^uid_[0-9a-f]{40}$")
         self.assertRegex(store.messages[0]["conversation_id"], rf"^{CONVERSATION_PREFIX}[0-9a-f]{{32}}$")
         self.assertEqual(store.messages[0]["metadata"]["client_message_id"], "client-ai-1")
 

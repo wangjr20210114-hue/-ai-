@@ -1,5 +1,6 @@
 import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
+import { listUserConversations } from '../conversation-index.js';
 
 const STORE_NAMES = ['yuanbao-files'];
 
@@ -23,31 +24,15 @@ async function clearStore(store, prefix) {
   return deleted;
 }
 
-async function listConversationIds(store, userId) {
-  const ids = [];
-  let after;
-  for (let page = 0; page < 100; page += 1) {
-    const result = await store.listConversations({
-      userId,
-      limit: 100,
-      order: 'desc',
-      ...(after ? { after } : {}),
-    });
-    const items = Array.isArray(result?.items) ? result.items : [];
-    ids.push(...items.map((item) => String(item?.conversationId || '')).filter(Boolean));
-    after = result?.nextCursor;
-    if (!after || items.length < 100) break;
-  }
-  return [...new Set(ids)];
+async function listConversationIds(store, user) {
+  const items = await listUserConversations(store, user, { maxGlobalPages: 50 });
+  return [...new Set(items.map((item) => String(item?.conversationId || '')).filter(Boolean))];
 }
 
-async function clearConversations(store, userId) {
+async function clearConversations(store, user) {
   let deleted = 0;
   for (let page = 0; page < 100; page += 1) {
-    const result = await store.listConversations({ userId, limit: 100, order: 'desc' });
-    const ids = (Array.isArray(result?.items) ? result.items : [])
-      .map((item) => String(item?.conversationId || ''))
-      .filter(Boolean);
+    const ids = await listConversationIds(store, user);
     if (!ids.length) break;
     for (let offset = 0; offset < ids.length; offset += 8) {
       await Promise.all(ids.slice(offset, offset + 8).map((conversationId) => (
@@ -76,7 +61,7 @@ export async function onRequest(context) {
   if (body.operation === 'inspect') {
     return json({
       ok: true,
-      conversation_ids: await listConversationIds(conversationStore, user.id),
+      conversation_ids: await listConversationIds(conversationStore, user),
     });
   }
   if (body.operation !== 'clear') {
@@ -88,7 +73,7 @@ export async function onRequest(context) {
     context.__stores?.[name] || getStore({ name, consistency: 'strong' }),
   ]));
   const [conversationsDeleted, ...storeCounts] = await Promise.all([
-    clearConversations(conversationStore, user.id),
+    clearConversations(conversationStore, user),
     ...STORE_NAMES.map((name) => clearStore(stores[name], tenantPrefix(user))),
   ]);
   return json({

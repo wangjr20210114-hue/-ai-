@@ -7,7 +7,7 @@ message records in the Node generic-store envelope before Python reads them.
 
 from __future__ import annotations
 
-from .._infrastructure.makers.identity import require_user, scoped_conversation_id
+from .._infrastructure.makers.identity import conversation_index_user_id, require_user, scoped_conversation_id
 from .._infrastructure.http import error
 from .._infrastructure.makers.conversation_repository import ensure_conversation_title
 
@@ -29,7 +29,7 @@ async def handler(ctx):
         conversation_id=conversation_id,
         role=role,
         content=content,
-        user_id=user_id,
+        user_id=conversation_index_user_id(user_id),
         metadata={
             **metadata,
             "client_message_id": str(metadata.get("id") or ""),

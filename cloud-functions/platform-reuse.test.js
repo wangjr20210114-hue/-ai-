@@ -347,7 +347,10 @@ test('runtime does not reimplement generic tracing, queue or cron services', asy
 test('self-service reset only deletes the authenticated Makers namespace', async () => {
   const [agentReset, fileReset, settings, envExample] = await Promise.all([
     read('agents/_controllers/reset_controller.py'),
-    read('cloud-functions/reset-files/index.js'),
+    Promise.all([
+      read('cloud-functions/reset-files/index.js'),
+      read('cloud-functions/conversation-index.js'),
+    ]).then((sources) => sources.join('\n')),
     Promise.all([
       read('frontend/src/features/settings/view/AppSettingsButton.tsx'),
       read('frontend/src/features/settings/controller/useSettingsController.ts'),

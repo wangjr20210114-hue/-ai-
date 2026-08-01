@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 
 from agents._domain.identity import TenantIdentity
-from agents._infrastructure.makers.identity import AuthError, MakerIdentityResolver
+from agents._infrastructure.makers.identity import AuthError, MakerIdentityResolver, conversation_index_user_id
 from agents._tests.auth_helpers import authenticated_context
 
 
@@ -54,6 +54,14 @@ class MakerIdentityResolverTests(unittest.TestCase):
         ctx.request.headers["cookie"] += "tampered"
         with self.assertRaises(AuthError):
             MakerIdentityResolver().resolve(ctx)
+
+    def test_conversation_index_user_id_matches_the_node_contract(self) -> None:
+        self.assertEqual(
+            conversation_index_user_id(
+                "floris:11111111-1111-4111-8111-111111111111"
+            ),
+            "uid_e236542cf226407ddc32fea8e80052d0bfde5881",
+        )
 
 
 if __name__ == "__main__":

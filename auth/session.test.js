@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   currentUser,
+  conversationIndexUserId,
   scopedConversationId,
   signSessionToken,
   storageUserId,
@@ -54,6 +55,17 @@ test('tampered and wrong-purpose sessions are rejected', async () => {
     verifySessionToken(token, TEST_AUTH_ENV, { purpose: 'oauth' }),
     /purpose/i,
   );
+});
+
+test('conversation user indexes are deterministic and path-safe across runtimes', async () => {
+  const first = 'floris:11111111-1111-4111-8111-111111111111';
+  const second = 'floris:22222222-2222-4222-8222-222222222222';
+  const firstIndex = await conversationIndexUserId(first);
+  assert.match(firstIndex, /^uid_[0-9a-f]{40}$/);
+  assert.equal(firstIndex, 'uid_e236542cf226407ddc32fea8e80052d0bfde5881');
+  assert.equal(firstIndex, await conversationIndexUserId({ id: first }));
+  assert.notEqual(firstIndex, await conversationIndexUserId(second));
+  await assert.rejects(conversationIndexUserId(null), /identity/i);
 });
 
 test('entitlements consume the generated contract for every plan', () => {

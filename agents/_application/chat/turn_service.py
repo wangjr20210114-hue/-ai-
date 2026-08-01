@@ -53,7 +53,7 @@ from ..._application.intelligence.service import (
     usage_summary,
     skill_runtime_env,
 )
-from ..._infrastructure.makers.identity import require_user, scoped_conversation_id
+from ..._infrastructure.makers.identity import conversation_index_user_id, require_user, scoped_conversation_id
 from ..._domain.entitlements.policy import effective_skill_preferences
 from ..._domain.search.evidence import SearchEvidence
 from ..._infrastructure.makers.data_version import namespace as data_namespace
@@ -1358,7 +1358,7 @@ async def _handle(ctx):
                 conversation_id=conversation_id,
                 role="user",
                 content=message,
-                user_id=user_id,
+                user_id=conversation_index_user_id(user_id),
                 metadata={
                     "client_message_id": str(body.get("client_message_id") or ""),
                     "client_conversation_id": raw_conversation_id,

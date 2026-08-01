@@ -148,6 +148,21 @@ export function storageUserId(tenantId, subjectId) {
   return `${safeSegment(tenantId, 'default')}:${safeSegment(subjectId, 'anonymous')}`;
 }
 
+export async function conversationIndexUserId(userOrId) {
+  const raw = typeof userOrId === 'object' ? userOrId?.id : userOrId;
+  const value = String(raw || '').trim();
+  if (!value) throw new AuthError('Identity is required');
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(value),
+  );
+  const hex = Array.from(
+    new Uint8Array(digest),
+    (byte) => byte.toString(16).padStart(2, '0'),
+  ).join('');
+  return `uid_${hex.slice(0, 40)}`;
+}
+
 export async function scopedConversationId(user, conversationId) {
   const raw = String(conversationId || '').trim();
   if (!raw || raw.length > 180) {

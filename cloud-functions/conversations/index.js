@@ -1,4 +1,5 @@
-import { currentUser, scopedConversationId } from '../../auth/current-user.js';
+import { conversationIndexUserId, currentUser, scopedConversationId } from '../../auth/current-user.js';
+import { listUserConversations } from '../conversation-index.js';
 
 const CONVERSATION_PREFIX = 'yb7_';
 
@@ -47,41 +48,6 @@ function publicConversation(item) {
   };
 }
 
-function conversationItems(result) {
-  if (Array.isArray(result)) return result;
-  if (Array.isArray(result?.items)) return result.items;
-  if (Array.isArray(result?.conversations)) return result.conversations;
-  return [];
-}
-
-function belongsToUser(item, user) {
-  const metadata = item?.metadata && typeof item.metadata === 'object' ? item.metadata : {};
-  return String(metadata.owner_user_id || '') === user.id
-    && String(metadata.tenant_id || '') === user.tenant_id;
-}
-
-async function listUserConversations(store, user) {
-  // The documented Makers path is the authoritative and normally fastest one.
-  // Some deployed runtimes have returned an empty first page for the optimized
-  // descending user-index scan even immediately after appendMessage. Keep the
-  // native Conversation Store as the only source of truth and retry through
-  // its non-optimized ascending path before presenting an empty sidebar.
-  const primary = conversationItems(await store.listConversations({
-    userId: user.id,
-    limit: 100,
-    order: 'desc',
-  }));
-  if (primary.length) return primary;
-
-  const compatible = conversationItems(await store.listConversations({
-    userId: user.id,
-    limit: 100,
-    order: 'asc',
-  }));
-  // Fail closed if an older runtime were to ignore userId on this fallback.
-  return compatible.filter((item) => belongsToUser(item, user));
-}
-
 export async function onRequest(context) {
   const { request, env = {} } = context;
   const store = context.agent?.store;
@@ -118,7 +84,7 @@ export async function onRequest(context) {
     if (!['user', 'assistant', 'system'].includes(role) || !content) return json({ error: 'Invalid conversation message' }, 400);
 
     const messageId = await store.appendMessage({
-      conversationId, role, content, userId: user.id,
+      conversationId, role, content, userId: await conversationIndexUserId(user.id),
       metadata: {
         ...(body.metadata && typeof body.metadata === 'object' ? body.metadata : {}),
         client_message_id: String(body.metadata?.id || ''),
@@ -147,8 +113,5 @@ export async function onRequest(context) {
 }
 
 export const __test = {
-  conversationItems,
-  belongsToUser,
-  listUserConversations,
   publicConversation,
 };

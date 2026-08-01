@@ -25,6 +25,12 @@ def required_user_id(value: Any) -> str:
     return user_id
 
 
+def conversation_index_user_id(user_id: Any) -> str:
+    """Return the canonical path-safe Makers user-index identifier."""
+    value = required_user_id(user_id)
+    return f"uid_{hashlib.sha256(value.encode('utf-8')).hexdigest()[:40]}"
+
+
 def _mapping_value(value: Any, key: str, default: Any = None) -> Any:
     if isinstance(value, dict):
         return value.get(key, default)
