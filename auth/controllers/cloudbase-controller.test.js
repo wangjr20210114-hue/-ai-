@@ -140,3 +140,38 @@ test('CloudBase Controller rejects cross-origin and invalid provider sessions', 
   assert.equal(rejected.status, 401);
   assert.equal((await rejected.json()).code, 'INVALID_CLOUDBASE_TOKEN');
 });
+
+test('CloudBase Controller trusts browser Fetch Metadata across EdgeOne URL rewriting', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => jsonResponse({
+    message: 'invalid token',
+  }, 401));
+
+  const sameOrigin = await handleCloudBaseSession({
+    request: new Request('https://edgeone-function.internal/auth/cloudbase/session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'https://preview.example.com',
+        'Sec-Fetch-Site': 'same-origin',
+      },
+      body: JSON.stringify({ access_token: 'cloudbase-access-token' }),
+    }),
+    env: TEST_AUTH_ENV,
+  });
+  assert.equal(sameOrigin.status, 401);
+  assert.equal((await sameOrigin.json()).code, 'INVALID_CLOUDBASE_TOKEN');
+
+  const crossSite = await handleCloudBaseSession({
+    request: new Request('https://edgeone-function.internal/auth/cloudbase/session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'https://attacker.example',
+        'Sec-Fetch-Site': 'cross-site',
+      },
+      body: JSON.stringify({ access_token: 'cloudbase-access-token' }),
+    }),
+    env: TEST_AUTH_ENV,
+  });
+  assert.equal(crossSite.status, 403);
+});

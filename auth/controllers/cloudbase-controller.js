@@ -12,9 +12,21 @@ const USER_SESSION_TTL_SECONDS = 12 * 60 * 60;
 const MAX_ACCESS_TOKEN_LENGTH = 16_384;
 
 function sameOriginRequest(request) {
+  const fetchSite = String(request.headers.get('sec-fetch-site') || '').toLowerCase();
+  if (fetchSite) return fetchSite === 'same-origin';
+
   const origin = request.headers.get('origin');
   if (!origin) return true;
-  return origin === new URL(request.url).origin;
+  const requestUrl = new URL(request.url);
+  if (origin === requestUrl.origin) return true;
+
+  const forwardedHost = String(
+    request.headers.get('x-forwarded-host') || request.headers.get('host') || '',
+  ).split(',', 1)[0].trim();
+  const forwardedProto = String(
+    request.headers.get('x-forwarded-proto') || requestUrl.protocol,
+  ).split(',', 1)[0].trim().replace(/:$/, '');
+  return Boolean(forwardedHost && origin === `${forwardedProto}://${forwardedHost}`);
 }
 
 function accessTokenFrom(body) {
