@@ -129,7 +129,7 @@ test('two signed Maker sessions render isolated tenant state', async ({ browser 
 });
 
 test('calendar, map and paper features consume their owned Maker views', async ({ page }) => {
-  const start = Date.parse('2026-08-01T10:00:00+08:00') / 1000;
+  const start = Date.parse('2026-07-31T10:00:00+08:00') / 1000;
   await installMockMakerApi(page, {
     messages: [{
       id: 'paper-result',

@@ -6,6 +6,8 @@ import { createZip } from '../../../services/zip';
 import PaperFullReader from './PaperFullReader';
 import { useLanguage } from '../../../i18n';
 import { usePapersController } from '../controller/usePapersController';
+import { currentAuthSession, ensureAuthSession, openAuthDialog } from '../../../shared/auth/session';
+import { readingAccess, type ReadingAccess } from '../model/access';
 import type {
   ReadingFolder,
   ReadingSettings,
@@ -37,8 +39,33 @@ export default function ReadingLibraryPanel() {
   const [loading, setLoading] = useState(true);
   const [busyFolder, setBusyFolder] = useState('');
   const [reader, setReader] = useState<SavedPaper | null>(null);
+  const [access, setAccess] = useState<ReadingAccess>(
+    () => readingAccess(currentAuthSession()),
+  );
+
+  useEffect(() => {
+    let disposed = false;
+    const update = (session: Parameters<typeof readingAccess>[0]) => {
+      if (!disposed) setAccess(readingAccess(session));
+    };
+    const handleAuthChanged = (event: Event) => {
+      update((event as CustomEvent<Parameters<typeof readingAccess>[0]>).detail);
+    };
+    window.addEventListener('floris:auth-changed', handleAuthChanged);
+    void ensureAuthSession().then(update).catch(() => {
+      if (!disposed) setAccess('unavailable');
+    });
+    return () => {
+      disposed = true;
+      window.removeEventListener('floris:auth-changed', handleAuthChanged);
+    };
+  }, []);
 
   const load = useCallback(async () => {
+    if (access !== 'available') {
+      setLoading(access === 'loading');
+      return;
+    }
     setLoading(true);
     try {
       const data = await getReadingLibrary();
@@ -46,7 +73,7 @@ export default function ReadingLibraryPanel() {
       setExpanded((current) => data.folders.reduce((next, folder) => ({ ...next, [folder.id]: current[folder.id] ?? true }), current));
     } catch { MessagePlugin.error(t('readingLoadFailed')); }
     finally { setLoading(false); }
-  }, [getReadingLibrary, t]);
+  }, [access, getReadingLibrary, t]);
 
   useEffect(() => {
     void load(); const refresh = () => { void load(); };
@@ -102,11 +129,20 @@ export default function ReadingLibraryPanel() {
   return <div className="my-panel-card reading-library-card" data-onboarding="reading">
     <div className="section-title">
       <FileIcon size="16px" /> {t('myReading')} <span className="reading-library-count">{items.length}</span>
-      <Button shape="circle" variant="text" size="small" icon={<AddIcon />} aria-label={t('newFolder')} title={t('newFolder')} onClick={() => void createFolder()} />
-      <Button shape="circle" variant="text" size="small" loading={loading} icon={<RefreshIcon />} aria-label={t('refresh')} title={t('refresh')} onClick={() => void load()} />
+      {access === 'available' && <>
+        <Button shape="circle" variant="text" size="small" icon={<AddIcon />} aria-label={t('newFolder')} title={t('newFolder')} onClick={() => void createFolder()} />
+        <Button shape="circle" variant="text" size="small" loading={loading} icon={<RefreshIcon />} aria-label={t('refresh')} title={t('refresh')} onClick={() => void load()} />
+      </>}
     </div>
-    <div className="reading-library-mode">{settings.auto_organize ? t('autoOrganizing') : t('manualOrganize')}</div>
-    {loading && !items.length && !folders.length ? (
+    {access === 'available' && <div className="reading-library-mode">{settings.auto_organize ? t('autoOrganizing') : t('manualOrganize')}</div>}
+    {access === 'login_required' ? (
+      <div className="reading-library-empty">
+        <p>{t('readingLoginRequired')}</p>
+        <Button size="small" variant="outline" onClick={openAuthDialog}>{t('readingLoginAction')}</Button>
+      </div>
+    ) : access === 'unavailable' ? (
+      <div className="reading-library-empty">{t('readingLoadFailed')}</div>
+    ) : loading && !items.length && !folders.length ? (
       <div className="skeleton-list" role="status" aria-label={t('loading')}>
         {[0, 1].map((row) => (
           <div className="skeleton-reading-item" key={row}>

@@ -44,8 +44,10 @@ test('conversation ids are deterministic and different across users', async () =
 
 test('tampered and wrong-purpose sessions are rejected', async () => {
   const token = await signSessionToken(testIdentity(), TEST_AUTH_ENV, 600);
+  const [header, payload, signature] = token.split('.');
+  const tamperedSignature = `${signature.startsWith('a') ? 'b' : 'a'}${signature.slice(1)}`;
   await assert.rejects(
-    verifySessionToken(`${token.slice(0, -1)}${token.endsWith('a') ? 'b' : 'a'}`, TEST_AUTH_ENV),
+    verifySessionToken(`${header}.${payload}.${tamperedSignature}`, TEST_AUTH_ENV),
     /signature/i,
   );
   await assert.rejects(

@@ -12,6 +12,7 @@ import {
 } from '../../../services/onboarding';
 import { languageName, useLanguage, type Language } from '../../../i18n';
 import type { InstalledSkill, MakersIntelligenceState, ProviderUsageSummary } from '../../../shared/types';
+import { ensureAuthSession } from '../../../shared/auth/session';
 import { proactiveFallbackLines } from '../model/proactiveNotifications';
 import {
   DataResetError,
@@ -71,6 +72,7 @@ export default function AppSettingsButton() {
     let disposed = false;
     setLoading(true);
     void (async () => {
+      const session = await ensureAuthSession().catch(() => null);
       const tasks = [
         intelligence().then((state) => {
           if (disposed) return;
@@ -79,10 +81,12 @@ export default function AppSettingsButton() {
           setSkillPreferences(state.skill_preferences || {});
           setSkillCatalog(state.skill_catalog || []);
         }),
-        getReadingSettings().then((settings) => {
-          if (!disposed) setAutomatic(settings.auto_organize);
-        }),
       ];
+      if (session && session.identity.auth_type !== 'guest') {
+        tasks.push(getReadingSettings().then((settings) => {
+          if (!disposed) setAutomatic(settings.auto_organize);
+        }));
+      }
       const results = await Promise.allSettled(tasks);
       results.forEach((result) => {
         if (result.status === 'rejected') console.warn('settings refresh failed', result.reason);

@@ -956,6 +956,8 @@ const catalog = {
   pdfChunksIncomplete: ['PDF 分片不完整，请重试', 'PDF 分片不完整，請重試', 'PDF chunks are incomplete. Retry.', 'PDF 分片不完整喵，请重试。', 'PDF 分片不完整。请重试'],
   requestFailed: ['请求失败', '請求失敗', 'Request failed', '请求失败了喵', '请求失败'],
   pdfParseTimeout: ['PDF 解析超时，请检查 PDF worker 或文件完整性', 'PDF 解析逾時，請檢查 PDF worker 或檔案完整性', 'PDF parsing timed out. Check the PDF worker or file integrity.', 'PDF 解析超时了喵，请检查 PDF worker 或文件完整性。', 'PDF 解析超时。检查 PDF worker 或文件完整性'],
+  readingLoginRequired: ['登录后即可跨设备同步阅读库和论文助读。', '登入後即可跨裝置同步閱讀庫和論文助讀。', 'Sign in to sync My Reading and paper assistance across devices.', '登录后就能同步阅读小窝和论文助读喵。', '登录后同步阅读库与论文助读。'],
+  readingLoginAction: ['登录并开启阅读', '登入並開啟閱讀', 'Sign in for My Reading', '登录后开启阅读小窝喵', '登录并开启阅读'],
 } satisfies Record<string, CatalogEntry>;
 
 export type TranslationKey = keyof typeof catalog;

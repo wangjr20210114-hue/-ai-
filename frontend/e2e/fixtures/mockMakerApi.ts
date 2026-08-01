@@ -182,6 +182,7 @@ export async function installMockMakerApi(
   options: MockMakerApiOptions = {},
 ) {
   const identity = { ...marketplace.identity, ...(options.identity || {}) };
+  await page.clock.setFixedTime(now);
   await page.addInitScript(() => {
     localStorage.setItem('floris-onboarding-preference', JSON.stringify({
       enabled: true,

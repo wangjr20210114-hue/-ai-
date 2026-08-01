@@ -43,7 +43,7 @@ export function requireSkillAccess(identity, skillId, requiredPlan = 'free') {
   const access = skillAccess(identity, skillId, requiredPlan);
   if (!access.allowed) {
     const error = new Error(
-      access.reason === 'login_required' ? '请先登录微信后使用此 Skill' : '当前会员等级无法使用此 Skill',
+      access.reason === 'login_required' ? '请先登录后使用此 Skill' : '当前会员等级无法使用此 Skill',
     );
     error.code = access.reason === 'login_required' ? 'LOGIN_REQUIRED' : 'MEMBERSHIP_REQUIRED';
     error.status = 403;

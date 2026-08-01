@@ -84,7 +84,7 @@ def require_skill_access(
 ) -> None:
     auth_type = str(identity.get("auth_type") or "guest")
     if auth_type == "guest" and skill_id not in GUEST_SKILL_IDS:
-        raise PermissionError("请先登录微信后使用此 Skill")
+        raise PermissionError("请先登录后使用此 Skill")
     if auth_type != "guest" and not plan_allows(
         identity.get("membership"),
         required_plan,

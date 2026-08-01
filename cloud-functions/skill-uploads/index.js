@@ -43,7 +43,7 @@ export async function onRequest(context) {
   let user;
   try { user = await currentUser(request, env); } catch { return json({ error: 'Unauthorized' }, 401); }
   if (user.auth_type === 'guest') {
-    return json({ error: '请先登录微信后上传 Skill', code: 'LOGIN_REQUIRED' }, 403);
+    return json({ error: '请先登录后上传 Skill', code: 'LOGIN_REQUIRED' }, 403);
   }
   const prefix = tenantPrefix(user);
   const store = context.__store || getStore({ name: STORE_NAME, consistency: 'strong' });
