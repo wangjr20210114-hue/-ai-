@@ -9,6 +9,7 @@ from pathlib import Path
 from agents._application.chat import turn_service as turn_service_module
 from agents._application.chat.turn_context import (
     answer_tool_names,
+    model_only_search_fallback,
     search_request_for_plan,
 )
 
@@ -41,6 +42,40 @@ class ChatTurnBoundaryTests(unittest.TestCase):
             answer_tool_names(("rich_search", "search_arxiv")),
             ("search_arxiv",),
         )
+
+    def test_runtime_search_failure_becomes_plain_model_fallback(self):
+        original = {
+            "needs_web_search": True,
+            "needs_images": True,
+            "needs_image_generation": False,
+            "_capabilities": ["web_search"],
+        }
+
+        fallback = model_only_search_fallback(original)
+
+        self.assertTrue(original["needs_web_search"])
+        self.assertFalse(fallback["needs_web_search"])
+        self.assertFalse(fallback["needs_images"])
+        self.assertEqual(fallback["_capabilities"], [])
+        self.assertIn(
+            "web-search",
+            fallback["_runtime_model_fallback_skills"],
+        )
+        prompt = turn_service_module.dynamic_system_prompt(
+            selected_tools=set(),
+            now="2026-08-01 18:00 Asia/Shanghai",
+            response_language_instruction="请使用简体中文回答。",
+            capability_plan=fallback,
+            calendar_context="",
+            reference_image_context="",
+            document_context="",
+            current_location_context="",
+            current_route_context="",
+            memory_context="",
+            public_answer=True,
+        )
+        self.assertIn("实时搜索不可用", prompt)
+        self.assertIn("不能要求用户安装", prompt)
 
     def test_search_request_uses_signed_identity_and_entitlement_depth(self):
         request = search_request_for_plan(

@@ -78,6 +78,15 @@ class _SearchUseCase:
         )
 
 
+class _FailingSearchUseCase:
+    def __init__(self, **_values) -> None:
+        pass
+
+    async def execute(self, request, *, on_media=None) -> SearchExecution:
+        del request, on_media
+        raise TimeoutError("search provider timed out")
+
+
 def _plan(**updates) -> dict:
     return {**copy.deepcopy(DEFAULT_PLAN), **updates}
 
@@ -94,6 +103,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         body_updates: dict | None = None,
         enabled_preferences: dict[str, bool] | None = None,
         identity: dict | None = None,
+        search_use_case_type=_SearchUseCase,
     ) -> tuple[str, _ConversationStore]:
         store = store or _ConversationStore()
         ctx = SimpleNamespace(
@@ -146,7 +156,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "agents._application.chat.turn_service.SearchUseCase",
-                new=_SearchUseCase,
+                new=search_use_case_type,
             ),
             patch(
                 "agents._application.chat.turn_service.build_graph",
@@ -192,6 +202,21 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Skills 广场", wire)
         self.assertNotIn("安装", wire)
         self.assertEqual(_SearchUseCase.execute_count, 0)
+
+    async def test_runtime_search_failure_falls_back_to_plain_model_answer(self):
+        wire, _ = await self._run(
+            "runtime-search-fallback",
+            _plan(
+                needs_web_search=True,
+                search_query="recent AI progress",
+                _capabilities=["web_search"],
+            ),
+            search_use_case_type=_FailingSearchUseCase,
+        )
+
+        self.assertIn("Production-like runtime matrix answer completed.", wire)
+        self.assertIn('"status":"skipped"', wire)
+        self.assertNotIn("event: error", wire)
 
     async def test_representative_plans_construct_tools_and_finish_streams(self):
         plans = {

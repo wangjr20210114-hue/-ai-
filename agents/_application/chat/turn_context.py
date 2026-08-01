@@ -18,6 +18,29 @@ def answer_tool_names(required_tools: Iterable[str]) -> tuple[str, ...]:
     )
 
 
+def model_only_search_fallback(
+    plan: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return a safe plain-model plan after a runtime search failure."""
+    fallback = dict(plan)
+    fallback["needs_web_search"] = False
+    fallback["needs_images"] = False
+    fallback["_capabilities"] = [
+        capability
+        for capability in (fallback.get("_capabilities") or [])
+        if str(capability) != "web_search"
+    ]
+    fallback["_runtime_model_fallback_skills"] = list(dict.fromkeys([
+        *(fallback.get("_runtime_model_fallback_skills") or []),
+        "web-search",
+    ]))
+    fallback["_runtime_omitted_skills"] = list(dict.fromkeys([
+        *(fallback.get("_runtime_omitted_skills") or []),
+        "web-search",
+    ]))
+    return fallback
+
+
 def search_request_for_plan(
     plan: Mapping[str, Any],
     identity: Mapping[str, Any],
