@@ -23,6 +23,7 @@ const TEST_AUTH_SESSION = {
   },
   login: {
     wechat_available: true,
+    wechat_mode: 'qr',
     wechat_start_url: '/auth/wechat/start',
     logout_url: '/auth/logout',
   },

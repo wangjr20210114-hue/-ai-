@@ -205,6 +205,7 @@ export async function installMockMakerApi(
     },
     login: {
       wechat_available: false,
+      wechat_mode: 'qr',
       wechat_start_url: '/auth/wechat/start',
       logout_url: '/auth/logout',
     },

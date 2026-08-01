@@ -250,8 +250,10 @@ flowchart LR
     V["访问者"] --> S["GET /auth/session"]
     S -->|"无登录态"| G["签名 Guest Session<br/>HttpOnly / SameSite=Lax"]
     S -->|"已有登录态"| A["Authenticated Session"]
-    V -->|"微信登录"| W["微信开放平台 OAuth 2.0<br/>authorization_code"]
+    V -->|"普通浏览器扫码"| W["微信开放平台网站应用<br/>snsapi_login"]
+    V -->|"微信内点击"| WX["公众号网页 OAuth<br/>snsapi_userinfo"]
     W --> CF["Makers Cloud Function 回调"]
+    WX --> CF
     CF --> DB["Neon 用户/OAuth 绑定"]
     DB --> A
 

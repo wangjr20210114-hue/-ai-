@@ -505,6 +505,22 @@ const catalog = {
   loginToInstall: ['登录后安装', '登入後安裝', 'Sign in to install', '登录后安装喵', '登录后安装'],
   membershipRequired: ['当前会员等级无法安装此 Skill', '目前會員等級無法安裝此 Skill', 'Your current plan cannot install this Skill', '当前会员等级不能安装喵', '当前会员等级无法安装此 Skill'],
   wechatLogin: ['微信登录', '微信登入', 'WeChat sign in', '微信登录喵', '微信登录'],
+  wechatQrLogin: ['微信扫码登录', '微信掃碼登入', 'Scan QR with WeChat', '微信扫码登录喵', '微信扫码登录'],
+  wechatInAppLogin: ['微信一键登录', '微信一鍵登入', 'Continue with WeChat', '微信一键登录喵', '微信一键登录'],
+  wechatQrLoginUnavailable: [
+    '微信扫码登录尚未配置，当前可继续使用游客模式',
+    '微信掃碼登入尚未設定，目前可繼續使用訪客模式',
+    'WeChat QR sign-in is not configured; you can continue as a guest',
+    '微信扫码登录还没准备好，先以游客身份玩耍喵',
+    '微信扫码登录尚未配置；当前使用游客模式',
+  ],
+  wechatInAppLoginUnavailable: [
+    '微信内一键登录尚未配置，当前可继续使用游客模式',
+    '微信內一鍵登入尚未設定，目前可繼續使用訪客模式',
+    'In-WeChat sign-in is not configured; you can continue as a guest',
+    '微信内一键登录还没准备好，先以游客身份玩耍喵',
+    '微信内一键登录尚未配置；当前使用游客模式',
+  ],
   wechatLoginUnavailable: [
     '微信登录尚未配置，当前可继续使用游客模式',
     '微信登入尚未設定，目前可繼續使用訪客模式',

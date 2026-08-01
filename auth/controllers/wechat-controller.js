@@ -10,6 +10,12 @@ import {
   verifySessionToken,
 } from '../session.js';
 import { jsonView, redirectView } from '../views/http.js';
+import {
+  currentWechatLoginConfig,
+  normalizeWechatLoginMode,
+  resolveWechatLoginConfig,
+  WECHAT_LOGIN_MODE_IN_APP,
+} from '../wechat-config.js';
 
 const USER_SESSION_TTL_SECONDS = 12 * 60 * 60;
 
@@ -36,11 +42,15 @@ export async function handleWechatStart(context) {
   if (request.method !== 'GET') {
     return jsonView({ error: 'Method not allowed' }, 405);
   }
-  const appId = String(env.WECHAT_OPEN_APP_ID || '').trim();
-  if (!appId) {
-    return jsonView({ error: 'WECHAT_OPEN_APP_ID is not configured' }, 503);
-  }
   const url = new URL(request.url);
+  const login = currentWechatLoginConfig(request, env);
+  if (!login.available) {
+    return jsonView({
+      error: 'WeChat login is not configured for this browser',
+      code: 'WECHAT_LOGIN_NOT_CONFIGURED',
+      mode: login.mode,
+    }, 503);
+  }
   const nonce = crypto.randomUUID();
   const returnTo = safeReturnPath(url.searchParams.get('return_to'));
   let guestSubject = '';
@@ -55,16 +65,13 @@ export async function handleWechatStart(context) {
     nonce,
     return_to: returnTo,
     guest_subject: guestSubject,
+    wechat_login_mode: login.mode,
   }, env, 600);
-  const callbackUrl = String(
-    env.WECHAT_OPEN_CALLBACK_URL
-    || `${url.origin}/auth/wechat/callback`,
-  );
-  const authorization = new URL('https://open.weixin.qq.com/connect/qrconnect');
-  authorization.searchParams.set('appid', appId);
-  authorization.searchParams.set('redirect_uri', callbackUrl);
+  const authorization = new URL(login.authorizationEndpoint);
+  authorization.searchParams.set('appid', login.appId);
+  authorization.searchParams.set('redirect_uri', login.callbackUrl);
   authorization.searchParams.set('response_type', 'code');
-  authorization.searchParams.set('scope', 'snsapi_login');
+  authorization.searchParams.set('scope', login.scope);
   authorization.searchParams.set('state', state);
   return redirectView(`${authorization.toString()}#wechat_redirect`, 302, {
     'Set-Cookie': oauthNonceCookie(nonce),
@@ -95,15 +102,21 @@ export async function handleWechatCallback(context) {
   if (!state.nonce || state.nonce !== readOAuthNonce(request)) {
     return jsonView({ error: 'WeChat OAuth browser state mismatch' }, 401);
   }
-  const appId = String(env.WECHAT_OPEN_APP_ID || '').trim();
-  const appSecret = String(env.WECHAT_OPEN_APP_SECRET || '').trim();
-  if (!appId || !appSecret) {
+  const loginMode = normalizeWechatLoginMode(state.wechat_login_mode);
+  if (!loginMode) {
+    return jsonView({ error: 'Invalid WeChat OAuth login mode' }, 401);
+  }
+  const login = resolveWechatLoginConfig(env, {
+    mode: loginMode,
+    origin: url.origin,
+  });
+  if (!login.available) {
     return jsonView({ error: 'WeChat login is not configured' }, 503);
   }
   try {
     const tokenUrl = new URL('https://api.weixin.qq.com/sns/oauth2/access_token');
-    tokenUrl.searchParams.set('appid', appId);
-    tokenUrl.searchParams.set('secret', appSecret);
+    tokenUrl.searchParams.set('appid', login.appId);
+    tokenUrl.searchParams.set('secret', login.appSecret);
     tokenUrl.searchParams.set('code', code);
     tokenUrl.searchParams.set('grant_type', 'authorization_code');
     const oauth = await wechatJson(tokenUrl);
@@ -118,6 +131,13 @@ export async function handleWechatCallback(context) {
       openid: profile.openid || oauth.openid,
     }, {
       preferredUserId: state.guest_subject,
+      provider: login.mode === WECHAT_LOGIN_MODE_IN_APP
+        ? 'wechat_official_openid'
+        : 'wechat_openid',
+      providerSubject: login.mode === WECHAT_LOGIN_MODE_IN_APP
+        ? `${login.appId}:${profile.openid || oauth.openid || ''}`
+        : String(profile.openid || oauth.openid || ''),
+      loginMode: login.mode,
     });
     const payload = {
       sub: user.user_id,

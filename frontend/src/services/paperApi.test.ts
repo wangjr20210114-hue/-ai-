@@ -18,6 +18,7 @@ const TEST_AUTH_SESSION = {
   entitlements: { plan: 'free', limits: {}, payment_available: false },
   login: {
     wechat_available: true,
+    wechat_mode: 'qr',
     wechat_start_url: '/auth/wechat/start',
     logout_url: '/auth/logout',
   },

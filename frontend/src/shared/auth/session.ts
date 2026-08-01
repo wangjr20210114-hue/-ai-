@@ -30,6 +30,7 @@ export interface AuthSession {
   };
   login: {
     wechat_available: boolean;
+    wechat_mode: 'qr' | 'in_app';
     wechat_start_url: string;
     logout_url: string;
   };
@@ -68,6 +69,22 @@ export function withEdgeOneAuth(url: string): string {
   const separator = withoutHash.includes('?') ? '&' : '?';
   const auth = new URLSearchParams({ eo_token: token, eo_time: time }).toString();
   return `${withoutHash}${separator}${auth}${hash ? `#${hash}` : ''}`;
+}
+
+export function wechatLoginLabelKey(
+  session: AuthSession | null,
+): 'wechatInAppLogin' | 'wechatQrLogin' {
+  return session?.login.wechat_mode === 'in_app'
+    ? 'wechatInAppLogin'
+    : 'wechatQrLogin';
+}
+
+export function wechatLoginUnavailableKey(
+  session: AuthSession | null,
+): 'wechatInAppLoginUnavailable' | 'wechatQrLoginUnavailable' {
+  return session?.login.wechat_mode === 'in_app'
+    ? 'wechatInAppLoginUnavailable'
+    : 'wechatQrLoginUnavailable';
 }
 
 export const withSession = withEdgeOneAuth;

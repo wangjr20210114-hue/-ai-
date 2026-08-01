@@ -49,8 +49,11 @@
 | WECHAT_OPEN_APP_ID     | ********* | 微信开放平台网站应用 ID（可选）         | 全部环境 |
 | WECHAT_OPEN_APP_SECRET | ********* | 微信开放平台密钥（仅服务端，可选）       | 全部环境 |
 | WECHAT_OPEN_CALLBACK_URL | ********* | 微信 OAuth 回调地址（可选）           | 全部环境 |
+| WECHAT_OFFICIAL_ACCOUNT_APP_ID | ********* | 微信公众号 App ID（微信内一键登录，可选） | 全部环境 |
+| WECHAT_OFFICIAL_ACCOUNT_APP_SECRET | ********* | 微信公众号 App Secret（仅服务端，可选） | 全部环境 |
+| WECHAT_OFFICIAL_ACCOUNT_CALLBACK_URL | ********* | 公众号网页 OAuth 回调地址（可选） | 全部环境 |
 
-启用微信登录前，先在 Neon 执行 `db/migrations/001_identity_and_entitlements.sql`。前端始终展示明确的微信登录入口；只有 App ID、App Secret 与 `DATABASE_URL` 同时可用时才会进入 OAuth，缺失配置时入口会如实提示并继续安全运行 Guest 模式。
+启用微信登录前，先在 Neon 执行 `db/migrations/001_identity_and_entitlements.sql`。同一个登录入口会由服务端按请求的 `MicroMessenger` User-Agent 自适应：普通浏览器使用微信开放平台网站应用二维码（`snsapi_login`），微信内置浏览器使用公众号网页授权（`snsapi_userinfo`）。两种通道分别读取自己的 App ID、App Secret 和回调地址，不能用小程序凭据替代。当前通道只有在对应凭据与 `DATABASE_URL` 同时可用时才进入 OAuth；缺失配置时入口会如实提示并继续安全运行 Guest 模式。
 
 ### 1.3 Preview or Production 部署
 

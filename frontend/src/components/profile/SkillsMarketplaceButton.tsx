@@ -13,6 +13,7 @@ export default function SkillsMarketplaceButton() {
     save, saveConnection, savingId, setQuery, setTokenDrafts, setView,
     skillName, skillText, t, tokenDrafts, upload, uploadRef,
     uploads, view, visible, visibleSkills, wechatAvailable,
+    wechatLoginLabel, wechatLoginUnavailable,
   } = controller;
 
   return <>
@@ -49,7 +50,7 @@ export default function SkillsMarketplaceButton() {
             <span>{marketplace?.identity.display_name || t('guestUser')}</span>
             {marketplace?.identity.auth_type === 'guest' && (
               <Button size="small" theme="primary" onClick={login}>
-                {t('wechatLogin')}
+                {wechatLoginLabel}
               </Button>
             )}
           </div>
@@ -253,8 +254,8 @@ export default function SkillsMarketplaceButton() {
                     <strong>{t('loginRequiredForSkills')}</strong>
                     <p>{t('loginSkillReason')}</p>
                     {wechatAvailable
-                      ? <Button theme="primary" onClick={login}>{t('wechatLogin')}</Button>
-                      : <small>{t('wechatLoginUnavailable')}</small>}
+                      ? <Button theme="primary" onClick={login}>{wechatLoginLabel}</Button>
+                      : <small>{wechatLoginUnavailable}</small>}
                   </div>
                 ) : <>
                   <div className="skill-upload-drop">

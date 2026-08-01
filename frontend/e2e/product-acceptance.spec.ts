@@ -12,11 +12,11 @@ test('guest keeps an explicit login entry while chat remains available', async (
   await installMockMakerApi(page);
   await waitForApp(page);
 
-  const login = page.getByRole('button', { name: '微信登录', exact: true });
+  const login = page.getByRole('button', { name: '微信扫码登录', exact: true });
   await expect(login).toBeVisible();
   await expect(login).toBeEnabled();
   await login.click();
-  await expect(page.locator('body')).toContainText('微信登录尚未配置，当前可继续使用游客模式');
+  await expect(page.locator('body')).toContainText('微信扫码登录尚未配置，当前可继续使用游客模式');
 
   await page.locator('.input-box textarea').fill('你好，请介绍一下你自己');
   await expect(page.locator('.input-submit-button')).toBeEnabled();

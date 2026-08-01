@@ -11,6 +11,8 @@ import {
   ensureAuthSession,
   startWechatLogin,
   type AuthSession,
+  wechatLoginLabelKey,
+  wechatLoginUnavailableKey,
 } from '../../services/auth';
 
 const THEME_KEY = 'travel-theme';
@@ -52,6 +54,7 @@ export default function Header({
   const activeLine = displayLines[reminderIndex % Math.max(1, displayLines.length)];
   const authIsGuest = authSession?.identity.auth_type === 'guest';
   const guestCanLogin = Boolean(authIsGuest && authSession?.login.wechat_available);
+  const wechatLoginLabel = t(wechatLoginLabelKey(authSession));
 
   const handleAccountClick = () => {
     if (!authIsGuest) return;
@@ -59,7 +62,7 @@ export default function Header({
       startWechatLogin('/chatBot');
       return;
     }
-    MessagePlugin.warning(t('wechatLoginUnavailable'));
+    MessagePlugin.warning(t(wechatLoginUnavailableKey(authSession)));
   };
 
   useEffect(() => {
@@ -164,9 +167,9 @@ export default function Header({
             type="button"
             className={`header-account ${authSession.identity.auth_type === 'guest' ? 'is-guest' : 'is-user'}`}
             title={authIsGuest
-              ? t('wechatLogin')
+              ? wechatLoginLabel
               : authSession.identity.display_name}
-            aria-label={authIsGuest ? t('wechatLogin') : authSession.identity.display_name}
+            aria-label={authIsGuest ? wechatLoginLabel : authSession.identity.display_name}
             onClick={authIsGuest ? handleAccountClick : undefined}
           >
             {authSession.identity.avatar_url
@@ -177,7 +180,7 @@ export default function Header({
                   : t('wechatAvatarGlyph')}
               </span>}
             <b>{authIsGuest
-              ? t('wechatLogin')
+              ? wechatLoginLabel
               : authSession.identity.display_name}</b>
           </button>
         )}

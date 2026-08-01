@@ -16,9 +16,18 @@ function databaseUrl(env) {
 export async function upsertWechatIdentity(env, profile, options = {}) {
   const sql = neon(databaseUrl(env));
   const tenantId = String(env.DEFAULT_TENANT_ID || 'floris').slice(0, 96);
-  const subject = String(profile.unionid || profile.openid || '').trim();
+  const openidProvider = String(options.provider || 'wechat_openid').trim();
+  if (!['wechat_openid', 'wechat_official_openid'].includes(openidProvider)) {
+    throw new Error('Unsupported WeChat identity provider');
+  }
+  const subject = String(
+    profile.unionid
+    || options.providerSubject
+    || profile.openid
+    || '',
+  ).trim();
   if (!subject) throw new Error('WeChat did not return an openid or unionid');
-  const provider = profile.unionid ? 'wechat_unionid' : 'wechat_openid';
+  const provider = profile.unionid ? 'wechat_unionid' : openidProvider;
   const preferredUserId = String(options.preferredUserId || '').trim();
   const candidateUserId = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(preferredUserId)
     ? preferredUserId
@@ -30,6 +39,7 @@ export async function upsertWechatIdentity(env, profile, options = {}) {
     unionid: String(profile.unionid || ''),
     nickname: displayName,
     avatar_url: avatarUrl,
+    login_mode: String(options.loginMode || ''),
   });
   const [, rows] = await sql.transaction((txn) => [
     txn`SELECT set_config('app.tenant_id', ${tenantId}, true)`,
