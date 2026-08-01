@@ -630,6 +630,15 @@ def dynamic_system_prompt(
             "以下是用户已明确确认的长期记忆，只在当前请求相关时自然使用：\n"
             f"{memory_context}"
         )
+    if "web-search" in set(
+        capability_plan.get("_runtime_model_fallback_skills") or []
+    ):
+        tails.append(
+            "本轮实时搜索不可用，必须继续用基础模型直接回答，不能要求用户安装、开启或连接 "
+            "Skill。不得声称已经联网、已经核验来源或掌握当前实时事实；遇到‘最近、今天、"
+            "最新’等时效性问题，先用一句自然的话说明无法实时核验，再基于已有知识给出仍然"
+            "有用的概括，并清楚标出可能过时的部分。"
+        )
     if public_answer and selected_tools:
         tails.append(
             "工具结果和 Action 是事实来源。只陈述实际成功内容；确认卡尚未生效，"

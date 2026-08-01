@@ -55,11 +55,14 @@ class _AnswerGraph:
 
 
 class _SearchUseCase:
+    execute_count = 0
+
     def __init__(self, **_values) -> None:
         pass
 
     async def execute(self, request, *, on_media=None) -> SearchExecution:
         del on_media
+        type(self).execute_count += 1
         return SearchExecution(
             evidence=SearchEvidence(
                 query=request.query,
@@ -89,6 +92,8 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         store: _ConversationStore | None = None,
         conversation_id: str = "",
         body_updates: dict | None = None,
+        enabled_preferences: dict[str, bool] | None = None,
+        identity: dict | None = None,
     ) -> tuple[str, _ConversationStore]:
         store = store or _ConversationStore()
         ctx = SimpleNamespace(
@@ -100,7 +105,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
                     "message": f"exercise {name}",
                     **(body_updates or {}),
                 },
-                headers=auth_headers(membership="plus"),
+                headers=auth_headers(**(identity or {"membership": "plus"})),
             ),
             env=auth_env(),
             utils=_Utils(),
@@ -129,7 +134,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "agents._application.chat.turn_service.effective_skill_preferences",
-                return_value=enabled,
+                return_value=enabled_preferences or enabled,
             ),
             patch(
                 "agents._application.chat.turn_service.load_user_workspace",
@@ -164,6 +169,29 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             name,
         )
         return wire, store
+
+    async def test_guest_search_plan_falls_back_to_model_without_install_prompt(self):
+        _SearchUseCase.execute_count = 0
+        enabled = {
+            "core": True,
+            "web-search": False,
+            "proactive-agent": True,
+        }
+        wire, _ = await self._run(
+            "guest-search-fallback",
+            _plan(
+                needs_web_search=True,
+                search_query="最近 AI 有什么新进展",
+                _capabilities=["web_search"],
+            ),
+            enabled_preferences=enabled,
+            identity={"auth_type": "guest", "membership": "guest"},
+            body_updates={"message": "最近 AI 有什么新进展"},
+        )
+        self.assertIn("Production-like runtime matrix answer completed.", wire)
+        self.assertNotIn("Skills 广场", wire)
+        self.assertNotIn("安装", wire)
+        self.assertEqual(_SearchUseCase.execute_count, 0)
 
     async def test_representative_plans_construct_tools_and_finish_streams(self):
         plans = {

@@ -85,6 +85,14 @@ class SkillRegistryContractTests(unittest.TestCase):
         )
         self.assertTrue(default_skill_preferences()["core"])
         self.assertEqual(locked_skill_ids(), {"core", "proactive-agent"})
+        self.assertEqual(
+            next(
+                manifest.unavailable_fallback
+                for manifest in manifests
+                if manifest.id == "web-search"
+            ),
+            "model_only",
+        )
 
     def test_edgeone_runtime_package_name_is_resolved_for_dynamic_entrypoints(self):
         with patch.object(

@@ -31,6 +31,7 @@ class SkillManifest:
     requires: tuple[str, ...]
     recommends: tuple[str, ...]
     degrade_when_capabilities: tuple[str, ...]
+    unavailable_fallback: str
     permissions: frozenset[str]
     env_keys: tuple[str, ...]
     adapter: str
@@ -69,6 +70,7 @@ class SkillManifest:
             "capabilities": list(self.capabilities),
             "requires": list(self.requires),
             "recommends": list(self.recommends),
+            "unavailable_fallback": self.unavailable_fallback,
             "external": self.external,
             "configured": configured,
             "connect_url": self.connect_url,

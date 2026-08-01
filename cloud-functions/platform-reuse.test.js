@@ -259,8 +259,10 @@ test('settings and Skills open on lightweight configuration reads', async () => 
   assert.match(skills, /document\.body/);
   assert.match(styles, /\.skills-page\s*\{[\s\S]*?z-index:\s*5000/);
   assert.match(header, /login\.wechat_available/);
+  assert.match(header, /wechatLoginUnavailable/);
+  assert.doesNotMatch(header, /aria-disabled=/);
   assert.match(skillsController, /wechatLoginUnavailable/);
-  assert.match(skills, /wechatAvailable/);
+  assert.match(skills, /identity\.auth_type === 'guest'/);
 });
 
 test('new multi-user and Skill surfaces follow the layered MVC boundary', async () => {

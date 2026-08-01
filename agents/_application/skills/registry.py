@@ -453,6 +453,15 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
     recovery_tools = _string_tuple(planner.get("recovery_tools"))
     if any(not _TOOL_ID.fullmatch(item) for item in recovery_tools):
         raise ValueError(f"{source}: invalid planner recovery tool")
+    unavailable_fallback = str(
+        raw.get("unavailable_fallback") or "block"
+    ).strip()
+    if unavailable_fallback not in {"block", "model_only"}:
+        raise ValueError(f"{source}: invalid unavailable fallback")
+    if unavailable_fallback != "block" and kind != "system":
+        raise ValueError(
+            f"{source}: only trusted system Skills may declare a fallback"
+        )
     manifest = SkillManifest(
         id=skill_id,
         version=version,
@@ -476,6 +485,7 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         degrade_when_capabilities=_string_tuple(
             raw.get("degrade_when_capabilities")
         ),
+        unavailable_fallback=unavailable_fallback,
         permissions=permissions,
         env_keys=_string_tuple(raw.get("env_keys")),
         adapter=str(raw.get("adapter") or "").strip(),
@@ -760,6 +770,15 @@ def skill_degradation_capabilities() -> dict[str, tuple[str, ...]]:
         manifest.id: manifest.degrade_when_capabilities
         for manifest in skill_manifests()
         if manifest.degrade_when_capabilities
+    }
+
+
+def skill_unavailable_fallbacks() -> dict[str, str]:
+    """Return manifest-owned behavior when an entitled Skill is unavailable."""
+    return {
+        manifest.id: manifest.unavailable_fallback
+        for manifest in skill_manifests()
+        if manifest.unavailable_fallback != "block"
     }
 
 

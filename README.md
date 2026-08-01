@@ -50,7 +50,7 @@
 | WECHAT_OPEN_APP_SECRET | ********* | 微信开放平台密钥（仅服务端，可选）       | 全部环境 |
 | WECHAT_OPEN_CALLBACK_URL | ********* | 微信 OAuth 回调地址（可选）           | 全部环境 |
 
-启用微信登录前，先在 Neon 执行 `db/migrations/001_identity_and_entitlements.sql`。只有 App ID、App Secret 与 `DATABASE_URL` 同时可用时，前端才会展示可用的微信登录入口；缺失配置时系统仍可安全运行 Guest 模式。
+启用微信登录前，先在 Neon 执行 `db/migrations/001_identity_and_entitlements.sql`。前端始终展示明确的微信登录入口；只有 App ID、App Secret 与 `DATABASE_URL` 同时可用时才会进入 OAuth，缺失配置时入口会如实提示并继续安全运行 Guest 模式。
 
 ### 1.3 Preview or Production 部署
 
@@ -98,7 +98,7 @@ Makers 将其自动发布为无意的 HTTP 路由。
 
 <img width="1770" height="867" alt="image" src="https://github.com/user-attachments/assets/2536c220-be5f-4c29-b21d-5fbb53757121" />
 
-打开全页 **Skill 广场**，可查看全部/已安装 Skill、依赖图、组件 API 文档，并下载已安装的标准包。**通用问答与创作**和**主动式 Agent**是游客也可使用的必开系统 Skill；其他 Skill 需要微信登录并按会员权益安装。内置能力统一使用 `SKILL.md + floris.json`，用户 ZIP 只会进入 Makers Blob 的待审核区，审核后台完成前不会安装或执行。
+打开全页 **Skill 广场**，可查看全部/已安装 Skill、依赖图、组件 API 文档，并下载已安装的标准包。**通用问答与创作**和**主动式 Agent**是游客也可使用的必开系统 Skill；其他 Skill 需要微信登录并按会员权益安装。游客请求实时资讯但没有实时搜索权益时，不会被安装提示打断，而是明确无法实时核验并由基础模型继续回答。内置能力统一使用 `SKILL.md + floris.json`，用户 ZIP 只会进入 Makers Blob 的待审核区，审核后台完成前不会安装或执行。
 
 ### 2.3 设置
 

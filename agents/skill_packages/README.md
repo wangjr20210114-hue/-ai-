@@ -8,7 +8,9 @@ are stored under `agents/skill_packages/<skill-id>/` and always contain:
 - `SKILL.md`: open Agent Skills instructions with `name` and `description`
   frontmatter.
 - `floris.json`: version, publisher, dependencies, plan requirement,
-  least-privilege permissions, component actions, and optional trusted adapter.
+  least-privilege permissions, component actions, optional trusted adapter, and
+  an optional trusted `unavailable_fallback` policy. Only a system Skill may
+  use `model_only`; all other unavailable capabilities block by default.
 
 The runtime registry reads only these two files. The retired Python
 `manifest.py` format is not a second source of truth.

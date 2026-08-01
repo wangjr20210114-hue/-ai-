@@ -331,6 +331,23 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
             ("plan_route_between_places",),
         )
 
+        search_fallback = apply_runtime_skill_policy(
+            {
+                "needs_web_search": True,
+                "search_query": "最近 AI 有什么新进展",
+                "_capabilities": ["web_search"],
+            },
+            disabled_skills={"web-search"},
+        )
+        self.assertEqual(search_fallback["blocked_skill"], "")
+        self.assertFalse(search_fallback["needs_web_search"])
+        self.assertEqual(search_fallback["_capabilities"], [])
+        self.assertEqual(
+            search_fallback["_runtime_model_fallback_skills"],
+            ["web-search"],
+        )
+        self.assertEqual(required_tools_for_plan(search_fallback), ())
+
         route_without_calendar = apply_runtime_skill_policy(
             {
                 "needs_route": True,
@@ -539,6 +556,21 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("浏览器当前位置状态：不可用", plain_prompt)
         self.assertIn("禁止声称已授权、已定位或已搜索当前位置附近", plain_prompt)
+
+        fallback_prompt = dynamic_system_prompt(
+            selected_tools=set(),
+            public_answer=True,
+            **{
+                **common,
+                "capability_plan": {
+                    "needs_web_search": False,
+                    "_runtime_model_fallback_skills": ["web-search"],
+                },
+            },
+        )
+        self.assertIn("必须继续用基础模型直接回答", fallback_prompt)
+        self.assertIn("不能要求用户安装、开启或连接 Skill", fallback_prompt)
+        self.assertIn("无法实时核验", fallback_prompt)
 
     def test_successful_capability_plan_hides_unrelated_tool_schemas(self):
         tools = [

@@ -47,7 +47,7 @@ export default function SkillsMarketplaceButton() {
               {marketplace?.entitlements.plan || t('guestPlan')}
             </Tag>
             <span>{marketplace?.identity.display_name || t('guestUser')}</span>
-            {marketplace?.identity.auth_type === 'guest' && wechatAvailable && (
+            {marketplace?.identity.auth_type === 'guest' && (
               <Button size="small" theme="primary" onClick={login}>
                 {t('wechatLogin')}
               </Button>

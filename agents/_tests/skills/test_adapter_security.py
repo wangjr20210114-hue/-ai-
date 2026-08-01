@@ -32,6 +32,18 @@ def manifest(**changes):
 
 
 class SkillAdapterSecurityTests(unittest.TestCase):
+    def test_only_trusted_system_skill_may_declare_model_fallback(self):
+        with self.assertRaisesRegex(ValueError, "trusted system Skills"):
+            parse_skill_manifests([
+                manifest(kind="community", unavailable_fallback="model_only"),
+            ])
+
+    def test_unknown_unavailable_fallback_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "invalid unavailable fallback"):
+            parse_skill_manifests([
+                manifest(unavailable_fallback="invent-results"),
+            ])
+
     def test_system_adapter_must_live_under_trusted_package(self):
         with self.assertRaisesRegex(ValueError, "trusted system adapter"):
             parse_skill_manifests([

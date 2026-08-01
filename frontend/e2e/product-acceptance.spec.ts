@@ -8,6 +8,20 @@ async function waitForApp(page: import('@playwright/test').Page) {
   await expect(page.locator('.app-shell')).not.toHaveAttribute('aria-busy', 'true');
 }
 
+test('guest keeps an explicit login entry while chat remains available', async ({ page }) => {
+  await installMockMakerApi(page);
+  await waitForApp(page);
+
+  const login = page.getByRole('button', { name: '微信登录', exact: true });
+  await expect(login).toBeVisible();
+  await expect(login).toBeEnabled();
+  await login.click();
+  await expect(page.locator('body')).toContainText('微信登录尚未配置，当前可继续使用游客模式');
+
+  await page.locator('.input-box textarea').fill('你好，请介绍一下你自己');
+  await expect(page.locator('.input-submit-button')).toBeEnabled();
+});
+
 test('one planned search streams an answer and binds reviewed media to its exact source', async ({ page }) => {
   let chatRequest: { body: Record<string, unknown>; headers: Record<string, string> } | undefined;
   const source = {

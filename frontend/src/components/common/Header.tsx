@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button } from 'tdesign-react';
+import { Button, MessagePlugin } from 'tdesign-react';
 import { ChevronLeftIcon, ChevronRightIcon, LogoGithubIcon, MenuIcon, ModeDarkIcon, ModeLightIcon, NotificationIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import StatusIndicator from './StatusIndicator';
@@ -52,6 +52,15 @@ export default function Header({
   const activeLine = displayLines[reminderIndex % Math.max(1, displayLines.length)];
   const authIsGuest = authSession?.identity.auth_type === 'guest';
   const guestCanLogin = Boolean(authIsGuest && authSession?.login.wechat_available);
+
+  const handleAccountClick = () => {
+    if (!authIsGuest) return;
+    if (guestCanLogin) {
+      startWechatLogin('/chatBot');
+      return;
+    }
+    MessagePlugin.warning(t('wechatLoginUnavailable'));
+  };
 
   useEffect(() => {
     setReminderIndex(0);
@@ -155,12 +164,10 @@ export default function Header({
             type="button"
             className={`header-account ${authSession.identity.auth_type === 'guest' ? 'is-guest' : 'is-user'}`}
             title={authIsGuest
-              ? t(guestCanLogin ? 'wechatLogin' : 'guestUser')
+              ? t('wechatLogin')
               : authSession.identity.display_name}
-            aria-disabled={authIsGuest && !guestCanLogin}
-            onClick={guestCanLogin
-              ? () => startWechatLogin('/chatBot')
-              : undefined}
+            aria-label={authIsGuest ? t('wechatLogin') : authSession.identity.display_name}
+            onClick={authIsGuest ? handleAccountClick : undefined}
           >
             {authSession.identity.avatar_url
               ? <img src={authSession.identity.avatar_url} alt="" referrerPolicy="no-referrer" />
@@ -170,7 +177,7 @@ export default function Header({
                   : t('wechatAvatarGlyph')}
               </span>}
             <b>{authIsGuest
-              ? t(guestCanLogin ? 'wechatLogin' : 'guestUser')
+              ? t('wechatLogin')
               : authSession.identity.display_name}</b>
           </button>
         )}

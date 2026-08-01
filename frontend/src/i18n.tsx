@@ -501,7 +501,7 @@ const catalog = {
   uploadSkill: ['上传 Skill', '上傳 Skill', 'Upload Skill', '上传 Skill 喵', '上传 Skill'],
   uploadSkillHint: ['上传包含 SKILL.md 的 ZIP 包。当前版本只接收并进入待审核队列，不会自动安装或执行。', '上傳包含 SKILL.md 的 ZIP 套件；目前只會進入待審核佇列。', 'Upload a ZIP containing SKILL.md. It enters review and is never installed or executed automatically.', '上传后先审核，不会自动运行喵。', '上传 ZIP Skill 包；提交后进入待审核队列。'],
   loginRequiredForSkills: ['微信登录后才能上传或安装其他 Skill', '微信登入後才能上傳或安裝其他 Skill', 'Sign in with WeChat to upload or install other Skills', '微信登录后才能上传 Skill 喵', '微信登录后才能上传或安装其他 Skill'],
-  loginSkillReason: ['游客只能使用通用问答与主动式 Agent 两个必装 Skill。', '訪客只能使用兩個必裝 Skill。', 'Guests can use only the two required Skills: Core and Proactive Agent.', '游客只能用两个必装 Skill 喵。', '游客只能使用两个必装 Skill。'],
+  loginSkillReason: ['游客可直接使用基础对话；实时搜索不可用时会由基础模型继续回答。登录后可安装更多 Skill。', '訪客可直接使用基礎對話；即時搜尋不可用時會由基礎模型繼續回答。登入後可安裝更多 Skill。', 'Guests can chat normally; when live search is unavailable, the base model still answers. Sign in to install more Skills.', '游客可以正常聊天喵；实时搜索不可用时也会由基础模型继续回答。登录后能安装更多 Skill。', '游客可直接使用基础对话；实时搜索不可用时由基础模型继续回答。登录后可安装更多 Skill。'],
   loginToInstall: ['登录后安装', '登入後安裝', 'Sign in to install', '登录后安装喵', '登录后安装'],
   membershipRequired: ['当前会员等级无法安装此 Skill', '目前會員等級無法安裝此 Skill', 'Your current plan cannot install this Skill', '当前会员等级不能安装喵', '当前会员等级无法安装此 Skill'],
   wechatLogin: ['微信登录', '微信登入', 'WeChat sign in', '微信登录喵', '微信登录'],

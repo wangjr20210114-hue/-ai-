@@ -25,6 +25,7 @@ from .._application.skills.registry import (
     planner_topic_tools,
     skill_degradation_capabilities,
     skill_plan_flags,
+    skill_unavailable_fallbacks,
 )
 
 
@@ -87,6 +88,7 @@ KNOWN_SKILLS = known_skill_ids()
 _CAPABILITY_SKILLS = capability_skill_map()
 _SKILL_PLAN_FLAGS = skill_plan_flags()
 _SKILL_DEGRADATION_CAPABILITIES = skill_degradation_capabilities()
+_SKILL_UNAVAILABLE_FALLBACKS = skill_unavailable_fallbacks()
 
 
 def apply_runtime_skill_policy(
@@ -97,8 +99,8 @@ def apply_runtime_skill_policy(
 
     The model only states which capabilities the request needs. It never sees
     or judges enable switches. This logic-layer gate either blocks before graph
-    construction or removes only an independent calendar enhancement while
-    preserving a requested route.
+    construction, applies a trusted manifest-declared model-only fallback, or
+    removes an independent enhancement while preserving the primary result.
     """
     reconciled = reconcile_capability_contract(plan)
     if reconciled.get("reuse_latest_route"):
@@ -136,6 +138,34 @@ def apply_runtime_skill_policy(
     if not required_skills:
         return reconciled
 
+    # Some trusted system Skills declare that their unavailable state still
+    # permits a useful model-only answer.  This is manifest-owned rather than
+    # identity- or keyword-specific: entitlement policy disables the adapter,
+    # then this gate removes only that Skill's planned flags and capabilities.
+    model_only_skills = [
+        skill_id
+        for skill_id in required_skills
+        if _SKILL_UNAVAILABLE_FALLBACKS.get(skill_id) == "model_only"
+    ]
+    if model_only_skills:
+        for skill_id in model_only_skills:
+            for flag in _SKILL_PLAN_FLAGS.get(skill_id, ()):
+                reconciled[flag] = False
+        reconciled["_capabilities"] = [
+            capability
+            for capability in (reconciled.get("_capabilities") or [])
+            if _CAPABILITY_SKILLS.get(str(capability)) not in model_only_skills
+        ]
+        reconciled["_runtime_model_fallback_skills"] = model_only_skills
+        reconciled["_runtime_omitted_skills"] = model_only_skills
+        required_skills = [
+            skill_id
+            for skill_id in required_skills
+            if skill_id not in model_only_skills
+        ]
+        if not required_skills:
+            return reconciled
+
     # A Skill may declare that it is an independent enhancement of another
     # capability. When only that enhancement is disabled, preserve the useful
     # primary result and remove the disabled Skill from this turn.
@@ -169,11 +199,17 @@ def apply_runtime_skill_policy(
             for capability in (reconciled.get("_capabilities") or [])
             if _CAPABILITY_SKILLS.get(str(capability)) != omitted_skill
         ]
-        reconciled["_runtime_omitted_skills"] = [omitted_skill]
+        reconciled["_runtime_omitted_skills"] = [
+            *model_only_skills,
+            omitted_skill,
+        ]
         return reconciled
 
     reconciled["blocked_skill"] = required_skills[0]
-    reconciled["_runtime_omitted_skills"] = required_skills
+    reconciled["_runtime_omitted_skills"] = [
+        *model_only_skills,
+        *required_skills,
+    ]
     return reconciled
 
 
