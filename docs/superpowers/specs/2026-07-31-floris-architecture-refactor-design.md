@@ -23,9 +23,9 @@ MVC，但核心链路仍处在迁移状态：
 ## 2. 全局不可回退约束
 
 1. `main` 与 `origin/main` 始终保持
-   `712fe07a1b41dc1ce2ba316838bba0e2d111d32a`；所有改动只进入 `dev`。
-2. Maker 部署只允许目标项目 `floris-mvc-dev-5925b93`
-  （项目 ID `makers-x91pbqwetj8l`），不得读取、改配或部署
+   `72be68b2615e7dc23abfbeadca9ce204e3a3c84c`；所有改动只进入 `dev`。
+2. Maker 部署只允许目标项目 `floris-dev`
+  （项目 ID `makers-0kgcojx0gjiy`），不得读取、改配或部署
    `ai-active-agent-floris`。
 3. 继续复用 Makers 的签名会话、Store、Checkpointer、Blob、定时任务和
    Trace 能力；不自建通用会话、对象存储、队列或定时调度服务。
@@ -499,7 +499,7 @@ agents/_tests/proactive/
    完成样式、测试目录迁移和端到端/性能验收。
 7. **发布**
    每一阶段独立提交并推送 `dev`；最终从干净已推送提交构建 `.edgeone`，
-   验证路由后只部署 `floris-mvc-dev-5925b93`。
+   验证路由后只通过 `dev` 推送部署 `floris-dev`。
 
 每阶段回滚只反向提交该阶段或在独立 Maker 项目选择上一部署。禁止改写
 `main` 历史，禁止把 `dev` 绑定到现有正式项目。

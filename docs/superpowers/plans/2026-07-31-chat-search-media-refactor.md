@@ -10,7 +10,7 @@
 
 ## 全局约束
 
-- `main` 必须始终指向 `712fe07a1b41dc1ce2ba316838bba0e2d111d32a`。
+- `main` 必须始终指向 `72be68b2615e7dc23abfbeadca9ce204e3a3c84c`。
 - 只在 `dev` 开发；实现前使用 `superpowers:using-git-worktrees` 检查隔离。
 - SearchPro 单轮最多调用一次；网页抓取和视觉审核不在首字关键路径。
 - 图片必须同时满足 `vision_reviewed=true`、非空 `source_id`、`source_url` 等于该来源 URL，且回答存在该 URL 的精确 Markdown 链接。

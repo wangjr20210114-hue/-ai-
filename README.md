@@ -63,9 +63,9 @@ CloudBase「环境配置 → 安全来源」还需加入当前开发站域名（
 
 微信登录代码保留为可选兼容 Adapter，但当前不开启。以后启用时，仍需独立的微信开放平台/公众号凭据和 `DATABASE_URL`；小程序凭据不能替代它们。缺失配置不会影响 CloudBase 登录或 Guest 模式。
 
-### 1.3 Preview or Production 部署
+### 1.3 开发项目与正式项目部署
 
-**Preview 流程：**
+**开发项目流程：**
 **第一步**，点击已创建好的项目
 
 <img width="600" height="400" alt="image" src="https://github.com/user-attachments/assets/4ecce1f8-ca55-4ba1-bf25-8828402e6626" />
@@ -74,26 +74,23 @@ CloudBase「环境配置 → 安全来源」还需加入当前开发站域名（
 
 <img width="600" height="400" alt="image" src="https://github.com/user-attachments/assets/02a35773-1a34-4c21-8bbc-023385169b15" />
 
-**第三步**，在独立开发项目中选择 **dev 分支**并创建 Preview。正式项目仍只跟踪 **main 分支**。点击确定后等待部署成功。
+**第三步**，独立 GitHub 项目 `floris-dev` 只跟踪 **dev 分支**，并将其部署到开发域名 `floris-dev.jlutx.com`。正式项目仍只跟踪 **main 分支**。点击确定后等待部署成功。
 
 <img width="600" height="400" alt="image" src="https://github.com/user-attachments/assets/3b5767d1-d57e-43de-961d-9e20c9f4051b" />
 
 **Production 流程：** 只有经过明确合并发布决策后，才在正式项目的 `main` 上操作。不要为了测试 `dev` 修改 `ai-active-agent-floris` 的分支、环境变量或域名。
 
-若使用 CLI 创建“直接上传型”独立开发项目，Makers 要求该项目先完成一次 Production 初始化，之后才能创建 Preview。这里的 Production 仅指**新开发项目自己的环境**：项目名必须唯一，上传内容必须来自已推送的 `dev` 提交，仍不得复用或改配正式项目。
-
-直接上传前必须验证 Maker 实际生成的 Agent 路由，再部署同一份已经验证的构建产物：
+`floris-dev` 是独立的 GitHub Provider 项目，推送 `dev` 后由 Makers 原生 Git 集成构建；不要再用只支持 Upload Provider 的 `edgeone makers deploy`。推送前必须先在本地完成同一提交的完整回归：
 
 ```bash
-edgeone makers build
-npm run test:edgeone-build-routes
+npm run check:all
 npm run check:deploy-target
-edgeone makers deploy .edgeone -n floris-mvc-dev-5925b93 -e preview --json
+npm run check:release
+git push origin dev
 ```
 
-本仓库的开发部署守卫还会核对项目 ID `makers-x91pbqwetj8l`、当前分支
-`dev`、干净工作区以及未变化的 `main` 基线。CLI 首次初始化限制只适用于
-独立开发项目自身；日常架构验收始终部署 Preview。
+本仓库的开发部署守卫还会核对 GitHub 项目 `floris-dev`、项目 ID `makers-0kgcojx0gjiy`、当前分支
+`dev`、干净工作区以及未变化的 `main` 基线。开发域名只接收 `dev`，不得把该项目改绑到 `main`，也不得改动正式 Floris 项目。
 
 Skill 广场使用 `/skill_marketplace`；不要使用 EdgeOne 保留的
 `agents/skills/`。可信 Python 适配器放在 `agents/_skill_adapters/`，避免

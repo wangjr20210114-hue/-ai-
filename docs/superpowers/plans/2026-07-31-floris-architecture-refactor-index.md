@@ -40,7 +40,7 @@ flowchart LR
 - [ ] 每个 Task 只提交其列出的文件；不合并或修改 `main`。
 - [ ] 每完成一份子计划，运行该计划的完整回归并推送 `dev`。
 - [ ] 最终使用 `superpowers:verification-before-completion` 和 `superpowers:requesting-code-review`。
-- [ ] 只有全部门禁通过后，才构建并部署 `floris-mvc-dev-5925b93`。
+- [ ] 只有全部门禁通过后，才推送 `dev` 并由 Git 集成部署 `floris-dev`。
 
 ## 不可协商验收条件
 
@@ -55,5 +55,5 @@ flowchart LR
 - Node/Python 权益来自一个 JSON Contract。
 - `agents/_shared`、`agents/chat/_ui_tools.py`、前端大 Hook/大组件/API 聚合/全局大 CSS 和单体大测试全部退出。
 - Maker 数据使用可信 tenant/user 前缀，支付保持不可用接口。
-- `main` 保持 `712fe07a1b41dc1ce2ba316838bba0e2d111d32a`。
-- 只部署项目 `floris-mvc-dev-5925b93`（`makers-x91pbqwetj8l`）。
+- `main` 保持 `72be68b2615e7dc23abfbeadca9ce204e3a3c84c`。
+- 只部署项目 `floris-dev`（`makers-0kgcojx0gjiy`）。

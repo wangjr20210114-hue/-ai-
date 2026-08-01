@@ -7,6 +7,14 @@ import {
 } from '../assert-makers-deploy-target.mjs';
 
 
+test('pins the floris-dev GitHub project', () => {
+  assert.deepEqual(EXPECTED_PROJECT, {
+    Name: 'floris-dev',
+    ProjectId: 'makers-0kgcojx0gjiy',
+  });
+});
+
+
 test('accepts only the isolated dev Maker project', () => {
   assert.doesNotThrow(() => assertMakerDeployTarget({ ...EXPECTED_PROJECT }));
 });

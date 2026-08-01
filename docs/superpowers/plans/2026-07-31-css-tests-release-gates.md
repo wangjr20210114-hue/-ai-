@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 拆分 4336 行全局 CSS 和 6485 行单体 Python 测试，建立架构/路由/浏览器/性能门禁，并确保最终只从干净的 `dev` 提交部署到独立 Maker 项目 `floris-mvc-dev-5925b93`。
+**Goal:** 拆分 4336 行全局 CSS 和 6485 行单体 Python 测试，建立架构/路由/浏览器/性能门禁，并确保最终只从干净的 `dev` 提交部署到独立 Maker 项目 `floris-dev`。
 
 **Architecture:** 设计 token 和 reset 保持全局；布局与六个 Feature 样式由各 Feature 拥有；响应式和 reduced-motion 跟随对应样式。Python 测试按领域拆成独立套件并共享明确的 fake/factory。CI 先运行生成 Contract 和静态架构门禁，再运行单元、前端、EdgeOne build route 和浏览器冒烟。部署脚本同时校验 Git branch/commit、`.edgeone/project.json` 和 Maker 项目 ID。
 
@@ -10,8 +10,8 @@
 
 ## 全局约束
 
-- `main` 与 `origin/main` 必须保持 `712fe07a1b41dc1ce2ba316838bba0e2d111d32a`。
-- 只部署 `Name=floris-mvc-dev-5925b93`、`ProjectId=makers-x91pbqwetj8l`。
+- `main` 与 `origin/main` 必须保持 `72be68b2615e7dc23abfbeadca9ce204e3a3c84c`。
+- 只部署 `Name=floris-dev`、`ProjectId=makers-0kgcojx0gjiy`。
 - 任何脚本都不能接受或推导 `ai-active-agent-floris` 为部署目标。
 - 部署源必须是已推送、无未提交变更的 `dev` HEAD；`.edgeone` 必须由该 HEAD 构建。
 - UI 可访问性、浅/深主题、移动端、reduced-motion 和中文/英文不因 CSS 拆分退化。
@@ -208,8 +208,8 @@ git commit -m "test: split workspace regression suite by domain"
 - [ ] Implement deployment-target assertion:
 
 ```js
-assert.equal(project.Name, 'floris-mvc-dev-5925b93');
-assert.equal(project.ProjectId, 'makers-x91pbqwetj8l');
+assert.equal(project.Name, 'floris-dev');
+assert.equal(project.ProjectId, 'makers-0kgcojx0gjiy');
 assert.equal(branch, 'dev');
 assert.equal(head, remoteDevHead);
 assert.equal(status, '');
@@ -281,7 +281,7 @@ git rev-parse --abbrev-ref HEAD
 git status --short
 ```
 
-Expected: both main hashes equal `712fe07a1b41dc1ce2ba316838bba0e2d111d32a`, branch is `dev`, status empty.
+Expected: both main hashes equal `72be68b2615e7dc23abfbeadca9ce204e3a3c84c`, branch is `dev`, status empty.
 
 - [ ] Push exact commits: `git push origin dev`.
 - [ ] Verify local and remote dev match: `test "$(git rev-parse HEAD)" = "$(git rev-parse origin/dev)"`.
@@ -289,14 +289,14 @@ Expected: both main hashes equal `712fe07a1b41dc1ce2ba316838bba0e2d111d32a`, bra
 - [ ] Confirm `.edgeone/project.json` contains only:
 
 ```json
-{"Name":"floris-mvc-dev-5925b93","ProjectId":"makers-x91pbqwetj8l"}
+{"Name":"floris-dev","ProjectId":"makers-0kgcojx0gjiy"}
 ```
 
 - [ ] If build changes tracked `.edgeone` source, inspect, test, commit, push and rebuild from that new clean HEAD before deployment.
 - [ ] Deploy with the explicit allowed target:
 
 ```bash
-edgeone makers deploy .edgeone -n floris-mvc-dev-5925b93 -e production
+git push origin dev
 ```
 
 - [ ] Inspect deployment status until terminal success. Do not retry against, inspect, reconfigure or deploy `ai-active-agent-floris`.
@@ -310,4 +310,4 @@ edgeone makers deploy .edgeone -n floris-mvc-dev-5925b93 -e production
 - CI 阻止占位符、遗留大模块、错误分层、路由缺失、权益漂移和错误 Maker 目标。
 - 搜索、Skill、多租户、日程、地图、论文关键路径都通过浏览器验收。
 - `main` 未变化；`dev` 已推送；部署源干净且可追溯。
-- 唯一部署项目是 `floris-mvc-dev-5925b93`。
+- 唯一部署项目是 `floris-dev`。

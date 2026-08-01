@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 
 export const EXPECTED_PROJECT = Object.freeze({
-  Name: 'floris-mvc-dev-5925b93',
-  ProjectId: 'makers-x91pbqwetj8l',
+  Name: 'floris-dev',
+  ProjectId: 'makers-0kgcojx0gjiy',
 });
 
 export function assertMakerDeployTarget(project) {

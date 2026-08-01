@@ -1,6 +1,6 @@
 # FLORIS 架构审查与演进计划
 
-> 基线：`main` 提交 `712fe07a1b41dc1ce2ba316838bba0e2d111d32a`
+> 基线：`main` 提交 `72be68b2615e7dc23abfbeadca9ce204e3a3c84c`
 > 工作分支：`dev`
 > 审查日期：2026-07-31
 > 范围：线上体验、前后端与 Agent 全仓代码、搜索关键路径、部署配置和测试体系
@@ -579,8 +579,8 @@ EdgeOne 的 `agents/skills/` 是保留目录，Skill 广场路由固定使用
 
 ## 7. 发布与回滚建议
 
-1. Git 集成时，新建独立 Makers 项目，只绑定 `dev` 并部署 Preview；不得复用、重绑或改配现有 `ai-active-agent-floris` 项目。
-2. CLI 直接上传型项目存在平台限制：新项目必须先完成一次自身的 Production 初始化，之后才能部署 Preview。该 Production 只属于唯一命名的开发项目，内容必须对应已推送的 `dev` 提交，不等于把开发代码发布到正式项目。
+1. 独立 Makers GitHub 项目 `floris-dev` 只绑定 `dev`，并部署到 `floris-dev.jlutx.com`；不得复用、重绑或改配现有 `ai-active-agent-floris` 项目。
+2. `floris-dev` 使用 Makers 原生 Git 集成，推送前完成发布门禁，推送后由平台构建；不要对 GitHub Provider 项目使用只支持 Upload Provider 的 CLI 直接上传流程。
 3. 用固定的 20 个搜索问题分别跑 3 次，记录 main 与 dev 的 TTFT、完成时间、媒体到达时间和结果正确性。
 4. 先给 10% Preview 会话开启渐进媒体，观察错误率、`source_id` 匹配率和无匹配放弃率。
 5. 若文字 TTFT 无明显改善，优先检查能力规划与 SearchPro，而不是继续优化图片并发。
@@ -588,12 +588,13 @@ EdgeOne 的 `agents/skills/` 是保留目录，Skill 广场路由固定使用
 
 ### 7.1 本轮隔离部署记录
 
-- 日期：2026-07-31
-- Git 源：`dev@5925b93ac9f5e82c90ae79e0ad4574a00785d87b`
-- 独立 Makers 项目：`floris-mvc-dev-5925b93`
-- 项目 ID：`makers-x91pbqwetj8l`
-- 首次部署 ID：`dprvrjr11bgt`
-- Provider：CLI Direct Upload；平台要求先初始化该新项目自己的 Production
+- 日期：2026-08-01
+- Git 源：`dev`（提交、分支和 `main` 基线由发布守卫验证）
+- 独立 Makers 项目：`floris-dev`
+- 项目 ID：`makers-0kgcojx0gjiy`
+- 自定义域名：`floris-dev.jlutx.com`
+- Provider：GitHub；仅跟踪 `dev`，由 Makers 原生 Git 集成构建
+- 环境迁移：14 项变量已从旧独立开发项目逐值校验迁移
 - 安全结论：未链接、未读取、未修改、未部署 `ai-active-agent-floris`
 
 ## 8. `dev` 分支实施范围与优先级
@@ -613,7 +614,7 @@ EdgeOne 的 `agents/skills/` 是保留目录，Skill 广场路由固定使用
 所有阶段都必须：
 
 - 只提交到 `dev`；
-- 先在独立 Makers 项目的 Preview 验证；
+- 先在独立 Makers 项目 `floris-dev` 与开发域名验证；
 - 永不修改、重绑或部署到 `ai-active-agent-floris`；
 - 保持 `main` 提交与历史不变；
 - 对身份、依赖、缓存、SSE 协议和跨租户访问增加自动化测试；
