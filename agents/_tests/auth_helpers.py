@@ -13,6 +13,17 @@ TEST_SUBJECT_ID = "11111111-1111-4111-8111-111111111111"
 TEST_USER_ID = f"floris:{TEST_SUBJECT_ID}"
 
 
+class InMemoryConversationIndexStore:
+    def __init__(self):
+        self.values: dict[str, object] = {}
+
+    async def get(self, key: str, **_options):
+        return self.values.get(key)
+
+    async def set_json(self, key: str, value, **_options) -> None:
+        self.values[key] = value
+
+
 def _base64url(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
 
@@ -77,4 +88,5 @@ def authenticated_context(ctx, **identity):
 
 
 def authenticated_namespace(**values):
+    values.setdefault("conversation_index_store", InMemoryConversationIndexStore())
     return authenticated_context(SimpleNamespace(**values))

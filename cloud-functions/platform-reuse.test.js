@@ -7,9 +7,11 @@ const root = resolve(import.meta.dirname, '..');
 const read = (path) => readFile(resolve(root, path), 'utf8');
 
 test('conversation, state, object and schedule infrastructure reuse EdgeOne Makers', async () => {
-  const [chat, messages, files, config] = await Promise.all([
+  const [chat, messages, conversationRoute, conversationIndex, files, config] = await Promise.all([
     read('agents/_application/chat/turn_service.py'),
     read('agents/_controllers/messages_controller.py'),
+    read('cloud-functions/conversations/index.js'),
+    read('agents/_infrastructure/makers/conversation_index.py'),
     read('cloud-functions/files/index.js'),
     read('edgeone.json'),
   ]);
@@ -18,6 +20,9 @@ test('conversation, state, object and schedule infrastructure reuse EdgeOne Make
   assert.match(chat, /write_chat_run\(\s*ctx\.store/);
   assert.match(messages, /langgraph_checkpointer\.aget_tuple/);
   assert.match(messages, /read_chat_run\(ctx\.store/);
+  assert.match(conversationRoute, /@edgeone\/pages-blob/);
+  assert.match(conversationIndex, /from pages_blob import get_store/);
+  assert.match(conversationRoute + conversationIndex, /conversation-index\/v1/);
   assert.match(files, /@edgeone\/pages-blob/);
   assert.match(config, /"schedules"/);
   const makersConfig = JSON.parse(config);
@@ -25,7 +30,7 @@ test('conversation, state, object and schedule infrastructure reuse EdgeOne Make
   assert.equal(makersConfig.schedules[0].timezone, 'Asia/Shanghai');
   assert.equal(makersConfig.schedules[0].path, '/proactive-tick');
   assert.equal(makersConfig.cloudFunctions.nodejs.maxDuration, 120);
-  assert.doesNotMatch(chat + messages, /sqlite|FastAPI|websocket/i);
+  assert.doesNotMatch(chat + messages + conversationRoute + conversationIndex, /sqlite|FastAPI|websocket/i);
   assert.doesNotMatch(chat + messages, /yuanbao_chat_runs_v1|chat_runs/);
 });
 

@@ -8,8 +8,9 @@ const PREFIX = 'tenants/floris/users/11111111-1111-4111-8111-111111111111/';
 const OWNER = 'floris:11111111-1111-4111-8111-111111111111';
 
 class FakeStore {
-  constructor(keys = []) {
+  constructor(keys = [], values = {}) {
     this.keys = [...keys];
+    this.values = new Map(Object.entries(values));
   }
 
   async list({ prefix = '' } = {}) {
@@ -18,15 +19,22 @@ class FakeStore {
 
   async delete(key) {
     this.keys = this.keys.filter((item) => item !== key);
+    this.values.delete(key);
+  }
+
+  async get(key) {
+    return this.values.get(key) || null;
   }
 }
 
 class FakeConversationStore {
-  constructor(ids = []) {
+  constructor(ids = [], listable = true) {
     this.ids = [...ids];
+    this.listable = listable;
   }
 
   async listConversations({ after } = {}) {
+    if (!this.listable) return { items: [] };
     if (after) return { items: [], nextCursor: undefined };
     return {
       items: this.ids.slice(0, 100).map((conversationId) => ({
@@ -100,4 +108,24 @@ test('inspect returns conversation ids without deleting any Makers data', async 
   assert.deepEqual((await response.json()).conversation_ids, ['yb7_one', 'yb7_two']);
   assert.deepEqual(conversations.ids, ['yb7_one', 'yb7_two']);
   for (const store of Object.values(stores)) assert.equal(store.keys.length, 1);
+});
+
+test('Blob pointer fallback clears the native conversation before its pointer', async () => {
+  const conversationId = 'yb7_22222222222222222222222222222222';
+  const pointerKey = `${PREFIX}conversation-index/v1/${conversationId}.json`;
+  const pointer = {
+    conversationId,
+    metadata: { owner_user_id: OWNER, tenant_id: 'floris' },
+  };
+  const indexStore = new FakeStore([pointerKey], { [pointerKey]: pointer });
+  const response = await onRequest({
+    request: await request('DELETE'),
+    env: TEST_AUTH_ENV,
+    __stores: { 'yuanbao-files': indexStore },
+    __conversationStore: new FakeConversationStore([conversationId], false),
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).conversations_deleted, 1);
+  assert.deepEqual(indexStore.keys, []);
 });

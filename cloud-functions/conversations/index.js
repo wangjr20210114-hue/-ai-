@@ -1,5 +1,6 @@
+import { getStore } from '@edgeone/pages-blob';
 import { conversationIndexUserId, currentUser, scopedConversationId } from '../../auth/current-user.js';
-import { listUserConversations } from '../conversation-index.js';
+import { listUserConversations, writeConversationPointer } from '../conversation-index.js';
 
 const CONVERSATION_PREFIX = 'yb7_';
 
@@ -60,7 +61,8 @@ export async function onRequest(context) {
   }
 
   if (request.method === 'GET') {
-    const items = await listUserConversations(store, user);
+    const indexStore = context.__indexStore || getStore({ name: 'yuanbao-files', consistency: 'strong' });
+    const items = await listUserConversations(store, user, { indexStore });
     const conversations = items
       .map(publicConversation)
       .filter((item) => item.conversationId.startsWith(CONVERSATION_PREFIX))
@@ -106,6 +108,24 @@ export async function onRequest(context) {
           tenant_id: user.tenant_id,
         },
       });
+    }
+    try {
+      const metadata = conversation?.metadata && typeof conversation.metadata === 'object'
+        ? conversation.metadata
+        : {};
+      const indexStore = context.__indexStore || getStore({ name: 'yuanbao-files', consistency: 'strong' });
+      await writeConversationPointer(indexStore, user, {
+        conversationId,
+        clientConversationId,
+        createdAt: conversation?.createdAt,
+        lastMessageAt: conversation?.lastMessageAt,
+        messageCount: conversation?.messageCount,
+        metadata,
+        title: metadata.title || (role === 'user' ? titleFromMessage(content) : ''),
+      });
+    } catch {
+      // Conversation content remains authoritative; a later save or restore
+      // backfills this best-effort sidebar pointer through the same Maker.
     }
     return json({ message_id: messageId, conversation: publicConversation(conversation) });
   }

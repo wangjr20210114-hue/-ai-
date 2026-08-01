@@ -5,9 +5,10 @@ import logging
 
 from .._application.workspace.service import active_map_payload, image_versions, load_user_workspace, public_action
 from .._infrastructure.makers.identity import require_user, scoped_conversation_id
+from .._infrastructure.makers.conversation_index import persist_conversation_pointer
 from .._infrastructure.makers.data_version import namespace as data_namespace
 from .._infrastructure.http import error
-from .._infrastructure.makers.conversation_repository import public_chat_run, read_chat_run
+from .._infrastructure.makers.conversation_repository import conversation_title, public_chat_run, read_chat_run
 from ..chat._protocol import action_fallback_content, public_content
 
 
@@ -316,6 +317,21 @@ async def handler(ctx):
         latest_map_route_mode = str(active_map.get("route_mode") or "")
         latest_map_route_strategy = str(active_map.get("route_strategy") or "")
         latest_map_show_route = bool(active_map.get("show_route"))
+    if result:
+        first_user_content = next(
+            (str(item.get("content") or "") for item in result if item.get("role") == "user"),
+            "",
+        )
+        await persist_conversation_pointer(
+            user_id,
+            str(identity["tenant_id"]),
+            conversation_id,
+            str(raw_conversation_id),
+            title=conversation_title(first_user_content) if first_user_content else "",
+            message_count=len(result),
+            store=getattr(ctx, "conversation_index_store", None),
+            only_if_missing=True,
+        )
     return {
         "messages": result,
         "schedules": schedules,

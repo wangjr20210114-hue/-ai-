@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from .._infrastructure.makers.identity import conversation_index_user_id, require_user, scoped_conversation_id
 from .._infrastructure.http import error
-from .._infrastructure.makers.conversation_repository import ensure_conversation_title
+from .._infrastructure.makers.conversation_index import persist_conversation_pointer
+from .._infrastructure.makers.conversation_repository import conversation_title, ensure_conversation_title
 
 
 async def handler(ctx):
@@ -48,4 +49,12 @@ async def handler(ctx):
             tenant_id=str(identity["tenant_id"]),
             client_conversation_id=str(raw_conversation_id),
         )
+    await persist_conversation_pointer(
+        user_id,
+        str(identity["tenant_id"]),
+        conversation_id,
+        str(raw_conversation_id),
+        title=conversation_title(content) if role == "user" else "",
+        store=getattr(ctx, "conversation_index_store", None),
+    )
     return {"message_id": str(message_id)}

@@ -1,6 +1,6 @@
 import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
-import { listUserConversations } from '../conversation-index.js';
+import { conversationPointerKey, listUserConversations } from '../conversation-index.js';
 
 const STORE_NAMES = ['yuanbao-files'];
 
@@ -24,20 +24,30 @@ async function clearStore(store, prefix) {
   return deleted;
 }
 
-async function listConversationIds(store, user) {
-  const items = await listUserConversations(store, user, { maxGlobalPages: 50 });
+async function listConversationIds(store, user, indexStore) {
+  const items = await listUserConversations(store, user, {
+    indexStore,
+    maxGlobalPages: 50,
+  });
   return [...new Set(items.map((item) => String(item?.conversationId || '')).filter(Boolean))];
 }
 
-async function clearConversations(store, user) {
+async function clearConversations(store, user, indexStore) {
   let deleted = 0;
   for (let page = 0; page < 100; page += 1) {
-    const ids = await listConversationIds(store, user);
+    const ids = await listConversationIds(store, user, indexStore);
     if (!ids.length) break;
     for (let offset = 0; offset < ids.length; offset += 8) {
-      await Promise.all(ids.slice(offset, offset + 8).map((conversationId) => (
-        store.deleteConversation({ conversationId })
-      )));
+      await Promise.all(ids.slice(offset, offset + 8).map(async (conversationId) => {
+        await store.deleteConversation({ conversationId });
+        if (indexStore) {
+          try {
+            await indexStore.delete(conversationPointerKey(user, conversationId));
+          } catch (error) {
+            if (String(error?.message || '') !== 'Invalid scoped conversation id') throw error;
+          }
+        }
+      }));
     }
     deleted += ids.length;
   }
@@ -58,24 +68,25 @@ export async function onRequest(context) {
   if (!conversationStore) {
     return json({ error: '数据清理功能暂不可用', code: 'RESET_NOT_CONFIGURED' }, 503);
   }
+  const stores = Object.fromEntries(STORE_NAMES.map((name) => [
+    name,
+    context.__stores?.[name] || getStore({ name, consistency: 'strong' }),
+  ]));
+  const indexStore = stores['yuanbao-files'];
   if (body.operation === 'inspect') {
     return json({
       ok: true,
-      conversation_ids: await listConversationIds(conversationStore, user),
+      conversation_ids: await listConversationIds(conversationStore, user, indexStore),
     });
   }
   if (body.operation !== 'clear') {
     return json({ error: 'Unsupported operation', code: 'RESET_FAILED' }, 400);
   }
 
-  const stores = Object.fromEntries(STORE_NAMES.map((name) => [
-    name,
-    context.__stores?.[name] || getStore({ name, consistency: 'strong' }),
-  ]));
-  const [conversationsDeleted, ...storeCounts] = await Promise.all([
-    clearConversations(conversationStore, user),
-    ...STORE_NAMES.map((name) => clearStore(stores[name], tenantPrefix(user))),
-  ]);
+  const conversationsDeleted = await clearConversations(conversationStore, user, indexStore);
+  const storeCounts = await Promise.all(
+    STORE_NAMES.map((name) => clearStore(stores[name], tenantPrefix(user))),
+  );
   return json({
     ok: true,
     conversations_deleted: conversationsDeleted,
