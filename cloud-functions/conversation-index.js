@@ -61,6 +61,13 @@ function pointerMessageCount(value) {
     : 0;
 }
 
+function latestConversations(items) {
+  return uniqueConversations([...items].sort(
+    (first, second) => pointerTimestamp(second?.lastMessageAt, 0)
+      - pointerTimestamp(first?.lastMessageAt, 0),
+  ));
+}
+
 export function conversationPointerKey(user, conversationId) {
   const id = String(conversationId || '').trim();
   if (!/^yb7_[0-9a-f]{32}$/i.test(id)) {
@@ -150,10 +157,7 @@ async function blobOwnedPointers(indexStore, user) {
     }));
     owned.push(...values.filter((item) => belongsToUser(item, user)));
   }
-  return uniqueConversations(owned.sort(
-    (first, second) => pointerTimestamp(second?.lastMessageAt, 0)
-      - pointerTimestamp(first?.lastMessageAt, 0),
-  ));
+  return latestConversations(owned);
 }
 
 async function indexedPage(store, user, userId, order) {
@@ -201,25 +205,32 @@ export async function listUserConversations(store, user, options = {}) {
   ];
   let successfulRead = false;
   let lastError;
+  let indexedItems = [];
   for (const [userId, order] of attempts) {
     try {
       const items = await indexedPage(store, user, userId, order);
       successfulRead = true;
-      if (items.length) return uniqueConversations(items);
+      if (items.length) {
+        indexedItems = items;
+        break;
+      }
     } catch (error) {
       lastError = error;
     }
   }
 
+  let pointerItems = [];
   if (options.indexStore) {
     try {
-      const items = await blobOwnedPointers(options.indexStore, user);
+      pointerItems = await blobOwnedPointers(options.indexStore, user);
       successfulRead = true;
-      if (items.length) return items;
     } catch (error) {
       lastError = error;
     }
   }
+
+  const directlyOwned = latestConversations([...pointerItems, ...indexedItems]);
+  if (directlyOwned.length) return directlyOwned;
 
   try {
     const maxGlobalPages = Math.max(

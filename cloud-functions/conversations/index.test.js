@@ -143,6 +143,27 @@ test('uses a tenant-scoped Makers Blob pointer when native indexes are empty', a
   );
 });
 
+test('merges native records with Blob pointers instead of returning early', async () => {
+  const indexStore = new FakeIndexStore();
+  const pointer = await writeConversationPointer(indexStore, user, {
+    conversationId: 'yb7_55555555555555555555555555555555',
+    clientConversationId: 'yb7_pointer-client',
+    title: 'Pointer record',
+    now: 1_785_600_002_000,
+  });
+  const native = conversation('yb7_native-record', user.id, user.tenant_id, 10);
+  const store = {
+    async listConversations() {
+      return { items: [native] };
+    },
+  };
+
+  assert.deepEqual(
+    await listUserConversations(store, user, { indexStore }),
+    [pointer, native],
+  );
+});
+
 test('touching a pointer preserves its title and creation time', async () => {
   const indexStore = new FakeIndexStore();
   const conversationId = 'yb7_44444444444444444444444444444444';
