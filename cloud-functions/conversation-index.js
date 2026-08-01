@@ -54,6 +54,13 @@ function pointerTimestamp(value, fallback = Date.now()) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function pointerMessageCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count)
+    ? Math.min(1_000_000, Math.max(0, Math.trunc(count)))
+    : 0;
+}
+
 export function conversationPointerKey(user, conversationId) {
   const id = String(conversationId || '').trim();
   if (!/^yb7_[0-9a-f]{32}$/i.test(id)) {
@@ -75,7 +82,7 @@ export function conversationPointer(user, values = {}) {
     conversationId,
     createdAt,
     lastMessageAt: pointerTimestamp(values.lastMessageAt, now),
-    messageCount: Math.max(0, Number(values.messageCount || 0)),
+    messageCount: pointerMessageCount(values.messageCount),
     metadata: {
       client_conversation_id: String(values.clientConversationId || metadata.client_conversation_id || ''),
       owner_user_id: user.id,
@@ -96,6 +103,31 @@ export async function writeConversationPointer(indexStore, user, values) {
     { cacheControl: 'private, no-store' },
   );
   return item;
+}
+
+export async function touchConversationPointer(indexStore, user, values) {
+  const key = conversationPointerKey(user, values?.conversationId);
+  let existing = null;
+  try {
+    existing = await indexStore.get(key, { type: 'json', consistency: 'strong' });
+  } catch {
+    // A missing or malformed pointer is repaired by the write below.
+  }
+  const existingMetadata = existing?.metadata && typeof existing.metadata === 'object'
+    ? existing.metadata
+    : {};
+  return writeConversationPointer(indexStore, user, {
+    ...existing,
+    ...values,
+    createdAt: existing?.createdAt || values?.createdAt,
+    lastMessageAt: values?.lastMessageAt || values?.now || Date.now(),
+    messageCount: Math.max(
+      pointerMessageCount(existing?.messageCount),
+      pointerMessageCount(values?.messageCount),
+    ),
+    metadata: { ...existingMetadata, ...(values?.metadata || {}) },
+    title: values?.title || existingMetadata.title || '',
+  });
 }
 
 async function blobOwnedPointers(indexStore, user) {

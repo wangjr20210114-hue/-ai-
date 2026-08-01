@@ -93,7 +93,19 @@ export async function bootstrapApp(
       body: JSON.stringify({ conversation_id: conversationId }),
       signal: controller.signal,
     });
-    if (response.ok) return response.json();
+    if (response.ok) {
+      const data = await response.json() as BootstrapData;
+      const messages = Array.isArray(data.messages) ? data.messages : [];
+      const firstUser = messages.find((item) => item?.role === 'user');
+      if (messages.length) {
+        void touchConversationIndex(
+          conversationId,
+          typeof firstUser?.content === 'string' ? firstUser.content : '',
+          messages.length,
+        ).catch(() => {});
+      }
+      return data;
+    }
     if (options.strict) {
       throw new Error(`Could not load Makers run (${response.status})`);
     }
@@ -158,6 +170,31 @@ export function createNewConversation(): ConversationSummary {
   };
 }
 
+export async function touchConversationIndex(
+  conversationId: string,
+  title = '',
+  messageCount = 0,
+): Promise<void> {
+  await requestJson('/conversations', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...makersConversationHeaders(conversationId),
+    },
+    body: JSON.stringify({
+      operation: 'touch_pointer',
+      conversation_id: conversationId,
+      title,
+      message_count: messageCount,
+    }),
+  });
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('yuanbao:conversation-saved', {
+      detail: { conversationId },
+    }));
+  }
+}
+
 export async function saveConversationMessage(
   conversationId: string,
   message: ChatMessage,
@@ -174,6 +211,10 @@ export async function saveConversationMessage(
       metadata: message,
     }),
   });
+  if (message.role === 'user') {
+    await touchConversationIndex(conversationId, message.content, 1);
+    return;
+  }
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('yuanbao:conversation-saved', {
       detail: { conversationId },

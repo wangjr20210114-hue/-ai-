@@ -1,6 +1,10 @@
 import { getStore } from '@edgeone/pages-blob';
 import { conversationIndexUserId, currentUser, scopedConversationId } from '../../auth/current-user.js';
-import { listUserConversations, writeConversationPointer } from '../conversation-index.js';
+import {
+  listUserConversations,
+  touchConversationPointer,
+  writeConversationPointer,
+} from '../conversation-index.js';
 
 const CONVERSATION_PREFIX = 'yb7_';
 
@@ -72,6 +76,24 @@ export async function onRequest(context) {
 
   if (request.method === 'POST') {
     const body = await request.json().catch(() => ({}));
+    if (body.operation === 'touch_pointer') {
+      let clientConversationId;
+      let conversationId;
+      try {
+        clientConversationId = normalizeConversationId(body.conversation_id);
+        conversationId = await scopedConversationId(user, clientConversationId);
+      } catch {
+        return json({ error: 'Invalid conversation id' }, 400);
+      }
+      const indexStore = context.__indexStore || getStore({ name: 'yuanbao-files', consistency: 'strong' });
+      const pointer = await touchConversationPointer(indexStore, user, {
+        conversationId,
+        clientConversationId,
+        title: String(body.title || '').trim() ? titleFromMessage(body.title) : '',
+        messageCount: Number(body.message_count || 0),
+      });
+      return json({ conversation: publicConversation(pointer) });
+    }
     if (body.operation !== 'append_message') return json({ error: 'Unsupported conversation operation' }, 400);
     let conversationId;
     let clientConversationId;

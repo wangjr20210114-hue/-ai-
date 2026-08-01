@@ -11,7 +11,7 @@ test('conversation, state, object and schedule infrastructure reuse EdgeOne Make
     read('agents/_application/chat/turn_service.py'),
     read('agents/_controllers/messages_controller.py'),
     read('cloud-functions/conversations/index.js'),
-    read('agents/_infrastructure/makers/conversation_index.py'),
+    read('cloud-functions/conversation-index.js'),
     read('cloud-functions/files/index.js'),
     read('edgeone.json'),
   ]);
@@ -21,7 +21,6 @@ test('conversation, state, object and schedule infrastructure reuse EdgeOne Make
   assert.match(messages, /langgraph_checkpointer\.aget_tuple/);
   assert.match(messages, /read_chat_run\(ctx\.store/);
   assert.match(conversationRoute, /@edgeone\/pages-blob/);
-  assert.match(conversationIndex, /from pages_blob import get_store/);
   assert.match(conversationRoute + conversationIndex, /conversation-index\/v1/);
   assert.match(files, /@edgeone\/pages-blob/);
   assert.match(config, /"schedules"/);
@@ -165,7 +164,7 @@ test('static acceptance site covers every release capability with executable det
 });
 
 test('reported acceptance regressions keep explicit implementation guards', async () => {
-  const [files, library, readerClient, chatError, chatTools, chatGraph, workspace, messageBubble, clarificationSubmission, capabilityPlan, chatAgent, styles] = await Promise.all([
+  const [files, library, readerClient, chatError, chatTools, chatGraph, workspace, messageBubble, clarificationSubmission, capabilityPlan, chatAgent, styles, chatClient, chatRuntime] = await Promise.all([
     read('cloud-functions/files/index.js'),
     read('cloud-functions/library/index.js'),
     read('frontend/src/services/paperApi.ts'),
@@ -178,6 +177,8 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
     read('agents/chat/_capability_plan.py'),
     read('agents/_application/chat/turn_service.py'),
     read('frontend/src/styles/reset.css'),
+    read('frontend/src/features/chat/model/client.ts'),
+    read('frontend/src/features/chat/controller/chatRuntime.ts'),
   ]);
   assert.match(files, /image\/png/);
   assert.match(library, /manual_folder/);
@@ -199,6 +200,9 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.match(chatAgent, /product-wide interaction capability/);
   assert.match(chatGraph, /required_or_question_tools/);
   assert.match(styles, /themeDiagonalReveal 280ms/);
+  assert.match(chatClient, /operation: 'touch_pointer'/);
+  assert.match(chatClient, /yuanbao:conversation-saved/);
+  assert.match(chatRuntime, /touchConversationIndex\(this\.conversationId/);
   assert.doesNotMatch(styles, /themeDiagonalReveal 1100ms/);
 });
 

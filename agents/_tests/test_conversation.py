@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from agents.conversation.index import handler
 from agents._infrastructure.makers.data_version import CONVERSATION_PREFIX
-from agents._tests.auth_helpers import InMemoryConversationIndexStore, auth_env, auth_headers
+from agents._tests.auth_helpers import auth_env, auth_headers
 
 
 class FakeConversationStore:
@@ -31,7 +31,6 @@ class ConversationRouteTests(unittest.IsolatedAsyncioTestCase):
             conversation_id="conversation-role", env=auth_env(),
             request=SimpleNamespace(body={"role": "ai", "content": "已恢复回答", "metadata": {"id": "client-ai-1"}}, headers=auth_headers()),
             store=store,
-            conversation_index_store=InMemoryConversationIndexStore(),
         )
         response = await handler(ctx)
         self.assertEqual(response, {"message_id": "native-message-1"})
@@ -46,16 +45,9 @@ class ConversationRouteTests(unittest.IsolatedAsyncioTestCase):
             conversation_id="conversation-title", env=auth_env(),
             request=SimpleNamespace(body={"role": "user", "content": "最近AI有什么新进展", "metadata": {"id": "client-user-1"}}, headers=auth_headers()),
             store=store,
-            conversation_index_store=InMemoryConversationIndexStore(),
         )
         await handler(ctx)
         self.assertEqual(store.metadata["title"], "最近AI有什么新进展")
-        pointer = next(iter(ctx.conversation_index_store.values.values()))
-        self.assertEqual(
-            pointer["metadata"]["owner_user_id"],
-            "floris:11111111-1111-4111-8111-111111111111",
-        )
-        self.assertEqual(pointer["metadata"]["tenant_id"], "floris")
 
 
 if __name__ == "__main__":

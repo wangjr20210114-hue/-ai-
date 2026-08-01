@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { MessagePlugin } from 'tdesign-react';
-import { bootstrapApp } from '../model/client';
+import { bootstrapApp, touchConversationIndex } from '../model/client';
 import { proactiveOperation } from '../../settings/model/client';
 import { authorizedFetch, ensureAuthSession } from '../../../shared/auth/session';
 import { presentableChatError } from '../../../services/chatError';
@@ -250,6 +250,10 @@ class SSEChatClient {
     };
 
     const clientMessage = message.payload?.client_message;
+    const clientMessageTitle = clientMessage && typeof clientMessage === 'object'
+      && typeof (clientMessage as Record<string, unknown>).content === 'string'
+      ? String((clientMessage as Record<string, unknown>).content)
+      : '';
     if (clientMessage && typeof clientMessage === 'object') {
       this.emit({ type: 'optimistic_user', payload: { message: clientMessage } });
     }
@@ -325,6 +329,7 @@ class SSEChatClient {
         for (const frame of parsed.frames) {
           if (frame === '[DONE]') {
             protocolDone = true;
+            void touchConversationIndex(this.conversationId, clientMessageTitle, 2).catch(() => {});
             finish();
             return;
           }

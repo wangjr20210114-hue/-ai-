@@ -54,13 +54,11 @@ from ..._application.intelligence.service import (
     skill_runtime_env,
 )
 from ..._infrastructure.makers.identity import conversation_index_user_id, require_user, scoped_conversation_id
-from ..._infrastructure.makers.conversation_index import persist_conversation_pointer
 from ..._domain.entitlements.policy import effective_skill_preferences
 from ..._domain.search.evidence import SearchEvidence
 from ..._infrastructure.makers.data_version import namespace as data_namespace
 from ..._infrastructure.makers.conversation_repository import (
     RUNNING_STATES,
-    conversation_title,
     ensure_conversation_title,
     is_stale,
     read_chat_run,
@@ -1376,14 +1374,6 @@ async def _handle(ctx):
                 user_id,
                 tenant_id=str(identity["tenant_id"]),
                 client_conversation_id=raw_conversation_id,
-            )
-            await persist_conversation_pointer(
-                user_id,
-                str(identity["tenant_id"]),
-                conversation_id,
-                raw_conversation_id,
-                title=conversation_title(message),
-                store=getattr(ctx, "conversation_index_store", None),
             )
         except Exception:
             # LangGraph checkpoints remain authoritative if generic conversation

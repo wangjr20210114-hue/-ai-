@@ -8,6 +8,7 @@ import {
   conversationItems,
   conversationPointerKey,
   listUserConversations,
+  touchConversationPointer,
   writeConversationPointer,
 } from '../conversation-index.js';
 import { onRequest } from './index.js';
@@ -114,13 +115,13 @@ test('uses a tenant-scoped Makers Blob pointer when native indexes are empty', a
     conversationId,
     clientConversationId: 'yb7_client-pointer',
     title: 'Pointer title',
-    now: 123,
+    now: 1_785_600_000_123,
   });
   const newer = await writeConversationPointer(indexStore, user, {
     conversationId: 'yb7_22222222222222222222222222222222',
     clientConversationId: 'yb7_client-newer',
     title: 'Newer pointer',
-    now: 456,
+    now: 1_785_600_000_456,
   });
   indexStore.values.set(
     `tenants/floris/users/guest-1/conversation-index/v1/yb7_33333333333333333333333333333333.json`,
@@ -140,6 +141,30 @@ test('uses a tenant-scoped Makers Blob pointer when native indexes are empty', a
     await listUserConversations(store, user, { indexStore }),
     [newer, expected],
   );
+});
+
+test('touching a pointer preserves its title and creation time', async () => {
+  const indexStore = new FakeIndexStore();
+  const conversationId = 'yb7_44444444444444444444444444444444';
+  const original = await writeConversationPointer(indexStore, user, {
+    conversationId,
+    clientConversationId: 'yb7_touch-client',
+    title: 'Original title',
+    messageCount: 1,
+    now: 1_785_600_001_123,
+  });
+  const touched = await touchConversationPointer(indexStore, user, {
+    conversationId,
+    clientConversationId: 'yb7_touch-client',
+    title: '',
+    messageCount: 3,
+    now: 1_785_600_001_456,
+  });
+
+  assert.equal(touched.metadata.title, 'Original title');
+  assert.equal(touched.createdAt, original.createdAt);
+  assert.equal(touched.messageCount, 3);
+  assert.ok(touched.lastMessageAt > original.lastMessageAt);
 });
 
 test('conversation route writes its sidebar pointer through Makers Blob', async () => {
@@ -172,6 +197,32 @@ test('conversation route writes its sidebar pointer through Makers Blob', async 
     'floris:11111111-1111-4111-8111-111111111111',
   );
   assert.match(store.appended.userId, /^uid_[0-9a-f]{40}$/);
+});
+
+test('touch_pointer writes through the unshadowed plural route', async () => {
+  const indexStore = new FakeIndexStore();
+  const request = await authenticatedRequest('https://example.com/conversations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      operation: 'touch_pointer',
+      conversation_id: 'yb7_plural-route',
+      title: 'Plural route title',
+      message_count: 2,
+    }),
+  });
+  const response = await onRequest({
+    request,
+    env: TEST_AUTH_ENV,
+    agent: { store: new FakeConversationRouteStore() },
+    __indexStore: indexStore,
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(indexStore.values.size, 1);
+  const pointer = [...indexStore.values.values()][0];
+  assert.equal(pointer.metadata.client_conversation_id, 'yb7_plural-route');
+  assert.equal(pointer.metadata.title, 'Plural route title');
 });
 
 test('recovers through the paged global Makers index without leaking another tenant', async () => {
