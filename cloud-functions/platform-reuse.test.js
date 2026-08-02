@@ -237,7 +237,10 @@ test('settings and Skills open on lightweight configuration reads', async () => 
       read('frontend/src/features/settings/controller/useSettingsController.ts'),
       read('frontend/src/features/settings/model/client.ts'),
     ]).then((sources) => sources.join('\n')),
-    read('frontend/src/features/skills/view/SkillsMarketplaceButton.tsx'),
+    Promise.all([
+      read('frontend/src/features/skills/view/SkillsMarketplaceButton.tsx'),
+      read('frontend/src/features/skills/view/SkillsMarketplaceShell.tsx'),
+    ]).then((sources) => sources.join('\n')),
     read('frontend/src/features/skills/controller/useSkillMarketplaceController.ts'),
     read('frontend/src/features/skills/model/client.ts'),
     read('agents/_controllers/intelligence_controller.py'),
@@ -296,7 +299,10 @@ test('new multi-user and Skill surfaces follow the layered MVC boundary', async 
     read('agents/_controllers/skills_controller.py'),
     read('agents/_models/skill_marketplace.py'),
     read('agents/_views/skill_marketplace.py'),
-    read('frontend/src/features/skills/view/SkillsMarketplaceButton.tsx'),
+    Promise.all([
+      read('frontend/src/features/skills/view/SkillsMarketplaceButton.tsx'),
+      read('frontend/src/features/skills/view/SkillsMarketplaceShell.tsx'),
+    ]).then((sources) => sources.join('\n')),
     read('frontend/src/features/skills/controller/useSkillMarketplaceController.ts'),
     read('frontend/src/features/skills/model.ts'),
   ]);

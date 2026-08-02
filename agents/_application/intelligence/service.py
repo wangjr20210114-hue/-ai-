@@ -23,6 +23,15 @@ BEIJING = timezone(timedelta(hours=8))
 DEFAULT_SKILL_PREFERENCES = default_skill_preferences()
 LOCKED_SKILL_IDS = locked_skill_ids()
 
+MAX_USER_SKILL_INSTRUCTIONS = 12_000
+USER_SKILL_SOURCE_TYPES = frozenset({
+    "file",
+    "folder",
+    "package",
+    "paste",
+    "url",
+})
+
 DEFAULT_MAP_PREFERENCES = {
     # Fast/balanced/complete control the provider concurrency and total search
     # budget. Concrete limits remain explicit so users can tune the main
@@ -114,7 +123,127 @@ def empty_intelligence_state() -> dict[str, Any]:
         "map_preferences": copy.deepcopy(DEFAULT_MAP_PREFERENCES),
         "skill_preferences": copy.deepcopy(DEFAULT_SKILL_PREFERENCES),
         "skill_connections": {},
+        "user_skills": {},
     }
+
+
+def _user_skill_id(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")[:36]
+    digest = hashlib.sha256(name.casefold().encode("utf-8")).hexdigest()[:10]
+    return f"user-{slug or 'skill'}-{digest}"
+
+
+def _normalize_user_skill_record(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    name = str(value.get("name") or "").strip()[:80]
+    instructions = str(value.get("instructions") or "").strip()
+    if not name or not instructions:
+        return None
+    source_type = str(value.get("source_type") or "paste").strip()
+    if source_type not in USER_SKILL_SOURCE_TYPES:
+        source_type = "paste"
+    installed_at = max(0, int(value.get("installed_at") or 0))
+    updated_at = max(installed_at, int(value.get("updated_at") or installed_at))
+    return {
+        "id": _user_skill_id(name),
+        "name": name,
+        "description": str(value.get("description") or "").strip()[:280],
+        "instructions": instructions[:MAX_USER_SKILL_INSTRUCTIONS],
+        "source_type": source_type,
+        "source_url": str(value.get("source_url") or "").strip()[:1000],
+        "enabled": bool(value.get("enabled", True)),
+        "installed_at": installed_at,
+        "updated_at": updated_at,
+        "review_status": "not_submitted",
+    }
+
+
+def normalize_user_skills(value: Any) -> dict[str, dict[str, Any]]:
+    source = value if isinstance(value, dict) else {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for candidate in list(source.values())[:100]:
+        record = _normalize_user_skill_record(candidate)
+        if record is not None:
+            normalized[record["id"]] = record
+    return normalized
+
+
+def install_user_skill(
+    state: dict[str, Any],
+    payload: Any,
+    *,
+    limit: int,
+    now_ms: int | None = None,
+) -> dict[str, Any]:
+    """Install a model-only user Skill without accepting executable adapters."""
+    if not isinstance(payload, dict):
+        raise ValueError("User Skill payload must be an object")
+    timestamp = int(now_ms if now_ms is not None else time.time() * 1000)
+    record = _normalize_user_skill_record({
+        **payload,
+        "installed_at": payload.get("installed_at") or timestamp,
+        "updated_at": timestamp,
+        "enabled": True,
+    })
+    if record is None:
+        raise ValueError("User Skill needs a name and non-empty instructions")
+    skills = normalize_user_skills(state.get("user_skills"))
+    if record["id"] not in skills and len(skills) >= max(0, int(limit)):
+        raise ValueError("User Skill limit reached for the current plan")
+    previous = skills.get(record["id"])
+    if previous:
+        record["installed_at"] = int(previous.get("installed_at") or timestamp)
+    skills[record["id"]] = record
+    state["user_skills"] = skills
+    return copy.deepcopy(record)
+
+
+def set_user_skill_enabled(
+    state: dict[str, Any],
+    skill_id: str,
+    enabled: bool,
+) -> dict[str, Any]:
+    skills = normalize_user_skills(state.get("user_skills"))
+    clean_id = str(skill_id or "").strip()
+    if clean_id not in skills:
+        raise ValueError("User Skill does not exist")
+    skills[clean_id]["enabled"] = bool(enabled)
+    skills[clean_id]["updated_at"] = int(time.time() * 1000)
+    state["user_skills"] = skills
+    return copy.deepcopy(skills[clean_id])
+
+
+def remove_user_skill(state: dict[str, Any], skill_id: str) -> None:
+    skills = normalize_user_skills(state.get("user_skills"))
+    clean_id = str(skill_id or "").strip()
+    if clean_id not in skills:
+        raise ValueError("User Skill does not exist")
+    del skills[clean_id]
+    state["user_skills"] = skills
+
+
+def user_skill_prompt_context(state: dict[str, Any]) -> str:
+    """Render bounded, lower-trust model-only preferences for answer synthesis."""
+    enabled = [
+        item
+        for item in normalize_user_skills(state.get("user_skills")).values()
+        if item.get("enabled")
+    ][:20]
+    if not enabled:
+        return ""
+    chunks = []
+    remaining = 18_000
+    for item in enabled:
+        text = str(item.get("instructions") or "").strip()
+        chunk = f"[{item['name']}]\n{text}"[:remaining]
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+        if remaining <= 0:
+            break
+    return "\n\n".join(chunks)
 
 
 def _value(item: Any) -> dict[str, Any] | None:
@@ -177,6 +306,7 @@ async def load_intelligence_state(store: Any, user_id: str = "") -> dict[str, An
         )
         for skill_id, enabled in DEFAULT_SKILL_PREFERENCES.items()
     }
+    state["user_skills"] = normalize_user_skills(state.get("user_skills"))
     connections = state.get("skill_connections")
     if not isinstance(connections, dict):
         connections = {}
@@ -683,6 +813,11 @@ def public_intelligence_state(state: dict[str, Any]) -> dict[str, Any]:
         }),
         "map_preferences": normalize_map_preferences(state.get("map_preferences")),
         "skill_preferences": copy.deepcopy(state.get("skill_preferences") or DEFAULT_SKILL_PREFERENCES),
+        "user_skills": sorted(
+            normalize_user_skills(state.get("user_skills")).values(),
+            key=lambda item: int(item.get("updated_at") or 0),
+            reverse=True,
+        ),
         "rule_proposals": sorted(state.get("rule_proposals", {}).values(), key=lambda item: int(item.get("updated_at") or 0), reverse=True),
         "feedback_count": len(state.get("feedback") or []),
         "usage": usage_summary(state),

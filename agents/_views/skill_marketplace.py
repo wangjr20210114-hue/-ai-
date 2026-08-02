@@ -15,6 +15,7 @@ def marketplace_view(
     dependency_graph: Mapping[str, Any],
     component_api: Mapping[str, Any],
     connections: Mapping[str, Any],
+    user_skills: list[dict[str, Any]],
     identity: Mapping[str, Any],
 ) -> dict[str, Any]:
     return {
@@ -24,6 +25,7 @@ def marketplace_view(
         "dependency_graph": dict(dependency_graph),
         "component_api": dict(component_api),
         "connections": dict(connections),
+        "user_skills": list(user_skills),
         "identity": dict(identity),
     }
 

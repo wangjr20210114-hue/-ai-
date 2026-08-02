@@ -6,10 +6,12 @@ import {
   downloadSkillPackage,
   listSkillUploads,
   skillMarketplaceOperation,
-  uploadSkillPackage,
 } from '../model/client';
+import { syncMarketplaceAuth } from '../model/authSync';
+import { usePrivateSkillsController } from './usePrivateSkillsController';
 import { intelligenceOperation } from '../../settings/model/client';
 import {
+  type AuthSession,
   openAuthDialog,
 } from '../../../shared/auth/session';
 import { useAppState } from '../../../store/appState';
@@ -17,7 +19,6 @@ import type {
   InstalledSkill,
   SkillConnectionState,
   SkillMarketplaceState,
-  SkillUploadRecord,
 } from '../../../shared/types';
 import {
   filterMarketplaceSkills,
@@ -65,13 +66,14 @@ export function useSkillMarketplaceController() {
   const [marketplace, setMarketplace] = useState<SkillMarketplaceState | null>(null);
   const [preferences, setPreferences] = useState<Record<string, boolean>>({});
   const [connections, setConnections] = useState<Record<string, SkillConnectionState>>({});
-  const [uploads, setUploads] = useState<SkillUploadRecord[]>([]);
+  const privateSkills = usePrivateSkillsController(conversationId);
+  const { setUploads, setUserSkills, uploads, userSkills } = privateSkills;
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState('');
   const [tokenDrafts, setTokenDrafts] = useState<Record<string, string>>({});
-  const uploadRef = useRef<HTMLInputElement>(null);
   const suppressOpenUntilRef = useRef(0);
+  const refreshSequenceRef = useRef(0);
 
   const catalog = useMemo(
     () => marketplace?.skills || [],
@@ -91,25 +93,30 @@ export function useSkillMarketplaceController() {
   );
 
   const refresh = useCallback(async (): Promise<boolean> => {
+    const sequence = ++refreshSequenceRef.current;
     setLoading(true);
     try {
       const result = await skillMarketplaceOperation(conversationId);
+      if (sequence !== refreshSequenceRef.current) return false;
       setMarketplace(result);
       setPreferences(result.preferences);
       setConnections(result.connections || {});
-      setUploads(
+      setUserSkills(result.user_skills || []);
+      const nextUploads = (
         result.identity.auth_type !== 'guest'
           ? await listSkillUploads().catch(() => [])
-          : [],
+          : []
       );
+      if (sequence !== refreshSequenceRef.current) return false;
+      setUploads(nextUploads);
       return true;
     } catch {
       MessagePlugin.error(t('skillsReadFailed'));
       return false;
     } finally {
-      setLoading(false);
+      if (sequence === refreshSequenceRef.current) setLoading(false);
     }
-  }, [conversationId, t]);
+  }, [conversationId, setUploads, setUserSkills, t]);
 
   const openMarketplace = useCallback(() => {
     if (Date.now() < suppressOpenUntilRef.current) return;
@@ -130,6 +137,20 @@ export function useSkillMarketplaceController() {
     window.addEventListener('yuanbao:open-skills', open);
     return () => window.removeEventListener('yuanbao:open-skills', open);
   }, [openMarketplace]);
+
+  useEffect(() => {
+    const changed = (event: Event) => {
+      const session = (event as CustomEvent<AuthSession>).detail;
+      setMarketplace((current) => syncMarketplaceAuth(current, session));
+      if (session.identity.auth_type === 'guest') {
+        setUploads([]);
+        setUserSkills([]);
+      }
+      if (visible) void refresh();
+    };
+    window.addEventListener('floris:auth-changed', changed);
+    return () => window.removeEventListener('floris:auth-changed', changed);
+  }, [refresh, setUploads, setUserSkills, visible]);
 
   useEffect(() => {
     if (!visible) return undefined;
@@ -222,26 +243,6 @@ export function useSkillMarketplaceController() {
     }
   };
 
-  const upload = async (file?: File) => {
-    if (!file) return;
-    setSavingId('upload');
-    try {
-      const record = await uploadSkillPackage(file);
-      setUploads((current) => [
-        record,
-        ...current.filter((item) => item.id !== record.id),
-      ]);
-      MessagePlugin.success(t('skillUploadSubmitted'));
-    } catch (error) {
-      MessagePlugin.error(String(
-        (error as Error)?.message || t('skillUploadFailed'),
-      ));
-    } finally {
-      setSavingId('');
-      if (uploadRef.current) uploadRef.current.value = '';
-    }
-  };
-
   const download = async (skillId: string) => {
     try {
       await downloadSkillPackage(conversationId, skillId);
@@ -269,7 +270,7 @@ export function useSkillMarketplaceController() {
     refresh,
     save,
     saveConnection,
-    savingId,
+    savingId: savingId || privateSkills.savingId,
     setQuery,
     setTokenDrafts,
     setView,
@@ -277,9 +278,18 @@ export function useSkillMarketplaceController() {
     skillText,
     t,
     tokenDrafts,
-    upload,
-    uploadRef,
+    importFile: privateSkills.importFile,
+    importFolder: privateSkills.importFolder,
+    importText: privateSkills.importText,
+    importUrl: privateSkills.importUrl,
+    publishArchive: privateSkills.publishArchive,
+    publishUserSkill: privateSkills.publishUserSkill,
+    removeUserSkill: privateSkills.removeUserSkill,
+    setUserSkillEnabled: privateSkills.setUserSkillEnabled,
+    uploadArchive: privateSkills.uploadArchive,
+    uploadRef: privateSkills.uploadRef,
     uploads,
+    userSkills,
     view,
     visible,
     visibleSkills,

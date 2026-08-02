@@ -43,7 +43,7 @@ export async function onRequest(context) {
   let user;
   try { user = await currentUser(request, env); } catch { return json({ error: 'Unauthorized' }, 401); }
   if (user.auth_type === 'guest') {
-    return json({ error: '请先登录后上传 Skill', code: 'LOGIN_REQUIRED' }, 403);
+    return json({ error: '请先登录后管理私有 Skill', code: 'LOGIN_REQUIRED' }, 403);
   }
   const prefix = tenantPrefix(user);
   const store = context.__store || getStore({ name: STORE_NAME, consistency: 'strong' });
@@ -56,6 +56,41 @@ export async function onRequest(context) {
   const operation = String(body.operation || 'create');
   const limit = Number(publicEntitlements(user).limits.userSkillUploads || 0);
   const existing = await records(store, prefix);
+
+  if (operation === 'publish_declarative') {
+    const sourceSkillId = String(body.source_skill_id || '').trim();
+    const instructions = String(body.instructions || '').trim();
+    if (!/^user-[a-z0-9-]{8,80}$/.test(sourceSkillId) || !instructions) {
+      return json({ error: '无效的声明式 Skill', code: 'INVALID_SKILL' }, 400);
+    }
+    if (instructions.length > 12_000) {
+      return json({ error: 'Skill 说明不能超过 12000 字符', code: 'SKILL_TOO_LARGE' }, 400);
+    }
+    if (
+      !existing.some((item) => item.id === sourceSkillId)
+      && existing.length >= limit
+    ) {
+      return json({ error: '已达到当前会员等级的 Skill 数量上限', code: 'UPLOAD_LIMIT' }, 403);
+    }
+    const record = {
+      id: sourceSkillId,
+      source_skill_id: sourceSkillId,
+      name: safeName(body.name || 'Private Skill'),
+      description: String(body.description || '').trim().slice(0, 280),
+      instructions,
+      storage_key: '',
+      status: 'stored',
+      visibility: 'private',
+      review_status: 'pending_review',
+      review_available: true,
+      source_type: 'declarative',
+      size: new TextEncoder().encode(instructions).byteLength,
+      installed_at: Number(body.installed_at || Date.now()),
+      review_requested_at: Date.now(),
+    };
+    await store.setJSON(`${prefix}user-skills/records/${sourceSkillId}.json`, record);
+    return json({ upload: record });
+  }
 
   if (operation === 'create') {
     if (existing.length >= limit) {
@@ -74,7 +109,7 @@ export async function onRequest(context) {
       return json({ error: 'Skill 包大小必须在 1B 到 2MB 之间' }, 400);
     }
     const uploadId = crypto.randomUUID();
-    const storageKey = `${prefix}user-skills/pending/${uploadId}-${name}`;
+    const storageKey = `${prefix}user-skills/private/${uploadId}-${name}`;
     const upload = await store.createUploadUrl(storageKey, {
       expireSeconds: 600,
       contentType,
@@ -91,7 +126,7 @@ export async function onRequest(context) {
     const storageKey = String(body.storage_key || '');
     if (
       !/^[0-9a-f-]{36}$/i.test(uploadId)
-      || !storageKey.startsWith(`${prefix}user-skills/pending/${uploadId}-`)
+      || !storageKey.startsWith(`${prefix}user-skills/private/${uploadId}-`)
     ) {
       return json({ error: '无效 Skill 上传标识' }, 400);
     }
@@ -101,13 +136,35 @@ export async function onRequest(context) {
       id: uploadId,
       name: safeName(body.name),
       storage_key: storageKey,
-      status: 'pending_review',
-      review_available: false,
+      status: 'stored',
+      visibility: 'private',
+      review_status: 'not_submitted',
+      review_available: true,
+      source_type: 'zip',
       size: Number(metadata.size || 0),
-      submitted_at: Date.now(),
+      installed_at: Date.now(),
     };
     await store.setJSON(`${prefix}user-skills/records/${uploadId}.json`, record);
     return json({ upload: record });
+  }
+  if (operation === 'publish') {
+    const uploadId = String(body.upload_id || '');
+    const record = existing.find((item) => String(item.id || '') === uploadId);
+    if (
+      !record
+      || !String(record.storage_key || '').startsWith(`${prefix}user-skills/`)
+    ) {
+      return json({ error: '私有 Skill 包不存在', code: 'SKILL_NOT_FOUND' }, 404);
+    }
+    const updated = {
+      ...record,
+      visibility: 'private',
+      review_status: 'pending_review',
+      review_available: true,
+      review_requested_at: Date.now(),
+    };
+    await store.setJSON(`${prefix}user-skills/records/${uploadId}.json`, updated);
+    return json({ upload: updated });
   }
   return json({ error: 'Unsupported operation' }, 400);
 }

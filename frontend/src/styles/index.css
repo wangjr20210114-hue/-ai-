@@ -3,6 +3,7 @@
 @import "../styles/feedback.css";
 @import "../styles/layout.css";
 @import "../features/auth/styles.css";
+@import "../features/auth/account.css";
 @import "../features/chat/styles.css";
 @import "../features/search/styles.css";
 @import "../features/chat/markdown.css";
@@ -31,6 +32,8 @@
 @import "../features/skills/styles.css";
 @import "../shared/ui/overlays.css";
 @import "../features/skills/page.css";
+@import "../features/skills/catalog.css";
+@import "../features/skills/import.css";
 @import "../features/chat/proactive-history.css";
 @import "../features/settings/responsive.css";
 @import "../features/chat/history-controls.css";

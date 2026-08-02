@@ -67,7 +67,7 @@ test('guest identity cannot upload or execute user Skills', async () => {
   assert.equal((await response.json()).code, 'LOGIN_REQUIRED');
 });
 
-test('presigned upload and review record remain inside the authenticated tenant prefix', async () => {
+test('presigned ZIP remains private until its owner requests marketplace review', async () => {
   const store = new FakeStore();
   const createResponse = await onRequest({
     request: await post({
@@ -81,7 +81,7 @@ test('presigned upload and review record remain inside the authenticated tenant 
   });
   assert.equal(createResponse.status, 200);
   const created = await createResponse.json();
-  assert.ok(created.storage_key.startsWith(`${PREFIX}user-skills/pending/`));
+  assert.ok(created.storage_key.startsWith(`${PREFIX}user-skills/private/`));
   assert.equal(created.storage_key.includes('..'), false);
 
   const completeResponse = await onRequest({
@@ -96,9 +96,25 @@ test('presigned upload and review record remain inside the authenticated tenant 
   });
   assert.equal(completeResponse.status, 200);
   const completed = (await completeResponse.json()).upload;
-  assert.equal(completed.status, 'pending_review');
-  assert.equal(completed.review_available, false);
+  assert.equal(completed.status, 'stored');
+  assert.equal(completed.visibility, 'private');
+  assert.equal(completed.review_status, 'not_submitted');
+  assert.equal(completed.review_available, true);
   assert.ok(completed.storage_key.startsWith(PREFIX));
+
+  const publishResponse = await onRequest({
+    request: await post({
+      operation: 'publish',
+      upload_id: completed.id,
+    }),
+    env: TEST_AUTH_ENV,
+    __store: store,
+  });
+  assert.equal(publishResponse.status, 200);
+  const published = (await publishResponse.json()).upload;
+  assert.equal(published.visibility, 'private');
+  assert.equal(published.review_status, 'pending_review');
+  assert.ok(published.review_requested_at > 0);
 
   const listResponse = await onRequest({
     request: await authenticatedRequest('https://example.com/skill-uploads'),
@@ -114,11 +130,33 @@ test('a user cannot complete a package key from another tenant namespace', async
     request: await post({
       operation: 'complete',
       upload_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      storage_key: 'tenants/floris/users/other/user-skills/pending/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa-stolen.zip',
+      storage_key: 'tenants/floris/users/other/user-skills/private/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa-stolen.zip',
       name: 'stolen.zip',
     }),
     env: TEST_AUTH_ENV,
     __store: new FakeStore(),
   });
   assert.equal(response.status, 400);
+});
+
+test('declarative Skill enters review only after an explicit marketplace request', async () => {
+  const store = new FakeStore();
+  const response = await onRequest({
+    request: await post({
+      operation: 'publish_declarative',
+      source_skill_id: 'user-writer-1234567890',
+      name: 'Writer',
+      description: 'Short answers',
+      instructions: 'Use concise paragraphs.',
+      installed_at: 1234,
+    }),
+    env: TEST_AUTH_ENV,
+    __store: store,
+  });
+  assert.equal(response.status, 200);
+  const record = (await response.json()).upload;
+  assert.equal(record.source_type, 'declarative');
+  assert.equal(record.visibility, 'private');
+  assert.equal(record.review_status, 'pending_review');
+  assert.equal(record.source_skill_id, 'user-writer-1234567890');
 });

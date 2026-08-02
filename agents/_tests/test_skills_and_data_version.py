@@ -6,7 +6,13 @@ from types import SimpleNamespace
 from agents._infrastructure.makers.identity import AuthError, scoped_conversation_id
 from agents._application.skills.component_api import public_component_api
 from agents._infrastructure.makers.data_version import CONVERSATION_PREFIX, DATA_GENERATION
-from agents._application.intelligence.service import DEFAULT_SKILL_PREFERENCES, empty_intelligence_state
+from agents._application.intelligence.service import (
+    DEFAULT_SKILL_PREFERENCES,
+    empty_intelligence_state,
+    install_user_skill,
+    set_user_skill_enabled,
+    user_skill_prompt_context,
+)
 from agents._application.proactive.service import proactive_namespace
 from agents._application.workspace.service import _namespace as workspace_namespace
 from agents._infrastructure.skills.builtin_operations import build_system_skill_tools
@@ -46,6 +52,23 @@ class SkillAndDataVersionTests(unittest.TestCase):
         self.assertEqual(state["skill_preferences"], DEFAULT_SKILL_PREFERENCES)
         self.assertTrue(all(state["skill_preferences"].values()))
 
+    def test_private_user_skills_are_bounded_model_only_preferences(self):
+        state = empty_intelligence_state()
+        record = install_user_skill(state, {
+            "name": "Research helper",
+            "description": "Prefer primary sources",
+            "instructions": "Cite primary papers and keep the answer concise.",
+            "source_type": "paste",
+            "adapter": "untrusted.module",
+        }, limit=3, now_ms=1234)
+
+        self.assertTrue(record["id"].startswith("user-research-helper-"))
+        self.assertNotIn("adapter", record)
+        self.assertIn("primary papers", user_skill_prompt_context(state))
+
+        set_user_skill_enabled(state, record["id"], False)
+        self.assertEqual(user_skill_prompt_context(state), "")
+
     def test_tool_factory_has_no_implicit_single_user_identity(self):
         with self.assertRaises(AuthError):
             build_system_skill_tools(object())
@@ -76,6 +99,24 @@ class SkillAndDataVersionTests(unittest.TestCase):
 
 
 class SkillPreferenceEndpointTests(unittest.IsolatedAsyncioTestCase):
+    async def test_authenticated_user_can_install_private_declarative_skill(self):
+        store = FakeStore()
+        ctx = authenticated_context(SimpleNamespace(
+            request=SimpleNamespace(body={
+                "operation": "install_user_skill",
+                "skill": {
+                    "name": "Writer",
+                    "instructions": "Use short paragraphs.",
+                    "source_type": "file",
+                },
+            }, headers={}),
+            store=SimpleNamespace(langgraph_store=store),
+        ))
+        response = await intelligence_handler(ctx)
+        self.assertEqual(len(response["user_skills"]), 1)
+        self.assertEqual(response["user_skills"][0]["name"], "Writer")
+        self.assertTrue(response["user_skills"][0]["enabled"])
+
     async def test_locked_proactive_skill_cannot_be_disabled(self):
         store = FakeStore()
         ctx = authenticated_context(SimpleNamespace(

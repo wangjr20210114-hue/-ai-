@@ -15,12 +15,16 @@ from .._application.intelligence.service import (
     normalize_map_preferences,
     configure_skill_connection,
     disconnect_skill_connection,
+    install_user_skill,
+    remove_user_skill,
+    set_user_skill_enabled,
 )
 from .._application.proactive.service import load_proactive_state, save_proactive_state, update_preferences
 from .._infrastructure.makers.identity import require_user
 from .._domain.entitlements.policy import (
     allowed_skill_ids,
     effective_skill_preferences,
+    public_entitlements,
 )
 from .._infrastructure.http import error
 from .._application.skills.registry import (
@@ -194,6 +198,32 @@ async def handler(ctx):
                 state,
                 str(body.get("skill_id") or ""),
             )
+        elif operation in {
+            "install_user_skill",
+            "set_user_skill_enabled",
+            "remove_user_skill",
+        }:
+            if str(identity.get("auth_type") or "guest") == "guest":
+                raise ValueError("Sign in before managing private Skills")
+            if operation == "install_user_skill":
+                limits = public_entitlements(identity).get("limits") or {}
+                install_user_skill(
+                    state,
+                    body.get("skill"),
+                    limit=int(
+                        limits.get("user_skill_uploads")
+                        or limits.get("userSkillUploads")
+                        or 0
+                    ),
+                )
+            elif operation == "set_user_skill_enabled":
+                set_user_skill_enabled(
+                    state,
+                    str(body.get("skill_id") or ""),
+                    bool(body.get("enabled")),
+                )
+            else:
+                remove_user_skill(state, str(body.get("skill_id") or ""))
         elif operation == "clear_memories":
             state["memories"] = {}
             state["memory_proposals"] = {}

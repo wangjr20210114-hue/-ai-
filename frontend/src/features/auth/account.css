@@ -1,0 +1,9 @@
+.header-account { display: flex; max-width: 140px; height: 32px; padding: 3px 9px 3px 4px; align-items: center; gap: 7px; border: 1px solid var(--app-border); border-radius: 999px; color: var(--app-text-2); background: var(--app-panel); transition: color 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 220ms ease, transform 180ms var(--motion-ease-out); }
+.header-account.is-guest { border-color: color-mix(in srgb, var(--td-brand-color) 28%, var(--app-border)); color: var(--td-brand-color); cursor: pointer; }
+.header-account:hover { border-color: color-mix(in srgb, var(--td-brand-color) 52%, var(--app-border)); background: color-mix(in srgb, var(--app-panel) 92%, var(--td-brand-color) 8%); box-shadow: 0 8px 22px rgba(var(--app-accent-rgb), .12); transform: translateY(-1px); }
+.header-account:active { transform: translateY(0) scale(.98); }
+.header-account:focus-visible { outline: 3px solid rgba(var(--app-accent-rgb), .18); outline-offset: 2px; }
+.header-account img, .header-account > span { display: grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; border-radius: 50%; background: rgba(var(--app-accent-rgb), .12); font-size: 10px; transition: transform 220ms var(--motion-ease-out); }
+.header-account:hover img, .header-account:hover > span { transform: scale(1.06); }
+.header-account img { object-fit: cover; }
+.header-account b { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }

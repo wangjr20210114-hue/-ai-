@@ -3,6 +3,7 @@ import { requestRaw } from '../../../shared/transport/httpClient';
 import type {
   SkillMarketplaceState,
   SkillUploadRecord,
+  UserSkillRecord,
 } from '../../../shared/types';
 
 
@@ -70,7 +71,7 @@ export async function listSkillUploads(): Promise<SkillUploadRecord[]> {
   return data.uploads;
 }
 
-export async function uploadSkillPackage(file: File): Promise<SkillUploadRecord> {
+export async function uploadPrivateSkillPackage(file: File): Promise<SkillUploadRecord> {
   const intent = await requestJson<{
     upload_id?: string;
     storage_key?: string;
@@ -107,6 +108,41 @@ export async function uploadSkillPackage(file: File): Promise<SkillUploadRecord>
       }),
     },
   );
-  if (!result.upload) throw new Error('Could not submit Skill for review');
+  if (!result.upload) throw new Error('Could not store private Skill package');
+  return result.upload;
+}
+
+export async function requestMarketplaceReview(uploadId: string): Promise<SkillUploadRecord> {
+  const result = await requestJson<{ upload?: SkillUploadRecord }>(
+    '/skill-uploads',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operation: 'publish', upload_id: uploadId }),
+    },
+  );
+  if (!result.upload) throw new Error('Could not request marketplace review');
+  return result.upload;
+}
+
+export async function requestUserSkillMarketplaceReview(
+  skill: UserSkillRecord,
+): Promise<SkillUploadRecord> {
+  const result = await requestJson<{ upload?: SkillUploadRecord }>(
+    '/skill-uploads',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'publish_declarative',
+        source_skill_id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        instructions: skill.instructions,
+        installed_at: skill.installed_at,
+      }),
+    },
+  );
+  if (!result.upload) throw new Error('Could not request marketplace review');
   return result.upload;
 }

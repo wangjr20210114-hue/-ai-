@@ -158,6 +158,7 @@ export interface MakersIntelligenceState {
   skill_preferences?: Record<string, boolean>;
   skill_catalog?: InstalledSkill[];
   skill_connections?: Record<string, SkillConnectionState>;
+  user_skills?: UserSkillRecord[];
   providers?: Record<string, boolean>;
   rule_proposals: ProactiveRuleProposal[];
   feedback_count: number;
@@ -233,6 +234,7 @@ export interface SkillMarketplaceState {
   skills: InstalledSkill[];
   preferences: Record<string, boolean>;
   connections: Record<string, SkillConnectionState>;
+  user_skills: UserSkillRecord[];
   entitlements: {
     plan: 'guest' | 'free' | 'plus' | 'pro';
     limits: Record<string, string | number>;
@@ -256,10 +258,31 @@ export interface SkillUploadRecord {
   id: string;
   name: string;
   storage_key: string;
-  status: 'pending_review' | 'approved' | 'rejected';
+  status: 'stored' | 'pending_review' | 'approved' | 'rejected';
+  visibility?: 'private' | 'marketplace';
+  review_status?: 'not_submitted' | 'pending_review' | 'approved' | 'rejected';
   review_available: boolean;
+  source_type?: 'zip' | 'declarative';
+  source_skill_id?: string;
+  description?: string;
+  instructions?: string;
   size: number;
-  submitted_at: number;
+  installed_at?: number;
+  submitted_at?: number;
+  review_requested_at?: number;
+}
+
+export interface UserSkillRecord {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  source_type: 'file' | 'folder' | 'package' | 'paste' | 'url';
+  source_url: string;
+  enabled: boolean;
+  installed_at: number;
+  updated_at: number;
+  review_status: 'not_submitted';
 }
 
 export interface SkillConnectionState {

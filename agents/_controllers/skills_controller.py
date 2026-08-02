@@ -13,6 +13,7 @@ from .._domain.entitlements.policy import effective_skill_preferences, public_en
 from .._application.intelligence.service import (
     load_intelligence_state,
     public_skill_connections,
+    public_intelligence_state,
     skill_runtime_env,
 )
 from .._application.skills.registry import (
@@ -63,5 +64,6 @@ async def handle_skills(ctx):
         dependency_graph=skill_dependency_graph(),
         component_api=public_component_api(),
         connections=public_skill_connections(state),
+        user_skills=public_intelligence_state(state).get("user_skills") or [],
         identity=marketplace_identity(identity),
     )
