@@ -48,8 +48,8 @@
 .skills-page-back:hover { color: var(--td-brand-color); background: rgba(var(--app-accent-rgb), .09); transform: translateX(-2px); }
 .skills-page-brand { display: flex; align-items: center; gap: 11px; }
 .skills-page-brand > div { display: grid; text-align: left; }
-.skills-page-brand strong { font-size: 14px; letter-spacing: -.01em; }
-.skills-page-brand small { margin-top: 2px; color: var(--app-text-3); font-size: 10px; }
+.skills-page-brand strong { font-family: var(--app-display-font-family); font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
+.skills-page-brand small { margin-top: 2px; color: var(--app-text-3); font-size: 12px; }
 .skills-page-logo {
   display: grid;
   place-items: center;
@@ -63,7 +63,7 @@
   font-weight: 800;
   animation: skills-logo-arrive 560ms 80ms var(--motion-ease-out) both;
 }
-.skills-page-account { justify-self: end; display: flex; align-items: center; gap: 9px; color: var(--app-text-2); font-size: 12px; }
+.skills-page-account { justify-self: end; display: flex; align-items: center; gap: 9px; color: var(--app-text-2); font-size: 13px; }
 .skills-page-account img, .skills-page-account-avatar { width: 27px; height: 27px; border-radius: 50%; object-fit: cover; }
 .skills-page-account-avatar { display: grid; place-items: center; color: var(--td-brand-color); background: rgba(var(--app-accent-rgb), .11); font-weight: 750; }
 .skills-page-layout { position: relative; z-index: 1; min-height: 0; flex: 1; display: grid; grid-template-columns: 236px minmax(0, 1fr); }
@@ -87,6 +87,8 @@
   border-radius: 12px;
   color: var(--app-text-2);
   background: transparent;
+  font-size: 14px;
+  font-weight: 500;
   text-align: left;
   transition: color 180ms ease, background 180ms ease, transform 220ms var(--motion-ease-out);
 }
@@ -97,14 +99,14 @@
 .skills-page-nav > button.is-active::before { opacity: 1; transform: scaleY(1); }
 .skills-page-nav > button.is-active span { color: var(--td-brand-color); transform: scale(1.08); }
 .skills-page-nav-note { display: grid; gap: 6px; margin-top: auto; padding: 15px; border: 1px solid var(--app-border); border-radius: 14px; background: color-mix(in srgb, var(--app-panel) 88%, transparent); box-shadow: 0 12px 30px rgb(15 23 42 / 4%); }
-.skills-page-nav-note strong { color: var(--td-brand-color); font-size: 11px; }
-.skills-page-nav-note span { color: var(--app-text-3); font-size: 10px; line-height: 1.6; }
+.skills-page-nav-note strong { color: var(--td-brand-color); font-size: 13px; }
+.skills-page-nav-note span { color: var(--app-text-3); font-size: 12px; line-height: 1.6; }
 .skills-page-main { min-width: 0; overflow: auto; padding: 36px clamp(24px, 4vw, 64px) 64px; scroll-behavior: smooth; }
 .skills-page-view { min-height: 100%; animation: skills-view-enter 320ms var(--motion-ease-out) both; }
 .skills-page-section { max-width: 1060px; margin: 0 auto; }
-.skills-page-eyebrow { color: var(--td-brand-color); font-size: 10px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
-.skills-page-section h1 { margin: 8px 0 9px; font-size: clamp(27px, 3vw, 39px); line-height: 1.08; letter-spacing: -.035em; }
-.skills-page-section > p { max-width: 720px; margin: 0; color: var(--app-text-2); font-size: 13px; line-height: 1.75; }
+.skills-page-eyebrow { color: var(--td-brand-color); font-size: 12px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
+.skills-page-section h1 { margin: 8px 0 9px; font-family: var(--app-display-font-family); font-size: clamp(29px, 3vw, 41px); line-height: 1.14; letter-spacing: -.03em; }
+.skills-page-section > p { max-width: 720px; margin: 0; color: var(--app-text-2); font-size: 15px; line-height: 1.75; }
 
 @keyframes skills-page-enter { from { opacity: 0; transform: scale(.992); } }
 @keyframes skills-page-exit { to { opacity: 0; transform: translateY(10px) scale(.988); filter: blur(3px); } }
@@ -124,7 +126,7 @@
   .skills-page-account .t-tag { display: none; }
   .skills-page-layout { grid-template-columns: 1fr; }
   .skills-page-nav { flex-direction: row; padding: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--app-border); }
-  .skills-page-nav > button { width: auto; flex: 0 0 auto; padding: 9px 11px; font-size: 10px; }
+  .skills-page-nav > button { width: auto; flex: 0 0 auto; padding: 9px 11px; font-size: 13px; }
   .skills-page-nav > button::before, .skills-page-nav-note { display: none; }
   .skills-page-main { padding: 25px 14px 42px; }
 }

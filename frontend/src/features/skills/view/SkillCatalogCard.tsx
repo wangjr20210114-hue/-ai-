@@ -1,4 +1,4 @@
-import { Button, Tag } from 'tdesign-react';
+import { Button } from 'tdesign-react';
 import type { CSSProperties } from 'react';
 import { CheckCircleIcon } from 'tdesign-icons-react';
 
@@ -6,12 +6,10 @@ import type { InstalledSkill } from '../../../shared/types';
 import type { SkillMarketplaceController } from './SkillsMarketplaceShell';
 
 export function SkillCatalogCard({
-  categoryLabel,
   controller,
   index,
   skill,
 }: {
-  categoryLabel: string;
   controller: SkillMarketplaceController;
   index: number;
   skill: InstalledSkill;
@@ -47,9 +45,6 @@ export function SkillCatalogCard({
           version: skill.version || '1.0.0',
         })}</small>
       </div>
-      <Tag size="small" theme={skill.kind === 'system' ? 'primary' : 'default'}>
-        {categoryLabel}
-      </Tag>
     </div>
     <p>{skillText(skill.description, '')}</p>
     <div className="skills-page-card-meta">

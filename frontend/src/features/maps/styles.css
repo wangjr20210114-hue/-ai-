@@ -45,7 +45,7 @@
   background: color-mix(in srgb, var(--app-panel) 88%, transparent);
   backdrop-filter: blur(8px);
   color: var(--app-text-2);
-  font-size: 11px;
+  font-size: 12.5px;
   line-height: 1.65;
 }
 .makers-map-loading {
@@ -59,13 +59,13 @@
   color: var(--app-text-2);
   background: color-mix(in srgb, var(--app-panel) 90%, transparent);
   box-shadow: var(--app-shadow);
-  font-size: 11px;
+  font-size: 12px;
 }
 .makers-map-fallback strong { display: block; margin-bottom: 6px; color: var(--app-text); }
 .makers-map-fallback-places { display: grid; gap: 5px; margin-bottom: 8px; }
 .makers-map-fallback-places > div { display: grid; padding: 5px 6px; border-radius: 6px; background: rgba(var(--app-accent-rgb), .06); }
-.makers-map-fallback-places b { color: var(--app-text); font-size: 11px; }
-.makers-map-fallback-places span { color: var(--app-text-3); font-size: 10px; }
+.makers-map-fallback-places b { color: var(--app-text); font-size: 12.5px; }
+.makers-map-fallback-places span { color: var(--app-text-3); font-size: 12px; }
 .makers-place-chips {
   display: flex;
   gap: 5px;

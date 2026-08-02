@@ -6,4 +6,4 @@
 .header-account img, .header-account > span { display: grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; border-radius: 50%; background: rgba(var(--app-accent-rgb), .12); font-size: 10px; transition: transform 220ms var(--motion-ease-out); }
 .header-account:hover img, .header-account:hover > span { transform: scale(1.06); }
 .header-account img { object-fit: cover; }
-.header-account b { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.header-account b { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }

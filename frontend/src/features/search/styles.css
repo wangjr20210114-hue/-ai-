@@ -6,7 +6,7 @@
   gap: 5px;
   min-height: 20px;
   color: var(--app-text-3);
-  font-size: 11.5px;
+  font-size: 12.5px;
   line-height: 1.4;
   width: 248px;
   max-width: 100%;
@@ -35,7 +35,7 @@
   border-radius: 999px;
   color: var(--td-brand-color);
   background: rgba(var(--app-accent-rgb), .08);
-  font-size: 9px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .search-complete-meta {
@@ -45,7 +45,7 @@
   border-radius: 8px;
   color: var(--app-text-3);
   background: var(--app-panel-2);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 .search-progress .image-generating-spinner {
   width: 13px;
@@ -67,7 +67,7 @@
   padding: 0;
   list-style: none;
   color: var(--app-text-3);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.45;
 }
 .structured-progress li {
@@ -84,7 +84,7 @@
   border: 1px solid var(--app-border-strong);
   border-radius: 999px;
   color: var(--app-text-3);
-  font-size: 8px;
+  font-size: 10px;
 }
 .structured-progress li.is-active {
   color: var(--td-brand-color);

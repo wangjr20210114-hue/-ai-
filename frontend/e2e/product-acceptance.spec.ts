@@ -91,9 +91,16 @@ test('trusted Skills expose their component actions through the marketplace boun
 
   await page.locator('[data-onboarding="skills"]').click();
   await expect(page.locator('.skills-page')).toBeVisible();
-  await page.getByRole('button', { name: '跨端组件 API', exact: true }).click();
+  await page.getByRole('button', { name: 'API 文档', exact: true }).click();
   await expect(page.locator('.component-api-list')).toContainText('proactive.refresh');
   await expect(page.locator('.component-api-list')).toContainText('proactive:read');
+  await expect(page.locator('.component-docs-toc-groups')).toContainText('工作区');
+  await expect(page.locator('.component-api-example')).toContainText('conversation_id');
+  const docs = page.locator('.component-docs');
+  await page.locator('.component-docs-toc-toggle').click();
+  await expect(docs).toHaveClass(/is-toc-collapsed/);
+  await page.locator('.component-docs-toc-toggle').click();
+  await expect(docs).not.toHaveClass(/is-toc-collapsed/);
   await page.evaluate(() => {
     document.documentElement.dataset.skillClosingObserved = '0';
     const marketplace = document.querySelector('.skills-page');

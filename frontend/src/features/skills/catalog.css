@@ -1,23 +1,23 @@
 .skills-page-hero { display: flex; max-width: 1180px; margin: 0 auto 25px; align-items: end; justify-content: space-between; gap: 30px; }
-.skills-page-hero h1 { margin: 8px 0 9px; font-size: clamp(27px, 3vw, 39px); line-height: 1.08; letter-spacing: -.035em; }
-.skills-page-hero p { max-width: 720px; margin: 0; color: var(--app-text-2); font-size: 13px; line-height: 1.75; }
+.skills-page-hero h1 { margin: 8px 0 9px; font-family: var(--app-display-font-family); font-size: clamp(29px, 3vw, 41px); line-height: 1.14; letter-spacing: -.03em; }
+.skills-page-hero p { max-width: 720px; margin: 0; color: var(--app-text-2); font-size: 15px; line-height: 1.75; }
 .skills-page-stat { display: flex; align-items: baseline; gap: 6px; color: var(--app-text-3); white-space: nowrap; }
 .skills-page-stat strong { color: var(--app-text); font-size: 36px; letter-spacing: -.05em; }
 .skills-page-toolbar { display: flex; max-width: 1180px; margin: 0 auto 19px; justify-content: space-between; gap: 14px; }
 .skills-page-toolbar label { display: flex; width: min(500px, 100%); height: 42px; align-items: center; gap: 10px; padding: 0 14px; border: 1px solid var(--app-border); border-radius: 13px; background: color-mix(in srgb, var(--app-panel) 92%, transparent); box-shadow: 0 8px 25px rgb(15 23 42 / 3%); transition: border-color 180ms ease, box-shadow 220ms ease, transform 220ms var(--motion-ease-out); }
 .skills-page-toolbar label:focus-within { border-color: color-mix(in srgb, var(--td-brand-color) 58%, var(--app-border)); box-shadow: 0 0 0 3px rgba(var(--app-accent-rgb), .1), 0 12px 30px rgb(15 23 42 / 5%); transform: translateY(-1px); }
 .skills-page-toolbar label > svg { color: var(--app-text-3); font-size: 17px; }
-.skills-page-toolbar input { min-width: 0; flex: 1; border: 0; outline: none; color: var(--app-text); background: transparent; }
+.skills-page-toolbar input { min-width: 0; flex: 1; border: 0; outline: none; color: var(--app-text); background: transparent; font-size: 14px; }
 .skills-category-list { display: grid; max-width: 1180px; margin: 0 auto; gap: 30px; }
 .skills-category { display: grid; gap: 13px; }
 .skills-category > header { display: flex; min-height: 48px; align-items: end; justify-content: space-between; gap: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--app-border); }
-.skills-category > header h2 { margin: 0; font-size: 16px; letter-spacing: -.015em; }
-.skills-category > header p { margin: 4px 0 0; color: var(--app-text-3); font-size: 10.5px; }
-.skills-category > header > span { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 9px; color: var(--td-brand-color); background: rgba(var(--app-accent-rgb), .09); font-size: 10px; font-weight: 750; }
+.skills-category > header h2 { margin: 0; font-family: var(--app-display-font-family); font-size: 20px; letter-spacing: -.01em; }
+.skills-category > header p { margin: 4px 0 0; color: var(--app-text-3); font-size: 13px; }
+.skills-category > header > span { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; color: var(--td-brand-color); background: rgba(var(--app-accent-rgb), .09); font-size: 12px; font-weight: 750; }
 .skills-page-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 15px; }
 .skills-page-card {
   display: flex;
-  min-height: 290px;
+  min-height: 322px;
   padding: 18px;
   flex-direction: column;
   border: 1px solid var(--app-border);
@@ -34,19 +34,19 @@
 .skills-page-card-icon { display: grid; place-items: center; width: 41px; height: 41px; flex: 0 0 41px; border-radius: 13px; color: var(--td-brand-color); background: rgba(var(--app-accent-rgb), .11); font-weight: 800; transition: transform 240ms var(--motion-ease-out); }
 .skills-page-card:hover .skills-page-card-icon { transform: rotate(-3deg) scale(1.07); }
 .skills-page-card-title { display: flex; align-items: center; gap: 6px; }
-.skills-page-card-title h3 { margin: 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.skills-page-card-title h3 { margin: 0; overflow: hidden; font-size: 16px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .skills-page-card-title svg { color: var(--td-success-color); font-size: 14px; }
-.skills-page-card-top small { color: var(--app-text-3); font-size: 9.5px; }
-.skills-page-card > p { margin: 15px 0 12px; color: var(--app-text-2); font-size: 11.5px; line-height: 1.68; }
+.skills-page-card-top small { color: var(--app-text-3); font-size: 12px; }
+.skills-page-card > p { margin: 15px 0 12px; color: var(--app-text-2); font-size: 14px; line-height: 1.68; }
 .skills-page-card-meta { display: flex; flex-wrap: wrap; gap: 6px; }
-.skills-page-card-meta span { padding: 4px 7px; border-radius: 7px; color: var(--app-text-3); background: var(--app-panel-2); font-size: 9px; text-transform: uppercase; }
+.skills-page-card-meta span { padding: 4px 7px; border-radius: 7px; color: var(--app-text-3); background: var(--app-panel-2); font-size: 12px; }
 .skill-relations { display: grid; gap: 6px; margin: 12px 0 0; padding: 10px; border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent); border-radius: 11px; background: color-mix(in srgb, var(--app-panel-2) 72%, transparent); }
-.skill-relations > div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; font-size: 9.5px; line-height: 1.45; }
+.skill-relations > div { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 8px; font-size: 12.5px; line-height: 1.5; }
 .skill-relations dt { color: var(--app-text-3); }
 .skill-relations dd { margin: 0; color: var(--app-text-2); overflow-wrap: anywhere; }
 .skill-relations.has-missing > div:first-child dd { color: #a66212; font-weight: 650; }
 .skills-page-card-actions { display: flex; margin-top: auto; padding-top: 15px; align-items: center; justify-content: flex-end; gap: 8px; }
-.skills-page-card-actions > button:not(.t-button) { margin-right: auto; padding: 6px 0; border: 0; color: var(--td-brand-color); background: transparent; font-size: 10px; }
+.skills-page-card-actions > button:not(.t-button) { margin-right: auto; padding: 6px 0; border: 0; color: var(--td-brand-color); background: transparent; font-size: 12.5px; }
 @media (max-width: 1050px) { .skills-page-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) {
   .skills-page-grid { grid-template-columns: 1fr; }

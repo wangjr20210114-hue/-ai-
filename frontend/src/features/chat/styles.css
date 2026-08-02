@@ -142,7 +142,7 @@
   border-radius: 6px;
   background: transparent;
   color: #b4232c;
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 .chat-retry-button:hover { background: rgba(213, 73, 65, 0.07); }

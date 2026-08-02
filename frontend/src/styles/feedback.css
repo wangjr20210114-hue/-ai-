@@ -47,3 +47,24 @@
   :where(.t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell):hover { transform: translateY(-1px); }
 }
 :where(.t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell):active { transform: scale(.98); transition-duration: 70ms; }
+
+:where(input:not([type='checkbox'], [type='radio']), textarea, .t-input, .t-textarea, .t-select-input) {
+  transition:
+    border-color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease,
+    background-color var(--motion-fast) ease,
+    transform var(--motion-fast) var(--motion-ease-out);
+}
+:where(input:not([type='checkbox'], [type='radio']), textarea):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--td-brand-color) 48%, transparent);
+  outline-offset: 1px;
+}
+:where(details[open] > :not(summary)) { animation: interactive-content-reveal var(--motion-reveal) var(--motion-ease-out) both; }
+@keyframes interactive-content-reveal { from { opacity: 0; transform: translateY(-4px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  :where(button, a[href], summary, select, input, textarea, [role='button'], [role='switch'], .t-button, .t-tabs__nav-item, .t-dropdown__item, .t-select-option, .t-menu__item, .t-date-picker__cell) {
+    transition-duration: 1ms;
+  }
+  :where(details[open] > :not(summary)) { animation: none; }
+}

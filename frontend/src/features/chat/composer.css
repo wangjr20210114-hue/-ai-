@@ -100,7 +100,7 @@
 }
 .chat-reference-image img { width: 46px; height: 46px; border-radius: 7px; object-fit: cover; }
 .chat-reference-image span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-reference-image small { display: block; color: var(--app-text-3); font-size: 10px; }
+.chat-reference-image small { display: block; color: var(--app-text-3); font-size: 12px; }
 .chat-reference-image button { border: 0; color: var(--app-text-3); background: transparent; font-size: 18px; cursor: pointer; }
 .chat-reference-document {
   display: grid;
@@ -122,9 +122,9 @@
   border-radius: 8px;
   color: #fff;
   background: var(--td-brand-color);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: .05em;
 }
 .chat-reference-document span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-reference-document small { display: block; color: var(--app-text-3); font-size: 10px; }
+.chat-reference-document small { display: block; color: var(--app-text-3); font-size: 12px; }
 .chat-reference-document button { border: 0; color: var(--app-text-3); background: transparent; font-size: 18px; cursor: pointer; }

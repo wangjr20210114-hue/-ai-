@@ -18,11 +18,11 @@
 }
 .meeting-confirm-card input:focus { border-color: color-mix(in srgb, var(--td-brand-color) 72%, var(--app-border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--td-brand-color) 15%, transparent); }
 .meeting-confirm-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.meeting-confirm-error { padding: 7px 8px; border-radius: 7px; color: #b42318; background: rgba(217, 45, 32, .07); font-size: 11px; animation: cardSlideIn 220ms var(--motion-ease-out) both; }
-.meeting-quick-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--app-text-3); font-size: 11px; }
+.meeting-confirm-error { padding: 7px 8px; border-radius: 7px; color: #b42318; background: rgba(217, 45, 32, .07); font-size: 12px; animation: cardSlideIn 220ms var(--motion-ease-out) both; }
+.meeting-quick-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--app-text-3); font-size: 12px; }
 .meeting-quick-actions button { padding-inline: 4px; }
 .meeting-warning-choice { display: flex !important; grid-template-columns: none !important; align-items: flex-start; gap: 8px !important; padding: 9px; border: 1px solid rgba(230, 162, 60, .35); border-radius: 8px; background: #fff9ed; cursor: pointer; }
 .meeting-warning-choice input { margin-top: 2px; }
 .meeting-warning-choice span { display: grid; gap: 2px; color: #754c00; font-weight: 400; line-height: 1.45; }
-.meeting-warning-choice b { font-size: 11px; }
-.meeting-warning-choice small { color: #8a6a2f; font-size: 10px; }
+.meeting-warning-choice b { font-size: 12.5px; }
+.meeting-warning-choice small { color: #755822; font-size: 12px; }

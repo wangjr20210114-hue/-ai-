@@ -13,6 +13,9 @@ body,
 
 body {
   font-family: var(--app-font-family);
+  font-size: 14px;
+  font-weight: 400;
+  text-rendering: optimizeLegibility;
   color: var(--app-text);
   background: var(--app-bg);
   background-image:

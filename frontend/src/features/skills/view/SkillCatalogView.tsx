@@ -73,7 +73,6 @@ export function SkillCatalogView({
           </header>
           <div className="skills-page-grid">
             {skills.map((skill, index) => <SkillCatalogCard
-              categoryLabel={t(labelKey)}
               controller={controller}
               index={groupIndex * 10 + index}
               key={skill.id}

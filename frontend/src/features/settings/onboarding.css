@@ -120,7 +120,7 @@
   background: linear-gradient(135deg, var(--td-brand-color), color-mix(in srgb, var(--td-brand-color) 74%, #7967e8));
 }
 .floris-onboarding-card-head { display: flex; align-items: center; gap: 10px; }
-.floris-onboarding-card-head > span { flex: 0 0 auto; color: var(--app-text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.floris-onboarding-card-head > span { flex: 0 0 auto; color: var(--app-text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 .floris-onboarding-card-head i {
   position: relative;
   height: 3px;
