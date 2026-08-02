@@ -28,8 +28,10 @@ class SkillManifest:
     plan_flags: tuple[str, ...]
     tools: tuple[SkillToolBinding, ...]
     action_kinds: tuple[str, ...]
+    category: str
     requires: tuple[str, ...]
     recommends: tuple[str, ...]
+    conflicts: tuple[str, ...]
     degrade_when_capabilities: tuple[str, ...]
     unavailable_fallback: str
     permissions: frozenset[str]
@@ -68,8 +70,10 @@ class SkillManifest:
             "default_enabled": self.default_enabled,
             "locked": self.locked,
             "capabilities": list(self.capabilities),
+            "category": self.category,
             "requires": list(self.requires),
             "recommends": list(self.recommends),
+            "conflicts": list(self.conflicts),
             "unavailable_fallback": self.unavailable_fallback,
             "external": self.external,
             "configured": configured,

@@ -181,8 +181,10 @@ export interface InstalledSkill {
   default_enabled: boolean;
   locked: boolean;
   capabilities: string[];
+  category?: string;
   requires: string[];
   recommends: string[];
+  conflicts?: string[];
   external: boolean;
   configured: boolean;
   connect_url: string;
@@ -211,16 +213,20 @@ export interface SkillDependencyGraph {
     required_plan: InstalledSkill['required_plan'];
     name: Record<string, string>;
   }>;
-  edges: Array<{ from: string; to: string; type: 'requires' | 'recommends' }>;
+  edges: Array<{ from: string; to: string; type: 'requires' | 'recommends' | 'conflicts' }>;
 }
 
 export interface SkillComponentApi {
   version: string;
   actions: Array<{
     id: string;
+    category?: string;
+    name?: Record<string, string>;
     permission: string;
     description: string;
+    description_i18n?: Record<string, string>;
     input: Record<string, string>;
+    required?: string[];
   }>;
   security: {
     identity_source: string;

@@ -6,6 +6,7 @@
   "publisher": {"id": "floris", "name": "Floris", "verified": true},
   "required_plan": "free",
   "order": 10,
+  "category": "knowledge",
   "default_enabled": true,
   "unavailable_fallback": "model_only",
   "capabilities": ["web_search"],

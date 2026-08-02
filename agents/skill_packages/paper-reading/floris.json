@@ -6,6 +6,7 @@
   "publisher": {"id": "floris", "name": "Floris", "verified": true},
   "required_plan": "free",
   "order": 70,
+  "category": "knowledge",
   "default_enabled": true,
   "capabilities": ["papers", "paper_assistant"],
   "plan_flags": ["needs_papers"],

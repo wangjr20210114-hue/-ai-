@@ -391,6 +391,9 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
     action_kinds = _string_tuple(raw.get("action_kinds"))
     if any(not _ACTION_ID.fullmatch(item) for item in action_kinds):
         raise ValueError(f"{source}: invalid action kind")
+    category = str(raw.get("category") or "other").strip()
+    if not _SKILL_ID.fullmatch(category):
+        raise ValueError(f"{source}: invalid Skill category {category!r}")
     permissions = frozenset(_string_tuple(raw.get("permissions")))
     unknown_permissions = permissions - _PERMISSIONS
     if unknown_permissions:
@@ -480,8 +483,10 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         plan_flags=plan_flags,
         tools=tuple(tool_bindings),
         action_kinds=action_kinds,
+        category=category,
         requires=_string_tuple(raw.get("requires")),
         recommends=_string_tuple(raw.get("recommends")),
+        conflicts=_string_tuple(raw.get("conflicts")),
         degrade_when_capabilities=_string_tuple(
             raw.get("degrade_when_capabilities")
         ),
@@ -542,11 +547,18 @@ def _validate_registry(manifests: Iterable[SkillManifest]) -> tuple[SkillManifes
                     f"action {action_kind} owned by both {previous} and {manifest.id}"
                 )
     for manifest in ordered:
-        missing = (set(manifest.requires) | set(manifest.recommends)) - set(by_id)
+        related = (
+            set(manifest.requires)
+            | set(manifest.recommends)
+            | set(manifest.conflicts)
+        )
+        missing = related - set(by_id)
         if missing:
             raise ValueError(
                 f"Skill {manifest.id} references missing dependencies {sorted(missing)}"
             )
+        if manifest.id in related:
+            raise ValueError(f"Skill {manifest.id} cannot relate to itself")
         missing_capabilities = (
             set(manifest.degrade_when_capabilities) - set(capability_owner)
         )
@@ -686,6 +698,14 @@ def skill_dependency_graph() -> dict[str, Any]:
             }
             for manifest in manifests
             for dependency in manifest.recommends
+        ] + [
+            {
+                "from": manifest.id,
+                "to": conflict,
+                "type": "conflicts",
+            }
+            for manifest in manifests
+            for conflict in manifest.conflicts
         ],
     }
 

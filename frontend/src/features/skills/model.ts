@@ -1,6 +1,29 @@
 import type { InstalledSkill } from '../../shared/types';
 
-export type MarketplaceView = 'catalog' | 'installed' | 'dependencies' | 'docs' | 'upload';
+export type MarketplaceView = 'catalog' | 'installed' | 'docs' | 'upload';
+
+export const SKILL_CATEGORY_ORDER = [
+  'foundation',
+  'knowledge',
+  'creative',
+  'productivity',
+  'location',
+  'other',
+] as const;
+
+export function groupMarketplaceSkills(catalog: InstalledSkill[]) {
+  const groups = new Map<string, InstalledSkill[]>();
+  for (const skill of catalog) {
+    const category = String(skill.category || 'other');
+    groups.set(category, [...(groups.get(category) || []), skill]);
+  }
+  return [...groups.entries()].sort(([left], [right]) => {
+    const leftIndex = SKILL_CATEGORY_ORDER.indexOf(left as typeof SKILL_CATEGORY_ORDER[number]);
+    const rightIndex = SKILL_CATEGORY_ORDER.indexOf(right as typeof SKILL_CATEGORY_ORDER[number]);
+    return (leftIndex < 0 ? 999 : leftIndex) - (rightIndex < 0 ? 999 : rightIndex)
+      || left.localeCompare(right);
+  });
+}
 
 export function missingSkillRequirements(
   skill: InstalledSkill,
@@ -67,6 +90,7 @@ export function filterMarketplaceSkills(
       skill.id,
       localizedSkillText(skill.name, '', options.language),
       localizedSkillText(skill.description, '', options.language),
+      skill.category || '',
       skill.publisher?.name || '',
     ].some((value) => value.toLocaleLowerCase(options.language).includes(normalized));
   });

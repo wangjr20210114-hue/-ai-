@@ -6,6 +6,7 @@
   "publisher": {"id": "tencent-meeting", "name": "Tencent Meeting + Floris", "verified": true},
   "required_plan": "free",
   "order": 80,
+  "category": "productivity",
   "default_enabled": true,
   "capabilities": ["meeting_action"],
   "plan_flags": ["needs_meeting_action"],

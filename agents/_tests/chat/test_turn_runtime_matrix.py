@@ -218,6 +218,18 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"status":"skipped"', wire)
         self.assertNotIn("event: error", wire)
 
+    async def test_successful_search_publishes_measured_search_time(self):
+        wire, _ = await self._run(
+            "runtime-search-timing",
+            _plan(
+                needs_web_search=True,
+                search_query="recent AI progress",
+                _capabilities=["web_search"],
+            ),
+        )
+
+        self.assertRegex(wire, r'"timings_ms":\{"search":\d+\}')
+
     async def test_representative_plans_construct_tools_and_finish_streams(self):
         plans = {
             "general": _plan(),

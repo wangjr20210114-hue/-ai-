@@ -29,6 +29,24 @@
   flex: 0 0 18px;
   white-space: nowrap;
 }
+.search-progress-time {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--td-brand-color);
+  background: rgba(var(--app-accent-rgb), .08);
+  font-size: 9px;
+  white-space: nowrap;
+}
+.search-complete-meta {
+  width: fit-content;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: var(--app-text-3);
+  background: var(--app-panel-2);
+  font-size: 9.5px;
+}
 .search-progress .image-generating-spinner {
   width: 13px;
   height: 13px;

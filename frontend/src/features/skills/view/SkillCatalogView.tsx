@@ -1,9 +1,28 @@
-import { Button, Tag } from 'tdesign-react';
-import type { CSSProperties } from 'react';
-import { CheckCircleIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-react';
+import { Button } from 'tdesign-react';
+import { RefreshIcon, SearchIcon } from 'tdesign-icons-react';
 
-import type { InstalledSkill } from '../../../shared/types';
+import type { TranslationKey } from '../../../i18n';
+import { groupMarketplaceSkills } from '../model';
 import type { SkillMarketplaceController } from './SkillsMarketplaceShell';
+import { SkillCatalogCard } from './SkillCatalogCard';
+
+const CATEGORY_LABELS: Record<string, TranslationKey> = {
+  foundation: 'skillCategoryFoundation',
+  knowledge: 'skillCategoryKnowledge',
+  creative: 'skillCategoryCreative',
+  productivity: 'skillCategoryProductivity',
+  location: 'skillCategoryLocation',
+  other: 'skillCategoryOther',
+};
+
+const CATEGORY_HINTS: Record<string, TranslationKey> = {
+  foundation: 'skillCategoryFoundationHint',
+  knowledge: 'skillCategoryKnowledgeHint',
+  creative: 'skillCategoryCreativeHint',
+  productivity: 'skillCategoryProductivityHint',
+  location: 'skillCategoryLocationHint',
+  other: 'skillCategoryOtherHint',
+};
 
 export function SkillCatalogView({
   controller,
@@ -11,11 +30,10 @@ export function SkillCatalogView({
   controller: SkillMarketplaceController;
 }) {
   const {
-    catalog, connections, disconnect, download, enabledCount, isInstalled,
-    language, loading, query, refresh, save, saveConnection, savingId,
-    setQuery, setTokenDrafts, skillName, skillText, t, tokenDrafts,
-    view, visibleSkills,
+    catalog, enabledCount, loading, query, refresh, setQuery, t, view,
+    visibleSkills,
   } = controller;
+  const groupedSkills = groupMarketplaceSkills(visibleSkills);
 
   return <>
     <section className="skills-page-hero">
@@ -44,98 +62,26 @@ export function SkillCatalogView({
         onClick={() => void refresh()}
       >{t('refreshStatus')}</Button>
     </div>
-    <section className="skills-page-grid">
-      {visibleSkills.map((skill, index) => {
-        const installed = isInstalled(skill);
-        const connected = skill.configured;
-        const connection = connections[skill.id];
-        const missingRequired = (skill.requires || []).filter((id) => !isInstalled(
-          catalog.find((item) => item.id === id) || { id } as InstalledSkill,
-        ));
-        return <article
-          className={`skills-page-card ${installed ? 'is-installed' : ''}`}
-          key={skill.id}
-          style={{ '--skill-index': index } as CSSProperties}
-        >
-          <div className="skills-page-card-top">
-            <span className="skills-page-card-icon" aria-hidden="true">{skill.icon}</span>
-            <div>
-              <div className="skills-page-card-title">
-                <h2>{skillText(skill.name, skill.id)}</h2>
-                {skill.publisher?.verified && <span title={t('verifiedPublisher')}><CheckCircleIcon /></span>}
-              </div>
-              <small>{t('skillPublisherVersion', {
-                publisher: skill.publisher?.name || 'Floris',
-                version: skill.version || '1.0.0',
-              })}</small>
-            </div>
-            <Tag size="small" theme={skill.kind === 'system' ? 'primary' : 'default'}>
-              {skill.kind === 'system' ? t('systemSkill') : t('communitySkill')}
-            </Tag>
+    <div className="skills-category-list">
+      {groupedSkills.map(([category, skills], groupIndex) => {
+        const labelKey = CATEGORY_LABELS[category] || CATEGORY_LABELS.other;
+        const hintKey = CATEGORY_HINTS[category] || CATEGORY_HINTS.other;
+        return <section className="skills-category" key={category}>
+          <header>
+            <div><h2>{t(labelKey)}</h2><p>{t(hintKey)}</p></div>
+            <span>{skills.length}</span>
+          </header>
+          <div className="skills-page-grid">
+            {skills.map((skill, index) => <SkillCatalogCard
+              categoryLabel={t(labelKey)}
+              controller={controller}
+              index={groupIndex * 10 + index}
+              key={skill.id}
+              skill={skill}
+            />)}
           </div>
-          <p>{skillText(skill.description, '')}</p>
-          <div className="skills-page-card-meta">
-            <span>{skill.required_plan || 'free'}</span>
-            <span>{t('componentApiCount', { count: (skill.component_actions || []).length })}</span>
-            {skill.locked && <span>{t('alwaysOn')}</span>}
-          </div>
-          {!!skill.requires?.length && (
-            <div className={`skill-dependency-note ${missingRequired.length ? 'is-blocked' : ''}`}>
-              {t('requiresSkills', { names: skill.requires.map(skillName).join('、') })}
-            </div>
-          )}
-          {skill.external && installed && skill.credential?.kind === 'token' && (
-            <div className="skill-credential-region">
-              {!connected ? <>
-                <p>{skillText(skill.credential.instructions, '')}</p>
-                <div className="skill-credential-editor">
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={tokenDrafts[skill.id] || ''}
-                    placeholder={t('skillTokenPlaceholder')}
-                    onChange={(event) => setTokenDrafts((current) => ({
-                      ...current,
-                      [skill.id]: event.target.value,
-                    }))}
-                  />
-                  <Button size="small" loading={savingId === skill.id} onClick={() => void saveConnection(skill.id)}>
-                    {t('saveConnection')}
-                  </Button>
-                </div>
-              </> : <div className="skill-credential-connected">
-                <span>{connection?.expires_at ? t('connectionExpiresAt', {
-                  time: new Date(connection.expires_at * 1000).toLocaleString(language),
-                }) : t('connected')}</span>
-                <button type="button" className="skill-install-link is-danger" onClick={() => void disconnect(skill.id)}>
-                  {t('disconnectSkill')}
-                </button>
-              </div>}
-            </div>
-          )}
-          <div className="skills-page-card-actions">
-            {installed && (
-              <button type="button" onClick={() => void download(skill.id)}>
-                {t('downloadPackage')}
-              </button>
-            )}
-            <Button
-              size="small"
-              theme={installed ? 'default' : 'primary'}
-              variant={installed ? 'outline' : 'base'}
-              disabled={skill.locked || loading}
-              loading={savingId === skill.id}
-              onClick={() => void save(skill, !installed)}
-            >
-              {skill.locked
-                ? t('alwaysOn')
-                : !skill.eligible && skill.eligibility_reason === 'login_required'
-                  ? t('loginToInstall')
-                  : installed ? t('uninstall') : t('install')}
-            </Button>
-          </div>
-        </article>;
+        </section>;
       })}
-    </section>
+    </div>
   </>;
 }

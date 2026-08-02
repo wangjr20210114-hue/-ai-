@@ -111,7 +111,9 @@ class SkillRegistryContractTests(unittest.TestCase):
         disconnected = public_skill_catalog({})
         meeting = next(item for item in disconnected if item["id"] == "tencent-meeting")
         self.assertFalse(meeting["configured"])
+        self.assertEqual(meeting["category"], "productivity")
         self.assertEqual(meeting["requires"], ["calendar"])
+        self.assertEqual(meeting["conflicts"], [])
         connected = public_skill_catalog({"TENCENT_MEETING_TOKEN": "ready"})
         self.assertTrue(
             next(item for item in connected if item["id"] == "tencent-meeting")[
@@ -152,6 +154,7 @@ class SkillRegistryContractTests(unittest.TestCase):
             "to": "calendar",
             "type": "requires",
         }, graph["edges"])
+        self.assertTrue(all(manifest.category for manifest in skill_manifests()))
 
     def test_personal_skill_token_is_private_and_expires_after_one_week(self):
         state = empty_intelligence_state()

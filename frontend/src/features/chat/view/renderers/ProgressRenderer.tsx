@@ -31,7 +31,31 @@ function ImageCreationProgress({ message }: { message: ChatMessage }) {
 
 export function ProgressRenderer({ message }: { message: ChatMessage }) {
   const { t } = useLanguage();
-  if (!message.streaming) return null;
+  const searchDurationMs = Number(message.searchResults?.timings_ms?.search || 0);
+  const sourceCount = message.searchResults?.results?.length || 0;
+  const [now, setNow] = useState(() => Date.now());
+  const webSearchActive = (message.progress || []).some(
+    (step) => step.activity === 'web_search' && step.status === 'active',
+  );
+  useEffect(() => {
+    if (!message.streaming || !webSearchActive || searchDurationMs > 0) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [message.streaming, searchDurationMs, webSearchActive]);
+  const searchTiming = searchDurationMs > 0
+    ? t('searchCompletedIn', { seconds: (searchDurationMs / 1000).toFixed(1) })
+    : webSearchActive
+      ? t('searchingForSeconds', { seconds: Math.max(1, Math.round((now - message.ts) / 1000)) })
+      : '';
+
+  if (!message.streaming) {
+    return searchDurationMs > 0 ? <div className="search-complete-meta">
+      {t('searchCompleteMeta', {
+        count: sourceCount,
+        seconds: (searchDurationMs / 1000).toFixed(1),
+      })}
+    </div> : null;
+  }
   const visibleProgress = (message.progress || [])
     .filter((step) => step.stage !== 'complete')
     .slice(-5);
@@ -58,6 +82,7 @@ export function ProgressRenderer({ message }: { message: ChatMessage }) {
     <div className={`search-progress ${message.content ? 'has-content' : ''}`}>
       <div className="image-generating-spinner" />
       <span className="search-progress-status" title={progressStatus}>{progressStatus}</span>
+      {searchTiming && <span className="search-progress-time">{searchTiming}</span>}
       <span className="image-generating-dots"><span>.</span><span>.</span><span>.</span></span>
     </div>
     {!message.content && visibleProgress.length > 0 && (

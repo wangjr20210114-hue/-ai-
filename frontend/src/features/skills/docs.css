@@ -1,0 +1,60 @@
+.component-docs { display: grid; max-width: 1180px; margin: 0 auto; grid-template-columns: 180px minmax(0, 1fr); align-items: start; gap: 42px; }
+.component-docs-toc { position: sticky; top: 0; display: grid; gap: 4px; padding: 13px 0; border-right: 1px solid var(--app-border); }
+.component-docs-toc strong { margin-bottom: 8px; color: var(--app-text-3); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
+.component-docs-toc a { padding: 7px 12px 7px 0; color: var(--app-text-2); font-size: 10.5px; text-decoration: none; transition: color 160ms ease, transform 180ms var(--motion-ease-out); }
+.component-docs-toc a:hover { color: var(--td-brand-color); transform: translateX(2px); }
+.component-docs-content { min-width: 0; display: grid; gap: 48px; }
+.component-docs-intro { scroll-margin-top: 20px; }
+.component-docs-intro h1 { margin: 9px 0 11px; font-size: clamp(30px, 4vw, 46px); letter-spacing: -.04em; }
+.component-docs-intro > p { max-width: 760px; margin: 0; color: var(--app-text-2); font-size: 13px; line-height: 1.75; }
+.component-docs-platforms { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 19px; }
+.component-docs-platforms span { padding: 6px 9px; border: 1px solid var(--app-border); border-radius: 8px; color: var(--app-text-2); background: var(--app-panel); font-size: 9.5px; }
+.component-docs-summary { display: grid; margin-top: 22px; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--app-border); border-radius: 14px; background: var(--app-panel); overflow: hidden; }
+.component-docs-summary > div { display: grid; gap: 5px; padding: 14px 16px; border-right: 1px solid var(--app-border); }
+.component-docs-summary > div:last-child { border-right: 0; }
+.component-docs-summary small { color: var(--app-text-3); font-size: 9px; }
+.component-docs-summary strong { font-size: 13px; }
+.component-docs-section { display: grid; scroll-margin-top: 20px; gap: 18px; }
+.component-docs-heading { display: flex; align-items: start; gap: 12px; }
+.component-docs-heading > span { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 9px; color: var(--td-brand-color); background: rgba(var(--app-accent-rgb), .1); font-size: 9px; font-weight: 800; }
+.component-docs-heading h2 { margin: 1px 0 5px; font-size: 20px; letter-spacing: -.02em; }
+.component-docs-heading p { margin: 0; color: var(--app-text-2); font-size: 11px; line-height: 1.65; }
+.component-docs-steps { display: grid; margin: 0; padding: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; list-style: none; }
+.component-docs-steps li { display: flex; min-height: 76px; padding: 12px; align-items: start; gap: 9px; border: 1px solid var(--app-border); border-radius: 12px; background: var(--app-panel); color: var(--app-text-2); font-size: 10px; line-height: 1.55; }
+.component-docs-steps b { color: var(--td-brand-color); }
+.component-docs-code { border: 1px solid color-mix(in srgb, var(--app-border) 70%, #000); border-radius: 13px; color: #e6edf7; background: #111827; overflow: hidden; }
+.component-docs-code > div { display: flex; padding: 8px 12px; align-items: center; justify-content: space-between; border-bottom: 1px solid rgb(255 255 255 / 8%); color: #8ea0ba; font-size: 9px; }
+.component-docs-code button { border: 0; color: #b8c6db; background: transparent; font-size: 9px; }
+.component-docs-code pre { margin: 0; padding: 16px; overflow: auto; font-size: 10.5px; line-height: 1.65; }
+.component-docs-note { margin: -8px 0 0; color: var(--app-text-3); font-size: 9.5px; }
+.component-api-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.component-api-list > article { min-width: 0; padding: 17px; border: 1px solid var(--app-border); border-radius: 15px; background: var(--app-panel); animation: skills-item-enter 340ms calc(var(--skill-index, 0) * 28ms) var(--motion-ease-out) both; transition: transform 220ms var(--motion-ease-out), box-shadow 220ms ease; }
+.component-api-list > article:hover { transform: translateY(-2px); box-shadow: 0 15px 34px rgb(15 23 42 / 6%); }
+.component-api-list article > header { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
+.component-api-list header small { color: var(--app-text-3); font-size: 8.5px; text-transform: uppercase; }
+.component-api-list h3 { margin: 3px 0 10px; font-size: 13px; }
+.component-api-list article > code { display: block; color: var(--td-brand-color); font-size: 10px; overflow-wrap: anywhere; }
+.component-api-list article > p { min-height: 34px; color: var(--app-text-2); font-size: 10px; line-height: 1.6; }
+.component-api-table { display: grid; border-top: 1px solid var(--app-border); }
+.component-api-table > div { display: grid; padding: 6px 0; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) 38px; gap: 8px; border-bottom: 1px solid var(--app-border); color: var(--app-text-3); font-size: 8.5px; }
+.component-api-table code { color: var(--app-text-2); overflow-wrap: anywhere; }
+.component-docs-error-table { border: 1px solid var(--app-border); border-radius: 13px; background: var(--app-panel); overflow: hidden; }
+.component-docs-error-table > div { display: grid; padding: 11px 14px; grid-template-columns: minmax(150px, .45fr) 1fr; gap: 14px; border-bottom: 1px solid var(--app-border); font-size: 10px; }
+.component-docs-error-table > div:last-child { border-bottom: 0; }
+.component-docs-error-table code { color: var(--td-brand-color); }
+.component-docs-error-table span { color: var(--app-text-2); }
+.component-api-security { display: grid; gap: 5px; padding: 16px 18px; border-left: 3px solid var(--td-brand-color); border-radius: 0 12px 12px 0; background: rgba(var(--app-accent-rgb), .08); }
+.component-api-security span { color: var(--app-text-2); font-size: 11px; line-height: 1.65; }
+
+@media (max-width: 900px) {
+  .component-docs { grid-template-columns: 1fr; gap: 20px; }
+  .component-docs-toc { position: static; display: flex; padding: 0 0 12px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--app-border); }
+  .component-docs-toc strong { display: none; }
+  .component-docs-toc a { flex: 0 0 auto; padding: 7px 10px; }
+}
+@media (max-width: 700px) {
+  .component-docs-summary, .component-docs-steps, .component-api-list { grid-template-columns: 1fr; }
+  .component-docs-summary > div { border-right: 0; border-bottom: 1px solid var(--app-border); }
+  .component-docs-summary > div:last-child { border-bottom: 0; }
+  .component-docs-error-table > div { grid-template-columns: 1fr; gap: 5px; }
+}

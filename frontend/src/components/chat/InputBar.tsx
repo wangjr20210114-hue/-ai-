@@ -96,6 +96,9 @@ export default function InputBar({ client }: Props) {
     // Optimistically render and seed the SSE cache before any network await;
     // otherwise stream_start can hydrate from an older cache and hide this row.
     dispatch({ type: 'ADD_MESSAGE', payload: message });
+    window.dispatchEvent(new CustomEvent('floris:question-sent', {
+      detail: { conversationId, messageId: message.id },
+    }));
     const previous = conversations.find((item) => item.id === conversationId);
     dispatch({
       type: 'UPSERT_CONVERSATION',

@@ -33,6 +33,7 @@
 @import "../shared/ui/overlays.css";
 @import "../features/skills/page.css";
 @import "../features/skills/catalog.css";
+@import "../features/skills/docs.css";
 @import "../features/skills/import.css";
 @import "../features/chat/proactive-history.css";
 @import "../features/settings/responsive.css";

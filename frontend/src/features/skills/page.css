@@ -12,6 +12,10 @@
     var(--app-bg);
   animation: skills-page-enter 360ms var(--motion-ease-out) both;
 }
+.skills-page.is-closing {
+  pointer-events: none;
+  animation: skills-page-exit 360ms var(--motion-ease-out) both;
+}
 
 .skills-page::before {
   position: absolute;
@@ -28,6 +32,7 @@
   position: relative;
   z-index: 2;
   display: grid;
+  flex: 0 0 auto;
   grid-template-columns: minmax(170px, 1fr) auto minmax(170px, 1fr);
   min-height: 72px;
   padding: 0 28px;
@@ -102,9 +107,14 @@
 .skills-page-section > p { max-width: 720px; margin: 0; color: var(--app-text-2); font-size: 13px; line-height: 1.75; }
 
 @keyframes skills-page-enter { from { opacity: 0; transform: scale(.992); } }
+@keyframes skills-page-exit { to { opacity: 0; transform: translateY(10px) scale(.988); filter: blur(3px); } }
 @keyframes skills-view-enter { from { opacity: 0; transform: translateY(10px); } }
 @keyframes skills-logo-arrive { from { opacity: 0; transform: rotate(-9deg) scale(.82); } to { opacity: 1; transform: rotate(0) scale(1); } }
 @keyframes skills-item-enter { from { opacity: 0; transform: translateY(12px) scale(.985); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .skills-page, .skills-page.is-closing, .skills-page-view, .skills-page-logo { animation-duration: 1ms; }
+}
 
 @media (max-width: 760px) {
   .skills-page-header { grid-template-columns: auto 1fr; min-height: 66px; padding: 0 12px; }

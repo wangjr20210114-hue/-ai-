@@ -40,6 +40,17 @@ describe('mergeSearchMeta', () => {
     expect(merged.media).toEqual(media);
     expect(merged.media_pending).toBe(false);
   });
+
+  it('keeps measured search time when a later media event omits it', () => {
+    const base: SearchMeta = {
+      query: 'AI 新闻', results: [], media: [], images: [], sources_used: ['wsa'],
+      total: 0, media_pending: true, timings_ms: { search: 2400 },
+    };
+    const merged = mergeSearchMeta(base, {
+      media, images: [media[0].url], media_pending: false, timings_ms: undefined,
+    });
+    expect(merged.timings_ms?.search).toBe(2400);
+  });
 });
 
 describe('actionOnlyFallback', () => {

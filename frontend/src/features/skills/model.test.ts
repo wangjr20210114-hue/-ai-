@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { InstalledSkill } from '../../shared/types';
 import {
   filterMarketplaceSkills,
+  groupMarketplaceSkills,
   localizedSkillText,
   missingSkillRequirements,
   skillInstallOrder,
@@ -69,6 +70,17 @@ describe('Skill marketplace Model', () => {
       language: 'en',
       preferences: {},
     }).map((item) => item.id)).toEqual(['maps']);
+  });
+
+  it('groups every Skill by its manifest category in product order', () => {
+    const grouped = groupMarketplaceSkills([
+      skill({ id: 'map', category: 'location' }),
+      skill({ id: 'search', category: 'knowledge' }),
+      skill({ id: 'base', category: 'foundation' }),
+    ]);
+    expect(grouped.map(([category]) => category)).toEqual([
+      'foundation', 'knowledge', 'location',
+    ]);
   });
 
   it('orders prerequisites and rejects missing or cyclic dependency data', () => {

@@ -57,7 +57,7 @@ test('one planned search streams an answer and binds reviewed media to its exact
   await installMockMakerApi(page, {
     chatEvents: [
       { type: 'progress_event', payload: { schema_version: 1, stage: 'planning', status: 'completed', activity: 'general', source: 'controller' } },
-      { type: 'search_results', payload: { schema_version: 1, query: 'Maker-native architecture', results: [source], media: [], images: [], total: 1, media_pending: true, search_config: searchConfig } },
+      { type: 'search_results', payload: { schema_version: 1, query: 'Maker-native architecture', results: [source], media: [], images: [], total: 1, media_pending: true, timings_ms: { search: 2400 }, search_config: searchConfig } },
       { type: 'ai_response', content: `The result reuses the trusted Maker boundary. [View source](${source.url})` },
       { type: 'search_media', payload: { schema_version: 1, query: 'Maker-native architecture', results: [source], media: [media], images: [media.url], total: 1, media_pending: false, search_config: searchConfig } },
       { type: 'answer_complete', payload: { turn_id: 'turn-search-1' } },
@@ -75,6 +75,7 @@ test('one planned search streams an answer and binds reviewed media to its exact
   await expect(boundImage).toHaveAttribute('data-source-bound-media', 'media-search');
   await expect(answer.locator('.markdown-body')).toHaveAttribute('data-search-provider-calls', '1');
   await expect(answer.locator('.markdown-body')).toHaveAttribute('data-search-tool-invocations', '1');
+  await expect(answer.locator('.search-complete-meta')).toContainText('搜索 2.4 秒');
   expect(chatRequest?.headers['makers-conversation-id']).toBe('visual-baseline');
   expect(chatRequest?.body).not.toHaveProperty('tenant_id');
   expect(chatRequest?.body).not.toHaveProperty('user_id');
@@ -82,14 +83,88 @@ test('one planned search streams an answer and binds reviewed media to its exact
 });
 
 test('trusted Skills expose their component actions through the marketplace boundary', async ({ page }) => {
-  await installMockMakerApi(page);
+  let marketplaceRequests = 0;
+  await installMockMakerApi(page, {
+    onSkillMarketplaceRequest: () => { marketplaceRequests += 1; },
+  });
   await waitForApp(page);
 
   await page.locator('[data-onboarding="skills"]').click();
   await expect(page.locator('.skills-page')).toBeVisible();
-  await page.locator('.skills-page-nav > button').nth(3).click();
+  await page.getByRole('button', { name: '跨端组件 API', exact: true }).click();
   await expect(page.locator('.component-api-list')).toContainText('proactive.refresh');
   await expect(page.locator('.component-api-list')).toContainText('proactive:read');
+  await page.evaluate(() => {
+    document.documentElement.dataset.skillClosingObserved = '0';
+    const marketplace = document.querySelector('.skills-page');
+    if (!marketplace) throw new Error('Skills marketplace is not mounted');
+    const observer = new MutationObserver(() => {
+      if (marketplace.classList.contains('is-closing')) {
+        document.documentElement.dataset.skillClosingObserved = '1';
+        observer.disconnect();
+      }
+    });
+    observer.observe(marketplace, { attributes: true, attributeFilter: ['class'] });
+  });
+  await page.locator('.skills-page-back').click();
+  await expect.poll(() => page.evaluate(
+    () => document.documentElement.dataset.skillClosingObserved,
+  )).toBe('1');
+  await expect(page.locator('.skills-page')).toBeHidden();
+  await expect(page.locator('[data-onboarding="skills"] .t-loading')).toHaveCount(0);
+  await page.clock.setFixedTime(new Date('2026-07-31T04:00:01.000Z'));
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('floris:auth-changed', {
+    detail: {
+      identity: {
+        id: 'floris:user-1',
+        subject_id: 'user-1',
+        tenant_id: 'floris',
+        username: 'user',
+        display_name: 'Floris user',
+        avatar_url: '',
+        auth_type: 'cloudbase',
+        auth_providers: ['email'],
+        membership: 'free',
+        roles: ['user'],
+      },
+      entitlements: {
+        plan: 'free', limits: { userSkillUploads: 2 }, payment_available: false,
+      },
+      login: {
+        cloudbase_available: true,
+        cloudbase_session_url: '',
+        wechat_available: false,
+        wechat_mode: 'qr',
+        wechat_start_url: '',
+        logout_url: '',
+      },
+    },
+  })));
+  await page.locator('[data-onboarding="skills"]').click();
+  await expect.poll(() => marketplaceRequests).toBe(2);
+  await expect(page.locator('.skills-page-account')).toContainText('Floris user');
+});
+
+test('sending a question rejoins the live edge and scrolls to the bottom', async ({ page }) => {
+  await installMockMakerApi(page, {
+    messages: Array.from({ length: 18 }, (_, index) => ({
+      id: `history-${index}`,
+      role: index % 2 ? 'ai' : 'user',
+      content: `历史消息 ${index} `.repeat(18),
+      ts: index + 1,
+    })),
+    chatEvents: [
+      { type: 'ai_response', content: '新问题的回答' },
+      { type: 'answer_complete', payload: { turn_id: 'scroll-turn' } },
+    ],
+  });
+  await waitForApp(page);
+  await page.locator('.chat-scroll').evaluate((element) => { element.scrollTop = 0; });
+  await page.locator('.input-box textarea').fill('把我带回当前问题');
+  await page.locator('.input-submit-button').click();
+  await expect.poll(() => page.locator('.chat-scroll').evaluate((element) => (
+    element.scrollHeight - element.scrollTop - element.clientHeight
+  ))).toBeLessThan(4);
 });
 
 test('settings open through the feature controller without blocking on optional providers', async ({ page }) => {

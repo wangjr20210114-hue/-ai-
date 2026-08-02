@@ -6,6 +6,7 @@
   "publisher": {"id": "floris", "name": "Floris", "verified": true},
   "required_plan": "guest",
   "order": 0,
+  "category": "foundation",
   "default_enabled": true,
   "locked": true,
   "capabilities": ["clarification"],

@@ -71,12 +71,14 @@ const marketplace = {
       kind: 'system',
       publisher: { id: 'floris', name: 'Floris', verified: true },
       required_plan: 'guest',
+      category: 'foundation',
       order: 0,
       default_enabled: true,
       locked: true,
       capabilities: ['chat'],
       requires: [],
       recommends: ['proactive'],
+      conflicts: [],
       external: false,
       configured: true,
       connect_url: '',
@@ -94,18 +96,20 @@ const marketplace = {
       kind: 'system',
       publisher: { id: 'floris', name: 'Floris', verified: true },
       required_plan: 'guest',
+      category: 'productivity',
       order: 1,
       default_enabled: true,
       locked: true,
       capabilities: ['proactive'],
       requires: ['core'],
       recommends: [],
+      conflicts: [],
       external: false,
       configured: true,
       connect_url: '',
       icon: '✓',
       name: { 'zh-CN': '主动服务', en: 'Proactive service' },
-      description: { 'zh-CN': '基于 Maker Schedule 与 Store 的主动提醒。', en: 'Maker-native proactive reminders.' },
+      description: { 'zh-CN': '根据日程、路线与持续任务主动发现机会并提醒。', en: 'Proactive reminders for schedules, routes, and ongoing tasks.' },
       component_actions: ['proactive.refresh'],
       eligible: true,
       installed: true,
@@ -130,9 +134,13 @@ const marketplace = {
     version: '1.0.0',
     actions: [{
       id: 'proactive.refresh',
+      category: 'workspace',
+      name: { 'zh-CN': '刷新主动服务', en: 'Refresh proactive service' },
       permission: 'proactive:read',
       description: 'Refresh the tenant-scoped proactive window.',
+      description_i18n: { 'zh-CN': '刷新当前用户的主动服务窗口。', en: 'Refresh the current user proactive window.' },
       input: { conversation_id: 'string' },
+      required: ['conversation_id'],
     }],
     security: {
       identity_source: 'signed_maker_context',
@@ -175,6 +183,7 @@ export interface MockMakerApiOptions {
     body: Record<string, unknown>;
     headers: Record<string, string>;
   }) => void;
+  onSkillMarketplaceRequest?: () => void;
 }
 
 export async function installMockMakerApi(
@@ -284,10 +293,13 @@ export async function installMockMakerApi(
     skill_preferences: {},
     skill_catalog: [],
   }));
-  await page.route('**/skill_marketplace', (route) => json(route, {
-    ...marketplace,
-    identity,
-  }));
+  await page.route('**/skill_marketplace', (route) => {
+    options.onSkillMarketplaceRequest?.();
+    return json(route, {
+      ...marketplace,
+      identity,
+    });
+  });
   await page.route('**/library**', (route) => json(route, {
     items: [],
     folders: [],

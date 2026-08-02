@@ -122,6 +122,7 @@ export function mergeSearchMeta(previous: SearchMeta | undefined, incoming: Part
     images: retainedImages,
     sources_used: Array.isArray(incoming.sources_used) ? incoming.sources_used : (previous?.sources_used || []),
     total: typeof incoming.total === 'number' ? incoming.total : (previous?.total || 0),
+    timings_ms: incoming.timings_ms ?? previous?.timings_ms,
     media_pending: previous?.media_pending === false && previousMedia.length > 0
       ? false
       : (incoming.media_pending ?? previous?.media_pending),

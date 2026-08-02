@@ -63,6 +63,7 @@ export function useSkillMarketplaceController() {
   const { conversationId } = useAppState();
   const { t, language } = useLanguage();
   const [visible, setVisible] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [view, setView] = useState<MarketplaceView>('catalog');
   const [marketplace, setMarketplace] = useState<SkillMarketplaceState | null>(null);
   const [authSession, setAuthSession] = useState<AuthSession | null>(
@@ -78,6 +79,8 @@ export function useSkillMarketplaceController() {
   const [tokenDrafts, setTokenDrafts] = useState<Record<string, string>>({});
   const suppressOpenUntilRef = useRef(0);
   const refreshSequenceRef = useRef(0);
+  const closeTimerRef = useRef<number | null>(null);
+  const loadedAtRef = useRef(0);
 
   const catalog = useMemo(
     () => marketplace?.skills || [],
@@ -113,6 +116,7 @@ export function useSkillMarketplaceController() {
       );
       if (sequence !== refreshSequenceRef.current) return false;
       setUploads(nextUploads);
+      loadedAtRef.current = Date.now();
       return true;
     } catch {
       MessagePlugin.error(t('skillsReadFailed'));
@@ -124,16 +128,30 @@ export function useSkillMarketplaceController() {
 
   const openMarketplace = useCallback(() => {
     if (Date.now() < suppressOpenUntilRef.current) return;
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+    setClosing(false);
     setVisible(true);
     setView('catalog');
-    void refresh();
-  }, [refresh]);
+    if (!marketplace || Date.now() - loadedAtRef.current > 30_000) void refresh();
+  }, [marketplace, refresh]);
   const closeMarketplace = useCallback(() => {
     // A full-screen layer can disappear while the browser is still
     // dispatching the originating pointer event. Ignore any click-through
     // reopen during that same interaction.
     suppressOpenUntilRef.current = Date.now() + 400;
-    setVisible(false);
+    refreshSequenceRef.current += 1;
+    setLoading(false);
+    setClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      setVisible(false);
+      setClosing(false);
+      closeTimerRef.current = null;
+    }, 360);
+  }, []);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -145,17 +163,21 @@ export function useSkillMarketplaceController() {
   useEffect(() => {
     const changed = (event: Event) => {
       const session = (event as CustomEvent<AuthSession>).detail;
+      // A guest and an authenticated account can have different catalog,
+      // entitlement and preference projections. Never reuse a directory
+      // fetched for the previous identity, even while the overlay is closed.
+      loadedAtRef.current = 0;
       setAuthSession(session);
       setMarketplace((current) => syncMarketplaceAuth(current, session));
       if (session.identity.auth_type === 'guest') {
         setUploads([]);
         setUserSkills([]);
       }
-      if (visible) void refresh();
+      if (visible && !closing) void refresh();
     };
     window.addEventListener('floris:auth-changed', changed);
     return () => window.removeEventListener('floris:auth-changed', changed);
-  }, [refresh, setUploads, setUserSkills, visible]);
+  }, [closing, refresh, setUploads, setUserSkills, visible]);
 
   useEffect(() => {
     if (!visible) return undefined;
@@ -261,6 +283,7 @@ export function useSkillMarketplaceController() {
     accountIdentity: account.identity,
     accountPlan: account.plan,
     catalog,
+    closing,
     closeMarketplace,
     connections,
     disconnect,

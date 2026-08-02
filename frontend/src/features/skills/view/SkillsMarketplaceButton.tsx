@@ -15,7 +15,6 @@ export default function SkillsMarketplaceButton() {
       block
       variant="text"
       icon={<AppIcon />}
-      loading={controller.loading && !controller.visible}
       onClick={() => void controller.openMarketplace()}
     >{controller.t('skillsMarketplace')}</Button>
     {controller.visible && typeof document !== 'undefined' && createPortal(

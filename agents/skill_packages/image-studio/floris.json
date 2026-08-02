@@ -6,6 +6,7 @@
   "publisher": {"id": "floris", "name": "Floris", "verified": true},
   "required_plan": "free",
   "order": 30,
+  "category": "creative",
   "default_enabled": true,
   "capabilities": ["image_generation"],
   "plan_flags": ["needs_image_generation"],

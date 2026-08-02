@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import MessageBubble from './MessageBubble';
 import type { ChatClient } from '../../services/chatClient';
@@ -38,6 +38,21 @@ export default function MessageList({ client }: Props) {
   const previousCountRef = useRef(0);
   const shouldStickToBottomRef = useRef(true);
   const previousScrollTopRef = useRef(0);
+
+  useEffect(() => {
+    const focusQuestion = () => {
+      shouldStickToBottomRef.current = true;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const container = scrollRef.current;
+        if (!container) return;
+        if (prefersReducedMotion()) container.scrollTop = container.scrollHeight;
+        else container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+        previousScrollTopRef.current = container.scrollTop;
+      }));
+    };
+    window.addEventListener('floris:question-sent', focusQuestion);
+    return () => window.removeEventListener('floris:question-sent', focusQuestion);
+  }, []);
 
   useLayoutEffect(() => {
     const container = scrollRef.current;

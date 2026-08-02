@@ -81,6 +81,8 @@ class SkillAndDataVersionTests(unittest.TestCase):
         )
         self.assertNotIn("label", action["input"])
         self.assertIn("planning", action["input"]["stage"])
+        self.assertEqual(action["category"], "chat")
+        self.assertEqual(action["name"]["zh-CN"], "更新处理进度")
 
     def test_calendar_can_run_without_map_but_map_tools_are_hidden(self):
         tools = build_system_skill_tools(

@@ -6,7 +6,6 @@ import {
   CheckCircleIcon,
   CloudUploadIcon,
   CodeIcon,
-  TreeRoundDotIcon,
 } from 'tdesign-icons-react';
 
 import type { useSkillMarketplaceController } from '../controller/useSkillMarketplaceController';
@@ -25,6 +24,7 @@ export function SkillsMarketplaceShell({
   const {
     accountIdentity,
     accountPlan,
+    closing,
     closeMarketplace,
     setView,
     t,
@@ -37,13 +37,12 @@ export function SkillsMarketplaceShell({
   }> = [
     { id: 'catalog', label: t('allSkills'), icon: <AppIcon /> },
     { id: 'installed', label: t('installedSkills'), icon: <CheckCircleIcon /> },
-    { id: 'dependencies', label: t('dependencyGraph'), icon: <TreeRoundDotIcon /> },
     { id: 'docs', label: t('componentApiDocs'), icon: <CodeIcon /> },
     { id: 'upload', label: t('myPrivateSkills'), icon: <CloudUploadIcon /> },
   ];
 
   return (
-    <div className="skills-page" role="dialog" aria-modal="true" aria-label={t('skillsMarketplace')}>
+    <div className={`skills-page ${closing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label={t('skillsMarketplace')}>
       <header className="skills-page-header">
         <Button
           className="skills-page-back"
@@ -89,10 +88,6 @@ export function SkillsMarketplaceShell({
               onClick={() => setView(item.id)}
             ><span aria-hidden="true">{item.icon}</span>{item.label}</button>
           ))}
-          <div className="skills-page-nav-note">
-            <strong>{t('makersNative')}</strong>
-            <span>{t('makersNativeSkillNote')}</span>
-          </div>
         </aside>
 
         <main className="skills-page-main" aria-busy={controller.loading}>
@@ -100,7 +95,7 @@ export function SkillsMarketplaceShell({
             {(view === 'catalog' || view === 'installed') && (
               <SkillCatalogView controller={controller} />
             )}
-            {(view === 'dependencies' || view === 'docs') && (
+            {view === 'docs' && (
               <SkillReferenceView controller={controller} />
             )}
             {view === 'upload' && <SkillImportView controller={controller} />}

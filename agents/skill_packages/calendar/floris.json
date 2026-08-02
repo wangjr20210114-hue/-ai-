@@ -6,6 +6,7 @@
   "publisher": {"id": "floris", "name": "Floris", "verified": true},
   "required_plan": "free",
   "order": 50,
+  "category": "productivity",
   "default_enabled": true,
   "capabilities": ["calendar_context", "calendar_action"],
   "plan_flags": ["needs_calendar_context", "needs_calendar_action"],

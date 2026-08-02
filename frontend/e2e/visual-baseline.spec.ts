@@ -46,5 +46,19 @@ test('Skills marketplace', async ({ page }) => {
   await page.locator('[data-onboarding="skills"]').click();
   await expect(page.locator('.skills-page')).toBeVisible();
   await expect(page.locator('.skills-page-card')).toHaveCount(2);
+  await expect(page.locator('.skills-page-card').last()).toContainText('根据日程、路线与持续任务主动发现机会并提醒。');
+  await expect(page.locator('.skills-page-card').last()).toHaveCSS('opacity', '1');
   await expect(page).toHaveScreenshot('skills-marketplace.png');
+});
+
+test('cross-platform component API documentation', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await openApp(page);
+  await page.locator('[data-onboarding="skills"]').click();
+  await page.getByRole('button', { name: '跨端组件 API', exact: true }).click();
+  await expect(page.locator('.component-docs')).toBeVisible();
+  const headerBox = await page.locator('.skills-page-header').boundingBox();
+  expect(headerBox?.height).toBeGreaterThanOrEqual(66);
+  expect(headerBox?.y).toBe(0);
+  await expect(page).toHaveScreenshot('component-api-docs.png');
 });

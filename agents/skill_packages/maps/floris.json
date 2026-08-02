@@ -6,6 +6,7 @@
   "publisher": {"id": "floris", "name": "Floris", "verified": true},
   "required_plan": "free",
   "order": 40,
+  "category": "location",
   "default_enabled": true,
   "capabilities": ["current_location", "nearby_places", "places", "map_action", "route"],
   "plan_flags": ["needs_places", "needs_current_location", "needs_nearby_places", "needs_route", "needs_map_action"],

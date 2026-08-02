@@ -1848,6 +1848,12 @@ async def _handle(ctx):
                 "turn_provider_calls": execution.provider_request_count,
                 "turn_tool_invocations": 0,
             }
+        search_elapsed_ms = stage_timings_ms.get("search")
+        if isinstance(search_elapsed_ms, (int, float)):
+            payload["timings_ms"] = {
+                **dict(payload.get("timings_ms") or {}),
+                "search": max(0, round(search_elapsed_ms)),
+            }
         return payload
 
     async def publish_media(evidence: SearchEvidence) -> None:
