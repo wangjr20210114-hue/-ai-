@@ -41,6 +41,8 @@ export interface AuthSession {
 
 let authSessionPromise: Promise<AuthSession> | null = null;
 let cachedAuthSession: AuthSession | null = null;
+// Ignore a late guest bootstrap response after a login/logout refresh.
+let authSessionGeneration = 0;
 const LOCAL_IDENTITY_KEY = 'floris.auth.identity';
 
 function hasEdgeOneAccessParams(): boolean {
@@ -104,8 +106,12 @@ export function openAuthDialog(): void {
 }
 
 export async function ensureAuthSession(force = false): Promise<AuthSession> {
-  if (force) authSessionPromise = null;
+  if (force) {
+    authSessionPromise = null;
+    authSessionGeneration += 1;
+  }
   if (authSessionPromise) return authSessionPromise;
+  const generation = authSessionGeneration;
   authSessionPromise = fetch(withEdgeOneAuth('/auth/session'), {
     method: 'GET',
     credentials: 'same-origin',
@@ -114,6 +120,9 @@ export async function ensureAuthSession(force = false): Promise<AuthSession> {
     const data = await response.json().catch(() => ({})) as Partial<AuthSession> & { error?: string };
     if (!response.ok || !data.identity || !data.entitlements || !data.login) {
       throw new Error(data.error || 'Secure session could not be established');
+    }
+    if (generation !== authSessionGeneration) {
+      throw new Error('Stale authentication session response');
     }
     cachedAuthSession = data as AuthSession;
     if (typeof window !== 'undefined') {
@@ -135,7 +144,7 @@ export async function ensureAuthSession(force = false): Promise<AuthSession> {
     }
     return cachedAuthSession;
   }).catch((error) => {
-    authSessionPromise = null;
+    if (generation === authSessionGeneration) authSessionPromise = null;
     throw error;
   });
   return authSessionPromise;
@@ -157,6 +166,7 @@ export async function logoutSession(): Promise<AuthSession> {
   });
   cachedAuthSession = null;
   authSessionPromise = null;
+  authSessionGeneration += 1;
   return ensureAuthSession(true);
 }
 

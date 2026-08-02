@@ -449,6 +449,8 @@ export interface ChatMessage {
   content: string;
   ts: number;
   streaming?: boolean;      // 是否正在流式输出
+  searchStartedAt?: number;
+  searchCompletedAt?: number;
   failed?: boolean;         // 瞬时失败提示；不写入本地缓存或 Makers 历史
   proactive?: boolean;      // 主动服务在空白新对话中生成的持久开场消息
   followUps?: string[];

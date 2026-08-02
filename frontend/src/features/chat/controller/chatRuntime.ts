@@ -664,6 +664,9 @@ export function useChatRuntime() {
               ...current,
               content: current.content.trim() ? current.content : actionOnlyFallback(current.workspaceActions),
               streaming: false,
+              searchCompletedAt: current.searchStartedAt && !current.searchCompletedAt
+                ? Date.now()
+                : current.searchCompletedAt,
             };
             publish(id, reconcileCompletedMessage(cached(id), complete));
             setConversationActivity(id, 'idle');
@@ -673,9 +676,18 @@ export function useChatRuntime() {
         case 'answer_complete': {
           const current = streams.get(streamId);
           if (current) {
-            const next = { ...current, streaming: false };
+            const next = {
+              ...current,
+              streaming: false,
+              searchCompletedAt: current.searchStartedAt && !current.searchCompletedAt
+                ? Date.now()
+                : current.searchCompletedAt,
+            };
             streams.set(streamId, next);
-            patch(id, streamId, { streaming: false });
+            patch(id, streamId, {
+              streaming: false,
+              searchCompletedAt: next.searchCompletedAt,
+            });
           }
           break;
         }
@@ -701,23 +713,34 @@ export function useChatRuntime() {
           const current = streams.get(streamId); if (!current) break;
           const intent = event.payload.intent === 'image' || current.skill?.intent === 'image' ? 'image' : 'search';
           const skill = { intent, mode: 'immediate', content: '', icon: intent === 'image' ? '🎨' : '🔍', action_label: '', params: {}, data: { status: String(event.payload.status || 'searching'), statusText: String(event.payload.statusText || translate('processingInformation')) } } as ChatMessage['skill'];
-          streams.set(streamId, { ...current, skill }); patch(id, streamId, { skill }); break;
+          const searchStartedAt = event.payload.intent === 'image' || current.skill?.intent === 'image'
+            ? current.searchStartedAt
+            : current.searchStartedAt || Date.now();
+          const next = { ...current, skill, searchStartedAt };
+          streams.set(streamId, next);
+          patch(id, streamId, { skill, searchStartedAt });
+          break;
         }
         case 'progress_event': {
           const current = streams.get(streamId);
           const step = event.payload.step as StructuredProgressStep | undefined;
           if (!current || !step) break;
           const progress = mergeProgressStep(current.progress, step);
-          const next = { ...current, progress };
+          const searchStartedAt = step.activity === 'web_search'
+            ? current.searchStartedAt || Date.now()
+            : current.searchStartedAt;
+          const next = { ...current, progress, searchStartedAt };
           streams.set(streamId, next);
-          patch(id, streamId, { progress });
+          patch(id, streamId, { progress, searchStartedAt });
           break;
         }
         case 'search_results': {
           const current = streams.get(streamId); const incoming = event.payload as unknown as Partial<SearchMeta>;
           if (current && Array.isArray(incoming.results)) {
             const searchResults = mergeSearchMeta(current.searchResults, incoming);
-            streams.set(streamId, { ...current, searchResults }); patch(id, streamId, { searchResults });
+            const searchStartedAt = current.searchStartedAt || Date.now();
+            streams.set(streamId, { ...current, searchResults, searchStartedAt });
+            patch(id, streamId, { searchResults, searchStartedAt });
           }
           break;
         }
@@ -731,7 +754,9 @@ export function useChatRuntime() {
             vision_diagnostics: event.payload.vision_diagnostics as Record<string, number> | undefined,
             timings_ms: event.payload.timings_ms as Record<string, number> | undefined,
           } as Partial<SearchMeta>);
-          streams.set(streamId, { ...current, searchResults }); patch(id, streamId, { searchResults });
+          const searchStartedAt = current.searchStartedAt || Date.now();
+          streams.set(streamId, { ...current, searchResults, searchStartedAt });
+          patch(id, streamId, { searchResults, searchStartedAt });
           break;
         }
         case 'paper_results': {
