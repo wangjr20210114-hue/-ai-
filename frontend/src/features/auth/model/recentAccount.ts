@@ -38,11 +38,11 @@ export function rememberRecentAccount(identity: SessionIdentity): RecentAccount 
   return account;
 }
 
-export function forgetRecentAccount(): void {
+export function clearExpiredRecentAccount(): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.removeItem(RECENT_ACCOUNT_KEY);
   } catch {
-    // A provider sign-out still removes the real credential.
+    // Expiry remains authoritative even when local metadata cannot be changed.
   }
 }

@@ -63,7 +63,6 @@ export default function AuthDialog() {
         <aside className="auth-dialog-story" aria-hidden="true">
           <div className="auth-story-orbit"><span /><span /><span /></div>
           <div className="auth-dialog-brand"><img src="/floris-avatar.png" alt="" /></div>
-          <span className="auth-dialog-eyebrow">{t('authSecureEyebrow')}</span>
           <h2>{signedIn ? t('authAccountTitle') : t('authTitle')}</h2>
           <p>{signedIn ? t('authSignedInHint') : t('authGuestHint')}</p>
           <div className="auth-story-features">
@@ -196,12 +195,6 @@ export default function AuthDialog() {
                   disabled={auth.busy !== ''}
                   onClick={() => void auth.resumeAccount()}
                 >{t('authResumeAccount')}</Button>}
-                {auth.resumeAvailable && <button
-                  type="button"
-                  className="auth-use-other-account"
-                  disabled={auth.busy !== ''}
-                  onClick={() => void auth.switchAccount()}
-                >{t('authUseOtherAccount')}</button>}
               </div>}
             </div>
             <div className={`auth-progress ${auth.codeSent ? 'is-code' : ''}`} aria-label={t('authLoginProgress')}>

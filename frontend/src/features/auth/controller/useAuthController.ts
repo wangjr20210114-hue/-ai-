@@ -12,14 +12,13 @@ import {
   hasRestorableCloudBaseSession,
   restoreCloudBaseSession,
   sendEmailOtp,
-  signOutEverywhere,
   startGithubLogin,
   verifyEmailOtp,
 } from '../model/cloudbaseClient';
 import { normalizeAuthError } from './authError';
 import { updateAccountProfile } from '../model/profileClient';
 import {
-  forgetRecentAccount,
+  clearExpiredRecentAccount,
   readRecentAccount,
   rememberRecentAccount,
   type RecentAccount,
@@ -78,6 +77,10 @@ export function useAuthController() {
         .then((available) => {
           setResumeAvailable(available);
           setAccountManagerOpen(available);
+          if (!available) {
+            clearExpiredRecentAccount();
+            setRecentAccount(null);
+          }
         })
         .catch(() => setResumeAvailable(false));
     }).catch(() => undefined);
@@ -214,11 +217,13 @@ export function useAuthController() {
     setBusy('switch');
     setError('');
     try {
-      const next = await signOutEverywhere();
-      forgetRecentAccount();
+      if (session?.identity.auth_type && session.identity.auth_type !== 'guest') {
+        setRecentAccount(rememberRecentAccount(session.identity));
+      }
+      const next = await logoutSession();
       setSession(next);
-      setRecentAccount(null);
-      setResumeAvailable(false);
+      setResumeAvailable(true);
+      setAccountManagerOpen(true);
       setCode('');
       setCodeSent(false);
     } catch (reason) {

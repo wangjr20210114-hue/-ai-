@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SessionIdentity } from '../../../shared/auth/session';
 import {
-  forgetRecentAccount,
+  clearExpiredRecentAccount,
   readRecentAccount,
   rememberRecentAccount,
 } from './recentAccount';
@@ -52,9 +52,9 @@ describe('recent account metadata', () => {
     expect(readRecentAccount()).toBeNull();
   });
 
-  it('removes chooser metadata when switching accounts', () => {
+  it('removes chooser metadata after the resumable session expires', () => {
     rememberRecentAccount(signedIdentity);
-    forgetRecentAccount();
+    clearExpiredRecentAccount();
     expect(readRecentAccount()).toBeNull();
   });
 });

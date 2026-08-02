@@ -5,7 +5,6 @@ const sdk = vi.hoisted(() => {
     getSession: vi.fn(),
     signInWithOAuth: vi.fn(),
     signInWithOtp: vi.fn(),
-    signOut: vi.fn(),
   };
   return {
     auth,

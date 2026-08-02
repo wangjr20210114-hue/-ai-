@@ -2,7 +2,6 @@ import {
   authorizedFetch,
   currentAuthSession,
   ensureAuthSession,
-  logoutSession,
   type AuthSession,
 } from '../../../shared/auth/session';
 
@@ -30,7 +29,6 @@ type CloudBaseAuth = {
     options: { redirectTo: string; skipBrowserRedirect?: boolean };
   }) => Promise<CloudBaseResult>;
   getSession: () => Promise<CloudBaseResult>;
-  signOut: () => Promise<CloudBaseResult>;
 };
 
 export const cloudBaseConfigured = Boolean(
@@ -164,12 +162,4 @@ export async function startGithubLogin(): Promise<void> {
   const url = String(data.url || data.uri || data.redirectTo || '').trim();
   if (!url) throw new Error('CloudBase did not return a GitHub authorization URL');
   window.location.assign(url);
-}
-
-export async function signOutEverywhere(): Promise<AuthSession> {
-  if (cloudBaseConfigured) {
-    const result = await (await requireClient()).signOut();
-    throwResultError(result);
-  }
-  return logoutSession();
 }
