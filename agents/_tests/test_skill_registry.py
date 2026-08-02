@@ -85,6 +85,21 @@ class SkillRegistryContractTests(unittest.TestCase):
         )
         self.assertTrue(default_skill_preferences()["core"])
         self.assertEqual(locked_skill_ids(), {"core", "proactive-agent"})
+        public_catalog = {
+            item["id"]: item for item in public_skill_catalog({})
+        }
+        self.assertEqual(
+            public_catalog["proactive-agent"]["component_actions"],
+            [],
+        )
+        self.assertEqual(
+            public_catalog["paper-reading"]["component_actions"],
+            [],
+        )
+        self.assertNotIn(
+            "chat.progress.publish",
+            public_catalog["web-search"]["component_actions"],
+        )
         self.assertEqual(
             next(
                 manifest.unavailable_fallback
@@ -316,6 +331,8 @@ class SkillCatalogRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["identity"]["auth_type"], "cloudbase")
         self.assertEqual(response["identity"]["membership"], "free")
         self.assertTrue(all(item["eligible"] for item in response["skills"]))
+        self.assertTrue(all(item["installed"] for item in response["skills"]))
+        self.assertTrue(all("enabled" in item for item in response["skills"]))
 
 
 if __name__ == "__main__":

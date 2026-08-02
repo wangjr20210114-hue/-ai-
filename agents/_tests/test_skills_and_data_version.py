@@ -4,7 +4,10 @@ import unittest
 from types import SimpleNamespace
 
 from agents._infrastructure.makers.identity import AuthError, scoped_conversation_id
-from agents._application.skills.component_api import public_component_api
+from agents._application.skills.component_api import (
+    known_component_actions,
+    public_component_api,
+)
 from agents._infrastructure.makers.data_version import CONVERSATION_PREFIX, DATA_GENERATION
 from agents._application.intelligence.service import (
     DEFAULT_SKILL_PREFERENCES,
@@ -73,16 +76,21 @@ class SkillAndDataVersionTests(unittest.TestCase):
         with self.assertRaises(AuthError):
             build_system_skill_tools(object())
 
-    def test_skill_progress_component_forbids_free_form_labels(self):
-        action = next(
-            item
-            for item in public_component_api()["actions"]
-            if item["id"] == "chat.progress.publish"
-        )
-        self.assertNotIn("label", action["input"])
-        self.assertIn("planning", action["input"]["stage"])
-        self.assertEqual(action["category"], "chat")
-        self.assertEqual(action["name"]["zh-CN"], "更新处理进度")
+    def test_public_component_api_hides_platform_infrastructure(self):
+        public_actions = {
+            item["id"] for item in public_component_api()["actions"]
+        }
+        self.assertEqual(public_actions, {
+            "search.evidence.publish",
+            "search.media.publish",
+            "maps.place.select",
+            "calendar.change.propose",
+            "image.result.publish",
+        })
+        self.assertIn("chat.progress.publish", known_component_actions())
+        self.assertNotIn("chat.progress.publish", public_actions)
+        self.assertNotIn("workspace.state.read", public_actions)
+        self.assertNotIn("files.scoped.upload", public_actions)
 
     def test_calendar_can_run_without_map_but_map_tools_are_hidden(self):
         tools = build_system_skill_tools(

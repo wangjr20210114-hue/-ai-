@@ -2,8 +2,16 @@ import { Button } from 'tdesign-react';
 import type { CSSProperties } from 'react';
 import { CheckCircleIcon } from 'tdesign-icons-react';
 
+import type { TranslationKey } from '../../../i18n';
 import type { InstalledSkill } from '../../../shared/types';
 import type { SkillMarketplaceController } from './SkillsMarketplaceShell';
+
+const PLAN_LABELS: Record<NonNullable<InstalledSkill['required_plan']>, TranslationKey> = {
+  guest: 'skillPlanGuest',
+  free: 'skillPlanFree',
+  plus: 'skillPlanPlus',
+  pro: 'skillPlanPro',
+};
 
 export function SkillCatalogCard({
   controller,
@@ -15,22 +23,23 @@ export function SkillCatalogCard({
   skill: InstalledSkill;
 }) {
   const {
-    catalog, connections, disconnect, download, isInstalled, language, loading,
+    catalog, connections, disconnect, download, isEnabled, language, loading,
     save, saveConnection, savingId, setTokenDrafts, skillName, skillText, t,
     tokenDrafts,
   } = controller;
-  const installed = isInstalled(skill);
+  const enabled = isEnabled(skill);
   const connected = skill.configured;
   const connection = connections[skill.id];
-  const missingRequired = (skill.requires || []).filter((id) => !isInstalled(
+  const missingRequired = (skill.requires || []).filter((id) => !isEnabled(
     catalog.find((item) => item.id === id) || { id } as InstalledSkill,
   ));
+  const planLabel = t(PLAN_LABELS[skill.required_plan || 'free']);
   const relationText = (ids: string[], empty: string) => (
     ids.length ? ids.map(skillName).join('、') : empty
   );
 
   return <article
-    className={`skills-page-card ${installed ? 'is-installed' : ''}`}
+    className={`skills-page-card ${enabled ? 'is-enabled' : 'is-disabled'}`}
     style={{ '--skill-index': index } as CSSProperties}
   >
     <div className="skills-page-card-top">
@@ -45,11 +54,14 @@ export function SkillCatalogCard({
           version: skill.version || '1.0.0',
         })}</small>
       </div>
+      <span className={`skills-page-card-status ${enabled ? 'is-enabled' : ''}`}>
+        {t(enabled ? 'skillEnabledStatus' : 'skillDisabledStatus')}
+      </span>
     </div>
     <p>{skillText(skill.description, '')}</p>
     <div className="skills-page-card-meta">
-      <span>{skill.required_plan || 'free'}</span>
-      <span>{t('componentApiCount', { count: (skill.component_actions || []).length })}</span>
+      <span>{planLabel}</span>
+      {!!skill.component_actions?.length && <span>{t('componentApiCount', { count: skill.component_actions.length })}</span>}
       {skill.locked && <span>{t('alwaysOn')}</span>}
     </div>
     <dl className={`skill-relations ${missingRequired.length ? 'has-missing' : ''}`}>
@@ -66,7 +78,7 @@ export function SkillCatalogCard({
         <dd>{relationText(skill.conflicts || [], t('noSkillConflicts'))}</dd>
       </div>
     </dl>
-    {skill.external && installed && skill.credential?.kind === 'token' && (
+    {skill.external && enabled && skill.credential?.kind === 'token' && (
       <div className="skill-credential-region">
         {!connected ? <>
           <p>{skillText(skill.credential.instructions, '')}</p>
@@ -96,24 +108,24 @@ export function SkillCatalogCard({
       </div>
     )}
     <div className="skills-page-card-actions">
-      {installed && (
+      {skill.eligible && (
         <button type="button" onClick={() => void download(skill.id)}>
           {t('downloadPackage')}
         </button>
       )}
       <Button
         size="small"
-        theme={installed ? 'default' : 'primary'}
-        variant={installed ? 'outline' : 'base'}
+        theme={enabled ? 'default' : 'primary'}
+        variant={enabled ? 'outline' : 'base'}
         disabled={skill.locked || loading}
         loading={savingId === skill.id}
-        onClick={() => void save(skill, !installed)}
+        onClick={() => void save(skill, !enabled)}
       >
         {skill.locked
           ? t('alwaysOn')
           : !skill.eligible && skill.eligibility_reason === 'login_required'
-            ? t('loginToInstall')
-            : installed ? t('uninstall') : t('install')}
+            ? t('loginToEnable')
+            : t(enabled ? 'disableSkillAction' : 'enableSkillAction')}
       </Button>
     </div>
   </article>;

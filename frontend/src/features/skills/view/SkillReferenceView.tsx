@@ -10,7 +10,6 @@ const DOC_SECTIONS = [
   ['component-doc-quickstart', 'componentDocsQuickStart'],
   ['component-doc-contracts', 'componentDocsContracts'],
   ['component-doc-errors', 'componentDocsErrors'],
-  ['component-doc-security', 'securityBoundary'],
 ] as const;
 const CLIENT_PLATFORMS = ['Web', 'HarmonyOS', 'Android', 'iOS'];
 const QUICK_START_STEPS = ['componentDocsStepSession', 'componentDocsStepAction', 'componentDocsStepRender'] as const;
@@ -20,12 +19,9 @@ const ERROR_CODES = [
   ['PERMISSION_DENIED', 'componentDocsErrorPermission'],
   ['CONFLICT', 'componentDocsErrorConflict'],
 ] as const;
-const CATEGORY_ORDER = ['chat', 'search', 'workspace', 'files', 'maps', 'calendar', 'image'];
+const CATEGORY_ORDER = ['search', 'maps', 'calendar', 'image'];
 const CATEGORY_LABELS: Record<string, TranslationKey> = {
-  chat: 'componentDocsCategoryChat',
   search: 'componentDocsCategorySearch',
-  workspace: 'componentDocsCategoryWorkspace',
-  files: 'componentDocsCategoryFiles',
   maps: 'componentDocsCategoryMaps',
   calendar: 'componentDocsCategoryCalendar',
   image: 'componentDocsCategoryImage',
@@ -35,10 +31,6 @@ type ComponentAction = SkillComponentApi['actions'][number];
 
 function actionExample(action: ComponentAction) {
   const examples: Record<string, Record<string, unknown>> = {
-    'chat.progress.publish': {
-      action: action.id,
-      payload: { stage: 'retrieval', activity: 'web_search', status: 'active' },
-    },
     'search.evidence.publish': {
       action: action.id,
       payload: { source_id: 'source-01', title: 'Product announcement', url: 'https://example.com/news' },
@@ -46,22 +38,6 @@ function actionExample(action: ComponentAction) {
     'search.media.publish': {
       action: action.id,
       payload: { source_id: 'source-01', media: [{ url: 'https://example.com/photo.jpg', alt: 'Launch event' }] },
-    },
-    'workspace.action.propose': {
-      action: action.id,
-      payload: { kind: 'calendar_changes', payload: { changes: [] } },
-    },
-    'workspace.state.read': {
-      action: action.id,
-      payload: { fields: ['schedules', 'map'] },
-    },
-    'files.scoped.read': {
-      action: action.id,
-      payload: { storage_key: 'files/paper.pdf' },
-    },
-    'files.scoped.upload': {
-      action: action.id,
-      payload: { name: 'paper.pdf', content_type: 'application/pdf', size: 248320 },
     },
     'maps.place.select': {
       action: action.id,
@@ -134,8 +110,8 @@ export function SkillReferenceView({
           title={t('componentDocsOnThisPage')}
           onClick={() => setTocCollapsed((current) => !current)}
         >
-          {tocCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
           <strong>{t('componentDocsOnThisPage')}</strong>
+          {tocCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
         </button>
         <nav>
           {DOC_SECTIONS.map(([id, label]) => <a href={`#${id}`} key={id}>{t(label)}</a>)}
@@ -152,6 +128,7 @@ export function SkillReferenceView({
           <span className="skills-page-eyebrow">{t('componentApiEyebrow', { version })}</span>
           <h1>{t('componentApiDocs')}</h1>
           <p>{t('componentApiHint')}</p>
+          <blockquote>{t('componentDocsPlatformManaged')}</blockquote>
           <p className="component-docs-platforms">
             <strong>{t('componentDocsPlatforms')}</strong><span>{CLIENT_PLATFORMS.join(' · ')}</span>
           </p>
@@ -217,11 +194,6 @@ export function SkillReferenceView({
           </table>
         </section>
 
-        <section className="component-docs-section" id="component-doc-security">
-          <h2>{t('securityBoundary')}</h2>
-          <p>{t('componentApiSecurity')}</p>
-          <blockquote><strong>{t('componentDocsClientRule')}</strong><span>{t('componentDocsClientRuleHint')}</span></blockquote>
-        </section>
       </article>
     </div>
   );

@@ -37,7 +37,11 @@ def decorate_catalog(
     identity: Mapping[str, Any],
     preferences: Mapping[str, bool],
 ) -> list[dict[str, Any]]:
-    """Apply tenant/user entitlement and installation state to catalog Models."""
+    """Apply tenant/user entitlement and enabled state to catalog Models.
+
+    Built-in packages are already installed as part of Floris. A preference only
+    enables or disables their runtime capabilities; it never uninstalls code.
+    """
     skills = [dict(item) for item in catalog]
     requirements = {
         str(item.get("id") or ""): str(item.get("required_plan") or "free")
@@ -51,7 +55,8 @@ def decorate_catalog(
             required_plans=requirements,
         )
         item["eligible"] = eligible
-        item["installed"] = eligible and bool(preferences.get(skill_id, False))
+        item["installed"] = True
+        item["enabled"] = eligible and bool(preferences.get(skill_id, False))
         item["eligibility_reason"] = (
             ""
             if eligible
@@ -66,9 +71,10 @@ def downloadable_skill(
     catalog: Iterable[Mapping[str, Any]],
     skill_id: str,
 ) -> bool:
-    """A user may download only a package already installed for that identity."""
+    """A user may download an eligible package shipped in the catalog."""
     return any(
         str(item.get("id") or "") == skill_id
         and bool(item.get("installed"))
+        and bool(item.get("eligible"))
         for item in catalog
     )

@@ -1,4 +1,4 @@
-import { Button, Tag } from 'tdesign-react';
+import { Button } from 'tdesign-react';
 import type { ReactNode } from 'react';
 import {
   AppIcon,
@@ -6,8 +6,10 @@ import {
   CheckCircleIcon,
   CloudUploadIcon,
   CodeIcon,
+  UserCircleIcon,
 } from 'tdesign-icons-react';
 
+import type { TranslationKey } from '../../../i18n';
 import type { useSkillMarketplaceController } from '../controller/useSkillMarketplaceController';
 import type { MarketplaceView } from '../model';
 import { SkillCatalogView } from './SkillCatalogView';
@@ -15,6 +17,13 @@ import { SkillImportView } from './SkillImportView';
 import { SkillReferenceView } from './SkillReferenceView';
 
 export type SkillMarketplaceController = ReturnType<typeof useSkillMarketplaceController>;
+
+const PLAN_LABELS: Record<string, TranslationKey> = {
+  guest: 'skillPlanGuest',
+  free: 'skillPlanFree',
+  plus: 'skillPlanPlus',
+  pro: 'skillPlanPro',
+};
 
 export function SkillsMarketplaceShell({
   controller,
@@ -36,10 +45,18 @@ export function SkillsMarketplaceShell({
     icon: ReactNode;
   }> = [
     { id: 'catalog', label: t('allSkills'), icon: <AppIcon /> },
-    { id: 'installed', label: t('installedSkills'), icon: <CheckCircleIcon /> },
+    { id: 'enabled', label: t('enabledSkills'), icon: <CheckCircleIcon /> },
     { id: 'docs', label: t('componentApiDocs'), icon: <CodeIcon /> },
     { id: 'upload', label: t('myPrivateSkills'), icon: <CloudUploadIcon /> },
   ];
+  const isGuest = !accountIdentity || accountIdentity.auth_type === 'guest';
+  const rawDisplayName = String(accountIdentity?.display_name || '').trim();
+  const displayName = isGuest
+    ? t('guestUser')
+    : /^\d{7,}$/.test(rawDisplayName) || /^[a-f\d-]{20,}$/i.test(rawDisplayName)
+      ? t('authSignedIn')
+      : rawDisplayName || t('authSignedIn');
+  const planLabel = t(PLAN_LABELS[accountPlan || 'guest'] || 'skillPlanGuest');
 
   return (
     <div className={`skills-page ${closing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label={t('skillsMarketplace')}>
@@ -57,20 +74,17 @@ export function SkillsMarketplaceShell({
           }}
         />
         <div className="skills-page-brand">
-          <span className="skills-page-logo" aria-hidden="true">{t('skillLogoGlyph')}</span>
-          <div><strong>{t('skillsMarketplace')}</strong><small>{t('standardSkillsSubtitle')}</small></div>
+          <span className="skills-page-logo" aria-hidden="true"><AppIcon /></span>
+          <strong>{t('skillsMarketplace')}</strong>
         </div>
-        <div className="skills-page-account">
-          <Tag theme="primary" variant="light">
-            {accountPlan || t('guestPlan')}
-          </Tag>
+        <div className="skills-page-account" aria-label={`${displayName} · ${planLabel}`}>
           {accountIdentity?.avatar_url
             ? <img src={accountIdentity.avatar_url} alt="" referrerPolicy="no-referrer" />
             : <span className="skills-page-account-avatar" aria-hidden="true">
-              {(accountIdentity?.display_name || t('guestUser')).slice(0, 1)}
+              <UserCircleIcon />
             </span>}
-          <span>{accountIdentity?.display_name || t('guestUser')}</span>
-          {(!accountIdentity || accountIdentity.auth_type === 'guest') && (
+          <span className="skills-page-account-copy"><strong>{displayName}</strong><small>{planLabel}</small></span>
+          {isGuest && (
             <Button size="small" theme="primary" onClick={controller.login}>
               {controller.loginLabel}
             </Button>
@@ -92,7 +106,7 @@ export function SkillsMarketplaceShell({
 
         <main className="skills-page-main" aria-busy={controller.loading}>
           <div className="skills-page-view" key={view}>
-            {(view === 'catalog' || view === 'installed') && (
+            {(view === 'catalog' || view === 'enabled') && (
               <SkillCatalogView controller={controller} />
             )}
             {view === 'docs' && (

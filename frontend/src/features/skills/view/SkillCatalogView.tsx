@@ -1,5 +1,5 @@
 import { Button } from 'tdesign-react';
-import { RefreshIcon, SearchIcon } from 'tdesign-icons-react';
+import { CheckCircleIcon, RefreshIcon, SearchIcon } from 'tdesign-icons-react';
 
 import type { TranslationKey } from '../../../i18n';
 import { groupMarketplaceSkills } from '../model';
@@ -39,12 +39,13 @@ export function SkillCatalogView({
     <section className="skills-page-hero">
       <div>
         <span className="skills-page-eyebrow">{t('skillsEyebrow')}</span>
-        <h1>{view === 'installed' ? t('installedSkills') : t('composeSkills')}</h1>
+        <h1>{view === 'enabled' ? t('enabledSkills') : t('composeSkills')}</h1>
         <p>{t('standardSkillsDescription')}</p>
       </div>
-      <div className="skills-page-stat">
-        <strong>{enabledCount}</strong><span>/ {catalog.length} {t('installed')}</span>
-      </div>
+      <div className="skills-page-stat"><CheckCircleIcon />{t('enabledCount', {
+        enabled: enabledCount,
+        total: catalog.length,
+      })}</div>
     </section>
     <div className="skills-page-toolbar">
       <label>

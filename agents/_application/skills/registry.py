@@ -49,6 +49,7 @@ _PERMISSIONS = {
 }
 from .component_api import (  # noqa: E402
     COMPONENT_PERMISSIONS,
+    PUBLIC_COMPONENT_ACTIONS,
     component_envelope,
     component_permission,
     known_component_actions,
@@ -845,7 +846,14 @@ def capability_tools_map() -> dict[str, tuple[str, ...]]:
 
 
 def public_skill_catalog(env: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
-    return [manifest.public_dict(env) for manifest in skill_manifests()]
+    catalog = [manifest.public_dict(env) for manifest in skill_manifests()]
+    for item in catalog:
+        item["component_actions"] = [
+            action
+            for action in item.get("component_actions") or []
+            if action in PUBLIC_COMPONENT_ACTIONS
+        ]
+    return catalog
 
 
 def skill_is_configured(

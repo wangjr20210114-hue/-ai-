@@ -7,7 +7,7 @@ import {
   localizedSkillText,
   missingSkillRequirements,
   skillInstallOrder,
-  skillIsInstalled,
+  skillIsEnabled,
 } from './model';
 
 function skill(changes: Partial<InstalledSkill>): InstalledSkill {
@@ -40,7 +40,7 @@ const skills: InstalledSkill[] = [
   skill({
     id: 'maps',
     locked: false,
-    installed: false,
+    enabled: false,
     name: { 'zh-CN': '地图', en: 'Maps' },
     description: { 'zh-CN': '地点和路线', en: 'Places and routes' },
     publisher: { id: 'floris', name: 'Floris', verified: true },
@@ -53,10 +53,10 @@ describe('Skill marketplace Model', () => {
     expect(localizedSkillText(skills[0].name, 'fallback', 'fr')).toBe('核心能力');
   });
 
-  it('keeps locked system Skills installed and filters installed View', () => {
-    expect(skillIsInstalled(skills[0], {})).toBe(true);
+  it('keeps locked system Skills enabled and filters the enabled View', () => {
+    expect(skillIsEnabled(skills[0], {})).toBe(true);
     expect(filterMarketplaceSkills(skills, {
-      view: 'installed',
+      view: 'enabled',
       query: '',
       language: 'zh-CN',
       preferences: {},

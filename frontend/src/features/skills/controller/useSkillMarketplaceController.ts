@@ -25,7 +25,7 @@ import {
   filterMarketplaceSkills,
   localizedSkillText,
   type MarketplaceView,
-  skillIsInstalled,
+  skillIsEnabled,
 } from '../model';
 
 
@@ -94,8 +94,8 @@ export function useSkillMarketplaceController() {
     const skill = catalog.find((item) => item.id === skillId);
     return skill ? skillText(skill.name, skill.id) : skillId;
   }, [catalog, skillText]);
-  const isInstalled = useCallback(
-    (skill: InstalledSkill) => skillIsInstalled(skill, preferences),
+  const isEnabled = useCallback(
+    (skill: InstalledSkill) => skillIsEnabled(skill, preferences),
     [preferences],
   );
 
@@ -189,8 +189,8 @@ export function useSkillMarketplaceController() {
   }, [closeMarketplace, visible]);
 
   const enabledCount = useMemo(
-    () => catalog.filter(isInstalled).length,
-    [catalog, isInstalled],
+    () => catalog.filter(isEnabled).length,
+    [catalog, isEnabled],
   );
   const visibleSkills = useMemo(
     () => filterMarketplaceSkills(catalog, {
@@ -229,7 +229,7 @@ export function useSkillMarketplaceController() {
           ? t('skillsDependenciesEnabled', {
             names: autoEnabled.map(skillName).join('、'),
           })
-          : t(enabled ? 'skillInstalled' : 'skillUninstalled', {
+          : t(enabled ? 'skillEnabledNamed' : 'skillDisabledNamed', {
             name: skillText(skill.name, skill.id),
           }),
       );
@@ -289,7 +289,7 @@ export function useSkillMarketplaceController() {
     disconnect,
     download,
     enabledCount,
-    isInstalled,
+    isEnabled,
     language,
     loading,
     login: openAuthDialog,

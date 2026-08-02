@@ -6,7 +6,19 @@ from copy import deepcopy
 from typing import Any, Mapping
 
 
-COMPONENT_API_VERSION = "2026-07-31"
+COMPONENT_API_VERSION = "2026-08-02"
+
+# Trusted adapters can use every action below, but the marketplace documentation
+# is deliberately smaller: it only describes components that a Skill author can
+# render for a user. Session recovery, storage and orchestration remain platform
+# capabilities instead of becoming a second public infrastructure API.
+PUBLIC_COMPONENT_ACTIONS = frozenset({
+    "search.evidence.publish",
+    "search.media.publish",
+    "maps.place.select",
+    "calendar.change.propose",
+    "image.result.publish",
+})
 
 _COMPONENT_ACTIONS: dict[str, dict[str, Any]] = {
     "chat.progress.publish": {
@@ -166,6 +178,7 @@ def public_component_api() -> dict[str, Any]:
         "actions": [
             {"id": action, **deepcopy(contract)}
             for action, contract in sorted(_COMPONENT_ACTIONS.items())
+            if action in PUBLIC_COMPONENT_ACTIONS
         ],
         "security": {
             "identity_source": "signed_session",

@@ -85,9 +85,10 @@ const marketplace = {
       icon: '◇',
       name: { 'zh-CN': '核心对话', en: 'Core chat' },
       description: { 'zh-CN': '可信系统组件与基础对话能力。', en: 'Trusted system component.' },
-      component_actions: ['chat.answer'],
+      component_actions: ['search.evidence.publish'],
       eligible: true,
       installed: true,
+      enabled: true,
       eligibility_reason: '',
     },
     {
@@ -99,7 +100,7 @@ const marketplace = {
       category: 'productivity',
       order: 1,
       default_enabled: true,
-      locked: true,
+      locked: false,
       capabilities: ['proactive'],
       requires: ['core'],
       recommends: [],
@@ -110,9 +111,10 @@ const marketplace = {
       icon: '✓',
       name: { 'zh-CN': '主动服务', en: 'Proactive service' },
       description: { 'zh-CN': '根据日程、路线与持续任务主动发现机会并提醒。', en: 'Proactive reminders for schedules, routes, and ongoing tasks.' },
-      component_actions: ['proactive.refresh'],
+      component_actions: [],
       eligible: true,
       installed: true,
+      enabled: true,
       eligibility_reason: '',
     },
   ],
@@ -126,21 +128,21 @@ const marketplace = {
   dependency_graph: {
     nodes: [
       { id: 'core', version: '1.0.0', kind: 'system', locked: true, required_plan: 'guest', name: { 'zh-CN': '核心对话', en: 'Core chat' } },
-      { id: 'proactive', version: '1.0.0', kind: 'system', locked: true, required_plan: 'guest', name: { 'zh-CN': '主动服务', en: 'Proactive service' } },
+      { id: 'proactive', version: '1.0.0', kind: 'system', locked: false, required_plan: 'guest', name: { 'zh-CN': '主动服务', en: 'Proactive service' } },
     ],
     edges: [{ from: 'proactive', to: 'core', type: 'requires' }],
   },
   component_api: {
     version: '1.0.0',
     actions: [{
-      id: 'proactive.refresh',
-      category: 'workspace',
-      name: { 'zh-CN': '刷新主动服务', en: 'Refresh proactive service' },
-      permission: 'proactive:read',
-      description: 'Refresh the tenant-scoped proactive window.',
-      description_i18n: { 'zh-CN': '刷新当前用户的主动服务窗口。', en: 'Refresh the current user proactive window.' },
-      input: { conversation_id: 'string' },
-      required: ['conversation_id'],
+      id: 'calendar.change.propose',
+      category: 'calendar',
+      name: { 'zh-CN': '展示日程变更', en: 'Show calendar changes' },
+      permission: 'components.calendar',
+      description: 'Render a calendar change proposal.',
+      description_i18n: { 'zh-CN': '在日程组件中展示待确认的变更。', en: 'Render proposed changes in the calendar component.' },
+      input: { changes: 'calendar-change[]', warnings: 'string[]' },
+      required: ['changes'],
     }],
     security: {
       identity_source: 'signed_maker_context',
@@ -191,6 +193,8 @@ export async function installMockMakerApi(
   options: MockMakerApiOptions = {},
 ) {
   const identity = { ...marketplace.identity, ...(options.identity || {}) };
+  let marketplacePreferences = { ...marketplace.preferences };
+  let intelligenceSkillPreferences: Record<string, boolean> = {};
   await page.clock.setFixedTime(now);
   await page.addInitScript(() => {
     localStorage.setItem('floris-onboarding-preference', JSON.stringify({
@@ -274,29 +278,51 @@ export async function installMockMakerApi(
     actions: [],
     ...(options.workspace || {}),
   }));
-  await page.route('**/intelligence', (route) => json(route, {
-    search_preferences: {
-      result_limit: 8,
-      image_limit: 8,
-      parallel_image_search: true,
-    },
-    map_preferences: {
-      service_mode: 'balanced',
-      place_result_limit: 6,
-      route_stop_limit: 8,
-      search_timeout_seconds: 30,
-      preferred_route_mode: 'driving',
-      route_strategy: 'time_then_cost',
-      near_time_tolerance_minutes: 10,
-      learn_route_preferences: true,
-    },
-    skill_preferences: {},
-    skill_catalog: [],
-  }));
+  await page.route('**/intelligence', (route) => {
+    const body = route.request().postDataJSON() as {
+      operation?: string;
+      preferences?: Record<string, boolean>;
+    } | null;
+    if (body?.operation === 'update_skill_preferences') {
+      intelligenceSkillPreferences = {
+        ...intelligenceSkillPreferences,
+        ...(body.preferences || {}),
+      };
+      marketplacePreferences = {
+        ...marketplacePreferences,
+        ...(body.preferences || {}),
+      };
+    }
+    return json(route, {
+      search_preferences: {
+        result_limit: 8,
+        image_limit: 8,
+        parallel_image_search: true,
+      },
+      map_preferences: {
+        service_mode: 'balanced',
+        place_result_limit: 6,
+        route_stop_limit: 8,
+        search_timeout_seconds: 30,
+        preferred_route_mode: 'driving',
+        route_strategy: 'time_then_cost',
+        near_time_tolerance_minutes: 10,
+        learn_route_preferences: true,
+      },
+      skill_preferences: intelligenceSkillPreferences,
+      skill_catalog: [],
+      skill_connections: {},
+    });
+  });
   await page.route('**/skill_marketplace', (route) => {
     options.onSkillMarketplaceRequest?.();
     return json(route, {
       ...marketplace,
+      skills: marketplace.skills.map((skill) => ({
+        ...skill,
+        enabled: skill.locked || marketplacePreferences[skill.id] !== false,
+      })),
+      preferences: marketplacePreferences,
       identity,
     });
   });

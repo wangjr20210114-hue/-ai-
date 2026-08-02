@@ -1,18 +1,18 @@
 .component-docs {
   display: grid;
-  max-width: 1200px;
+  max-width: 1120px;
   margin: 0 auto;
-  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-columns: 168px minmax(0, 1fr);
   align-items: start;
-  gap: 44px;
+  gap: 30px;
   transition: grid-template-columns 320ms var(--motion-ease-smooth), gap 320ms var(--motion-ease-smooth);
 }
-.component-docs.is-toc-collapsed { grid-template-columns: 52px minmax(0, 1fr); gap: 28px; }
+.component-docs.is-toc-collapsed { grid-template-columns: 42px minmax(0, 1fr); gap: 22px; }
 .component-docs-toc {
   position: sticky;
   top: 0;
   min-width: 0;
-  padding: 4px 18px 12px 0;
+  padding: 2px 12px 12px 0;
   border-right: 1px solid var(--app-border);
   overflow: hidden;
 }
@@ -22,6 +22,7 @@
   min-height: 38px;
   padding: 6px 4px;
   align-items: center;
+  justify-content: space-between;
   gap: 9px;
   border: 0;
   color: var(--app-text-2);
@@ -30,15 +31,16 @@
 }
 .component-docs-toc-toggle svg { flex: 0 0 auto; font-size: 17px; }
 .component-docs-toc-toggle strong {
-  min-width: 140px;
+  min-width: 112px;
   font-size: 13px;
   font-weight: 650;
   letter-spacing: .01em;
   transition: opacity 180ms ease, transform 260ms var(--motion-ease-out);
 }
-.component-docs-toc nav { display: grid; gap: 2px; transition: opacity 180ms ease, transform 260ms var(--motion-ease-out); }
+.component-docs-toc nav { display: grid; gap: 1px; margin-top: 3px; transition: opacity 180ms ease, transform 260ms var(--motion-ease-out); }
 .component-docs-toc a {
-  padding: 7px 4px 7px 30px;
+  padding: 6px 8px;
+  border-radius: 7px;
   color: var(--app-text-2);
   font-size: 13px;
   font-weight: 500;
@@ -46,15 +48,16 @@
   text-decoration: none;
   transition: color 160ms ease, transform 180ms var(--motion-ease-out);
 }
-.component-docs-toc a:hover { color: var(--td-brand-color); transform: translateX(3px); }
-.component-docs-toc-groups { display: grid; margin: 4px 0 0 30px; padding: 5px 0 3px 10px; border-left: 1px solid var(--app-border); }
-.component-docs-toc-groups a { padding: 5px 4px; color: var(--app-text-3); font-size: 12px; }
-.component-docs.is-toc-collapsed .component-docs-toc { padding-right: 9px; }
+.component-docs-toc a:hover { color: var(--td-brand-color); background: rgba(var(--app-accent-rgb), .07); transform: translateX(2px); }
+.component-docs-toc-groups { display: grid; margin: 5px 0 0 8px; padding: 4px 0 3px 8px; border-left: 1px solid var(--app-border); }
+.component-docs-toc-groups a { padding: 4px 7px; color: var(--app-text-3); font-size: 12px; }
+.component-docs.is-toc-collapsed .component-docs-toc { padding-right: 5px; }
+.component-docs.is-toc-collapsed .component-docs-toc-toggle { justify-content: center; }
 .component-docs.is-toc-collapsed .component-docs-toc-toggle strong,
 .component-docs.is-toc-collapsed .component-docs-toc nav { opacity: 0; pointer-events: none; transform: translateX(-8px); }
 
 .component-docs-content { min-width: 0; display: grid; gap: 46px; }
-.component-docs-markdown { max-width: 920px; font-size: 15px; line-height: 1.78; }
+.component-docs-markdown { max-width: 900px; font-size: 15px; line-height: 1.78; }
 .component-docs-markdown h1,
 .component-docs-markdown h2 { font-family: var(--app-display-font-family); font-weight: 700; }
 .component-docs-markdown h1 { margin: 9px 0 12px; font-size: clamp(34px, 4vw, 48px); line-height: 1.18; letter-spacing: -.035em; }

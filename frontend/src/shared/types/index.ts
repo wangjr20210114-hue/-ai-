@@ -201,6 +201,7 @@ export interface InstalledSkill {
   component_actions?: string[];
   eligible?: boolean;
   installed?: boolean;
+  enabled?: boolean;
   eligibility_reason?: 'login_required' | 'membership_required' | '';
 }
 

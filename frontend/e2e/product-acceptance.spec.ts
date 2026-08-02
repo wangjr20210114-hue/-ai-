@@ -91,12 +91,21 @@ test('trusted Skills expose their component actions through the marketplace boun
 
   await page.locator('[data-onboarding="skills"]').click();
   await expect(page.locator('.skills-page')).toBeVisible();
-  await page.getByRole('button', { name: 'API 文档', exact: true }).click();
-  await expect(page.locator('.component-api-list')).toContainText('proactive.refresh');
-  await expect(page.locator('.component-api-list')).toContainText('proactive:read');
-  await expect(page.locator('.component-docs-toc-groups')).toContainText('工作区');
-  await expect(page.locator('.component-api-example')).toContainText('conversation_id');
+  await page.getByRole('button', { name: '组件 API', exact: true }).click();
+  await expect(page.locator('.skills-page-header')).toBeVisible();
+  await expect(page.locator('.skills-page-brand')).toBeVisible();
+  await expect(page.locator('.skills-page-account')).toBeVisible();
+  await expect(page.locator('.component-api-list')).toContainText('calendar.change.propose');
+  await expect(page.locator('.component-api-list')).toContainText('components.calendar');
+  await expect(page.locator('.component-docs-toc-groups')).toContainText('日程');
+  await expect(page.locator('.component-api-example')).toContainText('changes');
   const docs = page.locator('.component-docs');
+  await expect.poll(() => page.locator('.skills-page-nav').evaluate(
+    (element) => element.getBoundingClientRect().width,
+  )).toBeLessThanOrEqual(210);
+  await expect.poll(() => page.locator('.component-docs-toc').evaluate(
+    (element) => element.getBoundingClientRect().width,
+  )).toBeLessThanOrEqual(170);
   await page.locator('.component-docs-toc-toggle').click();
   await expect(docs).toHaveClass(/is-toc-collapsed/);
   await page.locator('.component-docs-toc-toggle').click();
@@ -127,7 +136,7 @@ test('trusted Skills expose their component actions through the marketplace boun
         subject_id: 'user-1',
         tenant_id: 'floris',
         username: 'user',
-        display_name: 'Floris user',
+        display_name: '2011948918',
         avatar_url: '',
         auth_type: 'cloudbase',
         auth_providers: ['email'],
@@ -149,7 +158,30 @@ test('trusted Skills expose their component actions through the marketplace boun
   })));
   await page.locator('[data-onboarding="skills"]').click();
   await expect.poll(() => marketplaceRequests).toBe(2);
-  await expect(page.locator('.skills-page-account')).toContainText('Floris user');
+  await expect(page.locator('.skills-page-account')).toContainText('已安全登录');
+  await expect(page.locator('.skills-page-account')).toContainText('免费方案');
+  await expect(page.locator('.skills-page-account')).not.toContainText('2011948918');
+});
+
+test('Skills remain installed while users can disable and re-enable them', async ({ page }) => {
+  await installMockMakerApi(page);
+  await waitForApp(page);
+
+  await page.locator('[data-onboarding="skills"]').click();
+  const proactive = page.locator('.skills-page-card').filter({
+    has: page.getByRole('heading', { name: '主动服务', exact: true }),
+  });
+  await expect(proactive).toContainText('已启用');
+  await proactive.getByRole('button', { name: '禁用', exact: true }).click();
+  await expect(proactive).toContainText('已禁用');
+  await expect(proactive.getByRole('button', { name: '启用', exact: true })).toBeVisible();
+  await expect(proactive.getByRole('button', { name: '下载标准包', exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: '已启用', exact: true }).click();
+  await expect(proactive).toHaveCount(0);
+  await page.getByRole('button', { name: '全部 Skills', exact: true }).click();
+  await proactive.getByRole('button', { name: '启用', exact: true }).click();
+  await expect(proactive).toContainText('已启用');
 });
 
 test('sending a question rejoins the live edge and scrolls to the bottom', async ({ page }) => {

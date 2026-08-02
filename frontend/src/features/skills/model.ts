@@ -1,6 +1,6 @@
 import type { InstalledSkill } from '../../shared/types';
 
-export type MarketplaceView = 'catalog' | 'installed' | 'docs' | 'upload';
+export type MarketplaceView = 'catalog' | 'enabled' | 'docs' | 'upload';
 
 export const SKILL_CATEGORY_ORDER = [
   'foundation',
@@ -27,9 +27,9 @@ export function groupMarketplaceSkills(catalog: InstalledSkill[]) {
 
 export function missingSkillRequirements(
   skill: InstalledSkill,
-  installedIds: ReadonlySet<string>,
+  enabledIds: ReadonlySet<string>,
 ): string[] {
-  return (skill.requires || []).filter((id) => !installedIds.has(id));
+  return (skill.requires || []).filter((id) => !enabledIds.has(id));
 }
 
 export function skillInstallOrder(
@@ -63,11 +63,11 @@ export function localizedSkillText(
   return values?.[language] || values?.['zh-CN'] || values?.en || fallback;
 }
 
-export function skillIsInstalled(
+export function skillIsEnabled(
   skill: InstalledSkill,
   preferences: Record<string, boolean>,
 ): boolean {
-  return skill.installed ?? (skill.locked || preferences[skill.id] !== false);
+  return skill.enabled ?? (skill.locked || preferences[skill.id] !== false);
 }
 
 export function filterMarketplaceSkills(
@@ -82,8 +82,8 @@ export function filterMarketplaceSkills(
   const normalized = options.query.trim().toLocaleLowerCase(options.language);
   return catalog.filter((skill) => {
     if (
-      options.view === 'installed'
-      && !skillIsInstalled(skill, options.preferences)
+      options.view === 'enabled'
+      && !skillIsEnabled(skill, options.preferences)
     ) return false;
     if (!normalized) return true;
     return [
