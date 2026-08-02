@@ -5,7 +5,6 @@ import { useLanguage } from '../../i18n';
 export default function StatusIndicator() {
   const { connected } = useAppState();
   const { t } = useLanguage();
-  if (!connected) return null;
   return (
     <span
       className="connection-status"
@@ -18,9 +17,9 @@ export default function StatusIndicator() {
     >
       <span
         className="status-dot"
-        style={{ background: '#00a870' }}
+        style={{ background: connected ? '#00a870' : '#e34d59' }}
       />
-      {t('connected')}
+      {connected ? t('connected') : t('connecting')}
     </span>
   );
 }

@@ -21,7 +21,8 @@ import {
   requestAccountChooserAfterReload,
 } from '../model/loginIntent';
 import {
-  readRecentAccounts,
+  clearExpiredRecentAccount,
+  readRecentAccount,
   rememberRecentAccount,
   type RecentAccount,
 } from '../model/recentAccount';
@@ -46,7 +47,7 @@ export function useAuthController() {
   const [cooldown, setCooldown] = useState(0);
   const [accountManagerOpen, setAccountManagerOpen] = useState(false);
   const [resumeAvailable, setResumeAvailable] = useState(false);
-  const [recentAccounts, setRecentAccounts] = useState<RecentAccount[]>(readRecentAccounts);
+  const [recentAccount, setRecentAccount] = useState<RecentAccount | null>(readRecentAccount);
   const [displayName, setDisplayName] = useState(session?.identity.display_name || '');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState('');
@@ -61,17 +62,12 @@ export function useAuthController() {
     closeTimer.current = null;
   }, []);
 
-  const saveRecentIdentity = useCallback((identity: AuthSession['identity']) => {
-    rememberRecentAccount(identity);
-    setRecentAccounts(readRecentAccounts());
-  }, []);
-
   const open = useCallback(() => {
     clearCloseTimer();
     setClosing(false);
     setVisible(true);
     setError('');
-    setRecentAccounts(readRecentAccounts());
+    setRecentAccount(readRecentAccount());
     setAccountManagerOpen(false);
     void ensureAuthSession().then((next) => {
       setSession(next);
@@ -82,7 +78,11 @@ export function useAuthController() {
       void hasRestorableCloudBaseSession()
         .then((available) => {
           setResumeAvailable(available);
-          setAccountManagerOpen(available || readRecentAccounts().length > 0);
+          setAccountManagerOpen(available);
+          if (!available) {
+            clearExpiredRecentAccount();
+            setRecentAccount(null);
+          }
         })
         .catch(() => setResumeAvailable(false));
     }).catch(() => undefined);
@@ -127,9 +127,9 @@ export function useAuthController() {
 
   useEffect(() => {
     if (session?.identity.auth_type && session.identity.auth_type !== 'guest') {
-      saveRecentIdentity(session.identity);
+      setRecentAccount(rememberRecentAccount(session.identity));
     }
-  }, [saveRecentIdentity, session?.identity]);
+  }, [session?.identity]);
 
   useEffect(() => {
     if (!avatarFile) {
@@ -181,7 +181,7 @@ export function useAuthController() {
     try {
       const next = await verifyEmailOtp(code.trim());
       setSession(next);
-      saveRecentIdentity(next.identity);
+      setRecentAccount(rememberRecentAccount(next.identity));
       setDialogVisible(false);
     } catch (reason) {
       setError(normalizeAuthError(reason));
@@ -201,7 +201,7 @@ export function useAuthController() {
         return;
       }
       setSession(next);
-      saveRecentIdentity(next.identity);
+      setRecentAccount(rememberRecentAccount(next.identity));
       setDialogVisible(false);
     } catch (reason) {
       setResumeAvailable(false);
@@ -216,7 +216,7 @@ export function useAuthController() {
     setError('');
     try {
       if (session?.identity.auth_type && session.identity.auth_type !== 'guest') {
-        saveRecentIdentity(session.identity);
+        setRecentAccount(rememberRecentAccount(session.identity));
       }
       requestAccountChooserAfterReload();
       const next = await logoutSession();
@@ -237,7 +237,7 @@ export function useAuthController() {
     setError('');
     try {
       if (session?.identity.auth_type && session.identity.auth_type !== 'guest') {
-        saveRecentIdentity(session.identity);
+        setRecentAccount(rememberRecentAccount(session.identity));
       }
       const next = await logoutSession();
       setSession(next);
@@ -263,7 +263,7 @@ export function useAuthController() {
     try {
       const next = await updateAccountProfile(name, avatarFile);
       setSession(next);
-      saveRecentIdentity(next.identity);
+      setRecentAccount(rememberRecentAccount(next.identity));
       setAvatarFile(null);
     } catch (reason) {
       setError(normalizeAuthError(reason));
@@ -285,14 +285,6 @@ export function useAuthController() {
     window.setTimeout(() => requestOnboarding(true), 220);
   };
 
-  const selectRecentAccount = (account: RecentAccount) => {
-    setEmail(account.email);
-    setCode('');
-    setCodeSent(false);
-    setAccountManagerOpen(false);
-    setError('');
-  };
-
   return {
     accountManagerOpen,
     avatarFile,
@@ -309,11 +301,10 @@ export function useAuthController() {
     logout,
     onboardingEnabled,
     replayOnboarding,
-    recentAccounts,
+    recentAccount,
     resumeAccount,
     resumeAvailable,
     saveProfile,
-    selectRecentAccount,
     sendCode,
     session,
     setAvatarFile,

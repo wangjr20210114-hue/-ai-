@@ -85,6 +85,10 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
   }, []);
 
   useEffect(() => {
+    bodyRef.current?.toggleAttribute('inert', !connected);
+  }, [connected]);
+
+  useEffect(() => {
     try {
       localStorage.setItem('yuanbao-left-pane-width', String(leftPaneWidth));
       localStorage.setItem('yuanbao-right-pane-width', String(rightPaneWidth));
@@ -143,7 +147,7 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
   } as CSSProperties;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${connected ? '' : ' is-connecting'}`} aria-busy={!connected}>
       <Header
         onToggleSidebar={() => setSidebarOpen((value) => !value)}
         rightPanelOpen={rightPanelOpen}
@@ -153,6 +157,7 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
         className="app-body"
         ref={bodyRef}
         style={workspaceStyle}
+        aria-hidden={!connected}
       >
         <ConversationSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <div
@@ -178,6 +183,12 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
           <EdgeOnePlatformPanel />
         </div>
       </div>
+      {!connected && (
+        <div className="connection-operation-lock" role="status" aria-live="polite">
+          <span className="connection-operation-spinner" aria-hidden="true" />
+          <span>{t('connectingLock')}</span>
+        </div>
+      )}
       <FlorisOnboarding connected={connected} revealArea={revealOnboardingArea} />
       <AuthDialog />
     </div>

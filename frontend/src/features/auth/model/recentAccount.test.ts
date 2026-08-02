@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SessionIdentity } from '../../../shared/auth/session';
 import {
+  clearExpiredRecentAccount,
   readRecentAccount,
-  readRecentAccounts,
   rememberRecentAccount,
 } from './recentAccount';
 
@@ -43,8 +43,6 @@ describe('recent account metadata', () => {
     expect(readRecentAccount()).toEqual({
       avatarUrl: 'https://example.com/avatar.png',
       displayName: '橘子读者',
-      email: 'reader@example.com',
-      lastUsedAt: expect.any(Number),
       subjectId: 'subject-1',
     });
   });
@@ -54,10 +52,15 @@ describe('recent account metadata', () => {
     expect(readRecentAccount()).toBeNull();
   });
 
-  it('keeps multiple signed-in accounts in most-recent-first order', () => {
+  it('replaces chooser metadata with the most recently signed-in account', () => {
     rememberRecentAccount(signedIdentity);
     rememberRecentAccount({ ...signedIdentity, id: 'identity-2', subject_id: 'subject-2', display_name: '另一位读者' });
-    expect(readRecentAccounts().map((account) => account.subjectId)).toEqual(['subject-2', 'subject-1']);
+    expect(readRecentAccount()?.subjectId).toBe('subject-2');
   });
 
+  it('removes chooser metadata after the resumable session expires', () => {
+    rememberRecentAccount(signedIdentity);
+    clearExpiredRecentAccount();
+    expect(readRecentAccount()).toBeNull();
+  });
 });
