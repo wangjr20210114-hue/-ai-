@@ -496,7 +496,6 @@ const catalog = {
   authNoSavedAccount: ['本设备暂无可快捷继续的账号。完成一次登录后，30 天内可直接进入。', '本裝置暫無可快速繼續的帳號。完成一次登入後，30 天內可直接進入。', 'No account can be resumed on this device. After signing in once, you can enter directly for 30 days.', '本设备还没有可快捷继续的账号；登录一次后 30 天内能直接进入喵。', '本设备暂无可快捷继续的账号。'],
   authResumeAccount: ['继续上次账号', '繼續上次帳號', 'Continue previous account', '继续上次账号喵', '继续上次账号'],
   authNoSavedSession: ['上次登录已失效，请使用邮箱验证码重新登录。', '上次登入已失效，請使用信箱驗證碼重新登入。', 'The previous sign-in has expired. Sign in again with an email code.', '上次登录失效了，请用邮箱验证码重新登录喵。', '上次登录已失效，请重新验证。'],
-  authSwitchAccount: ['切换账号', '切換帳號', 'Switch account', '切换账号喵', '切换账号'],
   authSignedIn: ['已安全登录', '已安全登入', 'Signed in securely', '已安全登录喵', '已安全登录'],
   authLoginProgress: ['登录进度', '登入進度', 'Sign-in progress', '登录进度喵', '登录进度'],
   authStepEmail: ['填写邮箱', '填寫信箱', 'Email', '填写邮箱喵', '填写邮箱'],

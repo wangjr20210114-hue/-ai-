@@ -17,10 +17,6 @@ import {
 import { normalizeAuthError } from './authError';
 import { updateAccountProfile } from '../model/profileClient';
 import {
-  consumeAccountChooserRequest,
-  requestAccountChooserAfterReload,
-} from '../model/loginIntent';
-import {
   clearExpiredRecentAccount,
   readRecentAccount,
   rememberRecentAccount,
@@ -116,12 +112,6 @@ export function useAuthController() {
   }, [open]);
 
   useEffect(() => {
-    if (!consumeAccountChooserRequest()) return undefined;
-    const timer = window.setTimeout(open, 0);
-    return () => window.clearTimeout(timer);
-  }, [open]);
-
-  useEffect(() => {
     setDisplayName(session?.identity.display_name || '');
   }, [session?.identity.display_name]);
 
@@ -211,27 +201,6 @@ export function useAuthController() {
     }
   };
 
-  const switchAccount = async () => {
-    setBusy('switch');
-    setError('');
-    try {
-      if (session?.identity.auth_type && session.identity.auth_type !== 'guest') {
-        setRecentAccount(rememberRecentAccount(session.identity));
-      }
-      requestAccountChooserAfterReload();
-      const next = await logoutSession();
-      setSession(next);
-      setResumeAvailable(true);
-      setAccountManagerOpen(true);
-      setCode('');
-      setCodeSent(false);
-    } catch (reason) {
-      setError(normalizeAuthError(reason));
-    } finally {
-      setBusy('');
-    }
-  };
-
   const logout = async () => {
     setBusy('logout');
     setError('');
@@ -313,7 +282,6 @@ export function useAuthController() {
     setDisplayName,
     setEmail,
     setVisible: setDialogVisible,
-    switchAccount,
     toggleOnboarding,
     verifyCode,
     visible,

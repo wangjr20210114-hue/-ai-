@@ -158,12 +158,6 @@ export default function AuthDialog() {
                   type="button"
                   className="auth-signout-link"
                   disabled={auth.busy !== ''}
-                  onClick={() => void auth.switchAccount()}
-                >{t('authSwitchAccount')}</button>
-                <button
-                  type="button"
-                  className="auth-signout-link"
-                  disabled={auth.busy !== ''}
                   onClick={() => void auth.logout()}
                 >{t('authSignOut')}</button>
               </div>
