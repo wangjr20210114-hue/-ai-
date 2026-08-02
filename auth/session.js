@@ -213,9 +213,26 @@ export function publicIdentity(payload) {
 export async function currentUser(requestOrContext, envOverride) {
   const env = runtimeEnv(requestOrContext, envOverride);
   const request = runtimeRequest(requestOrContext);
-  const token = readCookie(request?.headers, SESSION_COOKIE);
+  const token = readSessionToken(request?.headers);
   if (!token) throw new AuthError('Authentication session is required');
   return publicIdentity(await verifySessionToken(token, env));
+}
+
+export function readBearerToken(headers) {
+  const raw = typeof headers?.get === 'function'
+    ? headers.get('authorization')
+    : headers?.authorization || headers?.Authorization || '';
+  const match = /^Bearer\s+([^\s]+)$/i.exec(String(raw || '').trim());
+  return match?.[1] || '';
+}
+
+/** Browser sessions use an HttpOnly cookie; native clients use the same
+ * signed identity as a short-lived Bearer token. Controllers remain the
+ * authoritative signature and tenant boundary for both transports. */
+export function readSessionToken(headers) {
+  // An explicit Authorization header belongs to the native/API transport and
+  // must win if a WebView also happens to carry an unrelated browser cookie.
+  return readBearerToken(headers) || readCookie(headers, SESSION_COOKIE);
 }
 
 export function tenantPrefix(user) {

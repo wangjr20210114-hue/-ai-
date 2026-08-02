@@ -26,6 +26,8 @@ export default function AuthDialog() {
       ? t('authInvalidCode')
       : auth.error === CLOUDBASE_NETWORK_UNAVAILABLE
         ? t('authNetworkUnavailable')
+        : auth.error === 'display_name_required'
+          ? t('authDisplayNameRequired')
         : auth.error;
 
   return (
@@ -68,25 +70,81 @@ export default function AuthDialog() {
           </div>
           <header className="auth-content-header">
             <span className="auth-dialog-eyebrow">{signedIn ? t('authAccountEyebrow') : t('authWelcomeEyebrow')}</span>
-            <h2 id="auth-dialog-title">{signedIn ? t('authAccountTitle') : t('authEmailLogin')}</h2>
-            <p>{signedIn ? t('authSignedInHint') : t('authEmailLoginHint')}</p>
+            <h2 id="auth-dialog-title">{signedIn ? t('authProfileTitle') : t('authEmailLogin')}</h2>
+            <p>{signedIn ? t('authProfileHint') : t('authEmailLoginHint')}</p>
           </header>
 
           {signedIn ? (
-            <div className="auth-account-card">
-              {auth.session?.identity.avatar_url
-                ? <img src={auth.session.identity.avatar_url} alt="" referrerPolicy="no-referrer" />
-                : <span aria-hidden="true">{t('accountAvatarGlyph')}</span>}
-              <div>
-                <strong>{auth.session?.identity.display_name}</strong>
-                <small>{auth.session?.identity.auth_providers.join(' · ') || 'CloudBase'}</small>
+            <div className="auth-profile-panel">
+              <div className="auth-account-card">
+                <label className="auth-avatar-editor">
+                  <img
+                    src={auth.avatarPreview || auth.session?.identity.avatar_url || '/default-user-avatar-anime.png'}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                  />
+                  <span>{t('authChangeAvatar')}</span>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    disabled={auth.busy !== ''}
+                    onChange={(event) => auth.setAvatarFile(event.target.files?.[0] || null)}
+                  />
+                </label>
+                <div>
+                  <strong>{auth.session?.identity.display_name}</strong>
+                  <small>{auth.session?.identity.auth_providers.join(' · ') || 'CloudBase'}</small>
+                </div>
+                <CheckCircleIcon className="auth-account-verified" aria-label={t('authSignedIn')} />
               </div>
-              <CheckCircleIcon className="auth-account-verified" aria-label={t('authSignedIn')} />
+              <label className="auth-field">
+                <span>{t('authDisplayName')}</span>
+                <div className="auth-input-shell">
+                  <input
+                    value={auth.displayName}
+                    maxLength={120}
+                    disabled={auth.busy !== ''}
+                    placeholder={t('authDisplayNamePlaceholder')}
+                    onChange={(event) => auth.setDisplayName(event.target.value)}
+                  />
+                </div>
+              </label>
+              <small className="auth-avatar-format">{t('authAvatarFormat')}</small>
               <Button
+                block
+                theme="primary"
+                loading={auth.busy === 'profile'}
+                disabled={auth.busy !== ''}
+                onClick={() => void auth.saveProfile()}
+              >{t('authSaveProfile')}</Button>
+              <div className="auth-profile-preference">
+                <div>
+                  <strong>{t('authOnboardingControl')}</strong>
+                  <small>{t('authOnboardingControlHint')}</small>
+                </div>
+                <label className="onboarding-settings-switch">
+                  <input
+                    type="checkbox"
+                    checked={auth.onboardingEnabled}
+                    aria-label={t('onboardingEnabled')}
+                    onChange={(event) => auth.toggleOnboarding(event.target.checked)}
+                  />
+                  <span aria-hidden="true" />
+                </label>
+              </div>
+              {auth.onboardingEnabled && <Button
+                block
                 variant="outline"
-                loading={auth.busy === 'logout'}
+                disabled={auth.busy !== ''}
+                onClick={auth.replayOnboarding}
+              >{t('onboardingReplay')}</Button>}
+              {error && <div className="auth-error" role="alert">{error}</div>}
+              <button
+                type="button"
+                className="auth-signout-link"
+                disabled={auth.busy !== ''}
                 onClick={() => void auth.logout()}
-              >{t('authSignOut')}</Button>
+              >{t('authSignOut')}</button>
             </div>
           ) : <>
             <div className={`auth-progress ${auth.codeSent ? 'is-code' : ''}`} aria-label={t('authLoginProgress')}>

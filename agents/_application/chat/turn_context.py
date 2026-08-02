@@ -41,6 +41,36 @@ def model_only_search_fallback(
     return fallback
 
 
+def experience_hints_for_plan(
+    plan: Mapping[str, Any],
+    *,
+    auth_type: str,
+) -> list[dict[str, Any]]:
+    """Return presentation-only hints without changing the model answer."""
+    skills = list(dict.fromkeys(
+        str(value or "").strip()
+        for value in (plan.get("_runtime_model_fallback_skills") or [])
+        if str(value or "").strip()
+    ))[:8]
+    if not skills:
+        return []
+    hints: list[dict[str, Any]] = []
+    if "web-search" in skills:
+        hints.append({
+            "kind": "freshness",
+            "skill_ids": ["web-search"],
+            "login_required": str(auth_type or "") == "guest",
+        })
+        skills = [value for value in skills if value != "web-search"]
+    if skills:
+        hints.append({
+            "kind": "skill_suggestion",
+            "skill_ids": skills,
+            "login_required": str(auth_type or "") == "guest",
+        })
+    return hints
+
+
 def search_request_for_plan(
     plan: Mapping[str, Any],
     identity: Mapping[str, Any],

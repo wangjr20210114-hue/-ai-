@@ -23,9 +23,7 @@ from .._application.skills.registry import (
     planner_topic_instructions,
     planner_topic_summaries,
     planner_topic_tools,
-    skill_degradation_capabilities,
     skill_plan_flags,
-    skill_unavailable_fallbacks,
 )
 
 
@@ -38,6 +36,7 @@ DEFAULT_PLAN = {
     "needs_current_location": False,
     "needs_nearby_places": False,
     "needs_route": False,
+    "needs_travel_itinerary": False,
     "needs_map_action": False,
     "needs_calendar_action": False,
     "needs_calendar_context": False,
@@ -70,6 +69,7 @@ DEFAULT_PLAN = {
     "route_city": "全国",
     "route_mode": "default",
     "route_strategy": "default",
+    "travel_budget_tier": "not_applicable",
     "route_uses_current_location": False,
     "reuse_latest_route": False,
     "route_calendar_hint": "",
@@ -87,8 +87,6 @@ BOOLEAN_KEYS = tuple(key for key, value in DEFAULT_PLAN.items() if isinstance(va
 KNOWN_SKILLS = known_skill_ids()
 _CAPABILITY_SKILLS = capability_skill_map()
 _SKILL_PLAN_FLAGS = skill_plan_flags()
-_SKILL_DEGRADATION_CAPABILITIES = skill_degradation_capabilities()
-_SKILL_UNAVAILABLE_FALLBACKS = skill_unavailable_fallbacks()
 
 
 def apply_runtime_skill_policy(
@@ -98,9 +96,8 @@ def apply_runtime_skill_policy(
     """Apply persisted Skill switches after semantic planning.
 
     The model only states which capabilities the request needs. It never sees
-    or judges enable switches. This logic-layer gate either blocks before graph
-    construction, applies a trusted manifest-declared model-only fallback, or
-    removes an independent enhancement while preserving the primary result.
+    or judges enable switches. This logic-layer gate removes unavailable
+    adapters while preserving a safe base-model answer and presentation hint.
     """
     reconciled = reconcile_capability_contract(plan)
     if reconciled.get("reuse_latest_route"):
@@ -138,78 +135,21 @@ def apply_runtime_skill_policy(
     if not required_skills:
         return reconciled
 
-    # Some trusted system Skills declare that their unavailable state still
-    # permits a useful model-only answer.  This is manifest-owned rather than
-    # identity- or keyword-specific: entitlement policy disables the adapter,
-    # then this gate removes only that Skill's planned flags and capabilities.
-    model_only_skills = [
-        skill_id
-        for skill_id in required_skills
-        if _SKILL_UNAVAILABLE_FALLBACKS.get(skill_id) == "model_only"
-    ]
-    if model_only_skills:
-        for skill_id in model_only_skills:
-            for flag in _SKILL_PLAN_FLAGS.get(skill_id, ()):
-                reconciled[flag] = False
-        reconciled["_capabilities"] = [
-            capability
-            for capability in (reconciled.get("_capabilities") or [])
-            if _CAPABILITY_SKILLS.get(str(capability)) not in model_only_skills
-        ]
-        reconciled["_runtime_model_fallback_skills"] = model_only_skills
-        reconciled["_runtime_omitted_skills"] = model_only_skills
-        required_skills = [
-            skill_id
-            for skill_id in required_skills
-            if skill_id not in model_only_skills
-        ]
-        if not required_skills:
-            return reconciled
-
-    # A Skill may declare that it is an independent enhancement of another
-    # capability. When only that enhancement is disabled, preserve the useful
-    # primary result and remove the disabled Skill from this turn.
-    if len(required_skills) == 1:
-        omitted_skill = required_skills[0]
-        active_capabilities = set(_normalize_preflight_capabilities(
-            reconciled.get("_capabilities") or []
-        ))
-        optional_capabilities = set(_normalize_preflight_capabilities(
-            reconciled.get("optional_capabilities") or []
-        ))
-        omitted_capabilities = {
-            capability
-            for capability in active_capabilities
-            if _CAPABILITY_SKILLS.get(capability) == omitted_skill
-        }
-        degradable = bool(
-            active_capabilities
-            & set(_SKILL_DEGRADATION_CAPABILITIES.get(omitted_skill, ()))
-            and omitted_capabilities
-            and omitted_capabilities.issubset(optional_capabilities)
-        )
-    else:
-        omitted_skill = ""
-        degradable = False
-    if degradable:
-        for flag in _SKILL_PLAN_FLAGS.get(omitted_skill, ()):
+    # A disabled enhancement never prevents the base model from answering.
+    # Remove only the unavailable adapters and let the presenter attach a
+    # small, structured experience hint after the untouched model answer.
+    # Side effects remain safe because their plan flags and tools are removed.
+    model_only_skills = list(required_skills)
+    for skill_id in model_only_skills:
+        for flag in _SKILL_PLAN_FLAGS.get(skill_id, ()):
             reconciled[flag] = False
-        reconciled["_capabilities"] = [
-            capability
-            for capability in (reconciled.get("_capabilities") or [])
-            if _CAPABILITY_SKILLS.get(str(capability)) != omitted_skill
-        ]
-        reconciled["_runtime_omitted_skills"] = [
-            *model_only_skills,
-            omitted_skill,
-        ]
-        return reconciled
-
-    reconciled["blocked_skill"] = required_skills[0]
-    reconciled["_runtime_omitted_skills"] = [
-        *model_only_skills,
-        *required_skills,
+    reconciled["_capabilities"] = [
+        capability
+        for capability in (reconciled.get("_capabilities") or [])
+        if _CAPABILITY_SKILLS.get(str(capability)) not in model_only_skills
     ]
+    reconciled["_runtime_model_fallback_skills"] = model_only_skills
+    reconciled["_runtime_omitted_skills"] = model_only_skills
     return reconciled
 
 
@@ -316,6 +256,13 @@ class CapabilityPlan(BaseModel):
         description=(
             "True for every request to calculate or plan real travel between "
             "places, including a route embedded inside a calendar proposal."
+        ),
+    )
+    needs_travel_itinerary: bool = Field(
+        default=False,
+        description=(
+            "True when the user asks for a usable multi-stop or multi-day travel "
+            "itinerary, rather than one point-to-point route or general inspiration."
         ),
     )
     needs_map_action: bool = False
@@ -492,6 +439,14 @@ class CapabilityPlan(BaseModel):
             "route preference. Use default when no preference was stated."
         ),
     )
+    travel_budget_tier: str = Field(
+        default="not_applicable",
+        description=(
+            "Budget posture for an itinerary: economy, standard, premium, "
+            "unconsidered, unknown, or not_applicable. Explicit low/high amounts "
+            "map semantically to economy/premium."
+        ),
+    )
     route_uses_current_location: bool = Field(
         default=False,
         description=(
@@ -633,6 +588,17 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
     plan["route_strategy"] = route_strategy if route_strategy in {
         "default", "time_then_cost", "least_time", "least_cost",
     } else "default"
+    travel_budget_tier = str(
+        raw.get("travel_budget_tier") or "not_applicable"
+    ).strip().lower()
+    plan["travel_budget_tier"] = (
+        travel_budget_tier
+        if travel_budget_tier in {
+            "economy", "standard", "premium", "unconsidered", "unknown",
+            "not_applicable",
+        }
+        else "unknown" if plan.get("needs_travel_itinerary") else "not_applicable"
+    )
     plan["route_uses_current_location"] = bool(
         plan.get("needs_route") and raw.get("route_uses_current_location")
     )
@@ -715,6 +681,28 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
         plan["needs_places"] = True
         plan["needs_calendar_action"] = True
     plan = reconcile_capability_contract(plan)
+    if (
+        plan.get("needs_travel_itinerary")
+        and plan.get("travel_budget_tier") in {"unknown", "not_applicable"}
+        and not plan.get("needs_clarification")
+    ):
+        # Budget materially changes transport, accommodation and route detail
+        # for a usable itinerary. Ask once with the product-approved finite
+        # choices; "没考虑" is itself a complete answer and is never re-asked.
+        for key in BOOLEAN_KEYS:
+            if key.startswith("needs_"):
+                plan[key] = False
+        plan["needs_clarification"] = True
+        plan["clarification_title"] = "先确认预算倾向"
+        plan["clarification_prompt"] = "预算会影响交通、住宿和体验安排，请先选一个倾向。"
+        plan["clarification_fields"] = [{
+            "id": "travel-budget-tier",
+            "label": "这次旅行更偏向哪种预算？",
+            "type": "single",
+            "required": True,
+            "options": ["省钱", "标准", "没考虑"],
+            "placeholder": "",
+        }]
     if (
         plan.get("needs_papers")
         and plan.get("paper_author")
@@ -1198,6 +1186,7 @@ async def plan_capabilities(
 总则：
 - 在一次结构化输出中同时完成意图、依赖、必要信息、能力参数和 prompt_topics 规划；不要把同一问题留给另一个预检模型。理解完整目标，可同时选择多个能力；非必要字段保持默认值。capabilities 必须始终返回，并独立列出完成用户完整目标必需的每一项固定枚举能力；它与 needs_* 是互相校验的冗余协议，两者必须一致，不能因为参数还不完整就漏掉能力。只判断目标需要什么，不判断任何 Skill 是否开启；开关由运行时逻辑层处理。
 - 只有缺失信息会阻断所有安全有用结果，或真实副作用对象无法唯一确定时，才设置 needs_clarification=true，并把其他 needs_* 设为 false。此时必须同时填写 clarification_title、clarification_prompt 和最少 clarification_fields，让系统直接生成主动卡片；不得只让最终模型用普通文本追问。偏好未决定时直接交给主模型给方案，不要澄清。
+- 旅行行程是预算偏好的唯一产品级例外：用户要求可执行的多站或多日行程时 needs_travel_itinerary=true。上下文没有预算倾向时，必须先用一个 single 字段询问，选项严格为“省钱、标准、没考虑”；用户选“没考虑”后 travel_budget_tier=unconsidered，不得再次询问。明确低预算为 economy，高预算为 premium，其余为 standard。economy 的路线优先公交、骑行和步行，premium 优先体验与舒适度，standard/unconsidered 做均衡方案。
 - 用户只是探索思路、比较假设方案，且目的地、预算、同行或节奏尚未决定时，不需要外部事实、地点核验或地图；保持所有 needs_* 为 false，让主模型直接给 2–3 套假设方案。只有用户要求当前信息、来源、真实地点推荐或可执行路线时才选择相应能力。
 - 现实地点可能有错字、同名或缺城市时，不得在调用地点服务之前设置 needs_clarification。先选择地点/路线能力；地点工具会根据真实腾讯候选决定直接采用、单选或填空。
 - 论文作者身份不能按“最热门同名作者”猜测。若用户只给姓名或称谓、上下文没有单位/研究方向等身份线索，且现实中可能存在多个研究者，设置 needs_clarification=true，用一张主动卡只收集能区分身份的最少信息；已有足够身份线索时不得重复询问。

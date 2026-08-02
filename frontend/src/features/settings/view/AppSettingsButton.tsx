@@ -4,12 +4,6 @@ import { AddIcon, DeleteIcon, RefreshIcon, SettingIcon } from 'tdesign-icons-rea
 import { useAppDispatch, useAppState } from '../../../store/appState';
 import { clearLocalApplicationData } from '../../../services/conversation';
 import { capabilityEnabled } from '../../../services/skills';
-import {
-  disableOnboarding,
-  enableOnboarding,
-  readOnboardingPreference,
-  requestOnboarding,
-} from '../../../services/onboarding';
 import { languageName, useLanguage, type Language } from '../../../i18n';
 import type { InstalledSkill, MakersIntelligenceState, ProviderUsageSummary } from '../../../shared/types';
 import { ensureAuthSession } from '../../../shared/auth/session';
@@ -63,9 +57,6 @@ export default function AppSettingsButton() {
   const [providerUsage, setProviderUsage] = useState<ProviderUsageSummary | null>(null);
   const [providerUsageLoading, setProviderUsageLoading] = useState(false);
   const [providerUsageError, setProviderUsageError] = useState(false);
-  const [onboardingEnabled, setOnboardingEnabled] = useState(
-    () => readOnboardingPreference().enabled,
-  );
 
   useEffect(() => {
     if (!visible) return;
@@ -209,25 +200,8 @@ export default function AppSettingsButton() {
     providerUsage?.metering?.[period] || {},
   ).reduce((total, [key, value]) => total + (key.endsWith(`.${metric}`) ? Number(value) || 0 : 0), 0);
   const openSettings = () => {
-    setOnboardingEnabled(readOnboardingPreference().enabled);
     setLoading(true);
     setVisible(true);
-  };
-  const updateOnboarding = (enabled: boolean) => {
-    setOnboardingEnabled(enabled);
-    if (!enabled) {
-      disableOnboarding();
-      return;
-    }
-    enableOnboarding();
-    setVisible(false);
-    window.setTimeout(() => requestOnboarding(), 180);
-  };
-  const replayOnboarding = () => {
-    enableOnboarding();
-    setOnboardingEnabled(true);
-    setVisible(false);
-    window.setTimeout(() => requestOnboarding(true), 180);
   };
   const saveMottos = () => void setPreferences({
     fallback_mottos: mottoDrafts
@@ -282,29 +256,6 @@ export default function AppSettingsButton() {
             {(['zh-CN', 'zh-TW', 'en', 'cat-cute', 'cat-cold'] as Language[]).map((item) => <option key={item} value={item}>{languageName(item)}</option>)}
           </select>
           <p className="settings-language-hint">{t('languageHint')}</p>
-        </section>
-
-        <section className="app-settings-section onboarding-settings-section">
-          <div className="onboarding-settings-heading">
-            <div>
-              <h3>{t('onboardingSettingTitle')}</h3>
-              <p>{t('onboardingSettingHint')}</p>
-            </div>
-            <label className="onboarding-settings-switch">
-              <input
-                type="checkbox"
-                checked={onboardingEnabled}
-                aria-label={t('onboardingEnabled')}
-                onChange={(event) => updateOnboarding(event.target.checked)}
-              />
-              <span aria-hidden="true" />
-            </label>
-          </div>
-          {onboardingEnabled && (
-            <Button size="small" variant="outline" onClick={replayOnboarding}>
-              {t('onboardingReplay')}
-            </Button>
-          )}
         </section>
 
         <section className="app-settings-section provider-usage-section">

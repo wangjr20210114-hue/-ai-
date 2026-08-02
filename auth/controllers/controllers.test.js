@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   handleLogout,
   handleSession,
+  sessionDurations,
 } from './session-controller.js';
 import {
   handleWechatCallback,
@@ -42,6 +43,68 @@ test('session Controller creates an isolated guest and then reuses its signed co
     env: TEST_AUTH_ENV,
   });
   assert.equal((await reused.json()).identity.id, first.identity.id);
+});
+
+test('session Controller rolls an authenticated cookie for 30 days and restores Maker profile data', async () => {
+  const token = await signSessionToken(testIdentity({
+    auth_type: 'cloudbase',
+    display_name: 'Provider Name',
+  }), TEST_AUTH_ENV, 60);
+  const response = await handleSession({
+    request: new Request('https://example.com/auth/session', {
+      headers: {
+        Cookie: `floris_session=${token}`,
+        'X-Forwarded-For': '203.0.113.10',
+      },
+    }),
+    env: TEST_AUTH_ENV,
+    profileStore: {
+      async get() {
+        return {
+          schema_version: 1,
+          display_name: 'Maker Profile',
+          avatar_url: '/profile?avatar_key=tenant-avatar',
+        };
+      },
+    },
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.identity.display_name, 'Maker Profile');
+  assert.equal(body.identity.avatar_url, '/profile?avatar_key=tenant-avatar');
+  assert.match(response.headers.get('set-cookie'), new RegExp(`Max-Age=${sessionDurations.authenticated}`));
+  const renewed = response.headers.get('set-cookie').split(';', 1)[0].split('=', 2)[1];
+  const payload = await verifySessionToken(decodeURIComponent(renewed), TEST_AUTH_ENV);
+  assert.equal(payload.display_name, 'Maker Profile');
+  assert.ok(payload.exp - payload.iat <= sessionDurations.authenticated);
+});
+
+test('session Controller never upgrades a short-lived native Bearer into a browser cookie', async () => {
+  const token = await signSessionToken(testIdentity({
+    auth_type: 'cloudbase',
+    client_kind: 'native',
+  }), TEST_AUTH_ENV, 60);
+  const response = await handleSession({
+    request: new Request('https://example.com/auth/session', {
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+    env: TEST_AUTH_ENV,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('set-cookie'), null);
+  assert.equal((await response.json()).identity.auth_type, 'cloudbase');
+});
+
+test('session Controller rejects an invalid native Bearer without minting a guest cookie', async () => {
+  const response = await handleSession({
+    request: new Request('https://example.com/auth/session', {
+      headers: { Authorization: 'Bearer invalid-token' },
+    }),
+    env: TEST_AUTH_ENV,
+  });
+  assert.equal(response.status, 401);
+  assert.equal(response.headers.get('set-cookie'), null);
+  assert.equal((await response.json()).code, 'UNAUTHORIZED');
 });
 
 test('session Controller fails closed when the signing secret is unavailable', async () => {

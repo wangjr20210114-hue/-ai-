@@ -70,6 +70,14 @@ def _cookie(ctx: Any, name: str) -> str:
     return ""
 
 
+def _session_token(ctx: Any) -> str:
+    authorization = _request_header(ctx, "authorization").strip()
+    scheme, separator, value = authorization.partition(" ")
+    if separator and scheme.lower() == "bearer" and value.strip():
+        return value.strip()
+    return _cookie(ctx, "floris_session")
+
+
 def _base64url_decode(value: str) -> bytes:
     raw = str(value or "").replace("-", "+").replace("_", "/")
     return base64.b64decode(raw + "=" * ((4 - len(raw) % 4) % 4))
@@ -152,7 +160,7 @@ class MakerIdentityResolver:
         secret = _env_value(env, "JWT_SECRET").strip()
         if len(secret) < 32:
             raise AuthError("服务端登录签名尚未配置")
-        token = _cookie(ctx, "floris_session")
+        token = _session_token(ctx)
         return _identity_from_payload(_verify_session(token, secret), token)
 
 
@@ -161,7 +169,7 @@ def require_user(ctx: Any) -> dict[str, Any]:
     secret = _env_value(env, "JWT_SECRET").strip()
     if len(secret) < 32:
         raise AuthError("服务端登录签名尚未配置")
-    token = _cookie(ctx, "floris_session")
+    token = _session_token(ctx)
     payload = _verify_session(token, secret)
     identity = _identity_from_payload(payload, token)
     tenant_id = identity.tenant_id

@@ -14,6 +14,13 @@ import {
   verifyEmailOtp,
 } from '../model/cloudbaseClient';
 import { normalizeAuthError } from './authError';
+import { updateAccountProfile } from '../model/profileClient';
+import {
+  disableOnboarding,
+  enableOnboarding,
+  readOnboardingPreference,
+  requestOnboarding,
+} from '../../../services/onboarding';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const OTP_COOLDOWN_SECONDS = 60;
@@ -27,7 +34,13 @@ export function useAuthController() {
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
   const [cooldown, setCooldown] = useState(0);
-  const [busy, setBusy] = useState<'email' | 'verify' | 'github' | 'logout' | ''>('');
+  const [displayName, setDisplayName] = useState(session?.identity.display_name || '');
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState('');
+  const [onboardingEnabled, setOnboardingEnabled] = useState(
+    () => readOnboardingPreference().enabled,
+  );
+  const [busy, setBusy] = useState<'email' | 'verify' | 'github' | 'profile' | 'logout' | ''>('');
   const [error, setError] = useState('');
 
   const clearCloseTimer = useCallback(() => {
@@ -69,6 +82,20 @@ export function useAuthController() {
       window.removeEventListener('floris:auth-changed', changed);
     };
   }, [open]);
+
+  useEffect(() => {
+    setDisplayName(session?.identity.display_name || '');
+  }, [session?.identity.display_name]);
+
+  useEffect(() => {
+    if (!avatarFile) {
+      setAvatarPreview('');
+      return undefined;
+    }
+    const url = URL.createObjectURL(avatarFile);
+    setAvatarPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [avatarFile]);
 
   useEffect(() => clearCloseTimer, [clearCloseTimer]);
 
@@ -145,22 +172,63 @@ export function useAuthController() {
     }
   };
 
+  const saveProfile = async () => {
+    const name = displayName.trim();
+    if (!name) {
+      setError('display_name_required');
+      return;
+    }
+    setBusy('profile');
+    setError('');
+    try {
+      const next = await updateAccountProfile(name, avatarFile);
+      setSession(next);
+      setAvatarFile(null);
+    } catch (reason) {
+      setError(normalizeAuthError(reason));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const toggleOnboarding = (enabled: boolean) => {
+    setOnboardingEnabled(enabled);
+    if (enabled) enableOnboarding();
+    else disableOnboarding();
+  };
+
+  const replayOnboarding = () => {
+    enableOnboarding();
+    setOnboardingEnabled(true);
+    setDialogVisible(false);
+    window.setTimeout(() => requestOnboarding(true), 220);
+  };
+
   return {
+    avatarFile,
+    avatarPreview,
     busy,
     cloudBaseConfigured,
     closing,
     code,
     codeSent,
     cooldown,
+    displayName,
     email,
     error,
     github,
     logout,
+    onboardingEnabled,
+    replayOnboarding,
+    saveProfile,
     sendCode,
     session,
+    setAvatarFile,
     setCode,
+    setDisplayName,
     setEmail,
     setVisible: setDialogVisible,
+    toggleOnboarding,
     verifyCode,
     visible,
   };

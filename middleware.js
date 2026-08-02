@@ -1,11 +1,11 @@
 import {
-  sessionConstants,
-  readCookie,
+  readSessionToken,
 } from './auth/session.js';
 
 const PUBLIC_PREFIXES = [
   '/auth/session',
   '/auth/cloudbase/session',
+  '/auth/mobile/session',
   '/auth/wechat/start',
   '/auth/wechat/callback',
   '/auth/logout',
@@ -15,7 +15,7 @@ export async function middleware(context) {
   const { request, next } = context;
   const path = new URL(request.url).pathname;
   if (PUBLIC_PREFIXES.some((prefix) => path.startsWith(prefix))) return next();
-  const token = readCookie(request.headers, sessionConstants.cookieName);
+  const token = readSessionToken(request.headers);
   if (!token) {
     return new Response(JSON.stringify({
       error: 'Authentication session is required',
@@ -52,6 +52,7 @@ export const config = {
     '/routes/:path*',
     '/proactive/:path*',
     '/provider_usage/:path*',
+    '/profile/:path*',
     '/reader/:path*',
     '/skill_marketplace/:path*',
     '/skill-uploads/:path*',

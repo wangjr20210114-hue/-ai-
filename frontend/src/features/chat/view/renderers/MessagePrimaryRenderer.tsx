@@ -23,8 +23,20 @@ interface Props {
   previousUserMessage?: ChatMessage;
   proactive: ProactiveState | null;
   assistantChainTail: boolean;
+  authIsGuest: boolean;
   controller: MessageBubbleController;
 }
+
+const SKILL_NAME_KEYS = {
+  'web-search': 'skillSearchName',
+  vision: 'skillVisionName',
+  'image-studio': 'skillImageName',
+  maps: 'skillMapsName',
+  calendar: 'skillCalendarName',
+  'proactive-agent': 'skillProactiveName',
+  'paper-reading': 'skillPaperName',
+  'tencent-meeting': 'skillMeetingName',
+} as const;
 
 export function MessagePrimaryRenderer({
   message,
@@ -36,6 +48,7 @@ export function MessagePrimaryRenderer({
   previousUserMessage,
   proactive,
   assistantChainTail,
+  authIsGuest,
   controller,
 }: Props) {
   const { t } = useLanguage();
@@ -49,6 +62,18 @@ export function MessagePrimaryRenderer({
       searchMeta={message.searchResults}
       streaming={Boolean(message.streaming)}
     />}
+    {!message.streaming && message.experienceHints?.map((hint, index) => {
+      const loginRequired = hint.login_required && authIsGuest;
+      const names = hint.skill_ids.map((skillId) => {
+        const key = SKILL_NAME_KEYS[skillId as keyof typeof SKILL_NAME_KEYS];
+        return key ? t(key) : skillId;
+      }).join('、');
+      return <small className="answer-experience-hint" key={`${hint.kind}-${index}`}>
+        {hint.kind === 'freshness'
+          ? t(loginRequired ? 'answerFreshnessLoginHint' : 'answerFreshnessHint')
+          : t(loginRequired ? 'answerSkillLoginHint' : 'answerSkillHint', { skills: names })}
+      </small>;
+    })}
     {message.clarification && <ClarificationCard
       clarification={message.clarification}
       messageId={message.id}

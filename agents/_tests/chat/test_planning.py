@@ -380,7 +380,13 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
             },
             disabled_skills={"calendar"},
         )
-        self.assertEqual(disabled_plan["blocked_skill"], "calendar")
+        self.assertEqual(disabled_plan["blocked_skill"], "")
+        self.assertFalse(disabled_plan["needs_calendar_context"])
+        self.assertFalse(disabled_plan["needs_calendar_action"])
+        self.assertEqual(
+            disabled_plan["_runtime_model_fallback_skills"],
+            ["calendar"],
+        )
         self.assertEqual(required_tools_for_plan(disabled_plan), ())
 
         reused_route = apply_runtime_skill_policy(
@@ -498,7 +504,7 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
             SYSTEM_PROMPT,
             "\n".join(SYSTEM_PROMPT_SECTIONS.values()),
         )
-        self.assertEqual(len(SYSTEM_PROMPT_SECTIONS), 32)
+        self.assertEqual(len(SYSTEM_PROMPT_SECTIONS), 33)
         self.assertIn(
             "plan_route_between_places",
             SYSTEM_PROMPT_SECTIONS["route"],
@@ -507,6 +513,7 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
             "propose_calendar_changes",
             SYSTEM_PROMPT_SECTIONS["calendar"],
         )
+        self.assertIn("travel_budget_tier", SYSTEM_PROMPT_SECTIONS["travel_itinerary"])
 
     def test_dynamic_prompt_injects_only_the_current_skill_policy(self):
         common = {
@@ -568,9 +575,8 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
                 },
             },
         )
-        self.assertIn("必须继续用基础模型直接回答", fallback_prompt)
-        self.assertIn("不能要求用户安装、开启或连接 Skill", fallback_prompt)
-        self.assertIn("无法实时核验", fallback_prompt)
+        self.assertIn("正文不要提及 Skill", fallback_prompt)
+        self.assertNotIn("无法实时核验", fallback_prompt)
 
     def test_successful_capability_plan_hides_unrelated_tool_schemas(self):
         tools = [

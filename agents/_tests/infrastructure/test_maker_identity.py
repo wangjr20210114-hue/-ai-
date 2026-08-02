@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from agents._domain.identity import TenantIdentity
 from agents._infrastructure.makers.identity import AuthError, MakerIdentityResolver, conversation_index_user_id
-from agents._tests.auth_helpers import authenticated_context
+from agents._tests.auth_helpers import authenticated_context, auth_env, session_token
 
 
 def signed_context(**identity):
@@ -60,6 +60,47 @@ class MakerIdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(identity.auth_type, "cloudbase")
         self.assertEqual(identity.membership, "free")
+
+    def test_native_bearer_uses_the_same_signed_tenant_identity(self) -> None:
+        token = session_token(
+            auth_type="cloudbase",
+            membership="plus",
+            subject_id="native-user-1",
+            tenant_id="tenant-mobile",
+        )
+        ctx = SimpleNamespace(
+            env=auth_env(),
+            request=SimpleNamespace(headers={
+                "authorization": f"Bearer {token}",
+            }),
+        )
+        identity = MakerIdentityResolver().resolve(ctx)
+        self.assertEqual(identity.tenant_id, "tenant-mobile")
+        self.assertEqual(identity.user_id, "native-user-1")
+        self.assertEqual(identity.auth_type, "cloudbase")
+        self.assertEqual(identity.membership, "plus")
+
+    def test_native_bearer_wins_over_an_unrelated_webview_cookie(self) -> None:
+        cookie_token = session_token(
+            auth_type="guest",
+            membership="guest",
+            subject_id="webview-guest",
+        )
+        bearer_token = session_token(
+            auth_type="cloudbase",
+            membership="free",
+            subject_id="native-user-2",
+        )
+        ctx = SimpleNamespace(
+            env=auth_env(),
+            request=SimpleNamespace(headers={
+                "cookie": f"floris_session={cookie_token}",
+                "authorization": f"Bearer {bearer_token}",
+            }),
+        )
+        identity = MakerIdentityResolver().resolve(ctx)
+        self.assertEqual(identity.user_id, "native-user-2")
+        self.assertEqual(identity.auth_type, "cloudbase")
 
     def test_invalid_signature_is_rejected(self) -> None:
         ctx = signed_context(subject_id="user-1")

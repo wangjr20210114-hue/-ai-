@@ -1,8 +1,8 @@
 import { getStore } from '@edgeone/pages-blob';
-import { handleCloudBaseSession } from '../../../../auth/controllers/cloudbase-controller.js';
+import { handleMobileSession } from '../../../../auth/controllers/cloudbase-controller.js';
 
 export async function onRequest(context) {
-  return handleCloudBaseSession({
+  return handleMobileSession({
     ...context,
     profileStore: context.__profileStore
       || getStore({ name: 'yuanbao-files', consistency: 'strong' }),

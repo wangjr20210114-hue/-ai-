@@ -116,3 +116,10 @@
   gap: 8px;
   margin-top: 12px;
 }
+.makers-route-hierarchy { display: grid; gap: 8px; margin-bottom: 10px; }
+.makers-route-levels { display: flex; gap: 5px; padding: 3px; border-radius: 10px; background: var(--app-panel-2); }
+.makers-route-levels button { min-height: 30px; flex: 1; border: 0; border-radius: 8px; color: var(--app-text-3); background: transparent; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; transition: color 160ms ease, background 180ms ease, transform 180ms var(--motion-ease-out); }
+.makers-route-levels button:hover { color: var(--td-brand-color); transform: translateY(-1px); }
+.makers-route-levels button.is-active { color: #fff; background: var(--td-brand-color); box-shadow: 0 5px 13px rgba(var(--app-accent-rgb), .18); }
+.makers-route-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.makers-route-filters select { min-width: 0; height: 32px; flex: 1 1 120px; border: 1px solid var(--app-border); border-radius: 8px; color: var(--app-text); background: var(--app-panel); font: inherit; font-size: 12px; }

@@ -110,7 +110,21 @@
 .auth-account-card strong, .auth-account-card small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auth-account-card small { color: var(--app-text-3); }
 .auth-account-verified { color: var(--td-success-color); }
-.auth-account-card .t-button { grid-column: 1 / -1; }
+.auth-profile-panel { display: grid; gap: 12px; }
+.auth-avatar-editor { position: relative; display: block; width: 52px; height: 52px; overflow: hidden; border-radius: 50%; cursor: pointer; }
+.auth-avatar-editor img { width: 100%; height: 100%; object-fit: cover; transition: filter 180ms ease, scale 220ms var(--motion-ease-out); }
+.auth-avatar-editor > span { position: absolute; inset: auto 0 0; display: grid; height: 20px; place-items: center; border-radius: 0; color: #fff; background: rgb(15 23 42 / 68%); font-size: 9px; opacity: 0; transform: translateY(5px); transition: opacity 160ms ease, transform 180ms var(--motion-ease-out); }
+.auth-avatar-editor:hover img { filter: brightness(.8); scale: 1.04; }
+.auth-avatar-editor:hover > span { opacity: 1; transform: translateY(0); }
+.auth-avatar-editor input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.auth-avatar-format { margin-top: -8px; color: var(--app-text-3); font-size: 11px; }
+.auth-profile-preference { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 2px 3px; border-top: 1px solid var(--app-border); }
+.auth-profile-preference > div { display: grid; gap: 3px; }
+.auth-profile-preference strong { font-size: 13px; }
+.auth-profile-preference small { color: var(--app-text-3); font-size: 11px; line-height: 1.5; }
+.auth-signout-link { justify-self: center; border: 0; color: var(--app-text-3); background: transparent; cursor: pointer; font: inherit; font-size: 12px; transition: color 160ms ease, transform 180ms var(--motion-ease-out); }
+.auth-signout-link:hover { color: var(--td-error-color); transform: translateY(-1px); }
+.auth-signout-link:disabled { cursor: wait; opacity: .5; }
 
 @keyframes auth-backdrop-in { from { opacity: 0; } }
 @keyframes auth-backdrop-out { to { opacity: 0; } }

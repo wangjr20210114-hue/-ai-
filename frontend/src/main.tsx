@@ -20,5 +20,9 @@ renderApp()
 // Establish the signed Guest/account cookie first so an OAuth exchange can
 // preserve the existing Makers subject without delaying the first paint.
 void ensureAuthSession()
-  .then(() => restoreCloudBaseSession())
+  .then((session) => (
+    session.identity.auth_type === 'guest'
+      ? restoreCloudBaseSession()
+      : session
+  ))
   .catch(() => null)

@@ -25,6 +25,7 @@ interface Props {
 }
 
 type PermissionState = 'checking' | 'prompt' | 'granted' | 'denied' | 'unavailable';
+type RouteViewLevel = 1 | 2 | 3;
 
 let sdkPromise: Promise<TencentMapNamespace> | null = null;
 const MAP_SDK_TIMEOUT_MS = 12_000;
@@ -88,6 +89,18 @@ export default function MakersMap({
   const [mapUnavailable, setMapUnavailable] = useState(false);
   const [mapLoading, setMapLoading] = useState(false);
   const [route, setRoute] = useState<MakersRoutePlan | null>(null);
+  const routeGroups = useMemo(() => {
+    const grouped = new Map<string, MakersMapPlace[]>();
+    places.forEach((place) => {
+      const city = String(place.city || t('routeWholeTrip'));
+      grouped.set(city, [...(grouped.get(city) || []), place]);
+    });
+    return [...grouped.entries()].map(([city, items]) => ({ city, places: items }));
+  }, [places, t]);
+  const [routeViewLevel, setRouteViewLevel] = useState<RouteViewLevel>(1);
+  const [routeCity, setRouteCity] = useState('');
+  const [routeSegment, setRouteSegment] = useState(0);
+  const [routeModeOverride, setRouteModeOverride] = useState<MakersRouteMode | undefined>(routeMode);
   const [routeError, setRouteError] = useState('');
   const [permission, setPermission] = useState<PermissionState>('checking');
   const [userLocation, setUserLocation] = useState<MakersMapPlace | null>(() => {
@@ -105,9 +118,42 @@ export default function MakersMap({
   const [locationError, setLocationError] = useState('');
   const locationRequestRef = useRef(0);
 
+  useEffect(() => {
+    setRouteModeOverride(routeMode);
+  }, [routeMode]);
+
+  useEffect(() => {
+    if (!routeGroups.length) return;
+    setRouteCity((current) => (
+      routeGroups.some((group) => group.city === current)
+        ? current
+        : routeGroups[0].city
+    ));
+    setRouteViewLevel(routeGroups.length > 1 ? 1 : 2);
+    setRouteSegment(0);
+  }, [routeGroups]);
+
+  const selectedRouteGroup = routeGroups.find((group) => group.city === routeCity)
+    || routeGroups[0];
+  const routeDisplayPlaces = useMemo(() => {
+    if (!showRoute || places.length < 3 || !routeGroups.length) return places;
+    if (routeViewLevel === 1 && routeGroups.length > 1) {
+      return routeGroups.map((group, index) => (
+        index === routeGroups.length - 1
+          ? group.places[group.places.length - 1]
+          : group.places[0]
+      ));
+    }
+    const cityPlaces = selectedRouteGroup?.places || places;
+    if (routeViewLevel === 3 && cityPlaces.length > 1) {
+      const start = Math.min(routeSegment, cityPlaces.length - 2);
+      return cityPlaces.slice(start, start + 2);
+    }
+    return cityPlaces;
+  }, [places, routeGroups, routeSegment, routeViewLevel, selectedRouteGroup, showRoute]);
   const displayPlaces = useMemo(
-    () => places.length ? places : userLocation ? [userLocation] : [],
-    [places, userLocation],
+    () => routeDisplayPlaces.length ? routeDisplayPlaces : userLocation ? [userLocation] : [],
+    [routeDisplayPlaces, userLocation],
   );
 
   const readCurrentLocation = useCallback(() => {
@@ -258,7 +304,7 @@ export default function MakersMap({
   }, [readCurrentLocation, userLocation]);
 
   useEffect(() => {
-    if (!shouldPlanMakersRoute(showRoute, places.length)) {
+    if (!shouldPlanMakersRoute(showRoute, routeDisplayPlaces.length)) {
       setRoute(null);
       setRouteError('');
       return;
@@ -266,11 +312,11 @@ export default function MakersMap({
     let disposed = false;
     setRoute(null);
     setRouteError('');
-    void planVerifiedRoute(places, routeMode, routeStrategy)
+    void planVerifiedRoute(routeDisplayPlaces, routeModeOverride, routeStrategy)
       .then((next) => { if (!disposed) setRoute(next); })
       .catch((error) => { if (!disposed) setRouteError(error instanceof Error ? error.message : t('routePlanningFailed')); });
     return () => { disposed = true; };
-  }, [places, planVerifiedRoute, revision, routeMode, routeStrategy, showRoute, t]);
+  }, [planVerifiedRoute, revision, routeDisplayPlaces, routeModeOverride, routeStrategy, showRoute, t]);
 
   useEffect(() => {
     if (!displayPlaces.length) return;
@@ -379,6 +425,29 @@ export default function MakersMap({
   return (
     <div className={`makers-map ${animating ? 'is-updating' : ''}`}>
       <div className="makers-map-title">{places.length ? title : t('currentLocation')}</div>
+      {showRoute && places.length > 2 && <div className="makers-route-hierarchy" aria-label={t('routeHierarchy')}>
+        <div className="makers-route-levels">
+          {routeGroups.length > 1 && <button type="button" className={routeViewLevel === 1 ? 'is-active' : ''} onClick={() => setRouteViewLevel(1)}>{t('routeLevelCities')}</button>}
+          <button type="button" className={routeViewLevel === 2 ? 'is-active' : ''} onClick={() => setRouteViewLevel(2)}>{t('routeLevelCity')}</button>
+          <button type="button" className={routeViewLevel === 3 ? 'is-active' : ''} onClick={() => setRouteViewLevel(3)}>{t('routeLevelSegment')}</button>
+        </div>
+        {routeViewLevel > 1 && <div className="makers-route-filters">
+          {routeGroups.length > 1 && <select value={selectedRouteGroup?.city || ''} onChange={(event) => { setRouteCity(event.target.value); setRouteSegment(0); }}>
+            {routeGroups.map((group) => <option value={group.city} key={group.city}>{group.city}</option>)}
+          </select>}
+          {routeViewLevel === 3 && (selectedRouteGroup?.places.length || 0) > 1 && <select value={routeSegment} onChange={(event) => setRouteSegment(Number(event.target.value))}>
+            {selectedRouteGroup.places.slice(1).map((place, index) => <option value={index} key={`${place.place_id}-${index}`}>
+              {selectedRouteGroup.places[index].name} → {place.name}
+            </option>)}
+          </select>}
+          {routeViewLevel === 3 && <select value={routeModeOverride || 'driving'} onChange={(event) => setRouteModeOverride(event.target.value as MakersRouteMode)}>
+            <option value="driving">{t('routeModeDriving')}</option>
+            <option value="transit">{t('routeModeTransit')}</option>
+            <option value="walking">{t('routeModeWalking')}</option>
+            <option value="bicycling">{t('routeModeBicycling')}</option>
+          </select>}
+        </div>}
+      </div>}
       <div ref={containerRef} className="makers-map-canvas" aria-label={t('mapAria', { title })} />
       {mapLoading && <div className="makers-map-loading" role="status">{t('loadingTencentMap')}</div>}
       {mapUnavailable && (
@@ -398,7 +467,7 @@ export default function MakersMap({
         </div>
       )}
       {showRoute && routeError && <div className="makers-route-error">{t('realRouteFailed', { error: routeError })}</div>}
-      {shouldPlanMakersRoute(showRoute, places.length) && !route && !routeError && <div className="makers-route-loading">{t('calculatingRoute')}</div>}
+      {shouldPlanMakersRoute(showRoute, routeDisplayPlaces.length) && !route && !routeError && <div className="makers-route-loading">{t('calculatingRoute')}</div>}
       {showRoute && route && (
         <div className="makers-route-summary">
           <span>{t(

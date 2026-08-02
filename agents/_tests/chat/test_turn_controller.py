@@ -9,6 +9,7 @@ from pathlib import Path
 from agents._application.chat import turn_service as turn_service_module
 from agents._application.chat.turn_context import (
     answer_tool_names,
+    experience_hints_for_plan,
     model_only_search_fallback,
     search_request_for_plan,
 )
@@ -74,8 +75,45 @@ class ChatTurnBoundaryTests(unittest.TestCase):
             memory_context="",
             public_answer=True,
         )
-        self.assertIn("实时搜索不可用", prompt)
-        self.assertIn("不能要求用户安装", prompt)
+        self.assertTrue(prompt)
+        self.assertEqual(
+            experience_hints_for_plan(fallback, auth_type="guest"),
+            [{
+                "kind": "freshness",
+                "skill_ids": ["web-search"],
+                "login_required": True,
+            }],
+        )
+
+    def test_disabled_non_search_skill_uses_a_small_presentation_hint(self):
+        self.assertEqual(
+            experience_hints_for_plan(
+                {"_runtime_model_fallback_skills": ["image-studio"]},
+                auth_type="cloudbase",
+            ),
+            [{
+                "kind": "skill_suggestion",
+                "skill_ids": ["image-studio"],
+                "login_required": False,
+            }],
+        )
+        prompt = turn_service_module.dynamic_system_prompt(
+            selected_tools=set(),
+            now="2026-08-02 12:00 Asia/Shanghai",
+            response_language_instruction="请使用简体中文回答。",
+            capability_plan={
+                "_runtime_model_fallback_skills": ["image-studio"],
+            },
+            calendar_context="",
+            reference_image_context="",
+            document_context="",
+            current_location_context="",
+            current_route_context="",
+            memory_context="",
+            public_answer=True,
+        )
+        self.assertIn("正文不要提及 Skill", prompt)
+        self.assertIn("不得声称已生成媒体", prompt)
 
     def test_private_skill_context_is_lower_trust_and_cannot_authorize_tools(self):
         prompt = turn_service_module.dynamic_system_prompt(

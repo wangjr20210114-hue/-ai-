@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   currentUser,
   conversationIndexUserId,
+  readSessionToken,
   scopedConversationId,
   signSessionToken,
   storageUserId,
@@ -55,6 +56,39 @@ test('tampered and wrong-purpose sessions are rejected', async () => {
     verifySessionToken(token, TEST_AUTH_ENV, { purpose: 'oauth' }),
     /purpose/i,
   );
+});
+
+test('native Bearer sessions resolve through the same tenant identity contract', async () => {
+  const token = await signSessionToken(testIdentity({
+    auth_type: 'cloudbase',
+    membership: 'plus',
+  }), TEST_AUTH_ENV, 600);
+  const request = new Request('https://example.test/system', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const user = await currentUser(request, TEST_AUTH_ENV);
+  assert.equal(user.id, 'floris:11111111-1111-4111-8111-111111111111');
+  assert.equal(user.auth_type, 'cloudbase');
+  assert.equal(user.membership, 'plus');
+});
+
+test('an explicit native Bearer wins over an unrelated WebView cookie', async () => {
+  const cookieToken = await signSessionToken(testIdentity({
+    sub: '22222222-2222-4222-8222-222222222222',
+    auth_type: 'guest',
+    membership: 'guest',
+  }), TEST_AUTH_ENV, 600);
+  const bearerToken = await signSessionToken(testIdentity({
+    auth_type: 'cloudbase',
+  }), TEST_AUTH_ENV, 600);
+  const headers = new Headers({
+    Cookie: `floris_session=${cookieToken}`,
+    Authorization: `Bearer ${bearerToken}`,
+  });
+  assert.equal(readSessionToken(headers), bearerToken);
+  const user = await currentUser(new Request('https://example.test/system', { headers }), TEST_AUTH_ENV);
+  assert.equal(user.auth_type, 'cloudbase');
+  assert.equal(user.subject_id, '11111111-1111-4111-8111-111111111111');
 });
 
 test('conversation user indexes are deterministic and path-safe across runtimes', async () => {

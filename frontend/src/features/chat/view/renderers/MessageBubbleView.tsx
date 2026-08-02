@@ -20,6 +20,8 @@ export interface MessageBubbleViewProps {
   generationActive: boolean;
   conversationId: string;
   proactive: ProactiveState | null;
+  userAvatarUrl: string;
+  authIsGuest: boolean;
 }
 
 interface Props extends MessageBubbleViewProps {
@@ -36,6 +38,8 @@ export function MessageBubbleView({
   generationActive,
   conversationId,
   proactive,
+  userAvatarUrl,
+  authIsGuest,
   controller,
 }: Props) {
   const { t } = useLanguage();
@@ -74,7 +78,13 @@ export function MessageBubbleView({
     {!isUser && (assistantChainPosition === 'middle' || assistantChainPosition === 'end')
       ? <div className="msg-avatar-spacer" aria-hidden="true" />
       : <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>
-        {isUser ? t('me') : <img src="/floris-avatar.png" alt="Floris" />}
+        {isUser
+          ? <img
+            src={userAvatarUrl}
+            alt={t('me')}
+            referrerPolicy="no-referrer"
+          />
+          : <img src="/floris-avatar.png" alt="Floris" />}
       </div>}
     <div className="msg-content-wrap">
       <div
@@ -94,6 +104,7 @@ export function MessageBubbleView({
             previousUserMessage={previousUserMessage}
             proactive={proactive}
             assistantChainTail={assistantChainTail}
+            authIsGuest={authIsGuest}
             controller={controller}
           />}
       </div>

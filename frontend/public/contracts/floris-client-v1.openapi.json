@@ -1,0 +1,232 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Floris Client API",
+    "version": "1.0.0",
+    "description": "Stable transport contract shared by Web, Android, HarmonyOS and iOS clients. Business orchestration stays in the Floris Maker backend."
+  },
+  "servers": [
+    { "url": "https://floris-dev.jlutx.com", "description": "Development" }
+  ],
+  "security": [
+    { "florisBearer": [] },
+    { "browserSession": [] }
+  ],
+  "paths": {
+    "/auth/mobile/session": {
+      "post": {
+        "summary": "Exchange a current CloudBase access token for a short-lived Floris token",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CloudBaseExchange" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "One-hour Floris access token; refresh remains owned by CloudBase",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MobileSession" } } }
+          }
+        }
+      }
+    },
+    "/chat": {
+      "post": {
+        "summary": "Run one chat turn as a server-sent event stream",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChatTurnRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "SSE frames. Clients must ignore unknown event types and preserve known payloads.",
+            "content": { "text/event-stream": { "schema": { "type": "string" } } },
+            "x-floris-event-schema": "/contracts/chat-events-v1.schema.json"
+          }
+        }
+      }
+    },
+    "/messages": {
+      "post": {
+        "summary": "Restore a tenant-scoped conversation and workspace projection",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": {
+          "200": {
+            "description": "Conversation bootstrap",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationBootstrap" } } }
+          }
+        }
+      }
+    },
+    "/conversations": {
+      "get": {
+        "summary": "List conversation pointers for the authenticated identity",
+        "responses": { "200": { "description": "Conversation list" } }
+      },
+      "post": {
+        "summary": "Touch a conversation pointer",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "responses": { "200": { "description": "Pointer updated" } }
+      },
+      "delete": {
+        "summary": "Delete one conversation in the current tenant namespace",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "responses": { "200": { "description": "Conversation deleted" } }
+      }
+    },
+    "/stop": {
+      "post": {
+        "summary": "Cancel the active Maker run",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["conversation_id"], "properties": { "conversation_id": { "type": "string" } } } } }
+        },
+        "responses": { "200": { "description": "Cancellation requested" } }
+      }
+    },
+    "/workspace": {
+      "post": {
+        "summary": "Read or apply versioned calendar, map, route and action state",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OperationRequest" } } } },
+        "responses": { "200": { "description": "Workspace projection with revision" } }
+      }
+    },
+    "/intelligence": {
+      "post": {
+        "summary": "Read or update user preferences and enabled Skills",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OperationRequest" } } } },
+        "responses": { "200": { "description": "Intelligence projection" } }
+      }
+    },
+    "/skill_marketplace": {
+      "post": {
+        "summary": "Read the Skill catalog or enable, disable and uninstall user Skills",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OperationRequest" } } } },
+        "responses": { "200": { "description": "Catalog, dependency graph and public component API" } }
+      }
+    },
+    "/places": {
+      "post": {
+        "summary": "Resolve real places through the Floris Maps Adapter",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "responses": { "200": { "description": "Verified place candidates" } }
+      }
+    },
+    "/routes": {
+      "post": {
+        "summary": "Plan a verified route using Maker-scoped preferences",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "responses": { "200": { "description": "Driving, transit, walking or bicycling route" } }
+      }
+    },
+    "/papers": {
+      "get": {
+        "summary": "Search verified academic records",
+        "responses": { "200": { "description": "Paper records" } }
+      }
+    },
+    "/reader": {
+      "post": {
+        "summary": "Run the paper-reading Adapter",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "responses": { "200": { "description": "Reader result" } }
+      }
+    },
+    "/profile": {
+      "get": {
+        "summary": "Read the account profile stored in Maker Blob",
+        "responses": { "200": { "description": "Profile" } }
+      },
+      "post": {
+        "summary": "Create an avatar upload or update the profile",
+        "responses": { "200": { "description": "Updated identity and, for native clients, a replacement Floris token" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "florisBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "Floris JWT" },
+      "browserSession": { "type": "apiKey", "in": "cookie", "name": "floris_session" }
+    },
+    "parameters": {
+      "ConversationId": {
+        "name": "makers-conversation-id",
+        "in": "header",
+        "required": true,
+        "schema": { "type": "string", "minLength": 1, "maxLength": 180 },
+        "description": "Opaque client conversation id. The backend derives the tenant-scoped Maker id."
+      }
+    },
+    "schemas": {
+      "CloudBaseExchange": {
+        "type": "object",
+        "required": ["access_token"],
+        "properties": { "access_token": { "type": "string", "minLength": 1, "maxLength": 16384 } }
+      },
+      "Identity": {
+        "type": "object",
+        "required": ["id", "subject_id", "tenant_id", "auth_type", "membership"],
+        "properties": {
+          "id": { "type": "string" },
+          "subject_id": { "type": "string" },
+          "tenant_id": { "type": "string" },
+          "display_name": { "type": "string" },
+          "avatar_url": { "type": "string" },
+          "auth_type": { "enum": ["guest", "wechat", "cloudbase"] },
+          "membership": { "enum": ["guest", "free", "plus", "pro"] },
+          "roles": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "MobileSession": {
+        "type": "object",
+        "required": ["access_token", "token_type", "expires_in", "contract_version", "identity"],
+        "properties": {
+          "access_token": { "type": "string" },
+          "token_type": { "const": "Bearer" },
+          "expires_in": { "type": "integer", "minimum": 60 },
+          "contract_version": { "const": "1" },
+          "identity": { "$ref": "#/components/schemas/Identity" }
+        }
+      },
+      "ChatTurnRequest": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": { "type": "string" },
+          "client_message_id": { "type": "string" },
+          "reference_images": { "type": "array", "maxItems": 3, "items": { "type": "string" } },
+          "clarification_response": { "type": "object", "additionalProperties": true },
+          "current_location": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "OperationRequest": {
+        "type": "object",
+        "required": ["operation"],
+        "properties": { "operation": { "type": "string" } },
+        "additionalProperties": true
+      },
+      "ConversationBootstrap": {
+        "type": "object",
+        "required": ["messages", "workspace_revision"],
+        "properties": {
+          "messages": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "workspace_revision": { "type": "integer" },
+          "schedules": { "type": "array", "items": { "type": "object" } },
+          "map_places": { "type": "array", "items": { "type": "object" } }
+        }
+      }
+    }
+  },
+  "x-floris-compatibility": {
+    "component_schema": "/contracts/floris-components-v1.schema.json",
+    "unknown_sse_events": "ignore",
+    "unknown_components": "render_text_fallback",
+    "additive_fields": "allowed",
+    "breaking_changes": "new_major_contract"
+  }
+}

@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { handleCloudBaseSession } from './cloudbase-controller.js';
+import {
+  handleCloudBaseSession,
+  handleMobileSession,
+  MOBILE_ACCESS_TTL_SECONDS,
+  USER_SESSION_TTL_SECONDS,
+} from './cloudbase-controller.js';
 import { readCookie, sessionConstants, verifySessionToken } from '../session.js';
 import {
   authenticatedRequest,
@@ -92,6 +97,7 @@ test('CloudBase Controller validates the provider token and preserves a guest su
   assert.equal(rpcBody.p_display_name, 'CloudBase User');
 
   const cookie = response.headers.get('set-cookie').split(';', 1)[0];
+  assert.match(response.headers.get('set-cookie'), new RegExp(`Max-Age=${USER_SESSION_TTL_SECONDS}`));
   const token = readCookie(
     new Headers({ Cookie: cookie }),
     sessionConstants.cookieName,
@@ -100,6 +106,41 @@ test('CloudBase Controller validates the provider token and preserves a guest su
   assert.equal(session.sub, PERSISTED_USER_ID);
   assert.equal(session.cloudbase_uid, CLOUDBASE_UID);
   assert.equal(session.auth_type, 'cloudbase');
+});
+
+test('mobile exchange reuses CloudBase identity and returns only a short-lived Floris Bearer', async (t) => {
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    if (String(url).endsWith('/auth/v1/user/me')) return jsonResponse(cloudBaseUser());
+    return jsonResponse([{
+      user_id: PERSISTED_USER_ID,
+      membership: 'free',
+      roles: ['user'],
+    }]);
+  });
+  const response = await handleMobileSession({
+    request: new Request('https://example.com/auth/mobile/session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'app://floris-native',
+        'Sec-Fetch-Site': 'cross-site',
+      },
+      body: JSON.stringify({ access_token: 'cloudbase-access-token' }),
+    }),
+    env: TEST_AUTH_ENV,
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('set-cookie'), null);
+  const body = await response.json();
+  assert.equal(body.token_type, 'Bearer');
+  assert.equal(body.expires_in, MOBILE_ACCESS_TTL_SECONDS);
+  assert.equal(body.contract_version, '1');
+  assert.equal(body.identity.subject_id, PERSISTED_USER_ID);
+  const token = await verifySessionToken(body.access_token, TEST_AUTH_ENV);
+  assert.equal(token.sub, PERSISTED_USER_ID);
+  assert.equal(token.client_kind, 'native');
+  assert.ok(token.exp - token.iat <= MOBILE_ACCESS_TTL_SECONDS);
 });
 
 test('CloudBase Controller degrades to the same deterministic subject without the RPC', async (t) => {

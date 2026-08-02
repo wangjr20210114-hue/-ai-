@@ -135,6 +135,39 @@ function boundsFor(rects: TargetRect[]): TargetRect | null {
   return { top, left, right, bottom, width: right - left, height: bottom - top };
 }
 
+function blurTilesFor(rects: TargetRect[], gutter = 8): CSSProperties[] {
+  if (!rects.length) return [];
+  const holes = rects.map((rect) => ({
+    top: Math.max(0, rect.top - gutter),
+    left: Math.max(0, rect.left - gutter),
+    right: Math.min(window.innerWidth, rect.right + gutter),
+    bottom: Math.min(window.innerHeight, rect.bottom + gutter),
+  }));
+  const xs = [...new Set([0, window.innerWidth, ...holes.flatMap((hole) => [hole.left, hole.right])])]
+    .sort((first, second) => first - second);
+  const ys = [...new Set([0, window.innerHeight, ...holes.flatMap((hole) => [hole.top, hole.bottom])])]
+    .sort((first, second) => first - second);
+  const tiles: CSSProperties[] = [];
+  for (let x = 0; x < xs.length - 1; x += 1) {
+    for (let y = 0; y < ys.length - 1; y += 1) {
+      const left = xs[x];
+      const right = xs[x + 1];
+      const top = ys[y];
+      const bottom = ys[y + 1];
+      const centerX = (left + right) / 2;
+      const centerY = (top + bottom) / 2;
+      if (holes.some((hole) => (
+        centerX >= hole.left && centerX <= hole.right
+        && centerY >= hole.top && centerY <= hole.bottom
+      ))) continue;
+      if (right > left && bottom > top) {
+        tiles.push({ left, top, width: right - left, height: bottom - top });
+      }
+    }
+  }
+  return tiles;
+}
+
 function popoverStyle(anchor: TargetRect | null, estimatedHeight = 220): CSSProperties {
   const margin = 16;
   const width = Math.min(372, window.innerWidth - margin * 2);
@@ -175,11 +208,12 @@ export default function FlorisOnboarding({ connected, revealArea }: Props) {
 
   const step = STEPS[stepIndex];
   const selectors = mode === 'settings-hint'
-    ? ['[data-onboarding="settings"]']
+    ? ['.header-account']
     : mode === 'tour'
       ? step.selectors
       : [];
   const bounds = useMemo(() => boundsFor(rects), [rects]);
+  const blurTiles = useMemo(() => blurTilesFor(rects), [rects]);
   const anchor = rects[0] || bounds;
 
   const refreshRects = useCallback(() => {
@@ -360,18 +394,9 @@ export default function FlorisOnboarding({ connected, revealArea }: Props) {
         <div className="floris-onboarding-welcome-scrim" aria-hidden="true" />
       ) : bounds ? (
         <>
-          <div className="floris-onboarding-blur is-top" style={{ height: Math.max(0, bounds.top - 8) }} />
-          <div className="floris-onboarding-blur is-bottom" style={{ top: bounds.bottom + 8 }} />
-          <div className="floris-onboarding-blur is-left" style={{
-            top: Math.max(0, bounds.top - 8),
-            width: Math.max(0, bounds.left - 8),
-            height: Math.min(window.innerHeight, bounds.bottom + 8) - Math.max(0, bounds.top - 8),
-          }} />
-          <div className="floris-onboarding-blur is-right" style={{
-            top: Math.max(0, bounds.top - 8),
-            left: bounds.right + 8,
-            height: Math.min(window.innerHeight, bounds.bottom + 8) - Math.max(0, bounds.top - 8),
-          }} />
+          {blurTiles.map((style, index) => (
+            <div className="floris-onboarding-blur" style={style} key={`blur-${index}`} />
+          ))}
           {rects.map((rect, index) => (
             <div
               className="floris-onboarding-focus-ring"

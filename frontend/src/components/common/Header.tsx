@@ -164,13 +164,11 @@ export default function Header({
             aria-label={authIsGuest ? t('authSignIn') : authSession.identity.display_name}
             onClick={openAuthDialog}
           >
-            {authSession.identity.avatar_url
-              ? <img src={authSession.identity.avatar_url} alt="" referrerPolicy="no-referrer" />
-              : <span aria-hidden="true">
-                {authSession.identity.auth_type === 'guest'
-                  ? t('guestAvatarGlyph')
-                  : t('accountAvatarGlyph')}
-              </span>}
+            <img
+              src={authSession.identity.avatar_url || '/default-user-avatar-anime.png'}
+              alt=""
+              referrerPolicy="no-referrer"
+            />
             <b>{authIsGuest
               ? t('authSignIn')
               : authSession.identity.display_name}</b>

@@ -304,6 +304,9 @@ async def handler(ctx):
                 search_results = latest_extras.get("search_results")
                 if isinstance(search_results, dict):
                     restored["searchResults"] = search_results
+                experience_hints = latest_extras.get("experience_hints")
+                if isinstance(experience_hints, list) and experience_hints:
+                    restored["experienceHints"] = experience_hints[:4]
             break
 
     schedules = list(workspace.get("schedules", {}).values())

@@ -1,4 +1,5 @@
 import { cloudBaseConfig } from '../cloudbase-config.js';
+import { applyProfile, loadProfile } from '../profile.js';
 import {
   AuthError,
   currentUser,
@@ -8,7 +9,8 @@ import {
 } from '../session.js';
 import { jsonView } from '../views/http.js';
 
-const USER_SESSION_TTL_SECONDS = 12 * 60 * 60;
+export const USER_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+export const MOBILE_ACCESS_TTL_SECONDS = 60 * 60;
 const MAX_ACCESS_TOKEN_LENGTH = 16_384;
 
 function sameOriginRequest(request) {
@@ -147,47 +149,93 @@ async function resolveFlorisIdentity(config, accessToken, profile, guestSubject)
   };
 }
 
+async function exchangeCloudBaseIdentity(context) {
+  const { request, env = {} } = context;
+  const config = cloudBaseConfig(env);
+  const accessToken = accessTokenFrom(await request.json().catch(() => ({})));
+  const [profile, guestSubject] = await Promise.all([
+    cloudBaseProfile(config, accessToken),
+    existingGuestSubject(request, env),
+  ]);
+  const resolved = await resolveFlorisIdentity(
+    config,
+    accessToken,
+    profile,
+    guestSubject,
+  );
+  const providers = providerNames(profile);
+  const payload = {
+    sub: resolved.subject,
+    cloudbase_uid: String(profile.sub),
+    tenant_id: String(env.DEFAULT_TENANT_ID || 'floris'),
+    username: profileText(profile, 'username', 'name', 'email').slice(0, 80)
+      || 'cloudbase-user',
+    display_name: profileText(profile, 'name', 'username', 'email').slice(0, 120)
+      || 'Floris 用户',
+    avatar_url: profileText(profile, 'picture', 'avatar_url').slice(0, 1000),
+    auth_type: 'cloudbase',
+    auth_providers: providers,
+    membership: resolved.membership,
+    roles: resolved.roles,
+    session_version: 1,
+    identity_persisted: resolved.persisted,
+  };
+  const baseIdentity = publicIdentity(payload);
+  const identity = applyProfile(
+    baseIdentity,
+    await loadProfile(context.profileStore, baseIdentity),
+  );
+  return {
+    ...payload,
+    display_name: identity.display_name,
+    avatar_url: identity.avatar_url,
+  };
+}
+
 export async function handleCloudBaseSession(context) {
   const { request, env = {} } = context;
   if (request.method !== 'POST') return jsonView({ error: 'Method not allowed' }, 405);
   if (!sameOriginRequest(request)) return jsonView({ error: 'Invalid request origin' }, 403);
   try {
-    const config = cloudBaseConfig(env);
-    const accessToken = accessTokenFrom(await request.json().catch(() => ({})));
-    const [profile, guestSubject] = await Promise.all([
-      cloudBaseProfile(config, accessToken),
-      existingGuestSubject(request, env),
-    ]);
-    const resolved = await resolveFlorisIdentity(
-      config,
-      accessToken,
-      profile,
-      guestSubject,
-    );
-    const providers = providerNames(profile);
-    const payload = {
-      sub: resolved.subject,
-      cloudbase_uid: String(profile.sub),
-      tenant_id: String(env.DEFAULT_TENANT_ID || 'floris'),
-      username: profileText(profile, 'username', 'name', 'email').slice(0, 80)
-        || 'cloudbase-user',
-      display_name: profileText(profile, 'name', 'username', 'email').slice(0, 120)
-        || 'Floris 用户',
-      avatar_url: profileText(profile, 'picture', 'avatar_url').slice(0, 1000),
-      auth_type: 'cloudbase',
-      auth_providers: providers,
-      membership: resolved.membership,
-      roles: resolved.roles,
-      session_version: 1,
-    };
+    const exchanged = await exchangeCloudBaseIdentity(context);
+    const { identity_persisted: identityPersisted, ...payload } = exchanged;
     const identity = publicIdentity(payload);
     const token = await signSessionToken(payload, env, USER_SESSION_TTL_SECONDS);
     return jsonView({
       ok: true,
       identity,
-      identity_persisted: resolved.persisted,
+      identity_persisted: identityPersisted,
     }, 200, {
       'Set-Cookie': sessionCookie(token, { maxAge: USER_SESSION_TTL_SECONDS }),
+    });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return jsonView({ error: error.message, code: error.code }, 401);
+    }
+    return jsonView({ error: 'CloudBase session exchange failed' }, 502);
+  }
+}
+
+/** CloudBase remains the cross-platform identity/refresh provider. Native
+ * clients exchange its current access token for this short-lived Floris token
+ * and refresh through CloudBase instead of receiving a second refresh secret. */
+export async function handleMobileSession(context) {
+  const { request, env = {} } = context;
+  if (request.method !== 'POST') return jsonView({ error: 'Method not allowed' }, 405);
+  try {
+    const exchanged = await exchangeCloudBaseIdentity(context);
+    const { identity_persisted: identityPersisted, ...payload } = exchanged;
+    const token = await signSessionToken({
+      ...payload,
+      client_kind: 'native',
+    }, env, MOBILE_ACCESS_TTL_SECONDS);
+    return jsonView({
+      access_token: token,
+      token_type: 'Bearer',
+      expires_in: MOBILE_ACCESS_TTL_SECONDS,
+      contract_version: '1',
+      identity: publicIdentity(payload),
+      identity_persisted: identityPersisted,
     });
   } catch (error) {
     if (error instanceof AuthError) {

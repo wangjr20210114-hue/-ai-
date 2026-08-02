@@ -478,6 +478,14 @@ export interface ChatMessage {
   clarification?: ClarificationPrompt;
   /** 信息卡已经静默提交；用于跨会话切换和刷新后保持卡片不可重复提交。 */
   clarificationAnswered?: boolean;
+  /** Presenter-owned low-priority notes kept outside the model answer. */
+  experienceHints?: ExperienceHint[];
+}
+
+export interface ExperienceHint {
+  kind: 'freshness' | 'skill_suggestion';
+  skill_ids: string[];
+  login_required?: boolean;
 }
 
 export type ClarificationFieldType = 'single' | 'multi' | 'boolean' | 'text' | 'date' | 'time' | 'datetime';

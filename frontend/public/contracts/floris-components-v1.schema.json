@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://floris-dev.jlutx.com/contracts/floris-components-v1.schema.json",
+  "title": "Floris Client Components v1",
+  "description": "Trusted server component payloads shared by Web, Android, HarmonyOS and iOS.",
+  "anyOf": [
+    { "$ref": "#/$defs/progress" },
+    { "$ref": "#/$defs/searchMeta" },
+    { "$ref": "#/$defs/paperResults" },
+    { "$ref": "#/$defs/clarification" },
+    { "$ref": "#/$defs/workspaceAction" },
+    { "$ref": "#/$defs/experienceHintEnvelope" }
+  ],
+  "$defs": {
+    "progress": {
+      "type": "object",
+      "required": ["schema_version", "stage", "status", "activity", "source"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "stage": { "enum": ["planning", "retrieval", "verification", "synthesis", "finalizing", "complete"] },
+        "status": { "enum": ["active", "completed", "skipped"] },
+        "activity": { "enum": ["general", "web_search", "paper_search", "place_search", "route_planning", "calendar_preparation", "meeting_preparation", "image_generation", "image_review", "component_action"] },
+        "source": { "const": "controller" },
+        "updated_at": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "place": {
+      "type": "object",
+      "required": ["place_id", "name", "address", "latitude", "longitude"],
+      "properties": {
+        "schema_version": { "type": "integer" },
+        "place_id": { "type": "string" },
+        "provider": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+        "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+        "city": { "type": "string" },
+        "category": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "workspaceAction": {
+      "type": "object",
+      "required": ["schema_version", "id", "kind", "status", "version", "payload"],
+      "properties": {
+        "schema_version": { "type": "integer" },
+        "id": { "type": "string" },
+        "kind": { "enum": ["map_recommendation", "calendar_changes", "meeting_create", "image_generate"] },
+        "status": { "enum": ["ready", "active", "awaiting_confirmation", "executing", "succeeded", "failed", "cancelled", "reconciliation_required"] },
+        "version": { "type": "integer" },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string" },
+            "action_text": { "type": "string" },
+            "places": { "type": "array", "items": { "$ref": "#/$defs/place" } },
+            "route_mode": { "enum": ["driving", "transit", "walking", "bicycling"] },
+            "route_strategy": { "enum": ["time_then_cost", "least_time", "least_cost"] },
+            "show_route": { "type": "boolean" },
+            "route_plan_id": { "type": "string" },
+            "calendar_offer": { "type": "boolean" },
+            "summary": { "type": "string" },
+            "changes": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+            "subject": { "type": "string" },
+            "start_time": { "type": "string" },
+            "end_time": { "type": "string" },
+            "warnings": { "type": "array", "items": { "type": "string" } },
+            "missing_fields": { "type": "array", "items": { "type": "string" } },
+            "validation_errors": { "type": "array", "items": { "type": "string" } },
+            "prompt": { "type": "string" },
+            "parent_action_id": { "type": "string" },
+            "group_id": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "result": { "type": ["object", "null"], "additionalProperties": true },
+        "error": { "type": "string" },
+        "snapshot_hash": { "type": "string" },
+        "idempotency_key": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "clarificationField": {
+      "type": "object",
+      "required": ["id", "label", "type"],
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "type": { "enum": ["single", "multi", "boolean", "text", "date", "time", "datetime"] },
+        "options": { "type": "array", "items": { "type": "string" } },
+        "option_values": { "type": "object", "additionalProperties": { "type": "string" } },
+        "required": { "type": "boolean" },
+        "placeholder": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "clarification": {
+      "type": "object",
+      "required": ["id", "title", "prompt", "fields"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "prompt": { "type": "string" },
+        "fields": { "type": "array", "items": { "$ref": "#/$defs/clarificationField" } }
+      },
+      "additionalProperties": true
+    },
+    "searchSource": {
+      "type": "object",
+      "required": ["id", "title", "url"],
+      "properties": {
+        "id": { "type": "string" },
+        "source": { "type": "string" },
+        "title": { "type": "string" },
+        "snippet": { "type": "string" },
+        "url": { "type": "string" },
+        "date": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "media": {
+      "type": "object",
+      "required": ["id", "kind", "url", "alt", "caption", "generated"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "url": { "type": "string" },
+        "source_id": { "type": "string" },
+        "source_url": { "type": "string" },
+        "source_title": { "type": "string" },
+        "alt": { "type": "string" },
+        "caption": { "type": "string" },
+        "attribution": { "type": "string" },
+        "generated": { "type": "boolean" },
+        "preview": { "type": "boolean" },
+        "vision_reviewed": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "searchMeta": {
+      "type": "object",
+      "required": ["query", "results", "media", "total"],
+      "properties": {
+        "schema_version": { "type": "integer" },
+        "query": { "type": "string" },
+        "results": { "type": "array", "items": { "$ref": "#/$defs/searchSource" } },
+        "images": { "type": "array", "items": { "type": "string" } },
+        "media": { "type": "array", "items": { "$ref": "#/$defs/media" } },
+        "sources_used": { "type": "array", "items": { "type": "string" } },
+        "total": { "type": "integer", "minimum": 0 },
+        "target_date": { "type": "string" },
+        "strict_date": { "type": "boolean" },
+        "media_pending": { "type": "boolean" },
+        "timings_ms": { "type": "object", "additionalProperties": { "type": "number" } }
+      },
+      "additionalProperties": true
+    },
+    "paper": {
+      "type": "object",
+      "required": ["title"],
+      "properties": {
+        "title": { "type": "string" },
+        "arxiv_id": { "type": "string" },
+        "authors": { "type": "string" },
+        "year": { "type": "integer" },
+        "abstract_zh": { "type": "string" },
+        "key_contribution": { "type": "string" },
+        "citations": { "type": "string" },
+        "arxiv_url": { "type": "string" },
+        "pdf_url": { "type": "string" },
+        "source": { "type": "string" },
+        "source_url": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "paperResults": {
+      "type": "object",
+      "required": ["papers"],
+      "properties": {
+        "papers": { "type": "array", "items": { "$ref": "#/$defs/paper" } },
+        "topic": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "experienceHint": {
+      "type": "object",
+      "required": ["kind", "skill_ids"],
+      "properties": {
+        "kind": { "enum": ["freshness", "skill_suggestion"] },
+        "skill_ids": { "type": "array", "items": { "type": "string" } },
+        "login_required": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "experienceHintEnvelope": {
+      "type": "object",
+      "required": ["schema_version", "items"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/experienceHint" } }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -436,6 +436,19 @@ class SSEChatClient {
               case 'answer_complete':
                 this.emit({ type: 'answer_complete', payload: { id: streamId } });
                 break;
+              case 'experience_hint': {
+                const payload = event.payload && typeof event.payload === 'object'
+                  ? event.payload as Record<string, unknown>
+                  : {};
+                this.emit({
+                  type: 'experience_hint',
+                  payload: {
+                    id: streamId,
+                    items: Array.isArray(payload.items) ? payload.items : [],
+                  },
+                });
+                break;
+              }
               case 'paper_results':
                 this.emit({
                   type: 'paper_results',
@@ -663,6 +676,18 @@ export function useChatRuntime() {
             const next = { ...current, streaming: false };
             streams.set(streamId, next);
             patch(id, streamId, { streaming: false });
+          }
+          break;
+        }
+        case 'experience_hint': {
+          const current = streams.get(streamId);
+          const items = Array.isArray(event.payload.items)
+            ? event.payload.items as ChatMessage['experienceHints']
+            : [];
+          if (current && items?.length) {
+            const next = { ...current, experienceHints: items };
+            streams.set(streamId, next);
+            patch(id, streamId, { experienceHints: items });
           }
           break;
         }
