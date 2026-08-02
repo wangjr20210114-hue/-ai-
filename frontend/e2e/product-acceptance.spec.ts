@@ -20,7 +20,7 @@ test('guest keeps an explicit login entry while chat remains available', async (
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText('游客可直接聊天');
   await expect(dialog).toContainText('登录服务尚未配置');
-  await expect(dialog).toHaveCSS('animation-name', 'authDialogIn');
+  await expect(dialog).toHaveCSS('animation-name', 'auth-dialog-in');
   await page.getByRole('button', { name: '继续以游客身份使用', exact: true }).click();
   await expect(dialog).toBeHidden();
 

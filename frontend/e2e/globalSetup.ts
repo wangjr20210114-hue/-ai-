@@ -11,6 +11,10 @@ export default async function globalSetup() {
     },
   });
   await server.listen();
+  // Prime the same module graph the first page consumes. A clean Vite cache
+  // otherwise spends the first test timeout optimizing dependencies while
+  // page.goto() is still waiting for the load event.
+  await server.transformRequest('/src/main.tsx');
   return async () => {
     await server.close();
   };
