@@ -5,14 +5,15 @@
   padding: 12px;
 }
 .calendar-workspace-card {
+  --calendar-workspace-height: clamp(390px, calc(var(--right-pane-width, 340px) * 1.12), 520px);
   position: relative;
   overflow: hidden;
   flex: 0 0 auto;
-  min-height: 326px;
+  min-height: var(--calendar-workspace-height);
 }
 .calendar-workspace-viewport {
   position: relative;
-  min-height: 300px;
+  min-height: calc(var(--calendar-workspace-height) - 24px);
 }
 .calendar-workspace-pane {
   position: absolute;
