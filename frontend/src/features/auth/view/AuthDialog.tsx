@@ -176,7 +176,19 @@ export default function AuthDialog() {
                 <ChevronDownIcon aria-hidden="true" />
               </button>
               {auth.accountManagerOpen && <div className="auth-account-manager-content">
-                <p>{t(auth.resumeAvailable ? 'authSavedAccountReady' : 'authNoSavedAccount')}</p>
+                {auth.resumeAvailable && auth.recentAccount && <div className="auth-recent-account">
+                  <img
+                    src={auth.recentAccount.avatarUrl || '/default-user-avatar-anime.png'}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                  />
+                  <span>
+                    <strong>{auth.recentAccount.displayName}</strong>
+                    <small>{t('authRecentAccountReady')}</small>
+                  </span>
+                </div>}
+                {auth.resumeAvailable && !auth.recentAccount && <p>{t('authSavedAccountReady')}</p>}
+                {!auth.resumeAvailable && <p>{t('authNoSavedAccount')}</p>}
                 {auth.resumeAvailable && <Button
                   block
                   variant="outline"
@@ -184,6 +196,12 @@ export default function AuthDialog() {
                   disabled={auth.busy !== ''}
                   onClick={() => void auth.resumeAccount()}
                 >{t('authResumeAccount')}</Button>}
+                {auth.resumeAvailable && <button
+                  type="button"
+                  className="auth-use-other-account"
+                  disabled={auth.busy !== ''}
+                  onClick={() => void auth.switchAccount()}
+                >{t('authUseOtherAccount')}</button>}
               </div>}
             </div>
             <div className={`auth-progress ${auth.codeSent ? 'is-code' : ''}`} aria-label={t('authLoginProgress')}>

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   currentAuthSession,
   ensureAuthSession,
+  logoutSession,
   OPEN_AUTH_DIALOG_EVENT,
   type AuthSession,
 } from '../../../shared/auth/session';
@@ -17,6 +18,12 @@ import {
 } from '../model/cloudbaseClient';
 import { normalizeAuthError } from './authError';
 import { updateAccountProfile } from '../model/profileClient';
+import {
+  forgetRecentAccount,
+  readRecentAccount,
+  rememberRecentAccount,
+  type RecentAccount,
+} from '../model/recentAccount';
 import {
   disableOnboarding,
   enableOnboarding,
@@ -38,6 +45,7 @@ export function useAuthController() {
   const [cooldown, setCooldown] = useState(0);
   const [accountManagerOpen, setAccountManagerOpen] = useState(false);
   const [resumeAvailable, setResumeAvailable] = useState(false);
+  const [recentAccount, setRecentAccount] = useState<RecentAccount | null>(readRecentAccount);
   const [displayName, setDisplayName] = useState(session?.identity.display_name || '');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState('');
@@ -57,6 +65,8 @@ export function useAuthController() {
     setClosing(false);
     setVisible(true);
     setError('');
+    const savedAccount = readRecentAccount();
+    setRecentAccount(savedAccount);
     setAccountManagerOpen(false);
     void ensureAuthSession().then((next) => {
       setSession(next);
@@ -65,7 +75,10 @@ export function useAuthController() {
         return;
       }
       void hasRestorableCloudBaseSession()
-        .then(setResumeAvailable)
+        .then((available) => {
+          setResumeAvailable(available);
+          setAccountManagerOpen(available);
+        })
         .catch(() => setResumeAvailable(false));
     }).catch(() => undefined);
   }, [clearCloseTimer]);
@@ -100,6 +113,12 @@ export function useAuthController() {
   useEffect(() => {
     setDisplayName(session?.identity.display_name || '');
   }, [session?.identity.display_name]);
+
+  useEffect(() => {
+    if (session?.identity.auth_type && session.identity.auth_type !== 'guest') {
+      setRecentAccount(rememberRecentAccount(session.identity));
+    }
+  }, [session?.identity]);
 
   useEffect(() => {
     if (!avatarFile) {
@@ -181,6 +200,7 @@ export function useAuthController() {
         return;
       }
       setSession(next);
+      setRecentAccount(rememberRecentAccount(next.identity));
       setDialogVisible(false);
     } catch (reason) {
       setResumeAvailable(false);
@@ -195,7 +215,9 @@ export function useAuthController() {
     setError('');
     try {
       const next = await signOutEverywhere();
+      forgetRecentAccount();
       setSession(next);
+      setRecentAccount(null);
       setResumeAvailable(false);
       setCode('');
       setCodeSent(false);
@@ -210,8 +232,12 @@ export function useAuthController() {
     setBusy('logout');
     setError('');
     try {
-      const next = await signOutEverywhere();
+      if (session?.identity.auth_type && session.identity.auth_type !== 'guest') {
+        setRecentAccount(rememberRecentAccount(session.identity));
+      }
+      const next = await logoutSession();
       setSession(next);
+      setResumeAvailable(true);
       setCode('');
       setCodeSent(false);
       setDialogVisible(false);
@@ -271,6 +297,7 @@ export function useAuthController() {
     logout,
     onboardingEnabled,
     replayOnboarding,
+    recentAccount,
     resumeAccount,
     resumeAvailable,
     saveProfile,
