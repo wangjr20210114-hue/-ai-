@@ -7,11 +7,12 @@ import {
   listSkillUploads,
   skillMarketplaceOperation,
 } from '../model/client';
-import { syncMarketplaceAuth } from '../model/authSync';
+import { marketplaceAccount, syncMarketplaceAuth } from '../model/authSync';
 import { usePrivateSkillsController } from './usePrivateSkillsController';
 import { intelligenceOperation } from '../../settings/model/client';
 import {
   type AuthSession,
+  currentAuthSession,
   openAuthDialog,
 } from '../../../shared/auth/session';
 import { useAppState } from '../../../store/appState';
@@ -64,6 +65,9 @@ export function useSkillMarketplaceController() {
   const [visible, setVisible] = useState(false);
   const [view, setView] = useState<MarketplaceView>('catalog');
   const [marketplace, setMarketplace] = useState<SkillMarketplaceState | null>(null);
+  const [authSession, setAuthSession] = useState<AuthSession | null>(
+    () => currentAuthSession(),
+  );
   const [preferences, setPreferences] = useState<Record<string, boolean>>({});
   const [connections, setConnections] = useState<Record<string, SkillConnectionState>>({});
   const privateSkills = usePrivateSkillsController(conversationId);
@@ -141,6 +145,7 @@ export function useSkillMarketplaceController() {
   useEffect(() => {
     const changed = (event: Event) => {
       const session = (event as CustomEvent<AuthSession>).detail;
+      setAuthSession(session);
       setMarketplace((current) => syncMarketplaceAuth(current, session));
       if (session.identity.auth_type === 'guest') {
         setUploads([]);
@@ -174,6 +179,7 @@ export function useSkillMarketplaceController() {
     }),
     [catalog, language, preferences, query, view],
   );
+  const account = marketplaceAccount(marketplace, authSession);
 
   const save = async (skill: InstalledSkill, enabled: boolean) => {
     if (skill.locked) return;
@@ -252,6 +258,8 @@ export function useSkillMarketplaceController() {
   };
 
   return {
+    accountIdentity: account.identity,
+    accountPlan: account.plan,
     catalog,
     closeMarketplace,
     connections,

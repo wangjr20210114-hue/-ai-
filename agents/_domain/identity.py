@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .entitlements.policy import normalize_membership
+from .entitlements.generated_contract import AUTH_TYPES
 
 
 def _required_segment(value: str, field: str) -> str:
@@ -45,8 +46,10 @@ class TenantIdentity:
             _required_segment(self.session_id, "session_id"),
         )
         auth_type = str(self.auth_type or "").strip().lower()
-        if auth_type not in {"guest", "wechat"}:
-            raise ValueError("auth_type must be guest or wechat")
+        if auth_type not in AUTH_TYPES:
+            raise ValueError(
+                f"auth_type must be one of {', '.join(AUTH_TYPES)}"
+            )
         object.__setattr__(self, "auth_type", auth_type)
         object.__setattr__(
             self,

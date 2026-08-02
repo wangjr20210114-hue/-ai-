@@ -22,7 +22,14 @@ export function SkillsMarketplaceShell({
 }: {
   controller: SkillMarketplaceController;
 }) {
-  const { closeMarketplace, marketplace, setView, t, view } = controller;
+  const {
+    accountIdentity,
+    accountPlan,
+    closeMarketplace,
+    setView,
+    t,
+    view,
+  } = controller;
   const nav: Array<{
     id: MarketplaceView;
     label: string;
@@ -56,15 +63,15 @@ export function SkillsMarketplaceShell({
         </div>
         <div className="skills-page-account">
           <Tag theme="primary" variant="light">
-            {marketplace?.entitlements.plan || t('guestPlan')}
+            {accountPlan || t('guestPlan')}
           </Tag>
-          {marketplace?.identity.avatar_url
-            ? <img src={marketplace.identity.avatar_url} alt="" referrerPolicy="no-referrer" />
+          {accountIdentity?.avatar_url
+            ? <img src={accountIdentity.avatar_url} alt="" referrerPolicy="no-referrer" />
             : <span className="skills-page-account-avatar" aria-hidden="true">
-              {(marketplace?.identity.display_name || t('guestUser')).slice(0, 1)}
+              {(accountIdentity?.display_name || t('guestUser')).slice(0, 1)}
             </span>}
-          <span>{marketplace?.identity.display_name || t('guestUser')}</span>
-          {(!marketplace || marketplace.identity.auth_type === 'guest') && (
+          <span>{accountIdentity?.display_name || t('guestUser')}</span>
+          {(!accountIdentity || accountIdentity.auth_type === 'guest') && (
             <Button size="small" theme="primary" onClick={controller.login}>
               {controller.loginLabel}
             </Button>

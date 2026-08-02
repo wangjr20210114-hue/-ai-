@@ -6,6 +6,11 @@
     "plus",
     "pro"
   ],
+  "auth_types": [
+    "guest",
+    "wechat",
+    "cloudbase"
+  ],
   "guest_skill_ids": [
     "core",
     "proactive-agent"

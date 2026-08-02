@@ -16,6 +16,11 @@ export const ENTITLEMENT_CONTRACT = deepFreeze({
     "plus",
     "pro"
   ],
+  "auth_types": [
+    "guest",
+    "wechat",
+    "cloudbase"
+  ],
   "guest_skill_ids": [
     "core",
     "proactive-agent"
@@ -48,6 +53,7 @@ export const ENTITLEMENT_CONTRACT = deepFreeze({
   },
   "payment_available": false
 });
+export const AUTH_TYPES = ENTITLEMENT_CONTRACT.auth_types;
 export const MEMBERSHIP_PLANS = ENTITLEMENT_CONTRACT.plans;
 export const PLAN_LIMITS = deepFreeze({
   "guest": {

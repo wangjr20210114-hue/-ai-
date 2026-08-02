@@ -21,8 +21,8 @@ export function SkillImportView({
   controller: SkillMarketplaceController;
 }) {
   const {
-    importFile, importFolder, importText, importUrl, language, login, loginLabel,
-    marketplace, publishArchive, publishUserSkill, removeUserSkill, savingId, setUserSkillEnabled,
+    accountIdentity, importFile, importFolder, importText, importUrl, language, login, loginLabel,
+    publishArchive, publishUserSkill, removeUserSkill, savingId, setUserSkillEnabled,
     t, uploadArchive, uploads, userSkills,
   } = controller;
   const [method, setMethod] = useState<ImportMethod>('file');
@@ -44,7 +44,7 @@ export function SkillImportView({
       <span className="skills-page-eyebrow">{t('userSkillsEyebrow')}</span>
       <h1>{t('myPrivateSkills')}</h1>
       <p>{t('privateSkillsHint')}</p>
-      {!marketplace || marketplace.identity.auth_type === 'guest' ? (
+      {!accountIdentity || accountIdentity.auth_type === 'guest' ? (
         <div className="skills-login-gate">
           <strong>{t('loginRequiredForSkills')}</strong>
           <p>{t('loginSkillReason')}</p>

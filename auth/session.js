@@ -1,3 +1,5 @@
+import { AUTH_TYPES } from './generated/entitlements.js';
+
 const SESSION_COOKIE = 'floris_session';
 const OAUTH_NONCE_COOKIE = 'floris_oauth_nonce';
 
@@ -182,7 +184,7 @@ export async function scopedConversationId(user, conversationId) {
 export function publicIdentity(payload) {
   const tenantId = safeSegment(payload.tenant_id, 'default');
   const subjectId = safeSegment(payload.sub || payload.subject_id, 'anonymous');
-  const authType = ['guest', 'wechat', 'cloudbase'].includes(payload.auth_type)
+  const authType = AUTH_TYPES.includes(payload.auth_type)
     ? payload.auth_type
     : 'guest';
   const membership = ['guest', 'free', 'plus', 'pro'].includes(payload.membership)

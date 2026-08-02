@@ -7,6 +7,7 @@ const CONTRACT_PATH = resolve(ROOT, 'contracts/entitlements.v1.json');
 const NODE_PATH = resolve(ROOT, 'auth/generated/entitlements.js');
 const PYTHON_PATH = resolve(ROOT, 'agents/_domain/entitlements/generated_contract.py');
 const EXPECTED_PLANS = Object.freeze(['guest', 'free', 'plus', 'pro']);
+const EXPECTED_AUTH_TYPES = Object.freeze(['guest', 'wechat', 'cloudbase']);
 const LIMIT_KEYS = Object.freeze([
   'search_depth',
   'concurrent_runs',
@@ -21,6 +22,7 @@ function fail(message) {
 function validateContract(contract) {
   const topKeys = Object.keys(contract).sort();
   const expectedTopKeys = [
+    'auth_types',
     'guest_skill_ids',
     'limits',
     'payment_available',
@@ -33,6 +35,9 @@ function validateContract(contract) {
   if (contract.version !== 1) fail('version must be 1');
   if (JSON.stringify(contract.plans) !== JSON.stringify(EXPECTED_PLANS)) {
     fail('plans must preserve guest, free, plus, pro order');
+  }
+  if (JSON.stringify(contract.auth_types) !== JSON.stringify(EXPECTED_AUTH_TYPES)) {
+    fail('auth_types must preserve guest, wechat, cloudbase order');
   }
   if (
     !Array.isArray(contract.guest_skill_ids)
@@ -94,6 +99,7 @@ function deepFreeze(value) {
 }
 
 export const ENTITLEMENT_CONTRACT = deepFreeze(${jsLiteral(contract)});
+export const AUTH_TYPES = ENTITLEMENT_CONTRACT.auth_types;
 export const MEMBERSHIP_PLANS = ENTITLEMENT_CONTRACT.plans;
 export const PLAN_LIMITS = deepFreeze(${jsLiteral(camelLimits)});
 export const GUEST_SKILL_IDS = ENTITLEMENT_CONTRACT.guest_skill_ids;
@@ -129,6 +135,7 @@ from typing import Final
 
 
 ENTITLEMENT_VERSION: Final = ${contract.version}
+AUTH_TYPES: Final = ${pythonLiteral(contract.auth_types)}
 MEMBERSHIP_PLANS: Final = ${pythonLiteral(contract.plans)}
 GUEST_SKILL_IDS: Final = frozenset(${pythonLiteral(contract.guest_skill_ids)})
 PLAN_LIMITS: Final = ${pythonLiteral(contract.limits)}

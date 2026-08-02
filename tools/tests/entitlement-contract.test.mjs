@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
+  AUTH_TYPES,
   ENTITLEMENT_CONTRACT,
   GUEST_SKILL_IDS,
   MEMBERSHIP_PLANS,
@@ -16,6 +17,7 @@ const contract = JSON.parse(
 
 test('generated Node entitlement values preserve the canonical contract order', () => {
   assert.deepEqual(ENTITLEMENT_CONTRACT, contract);
+  assert.deepEqual(AUTH_TYPES, contract.auth_types);
   assert.deepEqual(MEMBERSHIP_PLANS, contract.plans);
   assert.deepEqual(GUEST_SKILL_IDS, contract.guest_skill_ids);
   assert.equal(PAYMENT_AVAILABLE, contract.payment_available);

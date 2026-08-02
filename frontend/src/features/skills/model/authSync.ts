@@ -1,6 +1,16 @@
 import type { AuthSession } from '../../../shared/auth/session';
 import type { SkillMarketplaceState } from '../../../shared/types';
 
+export function marketplaceAccount(
+  current: SkillMarketplaceState | null,
+  session: AuthSession | null,
+) {
+  return {
+    identity: session?.identity || current?.identity || null,
+    plan: session?.entitlements.plan || current?.entitlements.plan || null,
+  };
+}
+
 export function syncMarketplaceAuth(
   current: SkillMarketplaceState | null,
   session: AuthSession,

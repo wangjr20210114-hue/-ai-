@@ -33,7 +33,7 @@ from agents._application.intelligence.service import (
 from agents.skill_marketplace.index import handler as skills_handler
 from agents.chat._capability_plan import required_tools_for_plan
 from agents._infrastructure.skills.builtin_operations import build_system_skill_tools
-from agents._tests.auth_helpers import authenticated_namespace
+from agents._tests.auth_helpers import authenticated_context, authenticated_namespace
 from agents._tests.auth_helpers import TEST_USER_ID
 
 
@@ -302,6 +302,17 @@ class SkillCatalogRouteTests(unittest.IsolatedAsyncioTestCase):
             [item["id"] for item in response["skills"]],
             [manifest.id for manifest in skill_manifests()],
         )
+
+    async def test_cloudbase_user_can_read_the_marketplace_state(self):
+        ctx = authenticated_namespace(
+            request=SimpleNamespace(body={}, headers={}),
+            env={},
+        )
+        authenticated_context(ctx, auth_type="cloudbase", membership="free")
+        response = await skills_handler(ctx)
+        self.assertEqual(response["identity"]["auth_type"], "cloudbase")
+        self.assertEqual(response["identity"]["membership"], "free")
+        self.assertTrue(all(item["eligible"] for item in response["skills"]))
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@
   "required": [
     "version",
     "plans",
+    "auth_types",
     "guest_skill_ids",
     "limits",
     "payment_available"
@@ -34,6 +35,23 @@
       "items": false,
       "minItems": 4,
       "maxItems": 4
+    },
+    "auth_types": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "const": "guest"
+        },
+        {
+          "const": "wechat"
+        },
+        {
+          "const": "cloudbase"
+        }
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
     },
     "guest_skill_ids": {
       "type": "array",

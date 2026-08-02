@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from agents._domain.entitlements.generated_contract import (
+    AUTH_TYPES,
     ENTITLEMENT_CONTRACT,
     GUEST_SKILL_IDS,
     MEMBERSHIP_PLANS,
@@ -22,6 +23,7 @@ class EntitlementContractTests(unittest.TestCase):
             (ROOT / "contracts" / "entitlements.v1.json").read_text(encoding="utf-8")
         )
         self.assertEqual(ENTITLEMENT_CONTRACT, contract)
+        self.assertEqual(AUTH_TYPES, tuple(contract["auth_types"]))
         self.assertEqual(MEMBERSHIP_PLANS, tuple(contract["plans"]))
         self.assertEqual(GUEST_SKILL_IDS, frozenset(contract["guest_skill_ids"]))
         self.assertEqual(PLAN_LIMITS, contract["limits"])

@@ -49,6 +49,18 @@ class MakerIdentityResolverTests(unittest.TestCase):
         self.assertNotEqual(first.user_id, second.user_id)
         self.assertNotEqual(first.session_id, second.session_id)
 
+    def test_cloudbase_session_is_a_supported_trusted_identity(self) -> None:
+        identity = MakerIdentityResolver().resolve(
+            signed_context(
+                auth_type="cloudbase",
+                membership="free",
+                subject_id="cloudbase-user-1",
+                session_id="cloudbase-session-1",
+            )
+        )
+        self.assertEqual(identity.auth_type, "cloudbase")
+        self.assertEqual(identity.membership, "free")
+
     def test_invalid_signature_is_rejected(self) -> None:
         ctx = signed_context(subject_id="user-1")
         ctx.request.headers["cookie"] += "tampered"

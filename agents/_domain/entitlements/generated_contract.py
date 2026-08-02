@@ -6,6 +6,7 @@ from typing import Final
 
 
 ENTITLEMENT_VERSION: Final = 1
+AUTH_TYPES: Final = ("guest", "wechat", "cloudbase")
 MEMBERSHIP_PLANS: Final = ("guest", "free", "plus", "pro")
 GUEST_SKILL_IDS: Final = frozenset(("core", "proactive-agent"))
 PLAN_LIMITS: Final = {
@@ -38,6 +39,7 @@ PAYMENT_AVAILABLE: Final = False
 ENTITLEMENT_CONTRACT: Final = {
     "version": 1,
     "plans": ["guest", "free", "plus", "pro"],
+    "auth_types": ["guest", "wechat", "cloudbase"],
     "guest_skill_ids": ["core", "proactive-agent"],
     "limits": {
         "guest": {

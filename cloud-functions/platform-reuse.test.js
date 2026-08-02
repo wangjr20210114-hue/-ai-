@@ -276,7 +276,9 @@ test('settings and Skills open on lightweight configuration reads', async () => 
   assert.doesNotMatch(header, /aria-disabled=/);
   assert.match(skillsController, /openAuthDialog/);
   assert.doesNotMatch(skillsController, /wechatLoginUnavailable|startWechatLogin/);
-  assert.match(skills, /identity\.auth_type === 'guest'/);
+  assert.match(skills, /accountIdentity\.auth_type === 'guest'/);
+  assert.match(skillsController, /currentAuthSession/);
+  assert.match(skillsController, /floris:auth-changed/);
 });
 
 test('new multi-user and Skill surfaces follow the layered MVC boundary', async () => {
