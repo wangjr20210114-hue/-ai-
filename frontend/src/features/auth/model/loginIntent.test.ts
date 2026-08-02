@@ -2,8 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   consumeAccountChooserRequest,
-  consumeOAuthLoginIntent,
-  markOAuthLoginIntent,
   requestAccountChooserAfterReload,
 } from './loginIntent';
 
@@ -22,17 +20,6 @@ describe('login navigation intent', () => {
   });
 
   afterEach(() => vi.unstubAllGlobals());
-
-  it('restores automatically only for a fresh OAuth callback', () => {
-    markOAuthLoginIntent(1_000);
-    expect(consumeOAuthLoginIntent(1_500)).toBe(true);
-    expect(consumeOAuthLoginIntent(1_500)).toBe(false);
-  });
-
-  it('rejects an expired OAuth callback intent', () => {
-    markOAuthLoginIntent(1_000);
-    expect(consumeOAuthLoginIntent(16 * 60 * 1000)).toBe(false);
-  });
 
   it('opens the account chooser once after switching', () => {
     requestAccountChooserAfterReload();

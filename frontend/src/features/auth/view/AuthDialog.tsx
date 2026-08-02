@@ -5,7 +5,6 @@ import {
   ChevronDownIcon,
   CloseIcon,
   LockOnIcon,
-  LogoGithubIcon,
   MailIcon,
   UserCircleIcon,
 } from 'tdesign-icons-react';
@@ -16,17 +15,43 @@ import {
   CLOUDBASE_NETWORK_UNAVAILABLE,
 } from '../controller/authError';
 import { useAuthController } from '../controller/useAuthController';
+import type { RecentAccount } from '../model/recentAccount';
 import { useAvatarUrl } from '../../../shared/auth/useAvatarUrl';
 
+function RecentAccountOption({
+  account,
+  ready,
+  onSelect,
+  readyLabel,
+  verifyLabel,
+}: {
+  account: RecentAccount;
+  ready: boolean;
+  onSelect: () => void;
+  readyLabel: string;
+  verifyLabel: string;
+}) {
+  const avatarUrl = useAvatarUrl({
+    auth_type: 'cloudbase',
+    avatar_url: account.avatarUrl,
+    subject_id: account.subjectId,
+  });
+  return (
+    <button type="button" className="auth-recent-account-option" onClick={onSelect}>
+      <img src={avatarUrl} alt="" referrerPolicy="no-referrer" />
+      <span>
+        <strong>{account.displayName}</strong>
+        {account.email && <small className="auth-recent-account-email">{account.email}</small>}
+        <em>{ready ? readyLabel : verifyLabel}</em>
+      </span>
+      <b aria-hidden="true">{ready ? '›' : '⌕'}</b>
+    </button>
+  );
+}
 export default function AuthDialog() {
   const auth = useAuthController();
   const { t } = useLanguage();
   const accountAvatarUrl = useAvatarUrl(auth.session?.identity);
-  const recentAvatarUrl = useAvatarUrl(auth.recentAccount ? {
-    auth_type: 'cloudbase',
-    avatar_url: auth.recentAccount.avatarUrl,
-    subject_id: auth.recentAccount.subjectId,
-  } : null);
   if (!auth.visible) return null;
 
   const signedIn = Boolean(
@@ -182,26 +207,20 @@ export default function AuthDialog() {
                 <ChevronDownIcon aria-hidden="true" />
               </button>
               {auth.accountManagerOpen && <div className="auth-account-manager-content">
-                {auth.resumeAvailable && auth.recentAccount && <div className="auth-recent-account">
-                  <img
-                    src={recentAvatarUrl}
-                    alt=""
-                    referrerPolicy="no-referrer"
-                  />
-                  <span>
-                    <strong>{auth.recentAccount.displayName}</strong>
-                    <small>{t('authRecentAccountReady')}</small>
-                  </span>
-                </div>}
-                {auth.resumeAvailable && !auth.recentAccount && <p>{t('authSavedAccountReady')}</p>}
-                {!auth.resumeAvailable && <p>{t('authNoSavedAccount')}</p>}
-                {auth.resumeAvailable && <Button
-                  block
-                  variant="outline"
-                  loading={auth.busy === 'resume'}
-                  disabled={auth.busy !== ''}
-                  onClick={() => void auth.resumeAccount()}
-                >{t('authResumeAccount')}</Button>}
+                {auth.recentAccounts.length > 0 ? auth.recentAccounts.map((account, index) => {
+                  const ready = index === 0 && auth.resumeAvailable;
+                  return <RecentAccountOption
+                    key={account.subjectId}
+                    account={account}
+                    ready={ready}
+                    readyLabel={ready ? t('authRecentAccountReady') : t('authRecentAccountVerify')}
+                    verifyLabel={t('authRecentAccountVerify')}
+                    onSelect={() => {
+                      if (ready) void auth.resumeAccount();
+                      else auth.selectRecentAccount(account);
+                    }}
+                  />;
+                }) : <p>{t('authNoSavedAccount')}</p>}
               </div>}
             </div>
             <div className={`auth-progress ${auth.codeSent ? 'is-code' : ''}`} aria-label={t('authLoginProgress')}>
@@ -273,16 +292,6 @@ export default function AuthDialog() {
                   : auth.codeSent ? t('authResendCode') : t('authSendCode')}</Button>
             </div>
 
-            <div className="auth-divider"><span>{t('authOtherMethods')}</span></div>
-            <Button
-              block
-              className="auth-github-button"
-              variant="outline"
-              icon={<LogoGithubIcon />}
-              loading={auth.busy === 'github'}
-              disabled={!auth.cloudBaseConfigured || auth.busy !== ''}
-              onClick={() => void auth.github()}
-            >{t('authGithub')}</Button>
             <button type="button" className="auth-guest-continue" onClick={() => auth.setVisible(false)}>
               {t('authContinueGuest')}
             </button>

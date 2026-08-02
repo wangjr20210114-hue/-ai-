@@ -85,6 +85,9 @@ export default function InputBar({ client }: Props) {
   const handleSend = async () => {
     const content = text.trim();
     if (!content || sendLockRef.current || sending || stopping || activeStreaming) return;
+    // The page is intentionally usable while bootstrap hydrates. Keep the
+    // draft intact instead of rendering a user row that has no transport yet.
+    if (!client.current) return;
     const message = {
       id: Date.now().toString(),
       role: 'user' as const,

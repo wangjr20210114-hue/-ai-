@@ -4,7 +4,6 @@ import {
   ensureAuthSession,
   type AuthSession,
 } from '../../../shared/auth/session';
-import { markOAuthLoginIntent } from './loginIntent';
 
 const environmentId = String(import.meta.env.VITE_CLOUDBASE_ENV_ID || '').trim();
 const region = String(import.meta.env.VITE_CLOUDBASE_REGION || 'ap-shanghai').trim();
@@ -24,10 +23,6 @@ type CloudBaseAuth = {
   signInWithOtp: (params: {
     email: string;
     options?: { shouldCreateUser?: boolean };
-  }) => Promise<CloudBaseResult>;
-  signInWithOAuth: (params: {
-    provider: string;
-    options: { redirectTo: string; skipBrowserRedirect?: boolean };
   }) => Promise<CloudBaseResult>;
   getSession: () => Promise<CloudBaseResult>;
 };
@@ -150,18 +145,4 @@ export async function verifyEmailOtp(code: string): Promise<AuthSession> {
   throwResultError(result);
   otpVerifier = null;
   return exchangeForFlorisSession(await currentAccessToken(result));
-}
-
-export async function startGithubLogin(): Promise<void> {
-  const redirectTo = `${window.location.origin}${window.location.pathname}${window.location.search}`;
-  const result = await (await requireClient()).signInWithOAuth({
-    provider: 'github',
-    options: { redirectTo, skipBrowserRedirect: true },
-  });
-  throwResultError(result);
-  const data = resultData(result);
-  const url = String(data.url || data.uri || data.redirectTo || '').trim();
-  if (!url) throw new Error('CloudBase did not return a GitHub authorization URL');
-  markOAuthLoginIntent();
-  window.location.assign(url);
 }

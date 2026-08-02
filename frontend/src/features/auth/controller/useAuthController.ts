@@ -12,7 +12,6 @@ import {
   hasRestorableCloudBaseSession,
   restoreCloudBaseSession,
   sendEmailOtp,
-  startGithubLogin,
   verifyEmailOtp,
 } from '../model/cloudbaseClient';
 import { normalizeAuthError } from './authError';
@@ -22,8 +21,7 @@ import {
   requestAccountChooserAfterReload,
 } from '../model/loginIntent';
 import {
-  clearExpiredRecentAccount,
-  readRecentAccount,
+  readRecentAccounts,
   rememberRecentAccount,
   type RecentAccount,
 } from '../model/recentAccount';
@@ -48,14 +46,14 @@ export function useAuthController() {
   const [cooldown, setCooldown] = useState(0);
   const [accountManagerOpen, setAccountManagerOpen] = useState(false);
   const [resumeAvailable, setResumeAvailable] = useState(false);
-  const [recentAccount, setRecentAccount] = useState<RecentAccount | null>(readRecentAccount);
+  const [recentAccounts, setRecentAccounts] = useState<RecentAccount[]>(readRecentAccounts);
   const [displayName, setDisplayName] = useState(session?.identity.display_name || '');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState('');
   const [onboardingEnabled, setOnboardingEnabled] = useState(
     () => readOnboardingPreference().enabled,
   );
-  const [busy, setBusy] = useState<'resume' | 'email' | 'verify' | 'github' | 'profile' | 'switch' | 'logout' | ''>('');
+  const [busy, setBusy] = useState<'resume' | 'email' | 'verify' | 'profile' | 'switch' | 'logout' | ''>('');
   const [error, setError] = useState('');
 
   const clearCloseTimer = useCallback(() => {
@@ -63,13 +61,17 @@ export function useAuthController() {
     closeTimer.current = null;
   }, []);
 
+  const saveRecentIdentity = useCallback((identity: AuthSession['identity']) => {
+    rememberRecentAccount(identity);
+    setRecentAccounts(readRecentAccounts());
+  }, []);
+
   const open = useCallback(() => {
     clearCloseTimer();
     setClosing(false);
     setVisible(true);
     setError('');
-    const savedAccount = readRecentAccount();
-    setRecentAccount(savedAccount);
+    setRecentAccounts(readRecentAccounts());
     setAccountManagerOpen(false);
     void ensureAuthSession().then((next) => {
       setSession(next);
@@ -80,11 +82,7 @@ export function useAuthController() {
       void hasRestorableCloudBaseSession()
         .then((available) => {
           setResumeAvailable(available);
-          setAccountManagerOpen(available);
-          if (!available) {
-            clearExpiredRecentAccount();
-            setRecentAccount(null);
-          }
+          setAccountManagerOpen(available || readRecentAccounts().length > 0);
         })
         .catch(() => setResumeAvailable(false));
     }).catch(() => undefined);
@@ -129,9 +127,9 @@ export function useAuthController() {
 
   useEffect(() => {
     if (session?.identity.auth_type && session.identity.auth_type !== 'guest') {
-      setRecentAccount(rememberRecentAccount(session.identity));
+      saveRecentIdentity(session.identity);
     }
-  }, [session?.identity]);
+  }, [saveRecentIdentity, session?.identity]);
 
   useEffect(() => {
     if (!avatarFile) {
@@ -183,21 +181,11 @@ export function useAuthController() {
     try {
       const next = await verifyEmailOtp(code.trim());
       setSession(next);
+      saveRecentIdentity(next.identity);
       setDialogVisible(false);
     } catch (reason) {
       setError(normalizeAuthError(reason));
     } finally {
-      setBusy('');
-    }
-  };
-
-  const github = async () => {
-    setBusy('github');
-    setError('');
-    try {
-      await startGithubLogin();
-    } catch (reason) {
-      setError(normalizeAuthError(reason));
       setBusy('');
     }
   };
@@ -213,7 +201,7 @@ export function useAuthController() {
         return;
       }
       setSession(next);
-      setRecentAccount(rememberRecentAccount(next.identity));
+      saveRecentIdentity(next.identity);
       setDialogVisible(false);
     } catch (reason) {
       setResumeAvailable(false);
@@ -228,7 +216,7 @@ export function useAuthController() {
     setError('');
     try {
       if (session?.identity.auth_type && session.identity.auth_type !== 'guest') {
-        setRecentAccount(rememberRecentAccount(session.identity));
+        saveRecentIdentity(session.identity);
       }
       requestAccountChooserAfterReload();
       const next = await logoutSession();
@@ -249,7 +237,7 @@ export function useAuthController() {
     setError('');
     try {
       if (session?.identity.auth_type && session.identity.auth_type !== 'guest') {
-        setRecentAccount(rememberRecentAccount(session.identity));
+        saveRecentIdentity(session.identity);
       }
       const next = await logoutSession();
       setSession(next);
@@ -275,6 +263,7 @@ export function useAuthController() {
     try {
       const next = await updateAccountProfile(name, avatarFile);
       setSession(next);
+      saveRecentIdentity(next.identity);
       setAvatarFile(null);
     } catch (reason) {
       setError(normalizeAuthError(reason));
@@ -296,6 +285,14 @@ export function useAuthController() {
     window.setTimeout(() => requestOnboarding(true), 220);
   };
 
+  const selectRecentAccount = (account: RecentAccount) => {
+    setEmail(account.email);
+    setCode('');
+    setCodeSent(false);
+    setAccountManagerOpen(false);
+    setError('');
+  };
+
   return {
     accountManagerOpen,
     avatarFile,
@@ -309,14 +306,14 @@ export function useAuthController() {
     displayName,
     email,
     error,
-    github,
     logout,
     onboardingEnabled,
     replayOnboarding,
-    recentAccount,
+    recentAccounts,
     resumeAccount,
     resumeAvailable,
     saveProfile,
+    selectRecentAccount,
     sendCode,
     session,
     setAvatarFile,

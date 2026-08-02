@@ -120,7 +120,6 @@ export default function Header({
             shape="circle"
             variant="text"
             size="medium"
-            disabled={!connected}
             onClick={onToggleSidebar}
             aria-label={t('openConversations')}
             title={t('openConversations')}
@@ -194,7 +193,6 @@ export default function Header({
             shape="circle"
             variant="text"
             size="medium"
-            disabled={!connected}
             onClick={onToggleRightPanel}
             aria-label={rightPanelOpen ? t('collapsePanel') : t('expandPanel')}
             title={rightPanelOpen ? t('collapsePanel') : t('expandPanel')}
@@ -208,7 +206,6 @@ export default function Header({
           shape="circle"
           variant="text"
           size="medium"
-          disabled={!connected}
           onClick={toggleTheme}
           aria-label={theme === 'dark' ? t('useLightTheme') : t('useDarkTheme')}
           title={theme === 'dark' ? t('useLightTheme') : t('useDarkTheme')}

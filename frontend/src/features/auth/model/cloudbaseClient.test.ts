@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const sdk = vi.hoisted(() => {
   const auth = {
     getSession: vi.fn(),
-    signInWithOAuth: vi.fn(),
     signInWithOtp: vi.fn(),
   };
   return {
@@ -84,20 +83,4 @@ describe('CloudBase auth Adapter', () => {
       .rejects.toThrow('Email login is disabled');
   });
 
-  it('fails clearly when CloudBase does not return a GitHub authorization URL', async () => {
-    vi.stubGlobal('window', {
-      location: {
-        origin: 'https://preview.example.com',
-        hostname: 'preview.example.com',
-        pathname: '/chatBot',
-        search: '?eo_token=test&eo_time=1',
-        assign: vi.fn(),
-      },
-    });
-    sdk.auth.signInWithOAuth.mockResolvedValue({ data: {}, error: null });
-    const client = await import('./cloudbaseClient');
-
-    await expect(client.startGithubLogin())
-      .rejects.toThrow('CloudBase did not return a GitHub authorization URL');
-  });
 });
