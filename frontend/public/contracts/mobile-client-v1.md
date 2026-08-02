@@ -47,3 +47,20 @@ Bearer 是原生客户端的唯一 Floris 会话凭据；即使 WebView 中残�
 - 删除字段、改变含义或改变副作用语义必须发布新的 major contract。
 - `makers-conversation-id` 是客户端不透明 ID；服务端负责结合登录身份生成 Maker 租户作用域。
 - 完整 OpenAPI 位于 `/contracts/floris-client-v1.openapi.json`。
+
+## 可直接交给客户端开发 AI
+
+```text
+请基于 Floris 现有后端实现原生客户端。开发环境为 https://floris-dev.jlutx.com。
+先读取 /contracts/floris-client-v1.openapi.json、/contracts/chat-events-v1.schema.json
+和 /contracts/floris-components-v1.schema.json，并以它们作为唯一网络与组件协议。
+
+使用 CloudBase SDK/HTTP API 完成登录和 token 刷新，再调用
+POST /auth/mobile/session 换取短期 Floris Bearer。所有 Floris 请求携带
+Authorization: Bearer 和稳定、不透明的 makers-conversation-id。
+
+客户端只实现原生界面、系统权限、通知、文件选择和本地缓存。不要在客户端重写
+聊天编排、搜索、Skills、地图、路线、日程、论文、权益、多租户或副作用状态机；
+这些全部调用现有 Floris Maker 后端。严格按 SSE type 分发组件，未知事件忽略，
+未知组件降级显示文本。不得把未经后端确认的操作显示为成功。
+```

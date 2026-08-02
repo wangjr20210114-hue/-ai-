@@ -64,6 +64,16 @@ describe('CloudBase auth Adapter', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('detects a provider-owned session for one-click account resume', async () => {
+    sdk.auth.getSession.mockResolvedValue({
+      data: { session: { access_token: 'saved-access-token' } },
+      error: null,
+    });
+    const client = await import('./cloudbaseClient');
+
+    await expect(client.hasRestorableCloudBaseSession()).resolves.toBe(true);
+  });
+
   it('surfaces provider errors without falling back to a homemade auth flow', async () => {
     sdk.auth.signInWithOtp.mockResolvedValue({
       data: null,

@@ -8,6 +8,8 @@ import {
 } from '../../../shared/auth/session';
 import {
   cloudBaseConfigured,
+  hasRestorableCloudBaseSession,
+  restoreCloudBaseSession,
   sendEmailOtp,
   signOutEverywhere,
   startGithubLogin,
@@ -34,13 +36,15 @@ export function useAuthController() {
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+  const [accountManagerOpen, setAccountManagerOpen] = useState(false);
+  const [resumeAvailable, setResumeAvailable] = useState(false);
   const [displayName, setDisplayName] = useState(session?.identity.display_name || '');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState('');
   const [onboardingEnabled, setOnboardingEnabled] = useState(
     () => readOnboardingPreference().enabled,
   );
-  const [busy, setBusy] = useState<'email' | 'verify' | 'github' | 'profile' | 'logout' | ''>('');
+  const [busy, setBusy] = useState<'resume' | 'email' | 'verify' | 'github' | 'profile' | 'switch' | 'logout' | ''>('');
   const [error, setError] = useState('');
 
   const clearCloseTimer = useCallback(() => {
@@ -53,7 +57,17 @@ export function useAuthController() {
     setClosing(false);
     setVisible(true);
     setError('');
-    void ensureAuthSession().then(setSession).catch(() => undefined);
+    setAccountManagerOpen(false);
+    void ensureAuthSession().then((next) => {
+      setSession(next);
+      if (next.identity.auth_type !== 'guest') {
+        setResumeAvailable(true);
+        return;
+      }
+      void hasRestorableCloudBaseSession()
+        .then(setResumeAvailable)
+        .catch(() => setResumeAvailable(false));
+    }).catch(() => undefined);
   }, [clearCloseTimer]);
 
   const setDialogVisible = useCallback((next: boolean) => {
@@ -156,6 +170,42 @@ export function useAuthController() {
     }
   };
 
+  const resumeAccount = async () => {
+    setBusy('resume');
+    setError('');
+    try {
+      const next = await restoreCloudBaseSession();
+      if (!next) {
+        setResumeAvailable(false);
+        setError('no_saved_session');
+        return;
+      }
+      setSession(next);
+      setDialogVisible(false);
+    } catch (reason) {
+      setResumeAvailable(false);
+      setError(normalizeAuthError(reason));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const switchAccount = async () => {
+    setBusy('switch');
+    setError('');
+    try {
+      const next = await signOutEverywhere();
+      setSession(next);
+      setResumeAvailable(false);
+      setCode('');
+      setCodeSent(false);
+    } catch (reason) {
+      setError(normalizeAuthError(reason));
+    } finally {
+      setBusy('');
+    }
+  };
+
   const logout = async () => {
     setBusy('logout');
     setError('');
@@ -205,6 +255,7 @@ export function useAuthController() {
   };
 
   return {
+    accountManagerOpen,
     avatarFile,
     avatarPreview,
     busy,
@@ -220,14 +271,18 @@ export function useAuthController() {
     logout,
     onboardingEnabled,
     replayOnboarding,
+    resumeAccount,
+    resumeAvailable,
     saveProfile,
     sendCode,
     session,
     setAvatarFile,
+    setAccountManagerOpen,
     setCode,
     setDisplayName,
     setEmail,
     setVisible: setDialogVisible,
+    switchAccount,
     toggleOnboarding,
     verifyCode,
     visible,

@@ -2,14 +2,19 @@ import { Button } from 'tdesign-react';
 import {
   ChatIcon,
   CheckCircleIcon,
+  ChevronDownIcon,
   CloseIcon,
   LockOnIcon,
   LogoGithubIcon,
   MailIcon,
+  UserCircleIcon,
 } from 'tdesign-icons-react';
 
 import { useLanguage } from '../../../i18n';
-import { CLOUDBASE_NETWORK_UNAVAILABLE } from '../controller/authError';
+import {
+  AUTH_UNKNOWN_ERROR,
+  CLOUDBASE_NETWORK_UNAVAILABLE,
+} from '../controller/authError';
 import { useAuthController } from '../controller/useAuthController';
 
 export default function AuthDialog() {
@@ -28,7 +33,11 @@ export default function AuthDialog() {
         ? t('authNetworkUnavailable')
         : auth.error === 'display_name_required'
           ? t('authDisplayNameRequired')
-        : auth.error;
+          : auth.error === 'no_saved_session'
+            ? t('authNoSavedSession')
+            : auth.error === AUTH_UNKNOWN_ERROR
+              ? t('authGenericError')
+              : auth.error;
 
   return (
     <div
@@ -53,7 +62,7 @@ export default function AuthDialog() {
 
         <aside className="auth-dialog-story" aria-hidden="true">
           <div className="auth-story-orbit"><span /><span /><span /></div>
-          <div className="auth-dialog-brand">{t('florisAvatarGlyph')}</div>
+          <div className="auth-dialog-brand"><img src="/floris-avatar.png" alt="" /></div>
           <span className="auth-dialog-eyebrow">{t('authSecureEyebrow')}</span>
           <h2>{signedIn ? t('authAccountTitle') : t('authTitle')}</h2>
           <p>{signedIn ? t('authSignedInHint') : t('authGuestHint')}</p>
@@ -65,7 +74,7 @@ export default function AuthDialog() {
 
         <div className="auth-dialog-content">
           <div className="auth-mobile-brand" aria-hidden="true">
-            <div className="auth-dialog-brand">{t('florisAvatarGlyph')}</div>
+            <div className="auth-dialog-brand"><img src="/floris-avatar.png" alt="" /></div>
             <span>{t('authBrandWord')}</span>
           </div>
           <header className="auth-content-header">
@@ -93,7 +102,7 @@ export default function AuthDialog() {
                 </label>
                 <div>
                   <strong>{auth.session?.identity.display_name}</strong>
-                  <small>{auth.session?.identity.auth_providers.join(' · ') || 'CloudBase'}</small>
+                  <small>{t('authAccountSyncReady')}</small>
                 </div>
                 <CheckCircleIcon className="auth-account-verified" aria-label={t('authSignedIn')} />
               </div>
@@ -139,14 +148,44 @@ export default function AuthDialog() {
                 onClick={auth.replayOnboarding}
               >{t('onboardingReplay')}</Button>}
               {error && <div className="auth-error" role="alert">{error}</div>}
-              <button
-                type="button"
-                className="auth-signout-link"
-                disabled={auth.busy !== ''}
-                onClick={() => void auth.logout()}
-              >{t('authSignOut')}</button>
+              <div className="auth-account-actions">
+                <button
+                  type="button"
+                  className="auth-signout-link"
+                  disabled={auth.busy !== ''}
+                  onClick={() => void auth.switchAccount()}
+                >{t('authSwitchAccount')}</button>
+                <button
+                  type="button"
+                  className="auth-signout-link"
+                  disabled={auth.busy !== ''}
+                  onClick={() => void auth.logout()}
+                >{t('authSignOut')}</button>
+              </div>
             </div>
           ) : <>
+            <div className={`auth-account-manager${auth.accountManagerOpen ? ' is-open' : ''}`}>
+              <button
+                type="button"
+                className="auth-account-manager-toggle"
+                aria-expanded={auth.accountManagerOpen}
+                onClick={() => auth.setAccountManagerOpen(!auth.accountManagerOpen)}
+              >
+                <UserCircleIcon aria-hidden="true" />
+                <span><strong>{t('authAccountManager')}</strong><small>{t('authAccountManagerHint')}</small></span>
+                <ChevronDownIcon aria-hidden="true" />
+              </button>
+              {auth.accountManagerOpen && <div className="auth-account-manager-content">
+                <p>{t(auth.resumeAvailable ? 'authSavedAccountReady' : 'authNoSavedAccount')}</p>
+                {auth.resumeAvailable && <Button
+                  block
+                  variant="outline"
+                  loading={auth.busy === 'resume'}
+                  disabled={auth.busy !== ''}
+                  onClick={() => void auth.resumeAccount()}
+                >{t('authResumeAccount')}</Button>}
+              </div>}
+            </div>
             <div className={`auth-progress ${auth.codeSent ? 'is-code' : ''}`} aria-label={t('authLoginProgress')}>
               <span className="is-active"><b>{t('authStepOne')}</b>{t('authStepEmail')}</span>
               <i />

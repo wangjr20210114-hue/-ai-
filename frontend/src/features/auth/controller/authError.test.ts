@@ -18,4 +18,9 @@ describe('CloudBase authentication errors', () => {
     expect(normalizeAuthError(new Error('Email login is disabled')))
       .toBe('Email login is disabled');
   });
+
+  it('never exposes authentication infrastructure details to users', () => {
+    expect(normalizeAuthError(new Error('CloudBase did not return an access token')))
+      .toBe('auth_unknown_error');
+  });
 });

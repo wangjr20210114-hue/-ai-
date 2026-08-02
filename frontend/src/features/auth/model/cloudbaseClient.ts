@@ -122,6 +122,16 @@ export async function restoreCloudBaseSession(): Promise<AuthSession | null> {
   return accessToken ? exchangeForFlorisSession(accessToken) : null;
 }
 
+/** Inspect the provider-owned local session without exposing or copying its
+ * refresh credentials. This powers a real one-click resume when CloudBase can
+ * still refresh the last account. */
+export async function hasRestorableCloudBaseSession(): Promise<boolean> {
+  if (!cloudBaseConfigured) return false;
+  const session = await (await requireClient()).getSession();
+  throwResultError(session);
+  return Boolean(accessTokenFrom(session));
+}
+
 export async function sendEmailOtp(email: string): Promise<void> {
   const result = await (await requireClient()).signInWithOtp({
     email,
