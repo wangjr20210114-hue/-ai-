@@ -137,6 +137,13 @@ function MarkdownRenderer({
   const { t } = useLanguage();
   const enhancements = useMarkdownEnhancements();
   const sources = useMemo(() => searchMeta?.results || [], [searchMeta?.results]);
+  const uncitedSources = useMemo(() => sources
+    .filter((source) => (
+      isSafeRemoteUrl(source.url)
+      && !content.includes(source.url)
+      && !content.includes(`[[cite:${source.id}]]`)
+    ))
+    .slice(0, 6), [content, sources]);
   const visibleMedia = useMemo(
     () => uniqueMediaAssets(searchMeta?.media || [])
       .filter((asset) => asset.vision_reviewed === true),
@@ -254,6 +261,23 @@ function MarkdownRenderer({
       >
         {cleanedContent}
       </ReactMarkdown>
+      {uncitedSources.length > 0 && (
+        <div className="search-evidence-links" aria-label={t('viewSource')}>
+          <span className="search-evidence-links-label">{t('viewSource')}</span>
+          {uncitedSources.map((source) => (
+            <a
+              key={source.id || source.url}
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="md-citation-link"
+              title={source.url}
+            >
+              {source.title || sourceLabel(source.url, sources)}
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

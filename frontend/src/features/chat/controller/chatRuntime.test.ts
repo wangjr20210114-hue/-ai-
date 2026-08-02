@@ -6,6 +6,7 @@ import {
   locationRetryMessage,
   mergeSearchMeta,
   progressTextForTool,
+  resolveSearchStartAt,
   restoredConversationWasInterrupted,
   terminalGenerationError,
 } from './useChatController';
@@ -123,6 +124,15 @@ describe('chat transport ownership', () => {
         _location_retry: true,
       },
     });
+  });
+});
+
+describe('search timing ownership', () => {
+  it('never replaces a turn start with a later progress event timestamp', () => {
+    expect(resolveSearchStartAt(undefined, undefined, true, 1000)).toBe(1000);
+    expect(resolveSearchStartAt(1000, undefined, true, 9000)).toBe(1000);
+    expect(resolveSearchStartAt(undefined, 1000, true, 9000)).toBe(1000);
+    expect(resolveSearchStartAt(undefined, undefined, false, 9000)).toBeUndefined();
   });
 });
 

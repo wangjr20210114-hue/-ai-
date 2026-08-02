@@ -49,13 +49,13 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('card.jpg');
   });
 
-  it('does not append a source directory before or after the streamed answer', () => {
+  it('keeps verified sources visible when the model omits inline citations', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer content={'这里是综合后的结论。'} searchMeta={searchMeta} />,
     );
-    expect(html).not.toContain('aria-label="回答来源"');
-    expect(html).not.toContain('search-source-links');
-    expect(html).not.toContain('https://news.example/ai');
+    expect(html).toContain('class="search-evidence-links"');
+    expect(html).toContain('href="https://news.example/ai"');
+    expect(html).toContain('>AI 新闻</a>');
   });
 
   it('turns a URL-only Markdown link into a small clickable inline citation', () => {

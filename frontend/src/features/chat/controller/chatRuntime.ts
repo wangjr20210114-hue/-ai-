@@ -106,6 +106,16 @@ export function progressTextForTool(toolName: string, phase: 'active' | 'complet
   return translate(key);
 }
 
+export function resolveSearchStartAt(
+  current: number | undefined,
+  remembered: number | undefined,
+  shouldStart: boolean,
+  now = Date.now(),
+): number | undefined {
+  const known = Number(remembered || current || 0);
+  return known || (shouldStart ? now : undefined);
+}
+
 export function mergeSearchMeta(previous: SearchMeta | undefined, incoming: Partial<SearchMeta>): SearchMeta {
   const previousMedia = previous?.media || [];
   const incomingMedia = Array.isArray(incoming.media) ? incoming.media : [];
@@ -359,6 +369,7 @@ class SSEChatClient {
                   type: 'search_status',
                   payload: {
                     id: streamId,
+                    toolName,
                     status: 'searching',
                     statusText: progressTextForTool(toolName, 'active'),
                     intent: ['image_generation_planning', 'propose_image'].includes(toolName) ? 'image' : '',
@@ -372,6 +383,7 @@ class SSEChatClient {
                   type: 'search_status',
                   payload: {
                     id: streamId,
+                    toolName: String(event.name || ''),
                     status: 'analyzing',
                     statusText: progressTextForTool(String(event.name || ''), 'complete'),
                   },
@@ -423,7 +435,12 @@ class SSEChatClient {
               case 'search_media':
                 this.emit({
                   type: 'search_status',
-                  payload: { id: streamId, status: 'arranging', statusText: translate('arrangingReviewedImages') },
+                  payload: {
+                    id: streamId,
+                    toolName: 'rich_search',
+                    status: 'arranging',
+                    statusText: translate('arrangingReviewedImages'),
+                  },
                 });
                 this.emit({
                   type: 'search_media',
@@ -562,6 +579,11 @@ export function useChatRuntime() {
   const clientsRef = useRef(new Map<string, { client: SSEChatClient; off: () => void }>());
   const cacheRef = useRef(new Map<string, ChatMessage[]>());
   const streamsRef = useRef(new Map<string, Map<string, ChatMessage>>());
+  // Search timing belongs to one live turn, not to whichever progress event
+  // happened to render last. Keep the bounds outside the message merge path
+  // so bootstrap/reconciliation cannot reset the visible stopwatch.
+  const searchStartedAtRef = useRef(new Map<string, number>());
+  const searchCompletedAtRef = useRef(new Map<string, number>());
   const activeConversationRef = useRef(conversationId);
   const conversationsRef = useRef(conversations);
   const pageOpenProactiveRefreshStartedRef = useRef(false);
@@ -601,6 +623,23 @@ export function useChatRuntime() {
       : item));
   };
 
+  const rememberSearchStart = (streamId: string, current: ChatMessage, shouldStart: boolean) => {
+    const known = resolveSearchStartAt(
+      current.searchStartedAt,
+      searchStartedAtRef.current.get(streamId),
+      shouldStart,
+    );
+    if (known) {
+      searchStartedAtRef.current.set(streamId, known);
+      return known;
+    }
+    return undefined;
+  };
+
+  const rememberedSearchCompletion = (streamId: string, current: ChatMessage) => (
+    searchCompletedAtRef.current.get(streamId) || Number(current.searchCompletedAt || 0) || undefined
+  );
+
   const ensureClient = (id: string) => {
     const existing = clientsRef.current.get(id);
     if (existing) return existing.client;
@@ -631,6 +670,8 @@ export function useChatRuntime() {
             skill: { intent: 'chat', mode: 'immediate', content: '', icon: '✨', action_label: '', params: {}, data: { status: 'thinking', statusText: translate('understandingRequest') } },
             progress: [initialPlanningProgress()],
           };
+          searchStartedAtRef.current.delete(streamMessage.id);
+          searchCompletedAtRef.current.delete(streamMessage.id);
           streams.set(streamMessage.id, streamMessage);
           const current = cached(id).filter((item) => item.id !== streamMessage.id && !item.failed);
           publish(id, [...current, streamMessage]);
@@ -639,14 +680,40 @@ export function useChatRuntime() {
         }
         case 'stream_delta': {
           const current = streams.get(streamId); const delta = String(event.payload.delta || '');
-          if (current && delta) { const next = { ...current, content: current.content + delta }; streams.set(streamId, next); patch(id, streamId, {}, delta); }
+          if (current && delta) {
+            const searchStartedAt = rememberSearchStart(streamId, current, false);
+            const searchCompletedAt = rememberedSearchCompletion(streamId, current);
+            const next = {
+              ...current,
+              content: current.content + delta,
+              ...(searchStartedAt ? { searchStartedAt } : {}),
+              ...(searchCompletedAt ? { searchCompletedAt } : {}),
+            };
+            streams.set(streamId, next);
+            patch(id, streamId, {
+              ...(searchStartedAt ? { searchStartedAt } : {}),
+              ...(searchCompletedAt ? { searchCompletedAt } : {}),
+            }, delta);
+          }
           break;
         }
         case 'stream_reset': {
           const current = streams.get(streamId);
           if (current) {
-            const next = { ...current, content: '' };
-            streams.set(streamId, next); patch(id, streamId, { content: '' });
+            const searchStartedAt = rememberSearchStart(streamId, current, false);
+            const searchCompletedAt = rememberedSearchCompletion(streamId, current);
+            const next = {
+              ...current,
+              content: '',
+              ...(searchStartedAt ? { searchStartedAt } : {}),
+              ...(searchCompletedAt ? { searchCompletedAt } : {}),
+            };
+            streams.set(streamId, next);
+            patch(id, streamId, {
+              content: '',
+              ...(searchStartedAt ? { searchStartedAt } : {}),
+              ...(searchCompletedAt ? { searchCompletedAt } : {}),
+            });
           }
           break;
         }
@@ -654,21 +721,31 @@ export function useChatRuntime() {
           const current = streams.get(streamId);
           if (current) {
             streams.delete(streamId);
-            if (current.failed) break;
+            if (current.failed) {
+              searchStartedAtRef.current.delete(streamId);
+              searchCompletedAtRef.current.delete(streamId);
+              break;
+            }
             if (!isDurableChatMessage(current)) {
               publish(id, cached(id).filter((item) => item.id !== streamId));
+              searchStartedAtRef.current.delete(streamId);
+              searchCompletedAtRef.current.delete(streamId);
               setConversationActivity(id, 'idle');
               break;
             }
+            const searchStartedAt = rememberSearchStart(streamId, current, false);
+            const searchCompletedAt = rememberedSearchCompletion(streamId, current)
+              || (searchStartedAt ? Date.now() : undefined);
             const complete = {
               ...current,
               content: current.content.trim() ? current.content : actionOnlyFallback(current.workspaceActions),
               streaming: false,
-              searchCompletedAt: current.searchStartedAt && !current.searchCompletedAt
-                ? Date.now()
-                : current.searchCompletedAt,
+              ...(searchStartedAt ? { searchStartedAt } : {}),
+              ...(searchCompletedAt ? { searchCompletedAt } : {}),
             };
             publish(id, reconcileCompletedMessage(cached(id), complete));
+            searchStartedAtRef.current.delete(streamId);
+            searchCompletedAtRef.current.delete(streamId);
             setConversationActivity(id, 'idle');
           }
           break;
@@ -676,17 +753,22 @@ export function useChatRuntime() {
         case 'answer_complete': {
           const current = streams.get(streamId);
           if (current) {
+            const searchStartedAt = rememberSearchStart(streamId, current, false);
+            const searchCompletedAt = searchStartedAt
+              ? rememberedSearchCompletion(streamId, current) || Date.now()
+              : undefined;
+            if (searchCompletedAt) searchCompletedAtRef.current.set(streamId, searchCompletedAt);
             const next = {
               ...current,
               streaming: false,
-              searchCompletedAt: current.searchStartedAt && !current.searchCompletedAt
-                ? Date.now()
-                : current.searchCompletedAt,
+              ...(searchStartedAt ? { searchStartedAt } : {}),
+              ...(searchCompletedAt ? { searchCompletedAt } : {}),
             };
             streams.set(streamId, next);
             patch(id, streamId, {
               streaming: false,
-              searchCompletedAt: next.searchCompletedAt,
+              ...(searchStartedAt ? { searchStartedAt } : {}),
+              ...(searchCompletedAt ? { searchCompletedAt } : {}),
             });
           }
           break;
@@ -705,20 +787,33 @@ export function useChatRuntime() {
         }
         case 'stop_requested': {
           streams.clear();
+          searchStartedAtRef.current.clear();
+          searchCompletedAtRef.current.clear();
           publish(id, settleStoppedMessages(cached(id)));
           setConversationActivity(id, 'idle');
           break;
         }
         case 'search_status': {
           const current = streams.get(streamId); if (!current) break;
-          const intent = event.payload.intent === 'image' || current.skill?.intent === 'image' ? 'image' : 'search';
+          const toolName = String(event.payload.toolName || '');
+          const isImage = event.payload.intent === 'image' || current.skill?.intent === 'image';
+          const isSearch = toolName === 'rich_search' || current.skill?.intent === 'search';
+          const intent = isImage ? 'image' : isSearch ? 'search' : 'chat';
           const skill = { intent, mode: 'immediate', content: '', icon: intent === 'image' ? '🎨' : '🔍', action_label: '', params: {}, data: { status: String(event.payload.status || 'searching'), statusText: String(event.payload.statusText || translate('processingInformation')) } } as ChatMessage['skill'];
-          const searchStartedAt = event.payload.intent === 'image' || current.skill?.intent === 'image'
-            ? current.searchStartedAt
-            : current.searchStartedAt || Date.now();
-          const next = { ...current, skill, searchStartedAt };
+          const searchStartedAt = rememberSearchStart(streamId, current, !isImage && isSearch);
+          const searchCompletedAt = rememberedSearchCompletion(streamId, current);
+          const next = {
+            ...current,
+            skill,
+            ...(searchStartedAt ? { searchStartedAt } : {}),
+            ...(searchCompletedAt ? { searchCompletedAt } : {}),
+          };
           streams.set(streamId, next);
-          patch(id, streamId, { skill, searchStartedAt });
+          patch(id, streamId, {
+            skill,
+            ...(searchStartedAt ? { searchStartedAt } : {}),
+            ...(searchCompletedAt ? { searchCompletedAt } : {}),
+          });
           break;
         }
         case 'progress_event': {
@@ -726,21 +821,42 @@ export function useChatRuntime() {
           const step = event.payload.step as StructuredProgressStep | undefined;
           if (!current || !step) break;
           const progress = mergeProgressStep(current.progress, step);
-          const searchStartedAt = step.activity === 'web_search'
-            ? current.searchStartedAt || Date.now()
-            : current.searchStartedAt;
-          const next = { ...current, progress, searchStartedAt };
+          const searchActivity = step.activity === 'web_search'
+            || step.activity === 'paper_search'
+            || step.activity === 'place_search';
+          const searchStartedAt = rememberSearchStart(streamId, current, searchActivity);
+          const searchCompletedAt = rememberedSearchCompletion(streamId, current);
+          const next = {
+            ...current,
+            progress,
+            ...(searchStartedAt ? { searchStartedAt } : {}),
+            ...(searchCompletedAt ? { searchCompletedAt } : {}),
+          };
           streams.set(streamId, next);
-          patch(id, streamId, { progress, searchStartedAt });
+          patch(id, streamId, {
+            progress,
+            ...(searchStartedAt ? { searchStartedAt } : {}),
+            ...(searchCompletedAt ? { searchCompletedAt } : {}),
+          });
           break;
         }
         case 'search_results': {
           const current = streams.get(streamId); const incoming = event.payload as unknown as Partial<SearchMeta>;
           if (current && Array.isArray(incoming.results)) {
             const searchResults = mergeSearchMeta(current.searchResults, incoming);
-            const searchStartedAt = current.searchStartedAt || Date.now();
-            streams.set(streamId, { ...current, searchResults, searchStartedAt });
-            patch(id, streamId, { searchResults, searchStartedAt });
+            const searchStartedAt = rememberSearchStart(streamId, current, true);
+            const searchCompletedAt = rememberedSearchCompletion(streamId, current);
+            streams.set(streamId, {
+              ...current,
+              searchResults,
+              ...(searchStartedAt ? { searchStartedAt } : {}),
+              ...(searchCompletedAt ? { searchCompletedAt } : {}),
+            });
+            patch(id, streamId, {
+              searchResults,
+              ...(searchStartedAt ? { searchStartedAt } : {}),
+              ...(searchCompletedAt ? { searchCompletedAt } : {}),
+            });
           }
           break;
         }
@@ -754,9 +870,19 @@ export function useChatRuntime() {
             vision_diagnostics: event.payload.vision_diagnostics as Record<string, number> | undefined,
             timings_ms: event.payload.timings_ms as Record<string, number> | undefined,
           } as Partial<SearchMeta>);
-          const searchStartedAt = current.searchStartedAt || Date.now();
-          streams.set(streamId, { ...current, searchResults, searchStartedAt });
-          patch(id, streamId, { searchResults, searchStartedAt });
+          const searchStartedAt = rememberSearchStart(streamId, current, true);
+          const searchCompletedAt = rememberedSearchCompletion(streamId, current);
+          streams.set(streamId, {
+            ...current,
+            searchResults,
+            ...(searchStartedAt ? { searchStartedAt } : {}),
+            ...(searchCompletedAt ? { searchCompletedAt } : {}),
+          });
+          patch(id, streamId, {
+            searchResults,
+            ...(searchStartedAt ? { searchStartedAt } : {}),
+            ...(searchCompletedAt ? { searchCompletedAt } : {}),
+          });
           break;
         }
         case 'paper_results': {
@@ -803,18 +929,32 @@ export function useChatRuntime() {
           const message = presentableChatError(event.payload.message);
           const current = streams.get(streamId);
           if (current) {
+            const searchStartedAt = rememberSearchStart(streamId, current, false);
+            const searchCompletedAt = searchStartedAt
+              ? rememberedSearchCompletion(streamId, current) || Date.now()
+              : undefined;
+            if (searchCompletedAt) searchCompletedAtRef.current.set(streamId, searchCompletedAt);
             const next = {
               ...current,
               content: message,
               streaming: false,
               failed: true,
+              ...(searchStartedAt ? { searchStartedAt } : {}),
+              ...(searchCompletedAt ? { searchCompletedAt } : {}),
               skill: current.skill ? {
                 ...current.skill,
                 data: { ...current.skill.data, status: 'error', statusText: translate('processingFailedStatus') },
               } : current.skill,
             };
             streams.set(streamId, next);
-            patch(id, streamId, { content: message, streaming: false, failed: true, skill: next.skill });
+            patch(id, streamId, {
+              content: message,
+              streaming: false,
+              failed: true,
+              skill: next.skill,
+              ...(searchStartedAt ? { searchStartedAt } : {}),
+              ...(searchCompletedAt ? { searchCompletedAt } : {}),
+            });
           }
           setConversationActivity(id, 'failed');
           if (activeConversationRef.current === id) MessagePlugin.error(translate('answerGenerationFailedToast'));

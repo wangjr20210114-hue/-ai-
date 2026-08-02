@@ -11,9 +11,10 @@ const source: SearchResultItem = {
 };
 
 describe('rich content references', () => {
-  it('strips citation markers from content', () => {
+  it('resolves known citation markers into safe source links', () => {
     const result = replaceCitationMarkers('结论。[[cite:source-1]] [[cite:source-9]]', [source]);
-    expect(result).toBe('结论。');
+    expect(result).toContain('[官方说明](https://example.com/source)');
+    expect(result).not.toContain('source-9');
   });
 
   it('copies answer prose while excluding source URLs and images', () => {

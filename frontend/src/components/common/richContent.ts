@@ -75,10 +75,15 @@ export function markdownToPlainText(content: string, sources: SearchResultItem[]
     .trim();
 }
 
-export function replaceCitationMarkers(content: string, _sources: SearchResultItem[]): string {
-  void _sources;
-  // Strip internal citation markers; user-facing links are rendered inline below.
-  let result = content.replace(/\[\[cite:(source-[a-zA-Z0-9_-]+)\]\]/g, '');
+export function replaceCitationMarkers(content: string, sources: SearchResultItem[]): string {
+  // Models may return the stable source id marker even when they omit the
+  // Markdown link requested by the public answer contract. Resolve known
+  // markers into the same compact link used for ordinary citations; unknown
+  // markers remain hidden instead of exposing an internal id.
+  let result = content.replace(/\[\[cite:(source-[a-zA-Z0-9_-]+)\]\]/g, (_match, sourceId: string) => {
+    const source = sources.find((item) => item.id === sourceId && isSafeRemoteUrl(item.url));
+    return source ? `[${source.title || sourceLabel(source.url, sources)}](${source.url})` : '';
+  });
   // Also strip any leaked [[xxx] yyy] patterns from search providers (e.g. [[wsa] title])
   result = result.replace(/\[\[[^\]]*\][^\]]*\]/g, '');
   return result.trim();
