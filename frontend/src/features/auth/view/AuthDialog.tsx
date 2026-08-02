@@ -16,10 +16,17 @@ import {
   CLOUDBASE_NETWORK_UNAVAILABLE,
 } from '../controller/authError';
 import { useAuthController } from '../controller/useAuthController';
+import { useAvatarUrl } from '../../../shared/auth/useAvatarUrl';
 
 export default function AuthDialog() {
   const auth = useAuthController();
   const { t } = useLanguage();
+  const accountAvatarUrl = useAvatarUrl(auth.session?.identity);
+  const recentAvatarUrl = useAvatarUrl(auth.recentAccount ? {
+    auth_type: 'cloudbase',
+    avatar_url: auth.recentAccount.avatarUrl,
+    subject_id: auth.recentAccount.subjectId,
+  } : null);
   if (!auth.visible) return null;
 
   const signedIn = Boolean(
@@ -87,7 +94,7 @@ export default function AuthDialog() {
               <div className="auth-account-card">
                 <label className="auth-avatar-editor">
                   <img
-                    src={auth.avatarPreview || auth.session?.identity.avatar_url || '/default-user-avatar-anime.png'}
+                    src={auth.avatarPreview || accountAvatarUrl}
                     alt=""
                     referrerPolicy="no-referrer"
                   />
@@ -177,7 +184,7 @@ export default function AuthDialog() {
               {auth.accountManagerOpen && <div className="auth-account-manager-content">
                 {auth.resumeAvailable && auth.recentAccount && <div className="auth-recent-account">
                   <img
-                    src={auth.recentAccount.avatarUrl || '/default-user-avatar-anime.png'}
+                    src={recentAvatarUrl}
                     alt=""
                     referrerPolicy="no-referrer"
                   />

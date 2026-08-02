@@ -17,6 +17,7 @@ import {
   openAuthDialog,
   type AuthSession,
 } from '../../services/auth';
+import { useAvatarUrl } from '../../shared/auth/useAvatarUrl';
 
 const THEME_KEY = 'travel-theme';
 
@@ -56,6 +57,7 @@ export default function Header({
   );
   const activeLine = displayLines[reminderIndex % Math.max(1, displayLines.length)];
   const authIsGuest = authSession?.identity.auth_type === 'guest';
+  const accountAvatarUrl = useAvatarUrl(authSession?.identity);
 
   useEffect(() => {
     setReminderIndex(0);
@@ -165,7 +167,7 @@ export default function Header({
             onClick={openAuthDialog}
           >
             <img
-              src={authSession.identity.avatar_url || '/default-user-avatar-anime.png'}
+              src={accountAvatarUrl}
               alt=""
               referrerPolicy="no-referrer"
             />

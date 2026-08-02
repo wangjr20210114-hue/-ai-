@@ -1,5 +1,6 @@
 import { ensureAuthSession, type AuthSession } from '../../../shared/auth/session';
 import { requestJson, requestRaw } from '../../../shared/transport/httpClient';
+import { cacheAvatarBlob } from '../../../shared/auth/avatarCache';
 
 interface AvatarUpload {
   url: string;
@@ -38,5 +39,7 @@ export async function updateAccountProfile(
       ...(avatarKey ? { avatar_key: avatarKey } : {}),
     }),
   });
-  return ensureAuthSession(true);
+  const session = await ensureAuthSession(true);
+  if (avatar) await cacheAvatarBlob(session.identity, avatar).catch(() => '');
+  return session;
 }

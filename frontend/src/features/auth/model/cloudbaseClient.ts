@@ -4,6 +4,7 @@ import {
   ensureAuthSession,
   type AuthSession,
 } from '../../../shared/auth/session';
+import { markOAuthLoginIntent } from './loginIntent';
 
 const environmentId = String(import.meta.env.VITE_CLOUDBASE_ENV_ID || '').trim();
 const region = String(import.meta.env.VITE_CLOUDBASE_REGION || 'ap-shanghai').trim();
@@ -161,5 +162,6 @@ export async function startGithubLogin(): Promise<void> {
   const data = resultData(result);
   const url = String(data.url || data.uri || data.redirectTo || '').trim();
   if (!url) throw new Error('CloudBase did not return a GitHub authorization URL');
+  markOAuthLoginIntent();
   window.location.assign(url);
 }

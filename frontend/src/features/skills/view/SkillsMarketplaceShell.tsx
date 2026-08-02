@@ -15,6 +15,7 @@ import type { MarketplaceView } from '../model';
 import { SkillCatalogView } from './SkillCatalogView';
 import { SkillImportView } from './SkillImportView';
 import { SkillReferenceView } from './SkillReferenceView';
+import { useAvatarUrl } from '../../../shared/auth/useAvatarUrl';
 
 export type SkillMarketplaceController = ReturnType<typeof useSkillMarketplaceController>;
 
@@ -57,6 +58,7 @@ export function SkillsMarketplaceShell({
       ? t('authSignedIn')
       : rawDisplayName || t('authSignedIn');
   const planLabel = t(PLAN_LABELS[accountPlan || 'guest'] || 'skillPlanGuest');
+  const accountAvatarUrl = useAvatarUrl(accountIdentity);
 
   return (
     <div className={`skills-page ${closing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label={t('skillsMarketplace')}>
@@ -79,7 +81,7 @@ export function SkillsMarketplaceShell({
         </div>
         <div className="skills-page-account" aria-label={`${displayName} · ${planLabel}`}>
           {accountIdentity?.avatar_url
-            ? <img src={accountIdentity.avatar_url} alt="" referrerPolicy="no-referrer" />
+            ? <img src={accountAvatarUrl} alt="" referrerPolicy="no-referrer" />
             : <span className="skills-page-account-avatar" aria-hidden="true">
               <UserCircleIcon />
             </span>}

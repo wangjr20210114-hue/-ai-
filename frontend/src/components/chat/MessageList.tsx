@@ -6,6 +6,7 @@ import { autoFollowAfterScroll, hasTextSelectionInside } from './scrollSelection
 import { useLanguage, type TranslationKey } from '../../i18n';
 import { assistantChainPositions } from './assistantMessageChain';
 import { useAuthSession } from '../../shared/auth/useAuthSession';
+import { useAvatarUrl } from '../../shared/auth/useAvatarUrl';
 
 const STARTERS: TranslationKey[] = [
   'starterAiNews',
@@ -34,6 +35,7 @@ export default function MessageList({ client }: Props) {
   const generationActive = messages.some((item) => item.streaming);
   const { t } = useLanguage();
   const authSession = useAuthSession();
+  const userAvatarUrl = useAvatarUrl(authSession?.identity);
   const dispatch = useAppDispatch();
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -168,7 +170,7 @@ export default function MessageList({ client }: Props) {
               generationActive={generationActive}
               conversationId={conversationId}
               proactive={proactive}
-              userAvatarUrl={authSession?.identity.avatar_url || '/default-user-avatar-anime.png'}
+              userAvatarUrl={userAvatarUrl}
               authIsGuest={authSession?.identity.auth_type === 'guest'}
             />
           );

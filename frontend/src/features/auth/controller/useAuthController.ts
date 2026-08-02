@@ -18,6 +18,10 @@ import {
 import { normalizeAuthError } from './authError';
 import { updateAccountProfile } from '../model/profileClient';
 import {
+  consumeAccountChooserRequest,
+  requestAccountChooserAfterReload,
+} from '../model/loginIntent';
+import {
   clearExpiredRecentAccount,
   readRecentAccount,
   rememberRecentAccount,
@@ -111,6 +115,12 @@ export function useAuthController() {
       window.removeEventListener(OPEN_AUTH_DIALOG_EVENT, open);
       window.removeEventListener('floris:auth-changed', changed);
     };
+  }, [open]);
+
+  useEffect(() => {
+    if (!consumeAccountChooserRequest()) return undefined;
+    const timer = window.setTimeout(open, 0);
+    return () => window.clearTimeout(timer);
   }, [open]);
 
   useEffect(() => {
@@ -220,6 +230,7 @@ export function useAuthController() {
       if (session?.identity.auth_type && session.identity.auth_type !== 'guest') {
         setRecentAccount(rememberRecentAccount(session.identity));
       }
+      requestAccountChooserAfterReload();
       const next = await logoutSession();
       setSession(next);
       setResumeAvailable(true);
