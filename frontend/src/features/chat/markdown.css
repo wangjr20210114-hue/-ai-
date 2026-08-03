@@ -50,7 +50,7 @@
   text-decoration: none;
 }
 
-/* 搜索来源只作为回答末尾的可选证据层。 */
+/* 搜索来源跟随它所支持的事实就地呈现。 */
 
 /* 搜索结果图片网格 */
 .msg-bubble.ai .markdown-body code {

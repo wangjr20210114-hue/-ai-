@@ -91,6 +91,7 @@ from agents._infrastructure.makers.data_version import CONVERSATION_PREFIX
 from agents._infrastructure.providers.rich_search import (
     _filter_for_target_date,
     _parse_pages,
+    _rank_source_results,
     _review_image,
     _vision_filter,
     _vision_review_timeout,

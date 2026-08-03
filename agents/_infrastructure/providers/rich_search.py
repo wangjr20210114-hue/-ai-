@@ -39,6 +39,48 @@ def _embedded_image_url(value: Any) -> str:
     return match.group(1).strip() if match else ""
 
 
+def _provider_page_images(page: dict[str, Any], snippet: str) -> list[dict[str, str]]:
+    """Normalize the native SearchPro ``images``/``pics`` response contract."""
+    raw_items: list[Any] = []
+    for field in ("pics", "images"):
+        value = page.get(field)
+        if isinstance(value, list):
+            raw_items.extend(value)
+        elif value:
+            raw_items.append(value)
+    for field in ("image", "image_url", "thumbnail"):
+        if page.get(field):
+            raw_items.append(page[field])
+    embedded = _embedded_image_url(snippet)
+    if embedded:
+        raw_items.append({"url": embedded, "caption": ""})
+
+    output: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for raw in raw_items:
+        if isinstance(raw, dict):
+            url = str(
+                raw.get("origin_url")
+                or raw.get("url")
+                or raw.get("image_url")
+                or raw.get("src")
+                or ""
+            ).strip()
+            caption = str(raw.get("caption") or raw.get("alt") or raw.get("title") or "").strip()
+        else:
+            url = str(raw or "").strip()
+            caption = ""
+        if url.startswith("http://"):
+            url = "https://" + url[len("http://"):]
+        if not url.startswith("https://") or url in seen:
+            continue
+        seen.add(url)
+        output.append({"url": url, "caption": caption[:240]})
+        if len(output) >= 10:
+            break
+    return output
+
+
 def _provider_image_candidates(results: list[dict[str, Any]]) -> list[dict[str, str]]:
     """Return only SearchPro-supplied article images, never page-scraped media.
 
@@ -49,24 +91,31 @@ def _provider_image_candidates(results: list[dict[str, Any]]) -> list[dict[str, 
     candidates: list[dict[str, str]] = []
     seen: set[str] = set()
     for result in results:
-        image = unescape(str(result.get("image") or "").strip())
-        if image.startswith("http://"):
-            image = "https://" + image[len("http://"):]
-        path = urllib.parse.urlparse(image).path.lower()
-        if (
-            not image.startswith("https://")
-            or path.endswith((".svg", ".gif", ".ico"))
-            or image in seen
-        ):
-            continue
-        seen.add(image)
-        candidates.append({
-            "url": image,
-            "alt": "",
-            "context": "搜索服务返回的文章主图",
-            "source_url": result["url"],
-            "source_title": result["title"],
-        })
+        provider_images = result.get("provider_images")
+        if not isinstance(provider_images, list):
+            provider_images = [{"url": result.get("image") or "", "caption": ""}]
+        for item in provider_images:
+            if not isinstance(item, dict):
+                continue
+            image = unescape(str(item.get("url") or "").strip())
+            caption = str(item.get("caption") or "").strip()
+            if image.startswith("http://"):
+                image = "https://" + image[len("http://"):]
+            path = urllib.parse.urlparse(image).path.lower()
+            if (
+                not image.startswith("https://")
+                or path.endswith((".svg", ".gif", ".ico"))
+                or image in seen
+            ):
+                continue
+            seen.add(image)
+            candidates.append({
+                "url": image,
+                "alt": caption,
+                "context": caption or "搜索服务返回的文章配图",
+                "source_url": result["url"],
+                "source_title": result["title"],
+            })
     return candidates
 
 
@@ -101,22 +150,104 @@ def _parse_pages(data: dict[str, Any], limit: int) -> list[dict[str, Any]]:
             host,
         ) else "wsa"
         snippet = str(page.get("passage") or page.get("snippet") or page.get("description") or "")
-        image = str(
-            page.get("image") or page.get("image_url") or page.get("thumbnail")
-            or _embedded_image_url(snippet)
-        ).strip()
-        if image.startswith("http://"):
-            image = "https://" + image[len("http://"):]
+        provider_images = _provider_page_images(page, snippet)
+        image = provider_images[0]["url"] if provider_images else ""
         results.append({
             "source": source_kind, "title": str(page.get("title") or page.get("name") or url)[:200],
             "snippet": snippet[:500],
             "url": url,
             "image": image,
+            "provider_images": provider_images,
             "date": str(page.get("date") or page.get("publish_time") or "")[:40],
         })
         if len(results) >= limit:
             break
     return results
+
+
+_AUTHORITATIVE_HOST_SUFFIXES = (
+    ".gov.cn",
+    ".edu.cn",
+    ".ac.cn",
+)
+_AUTHORITATIVE_TEXT_MARKERS = (
+    "官方网站",
+    "官网",
+    "博物院",
+    "博物馆",
+    "管理处",
+    "人民政府",
+    "公告",
+)
+_PROMOTIONAL_TEXT_MARKERS = (
+    "旅行社",
+    "导游",
+    "旅游景点联盟",
+    "攻略分享",
+    "性价比",
+    "跟团",
+    "报名",
+    "低价",
+    "优惠",
+    "私家团",
+    "定制游",
+    "包车",
+)
+
+
+def _query_match_terms(query: str) -> set[str]:
+    """Build lightweight relevance terms without assuming one topic or locale."""
+    normalized = re.sub(r"\s+", "", str(query or "").lower())
+    terms = {
+        token
+        for token in re.findall(r"[a-z0-9][a-z0-9._-]+", normalized)
+        if len(token) >= 2
+    }
+    for sequence in re.findall(r"[\u4e00-\u9fff]+", normalized):
+        if len(sequence) <= 6:
+            terms.add(sequence)
+        terms.update(sequence[index:index + 2] for index in range(len(sequence) - 1))
+    return terms
+
+
+def _source_quality_score(item: dict[str, Any], query: str) -> int:
+    """Prefer relevant primary/official pages and demote promotional results."""
+    title = str(item.get("title") or "")
+    snippet = str(item.get("snippet") or "")
+    searchable = f"{title}\n{snippet}".lower()
+    host = (urllib.parse.urlparse(str(item.get("url") or "")).hostname or "").lower()
+    score = 0
+    if any(host.endswith(suffix) for suffix in _AUTHORITATIVE_HOST_SUFFIXES):
+        score += 18
+    if host.endswith(".org.cn"):
+        score += 4
+    score += 5 * sum(marker in searchable for marker in _AUTHORITATIVE_TEXT_MARKERS)
+    score -= 12 * sum(marker in searchable for marker in _PROMOTIONAL_TEXT_MARKERS)
+    if "*" in title or "【" in title and "联盟" in title:
+        score -= 5
+    terms = _query_match_terms(query)
+    score += min(12, sum(term in searchable for term in terms))
+    return score
+
+
+def _rank_source_results(
+    results: list[dict[str, Any]], query: str,
+) -> list[dict[str, Any]]:
+    """Stable quality ordering: provider order remains the tie breaker."""
+    ranked = sorted(
+        enumerate(results),
+        key=lambda pair: (-_source_quality_score(pair[1], query), pair[0]),
+    )
+    return [item for _, item in ranked]
+
+
+def _with_source_quality_requirements(provider_query: str) -> str:
+    """Keep SearchPro's query lexical while requesting primary-source recall."""
+    if re.search(r"[\u4e00-\u9fff]", provider_query):
+        hint = " 官方 权威原始信息"
+    else:
+        hint = " official primary source"
+    return f"{provider_query[:500 - len(hint)]}{hint}"[:500]
 
 
 def _date_from_text(value: str, target_year: int | None = None) -> str:
@@ -550,11 +681,19 @@ async def rich_search(
     # concurrent and pixel review still happens below.
     if distinct_visual_query:
         provider_query += f"\n同时优先返回包含这些可视对象的结果：{image_query[:180]}"
+    provider_query = _with_source_quality_requirements(provider_query)
     data = await asyncio.wait_for(
         asyncio.to_thread(
             _json_request,
             f"{base_url}/SearchPro",
-            {"Query": provider_query[:500]},
+            {
+                "Query": provider_query,
+                # Standard SearchPro accepts the value and currently returns
+                # up to ten records. Asking for the supported ceiling gives
+                # the quality ranker enough candidates to surface primary
+                # sources without a second provider request.
+                "Cnt": 20,
+            },
             headers,
             provider_timeout,
         ),
@@ -562,15 +701,22 @@ async def rich_search(
     )
     visual_data = data
     searched_at = time.perf_counter()
-    results = _parse_pages(data, limit)
-    visual_results = results
-    date_filter = {"received": len(results), "kept": len(results), "undated": 0, "mismatched": 0}
+    candidate_limit = min(30, max(limit * 3, limit))
+    candidate_results = _parse_pages(data, candidate_limit)
+    date_filter = {
+        "received": len(candidate_results),
+        "kept": len(candidate_results),
+        "undated": 0,
+        "mismatched": 0,
+    }
     if strict_date and target_date:
-        results, date_filter = _filter_for_target_date(results, target_date)
+        candidate_results, date_filter = _filter_for_target_date(candidate_results, target_date)
         # Images are evidence-bearing search output too. Do not review or
         # expose media from an older/undated article after its source has been
         # removed by the same-day truth boundary.
-        visual_results = results
+    results = _rank_source_results(candidate_results, query)[:limit]
+    visual_results = results
+    date_filter["kept"] = len(results)
     sources = [{
         "id": f"source-{index}", "source": item["source"], "title": item["title"],
         "snippet": item["snippet"][:240], "url": item["url"], "date": item["date"],
@@ -717,9 +863,15 @@ async def rich_search(
 def evidence_for_model(
     metadata: dict[str, Any], *, require_relevant_image: bool = False,
 ) -> str:
+    media_source_ids = {
+        str(item.get("source_id") or "")
+        for item in metadata.get("media", [])
+        if item.get("source_id")
+    }
     sources = "\n".join(
         f"- {item.get('id') or 'source'} | 类型={item.get('source') or 'web'} | [{item['title']}]({item['url']})"
         f" | 发布日期={item.get('date') or '未标注'} | 摘要={item['snippet']}"
+        f" | 有可用图片={'是' if str(item.get('id') or '') in media_source_ids else '否'}"
         for item in metadata.get("results", [])
     )
     media = "\n".join(
@@ -755,6 +907,7 @@ def evidence_for_model(
         + f"可选网页/视频素材：\n{sources or '无'}\n\n"
         f"经视觉模型审核的可选图片素材：\n{media}\n{media_status}\n\n"
         f"这些只是事实素材，不是回答提纲。由你决定采用哪些事实以及以什么顺序呈现。{image_instruction}"
-        "若采用网页或视频，直接在相关段落使用上面给出的 Markdown 链接。"
+        "若采用网页或视频，必须直接在支持该事实的段落使用上面给出的精确 Markdown 链接；"
+        "只写来源标题或来源名称不算引用。图片有助理解时，在事实同样适用的前提下优先引用标记为有可用图片的来源。"
         "不要输出任何媒体占位符，不要自行输出图片 Markdown，不要使用未提供的图片 URL。"
     )

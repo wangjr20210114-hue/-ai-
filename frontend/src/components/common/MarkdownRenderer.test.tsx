@@ -49,13 +49,12 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('card.jpg');
   });
 
-  it('keeps verified sources visible when the model omits inline citations', () => {
+  it('does not present retrieved-but-unused results as answer citations', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer content={'这里是综合后的结论。'} searchMeta={searchMeta} />,
     );
-    expect(html).toContain('class="search-evidence-links"');
-    expect(html).toContain('href="https://news.example/ai"');
-    expect(html).toContain('>AI 新闻</a>');
+    expect(html).not.toContain('class="search-evidence-links"');
+    expect(html).not.toContain('href="https://news.example/ai"');
   });
 
   it('does not flash the full source directory before inline citations stream in', () => {

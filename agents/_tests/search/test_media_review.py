@@ -94,8 +94,28 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             "url": "https://news.example/item",
             "title": "大会新闻",
             "passage": "<p>正文</p><img src='http://qqpublic.qpic.cn/news.jpg' width='700'>",
+            "pics": [{
+                "caption": "大会现场",
+                "origin_url": "http://qqpublic.qpic.cn/provider-news.jpg",
+            }],
+        }, {
+            "url": "https://news.example/embedded",
+            "title": "摘要内图片",
+            "passage": "<p>正文</p><img src='http://qqpublic.qpic.cn/embedded.jpg'>",
         }]}}, 8)
-        self.assertEqual(pages[0]["image"], "https://qqpublic.qpic.cn/news.jpg")
+        self.assertEqual(pages[0]["image"], "https://qqpublic.qpic.cn/provider-news.jpg")
+        self.assertEqual(pages[0]["provider_images"][0]["caption"], "大会现场")
+        self.assertEqual(pages[1]["image"], "https://qqpublic.qpic.cn/embedded.jpg")
+        ranked = _rank_source_results([{
+            "url": "https://travel.example/guide",
+            "title": "北京故宫旅游攻略，性价比高的导游与预算",
+            "snippet": "旅行社报名优惠",
+        }, {
+            "url": "https://www.dpm.org.cn/visit.html",
+            "title": "故宫博物院参观信息",
+            "snippet": "开放时间、票务与参观路线公告",
+        }], "北京故宫有哪些值得玩的地方")
+        self.assertEqual(ranked[0]["url"], "https://www.dpm.org.cn/visit.html")
 
     def test_rich_search_handoff_keeps_media_out_of_model_authored_markdown(self):
         metadata = {
@@ -499,7 +519,7 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             "passage": "<p>报道</p><img src='http://img.example.com/hero.jpg'>",
         }
         with (
-            patch("agents._infrastructure.providers.rich_search._json_request", return_value={"Pages": [page]}),
+            patch("agents._infrastructure.providers.rich_search._json_request", return_value={"Pages": [page]}) as search_request,
             patch("agents._infrastructure.providers.rich_search.collect_page_media", new=AsyncMock(return_value=[])),
         ):
             result = await run_rich_search(
@@ -515,6 +535,9 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["media"][0]["source_bound_fallback"])
         self.assertEqual(result["vision_diagnostics"]["missing_api_key"], 1)
         self.assertEqual(result["vision_diagnostics"]["provider_fallback"], 1)
+        provider_query = search_request.call_args.args[1]["Query"]
+        self.assertIn("官方 权威原始信息", provider_query)
+        self.assertEqual(search_request.call_args.args[1]["Cnt"], 20)
 
     async def test_strict_today_filter_also_excludes_old_article_media(self):
         pages = [{

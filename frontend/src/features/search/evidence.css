@@ -94,30 +94,3 @@
 .msg-bubble.ai .markdown-body a.md-citation-link:hover {
   text-decoration-color: currentColor;
 }
-
-/* Evidence remains visible even when the answer model forgot to place an
- * inline Markdown citation. This is a compact row inside the answer bubble,
- * not a second source directory. */
-.msg-bubble.ai .markdown-body .search-evidence-links {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  margin-top: 10px;
-  padding-top: 7px;
-  border-top: 1px solid color-mix(in srgb, var(--app-border) 68%, transparent);
-  color: var(--app-text-3);
-  font-size: 12px;
-  line-height: 1.45;
-}
-.search-evidence-links-label {
-  flex: 0 0 auto;
-  font-weight: 600;
-}
-.msg-bubble.ai .markdown-body .search-evidence-links a.md-citation-link {
-  margin: 0;
-  max-width: min(360px, 100%);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
