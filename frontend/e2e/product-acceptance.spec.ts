@@ -75,7 +75,10 @@ test('one planned search streams an answer and binds reviewed media to its exact
   await expect(boundImage).toHaveAttribute('data-source-bound-media', 'media-search');
   await expect(answer.locator('.markdown-body')).toHaveAttribute('data-search-provider-calls', '1');
   await expect(answer.locator('.markdown-body')).toHaveAttribute('data-search-tool-invocations', '1');
-  await expect(answer.locator('.search-complete-meta')).toContainText('搜索 2.4 秒');
+  // The public stopwatch covers the actual request-to-answer interval. The
+  // mocked stream completes immediately, so it must not replace that duration
+  // with SearchPro's provider-only 2.4 second diagnostic.
+  await expect(answer.locator('.search-complete-meta')).toContainText('搜索 0.0 秒');
   expect(chatRequest?.headers['makers-conversation-id']).toBe('visual-baseline');
   expect(chatRequest?.body).not.toHaveProperty('tenant_id');
   expect(chatRequest?.body).not.toHaveProperty('user_id');
