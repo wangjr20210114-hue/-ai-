@@ -65,6 +65,8 @@ import com.floris.android.ui.components.PillStyle
 import com.floris.android.ui.components.SectionHeader
 import com.floris.android.ui.components.SettingRow
 import com.floris.android.ui.components.StatusChip
+import com.floris.android.ui.components.UserAvatar
+import com.floris.android.ui.components.pressable
 import com.floris.android.ui.onboarding.TourStepKey
 import com.floris.android.ui.onboarding.onboardingTarget
 import com.floris.android.ui.prefs.StringKey
@@ -87,6 +89,11 @@ private const val FEATURE_DOC_URL =
 class ProfileViewModel(
     private val repository: FlorisRepository,
     private val authManager: AuthManager,
+    /**
+     * 系统通知推送钩子。由界面层注入（需要 Context），
+     * 单测里传 null 即可完全绕开 Android 框架。
+     */
+    private val notifier: ((List<ProactiveNotification>) -> Unit)? = null,
 ) : ViewModel() {
 
     data class UiState(
@@ -172,8 +179,23 @@ class ProfileViewModel(
                 actionPrompt = obj.str("action_prompt"),
             )
         }
-        _state.update { it.copy(notifications = activeNotifications(parsed)) }
+        val active = activeNotifications(parsed)
+        _state.update { it.copy(notifications = active) }
+        pushToStatusBar(active)
     }
+
+    /**
+     * 把新出现的未读提醒推到系统通知栏（移动端独有）。
+     * 只推没推过的，避免每次刷新都重复轰炸。
+     */
+    private fun pushToStatusBar(items: List<ProactiveNotification>) {
+        val notifier = notifier ?: return
+        val fresh = items.filter { it.status == "unread" && notifiedIds.add(it.id) }
+        if (fresh.isNotEmpty()) notifier(fresh)
+    }
+
+    /** 已推送过通知的提醒 id，防重复。 */
+    private val notifiedIds = mutableSetOf<String>()
 
     fun consumeError() = _state.update { it.copy(error = null) }
 
@@ -197,6 +219,8 @@ fun ProfileScreen(
     onOpenSettings: () -> Unit,
     onOpenReading: () -> Unit,
     onOpenMap: () -> Unit,
+    /** 点头像进入个人信息（游客不跳转）。 */
+    onOpenAccount: () -> Unit = {},
     /** 点"去处理"：把后端给的话术带回聊天输入框。 */
     onHandleReminder: (String) -> Unit = {},
 ) {
@@ -258,6 +282,8 @@ fun ProfileScreen(
                                         ),
                                     ),
                                 )
+                                // 点头像进入个人信息；游客没有个人信息可看，不跳转。
+                                .pressable(enabled = !isGuest, scaleDown = 0.94f) { onOpenAccount() }
                                 .padding(2.dp),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -275,7 +301,10 @@ fun ProfileScreen(
                                         .clip(CircleShape)
                                         .background(MaterialTheme.colorScheme.surface),
                                     contentAlignment = Alignment.Center,
-                                ) { CatAvatar(size = 50.dp) }
+                                ) {
+                                    // 用户默认头像是木偶铃铛猫，橘猫只代表 Floris 自己。
+                                    UserAvatar(size = 58.dp)
+                                }
                             }
                         }
                         Spacer(Modifier.width(14.dp))

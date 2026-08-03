@@ -1,6 +1,10 @@
 package com.floris.android.ui.navigation
 
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -9,6 +13,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
@@ -32,7 +40,6 @@ import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.StarOutline
-import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -42,7 +49,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,8 +56,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -59,6 +69,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.floris.android.AppContainer
+import com.floris.android.R
+import com.floris.android.ui.account.AccountScreen
 import com.floris.android.ui.auth.LoginScreen
 import com.floris.android.ui.calendar.CalendarScreen
 import com.floris.android.ui.chat.ChatScreen
@@ -78,6 +90,7 @@ import com.floris.android.ui.prefs.t
 import com.floris.android.ui.profile.ProfileScreen
 import com.floris.android.ui.settings.SettingsScreen
 import com.floris.android.ui.skills.SkillsScreen
+import com.floris.android.ui.theme.LocalDarkTheme
 import kotlinx.coroutines.launch
 
 object Routes {
@@ -89,6 +102,8 @@ object Routes {
     const val HISTORY = "history"
     const val MAP = "map"
     const val SETTINGS = "settings"
+    /** 个人信息：昵称、头像、会员与新手教程入口，点头像进入。 */
+    const val ACCOUNT = "account"
 }
 
 private data class Tab(
@@ -151,70 +166,139 @@ private fun MainShell(container: AppContainer, navController: NavHostController)
     // 五个底部 Tab 共用 Activity 级 ViewModelStore：切页不销毁、不重复拉数据，
     // 回到旧页时数据与滚动位置立即就在，不再有"等一下界面才出来"。
     val tabOwner = LocalViewModelStoreOwner.current
+    val dark = LocalDarkTheme.current
 
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f)) {
-            NavHost(
-                navController = navController,
-                startDestination = Routes.CHAT,
-                // 底部 Tab 之间只做极短淡入：切换即时出现，不等动画放完。
-                enterTransition = { fadeIn(tween(90)) },
-                exitTransition = { fadeOut(tween(90)) },
-                popEnterTransition = { fadeIn(tween(90)) },
-                popExitTransition = { fadeOut(tween(90)) },
-            ) {
-                composable(Routes.CHAT) {
-                    ChatScreen(
-                        container = container,
-                        owner = tabOwner,
-                        onOpenHistory = { navController.navigate(Routes.HISTORY) },
-                        onOpenMap = { navController.navigate(Routes.MAP) },
-                    )
-                }
-                composable(Routes.SKILLS) { SkillsScreen(container = container, owner = tabOwner) }
-                composable(Routes.CALENDAR) { CalendarScreen(container = container, owner = tabOwner) }
-                composable(Routes.READING) { ReadingScreen(container = container, owner = tabOwner) }
-                composable(Routes.PROFILE) {
-                    ProfileScreen(
-                        container = container,
-                        owner = tabOwner,
-                        onOpenSettings = { navController.navigate(Routes.SETTINGS) },
-                        onOpenReading = { navController.switchTab(Routes.READING) },
-                        onOpenMap = { navController.navigate(Routes.MAP) },
-                        onHandleReminder = { prompt ->
-                            // 把后端给的处理话术带到聊天输入框，由用户自己决定是否发送。
-                            container.repository.pendingDraftFlow.value = prompt
-                            navController.switchTab(Routes.CHAT)
-                        },
-                    )
-                }
-                composable(Routes.HISTORY) {
-                    HistoryScreen(
-                        container = container,
-                        onBack = { navController.popBackStack() },
-                        onOpenConversation = {
-                            navController.navigate(Routes.CHAT) {
-                                popUpTo(Routes.CHAT) { inclusive = true }
-                            }
-                        },
-                    )
-                }
-                composable(Routes.MAP) {
-                    MapScreen(container = container, onBack = { navController.popBackStack() })
-                }
-                composable(Routes.SETTINGS) {
-                    SettingsScreen(container = container, onBack = { navController.popBackStack() })
+    // 背景铺在最外层：之前画在聊天页内部，Tab 栏与状态栏区域露白，
+    // 现在整屏（含底栏后面）都是同一张皮肤，滚动时也不会出现割裂。
+    Box(Modifier.fillMaxSize()) {
+        Image(
+            painter = painterResource(
+                if (dark) R.drawable.floris_chat_dark else R.drawable.floris_chat_light,
+            ),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(if (dark) Color(0xD1100C1D) else Color(0xD6FFFDF9)),
+        )
+
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f)) {
+                NavHost(
+                    navController = navController,
+                    startDestination = Routes.CHAT,
+                    // 底部 Tab 之间只做极短淡入：切换即时出现，不等动画放完。
+                    enterTransition = { tabEnter(this) },
+                    exitTransition = { tabExit(this) },
+                    popEnterTransition = { tabPopEnter(this) },
+                    popExitTransition = { tabPopExit(this) },
+                ) {
+                    composable(Routes.CHAT) {
+                        ChatScreen(
+                            container = container,
+                            owner = tabOwner,
+                            onOpenHistory = { navController.navigate(Routes.HISTORY) },
+                            onOpenMap = { navController.navigate(Routes.MAP) },
+                        )
+                    }
+                    composable(Routes.SKILLS) { SkillsScreen(container = container, owner = tabOwner) }
+                    composable(Routes.CALENDAR) { CalendarScreen(container = container, owner = tabOwner) }
+                    composable(Routes.READING) { ReadingScreen(container = container, owner = tabOwner) }
+                    composable(Routes.PROFILE) {
+                        ProfileScreen(
+                            container = container,
+                            owner = tabOwner,
+                            onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                            onOpenReading = { navController.switchTab(Routes.READING) },
+                            onOpenMap = { navController.navigate(Routes.MAP) },
+                            // 游客点头像不跳转，由 ProfileScreen 自己判断后再回调。
+                            onOpenAccount = { navController.navigate(Routes.ACCOUNT) },
+                            onHandleReminder = { prompt ->
+                                // 把后端给的处理话术带到聊天输入框，由用户自己决定是否发送。
+                                container.repository.pendingDraftFlow.value = prompt
+                                navController.switchTab(Routes.CHAT)
+                            },
+                        )
+                    }
+                    composable(Routes.ACCOUNT) {
+                        AccountScreen(
+                            container = container,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+                    composable(Routes.HISTORY) {
+                        HistoryScreen(
+                            container = container,
+                            onBack = { navController.popBackStack() },
+                            onOpenConversation = {
+                                navController.navigate(Routes.CHAT) {
+                                    popUpTo(Routes.CHAT) { inclusive = true }
+                                }
+                            },
+                        )
+                    }
+                    composable(Routes.MAP) {
+                        MapScreen(container = container, onBack = { navController.popBackStack() })
+                    }
+                    composable(Routes.SETTINGS) {
+                        SettingsScreen(container = container, onBack = { navController.popBackStack() })
+                    }
                 }
             }
-        }
-        if (showTabBar) {
-            FlorisTabBar(
-                currentRoute = currentRoute,
-                onSelect = { navController.switchTab(it) },
-            )
+            if (showTabBar) {
+                FlorisTabBar(
+                    currentRoute = currentRoute,
+                    onSelect = { navController.switchTab(it) },
+                )
+            }
         }
     }
 }
+
+/**
+ * 二级页面（历史 / 地图 / 设置 / 个人信息）的进出动画。
+ *
+ * 底部 Tab 之间只做 90ms 淡入，切换要"即时"；
+ * 二级页面则从右侧滑入、返回时滑回右侧，方向和手势直觉一致。
+ */
+private val SECONDARY_ROUTES = setOf(Routes.HISTORY, Routes.MAP, Routes.SETTINGS, Routes.ACCOUNT)
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.isSecondary(): Boolean =
+    targetState.destination.route in SECONDARY_ROUTES ||
+        initialState.destination.route in SECONDARY_ROUTES
+
+private fun tabEnter(scope: AnimatedContentTransitionScope<NavBackStackEntry>): EnterTransition =
+    if (scope.isSecondary()) {
+        slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(200))
+    } else {
+        fadeIn(tween(90))
+    }
+
+private fun tabExit(scope: AnimatedContentTransitionScope<NavBackStackEntry>): ExitTransition =
+    if (scope.isSecondary()) {
+        // 一级页轻微左移并淡出，形成层次感而不是硬切。
+        slideOutHorizontally(tween(280, easing = FastOutSlowInEasing)) { -it / 6 } + fadeOut(tween(220))
+    } else {
+        fadeOut(tween(90))
+    }
+
+private fun tabPopEnter(scope: AnimatedContentTransitionScope<NavBackStackEntry>): EnterTransition =
+    if (scope.isSecondary()) {
+        slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { -it / 6 } + fadeIn(tween(200))
+    } else {
+        fadeIn(tween(90))
+    }
+
+private fun tabPopExit(scope: AnimatedContentTransitionScope<NavBackStackEntry>): ExitTransition =
+    if (scope.isSecondary()) {
+        // 返回键：二级页顺着来的方向滑回右侧，自然收起。
+        slideOutHorizontally(tween(280, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(240))
+    } else {
+        fadeOut(tween(90))
+    }
 
 private fun NavHostController.switchTab(route: String) {
     navigate(route) {

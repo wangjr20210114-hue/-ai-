@@ -21,6 +21,8 @@ enum class StringKey {
     LoginOr, GuestSignInCta, GuestProfileNotice,
     // 回答操作
     CopyPlainText, CopiedToClipboard, SaveAsImage, Saving, SaveImageFailed,
+    // 个人信息
+    AccountTitle, AccountMembership, AccountHelp, AccountAboutDesc,
     // 底部导航
     TabChat, TabSkills, TabCalendar, TabReading, TabProfile,
     // 聊天
@@ -227,6 +229,23 @@ object Strings {
             "保存图片", "儲存圖片", "Save image", "存成图片喵", "保存图片",
         )
         put(StringKey.Saving, "保存中…", "儲存中…", "Saving…", "存着喵…", "保存中…")
+        put(
+            StringKey.AccountTitle,
+            "个人信息", "個人資訊", "Account", "我的资料喵", "个人信息",
+        )
+        put(
+            StringKey.AccountMembership,
+            "会员等级", "會員等級", "Membership", "会员等级", "会员等级",
+        )
+        put(
+            StringKey.AccountHelp,
+            "帮助与介绍", "說明與介紹", "Help & intro", "帮我看看喵", "帮助与介绍",
+        )
+        put(
+            StringKey.AccountAboutDesc,
+            "查看完整功能说明", "查看完整功能說明", "Read the full feature guide",
+            "看看我都会啥喵", "查看完整功能说明。",
+        )
         put(
             StringKey.SaveImageFailed,
             "保存失败，请稍后重试", "儲存失敗，請稍後重試", "Save failed, please retry",

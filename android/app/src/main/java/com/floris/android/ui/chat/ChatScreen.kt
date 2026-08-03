@@ -13,12 +13,14 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,15 +31,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AddCircleOutline
@@ -47,7 +48,9 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.outlined.AddCircle
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.NorthEast
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -62,6 +65,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,6 +75,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -101,17 +106,19 @@ import com.floris.android.ui.components.CatAvatar
 import com.floris.android.ui.components.ClarificationForm
 import com.floris.android.ui.components.FollowUpChips
 import com.floris.android.ui.components.IconPill
+import com.floris.android.ui.components.ImageCreationProgress
 import com.floris.android.ui.components.MarkdownText
 import com.floris.android.ui.components.MediaGrid
 import com.floris.android.ui.components.PaperListCard
 import com.floris.android.ui.components.PrimaryIconButton
 import com.floris.android.ui.components.QuotePill
-import com.floris.android.ui.components.ImageCreationProgress
 import com.floris.android.ui.components.SearchCompleteMeta
 import com.floris.android.ui.components.SearchProgress
 import com.floris.android.ui.components.SearchSourcesRow
 import com.floris.android.ui.components.StatusChip
 import com.floris.android.ui.components.WorkspaceActionCard
+import com.floris.android.ui.components.panelBorderColor
+import com.floris.android.ui.components.panelShadowColor
 import com.floris.android.ui.components.pressable
 import com.floris.android.ui.onboarding.TourStepKey
 import com.floris.android.ui.onboarding.onboardingTarget
@@ -165,9 +172,40 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(state.messages.size, state.messages.lastOrNull()?.content?.length) {
+    // ---- 流式跟随滚动 ----
+    // 旧实现每次内容变化都 animateScrollToItem，动画会和用户的手势抢夺
+    // 滚动权，表现为"滑不动"；而动画本身又跟不上出字速度，于是需要手动下滑。
+    // 现在改成：用户在底部附近时用 scrollBy 无动画贴住底部（不打断手势），
+    // 一旦用户主动向上翻阅就停止跟随，直到他自己滑回底部。
+    var followTail by remember { mutableStateOf(true) }
+    val atBottom by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
+            last.index >= info.totalItemsCount - 1 &&
+                last.offset + last.size <= info.viewportEndOffset + 96
+        }
+    }
+    // 用户上滑离开底部就交还控制权，滑回底部立刻恢复跟随。
+    LaunchedEffect(atBottom) { followTail = atBottom }
+
+    val lastMessage = state.messages.lastOrNull()
+    LaunchedEffect(lastMessage?.id, lastMessage?.content?.length, state.streaming) {
+        if (state.messages.isEmpty() || !followTail) return@LaunchedEffect
+        // 先定位到最后一条，再把它的底部推到视口底部。
+        // scrollToItem/scrollBy 都是即时的，不会与拖拽手势抢夺滚动权。
+        listState.scrollToItem(state.messages.lastIndex)
+        val info = listState.layoutInfo
+        info.visibleItemsInfo.lastOrNull()?.let { item ->
+            val overflow = item.offset + item.size - info.viewportEndOffset
+            if (overflow > 0) listState.scrollBy(overflow.toFloat())
+        }
+    }
+    // 新消息（自己发出的那条）始终滚到底，无论此前是否在翻阅历史。
+    LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) {
-            listState.animateScrollToItem(state.messages.size - 1)
+            followTail = true
+            listState.scrollToItem(state.messages.lastIndex)
         }
     }
     LaunchedEffect(state.transientError) {
@@ -210,22 +248,8 @@ fun ChatScreen(
 
     val dark = LocalDarkTheme.current
 
+    // 背景已由 MainShell 铺满整屏（含底栏区域），这里不再重复绘制。
     Box(Modifier.fillMaxSize()) {
-        // 网页端同款橘猫皮肤 + 暖色柔光遮罩
-        Image(
-            painter = painterResource(
-                if (dark) R.drawable.floris_chat_dark else R.drawable.floris_chat_light,
-            ),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(if (dark) Color(0xD1100C1D) else Color(0xD6FFFDF9)),
-        )
-
         Scaffold(
             containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(snackbar) },
@@ -243,6 +267,9 @@ fun ChatScreen(
                 ChatTopBar(
                     onNewChat = viewModel::newConversation,
                     onOpenHistory = onOpenHistory,
+                    onToggleTheme = {
+                        scope.launch { container.preferences.toggleTheme(dark) }
+                    },
                 )
 
                 Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -322,7 +349,12 @@ fun ChatScreen(
 }
 
 @Composable
-private fun ChatTopBar(onNewChat: () -> Unit, onOpenHistory: () -> Unit) {
+private fun ChatTopBar(
+    onNewChat: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onToggleTheme: () -> Unit,
+) {
+    val dark = LocalDarkTheme.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -345,6 +377,14 @@ private fun ChatTopBar(onNewChat: () -> Unit, onOpenHistory: () -> Unit) {
                 maxLines = 1,
             )
         }
+        // 白天 / 黑夜切换：网页端在顶栏，之前 Android 只藏在设置里，
+        // 导致新手引导那一步指不到任何控件。
+        IconPill(
+            icon = if (dark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+            contentDescription = t(StringKey.SettingsTheme),
+            onClick = onToggleTheme,
+            modifier = Modifier.onboardingTarget(TourStepKey.THEME),
+        )
         IconPill(
             icon = Icons.Default.History,
             contentDescription = t(StringKey.ChatHistory),
@@ -408,11 +448,16 @@ private fun ChatEmptyState(modifier: Modifier, onSuggestion: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             suggestions.forEach { suggestion ->
+                val pillShape = RoundedCornerShape(999.dp)
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
+                        // 白底压在浅色背景图上几乎看不出边界，
+                        // 补上描边与投影（对齐网页端 --app-border / --app-shadow）。
+                        .shadow(4.dp, pillShape, ambientColor = panelShadowColor(), spotColor = panelShadowColor())
+                        .clip(pillShape)
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(1.dp, panelBorderColor(), pillShape)
                         .pressable(scaleDown = 0.98f) { onSuggestion(suggestion) }
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -484,18 +529,16 @@ private fun AssistantRow(
         CatAvatar(size = 28.dp)
         Spacer(Modifier.width(9.dp))
         Column(Modifier.weight(1f)) {
-            // 回答框：柔和底衬 + 细描边，让每一轮回答有清晰边界。
+            // 回答框：柔和底衬 + 描边 + 投影，让每一轮回答有清晰边界。
             // 用 graphicsLayer 录制这块内容，"保存图片"即导出它。
+            val answerShape = RoundedCornerShape(16.dp)
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
-                    .border(
-                        1.dp,
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f),
-                        RoundedCornerShape(16.dp),
-                    )
+                    .shadow(6.dp, answerShape, ambientColor = panelShadowColor(), spotColor = panelShadowColor())
+                    .clip(answerShape)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, panelBorderColor(), answerShape)
                     .drawWithContent {
                         graphicsLayer.record { this@drawWithContent.drawContent() }
                         drawLayer(graphicsLayer)
@@ -657,8 +700,8 @@ private fun InputBar(
     Column(
         Modifier
             .fillMaxWidth()
-            // 贴到底部 Tab 栏：只留 4dp 呼吸，不再有多余留白。
-            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 0.dp),
+            // 与 Tab 栏留 6dp 呼吸：0 会和底栏挤在一起看着像重叠。
+            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 6.dp),
     ) {
         AnimatedVisibility(visible = imageCount > 0, enter = fadeIn(), exit = fadeOut()) {
             Row(
@@ -675,11 +718,15 @@ private fun InputBar(
                 )
             }
         }
+        val inputShape = RoundedCornerShape(24.dp)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
+                // 描边 + 投影：纯色底衬压在背景图上分不清边界（对齐网页端 composer）。
+                .shadow(8.dp, inputShape, ambientColor = panelShadowColor(), spotColor = panelShadowColor())
+                .clip(inputShape)
                 .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, panelBorderColor(), inputShape)
                 .onboardingTarget(TourStepKey.INPUT)
                 .padding(4.dp),
             verticalAlignment = Alignment.Bottom,

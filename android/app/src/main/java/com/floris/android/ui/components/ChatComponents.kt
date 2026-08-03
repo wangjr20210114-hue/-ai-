@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,7 +28,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.outlined.NorthEast
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.NorthEast
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -55,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
@@ -730,12 +732,15 @@ fun FollowUpChips(items: List<String>, onClick: (String) -> Unit, modifier: Modi
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items.take(4).forEach { item ->
+            val chipShape = RoundedCornerShape(999.dp)
             Box(
                 Modifier
                     // 单条最宽不超过容器的八成，避免过长文字把整行挤爆。
                     .widthIn(max = 280.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                    .shadow(4.dp, chipShape, ambientColor = panelShadowColor(), spotColor = panelShadowColor())
+                    .clip(chipShape)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, panelBorderColor(), chipShape)
                     .pressable { onClick(item) }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             ) {

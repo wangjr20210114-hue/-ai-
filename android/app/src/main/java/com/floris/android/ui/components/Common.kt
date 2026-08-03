@@ -19,6 +19,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -54,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -67,6 +69,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.floris.android.R
+import com.floris.android.ui.theme.LocalDarkTheme
 import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.t
 import com.floris.android.ui.theme.orbBrush
@@ -368,6 +371,10 @@ fun Stepper(
 
 // ---------- Surfaces ----------
 
+/**
+ * 卡片容器。对齐网页端 --app-panel + --app-border + --app-shadow：
+ * 纯色底衬在背景图上会"糊"成一片，所以必须同时有描边和投影才能分层。
+ */
 @Composable
 fun FlorisCard(
     modifier: Modifier = Modifier,
@@ -376,15 +383,33 @@ fun FlorisCard(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val shape = RoundedCornerShape(corner)
     val base = modifier
-        .clip(RoundedCornerShape(corner))
+        .shadow(
+            elevation = 6.dp,
+            shape = shape,
+            ambientColor = panelShadowColor(),
+            spotColor = panelShadowColor(),
+        )
+        .clip(shape)
         .background(containerColor)
+        .border(1.dp, panelBorderColor(), shape)
         .fillMaxWidth()
     Column(
         modifier = if (onClick != null) base.pressable(scaleDown = 0.985f, onClick = onClick) else base,
         content = content,
     )
 }
+
+/** 对齐网页端 --app-border：浅色是暖棕透明，深色是淡紫透明。 */
+@Composable
+fun panelBorderColor(): Color =
+    if (LocalDarkTheme.current) Color(0x1AD6C4FF) else Color(0x1A754322)
+
+/** 对齐网页端 --app-shadow 的投影色调。 */
+@Composable
+fun panelShadowColor(): Color =
+    if (LocalDarkTheme.current) Color(0x66050208) else Color(0x1F6F3B1C)
 
 /**
  * 游客提示条：柔和底衬 + 图标 + 文案（可选行动按钮）。
@@ -510,7 +535,7 @@ fun EmptyState(
 
 // ---------- Brand ----------
 
-/** 橘猫头像（网页端同款）。 */
+/** 橘猫头像（网页端同款）——只代表 Floris 自己。 */
 @Composable
 fun CatAvatar(size: Dp, modifier: Modifier = Modifier) {
     Image(
@@ -519,6 +544,21 @@ fun CatAvatar(size: Dp, modifier: Modifier = Modifier) {
         modifier = modifier
             .size(size)
             .clip(RoundedCornerShape(size * 0.3f)),
+    )
+}
+
+/**
+ * 用户头像。与网页端一致：没有自定义头像时用木偶铃铛猫
+ * （default-user-avatar-anime.png），绝不复用 Floris 自己的橘猫。
+ */
+@Composable
+fun UserAvatar(size: Dp, modifier: Modifier = Modifier) {
+    Image(
+        painter = painterResource(R.drawable.default_user_avatar),
+        contentDescription = "我",
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape),
     )
 }
 

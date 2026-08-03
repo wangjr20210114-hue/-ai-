@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  通知栏小图标。系统只取 alpha 通道并统一染色，
+  所以这里必须是纯白单色剪影，不能带渐变或多色。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <!-- 猫脸轮廓 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,6.2c-3.2,0 -5.8,2.4 -5.8,5.4c0,3 2.6,5.4 5.8,5.4s5.8,-2.4 5.8,-5.4C17.8,8.6 15.2,6.2 12,6.2zM9.6,11.1c0,-0.5 0.4,-0.9 0.9,-0.9s0.9,0.4 0.9,0.9s-0.4,0.9 -0.9,0.9S9.6,11.6 9.6,11.1zM12,15.1c-1,0 -1.9,-0.5 -2.4,-1.3h4.8C13.9,14.6 13,15.1 12,15.1zM13.5,12c-0.5,0 -0.9,-0.4 -0.9,-0.9s0.4,-0.9 0.9,-0.9s0.9,0.4 0.9,0.9S14,12 13.5,12z" />
+    <!-- 左耳 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M7.3,5.1L6.4,8.4c0.6,-0.7 1.4,-1.2 2.3,-1.6L7.3,5.1z" />
+    <!-- 右耳 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M16.7,5.1l-1.4,1.7c0.9,0.4 1.7,0.9 2.3,1.6L16.7,5.1z" />
+</vector>

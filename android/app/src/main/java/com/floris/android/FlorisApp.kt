@@ -25,6 +25,9 @@ class FlorisApp : Application() {
 /** Manual DI container — single owner of network, auth and repositories. */
 class AppContainer(private val context: Context) {
 
+    /** 供需要 Context 的边缘能力使用（通知栏、相册写入）。 */
+    val appContext: Context get() = context.applicationContext
+
     val json: Json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false

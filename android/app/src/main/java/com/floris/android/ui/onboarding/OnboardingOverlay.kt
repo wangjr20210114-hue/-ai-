@@ -64,7 +64,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -76,9 +75,6 @@ import com.floris.android.ui.components.pressable
 import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.t
 import kotlin.math.max
-
-private const val FEATURE_DOC_URL =
-    "https://github.com/wangjr20210114-hue/-ai-/blob/main/README.md"
 
 /** 漫游步骤要落在哪个页面上（客户端会自动切换过去）。 */
 enum class TourTarget { CHAT, SKILLS, CALENDAR, READING, PROFILE }
@@ -137,13 +133,15 @@ private val steps = listOf(
         StringKey.OnboardingSettings, Icons.Default.Settings, TourTarget.PROFILE,
         "设置", listOf(TourStepKey.SETTINGS),
     ),
+    // 主题切换回到聊天页顶栏：那里才是真实存在的按钮。
     TourStep(
-        StringKey.OnboardingTheme, Icons.Default.WbSunny, TourTarget.PROFILE,
-        "白天 / 黑夜", listOf(TourStepKey.THEME, TourStepKey.SETTINGS),
+        StringKey.OnboardingTheme, Icons.Default.WbSunny, TourTarget.CHAT,
+        "白天 / 黑夜", listOf(TourStepKey.THEME),
     ),
+    // 收尾：告诉用户去哪看文档，但不自动打开浏览器。
     TourStep(
-        StringKey.OnboardingGithub, Icons.Default.Info, TourTarget.PROFILE,
-        "功能文档", listOf(TourStepKey.GITHUB),
+        StringKey.OnboardingGithub, Icons.Default.Info, TourTarget.CHAT,
+        "功能文档", listOf(TourStepKey.THEME),
     ),
 )
 
@@ -161,7 +159,6 @@ fun OnboardingOverlay(
 ) {
     var phase by remember { mutableStateOf(Phase.WELCOME) }
     var index by remember { mutableIntStateOf(0) }
-    val uriHandler = LocalUriHandler.current
     val targets = LocalOnboardingTargets.current
     val step = steps[index]
 
@@ -194,7 +191,6 @@ fun OnboardingOverlay(
                 spotlight = spotlight,
                 onNext = { if (index == steps.lastIndex) onFinish() else index++ },
                 onSkip = onFinish,
-                onOpenDoc = { runCatching { uriHandler.openUri(FEATURE_DOC_URL) } },
             )
 
             Phase.SKIP_HINT -> HintCard(
@@ -269,7 +265,6 @@ private fun TourCallout(
     spotlight: Rect?,
     onNext: () -> Unit,
     onSkip: () -> Unit,
-    onOpenDoc: () -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
@@ -296,7 +291,6 @@ private fun TourCallout(
                 .padding(top = topOffset),
             onNext = onNext,
             onSkip = onSkip,
-            onOpenDoc = onOpenDoc,
         )
     }
 }
@@ -359,7 +353,6 @@ private fun TourCard(
     modifier: Modifier,
     onNext: () -> Unit,
     onSkip: () -> Unit,
-    onOpenDoc: () -> Unit,
 ) {
     val isLast = index == total - 1
     Column(
@@ -446,10 +439,9 @@ private fun TourCard(
             }
             PillButton(
                 text = if (isLast) t(StringKey.OnboardingFinish) else t(StringKey.OnboardingNext),
-                onClick = {
-                    if (isLast) onOpenDoc()
-                    onNext()
-                },
+                // 完成即结束，不再自动跳转 GitHub —— 想看文档可以去
+                // 个人信息页的"关于"自己点。
+                onClick = onNext,
                 compact = true,
             )
         }

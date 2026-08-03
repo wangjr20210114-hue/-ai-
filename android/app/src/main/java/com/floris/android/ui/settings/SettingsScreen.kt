@@ -174,48 +174,11 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
     val imageCandidates by viewModel.preferences.imageCandidates.collectAsState()
 
     val snackbar = remember { SnackbarHostState() }
-    var editingName by remember { mutableStateOf(false) }
-    var nameDraft by remember { mutableStateOf("") }
     var confirmReset by remember { mutableStateOf(false) }
     var languageSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.message) {
         state.message?.let { snackbar.showSnackbar(it); viewModel.consumeMessage() }
-    }
-
-    if (editingName) {
-        AlertDialog(
-            onDismissRequest = { editingName = false },
-            title = { Text(t(StringKey.SettingsNickname)) },
-            text = {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                ) {
-                    BasicTextField(
-                        value = nameDraft,
-                        onValueChange = { nameDraft = it },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodySmall.copy(
-                            color = MaterialTheme.colorScheme.onSurface,
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { viewModel.updateDisplayName(nameDraft); editingName = false }) {
-                    Text(t(StringKey.Confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { editingName = false }) { Text(t(StringKey.Cancel)) }
-            },
-        )
     }
 
     if (confirmReset) {
@@ -364,28 +327,6 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
                         },
                     )
                 }
-                item {
-                    SettingRow(
-                        title = t(StringKey.SettingsReplayTour),
-                        subtitle = t(StringKey.SettingsReplayTourDesc),
-                        icon = Icons.Default.AutoAwesome,
-                        onClick = {
-                            viewModel.replayOnboarding()
-                            onBack()
-                        },
-                    )
-                }
-
-                // 账号
-                item { SectionHeader(t(StringKey.ProfileAccount)) }
-                item {
-                    SettingRow(
-                        title = t(StringKey.SettingsNickname),
-                        subtitle = state.displayName.ifBlank { t(StringKey.SettingsNotSet) },
-                        icon = Icons.Default.Badge,
-                        onClick = { nameDraft = state.displayName; editingName = true },
-                    )
-                }
 
                 // 用量
                 item { SectionHeader(t(StringKey.SettingsUsage)) }
@@ -435,15 +376,6 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
                             )
                         }
                     }
-                }
-
-                item {
-                    Text(
-                        "Floris Android 1.0.0 · 契约 v1 · floris-dev.jlutx.com",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 20.dp, start = 4.dp),
-                    )
                 }
             }
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))

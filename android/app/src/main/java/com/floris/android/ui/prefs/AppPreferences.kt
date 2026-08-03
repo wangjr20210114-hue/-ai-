@@ -60,6 +60,14 @@ class AppPreferences(private val context: Context, scope: CoroutineScope) {
         context.uiDataStore.edit { it[Keys.THEME] = mode.name }
     }
 
+    /**
+     * 顶栏一键切换白天 / 黑夜。传入当前是否深色（可能来自系统），
+     * 切换后固定为显式的 LIGHT / DARK，不再跟随系统。
+     */
+    suspend fun toggleTheme(currentlyDark: Boolean) {
+        setTheme(if (currentlyDark) ThemeMode.LIGHT else ThemeMode.DARK)
+    }
+
     suspend fun setLanguage(language: Language) {
         _language.value = language
         context.uiDataStore.edit { it[Keys.LANGUAGE] = language.tag }

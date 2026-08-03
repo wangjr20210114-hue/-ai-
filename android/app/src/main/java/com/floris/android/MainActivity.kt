@@ -1,11 +1,15 @@
 package com.floris.android
 
+import android.Manifest
+import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
@@ -20,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.lifecycleScope
 import com.floris.android.core.auth.AuthState
+import com.floris.android.core.notify.ProactiveNotifier
 import com.floris.android.ui.navigation.FlorisNavHost
 import com.floris.android.ui.prefs.LocalLanguage
 import com.floris.android.ui.prefs.StringKey
@@ -30,11 +35,27 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* 用户拒绝也不影响主流程，提醒仍会在"我的"页内展示 */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as FlorisApp
         lifecycleScope.launch { app.container.authManager.restore() }
+
+        // 主动提醒要走系统通知栏，先建好渠道并按需申请权限。
+        ProactiveNotifier.ensureChannel(this)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            !ProactiveNotifier.hasPermission(this)
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        // 从通知点进来时，把后端给的处理话术填进聊天输入框。
+        consumeNotificationIntent(app, intent)
+
         setContent {
             val themeMode by app.container.preferences.theme.collectAsState()
             val language by app.container.preferences.language.collectAsState()
@@ -58,6 +79,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeNotificationIntent(application as FlorisApp, intent)
+    }
+
+    private fun consumeNotificationIntent(app: FlorisApp, intent: Intent?) {
+        val prompt = intent?.getStringExtra(ProactiveNotifier.EXTRA_ACTION_PROMPT)
+            ?: return
+        if (prompt.isBlank()) return
+        app.container.repository.pendingDraftFlow.value = prompt
+        // 只消费一次，避免旋转屏幕后重复填充。
+        intent.removeExtra(ProactiveNotifier.EXTRA_ACTION_PROMPT)
     }
 }
 
