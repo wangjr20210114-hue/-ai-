@@ -34,20 +34,27 @@ export function ProgressRenderer({ message }: { message: ChatMessage }) {
   const providerSearchDurationMs = Number(message.searchResults?.timings_ms?.search || 0);
   const sourceCount = message.searchResults?.results?.length || 0;
   const [now, setNow] = useState(() => Date.now());
+  const turnStartedAt = Number(message.turnStartedAt || 0);
   const searchStartedAt = Number(message.searchStartedAt || 0);
   const searchCompletedAt = Number(message.searchCompletedAt || 0);
   const searchDurationMs = searchStartedAt
     ? Math.max(0, (searchCompletedAt || now) - searchStartedAt)
     : providerSearchDurationMs;
   const searchInProgress = Boolean(message.streaming && searchStartedAt && !searchCompletedAt);
+  const turnInProgress = Boolean(message.streaming && turnStartedAt && !searchStartedAt);
   useEffect(() => {
-    if (!searchInProgress) return undefined;
+    if (!searchInProgress && !turnInProgress) return undefined;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [searchInProgress]);
+  }, [searchInProgress, turnInProgress]);
   const searchTiming = searchStartedAt || providerSearchDurationMs
     ? t('searchCompletedIn', { seconds: (searchDurationMs / 1000).toFixed(1) })
     : '';
+  const liveTiming = searchInProgress
+    ? t('searchingForSeconds', { seconds: Math.max(1, Math.round(searchDurationMs / 1000)) })
+    : turnInProgress
+      ? t('workingForSeconds', { seconds: Math.max(1, Math.round((now - turnStartedAt) / 1000)) })
+      : searchTiming;
 
   if (!message.streaming) {
     return (searchStartedAt || providerSearchDurationMs) ? <div className="search-complete-meta">
@@ -83,11 +90,7 @@ export function ProgressRenderer({ message }: { message: ChatMessage }) {
     <div className={`search-progress ${message.content ? 'has-content' : ''}`}>
       <div className="image-generating-spinner" />
       <span className="search-progress-status" title={progressStatus}>{progressStatus}</span>
-      {searchTiming && <span className="search-progress-time">
-        {searchInProgress
-          ? t('searchingForSeconds', { seconds: Math.max(1, Math.round(searchDurationMs / 1000)) })
-          : searchTiming}
-      </span>}
+      {liveTiming && <span className="search-progress-time">{liveTiming}</span>}
       <span className="image-generating-dots"><span>.</span><span>.</span><span>.</span></span>
     </div>
     {!message.content && visibleProgress.length > 0 && (

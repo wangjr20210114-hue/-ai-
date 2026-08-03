@@ -1,7 +1,70 @@
 from agents._tests.support.workspace_environment import *  # noqa: F401,F403
+from agents.chat._graph import TOOL_FAILURE_MESSAGE
+from agents._infrastructure.providers.rich_search import _json_request
 
 
 class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
+    def test_provider_json_transport_uses_direct_https_connection(self):
+        calls = []
+
+        class Response:
+            status = 200
+            reason = "OK"
+            headers = {}
+
+            @staticmethod
+            def read(_limit):
+                return b'{"Response":{"Pages":[]}}'
+
+        class Connection:
+            def request(self, method, target, *, body, headers):
+                calls.append((method, target, json.loads(body), headers))
+
+            @staticmethod
+            def getresponse():
+                return Response()
+
+            @staticmethod
+            def close():
+                return None
+
+        with patch(
+            "agents._infrastructure.providers.rich_search.http.client.HTTPSConnection",
+            return_value=Connection(),
+        ) as connection_type:
+            result = _json_request(
+                "https://api.wsa.cloud.tencent.com/SearchPro",
+                {"Query": "最近 AI 有什么新进展"},
+                {"Authorization": "Bearer test"},
+                10,
+            )
+
+        connection_type.assert_called_once_with(
+            "api.wsa.cloud.tencent.com",
+            port=None,
+            timeout=10,
+        )
+        self.assertEqual(result, {"Response": {"Pages": []}})
+        self.assertEqual(calls[0][0:2], ("POST", "/SearchPro"))
+        self.assertEqual(calls[0][2], {"Query": "最近 AI 有什么新进展"})
+
+    def test_rich_search_failure_never_claims_a_confirmation_card(self):
+        content = tool_failure_fallback([
+            HumanMessage(content="最近 AI 有什么新进展"),
+            ToolMessage(
+                content=json.dumps({"tool_error": {
+                    "kind": "runtime",
+                    "detail": TOOL_FAILURE_MESSAGE,
+                    "retry_same_call": False,
+                }}, ensure_ascii=False),
+                name="rich_search",
+                tool_call_id="rich-search-failed",
+            ),
+        ])
+        self.assertIn("实时搜索这次没有完成", content)
+        self.assertNotIn("确认卡", content)
+        self.assertNotIn("工具", content)
+
     async def test_message_restore_keeps_rich_search_metadata(self):
         metadata = {"total": 1, "results": [{"title": "故宫", "url": "https://example.com"}], "media": []}
         messages = [
@@ -189,7 +252,9 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["total"], 0)
         self.assertIn("timings_ms", result)
         self.assertEqual(provider.call_count, 1)
-        self.assertIn("visual query", provider.call_args.args[1]["Query"])
+        payload = provider.call_args.args[1]
+        self.assertIn("visual query", payload["Query"])
+        self.assertEqual(set(payload), {"Query"})
         self.assertEqual(result["search_config"]["provider_request_count"], 1)
         self.assertTrue(result["search_config"]["visual_query_merged"])
         self.assertTrue(result["search_config"]["parallel_image_search"])

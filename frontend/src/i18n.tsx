@@ -1042,6 +1042,7 @@ const catalog = {
   writingReviewing: ['图片也快好了', '圖片也快好了', 'Images are almost ready', '图片也快好了喵', '图片即将完成'],
   organizingVerifiedAnswer: ['马上整理好', '馬上整理好', 'Almost ready', '马上整理好喵', '马上整理好'],
   organizingAnswer: ['马上就好', '馬上就好', 'Almost ready', '马上就好喵', '马上完成'],
+  workingForSeconds: ['已用时 {seconds} 秒', '已用時 {seconds} 秒', 'Working for {seconds}s', '已经想了 {seconds} 秒喵', '已用时 {seconds} 秒'],
   searchingForSeconds: ['已搜索 {seconds} 秒', '已搜尋 {seconds} 秒', 'Searching for {seconds}s', '已经搜了 {seconds} 秒喵', '已搜索 {seconds} 秒'],
   searchCompletedIn: ['搜索 {seconds} 秒', '搜尋 {seconds} 秒', 'Searched in {seconds}s', '搜索用了 {seconds} 秒喵', '搜索 {seconds} 秒'],
   searchCompleteMeta: ['{count} 个来源 · 搜索 {seconds} 秒', '{count} 個來源 · 搜尋 {seconds} 秒', '{count} sources · {seconds}s search', '{count} 个来源 · 搜索 {seconds} 秒喵', '{count} 个来源 · 搜索 {seconds} 秒'],

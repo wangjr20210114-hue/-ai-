@@ -8,6 +8,8 @@ images are exposed to the answer model as ordinary Markdown resources.
 from __future__ import annotations
 
 import asyncio
+import http.client
+import io
 import json
 import logging
 import re
@@ -120,12 +122,50 @@ def _provider_image_candidates(results: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def _json_request(url: str, payload: dict, headers: dict, timeout: int) -> dict:
-    request = urllib.request.Request(
-        url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers=headers, method="POST",
+    """POST JSON without urllib's process-global proxy discovery overhead.
+
+    Tencent's WSA API guide uses ``HTTPSConnection`` for the API-key route.
+    In the Makers Python runtime, ``urllib.request.urlopen`` can spend longer
+    than the complete ten-second provider budget before SearchPro responds,
+    while the direct connection completes in well under a second.  Keep this
+    helper generic because the vision adapter shares the same JSON transport.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("JSON provider URL must be absolute HTTP(S)")
+    connection_type = (
+        http.client.HTTPSConnection
+        if parsed.scheme == "https"
+        else http.client.HTTPConnection
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read(8 * 1024 * 1024).decode("utf-8"))
+    connection = connection_type(
+        parsed.hostname,
+        port=parsed.port,
+        timeout=timeout,
+    )
+    target = parsed.path or "/"
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+    try:
+        connection.request(
+            "POST",
+            target,
+            body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers=headers,
+        )
+        response = connection.getresponse()
+        raw = response.read(8 * 1024 * 1024)
+        if not 200 <= int(response.status) < 300:
+            raise urllib.error.HTTPError(
+                url,
+                int(response.status),
+                str(response.reason or "provider request failed"),
+                response.headers,
+                io.BytesIO(raw),
+            )
+        return json.loads(raw.decode("utf-8"))
+    finally:
+        connection.close()
 
 
 def _parse_pages(data: dict[str, Any], limit: int) -> list[dict[str, Any]]:
@@ -239,15 +279,6 @@ def _rank_source_results(
         key=lambda pair: (-_source_quality_score(pair[1], query), pair[0]),
     )
     return [item for _, item in ranked]
-
-
-def _with_source_quality_requirements(provider_query: str) -> str:
-    """Keep SearchPro's query lexical while requesting primary-source recall."""
-    if re.search(r"[\u4e00-\u9fff]", provider_query):
-        hint = " 官方 权威原始信息"
-    else:
-        hint = " official primary source"
-    return f"{provider_query[:500 - len(hint)]}{hint}"[:500]
 
 
 def _date_from_text(value: str, target_year: int | None = None) -> str:
@@ -681,19 +712,14 @@ async def rich_search(
     # concurrent and pixel review still happens below.
     if distinct_visual_query:
         provider_query += f"\n同时优先返回包含这些可视对象的结果：{image_query[:180]}"
-    provider_query = _with_source_quality_requirements(provider_query)
     data = await asyncio.wait_for(
         asyncio.to_thread(
             _json_request,
             f"{base_url}/SearchPro",
-            {
-                "Query": provider_query,
-                # Standard SearchPro accepts the value and currently returns
-                # up to ten records. Asking for the supported ceiling gives
-                # the quality ranker enough candidates to surface primary
-                # sources without a second provider request.
-                "Cnt": 20,
-            },
+            # Keep the request compatible with every WSA tier.  ``Cnt`` is a
+            # premium-only API parameter even though lower tiers can return a
+            # provider-selected result count.  Main has always sent Query only.
+            {"Query": provider_query[:500]},
             headers,
             provider_timeout,
         ),

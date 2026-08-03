@@ -177,6 +177,11 @@ def tool_failure_fallback(messages: Iterable) -> str:
             continue
         detail = str(failure.get("detail") or "").strip()
         if detail:
+            if getattr(message, "name", "") == "rich_search":
+                return (
+                    "实时搜索这次没有完成；我不会把未核验的信息冒充成最新消息。"
+                    "你可以稍后重试。"
+                )
             if getattr(message, "name", "") == "get_current_location":
                 return f"腾讯地图这次没有完成当前位置的地址解析：{detail}。请稍后重试。"
             if getattr(message, "name", "") == "recommend_nearby_places_on_map":

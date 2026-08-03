@@ -535,9 +535,9 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["media"][0]["source_bound_fallback"])
         self.assertEqual(result["vision_diagnostics"]["missing_api_key"], 1)
         self.assertEqual(result["vision_diagnostics"]["provider_fallback"], 1)
-        provider_query = search_request.call_args.args[1]["Query"]
-        self.assertIn("官方 权威原始信息", provider_query)
-        self.assertEqual(search_request.call_args.args[1]["Cnt"], 20)
+        provider_payload = search_request.call_args.args[1]
+        self.assertIn("AI 新闻", provider_payload["Query"])
+        self.assertEqual(set(provider_payload), {"Query"})
 
     async def test_strict_today_filter_also_excludes_old_article_media(self):
         pages = [{
