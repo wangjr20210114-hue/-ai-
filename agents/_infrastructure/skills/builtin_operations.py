@@ -10,7 +10,7 @@ import logging
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Literal
+from typing import Any, Awaitable, Callable
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel
@@ -31,7 +31,6 @@ from ..._infrastructure.providers.side_effects import generate_image as provider
 from ..._infrastructure.providers.arxiv import search_arxiv as provider_search_arxiv
 from ..._application.proactive.service import load_proactive_state, propose_workflow as create_workflow_proposal, save_proactive_state
 from ..._infrastructure.makers.provider_usage_repository import record_provider_usage, record_vision_diagnostics
-from ..._infrastructure.makers.place_repository import load_place_cache, save_place_cache
 from ..._infrastructure.makers.route_repository import load_route_cache, save_route_cache
 from ..._infrastructure.makers.identity import required_user_id
 from ..._application.skills.registry import (
@@ -73,10 +72,11 @@ from .route_resolution import (
     _place_resolution_with_provider_review,
     _learned_route_preference,
     _route_plan_leg_summary,
-    verify_place_queries_parallel,
 )
 from .image_operations import build_image_operations
+from .map_runtime import MapProviderRuntime
 from .paper_operations import build_paper_search_operation
+from .place_operations import PlaceOperations
 from .search_operations import build_rich_search_operation
 from .visual_context import TurnVisualContext
 
@@ -166,303 +166,42 @@ def build_system_skill_tools(
     async def _save_state(state: dict[str, Any]) -> dict[str, Any]:
         return await save_user_workspace(store, state, user_id=user_id)
 
-    async def _record_map_call(source: str, map_key: str) -> None:
-        if str(map_key or "").strip():
-            await record_provider_usage(
-                store, user_id, "tencent_maps", "requests", 1, source=source,
-            )
+    map_runtime = MapProviderRuntime(
+        store=store,
+        user_id=user_id,
+        service_mode=map_service_mode,
+        search_timeout=map_search_timeout,
+        place_result_limit=map_place_result_limit,
+        tracer=tracer,
+        # Resolve providers at operation time so the Adapter remains swappable
+        # without capturing a stale provider during tool construction.
+        search_places_provider=lambda: provider_search_places,
+        search_nearby_provider=lambda: provider_search_places_nearby,
+        reverse_geocode_provider=lambda: provider_reverse_geocode,
+        plan_route_provider=lambda: provider_plan_route,
+    )
+    _search_places_metered = map_runtime.search_places
+    _search_places_nearby_metered = map_runtime.search_nearby
+    _plan_route_metered = map_runtime.plan_route
 
-    async def _traced_map_call(name: str, operation: str, call):
-        span_method = getattr(tracer, "span", None)
-        if not callable(span_method):
-            return await call()
-
-        async def run(span):
-            result = await call()
-            set_attributes = getattr(span, "set_attributes", None)
-            if callable(set_attributes):
-                attributes: dict[str, str | int | float | bool] = {
-                    "maps.operation": operation,
-                    "maps.service_mode": map_service_mode,
-                    "maps.timeout_seconds": map_search_timeout,
-                }
-                if isinstance(result, list):
-                    attributes["maps.result_count"] = len(result)
-                elif isinstance(result, dict):
-                    attributes["maps.provider"] = str(result.get("provider") or "unknown")
-                    attributes["maps.result_count"] = len(result.get("places") or [])
-                set_attributes(attributes)
-            return result
-
-        return await span_method(name, run, {
-            "maps.operation": operation,
-            "maps.service_mode": map_service_mode,
-        })
-
-    async def _search_places_metered(map_key: str, *args, **kwargs):
-        query = str(args[0] if args else kwargs.get("query") or "")
-        city = str(kwargs.get("city") or "全国")
-        limit = int(kwargs.get("limit") or map_place_result_limit)
-        cached = await load_place_cache(store, user_id, query, city, limit)
-        if cached is not None:
-            return cached
-        try:
-            places = await _traced_map_call(
-                "maps.place_search",
-                "place_search",
-                lambda: asyncio.wait_for(
-                    provider_search_places(map_key, *args, **kwargs),
-                    timeout=map_search_timeout,
-                ),
-            )
-        finally:
-            await _record_map_call("chat_place_search", map_key)
-        await save_place_cache(store, user_id, query, city, limit, places)
-        return places
-
-    async def _search_places_nearby_metered(map_key: str, *args, **kwargs):
-        try:
-            return await _traced_map_call(
-                "maps.nearby_search",
-                "nearby_search",
-                lambda: provider_search_places_nearby(map_key, *args, **kwargs),
-            )
-        finally:
-            await _record_map_call("chat_nearby_search", map_key)
-
-    async def _reverse_geocode_metered(map_key: str, location: dict[str, Any]):
-        try:
-            return await _traced_map_call(
-                "maps.reverse_geocode",
-                "reverse_geocode",
-                lambda: asyncio.wait_for(
-                    provider_reverse_geocode(map_key, location),
-                    timeout=min(12.0, map_search_timeout),
-                ),
-            )
-        finally:
-            await _record_map_call("chat_reverse_geocode", map_key)
-
-    async def _plan_route_metered(map_key: str, *args, **kwargs):
-        try:
-            return await _traced_map_call(
-                "maps.tencent_route",
-                "tencent_route",
-                lambda: asyncio.wait_for(
-                    provider_plan_route(map_key, *args, **kwargs),
-                    timeout=min(18.0, max(8.0, 58.0 - map_search_timeout)),
-                ),
-            )
-        finally:
-            await _record_map_call("chat_route", map_key)
-
-    async def get_current_location() -> str:
-        """Describe the fresh browser location through Tencent reverse geocoding."""
-        if browser_current_location is None:
-            return _clarification_action(
-                conversation_id,
-                title="需要你的位置",
-                prompt=(
-                    "浏览器没有提供当前位置。你可以在浏览器设置中允许定位后重试，"
-                    "也可以填写大致位置，我会用它继续附近推荐或路线规划。"
-                ),
-                fields=[{
-                    "id": "manual_location",
-                    "label": "你目前所在的位置或出发地",
-                    "type": "text",
-                    "required": True,
-                    "options": [],
-                    "placeholder": "例如：北京市海淀区中关村，或吉林大学前卫南区",
-                }],
-            )
-        map_key = str(
-            runtime_env.get("TENCENT_MAP_SERVER_KEY")
-            or runtime_env.get("TENCENT_MAP_KEY")
-            or runtime_env.get("VITE_TENCENT_MAP_KEY")
-            or ""
-        )
-        try:
-            resolved = await _reverse_geocode_metered(
-                map_key,
-                browser_current_location,
-            )
-        except Exception as exc:
-            logging.warning("reverse geocode current location failed error=%s", exc)
-            raise ValueError(
-                "腾讯地图暂时无法把当前位置解析为地址，请稍后重试"
-            ) from exc
-        return json.dumps({
-            "location_available": True,
-            "location": resolved,
-            "accuracy_meters": browser_current_location.get("accuracy_meters"),
-            "response_constraint": (
-                "只说明腾讯逆地址解析返回的地址、行政区和附近地标；"
-                "不得输出经纬度，不得声称定位精度高于浏览器 accuracy_meters，"
-                "也不得把本次位置写入日程或长期记忆。"
-            ),
-        }, ensure_ascii=False)
-
-    async def search_places(
-        query: str,
-        city: str = "全国",
-        limit: int = 10,
-        purpose: Literal["browse", "calendar"] = "browse",
-    ) -> str:
-        """Search real places; calendar mode enforces auto/choose/fill resolution."""
-        effective_purpose = (
-            "calendar" if planned_calendar_place_resolution else purpose
-        )
-        state = await _load_state()
-        candidates = state.setdefault("place_candidates", {})
-        selected_option = (
-            _selected_place_candidate(query, candidates)
-            or next(
-                (
-                    place for place in candidates.values()
-                    if isinstance(place, dict)
-                    and _normalized_place_name(_place_option_label(place))
-                    == _normalized_place_name(query)
-                ),
-                None,
-            )
-        )
-        if effective_purpose == "calendar" and isinstance(selected_option, dict):
-            return json.dumps({
-                "places": [selected_option],
-                "count": 1,
-                "resolution": {
-                    "decision": "auto_use",
-                    "reason": "user_selected_verified_candidate",
-                    "selected_place_id": selected_option.get("place_id"),
-                },
-            }, ensure_ascii=False)
-        places = await _search_places_metered(
-            str(runtime_env.get("TENCENT_MAP_SERVER_KEY") or runtime_env.get("TENCENT_MAP_KEY") or runtime_env.get("VITE_TENCENT_MAP_KEY") or ""),
-            query,
-            city=city,
-            limit=max(1, min(map_place_result_limit, int(limit))),
-        )
-        for place in places:
-            candidates[str(place["place_id"])] = place
-        # Keep the short-lived candidate set bounded even in a long conversation.
-        if len(candidates) > 200:
-            state["place_candidates"] = dict(list(candidates.items())[-200:])
-        await _save_state(state)
-        if effective_purpose != "calendar":
-            return json.dumps({"places": places, "count": len(places)}, ensure_ascii=False)
-        decision, selected, reason = await _place_resolution_with_provider_review(
-            place_disambiguation_model,
-            query,
-            places,
-            context="calendar place lookup",
-            enabled=provider_place_review_enabled,
-            timeout_seconds=min(8.0, map_search_timeout),
-        )
-        if decision == "auto_use" and isinstance(selected, dict):
-            return json.dumps({
-                "places": [selected],
-                "count": 1,
-                "resolution": {
-                    "decision": decision,
-                    "reason": reason,
-                    "selected_place_id": selected.get("place_id"),
-                },
-            }, ensure_ascii=False)
-        if decision == "choose":
-            return _clarification_action(
-                conversation_id,
-                title="请选择日程地点",
-                prompt=(
-                    f"查到多个符合“{query}”的真实地点，候选已按腾讯地图相关度排序。"
-                    "请选择要写入日程的地点，提交后我会继续安排。"
-                ),
-                fields=[_place_choice_field(
-                    "calendar_place",
-                    "日程安排在哪个地点？",
-                    places,
-                )],
-            )
-        return _clarification_action(
-            conversation_id,
-            title="请补充日程地点",
-            prompt=f"地点服务没有足够证据确认“{query}”。请填写更完整的名称或城市。",
-            fields=[{
-                "id": "calendar_place",
-                "label": "日程的正确地点是什么？",
-                "type": "text",
-                "required": True,
-                "options": [],
-                "placeholder": f"例如：城市 + {query}",
-            }],
-        )
-
-    async def search_places_batch(queries: list[str], city: str = "全国", limit_per_query: int = 3) -> str:
-        """Verify every named destination independently and retain every candidate ID."""
-        normalized = []
-        seen_queries = set()
-        for raw_query in queries or []:
-            query = str(raw_query or "").strip()
-            if query and query not in seen_queries:
-                seen_queries.add(query)
-                normalized.append(query)
-        if not 1 <= len(normalized) <= map_route_stop_limit:
-            raise ValueError(
-                f"批量地点查询必须包含 1 到 {map_route_stop_limit} 个独立地点名称；"
-                "可在设置的“地图与路线”中调整上限"
-            )
-
-        map_key = str(runtime_env.get("TENCENT_MAP_SERVER_KEY") or runtime_env.get("TENCENT_MAP_KEY") or runtime_env.get("VITE_TENCENT_MAP_KEY") or "")
-        groups = []
-        all_places = []
-        seen_ids = set()
-        semaphore = asyncio.Semaphore(map_parallelism)
-
-        async def search_one(query: str) -> dict[str, Any]:
-            try:
-                async with semaphore:
-                    places = await _search_places_metered(
-                        map_key,
-                        query,
-                        city=city,
-                        limit=max(1, min(map_place_result_limit, int(limit_per_query))),
-                    )
-                return {"query": query, "places": places}
-            except Exception as exc:
-                return {"query": query, "places": [], "error": str(exc)[:200]}
-
-        try:
-            groups = await asyncio.wait_for(
-                asyncio.gather(*(search_one(query) for query in normalized)),
-                timeout=map_search_timeout,
-            )
-        except asyncio.TimeoutError as exc:
-            raise TimeoutError(
-                f"批量地点搜索超过 {round(map_search_timeout)} 秒；"
-                "请减少地点数量或在设置中选择快速档"
-            ) from exc
-        for group in groups:
-            places = group.get("places") or []
-            for place in places:
-                place_id = str(place["place_id"])
-                if place_id not in seen_ids:
-                    seen_ids.add(place_id)
-                    all_places.append(place)
-
-        state = await _load_state()
-        candidates = state.setdefault("place_candidates", {})
-        for place in all_places:
-            candidates[str(place["place_id"])] = place
-        if len(candidates) > 200:
-            state["place_candidates"] = dict(list(candidates.items())[-200:])
-        await _save_state(state)
-        return json.dumps(
-            {
-                "groups": groups,
-                "places": all_places,
-                "verified_query_count": sum(bool(group.get("places")) for group in groups),
-            },
-            ensure_ascii=False,
-        )
+    place_operations = PlaceOperations(
+        runtime_env=runtime_env,
+        conversation_id=conversation_id,
+        browser_current_location=browser_current_location,
+        map_runtime=map_runtime,
+        load_state=_load_state,
+        save_state=_save_state,
+        place_disambiguation_model=place_disambiguation_model,
+        planned_calendar_place_resolution=planned_calendar_place_resolution,
+        provider_place_review_enabled=provider_place_review_enabled,
+        place_result_limit=map_place_result_limit,
+        route_stop_limit=map_route_stop_limit,
+        parallelism=map_parallelism,
+        search_timeout=map_search_timeout,
+    )
+    get_current_location = place_operations.get_current_location
+    search_places = place_operations.search_places
+    search_places_batch = place_operations.search_places_batch
 
     async def recommend_nearby_places_on_map(
         anchor_query: str,
@@ -1477,113 +1216,10 @@ def build_system_skill_tools(
             ),
         }, ensure_ascii=False)
 
-    async def prepare_map_recommendation(
-        title: str,
-        place_ids: list[str],
-        action_text: str,
-        expected_place_count: int = 2,
-    ) -> str:
-        """Prepare a clickable map recommendation from verified place IDs.
-
-        action_text is natural, contextual Chinese link copy generated for this answer.
-        This tool does not change the user's map until the user clicks the action.
-        """
-        if not isinstance(place_ids, list) or not 1 <= len(place_ids) <= map_place_result_limit:
-            raise ValueError(
-                f"地图推荐必须包含 1 到 {map_place_result_limit} 个地点 ID；"
-                "可在设置的“地图与路线”中调整候选数量"
-            )
-        state = await _load_state()
-        candidates = dict(state.get("place_candidates", {}))
-        for event in (state.get("schedules") or {}).values():
-            extra = event.get("extra") if isinstance(event, dict) and isinstance(event.get("extra"), dict) else {}
-            place = extra.get("place") if isinstance(extra, dict) else None
-            if isinstance(place, dict) and str(place.get("place_id") or ""):
-                candidates[str(place["place_id"])] = place
-        places = []
-        seen = set()
-        for raw_id in place_ids:
-            place_id = str(raw_id or "").strip()
-            place = candidates.get(place_id)
-            if place_id and place_id not in seen and isinstance(place, dict):
-                seen.add(place_id)
-                places.append(place)
-        if not places:
-            raise ValueError("推荐地点均未通过地点服务验证，不能显示到地图")
-        expected = max(1, min(map_place_result_limit, int(expected_place_count or 2)))
-        action = new_action(
-            "map_recommendation",
-            {
-                "title": str(title or "相关地点")[:120],
-                "action_text": str(action_text or "在地图中看看这些地点")[:80],
-                "places": places,
-            },
-            requires_confirmation=False,
-        )
-        put_action(state, action)
-        await _save_state(state)
-        return json.dumps({
-            "ui_action": "map_action",
-            "action": action,
-            "verified_place_count": len(places),
-            "requested_place_count": expected,
-            "partial": len(places) < expected,
-        }, ensure_ascii=False)
-
-    async def recommend_places_on_map(
-        queries: list[str],
-        city: str,
-        title: str,
-        action_text: str,
-    ) -> str:
-        """Verify model-selected destinations and prepare one terminal map Action."""
-        normalized = list(dict.fromkeys(str(item or "").strip() for item in queries if str(item or "").strip()))
-        if not 2 <= len(normalized) <= map_place_result_limit:
-            raise ValueError(
-                f"地图推荐需要模型提供 2 到 {map_place_result_limit} 个独立地点名称；"
-                "可在设置的“地图与路线”中调整候选数量"
-            )
-        map_key = str(runtime_env.get("TENCENT_MAP_SERVER_KEY") or runtime_env.get("TENCENT_MAP_KEY") or runtime_env.get("VITE_TENCENT_MAP_KEY") or "")
-        selected, all_candidates, missing = await verify_place_queries_parallel(
-            _search_places_metered,
-            map_key,
-            normalized,
-            city=city or "全国",
-            timeout_seconds=float(runtime_env.get("PLACE_LOOKUP_TIMEOUT_SECONDS") or 5),
-        )
-        if not selected:
-            raise ValueError("所有候选地点都未通过真实地点服务核实，不能生成地图")
-        state = await _load_state()
-        candidates = state.setdefault("place_candidates", {})
-        for place in all_candidates:
-            candidates[str(place["place_id"])] = place
-        action = new_action(
-            "map_recommendation",
-            {
-                "title": str(title or f"{city}推荐地点")[:120],
-                "action_text": str(action_text or "在地图中查看这些地点")[:80],
-                "places": selected,
-            },
-            requires_confirmation=False,
-        )
-        put_action(state, action)
-        await _save_state(state)
-        verified_count = len(selected)
-        requested_count = len(normalized)
-        response_constraint = (
-            f"实际核实成功 {verified_count}/{requested_count} 个地点；正文只能声称地图显示了 {verified_count} 个。"
-        )
-        if missing:
-            response_constraint += f" 未核实且不得放入地图：{'、'.join(missing)}。"
-        return json.dumps({
-            "ui_action": "map_action",
-            "action": action,
-            "verified_place_count": verified_count,
-            "requested_place_count": requested_count,
-            "partial": bool(missing),
-            "unverified_queries": missing,
-            "response_constraint": response_constraint,
-        }, ensure_ascii=False)
+    prepare_map_recommendation = (
+        place_operations.prepare_map_recommendation
+    )
+    recommend_places_on_map = place_operations.recommend_places_on_map
 
     async def propose_calendar_changes(
         summary: str,

@@ -57,6 +57,18 @@ def main() -> None:
             "application turn_controller.py must not shadow the controller layer"
         )
 
+    skill_assembler = (
+        AGENTS / "_infrastructure" / "skills" / "builtin_operations.py"
+    )
+    skill_assembler_lines = len(
+        skill_assembler.read_text(encoding="utf-8").splitlines()
+    )
+    if skill_assembler_lines > 2_200:
+        failures.append(
+            "builtin_operations.py must keep map/place provider responsibilities "
+            f"split out ({skill_assembler_lines} lines; maximum 2200)"
+        )
+
     for path in (AGENTS / "_tests").rglob("test_*.py"):
         line_count = len(path.read_text(encoding="utf-8").splitlines())
         if line_count > MAX_TEST_FILE_LINES:

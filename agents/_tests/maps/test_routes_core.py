@@ -571,7 +571,7 @@ class MapRouteCoreTests(unittest.IsolatedAsyncioTestCase):
             "agents._infrastructure.skills.builtin_operations.provider_search_places",
             new=place_provider,
         ), patch(
-            "agents._infrastructure.skills.builtin_operations.load_place_cache",
+            "agents._infrastructure.skills.map_runtime.load_place_cache",
             new=AsyncMock(return_value=None),
         ), patch(
             "agents._infrastructure.skills.builtin_operations.provider_plan_route",
