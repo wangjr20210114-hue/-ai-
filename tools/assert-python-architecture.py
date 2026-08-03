@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 AGENTS = ROOT / "agents"
 MAX_TEST_FILE_LINES = 1_000
+MAX_PRODUCTION_FILE_LINES = 3_000
 FORBIDDEN_DOMAIN_PARTS = {
     "_application",
     "_controllers",
@@ -53,6 +54,13 @@ def main() -> None:
     for path in AGENTS.rglob("*.py"):
         if "__pycache__" in path.parts:
             continue
+        if "_tests" not in path.parts:
+            line_count = len(path.read_text(encoding="utf-8").splitlines())
+            if line_count > MAX_PRODUCTION_FILE_LINES:
+                failures.append(
+                    f"{path.relative_to(ROOT)} has {line_count} lines "
+                    f"(production maximum {MAX_PRODUCTION_FILE_LINES})"
+                )
         for module in imported_modules(path):
             if "_shared" in module:
                 failures.append(f"{path.relative_to(ROOT)} imports removed {module}")
