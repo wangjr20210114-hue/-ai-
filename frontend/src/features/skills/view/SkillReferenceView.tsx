@@ -94,7 +94,7 @@ export function SkillReferenceView({
   controller: SkillMarketplaceController;
 }) {
   const { marketplace, skillText, t } = controller;
-  const [tocCollapsed, setTocCollapsed] = useState(false);
+  const [tocCollapsed, setTocCollapsed] = useState(true);
   const actions = useMemo(
     () => marketplace?.component_api.actions || [],
     [marketplace?.component_api.actions],

@@ -152,6 +152,22 @@ class SkillPreferenceEndpointTests(unittest.IsolatedAsyncioTestCase):
             for value in proactive_values
         ))
 
+    async def test_builtin_skills_reject_obsolete_install_and_uninstall_aliases(self):
+        for operation in ("install_skill", "uninstall_skill"):
+            with self.subTest(operation=operation):
+                ctx = authenticated_context(SimpleNamespace(
+                    request=SimpleNamespace(body={
+                        "operation": operation,
+                        "skill_id": "maps",
+                    }, headers={}),
+                    store=SimpleNamespace(langgraph_store=FakeStore()),
+                ))
+
+                response = await intelligence_handler(ctx)
+
+                self.assertEqual(response["status_code"], 400)
+                self.assertIn("不支持", response["body"]["error"])
+
     def test_tool_catalog_respects_each_disabled_skill(self):
         tools = build_system_skill_tools(
             object(),

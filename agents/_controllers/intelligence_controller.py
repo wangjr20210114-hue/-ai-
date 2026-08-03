@@ -1,4 +1,4 @@
-"""Controller for user memory, preferences, Skill installs, and connections."""
+"""Controller for user memory, preferences, Skill switches, and connections."""
 
 from __future__ import annotations
 
@@ -96,17 +96,8 @@ async def handler(ctx):
             current = dict(state.get("map_preferences") or DEFAULT_MAP_PREFERENCES)
             current.update(changes)
             state["map_preferences"] = normalize_map_preferences(current)
-        elif operation in {
-            "update_skill_preferences",
-            "install_skill",
-            "uninstall_skill",
-        }:
-            if operation == "install_skill":
-                requested = {str(body.get("skill_id") or ""): True}
-            elif operation == "uninstall_skill":
-                requested = {str(body.get("skill_id") or ""): False}
-            else:
-                requested = body.get("preferences") or {}
+        elif operation == "update_skill_preferences":
+            requested = body.get("preferences") or {}
             if not isinstance(requested, dict):
                 raise ValueError("Skills 设置格式无效")
             previous = dict(
@@ -130,7 +121,7 @@ async def handler(ctx):
                         },
                     )
                     if bool(requested[skill_id]) and not eligible:
-                        raise ValueError("当前身份或会员等级无法安装此 Skill")
+                        raise ValueError("当前身份或会员等级无法启用此 Skill")
                     current[skill_id] = bool(requested[skill_id])
             # Enabling a Skill is atomic with all hard dependencies declared by
             # its manifest. Disabling a dependency does not destroy a user's
@@ -162,7 +153,7 @@ async def handler(ctx):
                             },
                         ):
                             raise ValueError(
-                                "当前身份或会员等级无法安装该 Skill 的必需依赖"
+                                "当前身份或会员等级无法启用该 Skill 的必需依赖"
                             )
                         current[dependency] = True
                         pending.append(dependency)

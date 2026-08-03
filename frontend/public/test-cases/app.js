@@ -60,7 +60,7 @@ function commonProcedure(test) {
   }];
   if (!isLocalOnly) start.push({
     where:'Makers 控制台',
-    action:'打开 EdgeOne → Makers → ai-active-agent → 构建部署；点击本轮 Deployment ID，确认“环境=预览、状态=成功”；点击“预览”，使用弹窗中的完整 3 小时链接。',
+    action:'打开 EdgeOne → Makers → floris-dev → 构建部署；点击本轮 Deployment ID，确认“环境=预览、状态=成功”；点击“预览”，使用弹窗中的完整 3 小时链接。',
     expected:'打开的是本轮 Preview 提交；不是 Production，也不是已经失效的旧 Deployment。',
     record:'把 Deployment ID 写入验收站；不要把 eo_token、Cookie 或环境变量写进备注/截图。',
   });
@@ -77,7 +77,7 @@ function finishProcedure(test) {
 function authoredProcedure(test) {
   const authored = window.CASE_PROCEDURES?.[test.id];
   if (Array.isArray(authored) && authored.length) return authored;
-  const actions = (test.steps || []).filter(step => !/【Makers 控制台】进入项目 ai-active-agent|【验收站】顶部|从该 Deployment 点击|按 F12|回到 .*按实际结果|在“证据”上传/.test(step));
+  const actions = (test.steps || []).filter(step => !/【Makers 控制台】进入项目 floris-dev|【验收站】顶部|从该 Deployment 点击|按 F12|回到 .*按实际结果|在“证据”上传/.test(step));
   return actions.map((action,index)=>({
     where:(action.match(/^【([^】]+)】/)||[])[1]||'目标网页',
     action:action.replace(/^【[^】]+】/,'').trim(),

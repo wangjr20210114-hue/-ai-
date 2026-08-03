@@ -31,11 +31,14 @@
 }
 .component-docs-toc-toggle svg { flex: 0 0 auto; font-size: 17px; }
 .component-docs-toc-toggle strong {
-  min-width: 112px;
+  min-width: 0;
+  max-width: 112px;
+  overflow: hidden;
   font-size: 13px;
   font-weight: 650;
   letter-spacing: .01em;
-  transition: opacity 180ms ease, transform 260ms var(--motion-ease-out);
+  white-space: nowrap;
+  transition: max-width 280ms var(--motion-ease-smooth), opacity 180ms ease, transform 260ms var(--motion-ease-out);
 }
 .component-docs-toc nav { display: grid; gap: 1px; margin-top: 3px; transition: opacity 180ms ease, transform 260ms var(--motion-ease-out); }
 .component-docs-toc a {
@@ -52,9 +55,10 @@
 .component-docs-toc-groups { display: grid; margin: 5px 0 0 8px; padding: 4px 0 3px 8px; border-left: 1px solid var(--app-border); }
 .component-docs-toc-groups a { padding: 4px 7px; color: var(--app-text-3); font-size: 12px; }
 .component-docs.is-toc-collapsed .component-docs-toc { padding-right: 5px; }
-.component-docs.is-toc-collapsed .component-docs-toc-toggle { justify-content: center; }
+.component-docs.is-toc-collapsed .component-docs-toc-toggle { justify-content: center; gap: 0; }
 .component-docs.is-toc-collapsed .component-docs-toc-toggle strong,
 .component-docs.is-toc-collapsed .component-docs-toc nav { opacity: 0; pointer-events: none; transform: translateX(-8px); }
+.component-docs.is-toc-collapsed .component-docs-toc-toggle strong { max-width: 0; }
 
 .component-docs-content { min-width: 0; display: grid; gap: 46px; }
 .component-docs-markdown { max-width: 900px; font-size: 15px; line-height: 1.78; }

@@ -149,6 +149,9 @@ test('static acceptance site covers every release capability with executable det
     assert.match(procedure, /不新增用户气泡/);
   }
   const acceptanceCopy = rawCases + procedures;
+  assert.doesNotMatch(acceptanceCopy + app, /ai-active-agent|AI-ACTIVE-AGENT-FLORIS/i);
+  assert.match(acceptanceCopy + app, /floris-dev/);
+  assert.doesNotMatch(acceptanceCopy, /安装官方腾讯会议|显示未安装|开始安装/);
   assert.match(acceptanceCopy, /Request conditions\/请求条件/);
   assert.match(acceptanceCopy, /Block request\/屏蔽请求/);
   assert.match(acceptanceCopy, /\(blocked:devtools\)/);
