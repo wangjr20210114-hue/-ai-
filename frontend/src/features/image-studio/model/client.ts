@@ -1,11 +1,16 @@
 import { translate } from '../../../i18n';
 import { authorizedFetch } from '../../../shared/auth/session';
+import { requestRaw } from '../../../shared/transport/httpClient';
 import { splitSseFrames } from '../../../shared/transport/sseClient';
 import type { WorkspaceAction } from '../../../shared/types';
 import { makersConversationHeaders } from '../../../services/conversation';
 
 
 export const routes = Object.freeze(['/image']);
+
+export function loadGeneratedImage(url: string): Promise<Response> {
+  return requestRaw(url);
+}
 
 export async function streamImageEdit(
   conversationId: string,

@@ -1,7 +1,9 @@
-import { authorizedFetch, withEdgeOneAuth } from './auth';
-import { translate } from '../i18n';
-import { getOrCreateConversationId, makersConversationHeaders } from './conversation';
-import { getStoredLanguage } from '../i18n';
+import { authorizedFetch, withEdgeOneAuth } from '../../../shared/auth/session';
+import { getStoredLanguage, translate } from '../../../i18n';
+import {
+  getOrCreateConversationId,
+  makersConversationHeaders,
+} from '../../../services/conversation';
 /**
  * 论文助读 API：搜索 → 下载 → 流式 LLM 调用。
  */

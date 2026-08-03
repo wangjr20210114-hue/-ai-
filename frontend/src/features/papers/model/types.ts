@@ -4,4 +4,4 @@ export type {
   ReadingFolder,
   ReadingSettings,
   SavedPaper,
-} from '../../../services/paperApi';
+} from './api';

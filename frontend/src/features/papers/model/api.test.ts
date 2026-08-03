@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchPaperFile, streamPaper } from './paperApi';
+import { fetchPaperFile, streamPaper } from './api';
 
 afterEach(() => vi.unstubAllGlobals());
 

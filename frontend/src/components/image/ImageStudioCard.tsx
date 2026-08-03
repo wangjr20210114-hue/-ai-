@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { DownloadIcon } from 'tdesign-icons-react';
-import { streamImageEdit } from '../../features/image-studio/model/client';
+import {
+  loadGeneratedImage,
+  streamImageEdit,
+} from '../../features/image-studio/model/client';
 import { withEdgeOneAuth } from '../../services/auth';
-import { requestRaw } from '../../shared/transport/httpClient';
 import { createZip } from '../../services/zip';
 import type { WorkspaceAction } from '../../shared/types';
 import { useLanguage, type TranslationKey } from '../../i18n';
@@ -128,7 +130,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated, dis
   const fetchVersionBlob = async (version: ImageVersion): Promise<Blob> => {
     const cached = downloadCacheRef.current.get(version.image_url);
     if (cached) return cached.blob;
-    const response = await requestRaw(version.image_url);
+    const response = await loadGeneratedImage(version.image_url);
     if (!response.ok) throw new Error(t('imageDownloadFailed'));
     const blob = await response.blob();
     downloadCacheRef.current.set(version.image_url, { blob, objectUrl: URL.createObjectURL(blob) });

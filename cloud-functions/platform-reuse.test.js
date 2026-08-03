@@ -167,7 +167,7 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   const [files, library, readerClient, chatError, chatTools, chatGraph, workspace, messageBubble, clarificationSubmission, capabilityPlan, chatAgent, styles, chatClient, chatTransport] = await Promise.all([
     read('cloud-functions/files/index.js'),
     read('cloud-functions/library/index.js'),
-    read('frontend/src/services/paperApi.ts'),
+    read('frontend/src/features/papers/model/api.ts'),
     read('frontend/src/services/chatError.ts'),
     read('agents/_infrastructure/skills/builtin_operations.py'),
     read('agents/chat/_graph.py'),
@@ -245,7 +245,7 @@ test('settings and Skills open on lightweight configuration reads', async () => 
     read('frontend/src/features/skills/model/client.ts'),
     read('agents/_controllers/intelligence_controller.py'),
     read('cloud-functions/library/index.js'),
-    read('frontend/src/services/paperApi.ts'),
+    read('frontend/src/features/papers/model/api.ts'),
     read('frontend/src/components/chat/InputBar.tsx'),
     read('agents/_application/skills/registry.py'),
     read('frontend/src/features/skills/page.css'),
@@ -396,7 +396,7 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
     read('frontend/src/app/App.tsx'),
     read('frontend/src/main.tsx'),
     read('frontend/src/services/auth.ts'),
-    read('frontend/src/services/paperApi.ts'),
+    read('frontend/src/features/papers/model/api.ts'),
     read('frontend/src/components/chat/InputBar.tsx'),
     read('frontend/src/features/chat/view/MessageBubble.tsx'),
     read('frontend/src/features/chat/view/renderers/MessageBubbleView.tsx'),
@@ -414,8 +414,14 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
   assert.match(active, /useChatController/);
   assert.doesNotMatch(active, /useSSEChat/);
   assert.doesNotMatch(active, /AuthGate|loginAppSession|registerAppSession/);
-  const chatClient = await read('frontend/src/features/chat/controller/chatTransport.ts');
-  const stopRequest = chatClient.match(/const requestStop[\s\S]*?authorizedFetch\('\/stop'[\s\S]*?body: JSON\.stringify/);
+  const [chatClient, chatModel] = await Promise.all([
+    read('frontend/src/features/chat/controller/chatTransport.ts'),
+    read('frontend/src/features/chat/model/client.ts'),
+  ]);
+  assert.match(chatClient, /requestConversationStop\(this\.conversationId/);
+  const stopRequest = chatModel.match(
+    /export function requestConversationStop[\s\S]*?authorizedFetch\('\/stop'[\s\S]*?body: JSON\.stringify/,
+  );
   assert.ok(stopRequest);
   assert.doesNotMatch(stopRequest[0], /makersConversationHeaders/);
   assert.doesNotMatch(

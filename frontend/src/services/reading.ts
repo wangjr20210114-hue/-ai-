@@ -1,5 +1,5 @@
 import { extractParagraphs, loadPdf } from './pdf';
-import { fetchPaperFile } from './paperApi';
+import { fetchPaperFile } from '../features/papers/model/api';
 import { translate } from '../i18n';
 
 export interface PdfInspection {

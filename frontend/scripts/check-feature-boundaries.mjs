@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'src');
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx']);
+const NETWORK_CALL = /\b(?:fetch|authorizedFetch|requestJson|requestRaw|streamEvents)(?:<[^;{}()]*>)?\s*\(/;
 
 function normalized(value) {
   return value.replaceAll('\\', '/').replace(/^.*?src\//, '');
@@ -33,6 +34,13 @@ export function assertImportAllowed(sourcePath, targetPath) {
   return layer === 'controller' && targetLayer === 'model';
 }
 
+export function assertNetworkAllowed(sourcePath) {
+  const source = normalized(sourcePath);
+  return source.startsWith('shared/auth/')
+    || source.startsWith('shared/transport/')
+    || /^features\/[^/]+\/model\//.test(source);
+}
+
 async function sourceFiles(directory) {
   const values = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -47,13 +55,23 @@ async function main() {
   const failures = [];
   for (const path of await sourceFiles(ROOT)) {
     const source = await readFile(path, 'utf8');
+    const relativePath = relative(ROOT, path);
+    if (
+      !/\.test\.[^.]+$/.test(path)
+      && NETWORK_CALL.test(source)
+      && !assertNetworkAllowed(relativePath)
+    ) {
+      failures.push(
+        `${relativePath} owns a network call outside shared transport/auth or a feature model`,
+      );
+    }
     const imports = source.matchAll(/(?:from\s+|import\s*\()(['"])([^'"]+)\1/g);
     for (const match of imports) {
       const specifier = match[2];
       if (!specifier.startsWith('.')) continue;
       const target = resolve(dirname(path), specifier);
-      if (!assertImportAllowed(relative(ROOT, path), relative(ROOT, target))) {
-        failures.push(`${relative(ROOT, path)} -> ${specifier}`);
+      if (!assertImportAllowed(relativePath, relative(ROOT, target))) {
+        failures.push(`${relativePath} -> ${specifier}`);
       }
     }
   }

@@ -10,7 +10,7 @@ import {
   uploadDocument,
 } from '../../features/chat/model/client';
 import { proactiveOperation } from '../../features/settings/model/client';
-import { registerReadingItem } from '../../services/paperApi';
+import { registerReadingItem } from '../../features/papers/model/api';
 import { getStoredLanguage, translate, useLanguage } from '../../i18n';
 
 interface Props {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 
 const ROOT = new URL('../', import.meta.url);
 
@@ -16,6 +16,27 @@ function ownedRoutes(source) {
   const declaration = source.match(/export const routes = Object\.freeze\(\[([\s\S]*?)\]\)/);
   if (!declaration) return [];
   return [...declaration[1].matchAll(/['"](\/[^'"]+)['"]/g)].map((match) => match[1]);
+}
+
+async function sourceFiles(directory) {
+  const files = [];
+  for (const entry of await readdir(new URL(directory, ROOT), { withFileTypes: true })) {
+    const path = `${directory}${entry.name}`;
+    if (entry.isDirectory()) files.push(...await sourceFiles(`${path}/`));
+    else if (/\.(?:ts|tsx)$/.test(entry.name) && !/\.test\./.test(entry.name)) {
+      files.push(path);
+    }
+  }
+  return files;
+}
+
+function literalClientRoutes(source) {
+  const routes = [];
+  const calls = source.matchAll(
+    /\b(?:authorizedFetch|requestJson|streamEvents|withEdgeOneAuth)(?:<[^;{}()]*>)?\s*\(\s*(['"`])(\/[A-Za-z0-9_/-]+)/g,
+  );
+  for (const call of calls) routes.push(call[2]);
+  return routes;
 }
 
 function pointerValue(document, pointer) {
@@ -143,6 +164,22 @@ test('every client-owned display route is published in the v1 OpenAPI', async ()
     }
   }
   assert.equal(operationIds.length, new Set(operationIds).size, 'operationId values must be unique');
+});
+
+test('every literal frontend backend call is covered by the public client contract', async () => {
+  const [api, files] = await Promise.all([
+    json('frontend/public/contracts/floris-client-v1.openapi.json'),
+    sourceFiles('frontend/src/'),
+  ]);
+  const calls = [];
+  for (const file of files) {
+    const source = await text(file);
+    for (const route of literalClientRoutes(source)) calls.push({ file, route });
+  }
+  assert.ok(calls.length > 0);
+  for (const { file, route } of calls) {
+    assert.ok(api.paths[route], `${file} calls ${route}, which is missing from OpenAPI`);
+  }
 });
 
 test('Node and Python authoritative identity adapters both accept Bearer transport', async () => {

@@ -72,6 +72,36 @@ export function streamChat(
   }, handlers, signal);
 }
 
+export function openChatTurn(
+  conversationId: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return authorizedFetch('/chat', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...makersConversationHeaders(conversationId),
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+}
+
+export function requestConversationStop(
+  conversationId: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return authorizedFetch('/stop', {
+    method: 'POST',
+    // Makers requires cancellation to target the run through the payload.
+    // Carrying the conversation header can replace the active run signal.
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation_id: conversationId }),
+    signal,
+  });
+}
+
 export async function bootstrapApp(
   conversationId: string,
   options: BootstrapOptions = {},

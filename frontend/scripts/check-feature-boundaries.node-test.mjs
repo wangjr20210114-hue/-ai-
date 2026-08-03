@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { assertImportAllowed } from './check-feature-boundaries.mjs';
+import {
+  assertImportAllowed,
+  assertNetworkAllowed,
+} from './check-feature-boundaries.mjs';
 
 
 test('feature boundary policy allows public view APIs but rejects deep cross-feature views', () => {
@@ -31,4 +34,14 @@ test('feature boundary policy allows public view APIs but rejects deep cross-fea
     ),
     false,
   );
+});
+
+test('backend calls are owned only by shared transport/auth or feature models', () => {
+  assert.equal(assertNetworkAllowed('shared/transport/httpClient.ts'), true);
+  assert.equal(assertNetworkAllowed('shared/auth/session.ts'), true);
+  assert.equal(assertNetworkAllowed('features/chat/model/client.ts'), true);
+  assert.equal(assertNetworkAllowed('features/papers/model/api.ts'), true);
+  assert.equal(assertNetworkAllowed('features/chat/controller/chatTransport.ts'), false);
+  assert.equal(assertNetworkAllowed('features/papers/view/Reader.tsx'), false);
+  assert.equal(assertNetworkAllowed('services/paperApi.ts'), false);
 });

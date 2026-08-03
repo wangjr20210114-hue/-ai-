@@ -12,7 +12,7 @@ import { searchMakersPlaces } from '../../maps/model/client';
 import {
   getReadingSettings,
   updateReadingSettings,
-} from '../../../services/paperApi';
+} from '../../papers/model/api';
 import {
   loadProviderUsage,
   loadSettingsSession,

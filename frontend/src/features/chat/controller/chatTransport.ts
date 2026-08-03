@@ -1,6 +1,8 @@
-import { touchConversationIndex } from '../model/client';
-import { authorizedFetch, ensureAuthSession } from '../../../shared/auth/session';
-import { makersConversationHeaders } from '../../../services/conversation';
+import {
+  openChatTurn,
+  requestConversationStop,
+  touchConversationIndex,
+} from '../model/client';
 import { splitSseFrames } from '../../../shared/transport/sseClient';
 import { translate, type TranslationKey } from '../../../i18n';
 import {
@@ -128,17 +130,11 @@ export class SSEChatClient {
   }
 
   private async cancelMakerRun(): Promise<'confirmed' | 'local'> {
-    await ensureAuthSession();
     const stopController = new AbortController();
     const stopTimer = window.setTimeout(() => stopController.abort(), STOP_TIMEOUT_MS);
-    const requestStop = (signal?: AbortSignal) => authorizedFetch('/stop', {
-      method: 'POST',
-      // Makers documents that stop must not carry the target conversation
-      // header, otherwise this request can replace the active run signal.
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversation_id: this.conversationId }),
-      signal,
-    });
+    const requestStop = (signal?: AbortSignal) => (
+      requestConversationStop(this.conversationId, signal)
+    );
     try {
       const response = await requestStop(stopController.signal);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -232,23 +228,18 @@ export class SSEChatClient {
       // the product's one-minute ceiling; once headers/data arrive, return to
       // the shorter idle watchdog so a stalled stream still stops quickly.
       armWatchdog(CHAT_INITIAL_RESPONSE_TIMEOUT_MS);
-      await ensureAuthSession();
       const browserLocation = currentBrowserLocation();
       const locationRequest = browserLocationRequestContext();
-      const response = await authorizedFetch('/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...makersConversationHeaders(this.conversationId),
-        },
-        body: JSON.stringify({
+      const response = await openChatTurn(
+        this.conversationId,
+        {
           ...(message.payload || {}),
           ...(browserLocation ? { current_location: browserLocation } : {}),
           location_request: locationRequest,
           ...(allowAfterStop ? { _allow_after_stop: true } : {}),
-        }),
+        },
         signal,
-      });
+      );
 
       if (!response.ok) {
         let detail = `HTTP ${response.status}`;
