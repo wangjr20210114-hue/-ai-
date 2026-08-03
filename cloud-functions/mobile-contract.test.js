@@ -138,7 +138,6 @@ test('every client-owned display route is published in the v1 OpenAPI', async ()
     text('frontend/src/features/image-studio/model/client.ts'),
     text('frontend/src/features/maps/model/client.ts'),
     text('frontend/src/features/papers/model/client.ts'),
-    text('frontend/src/features/search/model/client.ts'),
     text('frontend/src/features/settings/model/client.ts'),
     text('frontend/src/features/skills/model/client.ts'),
   ]);

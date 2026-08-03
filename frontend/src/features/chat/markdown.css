@@ -124,8 +124,7 @@
   white-space: pre;
   overflow-wrap: normal;
 }
-.msg-bubble.ai .markdown-body table,
-.travel-plan-markdown .markdown-body table {
+.msg-bubble.ai .markdown-body table {
   border-collapse: collapse;
   margin: 6px 0;
   font-size: 12.5px;
@@ -137,29 +136,24 @@
   -webkit-overflow-scrolling: touch;
   margin: 6px 0;
 }
-.msg-bubble.ai .markdown-body th,
-.travel-plan-markdown .markdown-body th {
+.msg-bubble.ai .markdown-body th {
   border: 1px solid var(--app-border);
   padding: 5px 8px;
   font-weight: 600;
   background: var(--app-panel-2);
   text-align: left;
 }
-.msg-bubble.ai .markdown-body td,
-.travel-plan-markdown .markdown-body td {
+.msg-bubble.ai .markdown-body td {
   border: 1px solid var(--app-border);
   padding: 5px 8px;
   text-align: left;
 }
-.msg-bubble.ai .markdown-body tr,
-.travel-plan-markdown .markdown-body tr {
+.msg-bubble.ai .markdown-body tr {
   display: table-row;
 }
-.msg-bubble.ai .markdown-body thead,
-.travel-plan-markdown .markdown-body thead {
+.msg-bubble.ai .markdown-body thead {
   display: table-header-group;
 }
-.msg-bubble.ai .markdown-body tbody,
-.travel-plan-markdown .markdown-body tbody {
+.msg-bubble.ai .markdown-body tbody {
   display: table-row-group;
 }

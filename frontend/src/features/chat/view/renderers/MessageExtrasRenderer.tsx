@@ -3,7 +3,6 @@ import { Button } from 'tdesign-react';
 import type { MessageBubbleController } from '../../controller/useMessageBubbleController';
 import { useLanguage } from '../../../../i18n';
 import type { ChatMessage } from '../../../../shared/types';
-import { TravelPlanCard } from '../../../maps/view';
 import { PaperRenderer } from './PaperRenderer';
 
 interface Props {
@@ -33,25 +32,12 @@ export function MessageExtrasRenderer({
     meetingCreating,
     meetingResult,
     meetingStatusText,
-    parsedSchedules,
-    setTravelPlan,
     skill,
     skillActioned,
-    travelPlan,
-    travelStartTs,
     workspaceActions,
   } = controller;
 
   return <>
-    {travelPlan && <div style={{ marginTop: 12, maxWidth: '100%' }}>
-      <TravelPlanCard
-        plan={travelPlan}
-        startTs={travelStartTs}
-        parsedSchedules={parsedSchedules}
-        onSaved={(updated) => setTravelPlan(updated)}
-      />
-    </div>}
-
     {!isUser && intent === 'meeting' && meetingResult?.ok && <div className="followup-section">
       <div className="travel-intent-card" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ fontWeight: 600, fontSize: 14 }}>
@@ -89,7 +75,6 @@ export function MessageExtrasRenderer({
     {!isUser
       && skill
       && skill.mode !== 'immediate'
-      && !travelPlan
       && !meetingResult
       && !imageResult
       && !skillActioned

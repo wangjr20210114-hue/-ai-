@@ -92,6 +92,26 @@
   margin-top: 10px;
   padding-left: 2px;
 }
+.travel-intent-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--app-panel);
+  border: 1px solid var(--app-border-strong);
+  border-radius: 12px;
+  box-shadow: var(--app-shadow);
+  animation: cardSlideIn 260ms var(--motion-ease-out) both;
+}
+.travel-intent-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--app-text-2);
+  font-size: 13px;
+}
+.travel-intent-icon { font-size: 16px; }
 .answer-followups {
   width: 75%;
   max-width: 100%;

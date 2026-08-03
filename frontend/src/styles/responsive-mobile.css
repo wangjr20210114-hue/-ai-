@@ -91,14 +91,11 @@
   }
 
   .workspace-confirm-actions,
-.travel-plan-actions,
-.skills-marketplace-footer {
+  .skills-marketplace-footer {
     flex-wrap: wrap;
   }
 
-  .travel-plan-card,
-.travel-plan-markdown,
-.image-studio-card {
+  .image-studio-card {
     padding: 10px;
   }
 

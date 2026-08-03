@@ -401,9 +401,9 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
     read('frontend/src/features/chat/view/MessageBubble.tsx'),
     read('frontend/src/features/chat/view/renderers/MessageBubbleView.tsx'),
     read('frontend/src/features/chat/view/renderers/MessagePrimaryRenderer.tsx'),
+    read('frontend/src/features/chat/view/renderers/WorkspaceActionRenderer.tsx'),
     read('frontend/src/features/chat/controller/useMessageBubbleController.ts'),
-    read('frontend/src/features/maps/view/TravelPlanCard.tsx'),
-    read('frontend/src/features/maps/view/RouteMap.tsx'),
+    read('frontend/src/features/maps/view/MakersMap.tsx'),
     read('frontend/vite.config.ts'),
   ]);
   const active = sources.join('\n');

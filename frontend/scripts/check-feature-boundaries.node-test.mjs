@@ -30,7 +30,7 @@ test('feature boundary policy allows public view APIs but rejects deep cross-fea
   assert.equal(
     assertImportAllowed(
       'features/chat/view/x.tsx',
-      'features/maps/view/TravelPlanCard.tsx',
+      'features/maps/view/MakersMap.tsx',
     ),
     false,
   );

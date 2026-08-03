@@ -20,9 +20,7 @@ import type {
   ChatMessage,
   MeetingResult,
   ProactiveNotification,
-  ScheduleItem,
   SkillInfo,
-  TravelPlan,
   WorkspaceAction,
 } from '../../../shared/types';
 
@@ -115,13 +113,6 @@ export function useMessageBubbleController({
 }: MessageBubbleControllerInput) {
   const dispatch = useAppDispatch();
   const { t } = useLanguage();
-  const [travelPlan, setTravelPlan] = useState<TravelPlan | null>(
-    message.travelPlanData || null,
-  );
-  const [travelStartTs] = useState<number | undefined>(message.travelStartTs);
-  const [parsedSchedules] = useState<Partial<ScheduleItem>[]>(
-    message.parsedSchedules || [],
-  );
   const [meetingCreating, setMeetingCreating] = useState(false);
   const [meetingResult, setMeetingResult] = useState<MeetingResult | null>(null);
   const [meetingStatusText, setMeetingStatusText] = useState('');
@@ -531,18 +522,14 @@ export function useMessageBubbleController({
     meetingResult,
     meetingStatusText,
     mutateProactive,
-    parsedSchedules,
     proactiveBusy,
     replaceWorkspaceAction,
     requestRouteCalendarProposal,
     retryFailedAnswer,
     retryingAnswer,
     saveAnswerImage,
-    setTravelPlan,
     skill,
     skillActioned,
-    travelPlan,
-    travelStartTs,
     workspaceActions,
     workspaceBusy,
   };

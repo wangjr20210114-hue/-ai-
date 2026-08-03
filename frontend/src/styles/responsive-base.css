@@ -59,14 +59,12 @@ body {
 }
 
 .markdown-body,
-.travel-plan-card,
 .image-studio-card,
 .paper-inline-reader {
   min-width: 0;
 }
 
-.markdown-body :where(pre, code, table),
-.travel-plan-markdown :where(pre, code, table) {
+.markdown-body :where(pre, code, table) {
   max-width: 100%;
 }
 

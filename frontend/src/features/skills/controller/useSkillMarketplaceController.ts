@@ -99,9 +99,9 @@ export function useSkillMarketplaceController() {
     [preferences],
   );
 
-  const refresh = useCallback(async (): Promise<boolean> => {
+  const refresh = useCallback(async (showLoading = true): Promise<boolean> => {
     const sequence = ++refreshSequenceRef.current;
-    setLoading(true);
+    setLoading(showLoading);
     try {
       const result = await skillMarketplaceOperation(conversationId);
       if (sequence !== refreshSequenceRef.current) return false;
@@ -133,7 +133,12 @@ export function useSkillMarketplaceController() {
     setClosing(false);
     setVisible(true);
     setView('catalog');
-    if (!marketplace || Date.now() - loadedAtRef.current > 30_000) void refresh();
+    if (!marketplace || Date.now() - loadedAtRef.current > 30_000) {
+      // Keep a previously loaded catalog interactive while refreshing it.
+      // Identity changes still use a foreground refresh below, because their
+      // entitlement projection must not expose stale controls.
+      void refresh(!marketplace);
+    }
   }, [marketplace, refresh]);
   const closeMarketplace = useCallback(() => {
     // A full-screen layer can disappear while the browser is still
@@ -223,7 +228,7 @@ export function useSkillMarketplaceController() {
       window.dispatchEvent(new CustomEvent('yuanbao:skills-changed', {
         detail: result.preferences,
       }));
-      await refresh();
+      await refresh(false);
       MessagePlugin.success(
         autoEnabled.length
           ? t('skillsDependenciesEnabled', {
@@ -248,7 +253,7 @@ export function useSkillMarketplaceController() {
       const state = await configureSkillConnection(conversationId, skillId, token);
       setConnections(state.skill_connections || {});
       setTokenDrafts((current) => ({ ...current, [skillId]: '' }));
-      await refresh();
+      await refresh(false);
       MessagePlugin.success(t('skillTokenSaved'));
     } catch {
       MessagePlugin.error(t('skillTokenSaveFailed'));
@@ -262,7 +267,7 @@ export function useSkillMarketplaceController() {
     try {
       const state = await configureSkillConnection(conversationId, skillId);
       setConnections(state.skill_connections || {});
-      await refresh();
+      await refresh(false);
       MessagePlugin.success(t('skillDisconnected'));
     } catch {
       MessagePlugin.error(t('skillTokenSaveFailed'));

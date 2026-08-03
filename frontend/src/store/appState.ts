@@ -2,7 +2,6 @@ import { createContext, useContext, type Dispatch } from 'react';
 import type {
   ChatMessage,
   ThemeMode,
-  TravelPlan,
   ScheduleItem,
   MakersMapPlace,
   MakersRouteMode,
@@ -36,7 +35,6 @@ export interface AppState {
   draft: string;
   documentContext: DocumentContext | null;
   messages: ChatMessage[];
-  plans: TravelPlan[];
   schedules: ScheduleItem[];
   mapPlaces: MakersMapPlace[];
   mapTitle: string;
@@ -62,10 +60,6 @@ export type Action =
   | { type: 'ADD_MESSAGE'; payload: ChatMessage }
   | { type: 'HYDRATE_MESSAGES'; payload: ChatMessage[] }
   | { type: 'UPDATE_MESSAGE'; payload: { id: string; patch: Partial<ChatMessage>; delta?: string } }
-  | { type: 'SET_PLANS'; payload: TravelPlan[] }
-  | { type: 'ADD_PLAN'; payload: TravelPlan }
-  | { type: 'UPDATE_PLAN'; payload: TravelPlan }
-  | { type: 'DELETE_PLAN'; payload: string }
   | { type: 'SET_SCHEDULES'; payload: ScheduleItem[] }
   | { type: 'MERGE_SCHEDULES'; payload: ScheduleItem[] }
   | { type: 'SET_MAP_PLACES'; payload: { places: MakersMapPlace[]; title?: string; routeMode?: MakersRouteMode; routeStrategy?: MakersRouteStrategy; showRoute?: boolean; reveal?: boolean } }
@@ -89,7 +83,6 @@ export const initialState: AppState = {
   draft: '',
   documentContext: null,
   messages: [],
-  plans: [],
   schedules: [],
   mapPlaces: [],
   mapTitle: translate('relatedPlaces'),
@@ -130,7 +123,6 @@ export function reducer(state: AppState, action: Action): AppState {
         draft: '',
         documentContext: null,
         messages: [],
-        plans: [],
         scheduleViewDate: null,
       };
     case 'SET_CONVERSATIONS': return { ...state, conversations: action.payload };
@@ -158,11 +150,6 @@ export function reducer(state: AppState, action: Action): AppState {
           return { ...message, ...action.payload.patch };
         }),
       };
-    case 'SET_PLANS': return { ...state, plans: action.payload };
-    case 'ADD_PLAN': return { ...state, plans: [action.payload, ...state.plans] };
-    case 'UPDATE_PLAN':
-      return { ...state, plans: state.plans.map((plan) => plan.id === action.payload.id ? action.payload : plan) };
-    case 'DELETE_PLAN': return { ...state, plans: state.plans.filter((plan) => plan.id !== action.payload) };
     case 'SET_SCHEDULES': return { ...state, schedules: action.payload };
     case 'MERGE_SCHEDULES': {
       const merged = new Map(state.schedules.map((item) => [item.id, item]));

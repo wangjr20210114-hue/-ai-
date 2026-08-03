@@ -478,11 +478,6 @@ export interface ChatMessage {
   // 通用技能数据
   skill?: SkillInfo;
 
-  // 旅游计划结果数据
-  travelPlanData?: TravelPlan;
-  travelStartTs?: number;
-  parsedSchedules?: Partial<ScheduleItem>[];
-
   // 论文数据
   papers?: PaperInfo[];
   paperFileId?: string;
