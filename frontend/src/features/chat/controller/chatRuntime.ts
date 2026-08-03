@@ -584,6 +584,7 @@ export function useChatRuntime() {
   // so bootstrap/reconciliation cannot reset the visible stopwatch.
   const searchStartedAtRef = useRef(new Map<string, number>());
   const searchCompletedAtRef = useRef(new Map<string, number>());
+  const pendingTurnStartedAtRef = useRef(new Map<string, number>());
   const activeConversationRef = useRef(conversationId);
   const conversationsRef = useRef(conversations);
   const pageOpenProactiveRefreshStartedRef = useRef(false);
@@ -628,6 +629,7 @@ export function useChatRuntime() {
       current.searchStartedAt,
       searchStartedAtRef.current.get(streamId),
       shouldStart,
+      Number(current.turnStartedAt || Date.now()),
     );
     if (known) {
       searchStartedAtRef.current.set(streamId, known);
@@ -652,6 +654,10 @@ export function useChatRuntime() {
         case 'optimistic_user': {
           const message = event.payload.message as ChatMessage | undefined;
           if (!message?.id || message.role !== 'user') break;
+          pendingTurnStartedAtRef.current.set(
+            id,
+            Number(message.ts || Date.now()),
+          );
           const current = cached(id);
           publish(id, current.some((item) => item.id === message.id) ? current : [...current, message]);
           break;
@@ -665,8 +671,12 @@ export function useChatRuntime() {
           break;
         }
         case 'stream_start': {
+          const turnStartedAt = pendingTurnStartedAtRef.current.get(id)
+            || Date.now();
+          pendingTurnStartedAtRef.current.delete(id);
           const streamMessage: ChatMessage = {
             id: streamId || `ai-stream-${Date.now()}`, role: 'ai', content: '', ts: Date.now(), streaming: true,
+            turnStartedAt,
             skill: { intent: 'chat', mode: 'immediate', content: '', icon: '✨', action_label: '', params: {}, data: { status: 'thinking', statusText: translate('understandingRequest') } },
             progress: [initialPlanningProgress()],
           };
@@ -789,6 +799,7 @@ export function useChatRuntime() {
           streams.clear();
           searchStartedAtRef.current.clear();
           searchCompletedAtRef.current.clear();
+          pendingTurnStartedAtRef.current.delete(id);
           publish(id, settleStoppedMessages(cached(id)));
           setConversationActivity(id, 'idle');
           break;

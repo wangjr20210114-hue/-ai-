@@ -40,13 +40,13 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             ["https://example.com/yellow.png", "https://example.com/red.png"],
         )
 
-    def test_structured_actions_keep_public_answer_streaming_except_images(self):
+    def test_all_structured_actions_keep_public_answer_streaming(self):
         self.assertFalse(should_buffer_public_answer({"needs_route": True}))
         self.assertFalse(should_buffer_public_answer({
             "needs_route": False,
             "needs_calendar_action": True,
         }))
-        self.assertTrue(should_buffer_public_answer({
+        self.assertFalse(should_buffer_public_answer({
             "needs_image_generation": True,
         }))
         self.assertFalse(should_buffer_public_answer({

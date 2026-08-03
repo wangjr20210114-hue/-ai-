@@ -135,7 +135,7 @@ class ChatTurnBoundaryTests(unittest.TestCase):
         self.assertEqual(request.tenant_id, "tenant-a")
         self.assertEqual(request.user_id, "user-a")
         self.assertEqual(request.depth, "deep")
-        self.assertEqual(request.media_mode, "blocking")
+        self.assertEqual(request.media_mode, "progressive")
 
     def test_image_generation_keeps_reviewed_media_blocking(self):
         request = search_request_for_plan(
@@ -182,13 +182,16 @@ class ChatTurnBoundaryTests(unittest.TestCase):
         source = controller_path.read_text(encoding="utf-8")
 
         self.assertIn("search_use_case.execute(", source)
+        self.assertIn("on_media=publish_media", source)
+        self.assertIn("background_tasks.extend(execution.media_tasks)", source)
+        self.assertIn("queue.put(presenter.media(completed))", source)
         self.assertIn("rich_search_operation=execute_planned_rich_search", source)
         self.assertIn(
             "required_tool_names = required_tools_for_plan(capability_plan)",
             source,
         )
 
-    def test_chat_keeps_main_blocking_media_boundary(self):
+    def test_chat_uses_the_semantic_progressive_media_policy(self):
         service_path = (
             Path(__file__).parents[2]
             / "_application"
@@ -206,8 +209,12 @@ class ChatTurnBoundaryTests(unittest.TestCase):
 
         self.assertEqual(len(calls), 1)
         keywords = {keyword.arg: keyword.value for keyword in calls[0].keywords}
-        self.assertIsInstance(keywords["progressive_media"], ast.Constant)
-        self.assertFalse(keywords["progressive_media"].value)
+        self.assertIsInstance(keywords["progressive_media"], ast.Call)
+        self.assertIsInstance(keywords["progressive_media"].func, ast.Name)
+        self.assertEqual(
+            keywords["progressive_media"].func.id,
+            "progressive_media_for_plan",
+        )
 
     def test_runtime_annotations_resolve_from_module_scope(self):
         service_path = Path(turn_service_module.__file__)

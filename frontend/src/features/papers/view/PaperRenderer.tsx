@@ -6,7 +6,6 @@ import PaperListCard from './PaperListCard';
 
 export function PaperRenderer({ message }: { message: ChatMessage }) {
   const { t } = useLanguage();
-  if (message.streaming) return null;
   return <>
     {message.papers && message.papers.length > 0 && (
       <div style={{ marginTop: 12, width: '100%' }}>

@@ -21,10 +21,14 @@ function RichImage({
   boundMediaId?: string;
 }) {
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const { t } = useLanguage();
   if (failed) return null;
   return (
-    <figure className={`rich-media-figure${asset.preview ? ' is-preview' : ''}`}>
+    <figure
+      className={`rich-media-figure streamed-component${asset.preview ? ' is-preview' : ''}${loaded ? ' is-loaded' : ' is-loading'}`}
+      aria-busy={!loaded}
+    >
       <img
         src={asset.url}
         alt={asset.alt || asset.caption || t('answerImage')}
@@ -33,6 +37,7 @@ function RichImage({
         draggable={false}
         data-source-id={sourceId}
         data-source-bound-media={boundMediaId}
+        onLoad={() => setLoaded(true)}
         onError={() => setFailed(true)}
       />
       {(asset.caption || asset.source_url) && (

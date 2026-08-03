@@ -71,7 +71,7 @@ from agents._infrastructure.skills.builtin_operations import (
     preserve_planned_route_stops,
     verify_place_queries_parallel,
 )
-from agents.chat._protocol import PublicStreamFilter, StreamDeltaNormalizer, action_fallback_content, checkpoint_recovery_needed, dsml_tool_calls, public_content, public_error, safe_error_diagnostics
+from agents.chat._protocol import MarkdownImageStreamFilter, PublicStreamFilter, StreamDeltaNormalizer, action_fallback_content, checkpoint_recovery_needed, dsml_tool_calls, public_content, public_error, safe_error_diagnostics
 from agents.messages.index import handler as messages_handler
 from agents._infrastructure.providers.side_effects import (
     _cloudflare_image_prompt,

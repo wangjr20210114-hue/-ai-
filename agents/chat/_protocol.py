@@ -189,6 +189,101 @@ class PublicStreamFilter:
         return reset_required
 
 
+class MarkdownImageStreamFilter:
+    """Strip model-authored Markdown images without buffering normal prose.
+
+    Generated and reviewed images belong to trusted component events. The
+    model is instructed not to repeat them as Markdown, but this filter keeps
+    that boundary deterministic when ``![alt](url)`` spans provider chunks.
+    """
+
+    def __init__(self, max_candidate_chars: int = 4096) -> None:
+        self.max_candidate_chars = max(256, int(max_candidate_chars))
+        self.buffer = ""
+
+    def push(self, chunk: str) -> str:
+        if chunk:
+            self.buffer += str(chunk)
+        output: list[str] = []
+        while self.buffer:
+            marker = self.buffer.find("![")
+            if marker < 0:
+                # A trailing bang may become ``![`` in the next provider delta.
+                keep = 1 if self.buffer.endswith("!") else 0
+                if len(self.buffer) > keep:
+                    output.append(self.buffer[:-keep] if keep else self.buffer)
+                    self.buffer = self.buffer[-keep:] if keep else ""
+                break
+
+            output.append(self.buffer[:marker])
+            self.buffer = self.buffer[marker:]
+            close_alt = self.buffer.find("]")
+            newline = min(
+                (
+                    index
+                    for index in (
+                        self.buffer.find("\n"),
+                        self.buffer.find("\r"),
+                    )
+                    if index >= 0
+                ),
+                default=-1,
+            )
+            if newline >= 0 and (close_alt < 0 or newline < close_alt):
+                output.append("!")
+                self.buffer = self.buffer[1:]
+                continue
+            if close_alt < 0:
+                if len(self.buffer) <= self.max_candidate_chars:
+                    break
+                output.append("!")
+                self.buffer = self.buffer[1:]
+                continue
+            if len(self.buffer) == close_alt + 1:
+                break
+            if self.buffer[close_alt + 1] != "(":
+                output.append("!")
+                self.buffer = self.buffer[1:]
+                continue
+            close_url = self.buffer.find(")", close_alt + 2)
+            newline_after_alt = min(
+                (
+                    index
+                    for index in (
+                        self.buffer.find("\n", close_alt + 2),
+                        self.buffer.find("\r", close_alt + 2),
+                    )
+                    if index >= 0
+                ),
+                default=-1,
+            )
+            if close_url < 0:
+                if (
+                    newline_after_alt < 0
+                    and len(self.buffer) <= self.max_candidate_chars
+                ):
+                    break
+                output.append("!")
+                self.buffer = self.buffer[1:]
+                continue
+            # A complete image is owned by the structured component protocol.
+            self.buffer = self.buffer[close_url + 1:]
+        return "".join(output)
+
+    def finish(self) -> str:
+        output = self.push("")
+        # An unfinished image tail is not useful prose; punctuation still is.
+        if self.buffer == "!":
+            output += self.buffer
+        elif self.buffer and not self.buffer.startswith("!["):
+            output += self.buffer
+        self.buffer = ""
+        return output
+
+    def reset(self) -> None:
+        self.buffer = ""
+
+
 class StreamDeltaNormalizer:
     """Turn provider deltas or cumulative messages into one monotonic stream."""
 

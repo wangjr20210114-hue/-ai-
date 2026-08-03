@@ -86,6 +86,7 @@ export default function PaperListCard({ message }: Props) {
   };
 
   const openReader = async (paper: PaperInfo) => {
+    if (message.streaming) return;
     const stored = await ensureDownloaded(paper);
     if (stored) {
       preloadPaperFile(stored.fileId, {
@@ -131,7 +132,7 @@ export default function PaperListCard({ message }: Props) {
                   className="paper-assistant-button"
                   theme="primary"
                   loading={downloadingId === downloadId}
-                  disabled={!downloadId}
+                  disabled={message.streaming || !downloadId}
                   icon={<BookOpenIcon />}
                   onClick={() => void openReader(paper)}
                 >

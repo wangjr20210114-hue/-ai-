@@ -6,6 +6,19 @@
   background: rgba(var(--app-accent-rgb), 0.06);
 }
 
+@keyframes streamed-component-enter {
+  from { opacity: 0; transform: translateY(8px) scale(.992); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.streamed-component {
+  animation: streamed-component-enter 280ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streamed-component { animation: none; }
+}
+
 .workspace-confirm-title { font-weight: 600; line-height: 1.55; }
 .workspace-confirm-meta { margin-top: 4px; color: var(--app-text-secondary, #687086); font-size: 12px; }
 .workspace-confirm-actions { display: flex; gap: 8px; margin-top: 10px; }

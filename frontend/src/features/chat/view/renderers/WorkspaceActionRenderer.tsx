@@ -45,11 +45,11 @@ export function WorkspaceActionRenderer({
         (item) => item.kind === 'calendar_changes',
       );
       return (
-        <div className="workspace-map-actions" key={action.id}>
+        <div className="workspace-map-actions streamed-component" key={action.id}>
           <button
             type="button"
             className="workspace-map-action"
-            disabled={busy || action.status === 'cancelled'}
+            disabled={generationActive || busy || action.status === 'cancelled'}
             onClick={() => void onAction(action, 'activate_map')}
           >
             {busy ? t('openingMap') : action.payload.action_text || t('viewPlacesOnMap')}
@@ -69,31 +69,35 @@ export function WorkspaceActionRenderer({
     }
     if (action.kind === 'image_generate' && action.status !== 'awaiting_confirmation') {
       return (
-        <ImageStudioCard
-          key={action.id}
+        <div className="streamed-component" key={action.id}>
+          <ImageStudioCard
           action={action}
           conversationId={conversationId}
           onUpdated={onReplace}
-        />
+          disabled={generationActive}
+          />
+        </div>
       );
     }
     if (action.kind === 'meeting_create') {
-      return <div key={action.id}>{renderMeeting(action, busy)}</div>;
+      return <div className="streamed-component" key={action.id}>
+        {renderMeeting(action, busy || generationActive)}
+      </div>;
     }
     const title = action.kind === 'calendar_changes'
       ? action.payload.summary || t('applyCalendarChanges')
       : t('generateImagePrompt', { prompt: String(action.payload.prompt || '') });
     const result = action.result || {};
     return (
-      <div key={action.id} className="workspace-confirm-card">
+      <div key={action.id} className="workspace-confirm-card streamed-component">
         <div className="workspace-confirm-title">{title}</div>
         {action.payload.warnings?.map((warning) => (
           <div key={warning} className="workspace-confirm-warning">{t('warningContinue', { warning })}</div>
         ))}
         {action.status === 'awaiting_confirmation' ? (
           <div className="workspace-confirm-actions">
-            <Button size="small" theme="primary" loading={busy} onClick={() => void onAction(action, 'confirm_action')}>{t('confirm')}</Button>
-            <Button size="small" variant="outline" disabled={busy} onClick={() => void onAction(action, 'cancel_action')}>{t('cancel')}</Button>
+            <Button size="small" theme="primary" loading={busy} disabled={generationActive} onClick={() => void onAction(action, 'confirm_action')}>{t('confirm')}</Button>
+            <Button size="small" variant="outline" disabled={generationActive || busy} onClick={() => void onAction(action, 'cancel_action')}>{t('cancel')}</Button>
           </div>
         ) : (
           <div className={`workspace-action-status status-${action.status}`}>

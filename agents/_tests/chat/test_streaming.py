@@ -332,6 +332,18 @@ class ChatStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(reset)
         self.assertEqual("".join(parts), "这是一段完全正常的流式回答内容。")
 
+        images = MarkdownImageStreamFilter()
+        visible = [
+            images.push("图片已经生成，"),
+            images.push("可继续调整。![结果](https://example.com/"),
+            images.push("generated.png) 后续文字仍然流式显示。"),
+            images.finish(),
+        ]
+        self.assertEqual(
+            "".join(visible),
+            "图片已经生成，可继续调整。 后续文字仍然流式显示。",
+        )
+
     def test_public_stream_filter_strips_echoed_observation_and_keeps_answer(self):
         guard = PublicStreamFilter(hold_chars=16)
         observation = json.dumps({

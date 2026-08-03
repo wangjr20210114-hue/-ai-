@@ -95,7 +95,7 @@ export function MessagePrimaryRenderer({
     >
       {controller.retryingAnswer ? t('retrying') : t('retryGeneration')}
     </button>}
-    {!message.streaming && <WorkspaceActionRenderer
+    <WorkspaceActionRenderer
       actions={controller.workspaceActions}
       busyKey={controller.workspaceBusy}
       conversationId={conversationId}
@@ -114,7 +114,7 @@ export function MessagePrimaryRenderer({
         onConfirm={() => controller.handleWorkspaceAction(action, 'confirm_action')}
         onCancel={() => controller.handleWorkspaceAction(action, 'cancel_action')}
       />}
-    />}
+    />
     {!message.streaming && markdown.trim() && assistantChainTail && <div className="answer-action-group">
       <button
         type="button"

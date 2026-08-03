@@ -50,6 +50,7 @@ def search_request_for_plan(
     image_limit: int,
     parallel_queries: bool,
     force_refresh: bool,
+    progressive_media: bool | None = None,
 ) -> SearchRequest | None:
     if (
         not plan.get("needs_web_search")
@@ -65,9 +66,18 @@ def search_request_for_plan(
         image_limit > 0
         and (plan.get("needs_web_search") or plan.get("needs_images"))
     )
-    # Keep main's evidence boundary: source pages and bounded visual review
-    # complete before the answer graph receives the rich_search ToolMessage.
-    media_mode = "blocking" if media_enabled else "disabled"
+    progressive_media = (
+        not bool(plan.get("needs_image_generation"))
+        if progressive_media is None
+        else bool(progressive_media)
+    )
+    # Factual sources stay on the answer path. Reviewed images may arrive later
+    # unless image generation needs them as provider references first.
+    media_mode = (
+        "progressive" if media_enabled and progressive_media
+        else "blocking" if media_enabled
+        else "disabled"
+    )
     entitlements = public_entitlements(identity)
     return SearchRequest(
         tenant_id=str(identity.get("tenant_id") or ""),

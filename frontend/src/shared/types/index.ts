@@ -452,6 +452,8 @@ export interface ChatMessage {
   content: string;
   ts: number;
   streaming?: boolean;      // 是否正在流式输出
+  /** The user-send timestamp for this logical turn. */
+  turnStartedAt?: number;
   searchStartedAt?: number;
   searchCompletedAt?: number;
   failed?: boolean;         // 瞬时失败提示；不写入本地缓存或 Makers 历史
