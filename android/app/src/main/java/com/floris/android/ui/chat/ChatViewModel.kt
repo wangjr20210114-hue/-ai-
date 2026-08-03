@@ -3,6 +3,7 @@ package com.floris.android.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.floris.android.core.chat.ChatMessageUi
+import com.floris.android.core.chat.StreamTypewriter
 import com.floris.android.core.chat.reduce
 import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.data.arr
@@ -15,9 +16,11 @@ import com.floris.android.core.model.SearchMeta
 import com.floris.android.core.model.WorkspaceAction
 import com.floris.android.core.network.sse.ChatEvent
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -186,27 +189,58 @@ class ChatViewModel(
         streamJob?.cancel()
         streamJob = viewModelScope.launch {
             var sawTerminal = false
+            val typewriter = StreamTypewriter()
+
+            // 独立的呈现时钟：把后端的文本分块按字符匀速吐到 UI，
+            // 得到真正连续的流式观感（不改动任何字符内容）。
+            val painter = launch {
+                while (isActive) {
+                    val slice = typewriter.nextFrame()
+                    if (slice.isNotEmpty()) {
+                        updateAssistant(assistantId) { it.copy(content = it.content + slice) }
+                    }
+                    delay(StreamTypewriter.FRAME_MILLIS)
+                }
+            }
+
             runCatching {
                 repository.streamChat(conversationId, body).collect { event ->
                     when (event) {
                         is ChatEvent.LocationRequest ->
                             _state.update { it.copy(locationRequestReason = event.reason) }
+                        // 正文交给打字机排队，其余事件立即生效。
+                        is ChatEvent.AiResponse -> typewriter.offer(event.content)
+                        ChatEvent.AiResponseReset -> {
+                            typewriter.reset()
+                            updateAssistant(assistantId) { it.copy(content = "") }
+                        }
                         is ChatEvent.AnswerComplete -> {
                             sawTerminal = true
+                            typewriter.finish()
+                            drain(typewriter, assistantId)
                             updateAssistant(assistantId) { it.reduce(event) }
                         }
                         is ChatEvent.Error -> {
                             sawTerminal = true
+                            typewriter.finish()
+                            drain(typewriter, assistantId)
                             updateAssistant(assistantId) { it.reduce(event) }
                         }
                         else -> updateAssistant(assistantId) { it.reduce(event) }
                     }
                 }
             }.onFailure { error ->
+                typewriter.finish()
+                drain(typewriter, assistantId)
                 updateAssistant(assistantId) {
                     it.copy(streaming = false, failed = true, error = error.message ?: "网络错误")
                 }
             }
+            // 无论如何都把缓冲里剩下的字符补齐，终态与后端一致。
+            typewriter.finish()
+            drain(typewriter, assistantId)
+            painter.cancel()
+
             updateAssistant(assistantId) { current ->
                 if (current.streaming) current.copy(
                     streaming = false,
@@ -223,6 +257,15 @@ class ChatViewModel(
                     _state.value.messages.count { it.hasDurablePayload },
                 )
             }
+        }
+    }
+
+    /** 把打字机缓冲一次性排空到消息内容里。 */
+    private fun drain(typewriter: StreamTypewriter, assistantId: String) {
+        if (!typewriter.hasPending) return
+        val rest = typewriter.nextFrame()
+        if (rest.isNotEmpty()) {
+            updateAssistant(assistantId) { it.copy(content = it.content + rest) }
         }
     }
 

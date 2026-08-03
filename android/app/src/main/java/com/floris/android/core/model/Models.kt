@@ -104,6 +104,8 @@ data class SearchMeta(
     val target_date: String? = null,
     val strict_date: Boolean? = null,
     val media_pending: Boolean? = null,
+    /** floris-components-v1: 各阶段耗时（毫秒），如 timings_ms.search。 */
+    val timings_ms: Map<String, Double> = emptyMap(),
 )
 
 @Serializable
@@ -279,13 +281,19 @@ data class Profile(
     val email: String? = null,
 )
 
+/**
+ * 主动提醒（POST /proactive）。后端负责生成与状态流转，
+ * 客户端只展示并把用户决定原样转发（mark_read / snooze / dismiss）。
+ */
 @Serializable
-data class ProactiveBrief(
+data class ProactiveNotification(
     val id: String = "",
     val title: String = "",
-    val summary: String? = null,
-    val kind: String? = null,
+    val body: String? = null,
+    val type: String? = null,
     val priority: String? = null,
-    val created_at: Long? = null,
-    val payload: JsonObject? = null,
+    val status: String = "unread",
+    val snoozedUntil: Long? = null,
+    /** 后端建议的处理话术，点"去处理"时填入输入框。 */
+    val actionPrompt: String? = null,
 )

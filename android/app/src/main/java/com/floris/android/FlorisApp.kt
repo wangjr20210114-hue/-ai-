@@ -50,11 +50,20 @@ class AppContainer(private val context: Context) {
                 buildJsonObject { put("access_token", accessToken) },
             )
         },
+        guestExchange = { florisClient.obtainGuestSession() },
     )
 
     val florisClient: FlorisClient by lazy { FlorisClient(authManager, json) }
 
     val repository: FlorisRepository by lazy {
         FlorisRepository(florisClient, tokenStore, json, context)
+    }
+
+    /** 客户端本地偏好（主题、语言、新手介绍、富搜索数量）。 */
+    val preferences: com.floris.android.ui.prefs.AppPreferences by lazy {
+        com.floris.android.ui.prefs.AppPreferences(
+            context,
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main),
+        )
     }
 }

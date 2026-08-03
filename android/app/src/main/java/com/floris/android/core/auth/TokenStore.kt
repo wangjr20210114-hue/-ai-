@@ -18,6 +18,7 @@ interface TokenStorage {
     suspend fun load(): TokenStore.Snapshot
     suspend fun saveCloudBaseSession(accessToken: String, refreshToken: String, expiresAt: Long)
     suspend fun saveFlorisSession(token: String, expiresInSeconds: Long, identity: Identity?)
+    suspend fun saveGuestSession(token: String, expiresAt: Long, identity: Identity?)
     suspend fun savePendingVerification(email: String, verificationId: String)
     suspend fun loadPendingVerification(): Pair<String, String>?
     suspend fun clearPendingVerification()
@@ -43,6 +44,7 @@ class TokenStore(
         val SEARCH_CONVERSATION_ID = stringPreferencesKey("search_conversation_id")
         val PENDING_EMAIL = stringPreferencesKey("pending_otp_email")
         val PENDING_VERIFICATION = stringPreferencesKey("pending_verification_id")
+        val IS_GUEST = stringPreferencesKey("session_is_guest")
     }
 
     @Volatile private var cachedFlorisToken: String? = null
@@ -56,6 +58,7 @@ class TokenStore(
         val florisToken: String?,
         val florisExpiresAt: Long,
         val identity: Identity?,
+        val isGuest: Boolean = false,
     )
 
     override suspend fun load(): Snapshot {
@@ -74,6 +77,7 @@ class TokenStore(
             florisToken = prefs[Keys.FLORIS_TOKEN],
             florisExpiresAt = prefs[Keys.FLORIS_EXPIRES_AT] ?: 0,
             identity = identity,
+            isGuest = prefs[Keys.IS_GUEST] == "1",
         )
     }
 
@@ -94,6 +98,27 @@ class TokenStore(
         context.authDataStore.edit {
             it[Keys.FLORIS_TOKEN] = token
             it[Keys.FLORIS_EXPIRES_AT] = expiresAt
+            it[Keys.IS_GUEST] = "0"
+            identity?.let { id -> it[Keys.IDENTITY] = json.encodeToString(Identity.serializer(), id) }
+        }
+    }
+
+    /**
+     * 游客会话：token 直接来自 GET /auth/session 的 floris_session cookie，
+     * 后端签发 7 天有效期，没有 refresh token，所以到期后重新领一枚即可。
+     */
+    override suspend fun saveGuestSession(token: String, expiresAt: Long, identity: Identity?) {
+        cacheMutex.withLock {
+            cachedFlorisToken = token
+            cachedFlorisExpiry = expiresAt
+        }
+        context.authDataStore.edit {
+            it[Keys.FLORIS_TOKEN] = token
+            it[Keys.FLORIS_EXPIRES_AT] = expiresAt
+            it[Keys.IS_GUEST] = "1"
+            it.remove(Keys.CB_ACCESS)
+            it.remove(Keys.CB_REFRESH)
+            it.remove(Keys.CB_EXPIRES_AT)
             identity?.let { id -> it[Keys.IDENTITY] = json.encodeToString(Identity.serializer(), id) }
         }
     }

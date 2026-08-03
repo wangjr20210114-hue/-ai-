@@ -106,16 +106,19 @@ private val DarkColors = darkColorScheme(
     surfaceContainerHighest = Panel2Dark,
 )
 
+/** 当前是否为深色，供背景皮肤等场景读取（不受系统设置直接影响）。 */
+val LocalDarkTheme = androidx.compose.runtime.compositionLocalOf { false }
+
 /** 用户气泡渐变（网页端 --app-user-bubble 同款 135° 渐变）。 */
 val userBubbleBrushLight = Brush.linearGradient(listOf(BubbleStartLight, BubbleEndLight))
 val userBubbleBrushDark = Brush.linearGradient(listOf(BubbleStartDark, BubbleEndDark))
 
 @Composable
 fun userBubbleBrush(): Brush =
-    if (isSystemInDarkTheme()) userBubbleBrushDark else userBubbleBrushLight
+    if (LocalDarkTheme.current) userBubbleBrushDark else userBubbleBrushLight
 
 @Composable
-fun orbBrush(): Brush = if (isSystemInDarkTheme()) {
+fun orbBrush(): Brush = if (LocalDarkTheme.current) {
     Brush.linearGradient(listOf(BubbleStartDark, BrandDark, BrandHoverDark))
 } else {
     Brush.linearGradient(listOf(BubbleStartLight, BrandLight, Color(0xFFFFC270)))
@@ -180,9 +183,11 @@ fun FlorisTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = FlorisTypography,
-        content = content,
-    )
+    androidx.compose.runtime.CompositionLocalProvider(LocalDarkTheme provides darkTheme) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) DarkColors else LightColors,
+            typography = FlorisTypography,
+            content = content,
+        )
+    }
 }

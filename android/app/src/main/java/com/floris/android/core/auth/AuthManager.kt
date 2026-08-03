@@ -16,6 +16,13 @@ sealed interface AuthState {
     data class SignedIn(val identity: Identity) : AuthState
 }
 
+/** 游客会话的领取结果：token + 到期时间 + 身份。 */
+data class GuestSession(
+    val token: String,
+    val expiresAt: Long,
+    val identity: Identity,
+)
+
 class AuthException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
@@ -34,6 +41,7 @@ class AuthManager(
     private val tokenStore: TokenStorage,
     private val json: Json,
     private val exchange: suspend (cloudBaseAccessToken: String) -> MobileSession,
+    private val guestExchange: (suspend () -> GuestSession)? = null,
 ) {
     private val _state = MutableStateFlow<AuthState>(AuthState.Loading)
     val state: StateFlow<AuthState> = _state.asStateFlow()
@@ -43,8 +51,36 @@ class AuthManager(
     @Volatile private var cloudBaseAccessToken: String? = null
     @Volatile private var cloudBaseRefreshToken: String? = null
     @Volatile private var cloudBaseExpiresAt: Long = 0
+    @Volatile private var guestMode: Boolean = false
+
+    /** 当前是否为游客会话（无 CloudBase 凭证）。 */
+    val isGuest: Boolean get() = guestMode
 
     private val exchangeMutex = Mutex()
+
+    // ---------- 游客登录 ----------
+
+    /**
+     * 游客登录：GET /auth/session 在没有任何凭证时会签发一枚 auth_type=guest
+     * 的会话 JWT（7 天）。移动端把它当 Bearer 保存，即可访问全部业务接口。
+     */
+    suspend fun signInAsGuest() {
+        val obtain = guestExchange ?: throw AuthException("当前版本不支持游客登录")
+        val session = try {
+            obtain()
+        } catch (error: Throwable) {
+            throw AuthException("游客登录失败，请检查网络后重试", error)
+        }
+        if (session.token.isEmpty()) throw AuthException("游客登录失败，请稍后重试")
+        guestMode = true
+        florisToken = session.token
+        florisExpiresAt = session.expiresAt
+        cloudBaseAccessToken = null
+        cloudBaseRefreshToken = null
+        cloudBaseExpiresAt = 0
+        tokenStore.saveGuestSession(session.token, session.expiresAt, session.identity)
+        _state.value = AuthState.SignedIn(session.identity)
+    }
 
     // ---------- Sign-in ----------
 
@@ -104,7 +140,10 @@ class AuthManager(
 
     // ---------- Session restore & refresh ----------
 
-    /** Attempt to restore the persisted session at app start. */
+    /**
+     * 启动时恢复持久化会话。只要本地 token 仍在有效期内就直接放行，
+     * 不做任何网络往返，用户不会再看到登录页。
+     */
     suspend fun restore(): Boolean {
         val snapshot = tokenStore.load()
         cloudBaseAccessToken = snapshot.cloudBaseAccessToken
@@ -112,14 +151,28 @@ class AuthManager(
         cloudBaseExpiresAt = snapshot.cloudBaseExpiresAt
         florisToken = snapshot.florisToken
         florisExpiresAt = snapshot.florisExpiresAt
+        guestMode = snapshot.isGuest
 
         val identity = snapshot.identity
+        val tokenStillValid = currentFlorisToken() != null
+
+        // 游客会话没有 refresh token，凭本地 token 的有效期判断。
+        if (snapshot.isGuest) {
+            if (!tokenStillValid) {
+                _state.value = AuthState.SignedOut
+                return false
+            }
+            _state.value = AuthState.SignedIn(identity ?: Identity(auth_type = "guest"))
+            return true
+        }
+
         if (snapshot.cloudBaseRefreshToken.isNullOrEmpty()) {
             _state.value = AuthState.SignedOut
             return false
         }
         _state.value = AuthState.SignedIn(identity ?: Identity(auth_type = "cloudbase"))
-        // Proactively make sure we hold a fresh Floris token.
+        // 本地 Bearer 仍然有效时直接进入，避免启动时多一次刷新等待。
+        if (tokenStillValid) return true
         return runCatching { ensureFreshToken() }.isSuccess
     }
 
@@ -145,6 +198,27 @@ class AuthManager(
      */
     suspend fun refreshAndExchange(): String = exchangeMutex.withLock {
         currentFlorisToken()?.let { return@withLock it }
+        // 游客：没有 refresh token，直接再领一枚新的游客会话。
+        if (guestMode) {
+            val obtain = guestExchange ?: run {
+                forceSignOut()
+                throw AuthException("游客会话已过期，请重新进入")
+            }
+            val session = try {
+                obtain()
+            } catch (error: Throwable) {
+                throw AuthException("网络异常，无法续期游客会话", error)
+            }
+            if (session.token.isEmpty()) {
+                forceSignOut()
+                throw AuthException("游客会话已过期，请重新进入")
+            }
+            florisToken = session.token
+            florisExpiresAt = session.expiresAt
+            tokenStore.saveGuestSession(session.token, session.expiresAt, session.identity)
+            _state.value = AuthState.SignedIn(session.identity)
+            return@withLock session.token
+        }
         val refreshToken = cloudBaseRefreshToken
             ?: throw AuthException("登录状态已失效，请重新登录")
         val session = try {
@@ -175,6 +249,7 @@ class AuthManager(
     private suspend fun exchangeAndPersist(cloudBaseAccessToken: String): String {
         val session = exchange(cloudBaseAccessToken)
         if (session.access_token.isEmpty()) throw AuthException("Floris 会话交换失败")
+        guestMode = false
         florisToken = session.access_token
         florisExpiresAt = System.currentTimeMillis() + session.expires_in * 1000
         tokenStore.saveFlorisSession(session.access_token, session.expires_in, session.identity)
@@ -205,6 +280,7 @@ class AuthManager(
         cloudBaseAccessToken = null
         cloudBaseRefreshToken = null
         cloudBaseExpiresAt = 0
+        guestMode = false
         tokenStore.clear()
         _state.value = AuthState.SignedOut
     }

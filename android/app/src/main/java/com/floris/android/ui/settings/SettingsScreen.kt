@@ -1,6 +1,8 @@
 package com.floris.android.ui.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -9,32 +11,39 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -45,8 +54,24 @@ import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.data.bool
 import com.floris.android.core.data.num
 import com.floris.android.core.data.obj
+import com.floris.android.ui.components.CheckMark
 import com.floris.android.ui.components.FlorisCard
+import com.floris.android.ui.components.FlorisSwitch
+import com.floris.android.ui.components.IconPill
+import com.floris.android.ui.components.PillButton
+import com.floris.android.ui.components.PillStyle
 import com.floris.android.ui.components.SectionHeader
+import com.floris.android.ui.components.SegmentedControl
+import com.floris.android.ui.components.SettingRow
+import com.floris.android.ui.components.Stepper
+import com.floris.android.ui.components.pressable
+import com.floris.android.ui.prefs.AppPreferences
+import com.floris.android.ui.prefs.Language
+import com.floris.android.ui.onboarding.TourStepKey
+import com.floris.android.ui.onboarding.onboardingTarget
+import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.ThemeMode
+import com.floris.android.ui.prefs.t
 import com.floris.android.ui.settingsViewModelFactory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -57,6 +82,7 @@ import kotlinx.serialization.json.put
 class SettingsViewModel(
     private val repository: FlorisRepository,
     private val authManager: AuthManager,
+    val preferences: AppPreferences,
 ) : ViewModel() {
 
     data class UiState(
@@ -103,7 +129,9 @@ class SettingsViewModel(
                     "update_preferences",
                     buildJsonObject { put("enabled", enabled) },
                 )
-            }.onFailure { _state.value = _state.value.copy(proactiveEnabled = !enabled, message = "设置失败") }
+            }.onFailure {
+                _state.value = _state.value.copy(proactiveEnabled = !enabled, message = "设置失败")
+            }
         }
     }
 
@@ -111,10 +139,18 @@ class SettingsViewModel(
         if (name.isBlank()) return
         viewModelScope.launch {
             runCatching { repository.updateDisplayName(name.trim()) }
-                .onSuccess { _state.value = _state.value.copy(displayName = name.trim(), message = "昵称已更新") }
+                .onSuccess {
+                    _state.value = _state.value.copy(displayName = name.trim(), message = "昵称已更新")
+                }
                 .onFailure { _state.value = _state.value.copy(message = "更新失败") }
         }
     }
+
+    fun setTheme(mode: ThemeMode) = viewModelScope.launch { preferences.setTheme(mode) }
+    fun setLanguage(language: Language) = viewModelScope.launch { preferences.setLanguage(language) }
+    fun setWebResults(value: Int) = viewModelScope.launch { preferences.setWebResults(value) }
+    fun setImageCandidates(value: Int) = viewModelScope.launch { preferences.setImageCandidates(value) }
+    fun replayOnboarding() = viewModelScope.launch { preferences.setOnboardingDone(false) }
 
     fun resetData() {
         _state.value = _state.value.copy(resetting = true)
@@ -128,15 +164,20 @@ class SettingsViewModel(
     fun consumeMessage() { _state.value = _state.value.copy(message = null) }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
     val viewModel: SettingsViewModel = viewModel(factory = container.settingsViewModelFactory())
     val state by viewModel.state.collectAsState()
+    val themeMode by viewModel.preferences.theme.collectAsState()
+    val language by viewModel.preferences.language.collectAsState()
+    val webResults by viewModel.preferences.webResults.collectAsState()
+    val imageCandidates by viewModel.preferences.imageCandidates.collectAsState()
+
     val snackbar = remember { SnackbarHostState() }
     var editingName by remember { mutableStateOf(false) }
     var nameDraft by remember { mutableStateOf("") }
     var confirmReset by remember { mutableStateOf(false) }
+    var languageSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.message) {
         state.message?.let { snackbar.showSnackbar(it); viewModel.consumeMessage() }
@@ -145,122 +186,280 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
     if (editingName) {
         AlertDialog(
             onDismissRequest = { editingName = false },
-            title = { Text("修改昵称") },
+            title = { Text(t(StringKey.SettingsNickname)) },
             text = {
-                OutlinedTextField(
-                    value = nameDraft,
-                    onValueChange = { nameDraft = it },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                ) {
+                    BasicTextField(
+                        value = nameDraft,
+                        onValueChange = { nameDraft = it },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodySmall.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.updateDisplayName(nameDraft); editingName = false }) { Text("保存") }
+                TextButton(onClick = { viewModel.updateDisplayName(nameDraft); editingName = false }) {
+                    Text(t(StringKey.Confirm))
+                }
             },
-            dismissButton = { TextButton(onClick = { editingName = false }) { Text("取消") } },
+            dismissButton = {
+                TextButton(onClick = { editingName = false }) { Text(t(StringKey.Cancel)) }
+            },
         )
     }
 
     if (confirmReset) {
         AlertDialog(
             onDismissRequest = { confirmReset = false },
-            title = { Text("清除全部数据？") },
-            text = { Text("将删除账号下的全部会话、工作区与文件，且无法恢复。") },
+            title = { Text(t(StringKey.SettingsResetTitle)) },
+            text = { Text(t(StringKey.SettingsResetBody)) },
             confirmButton = {
                 TextButton(onClick = { viewModel.resetData(); confirmReset = false }) {
-                    Text("确认清除", color = MaterialTheme.colorScheme.error)
+                    Text(t(StringKey.SettingsResetConfirm), color = MaterialTheme.colorScheme.error)
                 }
             },
-            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("取消") } },
+            dismissButton = {
+                TextButton(onClick = { confirmReset = false }) { Text(t(StringKey.Cancel)) }
+            },
         )
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
-        topBar = {
-            TopAppBar(
-                title = { Text("设置") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-            )
-        },
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            item { SectionHeader("账号") }
-            item {
-                FlorisCard(onClick = { nameDraft = state.displayName; editingName = true }) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("昵称", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            state.displayName.ifBlank { "未设置" },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+    if (languageSheet) {
+        AlertDialog(
+            onDismissRequest = { languageSheet = false },
+            title = { Text(t(StringKey.SettingsLanguage)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Language.entries.forEach { option ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .pressable {
+                                    viewModel.setLanguage(option)
+                                    languageSheet = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                option.label,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                            )
+                            CheckMark(visible = option == language)
+                        }
                     }
                 }
-            }
+            },
+            confirmButton = {
+                TextButton(onClick = { languageSheet = false }) { Text(t(StringKey.Close)) }
+            },
+        )
+    }
 
-            item { SectionHeader("偏好") }
-            item {
-                FlorisCard {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("主动提醒", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                "日程变化、天气与行程的主动播报",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding(),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconPill(
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "返回",
+                onClick = onBack,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(t(StringKey.SettingsTitle), style = MaterialTheme.typography.headlineMedium)
+        }
+
+        Box(Modifier.weight(1f)) {
+            LazyColumn(
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // 外观
+                item { SectionHeader(t(StringKey.SettingsAppearance)) }
+                item {
+                    FlorisCard(modifier = Modifier.onboardingTarget(TourStepKey.THEME)) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text(t(StringKey.SettingsTheme), style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(10.dp))
+                            SegmentedControl(
+                                options = listOf(
+                                    t(StringKey.SettingsThemeSystem),
+                                    t(StringKey.SettingsThemeLight),
+                                    t(StringKey.SettingsThemeDark),
+                                ),
+                                selectedIndex = themeMode.ordinal,
+                                onSelect = { viewModel.setTheme(ThemeMode.entries[it]) },
+                                modifier = Modifier.fillMaxWidth(),
                             )
                         }
-                        Switch(checked = state.proactiveEnabled, onCheckedChange = viewModel::setProactiveEnabled)
                     }
                 }
-            }
+                item {
+                    SettingRow(
+                        title = t(StringKey.SettingsLanguage),
+                        subtitle = language.label,
+                        icon = Icons.Default.Language,
+                        onClick = { languageSheet = true },
+                    )
+                }
 
-            item { SectionHeader("用量") }
-            item {
-                FlorisCard {
-                    Column(Modifier.padding(14.dp)) {
-                        Row(Modifier.fillMaxWidth()) {
-                            Text("今日 Token", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                            Text("%,d".format(state.dailyTokens), style = MaterialTheme.typography.titleMedium)
+                // 偏好
+                item { SectionHeader(t(StringKey.SettingsPreferences)) }
+                item {
+                    SettingRow(
+                        title = t(StringKey.SettingsProactive),
+                        subtitle = t(StringKey.SettingsProactiveDesc),
+                        icon = Icons.Default.NotificationsActive,
+                        trailing = {
+                            FlorisSwitch(
+                                checked = state.proactiveEnabled,
+                                onCheckedChange = viewModel::setProactiveEnabled,
+                            )
+                        },
+                    )
+                }
+                item {
+                    SettingRow(
+                        title = t(StringKey.SettingsWebResults),
+                        subtitle = t(StringKey.SettingsWebResultsDesc),
+                        icon = Icons.Default.TravelExplore,
+                        trailing = {
+                            Stepper(
+                                value = webResults,
+                                onValueChange = viewModel::setWebResults,
+                                range = 3..12,
+                            )
+                        },
+                    )
+                }
+                item {
+                    SettingRow(
+                        title = t(StringKey.SettingsImageCandidates),
+                        subtitle = t(StringKey.SettingsImageCandidatesDesc),
+                        icon = Icons.Default.Image,
+                        trailing = {
+                            Stepper(
+                                value = imageCandidates,
+                                onValueChange = viewModel::setImageCandidates,
+                                range = 0..8,
+                            )
+                        },
+                    )
+                }
+                item {
+                    SettingRow(
+                        title = t(StringKey.SettingsReplayTour),
+                        subtitle = t(StringKey.SettingsReplayTourDesc),
+                        icon = Icons.Default.AutoAwesome,
+                        onClick = {
+                            viewModel.replayOnboarding()
+                            onBack()
+                        },
+                    )
+                }
+
+                // 账号
+                item { SectionHeader(t(StringKey.ProfileAccount)) }
+                item {
+                    SettingRow(
+                        title = t(StringKey.SettingsNickname),
+                        subtitle = state.displayName.ifBlank { t(StringKey.SettingsNotSet) },
+                        icon = Icons.Default.Badge,
+                        onClick = { nameDraft = state.displayName; editingName = true },
+                    )
+                }
+
+                // 用量
+                item { SectionHeader(t(StringKey.SettingsUsage)) }
+                item {
+                    FlorisCard {
+                        Column(Modifier.padding(16.dp)) {
+                            UsageRow(t(StringKey.SettingsDailyTokens), state.dailyTokens)
+                            Spacer(Modifier.height(10.dp))
+                            UsageRow(t(StringKey.SettingsMonthlyTokens), state.monthlyTokens)
                         }
-                        Spacer(Modifier.height(8.dp))
-                        Row(Modifier.fillMaxWidth()) {
-                            Text("本月 Token", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                            Text("%,d".format(state.monthlyTokens), style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+
+                // 数据
+                item { SectionHeader(t(StringKey.SettingsData)) }
+                item {
+                    FlorisCard {
+                        Row(
+                            Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                androidx.compose.material3.Icon(
+                                    Icons.Default.DeleteOutline, null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                t(StringKey.SettingsResetData),
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            PillButton(
+                                text = if (state.resetting) "清除中…" else t(StringKey.SettingsResetConfirm),
+                                onClick = { confirmReset = true },
+                                style = PillStyle.Danger,
+                                compact = true,
+                                enabled = !state.resetting,
+                            )
                         }
                     }
                 }
-            }
 
-            item { SectionHeader("数据") }
-            item {
-                FlorisCard(onClick = { confirmReset = true }) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            if (state.resetting) "清除中…" else "清除全部数据",
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                    }
+                item {
+                    Text(
+                        "Floris Android 1.0.0 · 契约 v1 · floris-dev.jlutx.com",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 20.dp, start = 4.dp),
+                    )
                 }
             }
-
-            item {
-                Text(
-                    "Floris Android 1.0.0 · 契约 v1 · floris-dev.jlutx.com",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp),
-                )
-            }
+            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
         }
+    }
+}
+
+@Composable
+private fun UsageRow(label: String, value: Long) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Text("%,d".format(value), style = MaterialTheme.typography.titleMedium)
     }
 }

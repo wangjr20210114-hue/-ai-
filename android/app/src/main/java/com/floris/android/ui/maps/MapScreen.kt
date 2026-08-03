@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -64,6 +65,8 @@ import com.floris.android.ui.components.SectionHeader
 import com.floris.android.ui.components.StatusChip
 import com.floris.android.ui.components.routeModeLabel
 import com.floris.android.ui.mapViewModelFactory
+import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.t
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -138,42 +141,44 @@ fun MapScreen(container: AppContainer, onBack: () -> Unit) {
 
     val displayPlaces = state.searchResults.ifEmpty { workspace.places }
 
-    Scaffold(
-        snackbarHost = { androidx.compose.material3.SnackbarHost(snackbar) },
-        topBar = {
-            TopAppBar(
-                title = { Text(workspace.title ?: "地图") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-            )
-        },
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding(),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            item(key = "search") {
-                TextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = { Text("搜索真实地点…") },
-                    leadingIcon = { Icon(Icons.Default.Search, null) },
-                    singleLine = true,
-                    shape = CircleShape,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { viewModel.searchPlaces(query) }),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            com.floris.android.ui.components.IconPill(
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "返回",
+                onClick = onBack,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                workspace.title ?: t(StringKey.MapTitle),
+                style = MaterialTheme.typography.headlineMedium,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+        }
+
+        Box(Modifier.weight(1f)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item(key = "search") {
+                    com.floris.android.ui.papers.SearchField(
+                        value = query,
+                        onValueChange = { query = it },
+                        hint = t(StringKey.MapSearchHint),
+                        onSearch = { viewModel.searchPlaces(query) },
+                    )
+                }
 
             if (BuildConfig.TENCENT_MAP_KEY.isNotEmpty() && displayPlaces.isNotEmpty()) {
                 item(key = "map") {
@@ -196,26 +201,33 @@ fun MapScreen(container: AppContainer, onBack: () -> Unit) {
                         Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        SectionHeader("地点 · ${displayPlaces.size}", Modifier.weight(1f))
-                        workspace.routeMode?.let { StatusChip(routeModeLabel(it), MaterialTheme.colorScheme.primary) }
+                        SectionHeader(t(StringKey.MapPlaces, displayPlaces.size), Modifier.weight(1f))
+                        workspace.routeMode?.let {
+                            StatusChip(routeModeLabel(it), MaterialTheme.colorScheme.primary)
+                        }
                     }
                 }
                 items(displayPlaces, key = { it.place_id.ifEmpty { it.name } }) { place ->
                     FlorisCard {
-                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Icon(
                                 Icons.Default.LocationOn, null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(18.dp),
                             )
                             Spacer(Modifier.width(10.dp))
-                            Column {
+                            Column(Modifier.weight(1f)) {
                                 Text(place.name, style = MaterialTheme.typography.titleMedium)
                                 Text(
                                     listOfNotNull(place.city, place.address.ifEmpty { null })
                                         .joinToString(" · "),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                 )
                             }
                         }
@@ -225,17 +237,22 @@ fun MapScreen(container: AppContainer, onBack: () -> Unit) {
                 if (displayPlaces.size >= 2) {
                     item(key = "route-modes") {
                         Column {
-                            SectionHeader("路线规划")
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("driving", "transit", "walking", "bicycling").forEach { mode ->
-                                    FilterChip(
-                                        selected = state.routeMode == mode,
-                                        onClick = { viewModel.planRoute(displayPlaces, mode) },
-                                        label = { Text(routeModeLabel(mode)) },
-                                        enabled = !state.planningRoute,
-                                    )
-                                }
-                            }
+                            SectionHeader(t(StringKey.MapRoute))
+                            com.floris.android.ui.components.SegmentedControl(
+                                options = listOf("driving", "transit", "walking", "bicycling")
+                                    .map { routeModeLabel(it) },
+                                selectedIndex = listOf("driving", "transit", "walking", "bicycling")
+                                    .indexOf(state.routeMode).coerceAtLeast(0),
+                                onSelect = { index ->
+                                    if (!state.planningRoute) {
+                                        viewModel.planRoute(
+                                            displayPlaces,
+                                            listOf("driving", "transit", "walking", "bicycling")[index],
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
                     }
                 }
@@ -245,11 +262,13 @@ fun MapScreen(container: AppContainer, onBack: () -> Unit) {
                         RouteCard(route, state.planningRoute)
                     }
                 }
-            } else if (!state.searching) {
-                item(key = "empty") {
-                    EmptyState("地图工作区", "在聊天中让 Floris 推荐地点，或直接搜索真实地点")
+                } else if (!state.searching) {
+                    item(key = "empty") {
+                        EmptyState(t(StringKey.MapEmptyTitle), t(StringKey.MapEmptyBody))
+                    }
                 }
             }
+            androidx.compose.material3.SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
         }
     }
 }

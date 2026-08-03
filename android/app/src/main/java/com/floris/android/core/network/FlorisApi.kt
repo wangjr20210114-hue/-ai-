@@ -19,6 +19,14 @@ interface FlorisApi {
     @POST("auth/mobile/session")
     suspend fun exchangeMobileSession(@Body body: JsonObject): MobileSession
 
+    /**
+     * GET /auth/session —— 无凭证访问时后端会签发一枚 7 天有效的游客会话
+     * （auth_type=guest），通过 Set-Cookie: floris_session 下发。
+     * 移动端把该 cookie 值当作 Bearer 使用（后端 readSessionToken 同时接受两者）。
+     */
+    @GET("auth/session")
+    suspend fun guestSession(): retrofit2.Response<JsonObject>
+
     @Headers("Content-Type: application/json")
     @POST("messages")
     suspend fun bootstrap(

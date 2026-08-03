@@ -1,15 +1,23 @@
 package com.floris.android.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -24,53 +32,340 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.floris.android.R
+import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.t
 import com.floris.android.ui.theme.orbBrush
+import kotlinx.coroutines.delay
+
+// ---------- Motion ----------
 
 val SpringGentle = spring<Float>(stiffness = Spring.StiffnessLow, dampingRatio = 0.82f)
 val SpringSnappy = spring<Float>(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.78f)
 
-/** iOS-style press feedback: scale 0.97 + haptic, no ripple-heavy look. */
+/** 统一按压反馈：弹性缩放 + 触感，无水波纹。 */
 fun Modifier.pressable(
     enabled: Boolean = true,
+    scaleDown: Float = 0.96f,
     onClick: () -> Unit,
 ): Modifier = composed {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.97f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessMedium, dampingRatio = 0.7f),
+        targetValue = if (pressed && enabled) scaleDown else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium, dampingRatio = 0.62f),
         label = "pressScale",
     )
     val haptics = LocalHapticFeedback.current
     this
         .graphicsLayer { scaleX = scale; scaleY = scale }
         .clickable(interactionSource = interactionSource, indication = null, enabled = enabled) {
-            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onClick()
         }
 }
+
+// ---------- Buttons ----------
+
+enum class PillStyle { Primary, Tonal, Ghost, Danger }
+
+/**
+ * 高级感药丸按钮：主按钮为品牌渐变，次按钮为柔和底色，
+ * 幽灵按钮仅文字。全部走弹性按压，无 Material 阴影与描边。
+ */
+@Composable
+fun PillButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    style: PillStyle = PillStyle.Primary,
+    enabled: Boolean = true,
+    leadingIcon: ImageVector? = null,
+    compact: Boolean = false,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val brush: Brush? = if (style == PillStyle.Primary && enabled) {
+        Brush.horizontalGradient(
+            listOf(scheme.primary, scheme.secondary),
+        )
+    } else null
+    val flatColor = when {
+        !enabled -> scheme.surfaceVariant
+        style == PillStyle.Tonal -> scheme.primaryContainer
+        style == PillStyle.Danger -> scheme.error.copy(alpha = 0.12f)
+        style == PillStyle.Ghost -> Color.Transparent
+        else -> scheme.primary
+    }
+    val contentColor = when {
+        !enabled -> scheme.onSurfaceVariant
+        style == PillStyle.Primary -> Color.White
+        style == PillStyle.Tonal -> scheme.onPrimaryContainer
+        style == PillStyle.Danger -> scheme.error
+        else -> scheme.primary
+    }
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .then(if (brush != null) Modifier.background(brush) else Modifier.background(flatColor))
+            .pressable(enabled = enabled, onClick = onClick)
+            .padding(
+                horizontal = if (compact) 14.dp else 20.dp,
+                vertical = if (compact) 8.dp else 11.dp,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            leadingIcon?.let {
+                Icon(it, null, tint = contentColor, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(
+                text,
+                style = MaterialTheme.typography.labelLarge,
+                color = contentColor,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/** 圆形图标按钮：透明底 + 弹性按压，用于顶栏与输入栏。 */
+@Composable
+fun IconPill(
+    icon: ImageVector,
+    contentDescription: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    size: Dp = 38.dp,
+    iconSize: Dp = 20.dp,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    background: Color = Color.Transparent,
+    enabled: Boolean = true,
+) {
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(background)
+            .pressable(enabled = enabled, scaleDown = 0.9f, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription, tint = tint, modifier = Modifier.size(iconSize))
+    }
+}
+
+/** 主操作圆形按钮（发送 / 停止）：渐变 + 弹性。 */
+@Composable
+fun PrimaryIconButton(
+    icon: ImageVector,
+    contentDescription: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    danger: Boolean = false,
+    size: Dp = 40.dp,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val brush = when {
+        danger -> Brush.horizontalGradient(listOf(scheme.error, scheme.error))
+        enabled -> Brush.horizontalGradient(listOf(scheme.primary, scheme.secondary))
+        else -> Brush.horizontalGradient(
+            listOf(scheme.primary.copy(alpha = 0.35f), scheme.secondary.copy(alpha = 0.35f)),
+        )
+    }
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(brush)
+            .pressable(enabled = enabled, scaleDown = 0.9f, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription, tint = Color.White, modifier = Modifier.size(size * 0.44f))
+    }
+}
+
+/** iOS 式分段控件，滑块带弹性位移。 */
+@Composable
+fun SegmentedControl(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(3.dp),
+    ) {
+        options.forEachIndexed { index, label ->
+            val selected = index == selectedIndex
+            val background by animateColorAsState(
+                if (selected) MaterialTheme.colorScheme.surface else Color.Transparent,
+                animationSpec = tween(220),
+                label = "segBg",
+            )
+            val textColor by animateColorAsState(
+                if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                animationSpec = tween(220),
+                label = "segText",
+            )
+            Box(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(background)
+                    .pressable(scaleDown = 0.97f) { onSelect(index) }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = textColor,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/** 自绘开关：轨道与滑块均为弹性动画，比 Material Switch 更轻。 */
+@Composable
+fun FlorisSwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val track by animateColorAsState(
+        when {
+            !enabled -> scheme.surfaceVariant
+            checked -> scheme.primary
+            else -> scheme.outline.copy(alpha = 0.35f)
+        },
+        animationSpec = tween(220),
+        label = "trackColor",
+    )
+    val offset by animateDpAsState(
+        if (checked) 20.dp else 2.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium, dampingRatio = 0.68f),
+        label = "knobOffset",
+    )
+    Box(
+        modifier = modifier
+            .size(width = 44.dp, height = 26.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(track)
+            .pressable(enabled = enabled, scaleDown = 0.94f) { onCheckedChange(!checked) },
+    ) {
+        Box(
+            Modifier
+                .padding(top = 2.dp, start = offset)
+                .size(22.dp)
+                .clip(CircleShape)
+                .background(Color.White),
+        )
+    }
+}
+
+/** 步进器：用于富搜索数量等数值偏好。 */
+@Composable
+fun Stepper(
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    range: IntRange = 0..12,
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconPill(
+            icon = Icons.Default.Remove,
+            contentDescription = "减少",
+            onClick = { onValueChange((value - 1).coerceIn(range)) },
+            size = 32.dp,
+            iconSize = 16.dp,
+            enabled = value > range.first,
+            tint = if (value > range.first) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+        )
+        AnimatedContent(
+            targetState = value,
+            transitionSpec = {
+                if (targetState > initialState) {
+                    (slideInVertically { it } + fadeIn()) togetherWith
+                        (slideOutVertically { -it } + fadeOut())
+                } else {
+                    (slideInVertically { -it } + fadeIn()) togetherWith
+                        (slideOutVertically { it } + fadeOut())
+                }
+            },
+            label = "stepValue",
+        ) { current ->
+            Text(
+                "$current",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.width(28.dp),
+            )
+        }
+        IconPill(
+            icon = Icons.Default.Add,
+            contentDescription = "增加",
+            onClick = { onValueChange((value + 1).coerceIn(range)) },
+            size = 32.dp,
+            iconSize = 16.dp,
+            enabled = value < range.last,
+            tint = if (value < range.last) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+        )
+    }
+}
+
+// ---------- Surfaces ----------
 
 @Composable
 fun FlorisCard(
@@ -80,17 +375,63 @@ fun FlorisCard(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(corner),
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        val inner = Modifier.fillMaxWidth()
-        Column(
-            modifier = if (onClick != null) inner.pressable(onClick = onClick) else inner,
-            content = content,
-        )
+    val base = modifier
+        .clip(RoundedCornerShape(corner))
+        .background(containerColor)
+        .fillMaxWidth()
+    Column(
+        modifier = if (onClick != null) base.pressable(scaleDown = 0.985f, onClick = onClick) else base,
+        content = content,
+    )
+}
+
+/** 设置类列表行：标题 + 说明 + 右侧内容槽。 */
+@Composable
+fun SettingRow(
+    title: String,
+    subtitle: String? = null,
+    icon: ImageVector? = null,
+    onClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    trailing: @Composable (() -> Unit)? = null,
+) {
+    FlorisCard(modifier = modifier, onClick = onClick) {
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            icon?.let {
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        it, null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+            }
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                subtitle?.let {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            trailing?.let {
+                Spacer(Modifier.width(12.dp))
+                it()
+            }
+        }
     }
 }
 
@@ -100,7 +441,8 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier) {
         text = title,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier.padding(start = 20.dp, top = 24.dp, bottom = 8.dp),
+        fontWeight = FontWeight.SemiBold,
+        modifier = modifier.padding(start = 4.dp, top = 18.dp, bottom = 8.dp),
     )
 }
 
@@ -111,60 +453,124 @@ fun EmptyState(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxWidth().padding(40.dp),
+        modifier = modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 40.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        AuroraOrb(size = 72.dp)
-        Spacer(Modifier.height(20.dp))
-        Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(8.dp))
+        CatAvatar(size = 58.dp)
+        Spacer(Modifier.height(16.dp))
+        Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(6.dp))
         Text(
             subtitle,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
     }
 }
 
-/** Floris brand orb: warm orange (light) / night purple (dark) with slow breathing. */
+// ---------- Brand ----------
+
+/** 橘猫头像（网页端同款）。 */
+@Composable
+fun CatAvatar(size: Dp, modifier: Modifier = Modifier) {
+    Image(
+        painter = painterResource(R.drawable.floris_avatar),
+        contentDescription = "Floris",
+        modifier = modifier
+            .size(size)
+            .clip(RoundedCornerShape(size * 0.3f)),
+    )
+}
+
+/** 品牌光晕（登录 / 启动）。 */
 @Composable
 fun AuroraOrb(size: Dp, modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "aurora")
+    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "aurora")
     val pulse by transition.animateFloat(
-        initialValue = 0.92f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(tween(2200, easing = LinearEasing), RepeatMode.Reverse),
+        initialValue = 0.94f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Reverse),
         label = "pulse",
     )
     Box(
         modifier = modifier
             .size(size)
             .graphicsLayer { scaleX = pulse; scaleY = pulse }
-            .clip(RoundedCornerShape(size / 2))
+            .clip(CircleShape)
             .background(orbBrush()),
     )
 }
 
+/** 顶栏轮播暖心语录（网页端同款）。 */
+@Composable
+fun QuotePill(modifier: Modifier = Modifier) {
+    val quotes = remember {
+        listOf(
+            "把小事做好，时间会替你铺成路。",
+            "风会记得每一片认真生长的叶子。",
+            "慢一点也没关系，星光总会找到夜路。",
+            "留一点从容，给正在发生的好事。",
+            "今天也要像大橘一样，稳稳地晒太阳。",
+        )
+    }
+    var index by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(6500)
+            index = (index + 1) % quotes.size
+        }
+    }
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.82f))
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("🐾", style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.width(6.dp))
+        AnimatedContent(
+            targetState = quotes[index],
+            transitionSpec = {
+                (fadeIn(tween(320)) + slideInVertically { it / 2 }) togetherWith
+                    (fadeOut(tween(320)) + slideOutVertically { -it / 2 })
+            },
+            label = "quote",
+        ) { quote ->
+            Text(
+                quote,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+// ---------- Feedback ----------
+
 @Composable
 fun ShimmerBox(modifier: Modifier = Modifier, corner: Dp = 12.dp) {
-    val transition = rememberInfiniteTransition(label = "shimmer")
+    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "shimmer")
     val offset by transition.animateFloat(
         initialValue = -400f,
         targetValue = 1200f,
-        animationSpec = infiniteRepeatable(tween(1400, easing = LinearEasing)),
+        animationSpec = infiniteRepeatable(tween(1500, easing = LinearEasing)),
         label = "offset",
     )
     val base = MaterialTheme.colorScheme.surfaceVariant
-    val highlight = MaterialTheme.colorScheme.surface
+    val highlight = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(corner))
             .background(
                 Brush.linearGradient(
                     colors = listOf(base, highlight, base),
-                    start = Offset(offset, 0f),
-                    end = Offset(offset + 400f, 0f),
+                    start = androidx.compose.ui.geometry.Offset(offset, 0f),
+                    end = androidx.compose.ui.geometry.Offset(offset + 400f, 0f),
                 ),
             ),
     )
@@ -177,7 +583,7 @@ fun InlineLoading(modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.Center,
     ) {
         CircularProgressIndicator(
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(20.dp),
             strokeWidth = 2.dp,
             color = MaterialTheme.colorScheme.primary,
         )
@@ -186,13 +592,43 @@ fun InlineLoading(modifier: Modifier = Modifier) {
 
 @Composable
 fun StatusChip(text: String, color: Color, modifier: Modifier = Modifier) {
-    val background by animateColorAsState(color.copy(alpha = 0.14f), label = "chipBg")
+    val background by animateColorAsState(color.copy(alpha = 0.13f), label = "chipBg")
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(999.dp))
             .background(background)
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = 9.dp, vertical = 4.dp),
     ) {
-        Text(text, style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.SemiBold)
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
     }
+}
+
+/** 勾选标记，用于选中项。 */
+@Composable
+fun CheckMark(visible: Boolean, modifier: Modifier = Modifier) {
+    AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
+        Icon(
+            Icons.Default.Check, null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = modifier.size(18.dp),
+        )
+    }
+}
+
+/** 列表进入动画（交错淡入上滑）。 */
+@Composable
+fun AnimateIn(index: Int, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = true,
+        enter = fadeIn(tween(260)) + slideInVertically(
+            animationSpec = spring(stiffness = Spring.StiffnessLow, dampingRatio = 0.85f),
+            initialOffsetY = { it / 8 },
+        ),
+    ) { content() }
 }

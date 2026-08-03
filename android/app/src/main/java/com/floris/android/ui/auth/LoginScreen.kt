@@ -6,7 +6,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,20 +16,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -36,9 +37,12 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.floris.android.AppContainer
 import com.floris.android.core.auth.AuthManager
-import com.floris.android.ui.components.AuroraOrb
-import com.floris.android.ui.components.pressable
+import com.floris.android.ui.components.CatAvatar
+import com.floris.android.ui.components.PillButton
+import com.floris.android.ui.components.PillStyle
 import com.floris.android.ui.loginViewModelFactory
+import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.t
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -58,12 +62,21 @@ class LoginViewModel(private val authManager: AuthManager) : ViewModel() {
     private val _state = MutableStateFlow(UiState())
     val state = _state.asStateFlow()
 
-    fun updateEmail(value: String) { _state.value = _state.value.copy(email = value, error = null) }
-    fun updateCode(value: String) { _state.value = _state.value.copy(code = value.filter { it.isDigit() }.take(6), error = null) }
+    fun updateEmail(value: String) {
+        _state.value = _state.value.copy(email = value, error = null)
+    }
+
+    fun updateCode(value: String) {
+        _state.value = _state.value.copy(
+            code = value.filter { it.isDigit() }.take(6),
+            error = null,
+        )
+    }
 
     fun sendCode() {
         val email = _state.value.email.trim()
-        if (busy() || !email.contains("@")) {
+        if (_state.value.busy) return
+        if (!email.contains("@")) {
             _state.value = _state.value.copy(error = "请输入有效的邮箱地址")
             return
         }
@@ -77,7 +90,8 @@ class LoginViewModel(private val authManager: AuthManager) : ViewModel() {
 
     fun verify() {
         val current = _state.value
-        if (busy() || current.code.length < 4) {
+        if (current.busy) return
+        if (current.code.length < 4) {
             _state.value = current.copy(error = "请输入邮箱收到的验证码")
             return
         }
@@ -85,13 +99,26 @@ class LoginViewModel(private val authManager: AuthManager) : ViewModel() {
         viewModelScope.launch {
             runCatching { authManager.verifyEmailOtp(current.email, current.code) }
                 .onFailure { _state.value = _state.value.copy(busy = false, error = it.message) }
-            // Success flips AuthState → the nav host replaces this screen.
+            // 成功后 AuthState 翻转，导航层会替换本页
         }
     }
 
-    fun back() { _state.value = _state.value.copy(step = Step.EMAIL, code = "", error = null) }
+    fun back() {
+        _state.value = _state.value.copy(step = Step.EMAIL, code = "", error = null)
+    }
 
-    private fun busy() = _state.value.busy
+    /**
+     * 游客登录：向后端领取一枚游客会话（GET /auth/session）。
+     * 成功后 AuthState 翻转，导航层会替换本页。
+     */
+    fun continueAsGuest() {
+        if (_state.value.busy) return
+        _state.value = _state.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            runCatching { authManager.signInAsGuest() }
+                .onFailure { _state.value = _state.value.copy(busy = false, error = it.message) }
+        }
+    }
 }
 
 @Composable
@@ -102,22 +129,23 @@ fun LoginScreen(container: AppContainer) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
             .systemBarsPadding()
             .imePadding()
-            .padding(horizontal = 28.dp),
+            .padding(horizontal = 30.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        AuroraOrb(size = 84.dp)
-        Spacer(Modifier.height(24.dp))
-        Text("Floris", style = MaterialTheme.typography.displayMedium)
-        Spacer(Modifier.height(8.dp))
+        CatAvatar(size = 84.dp)
+        Spacer(Modifier.height(18.dp))
+        Text("FLORIS", style = MaterialTheme.typography.displayMedium)
+        Spacer(Modifier.height(6.dp))
         Text(
-            "你的 AI 工作伙伴",
+            t(StringKey.AppTagline),
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.primary,
         )
-        Spacer(Modifier.height(40.dp))
+        Spacer(Modifier.height(42.dp))
 
         AnimatedContent(
             targetState = state.step,
@@ -130,58 +158,121 @@ fun LoginScreen(container: AppContainer) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 when (step) {
                     LoginViewModel.Step.EMAIL -> {
-                        OutlinedTextField(
+                        SoftField(
                             value = state.email,
                             onValueChange = viewModel::updateEmail,
-                            label = { Text("邮箱") },
-                            placeholder = { Text("you@example.com") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth(),
+                            hint = "you@example.com",
+                            keyboardType = KeyboardType.Email,
                         )
-                        Spacer(Modifier.height(16.dp))
-                        Button(
+                        Spacer(Modifier.height(14.dp))
+                        PillButton(
+                            text = if (state.busy) t(StringKey.LoginSending)
+                            else t(StringKey.LoginSendCode),
                             onClick = viewModel::sendCode,
                             enabled = !state.busy,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
-                        ) { Text(if (state.busy) "发送中…" else "发送验证码") }
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
+
                     LoginViewModel.Step.CODE -> {
                         Text(
-                            "验证码已发送至\n${state.email}",
+                            "${t(StringKey.LoginCodeSentTo)}\n${state.email}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
                         )
                         Spacer(Modifier.height(16.dp))
-                        OutlinedTextField(
+                        SoftField(
                             value = state.code,
                             onValueChange = viewModel::updateCode,
-                            label = { Text("验证码") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth(),
+                            hint = t(StringKey.LoginCode),
+                            keyboardType = KeyboardType.NumberPassword,
+                            center = true,
                         )
-                        Spacer(Modifier.height(16.dp))
-                        Button(
+                        Spacer(Modifier.height(14.dp))
+                        PillButton(
+                            text = if (state.busy) t(StringKey.LoginSigningIn)
+                            else t(StringKey.LoginSignIn),
                             onClick = viewModel::verify,
                             enabled = !state.busy,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
-                        ) { Text(if (state.busy) "登录中…" else "登录") }
-                        Spacer(Modifier.height(8.dp))
-                        TextButton(onClick = viewModel::back) { Text("返回修改邮箱") }
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        PillButton(
+                            text = t(StringKey.LoginBackToEmail),
+                            onClick = viewModel::back,
+                            style = PillStyle.Ghost,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
         }
 
         state.error?.let {
-            Spacer(Modifier.height(12.dp))
-            Text(it, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error)
+            Spacer(Modifier.height(14.dp))
+            Text(
+                it,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
+            )
         }
+
+        // 游客入口：后端签发 7 天游客会话，不需要邮箱即可先体验。
+        Spacer(Modifier.height(20.dp))
+        PillButton(
+            text = t(StringKey.LoginAsGuest),
+            onClick = viewModel::continueAsGuest,
+            style = PillStyle.Ghost,
+            enabled = !state.busy,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            t(StringKey.GuestUpgradeHint),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** 柔和输入框：无描边、药丸底衬，避免突兀的传统文本框。 */
+@Composable
+private fun SoftField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    hint: String,
+    keyboardType: KeyboardType,
+    center: Boolean = false,
+) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(999.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 20.dp, vertical = 15.dp),
+        contentAlignment = if (center) Alignment.Center else Alignment.CenterStart,
+    ) {
+        if (value.isEmpty()) {
+            Text(
+                hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodySmall.copy(
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = if (center) TextAlign.Center else TextAlign.Start,
+            ),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }

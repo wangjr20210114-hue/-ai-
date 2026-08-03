@@ -1,5 +1,6 @@
 package com.floris.android.ui.history
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,25 +12,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,9 +43,12 @@ import com.floris.android.core.model.ConversationSummary
 import com.floris.android.ui.components.AnimateIn
 import com.floris.android.ui.components.EmptyState
 import com.floris.android.ui.components.FlorisCard
+import com.floris.android.ui.components.IconPill
 import com.floris.android.ui.components.InlineLoading
 import com.floris.android.ui.components.StatusChip
 import com.floris.android.ui.historyViewModelFactory
+import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.t
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -71,7 +74,7 @@ class HistoryViewModel(private val repository: FlorisRepository) : ViewModel() {
         viewModelScope.launch {
             runCatching { repository.listConversations() }
                 .onSuccess { _state.value = UiState(loading = false, conversations = it) }
-                .onFailure { _state.value = UiState(loading = false, error = "加载失败，请下拉重试") }
+                .onFailure { _state.value = UiState(loading = false, error = "加载失败") }
         }
     }
 
@@ -96,55 +99,69 @@ fun HistoryScreen(
 ) {
     val viewModel: HistoryViewModel = viewModel(factory = container.historyViewModelFactory())
     val state by viewModel.state.collectAsState()
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("历史记录") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding(),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconPill(
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "返回",
+                onClick = onBack,
             )
-        },
-    ) { padding ->
-        when {
-            state.loading -> Box(Modifier.fillMaxSize().padding(padding)) { InlineLoading() }
-            state.conversations.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding)) {
-                EmptyState("暂无历史对话", "开始一段新对话，它会自动保存在这里")
-            }
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(state.conversations, key = { it.id }) { conversation ->
-                    val dismissState = rememberSwipeToDismissBoxState(
-                        confirmValueChange = { value ->
-                            if (value == SwipeToDismissBoxValue.EndToStart) {
-                                viewModel.delete(conversation.id)
-                                true
-                            } else false
-                        },
-                    )
-                    AnimateIn(0) {
-                        SwipeToDismissBox(
-                            state = dismissState,
-                            enableDismissFromStartToEnd = false,
-                            backgroundContent = {
-                                Box(
-                                    Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                                    contentAlignment = Alignment.CenterEnd,
-                                ) {
-                                    Icon(Icons.Default.Delete, "删除", tint = MaterialTheme.colorScheme.error)
-                                }
+            Spacer(Modifier.width(4.dp))
+            Text(t(StringKey.ChatHistory), style = MaterialTheme.typography.headlineMedium)
+        }
+
+        Box(Modifier.weight(1f)) {
+            when {
+                state.loading -> InlineLoading()
+                state.conversations.isEmpty() -> EmptyState(
+                    t(StringKey.ChatEmptyHistoryTitle),
+                    t(StringKey.ChatEmptyHistoryBody),
+                )
+                else -> LazyColumn(
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(state.conversations, key = { it.id }) { conversation ->
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = { value ->
+                                if (value == SwipeToDismissBoxValue.EndToStart) {
+                                    viewModel.delete(conversation.id)
+                                    true
+                                } else false
                             },
-                        ) {
-                            ConversationRow(conversation) {
-                                scope.launch {
-                                    viewModel.open(conversation.id)
-                                    onOpenConversation()
+                        )
+                        AnimateIn(0) {
+                            SwipeToDismissBox(
+                                state = dismissState,
+                                enableDismissFromStartToEnd = false,
+                                backgroundContent = {
+                                    Box(
+                                        Modifier.fillMaxSize().padding(end = 20.dp),
+                                        contentAlignment = Alignment.CenterEnd,
+                                    ) {
+                                        Icon(
+                                            Icons.Default.DeleteOutline, "删除",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                },
+                            ) {
+                                ConversationRow(conversation) {
+                                    scope.launch {
+                                        viewModel.open(conversation.id)
+                                        onOpenConversation()
+                                    }
                                 }
                             }
                         }
@@ -158,24 +175,27 @@ fun HistoryScreen(
 @Composable
 private fun ConversationRow(conversation: ConversationSummary, onClick: () -> Unit) {
     FlorisCard(onClick = onClick) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    conversation.title.ifBlank { "新对话" },
+                    conversation.title.ifBlank { t(StringKey.ChatNew) },
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    "${conversation.messageCount} 条消息 · ${relativeTime(conversation.updatedAt)}",
+                    "${conversation.messageCount} 条 · ${relativeTime(conversation.updatedAt)}",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             when (conversation.activityStatus) {
-                "running" -> StatusChip("进行中", MaterialTheme.colorScheme.primary)
-                "failed" -> StatusChip("失败", MaterialTheme.colorScheme.error)
+                "running" -> StatusChip(t(StringKey.ActionActive), MaterialTheme.colorScheme.primary)
+                "failed" -> StatusChip(t(StringKey.ActionFailed), MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -189,7 +209,7 @@ private fun relativeTime(timestamp: Long): String {
         diff < 60_000 -> "刚刚"
         diff < 3_600_000 -> "${diff / 60_000} 分钟前"
         diff < 86_400_000 -> "${diff / 3_600_000} 小时前"
-        diff < 7 * 86_400_000 -> "${diff / 86_400_000} 天前"
+        diff < 7 * 86_400_000L -> "${diff / 86_400_000} 天前"
         else -> SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(millis))
     }
 }

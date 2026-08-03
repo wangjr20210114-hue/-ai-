@@ -62,6 +62,12 @@ class FlorisRepository(
     val schedulesFlow = kotlinx.coroutines.flow.MutableStateFlow<List<Schedule>>(emptyList())
     val mapWorkspaceFlow = kotlinx.coroutines.flow.MutableStateFlow(MapWorkspaceState())
 
+    /**
+     * 待填入聊天输入框的草稿。主动提醒点"去处理"时写入，
+     * 聊天页读取后清空——只做页面间传值，不触发任何后端调用。
+     */
+    val pendingDraftFlow = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
     fun publishMapWorkspace(map: JsonObject, fallbackTitle: String?) {
         val places = (map["places"] as? JsonArray).orEmpty().mapNotNull {
             runCatching { json.decodeFromJsonElement(Place.serializer(), it) }.getOrNull()
@@ -245,7 +251,73 @@ class FlorisRepository(
     suspend fun readPaper(conversationId: String, input: JsonObject): JsonObject =
         api.readPaper(conversationId, input)
 
+    /**
+     * 论文助读流式调用（后端 /reader）。
+     * action: summarize / translate / analyze / qa
+     */
+    fun streamReader(
+        conversationId: String,
+        action: String,
+        text: String,
+        responseLanguage: String,
+        fileId: String? = null,
+        question: String? = null,
+    ) = client.streamReader(
+        conversationId,
+        buildJsonObject {
+            put("action", action)
+            put("text", text)
+            put("response_language", responseLanguage)
+            fileId?.let { put("file_id", it) }
+            question?.let { put("question", it) }
+        },
+    )
+
     suspend fun loadLibrary(): JsonObject = api.loadLibrary()
+
+    /** 阅读库条目（后端已自动整理为文件夹）。 */
+    data class LibraryItem(
+        val id: String,
+        val title: String,
+        val folderId: String?,
+        val isPaper: Boolean,
+        val preview: String?,
+    )
+
+    data class LibraryFolder(val id: String, val name: String, val automatic: Boolean)
+
+    data class Library(
+        val items: List<LibraryItem> = emptyList(),
+        val folders: List<LibraryFolder> = emptyList(),
+        val autoOrganize: Boolean = true,
+    )
+
+    suspend fun readingLibrary(): Library {
+        val response = api.loadLibrary()
+        val items = response.arr("items").orEmpty().mapNotNull { element ->
+            val obj = element as? JsonObject ?: return@mapNotNull null
+            LibraryItem(
+                id = obj.str("id") ?: obj.str("storage_key") ?: return@mapNotNull null,
+                title = obj.str("title") ?: obj.str("filename") ?: "未命名文档",
+                folderId = obj.str("folder_id"),
+                isPaper = obj.bool("is_paper") ?: false,
+                preview = obj.str("preview"),
+            )
+        }
+        val folders = response.arr("folders").orEmpty().mapNotNull { element ->
+            val obj = element as? JsonObject ?: return@mapNotNull null
+            LibraryFolder(
+                id = obj.str("id") ?: return@mapNotNull null,
+                name = obj.str("name") ?: "未命名文件夹",
+                automatic = obj.bool("automatic") ?: false,
+            )
+        }
+        return Library(
+            items = items,
+            folders = folders,
+            autoOrganize = response.obj("settings")?.bool("auto_organize") != false,
+        )
+    }
 
     // ---------- Profile / Proactive / Usage ----------
 

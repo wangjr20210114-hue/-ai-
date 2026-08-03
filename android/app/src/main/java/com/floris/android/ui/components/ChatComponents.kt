@@ -34,17 +34,11 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -71,67 +65,12 @@ import com.floris.android.core.model.Paper
 import com.floris.android.core.model.ProgressComponent
 import com.floris.android.core.model.SearchMeta
 import com.floris.android.core.model.WorkspaceAction
+import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.t
 import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
-// ---------- Progress ----------
-
-private val stageLabels = mapOf(
-    "planning" to "正在规划",
-    "retrieval" to "正在检索",
-    "verification" to "正在核实",
-    "synthesis" to "正在整合",
-    "finalizing" to "正在完成",
-    "complete" to "已完成",
-)
-
-private val activityLabels = mapOf(
-    "general" to "思考",
-    "web_search" to "联网搜索",
-    "paper_search" to "论文检索",
-    "place_search" to "地点查询",
-    "route_planning" to "路线规划",
-    "calendar_preparation" to "日程准备",
-    "meeting_preparation" to "会议准备",
-    "image_generation" to "图片生成",
-    "image_review" to "图片审核",
-    "component_action" to "组件操作",
-)
-
-@Composable
-fun ProgressBar(progress: ProgressComponent, modifier: Modifier = Modifier) {
-    val label = stageLabels[progress.stage] ?: progress.stage
-    val activity = activityLabels[progress.activity] ?: progress.activity
-    Row(
-        modifier = modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (progress.status == "active") {
-            ShimmerBox(Modifier.size(16.dp), corner = 8.dp)
-        } else {
-            Box(
-                Modifier.size(16.dp).clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Default.Check, contentDescription = null,
-                    tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(11.dp),
-                )
-            }
-        }
-        Spacer(Modifier.width(8.dp))
-        AnimatedContent(
-            targetState = "$label · $activity",
-            transitionSpec = { fadeIn() togetherWith fadeOut() },
-            label = "stage",
-        ) { text ->
-            Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
 
 // ---------- Search results ----------
 
@@ -283,7 +222,7 @@ fun WorkspaceActionCard(
                 Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    action.payload.title ?: "收到新版组件，请升级客户端查看",
+                    action.payload.title ?: t(StringKey.ActionUnknown),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -299,14 +238,14 @@ fun WorkspaceActionCard(
         else -> MaterialTheme.colorScheme.primary
     }
     val statusLabel = when (action.status) {
-        "ready" -> "待处理"
-        "active" -> "进行中"
-        "awaiting_confirmation" -> "待确认"
-        "executing" -> "执行中"
-        "succeeded" -> "已完成"
-        "failed" -> "失败"
-        "cancelled" -> "已取消"
-        "reconciliation_required" -> "需要核对"
+        "ready" -> t(StringKey.ActionReady)
+        "active" -> t(StringKey.ActionActive)
+        "awaiting_confirmation" -> t(StringKey.ActionAwaiting)
+        "executing" -> t(StringKey.ActionExecuting)
+        "succeeded" -> t(StringKey.ActionSucceeded)
+        "failed" -> t(StringKey.ActionFailed)
+        "cancelled" -> t(StringKey.ActionCancelled)
+        "reconciliation_required" -> t(StringKey.ActionNeedsReview)
         else -> action.status
     }
 
@@ -358,21 +297,33 @@ fun WorkspaceActionCard(
             // Only awaiting_confirmation actions offer decisions, and success
             // is rendered exclusively from the backend-confirmed status.
             AnimatedVisibility(visible = action.status == "awaiting_confirmation") {
-                Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    Modifier.padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     if (action.kind == "map_recommendation") {
-                        OutlinedButton(
+                        PillButton(
+                            text = action.payload.action_text ?: t(StringKey.MapShowOnMap),
                             onClick = onShowMap,
+                            style = PillStyle.Tonal,
                             enabled = !busy,
-                            modifier = Modifier.weight(1f),
-                        ) { Text(action.payload.action_text ?: "在地图显示") }
+                            compact = true,
+                        )
                     }
-                    Button(
+                    PillButton(
+                        text = if (busy) t(StringKey.Loading) else t(StringKey.Confirm),
                         onClick = onConfirm,
                         enabled = !busy,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    ) { Text(if (busy) "处理中…" else "确认") }
-                    OutlinedButton(onClick = onCancel, enabled = !busy) { Text("取消") }
+                        compact = true,
+                    )
+                    PillButton(
+                        text = t(StringKey.Cancel),
+                        onClick = onCancel,
+                        style = PillStyle.Ghost,
+                        enabled = !busy,
+                        compact = true,
+                    )
                 }
             }
         }
@@ -468,17 +419,97 @@ private fun MeetingActionBody(action: WorkspaceAction) {
 private fun ImageActionBody(action: WorkspaceAction) {
     action.payload.prompt?.let {
         Spacer(Modifier.height(6.dp))
-        Text("提示词：$it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            "提示词：$it",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
-    val imageUrl = action.result?.get("image_url")?.toString()?.trim('"')
-        ?: action.result?.get("url")?.toString()?.trim('"')
-    if (action.status == "succeeded" && !imageUrl.isNullOrEmpty()) {
+    if (action.status != "succeeded") return
+
+    val result = action.result ?: return
+    fun url(vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
+        (result[key] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it.isNotEmpty() }
+    }
+
+    val current = url("image_url", "url", "current_url")
+    val previous = url("previous_url", "reference_url", "base_url")
+
+    if (previous != null && current != null) {
+        // 图片工坊：左右对比（网页端同款）
+        Spacer(Modifier.height(8.dp))
+        var showNew by remember(action.id) { mutableStateOf(true) }
+        Column {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CompareImage(
+                    url = previous,
+                    label = "原图",
+                    highlighted = !showNew,
+                    modifier = Modifier.weight(1f),
+                    onClick = { showNew = false },
+                )
+                CompareImage(
+                    url = current,
+                    label = "新图",
+                    highlighted = showNew,
+                    modifier = Modifier.weight(1f),
+                    onClick = { showNew = true },
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            AsyncImage(
+                model = if (showNew) current else previous,
+                contentDescription = action.payload.prompt,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1.1f)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            )
+        }
+    } else if (current != null) {
         Spacer(Modifier.height(8.dp))
         AsyncImage(
-            model = imageUrl,
+            model = current,
             contentDescription = action.payload.prompt,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxWidth().aspectRatio(1.2f).clip(RoundedCornerShape(12.dp)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1.15f)
+                .clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        )
+    }
+}
+
+@Composable
+private fun CompareImage(
+    url: String,
+    label: String,
+    highlighted: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = modifier.pressable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        AsyncImage(
+            model = url,
+            contentDescription = label,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        )
+        Spacer(Modifier.height(5.dp))
+        StatusChip(
+            label,
+            if (highlighted) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -512,69 +543,100 @@ fun ClarificationForm(
             clarification.fields.forEach { field ->
                 Text(field.label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(bottom = 6.dp))
                 when (field.type) {
-                    "single" -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    "single" -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         field.options.forEach { option ->
                             val value = field.option_values[option] ?: option
-                            FilterChip(
+                            SelectRow(
+                                label = option,
                                 selected = answers[field.id] == value,
+                                multi = false,
                                 onClick = { answers[field.id] = value },
-                                label = { Text(option) },
                             )
                         }
                     }
-                    "multi" -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    "multi" -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         field.options.forEach { option ->
                             val value = field.option_values[option] ?: option
                             @Suppress("UNCHECKED_CAST")
                             val selected = (answers[field.id] as? List<String>).orEmpty()
-                            FilterChip(
+                            SelectRow(
+                                label = option,
                                 selected = value in selected,
+                                multi = true,
                                 onClick = {
                                     answers[field.id] =
                                         if (value in selected) selected - value else selected + value
                                 },
-                                label = { Text(option) },
                             )
                         }
                     }
                     "boolean" -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        Switch(
+                        FlorisSwitch(
                             checked = answers[field.id] as? Boolean ?: false,
                             onCheckedChange = { answers[field.id] = it },
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(10.dp))
                         Text(
                             if (answers[field.id] as? Boolean == true) "是" else "否",
                             style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     "date", "time", "datetime" -> {
-                        OutlinedButton(onClick = {
-                            if (field.type == "time") timePickerFor = field.id else datePickerFor = field.id
-                        }) {
-                            Text(answers[field.id] as? String ?: "选择" + field.label)
-                        }
+                        PillButton(
+                            text = answers[field.id] as? String ?: "选择${field.label}",
+                            onClick = {
+                                if (field.type == "time") timePickerFor = field.id
+                                else datePickerFor = field.id
+                            },
+                            style = PillStyle.Tonal,
+                            compact = true,
+                        )
                     }
                     else -> {
                         var text by remember(clarification.id + field.id) {
                             mutableStateOf(answers[field.id] as? String ?: "")
                         }
-                        OutlinedTextField(
-                            value = text,
-                            onValueChange = { text = it; answers[field.id] = it },
-                            placeholder = { field.placeholder?.let { Text(it) } },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                        )
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                                .padding(horizontal = 12.dp, vertical = 11.dp),
+                        ) {
+                            if (text.isEmpty()) {
+                                Text(
+                                    field.placeholder ?: "请输入",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            androidx.compose.foundation.text.BasicTextField(
+                                value = text,
+                                onValueChange = { text = it; answers[field.id] = it },
+                                textStyle = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                ),
+                                cursorBrush = androidx.compose.ui.graphics.SolidColor(
+                                    MaterialTheme.colorScheme.primary,
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
             }
-            Button(
-                onClick = { onSubmit(answers.toMap()) },
-                enabled = !submitting && clarification.fields.all { !it.required || answers.containsKey(it.id) },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (submitting) "提交中…" else "提交") }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                PillButton(
+                    text = if (submitting) t(StringKey.ClarificationSubmitting)
+                    else t(StringKey.ClarificationSubmit),
+                    onClick = { onSubmit(answers.toMap()) },
+                    enabled = !submitting &&
+                        clarification.fields.all { !it.required || answers.containsKey(it.id) },
+                    compact = true,
+                )
+            }
         }
     }
 
@@ -609,6 +671,49 @@ fun ClarificationForm(
     }
 }
 
+/** 网页端澄清卡同款选择行（radio / checkbox）。 */
+@Composable
+private fun SelectRow(
+    label: String,
+    selected: Boolean,
+    multi: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (selected) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            )
+            .pressable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(18.dp)
+                .clip(if (multi) RoundedCornerShape(5.dp) else CircleShape)
+                .background(
+                    if (selected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.outline,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) {
+                Icon(
+                    Icons.Default.Check, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(label, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
 // ---------- Follow-ups ----------
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -623,7 +728,7 @@ fun FollowUpChips(items: List<String>, onClick: (String) -> Unit, modifier: Modi
             Box(
                 Modifier
                     .clip(RoundedCornerShape(999.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
                     .pressable { onClick(item) }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             ) {
@@ -631,28 +736,18 @@ fun FollowUpChips(items: List<String>, onClick: (String) -> Unit, modifier: Modi
                     Text(
                         item,
                         style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowForward,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(14.dp).padding(start = 2.dp),
                     )
                 }
             }
         }
     }
-}
-
-// ---------- List entrance animation ----------
-
-@Composable
-fun AnimateIn(index: Int, content: @Composable () -> Unit) {
-    AnimatedVisibility(
-        visible = true,
-        enter = fadeIn() + slideInVertically(initialOffsetY = { it / 6 }),
-    ) { content() }
 }
