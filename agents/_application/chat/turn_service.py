@@ -46,12 +46,7 @@ from .skill_policy import apply_runtime_skill_policy
 from ...chat._graph import build_graph, grounded_route_stream_answer
 from ...chat._llm import get_model
 from ..._infrastructure.skills import build_system_skill_tools
-from ..._application.skills.registry import (
-    capability_skill_map,
-    enabled_skills_from_preferences,
-    known_skill_ids,
-    skill_required_plans,
-)
+from ..._application.skills.access import resolve_skill_access
 from ...chat._capability_plan import (
     DEFAULT_PLAN,
     fallback_tools_for_prompt_topics,
@@ -82,11 +77,6 @@ from ..._application.intelligence.service import (
     user_skill_prompt_context,
 )
 from ..._infrastructure.makers.identity import conversation_index_user_id, require_user, scoped_conversation_id
-from ..._domain.entitlements.policy import (
-    allowed_skill_ids,
-    effective_skill_preferences,
-    skill_unavailability_reasons,
-)
 from ..._infrastructure.makers.data_version import namespace as data_namespace
 from ..._infrastructure.makers.conversation_repository import (
     RUNNING_STATES,
@@ -314,28 +304,15 @@ async def _handle(ctx):
     )))
     parallel_image_search = bool(search_preferences.get("parallel_image_search", True))
     map_preferences = intelligence.get("map_preferences") or {}
-    skill_preferences = effective_skill_preferences(
+    skill_access = resolve_skill_access(
         identity,
         intelligence.get("skill_preferences"),
     )
     private_skill_context = user_skill_prompt_context(intelligence)
-    configured_skills = enabled_skills_from_preferences(skill_preferences)
-    enabled_skills = set(allowed_skill_ids(
-        identity,
-        configured_skills,
-        required_plans=skill_required_plans(),
-    ))
-    disabled_skills = sorted(known_skill_ids() - enabled_skills)
-    disabled_skill_reasons = skill_unavailability_reasons(
-        identity,
-        disabled_skills,
-        enabled_skills,
-    )
-    enabled_capabilities = {
-        capability
-        for capability, skill_id in capability_skill_map().items()
-        if skill_id in enabled_skills
-    }
+    enabled_skills = set(skill_access.enabled_skills)
+    disabled_skills = sorted(skill_access.disabled_skills)
+    disabled_skill_reasons = dict(skill_access.downgrade_reasons)
+    enabled_capabilities = set(skill_access.enabled_capabilities)
     vision_enabled = "vision_analysis" in enabled_capabilities
     current_calendar_context = "[]"
     current_route_context = "无"

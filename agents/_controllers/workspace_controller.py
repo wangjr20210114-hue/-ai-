@@ -22,7 +22,7 @@ from .._infrastructure.makers.identity import require_user, scoped_conversation_
 from .._application.intelligence.service import load_intelligence_state, skill_runtime_env
 from .._infrastructure.http import error
 from .._application.skills.registry import skill_manifest, unavailable_skills_for_action
-from .._domain.entitlements.policy import effective_skill_preferences
+from .._application.skills.access import SkillAccess, resolve_skill_access
 from .._application.workspace.service import (
     active_map_payload,
     apply_calendar_changes,
@@ -71,11 +71,19 @@ def _response(state, action=None, **extra):
 
 def _require_action_skill(
     action_kind: str,
-    preferences: dict,
+    access: SkillAccess,
 ) -> None:
-    unavailable = unavailable_skills_for_action(action_kind, preferences)
+    unavailable = unavailable_skills_for_action(
+        action_kind,
+        access.preference_map(),
+    )
     if not unavailable:
         return
+    if any(
+        access.downgrade_reasons.get(skill_id) == "login_required"
+        for skill_id in unavailable
+    ):
+        raise ValueError("请登录后使用此功能")
     names = []
     for skill_id in unavailable:
         manifest = skill_manifest(skill_id)
@@ -220,7 +228,7 @@ async def handler(ctx):
     state = await load_user_workspace(store, user_id=user_id)
     intelligence = await load_intelligence_state(store, user_id)
     runtime_env = skill_runtime_env(ctx.env, intelligence)
-    enabled_skills = effective_skill_preferences(
+    skill_access = resolve_skill_access(
         identity,
         intelligence.get("skill_preferences"),
     )
@@ -283,7 +291,7 @@ async def handler(ctx):
             return _response(state, deleted_plan_id=plan_id, travel_plans=list(state["travel_plans"].values()))
 
         if operation == "activate_map":
-            _require_action_skill("map_recommendation", enabled_skills)
+            _require_action_skill("map_recommendation", skill_access)
             action = get_action(state, str(body.get("action_id") or ""))
             check_action_version(action, int(body.get("version") or 0))
             if action.get("kind") != "map_recommendation" or action.get("status") not in {"ready", "active"}:
@@ -308,7 +316,7 @@ async def handler(ctx):
             return _response(state)
 
         if operation == "direct_calendar_changes":
-            _require_action_skill("calendar_changes", enabled_skills)
+            _require_action_skill("calendar_changes", skill_access)
             changes = body.get("changes") or []
             if not isinstance(changes, list) or not changes:
                 raise ValueError("缺少日程变更")
@@ -320,7 +328,7 @@ async def handler(ctx):
             return _response(state, changed=changed)
 
         if operation == "generate_image":
-            _require_action_skill("image_generate", enabled_skills)
+            _require_action_skill("image_generate", skill_access)
             prompt = str(body.get("prompt") or "").strip()[:2000]
             if not prompt:
                 raise ValueError("生图提示词不能为空")
@@ -357,7 +365,7 @@ async def handler(ctx):
             return _response(latest, action)
 
         if operation == "update_meeting_action":
-            _require_action_skill("meeting_create", enabled_skills)
+            _require_action_skill("meeting_create", skill_access)
             action = get_action(state, str(body.get("action_id") or ""))
             check_action_version(action, int(body.get("version") or 0))
             if action.get("kind") != "meeting_create" or action.get("status") != "awaiting_confirmation":
@@ -396,7 +404,7 @@ async def handler(ctx):
         if action.get("status") != "awaiting_confirmation":
             raise ValueError("该操作当前不能确认")
         kind = str(action.get("kind") or "")
-        _require_action_skill(kind, enabled_skills)
+        _require_action_skill(kind, skill_access)
         payload = action.get("payload") or {}
         verify_action_snapshot(action)
         if kind == "calendar_changes":

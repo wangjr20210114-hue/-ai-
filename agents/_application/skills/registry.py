@@ -531,14 +531,6 @@ def enabled_skills_from_preferences(
     return resolve_enabled_skills(enabled)
 
 
-def capability_is_enabled(
-    capability: str,
-    preferences: Mapping[str, Any] | None,
-) -> bool:
-    owner = capability_skill_map().get(str(capability or "").strip())
-    return bool(owner and owner in enabled_skills_from_preferences(preferences))
-
-
 def capability_skill_map() -> dict[str, str]:
     return {
         capability: manifest.id

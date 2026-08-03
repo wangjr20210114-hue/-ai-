@@ -6,10 +6,13 @@ from .runtime_ports import (
     SkillServices,
     ToolOperationService,
 )
+from .access import SkillAccess, resolve_skill_access
 
 __all__ = (
     "SERVICE_PERMISSIONS",
     "SKILL_SERVICE_NAMES",
     "SkillServices",
     "ToolOperationService",
+    "SkillAccess",
+    "resolve_skill_access",
 )

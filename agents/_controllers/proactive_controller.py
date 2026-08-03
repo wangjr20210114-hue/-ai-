@@ -37,8 +37,7 @@ from .._infrastructure.makers.identity import require_user
 from .._infrastructure.http import error
 from .._infrastructure.providers.tencent_location import get_current_weather
 from .._infrastructure.makers.provider_usage_repository import record_provider_usage
-from .._application.skills.registry import capability_is_enabled
-from .._domain.entitlements.policy import effective_skill_preferences
+from .._application.skills.access import resolve_skill_access
 from ..chat._llm import get_model
 
 
@@ -110,13 +109,10 @@ async def handler(ctx):
     store = ctx.store.langgraph_store
     try:
         intelligence_state = await load_intelligence_state(store, user_id)
-        proactive_skill_enabled = capability_is_enabled(
-            "workflow_action",
-            effective_skill_preferences(
-                identity,
-                intelligence_state.get("skill_preferences"),
-            ),
-        )
+        proactive_skill_enabled = resolve_skill_access(
+            identity,
+            intelligence_state.get("skill_preferences"),
+        ).allows_capability("workflow_action")
         if not proactive_skill_enabled and operation in {"refresh", "memory_refresh", "page_open", "tick"}:
             disabled_state = await load_proactive_state(store, user_id)
             if (disabled_state.get("preferences") or {}).get("enabled", True):

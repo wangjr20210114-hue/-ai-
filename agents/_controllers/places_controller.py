@@ -8,17 +8,16 @@ from .._application.intelligence.service import load_intelligence_state
 from .._infrastructure.http import error
 from .._infrastructure.makers.provider_usage_repository import record_provider_usage
 from .._infrastructure.makers.place_repository import load_place_cache, save_place_cache
-from .._application.skills.registry import capability_is_enabled
-from .._domain.entitlements.policy import effective_skill_preferences
+from .._application.skills.access import resolve_skill_access
 
 
 async def handler(ctx):
     identity = require_user(ctx)
     intelligence = await load_intelligence_state(ctx.store.langgraph_store, str(identity["user_id"]))
-    if not capability_is_enabled(
-        "places",
-        effective_skill_preferences(identity, intelligence.get("skill_preferences")),
-    ):
+    access = resolve_skill_access(identity, intelligence.get("skill_preferences"))
+    if not access.allows_capability("places"):
+        if access.reason_for_capability("places") == "login_required":
+            return error("请登录后使用地点搜索", 403, code="LOGIN_REQUIRED")
         return error("地图 Skill 已关闭，请先到 Skills 广场开启", 403, code="SKILL_DISABLED")
     body = ctx.request.body or {}
     query = str(body.get("query") or "").strip()

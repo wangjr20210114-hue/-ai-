@@ -6,8 +6,9 @@ import time
 from ..chat._llm import get_model
 from ..chat._protocol import StreamDeltaNormalizer, public_error
 from .._infrastructure.makers.identity import require_user
-from .._domain.entitlements.policy import require_skill_access
 from .._infrastructure.http import error
+from .._application.intelligence.service import load_intelligence_state
+from .._application.skills.access import resolve_skill_access
 
 
 PROMPTS = {
@@ -32,10 +33,15 @@ def _text(content):
 
 async def handler(ctx):
     identity = require_user(ctx)
-    try:
-        require_skill_access(identity, "paper-reading")
-    except PermissionError as exc:
-        return error(str(exc), 403, code="SKILL_ACCESS_DENIED")
+    intelligence = await load_intelligence_state(
+        ctx.store.langgraph_store,
+        str(identity["user_id"]),
+    )
+    access = resolve_skill_access(identity, intelligence.get("skill_preferences"))
+    if not access.allows_capability("paper_assistant"):
+        if access.reason_for_capability("paper_assistant") == "login_required":
+            return error("请登录后使用论文助读", 403, code="LOGIN_REQUIRED")
+        return error("论文助读 Skill 已关闭，请先到 Skills 广场开启", 403, code="SKILL_DISABLED")
     body = ctx.request.body or {}
     action = str(body.get("action") or "")
     text = str(body.get("text") or "").strip()

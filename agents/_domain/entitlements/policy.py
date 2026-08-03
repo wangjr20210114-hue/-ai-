@@ -101,18 +101,3 @@ def public_entitlements(identity: Mapping[str, Any]) -> dict[str, Any]:
         "limits": dict(PLAN_LIMITS[plan]),
         "payment_available": PAYMENT_AVAILABLE,
     }
-
-
-def require_skill_access(
-    identity: Mapping[str, Any],
-    skill_id: str,
-    required_plan: str = "free",
-) -> None:
-    auth_type = str(identity.get("auth_type") or "guest")
-    if auth_type == "guest" and skill_id not in GUEST_SKILL_IDS:
-        raise PermissionError("请先登录后使用此 Skill")
-    if auth_type != "guest" and not plan_allows(
-        identity.get("membership"),
-        required_plan,
-    ):
-        raise PermissionError("当前会员等级无法使用此 Skill")

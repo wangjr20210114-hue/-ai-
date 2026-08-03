@@ -9,6 +9,9 @@ from unittest.mock import AsyncMock, patch
 from langchain_core.messages import AIMessageChunk, ToolMessage
 
 from agents._application.chat.turn_service import ChatTurnService
+from agents._application.skills.access import (
+    resolve_skill_access as resolve_test_skill_access,
+)
 from agents._application.search.search_use_case import SearchExecution
 from agents._domain.search.evidence import SearchEvidence, SearchSource
 from agents._tests.auth_helpers import auth_env, auth_headers
@@ -170,8 +173,11 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=(plan, planner_timed_out)),
             ),
             patch(
-                "agents._application.chat.turn_service.effective_skill_preferences",
-                return_value=enabled_preferences or enabled,
+                "agents._application.chat.turn_service.resolve_skill_access",
+                side_effect=lambda identity, _preferences: resolve_test_skill_access(
+                    identity,
+                    enabled_preferences or enabled,
+                ),
             ),
             patch(
                 "agents._application.chat.turn_service.load_user_workspace",

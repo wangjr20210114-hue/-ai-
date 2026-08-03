@@ -9,8 +9,7 @@ from .._infrastructure.makers.identity import require_user, scoped_conversation_
 from .._infrastructure.http import error
 from .._application.intelligence.service import load_intelligence_state
 from .._infrastructure.makers.provider_usage_repository import record_provider_usage
-from .._application.skills.registry import capability_is_enabled
-from .._domain.entitlements.policy import effective_skill_preferences
+from .._application.skills.access import resolve_skill_access
 from .._application.workspace.service import (
     begin_action_execution,
     finish_provider_call,
@@ -30,19 +29,19 @@ async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
     conversation_id = scoped_conversation_id(ctx, user_id)
+    store = ctx.store.langgraph_store
+    intelligence = await load_intelligence_state(store, user_id)
+    access = resolve_skill_access(identity, intelligence.get("skill_preferences"))
+    if not access.allows_capability("image_generation"):
+        if access.reason_for_capability("image_generation") == "login_required":
+            return error("请登录后使用图片工坊", 403, code="LOGIN_REQUIRED")
+        return error("图片工坊 Skill 已关闭，请先到 Skills 广场开启", 403, code="SKILL_DISABLED")
     body = ctx.request.body or {}
     prompt = str(body.get("prompt") or "").strip()[:2000]
     parent_id = str(body.get("parent_action_id") or "").strip()
     if not prompt or not parent_id:
         return error("修改提示词和原图版本不能为空")
 
-    store = ctx.store.langgraph_store
-    intelligence = await load_intelligence_state(store, user_id)
-    if not capability_is_enabled(
-        "image_generation",
-        effective_skill_preferences(identity, intelligence.get("skill_preferences")),
-    ):
-        return error("图片工坊 Skill 已关闭，请先到 Skills 广场开启", 403, code="SKILL_DISABLED")
     state = await load_user_workspace(store, user_id=user_id)
     parent = get_action(state, parent_id)
     if parent.get("kind") != "image_generate" or parent.get("status") != "succeeded":
