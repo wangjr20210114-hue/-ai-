@@ -1864,10 +1864,22 @@ async def _handle(ctx):
             await queue.put(presenter.media(completed))
 
         search_started_at = time.monotonic()
-        execution = await search_use_case.execute(
-            request,
-            on_media=publish_media,
-        )
+        try:
+            execution = await search_use_case.execute(
+                request,
+                on_media=publish_media,
+            )
+        except Exception as exc:
+            stage_timings_ms["search"] = round(
+                (time.monotonic() - search_started_at) * 1000
+            )
+            logging.warning(
+                "rich_search failed conversation=%s error_type=%s elapsed_ms=%s",
+                conversation_id,
+                type(exc).__name__,
+                stage_timings_ms["search"],
+            )
+            raise
         stage_timings_ms["search"] = round(
             (time.monotonic() - search_started_at) * 1000
         )
@@ -2048,7 +2060,7 @@ async def _handle(ctx):
     selected_tool_names = (
         set(graph_tool_names)
     )
-    answer_capability_plan = capability_plan
+    answer_capability_plan = dict(capability_plan)
 
     graph_model = (
         model if capability_plan.get("needs_deep_reasoning") else fast_model
@@ -2398,9 +2410,34 @@ async def _handle(ctx):
 
                         if getattr(streamed_message, "type", "") == "tool":
                             await reset_public_stream()
+                            tool_name = getattr(streamed_message, "name", "")
                             tool_content = _text_content(
                                 getattr(streamed_message, "content", "")
                             )
+                            try:
+                                tool_payload = json.loads(tool_content)
+                            except (TypeError, json.JSONDecodeError):
+                                tool_payload = None
+                            tool_error = (
+                                tool_payload.get("tool_error")
+                                if isinstance(tool_payload, dict)
+                                and isinstance(tool_payload.get("tool_error"), dict)
+                                else None
+                            )
+                            if (
+                                tool_name == "rich_search"
+                                and isinstance(tool_error, dict)
+                                and tool_error.get("kind") == "runtime"
+                            ):
+                                fallback_skills = list(dict.fromkeys([
+                                    *(answer_capability_plan.get(
+                                        "_runtime_model_fallback_skills",
+                                    ) or []),
+                                    "web-search",
+                                ]))
+                                answer_capability_plan[
+                                    "_runtime_model_fallback_skills"
+                                ] = fallback_skills
                             action = _ui_action(tool_content)
                             if action and action.get("ui_action") == "rich_search_results":
                                 metadata = action.get("search_results")

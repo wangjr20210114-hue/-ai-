@@ -60,6 +60,14 @@ class ChatTurnBoundaryTests(unittest.TestCase):
                 "login_required": True,
             }],
         )
+        self.assertEqual(
+            experience_hints_for_plan(fallback, auth_type="cloudbase"),
+            [{
+                "kind": "freshness",
+                "skill_ids": ["web-search"],
+                "login_required": False,
+            }],
+        )
 
     def test_disabled_non_search_skill_uses_a_small_presentation_hint(self):
         self.assertEqual(

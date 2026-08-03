@@ -73,6 +73,13 @@ def rich_search(query: str) -> str:
     return query
 
 
+@tool("rich_search")
+def failing_rich_search(query: str) -> str:
+    """Simulate one transient provider failure."""
+    del query
+    raise TimeoutError("search provider timed out")
+
+
 @tool
 def ask_user_clarification(title: str) -> str:
     """Return one structured clarification."""
@@ -798,6 +805,29 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(model.bound_calls, 0)
         self.assertEqual(model.unbound_calls, 0)
+
+    async def test_failed_search_only_turn_degrades_to_public_model_answer(self):
+        model = _RecordingModel()
+        graph = build_graph(
+            model,
+            [failing_rich_search],
+            "system",
+            required_tools=["rich_search"],
+        )
+
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="recent AI progress")],
+        })
+
+        self.assertEqual(result["messages"][-1].content, "final answer")
+        self.assertEqual(model.unbound_calls, 1)
+        self.assertEqual(model.bound_calls, 0)
+        self.assertTrue(any(
+            isinstance(message, ToolMessage)
+            and message.name == "rich_search"
+            and "tool_error" in message.content
+            for message in result["messages"]
+        ))
 
     async def test_domain_clarification_checkpoints_original_linked_tool_protocol(self):
         model = _RecordingModel()

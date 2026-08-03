@@ -794,6 +794,7 @@ def build_graph(
         crossed_clarification_answer = False
         route_result_payload = None
         required_tool_failed = False
+        failed_required_tools: set[str] = set()
         retryable_required_failures: dict[str, int] = {}
         for message in reversed(state["messages"]):
             if getattr(message, "type", "") in {"human", "user"}:
@@ -821,6 +822,7 @@ def build_graph(
                     else None
                 )
                 if name in required_sequence and isinstance(tool_error, dict):
+                    failed_required_tools.add(name)
                     retryable = bool(tool_error.get("retry_same_call"))
                     retryable_required_failures[name] = (
                         retryable_required_failures.get(name, 0) + 1
@@ -894,7 +896,12 @@ def build_graph(
         # Preserve an earlier verified route if only its independent calendar
         # enhancement failed. Never tell the user that nothing ran after a real
         # Tencent map Action was already emitted.
-        if required_tool_failed:
+        search_only_degraded = bool(
+            required_tool_failed
+            and tuple(required_sequence) == ("rich_search",)
+            and failed_required_tools == {"rich_search"}
+        )
+        if required_tool_failed and not search_only_degraded:
             route_only_answer = _route_result_with_calendar_degraded(
                 route_result_payload
             )
@@ -1124,6 +1131,14 @@ def build_graph(
                 "本轮唯一一次富搜索已经完成，不得再次调用 rich_search。"
                 "若请求仍需地点核验、真实路线、结构化澄清或其他非搜索能力，可以继续调用对应工具；"
                 "否则直接基于已有证据回答。不要描述内部搜索过程。"
+            )))
+        if search_only_degraded:
+            messages.append(SystemMessage(content=(
+                "实时搜索在本轮临时不可用。这只是增强能力降级，不是回答终止条件。"
+                "请继续使用自身已有知识，像基础模型一样自然、完整地回答用户；不要复述工具错误，"
+                "不要要求用户安装、开启或重试 Skill。不得伪造实时核验、来源或超出知识边界的最新事实。"
+                "如果问题确实依赖最近或今天的信息，在必要处保持时效边界即可；界面会另用小字提示未实时核验，"
+                "不要把主体回答写成免责声明。"
             )))
         response = await active_model.ainvoke(messages)
         if required_name and not getattr(response, "tool_calls", None):

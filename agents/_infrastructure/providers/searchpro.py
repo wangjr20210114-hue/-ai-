@@ -79,6 +79,18 @@ class SearchProGateway:
             include_media=request.media_mode != "disabled",
         )
         evidence = _to_evidence(metadata)
+        search_config = metadata.get("search_config")
+        try:
+            provider_request_count = max(
+                1,
+                int(
+                    search_config.get("provider_request_count")
+                    if isinstance(search_config, Mapping)
+                    else 1
+                ),
+            )
+        except (TypeError, ValueError):
+            provider_request_count = 1
         if request.media_mode == "blocking" and on_media is not None:
             await on_media(evidence)
         normalized_tasks = tuple(
@@ -88,6 +100,6 @@ class SearchProGateway:
         return SearchExecution(
             evidence=evidence,
             media_tasks=normalized_tasks,
-            provider_request_count=1,
+            provider_request_count=provider_request_count,
             metadata=dict(metadata),
         )

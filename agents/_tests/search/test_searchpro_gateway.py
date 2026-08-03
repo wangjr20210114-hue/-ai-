@@ -98,6 +98,25 @@ class SearchProGatewayTests(unittest.IsolatedAsyncioTestCase):
             ["media-reviewed"],
         )
 
+    async def test_provider_attempt_count_is_preserved(self):
+        provider_result = {
+            "query": "AI progress",
+            "results": [],
+            "media": [],
+            "total": 0,
+            "media_pending": False,
+            "search_config": {"provider_request_count": 2},
+        }
+        gateway = SearchProGateway({"WSA_API_KEY": "test-key"})
+
+        with patch(
+            "agents._infrastructure.providers.searchpro.provider_rich_search",
+            new=AsyncMock(return_value=provider_result),
+        ):
+            execution = await gateway.search(request())
+
+        self.assertEqual(execution.provider_request_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

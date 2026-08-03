@@ -259,6 +259,26 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["search_config"]["visual_query_merged"])
         self.assertTrue(result["search_config"]["parallel_image_search"])
 
+    async def test_rich_search_retries_one_transient_transport_failure(self):
+        with patch(
+            "agents._infrastructure.providers.rich_search._json_request",
+            side_effect=[TimeoutError("transient"), {"Pages": []}],
+        ) as provider, patch(
+            "agents._infrastructure.providers.rich_search.asyncio.sleep",
+            new=AsyncMock(),
+        ):
+            result = await run_rich_search(
+                {"WSA_API_KEY": "test"},
+                "factual query",
+                depth="basic",
+            )
+
+        self.assertEqual(provider.call_count, 2)
+        self.assertEqual(
+            result["search_config"]["provider_request_count"],
+            2,
+        )
+
     def test_rich_search_visual_review_timeout_is_hard_bounded(self):
         self.assertEqual(_vision_review_timeout({}), 7.0)
         self.assertEqual(_vision_review_timeout({"RICH_SEARCH_VISION_TIMEOUT_SECONDS": "999"}), 7.0)

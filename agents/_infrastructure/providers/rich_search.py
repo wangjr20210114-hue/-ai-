@@ -168,6 +168,55 @@ def _json_request(url: str, payload: dict, headers: dict, timeout: int) -> dict:
         connection.close()
 
 
+def _retryable_searchpro_error(error: Exception) -> bool:
+    """Return whether a read-only SearchPro request is safe to retry once."""
+    if isinstance(error, urllib.error.HTTPError):
+        status = int(getattr(error, "code", 0) or 0)
+        return status in {408, 429} or status >= 500
+    return isinstance(
+        error,
+        (
+            asyncio.TimeoutError,
+            TimeoutError,
+            ConnectionError,
+            http.client.HTTPException,
+            OSError,
+        ),
+    )
+
+
+async def _searchpro_json_request(
+    url: str,
+    payload: dict,
+    headers: dict,
+    timeout: int,
+) -> tuple[dict, int]:
+    """Use the shared SearchPro adapter with one bounded transport recovery."""
+    for attempt in range(1, 3):
+        try:
+            data = await asyncio.wait_for(
+                asyncio.to_thread(
+                    _json_request,
+                    url,
+                    payload,
+                    headers,
+                    timeout,
+                ),
+                timeout=timeout + 0.5,
+            )
+            return data, attempt
+        except Exception as error:
+            if attempt >= 2 or not _retryable_searchpro_error(error):
+                raise
+            logging.warning(
+                "SearchPro transport retry attempt=%s error_type=%s",
+                attempt,
+                type(error).__name__,
+            )
+            await asyncio.sleep(0.2)
+    raise RuntimeError("SearchPro request did not complete")
+
+
 def _parse_pages(data: dict[str, Any], limit: int) -> list[dict[str, Any]]:
     response = data.get("Response") if isinstance(data.get("Response"), dict) else data
     pages = response.get("Pages") or response.get("pages") or []
@@ -712,18 +761,14 @@ async def rich_search(
     # concurrent and pixel review still happens below.
     if distinct_visual_query:
         provider_query += f"\n同时优先返回包含这些可视对象的结果：{image_query[:180]}"
-    data = await asyncio.wait_for(
-        asyncio.to_thread(
-            _json_request,
-            f"{base_url}/SearchPro",
-            # Keep the request compatible with every WSA tier.  ``Cnt`` is a
-            # premium-only API parameter even though lower tiers can return a
-            # provider-selected result count.  Main has always sent Query only.
-            {"Query": provider_query[:500]},
-            headers,
-            provider_timeout,
-        ),
-        timeout=provider_timeout + 0.5,
+    data, provider_request_count = await _searchpro_json_request(
+        f"{base_url}/SearchPro",
+        # Keep the request compatible with every WSA tier.  ``Cnt`` is a
+        # premium-only API parameter even though lower tiers can return a
+        # provider-selected result count.  Main has always sent Query only.
+        {"Query": provider_query[:500]},
+        headers,
+        provider_timeout,
     )
     visual_data = data
     searched_at = time.perf_counter()
@@ -784,7 +829,7 @@ async def rich_search(
                 if media_callback is not None and background_tasks is not None
                 else "blocking"
             ),
-            "provider_request_count": 1,
+            "provider_request_count": provider_request_count,
             "visual_query_merged": distinct_visual_query,
             "provider_timeout_seconds": provider_timeout,
             "page_fetch_limit": min(6, max(4, image_limit * 2)) if image_limit else 0,
