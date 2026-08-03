@@ -50,6 +50,7 @@ import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.floris.android.AppContainer
 import com.floris.android.core.auth.AuthManager
+import com.floris.android.core.auth.AuthState
 import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.data.asString
 import com.floris.android.core.data.obj
@@ -88,10 +89,41 @@ class SkillsViewModel(
     private val _state = MutableStateFlow(UiState(isGuest = authManager.isGuest))
     val state = _state.asStateFlow()
 
-    init { refresh() }
+    init {
+        refresh()
+        // Tab 页 ViewModel 是 Activity 作用域，登录/登出后不会重建。
+        // 必须订阅 AuthState，否则登录成功后这里仍是旧的游客态。
+        viewModelScope.launch {
+            authManager.state.collect { auth ->
+                val guest = (auth as? AuthState.SignedIn)?.identity?.auth_type == "guest"
+                val changed = guest != _state.value.isGuest
+                _state.value = _state.value.copy(isGuest = guest)
+                // 身份变了，可用技能范围也变了，重新拉一次目录。
+                if (changed) refresh()
+            }
+        }
+    }
 
-    fun refresh() {
-        _state.value = _state.value.copy(loading = true, error = null, isGuest = authManager.isGuest)
+    /**
+     * 拉取技能目录。
+     *
+     * @param force true 表示用户主动下拉/身份变化，必须走网络；
+     *              false 表示进入页面，已有数据就直接用缓存，不再转圈。
+     */
+    fun refresh(force: Boolean = true) {
+        val guest = (authManager.state.value as? AuthState.SignedIn)
+            ?.identity?.auth_type == "guest"
+        // 已有数据且不是强制刷新：直接沿用，避免每次切页都空屏加载。
+        if (!force && _state.value.skills.isNotEmpty()) {
+            _state.value = _state.value.copy(isGuest = guest, loading = false)
+            return
+        }
+        if (_state.value.loading && _state.value.skills.isNotEmpty()) return
+        _state.value = _state.value.copy(
+            loading = _state.value.skills.isEmpty(),
+            error = null,
+            isGuest = guest,
+        )
         viewModelScope.launch {
             val conversationId = repository.activeConversationId()
             runCatching {
@@ -112,7 +144,7 @@ class SkillsViewModel(
                     loading = false,
                     skills = catalog.skills,
                     enabledIds = enabled,
-                    isGuest = authManager.isGuest,
+                    isGuest = guest,
                 )
             }.onFailure {
                 _state.value = _state.value.copy(loading = false, error = "技能市场加载失败")

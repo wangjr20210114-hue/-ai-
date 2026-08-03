@@ -16,11 +16,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Language
@@ -43,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -87,7 +83,6 @@ class SettingsViewModel(
 
     data class UiState(
         val proactiveEnabled: Boolean = true,
-        val displayName: String = "",
         val dailyTokens: Long = 0,
         val monthlyTokens: Long = 0,
         val loading: Boolean = true,
@@ -113,9 +108,6 @@ class SettingsViewModel(
                     monthlyTokens = usage.obj("usage")?.num("monthly_tokens") ?: 0,
                 )
             }
-            runCatching { repository.getProfile() }.onSuccess { profile ->
-                _state.value = _state.value.copy(displayName = profile.display_name ?: "")
-            }
             _state.value = _state.value.copy(loading = false)
         }
     }
@@ -135,22 +127,10 @@ class SettingsViewModel(
         }
     }
 
-    fun updateDisplayName(name: String) {
-        if (name.isBlank()) return
-        viewModelScope.launch {
-            runCatching { repository.updateDisplayName(name.trim()) }
-                .onSuccess {
-                    _state.value = _state.value.copy(displayName = name.trim(), message = "昵称已更新")
-                }
-                .onFailure { _state.value = _state.value.copy(message = "更新失败") }
-        }
-    }
-
     fun setTheme(mode: ThemeMode) = viewModelScope.launch { preferences.setTheme(mode) }
     fun setLanguage(language: Language) = viewModelScope.launch { preferences.setLanguage(language) }
     fun setWebResults(value: Int) = viewModelScope.launch { preferences.setWebResults(value) }
     fun setImageCandidates(value: Int) = viewModelScope.launch { preferences.setImageCandidates(value) }
-    fun replayOnboarding() = viewModelScope.launch { preferences.setOnboardingDone(false) }
 
     fun resetData() {
         _state.value = _state.value.copy(resetting = true)
@@ -252,7 +232,8 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
 
         Box(Modifier.weight(1f)) {
             LazyColumn(
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
+                // 底部多留白：清空数据是危险操作，不该紧贴屏幕边缘。
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 56.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 // 外观
@@ -341,6 +322,7 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
                 }
 
                 // 数据
+                item { Spacer(Modifier.height(8.dp)) }
                 item { SectionHeader(t(StringKey.SettingsData)) }
                 item {
                     FlorisCard {

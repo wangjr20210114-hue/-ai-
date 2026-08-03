@@ -117,6 +117,11 @@ class ReadingViewModel(private val repository: FlorisRepository) : ViewModel() {
     }
 
     fun loadLibrary() {
+        // 已有书架数据时不再显示加载态：后端云函数可能要几秒才回，
+        // 先让用户看到上次的内容，新数据到了再替换。
+        if (!_state.value.library.isEmpty) {
+            _state.update { it.copy(loadingLibrary = false) }
+        }
         viewModelScope.launch {
             runCatching { repository.readingLibrary() }
                 .onSuccess { library ->

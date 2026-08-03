@@ -1,6 +1,7 @@
 package com.floris.android.ui.navigation
 
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
@@ -11,6 +12,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
@@ -171,19 +174,28 @@ private fun MainShell(container: AppContainer, navController: NavHostController)
     // 背景铺在最外层：之前画在聊天页内部，Tab 栏与状态栏区域露白，
     // 现在整屏（含底栏后面）都是同一张皮肤，滚动时也不会出现割裂。
     Box(Modifier.fillMaxSize()) {
-        Image(
-            painter = painterResource(
-                if (dark) R.drawable.floris_chat_dark else R.drawable.floris_chat_light,
-            ),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(if (dark) Color(0xD1100C1D) else Color(0xD6FFFDF9)),
-        )
+        // 皮肤随主题交叉淡入淡出，与配色插值同步，切换白天/黑夜时不跳变。
+        Crossfade(
+            targetState = dark,
+            animationSpec = tween(420, easing = FastOutSlowInEasing),
+            label = "skin",
+        ) { isDark ->
+            Box(Modifier.fillMaxSize()) {
+                Image(
+                    painter = painterResource(
+                        if (isDark) R.drawable.floris_chat_dark else R.drawable.floris_chat_light,
+                    ),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(if (isDark) Color(0xD1100C1D) else Color(0xD6FFFDF9)),
+                )
+            }
+        }
 
         Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f)) {
@@ -259,11 +271,13 @@ private fun MainShell(container: AppContainer, navController: NavHostController)
 }
 
 /**
- * 二级页面（历史 / 地图 / 设置 / 个人信息）的进出动画。
+ * 页面转场动画。
  *
- * 底部 Tab 之间只做 90ms 淡入，切换要"即时"；
- * 二级页面则从右侧滑入、返回时滑回右侧，方向和手势直觉一致。
+ * 底部 Tab 之间：160ms 淡入淡出 + 极轻微放大，够短不拖沓，
+ * 又比硬切有明显的丝滑感（从技能/阅读/日程/我的回聊天也走这条）。
+ * 二级页面（历史/地图/设置/个人信息）：从右侧滑入、返回滑回右侧。
  */
+private const val TAB_FADE_MS = 160
 private val SECONDARY_ROUTES = setOf(Routes.HISTORY, Routes.MAP, Routes.SETTINGS, Routes.ACCOUNT)
 
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.isSecondary(): Boolean =
@@ -274,7 +288,7 @@ private fun tabEnter(scope: AnimatedContentTransitionScope<NavBackStackEntry>): 
     if (scope.isSecondary()) {
         slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(200))
     } else {
-        fadeIn(tween(90))
+        fadeIn(tween(TAB_FADE_MS)) + scaleIn(tween(TAB_FADE_MS), initialScale = 0.985f)
     }
 
 private fun tabExit(scope: AnimatedContentTransitionScope<NavBackStackEntry>): ExitTransition =
@@ -282,14 +296,14 @@ private fun tabExit(scope: AnimatedContentTransitionScope<NavBackStackEntry>): E
         // 一级页轻微左移并淡出，形成层次感而不是硬切。
         slideOutHorizontally(tween(280, easing = FastOutSlowInEasing)) { -it / 6 } + fadeOut(tween(220))
     } else {
-        fadeOut(tween(90))
+        fadeOut(tween(TAB_FADE_MS)) + scaleOut(tween(TAB_FADE_MS), targetScale = 0.985f)
     }
 
 private fun tabPopEnter(scope: AnimatedContentTransitionScope<NavBackStackEntry>): EnterTransition =
     if (scope.isSecondary()) {
         slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { -it / 6 } + fadeIn(tween(200))
     } else {
-        fadeIn(tween(90))
+        fadeIn(tween(TAB_FADE_MS)) + scaleIn(tween(TAB_FADE_MS), initialScale = 0.985f)
     }
 
 private fun tabPopExit(scope: AnimatedContentTransitionScope<NavBackStackEntry>): ExitTransition =
@@ -297,7 +311,7 @@ private fun tabPopExit(scope: AnimatedContentTransitionScope<NavBackStackEntry>)
         // 返回键：二级页顺着来的方向滑回右侧，自然收起。
         slideOutHorizontally(tween(280, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(240))
     } else {
-        fadeOut(tween(90))
+        fadeOut(tween(TAB_FADE_MS)) + scaleOut(tween(TAB_FADE_MS), targetScale = 0.985f)
     }
 
 private fun NavHostController.switchTab(route: String) {

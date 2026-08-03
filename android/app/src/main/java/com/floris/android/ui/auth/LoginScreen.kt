@@ -42,9 +42,11 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.floris.android.AppContainer
 import com.floris.android.core.auth.AuthManager
+import com.floris.android.core.auth.AuthState
 import com.floris.android.ui.components.CatAvatar
 import com.floris.android.ui.components.PillButton
 import com.floris.android.ui.components.PillStyle
+import com.floris.android.ui.layout.Responsive
 import com.floris.android.ui.loginViewModelFactory
 import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.t
@@ -58,14 +60,35 @@ class LoginViewModel(private val authManager: AuthManager) : ViewModel() {
         val email: String = "",
         val code: String = "",
         val step: Step = Step.EMAIL,
+        /**邮箱流程忙碌（发送验证码 / 校验），只影响上方按钮。 */
         val busy: Boolean = false,
+        /** 游客登录忙碌，与邮箱流程分开，否则会误改上方按钮文案。 */
+        val guestBusy: Boolean = false,
         val error: String? = null,
-    )
+    ) {
+        /** 任一流程进行中：用于禁用另一侧按钮，避免并发登录。 */
+        val anyBusy: Boolean get() = busy || guestBusy
+    }
 
     enum class Step { EMAIL, CODE }
 
     private val _state = MutableStateFlow(UiState())
     val state = _state.asStateFlow()
+
+    init {
+        // 退出登录后本页可能被复用（导航层只是把它换回来），
+        // 必须清掉上一次的验证码步骤，否则会停在"修改邮箱"那一屏。
+        viewModelScope.launch {
+            authManager.state.collect { auth ->
+                if (auth is AuthState.SignedOut) reset()
+            }
+        }
+    }
+
+    /** 回到初始的邮箱输入态，清空所有残留。 */
+    fun reset() {
+        _state.value = UiState()
+    }
 
     fun updateEmail(value: String) {
         _state.value = _state.value.copy(email = value, error = null)
@@ -80,7 +103,7 @@ class LoginViewModel(private val authManager: AuthManager) : ViewModel() {
 
     fun sendCode() {
         val email = _state.value.email.trim()
-        if (_state.value.busy) return
+        if (_state.value.anyBusy) return
         if (!email.contains("@")) {
             _state.value = _state.value.copy(error = "请输入有效的邮箱地址")
             return
@@ -95,7 +118,7 @@ class LoginViewModel(private val authManager: AuthManager) : ViewModel() {
 
     fun verify() {
         val current = _state.value
-        if (current.busy) return
+        if (current.anyBusy) return
         if (current.code.length < 4) {
             _state.value = current.copy(error = "请输入邮箱收到的验证码")
             return
@@ -117,11 +140,15 @@ class LoginViewModel(private val authManager: AuthManager) : ViewModel() {
      * 成功后 AuthState 翻转，导航层会替换本页。
      */
     fun continueAsGuest() {
-        if (_state.value.busy) return
-        _state.value = _state.value.copy(busy = true, error = null)
+        if (_state.value.anyBusy) return
+        // 用独立的 guestBusy：共用 busy 会让上方按钮变成"发送中…"，
+        // 看起来就像点游客入口同时触发了发送验证码。
+        _state.value = _state.value.copy(guestBusy = true, error = null)
         viewModelScope.launch {
             runCatching { authManager.signInAsGuest() }
-                .onFailure { _state.value = _state.value.copy(busy = false, error = it.message) }
+                .onFailure {
+                    _state.value = _state.value.copy(guestBusy = false, error = it.message)
+                }
         }
     }
 }
@@ -139,12 +166,13 @@ fun LoginScreen(container: AppContainer) {
             .imePadding()
             // 可滚动：键盘弹出时内容不会溢出屏幕，避免按钮被挤到重叠区域。
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 30.dp, vertical = 24.dp),
+            .padding(horizontal = Responsive.horizontalPadding + 14.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        CatAvatar(size = 84.dp)
-        Spacer(Modifier.height(18.dp))
+        // 横屏可用高度只有竖屏四成，头像与间距同步收小，避免按钮被挤出屏幕。
+        CatAvatar(size = Responsive.loginAvatar)
+        Spacer(Modifier.height(Responsive.gap(18.dp)))
         Text("FLORIS", style = MaterialTheme.typography.displayMedium)
         Spacer(Modifier.height(6.dp))
         Text(
@@ -152,7 +180,7 @@ fun LoginScreen(container: AppContainer) {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.primary,
         )
-        Spacer(Modifier.height(42.dp))
+        Spacer(Modifier.height(Responsive.gap(42.dp)))
 
         AnimatedContent(
             targetState = state.step,
@@ -183,7 +211,7 @@ fun LoginScreen(container: AppContainer) {
                             text = if (state.busy) t(StringKey.LoginSending)
                             else t(StringKey.LoginSendCode),
                             onClick = viewModel::sendCode,
-                            enabled = !state.busy,
+                            enabled = !state.anyBusy,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -208,7 +236,7 @@ fun LoginScreen(container: AppContainer) {
                             text = if (state.busy) t(StringKey.LoginSigningIn)
                             else t(StringKey.LoginSignIn),
                             onClick = viewModel::verify,
-                            enabled = !state.busy,
+                            enabled = !state.anyBusy,
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Spacer(Modifier.height(4.dp))
@@ -234,7 +262,7 @@ fun LoginScreen(container: AppContainer) {
         }
 
         // 游客入口：后端签发 7 天游客会话，不需要邮箱即可先体验。
-        Spacer(Modifier.height(26.dp))
+        Spacer(Modifier.height(Responsive.gap(26.dp)))
         Row(verticalAlignment = Alignment.CenterVertically) {
             HairLine(Modifier.weight(1f))
             Text(
@@ -245,12 +273,13 @@ fun LoginScreen(container: AppContainer) {
             )
             HairLine(Modifier.weight(1f))
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(Responsive.gap(14.dp)))
         PillButton(
-            text = t(StringKey.LoginAsGuest),
+            text = if (state.guestBusy) t(StringKey.LoginSigningIn)
+            else t(StringKey.LoginAsGuest),
             onClick = viewModel::continueAsGuest,
             style = PillStyle.Tonal,
-            enabled = !state.busy,
+            enabled = !state.anyBusy,
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))

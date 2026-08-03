@@ -23,6 +23,8 @@ enum class StringKey {
     CopyPlainText, CopiedToClipboard, SaveAsImage, Saving, SaveImageFailed,
     // 个人信息
     AccountTitle, AccountMembership, AccountHelp, AccountAboutDesc,
+    // 澄清卡
+    ClarificationAnswered,
     // 底部导航
     TabChat, TabSkills, TabCalendar, TabReading, TabProfile,
     // 聊天
@@ -229,6 +231,10 @@ object Strings {
             "保存图片", "儲存圖片", "Save image", "存成图片喵", "保存图片",
         )
         put(StringKey.Saving, "保存中…", "儲存中…", "Saving…", "存着喵…", "保存中…")
+        put(
+            StringKey.ClarificationAnswered,
+            "已选择：%s", "已選擇：%s", "Answered: %s", "选好了喵：%s", "已选择：%s",
+        )
         put(
             StringKey.AccountTitle,
             "个人信息", "個人資訊", "Account", "我的资料喵", "个人信息",
@@ -622,11 +628,11 @@ object Strings {
         put(StringKey.SettingsResetTitle, "清除全部数据？", "清除全部資料？", "Erase all data?", "真的全部收拾掉吗？", "清除全部数据？")
         put(
             StringKey.SettingsResetBody,
-            "将删除账号下的全部会话、工作区与文件，且无法恢复。",
-            "將刪除帳號下的全部對話、工作區與檔案，且無法復原。",
-            "This permanently deletes all conversations, workspaces and files.",
-            "所有纸页和小东西都会不见，捡不回来的喵…",
-            "将永久删除全部会话、工作区与文件。",
+            "将删除全部会话、工作区与文件，且无法恢复。账号与个人信息会保留。",
+            "將刪除全部對話、工作區與檔案，且無法復原。帳號與個人資訊會保留。",
+            "This deletes all conversations, workspaces and files. Your account and profile are kept.",
+            "纸页和小东西都会不见，捡不回来的喵…不过名字还留着",
+            "将删除全部会话、工作区与文件。账号与个人信息保留。",
         )
         put(StringKey.SettingsResetConfirm, "确认清除", "確認清除", "Erase", "确认收拾", "确认清除")
         put(StringKey.SettingsNickname, "昵称", "暱稱", "Display name", "怎么叫你", "昵称")

@@ -120,6 +120,7 @@ import com.floris.android.ui.components.WorkspaceActionCard
 import com.floris.android.ui.components.panelBorderColor
 import com.floris.android.ui.components.panelShadowColor
 import com.floris.android.ui.components.pressable
+import com.floris.android.ui.layout.Responsive
 import com.floris.android.ui.onboarding.TourStepKey
 import com.floris.android.ui.onboarding.onboardingTarget
 import com.floris.android.ui.prefs.StringKey
@@ -415,14 +416,15 @@ private fun ChatEmptyState(modifier: Modifier, onSuggestion: (String) -> Unit) {
             // 可滚动 + 垂直居中：屏幕够高时保持居中，不够高时可以滑动，
             // 任何一条快捷输入都不会被裁切压扁。
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 28.dp, vertical = 12.dp),
+            .padding(horizontal = Responsive.horizontalPadding + 12.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         QuotePill()
-        Spacer(Modifier.height(22.dp))
-        CatAvatar(size = 68.dp)
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(Responsive.gap(22.dp)))
+        // 横屏收小头像与间距，四条快捷输入仍能完整显示。
+        CatAvatar(size = Responsive.brandAvatar)
+        Spacer(Modifier.height(Responsive.gap(14.dp)))
         Text(
             "FLORIS",
             style = MaterialTheme.typography.headlineLarge,
@@ -435,14 +437,14 @@ private fun ChatEmptyState(modifier: Modifier, onSuggestion: (String) -> Unit) {
             color = MaterialTheme.colorScheme.primary,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(Responsive.gap(10.dp)))
         Text(
             t(StringKey.ChatIntro),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(Responsive.gap(20.dp)))
         Column(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth(),
@@ -525,132 +527,138 @@ private fun AssistantRow(
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
 
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        CatAvatar(size = 28.dp)
-        Spacer(Modifier.width(9.dp))
-        Column(Modifier.weight(1f)) {
-            // 回答框：柔和底衬 + 描边 + 投影，让每一轮回答有清晰边界。
-            // 用 graphicsLayer 录制这块内容，"保存图片"即导出它。
-            val answerShape = RoundedCornerShape(16.dp)
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .shadow(6.dp, answerShape, ambientColor = panelShadowColor(), spotColor = panelShadowColor())
-                    .clip(answerShape)
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(1.dp, panelBorderColor(), answerShape)
-                    .drawWithContent {
-                        graphicsLayer.record { this@drawWithContent.drawContent() }
-                        drawLayer(graphicsLayer)
-                    }
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-            ) {
-                // 流式期间展示过程动画：生图走画布节奏，其余走搜索阶段时间线。
-                if (message.streaming) {
-                    if (message.isImageIntent) ImageCreationProgress(message)
-                    else SearchProgress(message)
+    // 去掉头像列：整行让给内容，对话可视宽度多出约 37dp。
+    Column(Modifier.fillMaxWidth()) {
+        // 回答框：柔和底衬 + 描边 + 投影，让每一轮回答有清晰边界。
+        // 用 graphicsLayer 录制这块内容，"保存图片"即导出它。
+        val answerShape = RoundedCornerShape(16.dp)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .shadow(6.dp, answerShape, ambientColor = panelShadowColor(), spotColor = panelShadowColor())
+                .clip(answerShape)
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, panelBorderColor(), answerShape)
+                .drawWithContent {
+                    graphicsLayer.record { this@drawWithContent.drawContent() }
+                    drawLayer(graphicsLayer)
                 }
-                if (message.content.isNotBlank() || message.streaming) {
-                    MarkdownText(
-                        markdown = message.content,
-                        streaming = message.streaming && message.content.isNotBlank(),
-                    )
-                }
-                if (!message.streaming) {
-                    SearchCompleteMeta(message)
-                }
-                message.searchResults?.let { meta ->
-                    if (meta.results.isNotEmpty()) {
-                        Spacer(Modifier.height(12.dp))
-                        SearchSourcesRow(meta)
-                    }
-                    if (meta.media.isNotEmpty()) MediaGrid(meta.media)
-                }
-                PaperListCard(message.papers)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+        ) {
+            // 流式期间展示过程动画：生图走画布节奏，其余走搜索阶段时间线。
+            if (message.streaming) {
+                if (message.isImageIntent) ImageCreationProgress(message)
+                else SearchProgress(message)
             }
-
-            // 操作栏：复制纯文字 / 保存图片到相册（对齐网页端）。
-            if (!message.streaming && message.content.isNotBlank()) {
-                // 文案先取好：t() 是 @Composable，不能在点击回调里调用。
-                val copiedText = t(StringKey.CopiedToClipboard)
-                val saveFailedText = t(StringKey.SaveImageFailed)
-                Spacer(Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    GhostAction(
-                        icon = Icons.Default.ContentCopy,
-                        label = t(StringKey.CopyPlainText),
-                        onClick = {
-                            clipboard.setText(
-                                AnnotatedString(MarkdownPlainText.convert(message.content)),
-                            )
-                            onNotify(copiedText)
-                        },
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    GhostAction(
-                        icon = Icons.Default.SaveAlt,
-                        label = if (saving) t(StringKey.Saving) else t(StringKey.SaveAsImage),
-                        enabled = !saving,
-                        onClick = {
-                            saving = true
-                            scope.launch {
-                                val result = runCatching { graphicsLayer.toImageBitmap() }
-                                    .fold(
-                                        onSuccess = { ImageSaver.saveToGallery(context, it) },
-                                        onFailure = { Result.failure(it) },
-                                    )
-                                onNotify(result.getOrElse { saveFailedText })
-                                saving = false
-                            }
-                        },
-                    )
-                }
-            }
-
-            message.actions.forEach { action ->
-                WorkspaceActionCard(
-                    action = action,
-                    busy = busyActionId == action.id,
-                    onConfirm = { onConfirm(action) },
-                    onCancel = { onCancel(action) },
-                    onShowMap = { onShowMap(action) },
+            if (message.content.isNotBlank() || message.streaming) {
+                MarkdownText(
+                    markdown = message.content,
+                    streaming = message.streaming && message.content.isNotBlank(),
                 )
-            }
-            message.clarification?.let { clarification ->
-                ClarificationForm(
-                    clarification = clarification,
-                    submitting = submittingClarification,
-                    onSubmit = { answers -> onClarificationSubmit(clarification, answers) },
-                )
-            }
-            if (message.failed) {
-                Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    StatusChip(message.error ?: t(StringKey.Failed), MaterialTheme.colorScheme.error)
-                    Spacer(Modifier.width(8.dp))
-                    Row(
-                        Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .pressable(onClick = onRetry)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        androidx.compose.material3.Icon(
-                            Icons.Default.Refresh, contentDescription = t(StringKey.Retry),
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            t(StringKey.Retry),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
             }
             if (!message.streaming) {
-                FollowUpChips(message.followUps, onClick = onFollowUp)
+                SearchCompleteMeta(message)
             }
+            message.searchResults?.let { meta ->
+                if (meta.results.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    SearchSourcesRow(meta)
+                }
+                if (meta.media.isNotEmpty()) MediaGrid(meta.media)
+            }
+            PaperListCard(message.papers)
+            }
+
+        // 操作栏：复制纯文字 / 保存图片到相册（对齐网页端）。
+        if (!message.streaming && message.content.isNotBlank()) {
+            // 文案先取好：t() 是 @Composable，不能在点击回调里调用。
+            val copiedText = t(StringKey.CopiedToClipboard)
+            val saveFailedText = t(StringKey.SaveImageFailed)
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                GhostAction(
+                    icon = Icons.Default.ContentCopy,
+                    label = t(StringKey.CopyPlainText),
+                    onClick = {
+                        clipboard.setText(
+                            AnnotatedString(MarkdownPlainText.convert(message.content)),
+                        )
+                        onNotify(copiedText)
+                    },
+                )
+                Spacer(Modifier.width(4.dp))
+                GhostAction(
+                    icon = Icons.Default.SaveAlt,
+                    label = if (saving) t(StringKey.Saving) else t(StringKey.SaveAsImage),
+                    enabled = !saving,
+                    onClick = {
+                        saving = true
+                        scope.launch {
+                            val result = runCatching { graphicsLayer.toImageBitmap() }
+                                .fold(
+                                    onSuccess = { ImageSaver.saveToGallery(context, it) },
+                                    onFailure = { Result.failure(it) },
+                                )
+                            onNotify(result.getOrElse { saveFailedText })
+                            saving = false
+                        }
+                    },
+                )
+            }
+        }
+
+        message.actions.forEach { action ->
+            WorkspaceActionCard(
+                action = action,
+                busy = busyActionId == action.id,
+                onConfirm = { onConfirm(action) },
+                onCancel = { onCancel(action) },
+                onShowMap = { onShowMap(action) },
+            )
+        }
+        message.clarification?.let { clarification ->
+            ClarificationForm(
+                clarification = clarification,
+                submitting = submittingClarification,
+                onSubmit = { answers -> onClarificationSubmit(clarification, answers) },
+            )
+        }
+        // 已提交的澄清只留一条只读记录，卡片已被销毁，无法再改选。
+        message.clarificationAnswered?.let { summary ->
+            Spacer(Modifier.height(6.dp))
+            Text(
+                t(StringKey.ClarificationAnswered, summary),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+            )
+        }
+        if (message.failed) {
+            Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                StatusChip(message.error ?: t(StringKey.Failed), MaterialTheme.colorScheme.error)
+                Spacer(Modifier.width(8.dp))
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .pressable(onClick = onRetry)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.Icon(
+                        Icons.Default.Refresh, contentDescription = t(StringKey.Retry),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        t(StringKey.Retry),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
+        if (!message.streaming) {
+            FollowUpChips(message.followUps, onClick = onFollowUp)
         }
     }
 }

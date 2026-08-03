@@ -318,9 +318,18 @@ class ChatViewModel(
         _state.update { it.copy(submittingClarification = true) }
         val summary = answers.entries.joinToString("；") { "${it.key}: ${it.value}" }
         val assistantId = UUID.randomUUID().toString()
-        _state.update {
-            it.copy(
-                messages = it.messages + ChatMessageUi(
+        _state.update { state ->
+            state.copy(
+                messages = state.messages
+                    // 提交后立刻摘掉这张澄清卡：答案已经在路上，
+                    // 不能让用户对着已生效的选择继续改。
+                    .map { message ->
+                        if (message.clarification?.id == clarification.id) {
+                            message.copy(clarification = null, clarificationAnswered = summary)
+                        } else {
+                            message
+                        }
+                    } + ChatMessageUi(
                     id = assistantId, role = ChatMessageUi.Role.AI, streaming = true,
                 ),
                 streaming = true,

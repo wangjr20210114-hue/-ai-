@@ -1,6 +1,10 @@
 package com.floris.android.ui.theme
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -178,6 +182,44 @@ val FlorisTypography = Typography(
     ),
 )
 
+/** 白天/黑夜切换的过渡时长：够长能看清渐变，又不至于让人等。 */
+private const val THEME_ANIM_MS = 420
+
+@Composable
+private fun animatedScheme(target: ColorScheme): ColorScheme {
+    val spec = tween<Color>(THEME_ANIM_MS, easing = FastOutSlowInEasing)
+
+    @Composable
+    fun shade(color: Color, label: String) =
+        animateColorAsState(targetValue = color, animationSpec = spec, label = label).value
+
+    // 逐个通道插值：整套配色一起平滑过渡，就不会出现"啪"一下换肤的突兀感。
+    return target.copy(
+        primary = shade(target.primary, "primary"),
+        onPrimary = shade(target.onPrimary, "onPrimary"),
+        primaryContainer = shade(target.primaryContainer, "primaryContainer"),
+        onPrimaryContainer = shade(target.onPrimaryContainer, "onPrimaryContainer"),
+        secondary = shade(target.secondary, "secondary"),
+        onSecondary = shade(target.onSecondary, "onSecondary"),
+        secondaryContainer = shade(target.secondaryContainer, "secondaryContainer"),
+        onSecondaryContainer = shade(target.onSecondaryContainer, "onSecondaryContainer"),
+        tertiary = shade(target.tertiary, "tertiary"),
+        error = shade(target.error, "error"),
+        background = shade(target.background, "background"),
+        onBackground = shade(target.onBackground, "onBackground"),
+        surface = shade(target.surface, "surface"),
+        onSurface = shade(target.onSurface, "onSurface"),
+        surfaceVariant = shade(target.surfaceVariant, "surfaceVariant"),
+        onSurfaceVariant = shade(target.onSurfaceVariant, "onSurfaceVariant"),
+        outline = shade(target.outline, "outline"),
+        surfaceContainerLowest = shade(target.surfaceContainerLowest, "containerLowest"),
+        surfaceContainerLow = shade(target.surfaceContainerLow, "containerLow"),
+        surfaceContainer = shade(target.surfaceContainer, "container"),
+        surfaceContainerHigh = shade(target.surfaceContainerHigh, "containerHigh"),
+        surfaceContainerHighest = shade(target.surfaceContainerHighest, "containerHighest"),
+    )
+}
+
 @Composable
 fun FlorisTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -185,7 +227,8 @@ fun FlorisTheme(
 ) {
     androidx.compose.runtime.CompositionLocalProvider(LocalDarkTheme provides darkTheme) {
         MaterialTheme(
-            colorScheme = if (darkTheme) DarkColors else LightColors,
+            // 切换主题时整套配色做颜色插值，避免生硬跳变。
+            colorScheme = animatedScheme(if (darkTheme) DarkColors else LightColors),
             typography = FlorisTypography,
             content = content,
         )

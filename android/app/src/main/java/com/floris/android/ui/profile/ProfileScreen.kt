@@ -432,16 +432,14 @@ fun ProfileScreen(
                 )
             }
 
-            // 游客没有"登录状态"可退，展示登录入口；正式用户才显示退出登录。
-            item(key = "session-action") {
-                Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
-                    if (isGuest) {
-                        PillButton(
-                            text = t(StringKey.GuestSignInCta),
-                            onClick = viewModel::signOut,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    } else {
+            // 游客的登录入口已在顶部提示条里，底部不再重复放按钮；
+            // 只有正式用户才需要"退出登录"。
+            if (!isGuest) {
+                item(key = "session-action") {
+                    Box(
+                        Modifier.fillMaxWidth().padding(top = 12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         PillButton(
                             text = t(StringKey.ProfileSignOut),
                             onClick = viewModel::signOut,

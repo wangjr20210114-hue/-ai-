@@ -290,7 +290,10 @@ class FlorisRepository(
         val items: List<LibraryItem> = emptyList(),
         val folders: List<LibraryFolder> = emptyList(),
         val autoOrganize: Boolean = true,
-    )
+    ) {
+        /** 尚未从后端取到任何内容。*/
+        val isEmpty: Boolean get() = items.isEmpty() && folders.isEmpty()
+    }
 
     suspend fun readingLibrary(): Library {
         val response = api.loadLibrary()

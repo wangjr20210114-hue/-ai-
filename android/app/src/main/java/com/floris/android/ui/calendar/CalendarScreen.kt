@@ -70,7 +70,12 @@ import java.util.Locale
 
 class CalendarViewModel(private val repository: FlorisRepository) : ViewModel() {
 
-    data class UiState(val loading: Boolean = true, val error: String? = null)
+    data class UiState(
+        val loading: Boolean = true,
+        val error: String? = null,
+        /** 后台静默刷新中（已有缓存时不遮挡界面）。 */
+        val refreshing: Boolean = false,
+    )
 
     private val _state = MutableStateFlow(UiState())
     val state = _state.asStateFlow()
@@ -81,11 +86,24 @@ class CalendarViewModel(private val repository: FlorisRepository) : ViewModel() 
     init { refresh() }
 
     fun refresh() {
-        _state.value = _state.value.copy(loading = true, error = null)
+        // 已有后端确认过的日程时不再空屏转圈：先展示旧数据，
+        // 新数据到了再无声替换（云函数冷启动可能要好几秒）。
+        val hasCache = repository.schedulesFlow.value.isNotEmpty()
+        _state.value = _state.value.copy(loading = !hasCache, error = null, refreshing = true)
         viewModelScope.launch {
             runCatching { repository.loadSchedules(repository.activeConversationId()) }
-                .onSuccess { repository.schedulesFlow.value = it; _state.value = UiState(loading = false) }
-                .onFailure { _state.value = UiState(loading = false, error = "日程加载失败") }
+                .onSuccess {
+                    repository.schedulesFlow.value = it
+                    _state.value = UiState(loading = false, refreshing = false)
+                }
+                .onFailure {
+                    _state.value = UiState(
+                        loading = false,
+                        refreshing = false,
+                        // 有缓存时失败不必打扰用户，继续看旧数据即可。
+                        error = if (hasCache) null else "日程加载失败",
+                    )
+                }
         }
     }
 }

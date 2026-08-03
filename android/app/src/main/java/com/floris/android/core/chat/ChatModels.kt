@@ -18,6 +18,11 @@ data class ChatMessageUi(
     val papers: List<Paper> = emptyList(),
     val actions: List<WorkspaceAction> = emptyList(),
     val clarification: Clarification? = null,
+    /**
+     * 澄清卡已提交后留下的答案摘要。卡片本身会被摘掉（防止答案生效后
+     * 用户还能改选），这里只保留一条只读记录说明当时选了什么。
+     */
+    val clarificationAnswered: String? = null,
     val followUps: List<String> = emptyList(),
     val progress: ProgressComponent? = null,
     /** 全部已收到的阶段（同一 stage:activity 去重更新），用于绘制时间线。 */
@@ -33,7 +38,7 @@ data class ChatMessageUi(
 
     val hasDurablePayload: Boolean
         get() = role == Role.USER || content.isNotBlank() || clarification != null ||
-            actions.isNotEmpty() || papers.isNotEmpty()
+            clarificationAnswered != null || actions.isNotEmpty() || papers.isNotEmpty()
 
     /** 本轮是否为生图意图（有生图/审图阶段，或已收到生成的图片）。 */
     val isImageIntent: Boolean
