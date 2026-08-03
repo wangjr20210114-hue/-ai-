@@ -10,6 +10,7 @@ from agents._domain.entitlements.policy import (
     normalize_membership,
     plan_allows,
     public_entitlements,
+    skill_unavailability_reasons,
 )
 
 
@@ -30,6 +31,27 @@ class EntitlementPolicyTests(unittest.TestCase):
                 {"core", "proactive-agent", "web-search"},
             ),
             frozenset({"core", "proactive-agent"}),
+        )
+
+    def test_skill_downgrade_reason_is_owned_by_entitlement_policy(self) -> None:
+        self.assertEqual(
+            skill_unavailability_reasons(
+                {"auth_type": "guest"},
+                {"core", "web-search", "calendar"},
+                {"core"},
+            ),
+            {
+                "web-search": "login_required",
+                "calendar": "login_required",
+            },
+        )
+        self.assertEqual(
+            skill_unavailability_reasons(
+                {"auth_type": "cloudbase", "membership": "free"},
+                {"core", "web-search"},
+                {"core"},
+            ),
+            {"web-search": "degraded"},
         )
 
     def test_node_and_python_public_entitlements_have_value_parity(self) -> None:

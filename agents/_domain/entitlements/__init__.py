@@ -8,6 +8,7 @@ from .policy import (
     plan_allows,
     public_entitlements,
     require_skill_access,
+    skill_unavailability_reasons,
 )
 
 __all__ = (
@@ -18,4 +19,5 @@ __all__ = (
     "plan_allows",
     "public_entitlements",
     "require_skill_access",
+    "skill_unavailability_reasons",
 )

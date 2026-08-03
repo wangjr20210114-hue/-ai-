@@ -417,6 +417,14 @@ def known_skill_ids() -> frozenset[str]:
     return frozenset(manifest.id for manifest in skill_manifests())
 
 
+def skill_required_plans() -> dict[str, str]:
+    """Return the entitlement floor declared by each trusted package."""
+    return {
+        manifest.id: manifest.required_plan
+        for manifest in skill_manifests()
+    }
+
+
 def default_skill_preferences() -> dict[str, bool]:
     return {
         manifest.id: True if manifest.locked else manifest.default_enabled

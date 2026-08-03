@@ -42,17 +42,18 @@ from .turn_protocol import (
     should_persist_user_message,
 )
 from .turn_search import PlannedSearchRunner
+from .skill_policy import apply_runtime_skill_policy
 from ...chat._graph import build_graph, grounded_route_stream_answer
 from ...chat._llm import get_model
 from ..._infrastructure.skills import build_system_skill_tools
 from ..._application.skills.registry import (
-    capability_is_enabled,
+    capability_skill_map,
     enabled_skills_from_preferences,
     known_skill_ids,
+    skill_required_plans,
 )
 from ...chat._capability_plan import (
     DEFAULT_PLAN,
-    apply_runtime_skill_policy,
     fallback_tools_for_prompt_topics,
     media_enabled_for_plan,
     plan_capabilities_bounded,
@@ -81,7 +82,11 @@ from ..._application.intelligence.service import (
     user_skill_prompt_context,
 )
 from ..._infrastructure.makers.identity import conversation_index_user_id, require_user, scoped_conversation_id
-from ..._domain.entitlements.policy import effective_skill_preferences
+from ..._domain.entitlements.policy import (
+    allowed_skill_ids,
+    effective_skill_preferences,
+    skill_unavailability_reasons,
+)
 from ..._infrastructure.makers.data_version import namespace as data_namespace
 from ..._infrastructure.makers.conversation_repository import (
     RUNNING_STATES,
@@ -314,11 +319,24 @@ async def _handle(ctx):
         intelligence.get("skill_preferences"),
     )
     private_skill_context = user_skill_prompt_context(intelligence)
-    enabled_skills = set(enabled_skills_from_preferences(skill_preferences))
+    configured_skills = enabled_skills_from_preferences(skill_preferences)
+    enabled_skills = set(allowed_skill_ids(
+        identity,
+        configured_skills,
+        required_plans=skill_required_plans(),
+    ))
     disabled_skills = sorted(known_skill_ids() - enabled_skills)
-    vision_enabled = capability_is_enabled(
-        "vision_analysis", skill_preferences
+    disabled_skill_reasons = skill_unavailability_reasons(
+        identity,
+        disabled_skills,
+        enabled_skills,
     )
+    enabled_capabilities = {
+        capability
+        for capability, skill_id in capability_skill_map().items()
+        if skill_id in enabled_skills
+    }
+    vision_enabled = "vision_analysis" in enabled_capabilities
     current_calendar_context = "[]"
     current_route_context = "无"
     reference_image_context = ""
@@ -404,10 +422,6 @@ async def _handle(ctx):
             timeout_seconds=planner_timeout,
             timings_ms=stage_timings_ms,
         )
-    capability_plan = apply_runtime_skill_policy(
-        capability_plan,
-        disabled_skills,
-    )
     post_plan_started_at = time.monotonic()
     resumed_planned_arguments: dict = {}
     if silent_clarification:
@@ -419,6 +433,16 @@ async def _handle(ctx):
                 *current_clarification_answers,
             ],
         )
+    capability_plan = apply_runtime_skill_policy(
+        capability_plan,
+        disabled_skills,
+        disabled_skill_reasons,
+    )
+    model_only_fallback = bool(
+        capability_plan.get("_runtime_model_only_fallback")
+    )
+    if model_only_fallback:
+        resumed_planned_arguments = {}
     clarification_tool_arguments: dict = {}
     if (
         capability_plan.get("needs_clarification")
@@ -766,7 +790,9 @@ async def _handle(ctx):
     answer_capability_plan = dict(capability_plan)
 
     graph_model = (
-        model if capability_plan.get("needs_deep_reasoning") else fast_model
+        model
+        if model_only_fallback or capability_plan.get("needs_deep_reasoning")
+        else fast_model
     )
     def build_answer_graph():
         graph_setup_started_at = time.monotonic()
@@ -782,6 +808,7 @@ async def _handle(ctx):
             current_route_context=current_route_context,
             memory_context=memory_context,
             user_skill_context=private_skill_context,
+            public_answer=model_only_fallback,
             full_prompt=False,
         )
         stage_system_prompts = {
@@ -814,7 +841,10 @@ async def _handle(ctx):
             user_skill_context=private_skill_context,
             public_answer=True,
         )
-        all_tools = build_all_tools()
+        # A complete Skill downgrade is deliberately the raw model surface.
+        # Do not construct trusted adapters that the entitlement contract or
+        # persisted switches have already removed from this turn.
+        all_tools = [] if model_only_fallback else build_all_tools()
         graph_tools = tools_for_capability_stage(
             all_tools,
             graph_tool_names,
@@ -840,7 +870,9 @@ async def _handle(ctx):
             # every fixed tool schema, but use the main reasoning profile only for
             # this user-visible synthesis.
             public_answer_model=(
-                model if capability_plan.get("needs_route") else fast_model
+                model
+                if model_only_fallback or capability_plan.get("needs_route")
+                else fast_model
             ),
             fast_tool_model=fast_model,
             # Tool arguments are an intermediate fixed schema, including calendar
@@ -977,7 +1009,7 @@ async def _handle(ctx):
                 else None
             )
             opportunity_enabled = bool(
-                capability_is_enabled("workflow_action", skill_preferences)
+                "workflow_action" in enabled_capabilities
                 and capability_plan.get("needs_opportunity_review")
             )
             recent_questions_task = (
@@ -1175,9 +1207,7 @@ async def _handle(ctx):
                                     pending_search_results = None
                                 papers = action.get("papers")
                                 if (
-                                    capability_is_enabled(
-                                        "paper_assistant", skill_preferences,
-                                    )
+                                    "paper_assistant" in enabled_capabilities
                                     and isinstance(papers, list)
                                     and papers
                                 ):
@@ -1194,9 +1224,7 @@ async def _handle(ctx):
                                 )
                                 continue
                             if action and action.get("ui_action") == "paper_results":
-                                if capability_is_enabled(
-                                    "paper_assistant", skill_preferences,
-                                ):
+                                if "paper_assistant" in enabled_capabilities:
                                     pending_papers = action
                                     await queue.put(
                                         presenter.papers(pending_papers),

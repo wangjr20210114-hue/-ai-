@@ -65,6 +65,32 @@ def effective_skill_preferences(
     return values
 
 
+def skill_unavailability_reasons(
+    identity: Mapping[str, Any],
+    requested: Iterable[str],
+    enabled: Iterable[str],
+) -> dict[str, str]:
+    """Explain a Skill downgrade without coupling consumers to auth details."""
+    enabled_ids = {
+        str(skill_id or "").strip()
+        for skill_id in enabled
+        if str(skill_id or "").strip()
+    }
+    is_guest = str(identity.get("auth_type") or "guest") == "guest"
+    return {
+        skill_id: (
+            "login_required"
+            if is_guest and skill_id not in GUEST_SKILL_IDS
+            else "degraded"
+        )
+        for skill_id in (
+            str(value or "").strip()
+            for value in requested
+        )
+        if skill_id and skill_id not in enabled_ids
+    }
+
+
 def public_entitlements(identity: Mapping[str, Any]) -> dict[str, Any]:
     plan = normalize_membership(
         identity.get("membership"),

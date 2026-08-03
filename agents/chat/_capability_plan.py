@@ -23,7 +23,6 @@ from .._application.skills.registry import (
     planner_topic_instructions,
     planner_topic_summaries,
     planner_topic_tools,
-    skill_plan_flags,
 )
 
 
@@ -85,72 +84,6 @@ DEFAULT_PLAN = {
 
 BOOLEAN_KEYS = tuple(key for key, value in DEFAULT_PLAN.items() if isinstance(value, bool))
 KNOWN_SKILLS = known_skill_ids()
-_CAPABILITY_SKILLS = capability_skill_map()
-_SKILL_PLAN_FLAGS = skill_plan_flags()
-
-
-def apply_runtime_skill_policy(
-    plan: dict[str, Any],
-    disabled_skills: Iterable[Any],
-) -> dict[str, Any]:
-    """Apply persisted Skill switches after semantic planning.
-
-    The model only states which capabilities the request needs. It never sees
-    or judges enable switches. This logic-layer gate removes unavailable
-    adapters while preserving a safe base-model answer and presentation hint.
-    """
-    reconciled = reconcile_capability_contract(plan)
-    if reconciled.get("reuse_latest_route"):
-        # This is a model-authored reference-resolution decision, not phrase
-        # matching. A verified route already exists in workspace state, so the
-        # current goal consumes it through the calendar adapter and must not
-        # re-run Tencent place search or directions.
-        reconciled["needs_route"] = False
-        reconciled["route_stops"] = []
-        reconciled["_capabilities"] = [
-            capability
-            for capability in (reconciled.get("_capabilities") or [])
-            if str(capability) != "route"
-        ]
-    reconciled["blocked_skill"] = ""
-    disabled = {
-        str(skill_id or "").strip()
-        for skill_id in disabled_skills
-        if str(skill_id or "").strip() in KNOWN_SKILLS
-    }
-    required_skills: list[str] = []
-    for capability in _normalize_preflight_capabilities(
-        reconciled.get("_capabilities") or []
-    ):
-        skill_id = _CAPABILITY_SKILLS.get(capability)
-        if skill_id and skill_id in disabled and skill_id not in required_skills:
-            required_skills.append(skill_id)
-    for skill_id, flags in _SKILL_PLAN_FLAGS.items():
-        if (
-            skill_id in disabled
-            and any(bool(reconciled.get(flag)) for flag in flags)
-            and skill_id not in required_skills
-        ):
-            required_skills.append(skill_id)
-    if not required_skills:
-        return reconciled
-
-    # A disabled enhancement never prevents the base model from answering.
-    # Remove only the unavailable adapters and let the presenter attach a
-    # small, structured experience hint after the untouched model answer.
-    # Side effects remain safe because their plan flags and tools are removed.
-    model_only_skills = list(required_skills)
-    for skill_id in model_only_skills:
-        for flag in _SKILL_PLAN_FLAGS.get(skill_id, ()):
-            reconciled[flag] = False
-    reconciled["_capabilities"] = [
-        capability
-        for capability in (reconciled.get("_capabilities") or [])
-        if _CAPABILITY_SKILLS.get(str(capability)) not in model_only_skills
-    ]
-    reconciled["_runtime_model_fallback_skills"] = model_only_skills
-    reconciled["_runtime_omitted_skills"] = model_only_skills
-    return reconciled
 
 
 class PlannedRouteStop(BaseModel):

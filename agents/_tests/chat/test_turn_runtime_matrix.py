@@ -45,8 +45,14 @@ class _Utils:
 
 
 class _AnswerGraph:
+    last_tool_names: tuple[str, ...] = ()
+
     def __init__(self, tools=()) -> None:
         self.tools = list(tools)
+        type(self).last_tool_names = tuple(
+            str(getattr(tool, "name", "") or "")
+            for tool in self.tools
+        )
 
     async def astream(self, *_args, **_kwargs):
         rich_search = next(
@@ -225,6 +231,101 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Skills 广场", wire)
         self.assertNotIn("安装", wire)
         self.assertEqual(_SearchUseCase.execute_count, 0)
+
+    async def test_guest_search_discards_planner_clarification_card(self):
+        _SearchUseCase.execute_count = 0
+        enabled = {
+            "core": True,
+            "web-search": False,
+            "proactive-agent": True,
+        }
+        wire, _ = await self._run(
+            "guest-search-clarification-fallback",
+            _plan(
+                needs_clarification=True,
+                clarification_title="AI progress scope",
+                clarification_prompt="Choose one category first.",
+                clarification_fields=[{
+                    "id": "scope",
+                    "label": "Category",
+                    "type": "single",
+                    "required": True,
+                    "options": ["language models", "images", "coding"],
+                }],
+                needs_web_search=True,
+                search_query="recent AI progress",
+                _capabilities=["web_search"],
+            ),
+            enabled_preferences=enabled,
+            identity={"auth_type": "guest", "membership": "guest"},
+            body_updates={"message": "What is new in AI?"},
+        )
+
+        self.assertIn("Production-like runtime matrix answer completed.", wire)
+        self.assertNotIn("clarification_action", wire)
+        self.assertNotIn("ask_user_clarification", wire)
+        self.assertNotIn("AI progress scope", wire)
+        self.assertIn('"kind":"freshness"', wire)
+        self.assertIn('"login_required":true', wire)
+        self.assertEqual(_SearchUseCase.execute_count, 0)
+        self.assertEqual(_AnswerGraph.last_tool_names, ())
+
+    async def test_user_disabled_search_degrades_without_login_prompt(self):
+        _SearchUseCase.execute_count = 0
+        enabled = {
+            "core": True,
+            "web-search": False,
+            "proactive-agent": True,
+        }
+        wire, _ = await self._run(
+            "user-disabled-search",
+            _plan(
+                needs_clarification=True,
+                clarification_title="Search scope",
+                clarification_prompt="Choose a scope.",
+                clarification_fields=[{
+                    "id": "scope",
+                    "label": "Scope",
+                    "type": "single",
+                    "required": True,
+                    "options": ["A", "B"],
+                }],
+                needs_web_search=True,
+                search_query="recent AI progress",
+                _capabilities=["web_search"],
+            ),
+            enabled_preferences=enabled,
+            identity={"auth_type": "cloudbase", "membership": "free"},
+        )
+
+        self.assertIn("Production-like runtime matrix answer completed.", wire)
+        self.assertNotIn("clarification_action", wire)
+        self.assertIn('"kind":"freshness"', wire)
+        self.assertIn('"login_required":false', wire)
+        self.assertEqual(_SearchUseCase.execute_count, 0)
+        self.assertEqual(_AnswerGraph.last_tool_names, ())
+
+    async def test_authenticated_clarification_tool_remains_available(self):
+        await self._run(
+            "authenticated-clarification",
+            _plan(
+                needs_clarification=True,
+                clarification_title="Required side-effect target",
+                clarification_prompt="Choose the target.",
+                clarification_fields=[{
+                    "id": "target",
+                    "label": "Target",
+                    "type": "single",
+                    "required": True,
+                    "options": ["A", "B"],
+                }],
+            ),
+        )
+
+        self.assertEqual(
+            _AnswerGraph.last_tool_names,
+            ("ask_user_clarification",),
+        )
 
     async def test_runtime_search_failure_keeps_main_tool_result_boundary(self):
         wire, _ = await self._run(

@@ -136,6 +136,24 @@ class ChatTurnBoundaryTests(unittest.TestCase):
         self.assertIn("正文不要提及 Skill", prompt)
         self.assertIn("不得声称已生成媒体", prompt)
 
+    def test_explicit_downgrade_reason_overrides_auth_shape(self):
+        self.assertEqual(
+            experience_hints_for_plan(
+                {
+                    "_runtime_model_fallback_skills": ["web-search"],
+                    "_runtime_fallback_reasons": {
+                        "web-search": "degraded",
+                    },
+                },
+                auth_type="guest",
+            ),
+            [{
+                "kind": "freshness",
+                "skill_ids": ["web-search"],
+                "login_required": False,
+            }],
+        )
+
     def test_private_skill_context_is_lower_trust_and_cannot_authorize_tools(self):
         prompt = turn_service_module.dynamic_system_prompt(
             selected_tools=set(),

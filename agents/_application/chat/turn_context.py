@@ -22,19 +22,49 @@ def experience_hints_for_plan(
     ))[:8]
     if not skills:
         return []
+    raw_reasons = plan.get("_runtime_fallback_reasons") or {}
+    reasons = (
+        {
+            str(skill_id or "").strip(): str(reason or "").strip()
+            for skill_id, reason in raw_reasons.items()
+        }
+        if isinstance(raw_reasons, Mapping)
+        else {}
+    )
+
+    def login_required(skill_id: str) -> bool:
+        reason = reasons.get(skill_id)
+        if reason:
+            return reason == "login_required"
+        # Backward compatibility for persisted messages created before the
+        # entitlement layer began carrying an explicit downgrade reason.
+        return str(auth_type or "") == "guest"
+
     hints: list[dict[str, Any]] = []
     if "web-search" in skills:
         hints.append({
             "kind": "freshness",
             "skill_ids": ["web-search"],
-            "login_required": str(auth_type or "") == "guest",
+            "login_required": login_required("web-search"),
         })
         skills = [value for value in skills if value != "web-search"]
-    if skills:
+    login_skills = [
+        skill_id for skill_id in skills if login_required(skill_id)
+    ]
+    degraded_skills = [
+        skill_id for skill_id in skills if skill_id not in login_skills
+    ]
+    if login_skills:
         hints.append({
             "kind": "skill_suggestion",
-            "skill_ids": skills,
-            "login_required": str(auth_type or "") == "guest",
+            "skill_ids": login_skills,
+            "login_required": True,
+        })
+    if degraded_skills:
+        hints.append({
+            "kind": "skill_suggestion",
+            "skill_ids": degraded_skills,
+            "login_required": False,
         })
     return hints
 

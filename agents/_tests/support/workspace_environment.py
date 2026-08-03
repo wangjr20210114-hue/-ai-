@@ -16,7 +16,6 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agents.chat._capability_plan import (
     CapabilityPlan,
-    apply_runtime_skill_policy,
     fallback_tools_for_prompt_topics,
     media_enabled_for_plan,
     parse_capability_plan,
@@ -29,6 +28,7 @@ from agents.chat._capability_plan import (
     required_tool_for_plan,
     required_tools_for_plan,
 )
+from agents._application.chat.skill_policy import apply_runtime_skill_policy
 from agents.chat._followups import (
     generate_followups,
     parse_followups,
