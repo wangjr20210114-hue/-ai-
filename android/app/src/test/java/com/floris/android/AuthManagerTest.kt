@@ -32,6 +32,7 @@ class AuthManagerTest {
 
     private class FakeTokenStorage(var snapshot: TokenStore.Snapshot = empty()) : TokenStorage {
         var cleared = false
+        var pending: Pair<String, String>? = null
         override suspend fun load() = snapshot
         override suspend fun saveCloudBaseSession(accessToken: String, refreshToken: String, expiresAt: Long) {
             snapshot = snapshot.copy(
@@ -47,6 +48,11 @@ class AuthManagerTest {
                 identity = identity ?: snapshot.identity,
             )
         }
+        override suspend fun savePendingVerification(email: String, verificationId: String) {
+            pending = email to verificationId
+        }
+        override suspend fun loadPendingVerification() = pending
+        override suspend fun clearPendingVerification() { pending = null }
         override suspend fun clear() {
             cleared = true
             snapshot = empty()
@@ -65,8 +71,13 @@ class AuthManagerTest {
     @After fun tearDown() = server.shutdown()
 
     private fun manager(storage: FakeTokenStorage): AuthManager {
-        val api = CloudBaseAuthApi.create(server.url("/").toString(), json)
-        return AuthManager(api, "publishable-key", storage, json) { accessToken ->
+        val api = CloudBaseAuthApi.create(
+            baseUrl = server.url("/").toString(),
+            envId = "test-env",
+            publishableKey = "publishable-key",
+            json = json,
+        )
+        return AuthManager(api, "test-env", storage, json) { accessToken ->
             // Simulated POST /auth/mobile/session against the mock server.
             val client = OkHttpClient()
             val body = buildJsonObject { put("access_token", accessToken) }
@@ -97,7 +108,8 @@ class AuthManagerTest {
         val storage = FakeTokenStorage()
         val auth = manager(storage)
 
-        server.enqueue(MockResponse().setResponseCode(200)) // otp
+        server.enqueue(MockResponse().setBody("""{"verification_id":"vid-1"}"""))
+        server.enqueue(MockResponse().setBody("""{"verification_token":"vt-1"}"""))
         server.enqueue(MockResponse().setBody(cloudBaseSessionJson("cb-access", "cb-refresh")))
         server.enqueue(MockResponse().setBody(mobileSessionJson("floris-token-1")))
 
@@ -109,12 +121,37 @@ class AuthManagerTest {
         assertEquals("测试用户", (auth.state.value as AuthState.SignedIn).identity.display_name)
         assertEquals("cb-refresh", storage.snapshot.cloudBaseRefreshToken)
 
-        // Verify the exchange request carried the CloudBase access token.
-        assertTrue(server.takeRequest().path!!.startsWith("/auth/v1/otp"))
-        assertTrue(server.takeRequest().path!!.startsWith("/auth/v1/verify"))
-        val exchangeRequest = server.takeRequest()
-        assertTrue(exchangeRequest.path!!.startsWith("/auth/mobile/session"))
-        assertTrue(exchangeRequest.body.readUtf8().contains("cb-access"))
+        // Wire protocol: verification → verify → signin → mobile exchange.
+        assertTrue(server.takeRequest().path!!.startsWith("/auth/v1/verification"))
+        val verifyReq = server.takeRequest()
+        assertTrue(verifyReq.path!!.startsWith("/auth/v1/verification/verify"))
+        assertTrue(verifyReq.body.readUtf8().contains("vid-1"))
+        val signInReq = server.takeRequest()
+        assertTrue(signInReq.path!!.startsWith("/auth/v1/signin"))
+        assertTrue(signInReq.body.readUtf8().contains("vt-1"))
+        val exchangeReq = server.takeRequest()
+        assertTrue(exchangeReq.path!!.startsWith("/auth/mobile/session"))
+        assertTrue(exchangeReq.body.readUtf8().contains("cb-access"))
+    }
+
+    @Test
+    fun `new account falls back to signup`() = runTest {
+        val storage = FakeTokenStorage()
+        val auth = manager(storage)
+
+        server.enqueue(MockResponse().setBody("""{"verification_id":"vid-2"}"""))
+        server.enqueue(MockResponse().setBody("""{"verification_token":"vt-2"}"""))
+        // signin says user not found → signup succeeds.
+        server.enqueue(MockResponse().setBody("""{"error_code":5,"error_description":"user not found"}"""))
+        server.enqueue(MockResponse().setBody(cloudBaseSessionJson("cb-access-new", "cb-refresh-new")))
+        server.enqueue(MockResponse().setBody(mobileSessionJson("floris-token-new")))
+
+        auth.sendEmailOtp("new@example.com")
+        auth.verifyEmailOtp("new@example.com", "654321")
+
+        assertEquals("floris-token-new", auth.currentFlorisToken())
+        val paths = (1..5).map { server.takeRequest().path!! }
+        assertTrue(paths[3].startsWith("/auth/v1/signup"))
     }
 
     @Test
@@ -135,8 +172,9 @@ class AuthManagerTest {
 
         val refreshRequest = server.takeRequest()
         assertTrue(refreshRequest.path!!.contains("/auth/v1/token"))
-        assertTrue(refreshRequest.path!!.contains("grant_type=refresh_token"))
-        assertTrue(refreshRequest.body.readUtf8().contains("saved-refresh"))
+        val body = refreshRequest.body.readUtf8()
+        assertTrue(body.contains("saved-refresh"))
+        assertTrue(body.contains("refresh_token"))
     }
 
     @Test
@@ -193,10 +231,24 @@ class AuthManagerTest {
             ),
         )
         val auth = manager(storage)
-        server.enqueue(MockResponse().setResponseCode(204))
         auth.signOut()
         assertEquals(AuthState.SignedOut, auth.state.value)
         assertEquals(null, auth.currentFlorisToken())
         assertTrue(storage.cleared)
+    }
+
+    @Test
+    fun `wrong otp code surfaces error and keeps session out`() = runTest {
+        val storage = FakeTokenStorage()
+        val auth = manager(storage)
+
+        server.enqueue(MockResponse().setBody("""{"verification_id":"vid-3"}"""))
+        server.enqueue(MockResponse().setBody("""{"error_code":3,"error_description":"invalid code"}"""))
+
+        auth.sendEmailOtp("user@example.com")
+        val result = runCatching { auth.verifyEmailOtp("user@example.com", "000000") }
+        assertTrue(result.isFailure)
+        assertEquals(null, auth.currentFlorisToken())
+        assertTrue(auth.state.value !is AuthState.SignedIn)
     }
 }

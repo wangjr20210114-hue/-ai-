@@ -8,8 +8,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import retrofit2.HttpException
 
 sealed interface AuthState {
@@ -23,7 +21,8 @@ class AuthException(message: String, cause: Throwable? = null) : Exception(messa
 /**
  * Floris mobile auth adapter (mobile-client-v1):
  *
- *  1. CloudBase email OTP sign-in / refresh (official HTTP API).
+ *  1. CloudBase email OTP sign-in / refresh (official HTTP API, same wire
+ *     protocol as @cloudbase/js-sdk 3.7.0).
  *  2. Exchange the CloudBase access token at POST /auth/mobile/session for a
  *     1-hour Floris Bearer.
  *  3. Floris never issues its own refresh token — expiry is handled by
@@ -31,7 +30,7 @@ class AuthException(message: String, cause: Throwable? = null) : Exception(messa
  */
 class AuthManager(
     private val cloudBaseApi: CloudBaseAuthApi,
-    private val publishableKey: String,
+    private val envId: String,
     private val tokenStore: TokenStorage,
     private val json: Json,
     private val exchange: suspend (cloudBaseAccessToken: String) -> MobileSession,
@@ -50,23 +49,57 @@ class AuthManager(
     // ---------- Sign-in ----------
 
     suspend fun sendEmailOtp(email: String) {
-        require(email.contains("@")) { "请输入有效的邮箱地址" }
-        try {
-            cloudBaseApi.sendOtp(publishableKey, OtpRequest(email.trim()))
+        val normalized = email.trim()
+        require(normalized.contains("@")) { "请输入有效的邮箱地址" }
+        val response = try {
+            cloudBaseApi.sendVerification(VerificationRequest(normalized))
         } catch (error: Throwable) {
-            throw AuthException("验证码发送失败，请稍后重试", error)
+            throw AuthException("验证码发送失败，请检查网络后重试", error)
         }
+        if (response.error_code != null || response.verification_id.isEmpty()) {
+            throw AuthException(response.error_description ?: "验证码发送失败，请稍后重试")
+        }
+        tokenStore.savePendingVerification(normalized, response.verification_id)
     }
 
     suspend fun verifyEmailOtp(email: String, code: String) {
-        val session = try {
-            cloudBaseApi.verifyOtp(publishableKey, VerifyRequest(email.trim(), code.trim()))
+        val pending = tokenStore.loadPendingVerification()
+        val verificationId = pending?.second
+            ?: throw AuthException("请先获取邮箱验证码")
+        val verified = try {
+            cloudBaseApi.verifyCode(
+                envId,
+                VerifyCodeRequest(verificationId, code.trim()),
+            )
         } catch (error: Throwable) {
-            throw AuthException("验证码无效或已过期", error)
+            throw AuthException("验证码校验失败，请稍后重试", error)
         }
-        if (session.access_token.isEmpty()) throw AuthException("CloudBase 未返回访问令牌")
+        if (verified.error_code != null || verified.verification_token.isEmpty()) {
+            throw AuthException("验证码无效或已过期")
+        }
+
+        val session = signInOrUp(email.trim(), verified.verification_token)
+        if (session.error_code != null || session.access_token.isEmpty()) {
+            throw AuthException(session.error_description ?: "CloudBase 登录失败")
+        }
+        tokenStore.clearPendingVerification()
         applyCloudBaseSession(session)
         exchangeAndPersist(session.access_token)
+    }
+
+    /** Existing accounts sign in; unknown accounts are created (shouldCreateUser). */
+    private suspend fun signInOrUp(email: String, verificationToken: String): CloudBaseSession {
+        val signIn = runCatching {
+            cloudBaseApi.signIn(envId, SignInRequest(email, verificationToken))
+        }.getOrNull()
+        if (signIn != null && signIn.error_code == null && signIn.access_token.isNotEmpty()) {
+            return signIn
+        }
+        return try {
+            cloudBaseApi.signUp(envId, SignUpRequest(email, verificationToken))
+        } catch (error: Throwable) {
+            signIn ?: throw AuthException("CloudBase 登录失败", error)
+        }
     }
 
     // ---------- Session restore & refresh ----------
@@ -115,7 +148,10 @@ class AuthManager(
         val refreshToken = cloudBaseRefreshToken
             ?: throw AuthException("登录状态已失效，请重新登录")
         val session = try {
-            cloudBaseApi.refreshToken(publishableKey, body = RefreshRequest(refreshToken))
+            cloudBaseApi.refreshToken(
+                envId,
+                RefreshRequest(client_id = envId, refresh_token = refreshToken),
+            )
         } catch (error: Throwable) {
             if (error is HttpException && error.code() in listOf(400, 401)) {
                 forceSignOut()
@@ -128,7 +164,10 @@ class AuthManager(
             }
             throw AuthException("网络异常，无法刷新登录状态", error)
         }
-        if (session.access_token.isEmpty()) throw AuthException("CloudBase 刷新失败")
+        if (session.error_code != null || session.access_token.isEmpty()) {
+            forceSignOut()
+            throw AuthException("登录状态已失效，请重新登录")
+        }
         applyCloudBaseSession(session)
         exchangeAndPersist(session.access_token)
     }
@@ -146,11 +185,7 @@ class AuthManager(
     private suspend fun applyCloudBaseSession(session: CloudBaseSession) {
         cloudBaseAccessToken = session.access_token
         if (session.refresh_token.isNotEmpty()) cloudBaseRefreshToken = session.refresh_token
-        cloudBaseExpiresAt = if (session.expires_at > 0) {
-            session.expires_at * 1000
-        } else {
-            System.currentTimeMillis() + session.expires_in * 1000
-        }
+        cloudBaseExpiresAt = session.resolvedExpiresAt()
         tokenStore.saveCloudBaseSession(
             session.access_token,
             session.refresh_token,
@@ -161,10 +196,6 @@ class AuthManager(
     // ---------- Sign-out ----------
 
     suspend fun signOut() {
-        val accessToken = cloudBaseAccessToken
-        if (!accessToken.isNullOrEmpty()) {
-            runCatching { cloudBaseApi.logout(publishableKey, "Bearer $accessToken") }
-        }
         forceSignOut()
     }
 
@@ -183,5 +214,9 @@ class AuthManager(
 fun mobileSessionExchange(
     call: suspend (body: kotlinx.serialization.json.JsonObject) -> MobileSession,
 ): suspend (String) -> MobileSession = { accessToken ->
-    call(buildJsonObject { put("access_token", accessToken) })
+    call(
+        kotlinx.serialization.json.buildJsonObject {
+            put("access_token", kotlinx.serialization.json.JsonPrimitive(accessToken))
+        },
+    )
 }

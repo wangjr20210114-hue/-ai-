@@ -46,8 +46,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.floris.android.ui.theme.AuroraCyan
-import com.floris.android.ui.theme.AuroraIndigo
+import com.floris.android.ui.theme.orbBrush
 
 val SpringGentle = spring<Float>(stiffness = Spring.StiffnessLow, dampingRatio = 0.82f)
 val SpringSnappy = spring<Float>(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.78f)
@@ -128,7 +127,7 @@ fun EmptyState(
     }
 }
 
-/** Floris Aurora brand orb: soft indigo→cyan gradient with slow breathing. */
+/** Floris brand orb: warm orange (light) / night purple (dark) with slow breathing. */
 @Composable
 fun AuroraOrb(size: Dp, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "aurora")
@@ -143,13 +142,7 @@ fun AuroraOrb(size: Dp, modifier: Modifier = Modifier) {
             .size(size)
             .graphicsLayer { scaleX = pulse; scaleY = pulse }
             .clip(RoundedCornerShape(size / 2))
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(AuroraIndigo, MaterialTheme.colorScheme.primary, AuroraCyan),
-                    start = Offset.Zero,
-                    end = Offset.Infinite,
-                ),
-            ),
+            .background(orbBrush()),
     )
 }
 

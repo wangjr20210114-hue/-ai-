@@ -33,7 +33,7 @@ android {
         buildConfigField(
             "String",
             "CLOUDBASE_AUTH_BASE_URL",
-            "\"https://floris-auth-d3gd1pvebd6321d35.ap-shanghai.tcb-api.tencentcloudapi.com\"",
+            "\"https://floris-auth-d3gd1pvebd6321d35.api.tcloudbasegateway.com\"",
         )
         buildConfigField(
             "String",

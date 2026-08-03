@@ -18,6 +18,9 @@ interface TokenStorage {
     suspend fun load(): TokenStore.Snapshot
     suspend fun saveCloudBaseSession(accessToken: String, refreshToken: String, expiresAt: Long)
     suspend fun saveFlorisSession(token: String, expiresInSeconds: Long, identity: Identity?)
+    suspend fun savePendingVerification(email: String, verificationId: String)
+    suspend fun loadPendingVerification(): Pair<String, String>?
+    suspend fun clearPendingVerification()
     suspend fun clear()
 }
 
@@ -38,6 +41,8 @@ class TokenStore(
         val IDENTITY = stringPreferencesKey("identity_json")
         val CONVERSATION_ID = stringPreferencesKey("active_conversation_id")
         val SEARCH_CONVERSATION_ID = stringPreferencesKey("search_conversation_id")
+        val PENDING_EMAIL = stringPreferencesKey("pending_otp_email")
+        val PENDING_VERIFICATION = stringPreferencesKey("pending_verification_id")
     }
 
     @Volatile private var cachedFlorisToken: String? = null
@@ -108,6 +113,29 @@ class TokenStore(
 
     suspend fun saveSearchConversationId(id: String) {
         context.authDataStore.edit { it[Keys.SEARCH_CONVERSATION_ID] = id }
+    }
+
+    override suspend fun savePendingVerification(email: String, verificationId: String) {
+        context.authDataStore.edit {
+            it[Keys.PENDING_EMAIL] = email
+            it[Keys.PENDING_VERIFICATION] = verificationId
+        }
+    }
+
+    override suspend fun loadPendingVerification(): Pair<String, String>? {
+        val prefs = context.authDataStore.data.first()
+        val email = prefs[Keys.PENDING_EMAIL]
+        val verificationId = prefs[Keys.PENDING_VERIFICATION]
+        return if (!email.isNullOrEmpty() && !verificationId.isNullOrEmpty()) {
+            email to verificationId
+        } else null
+    }
+
+    override suspend fun clearPendingVerification() {
+        context.authDataStore.edit {
+            it.remove(Keys.PENDING_EMAIL)
+            it.remove(Keys.PENDING_VERIFICATION)
+        }
     }
 
     override suspend fun clear() {

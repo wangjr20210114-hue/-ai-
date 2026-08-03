@@ -302,7 +302,7 @@ private fun UserBubble(message: ChatMessageUi) {
                         bottomStart = 20.dp, bottomEnd = 6.dp,
                     ),
                 )
-                .background(MaterialTheme.colorScheme.primary)
+                .background(com.floris.android.ui.theme.userBubbleBrush())
                 .padding(horizontal = 16.dp, vertical = 11.dp),
         ) {
             Text(

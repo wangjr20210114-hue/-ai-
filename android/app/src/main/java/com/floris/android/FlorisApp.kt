@@ -33,11 +33,16 @@ class AppContainer(private val context: Context) {
 
     private val tokenStore = TokenStore(context, json)
 
-    private val cloudBaseApi = CloudBaseAuthApi.create(BuildConfig.CLOUDBASE_AUTH_BASE_URL, json)
+    private val cloudBaseApi = CloudBaseAuthApi.create(
+        baseUrl = BuildConfig.CLOUDBASE_AUTH_BASE_URL,
+        envId = BuildConfig.CLOUDBASE_ENV_ID,
+        publishableKey = BuildConfig.CLOUDBASE_PUBLISHABLE_KEY,
+        json = json,
+    )
 
     val authManager: AuthManager = AuthManager(
         cloudBaseApi = cloudBaseApi,
-        publishableKey = BuildConfig.CLOUDBASE_PUBLISHABLE_KEY,
+        envId = BuildConfig.CLOUDBASE_ENV_ID,
         tokenStore = tokenStore,
         json = json,
         exchange = { accessToken ->
