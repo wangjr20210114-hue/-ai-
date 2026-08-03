@@ -57,7 +57,10 @@ export function ProgressRenderer({ message }: { message: ChatMessage }) {
       : searchTiming;
 
   if (!message.streaming) {
-    return (searchStartedAt || providerSearchDurationMs) ? <div className="search-complete-meta">
+    // A failed/degraded search has a start timestamp but no evidence payload.
+    // Do not present that state as "0 sources"; a real zero-result search
+    // still has `searchResults` and remains truthfully rendered.
+    return (message.searchResults && (searchStartedAt || providerSearchDurationMs)) ? <div className="search-complete-meta">
       {t('searchCompleteMeta', {
         count: sourceCount,
         seconds: (searchDurationMs / 1000).toFixed(1),

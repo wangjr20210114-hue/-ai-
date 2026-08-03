@@ -829,6 +829,31 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
             for message in result["messages"]
         ))
 
+    async def test_failed_search_only_closes_optional_tools_before_synthesis(self):
+        """A rich-search outage must not let the answer model restart tools."""
+        model = _RecordingModel()
+        graph = build_graph(
+            model,
+            [failing_rich_search, search_places],
+            "system",
+            required_tools=["rich_search"],
+        )
+
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="recent AI progress")],
+        })
+
+        self.assertEqual(result["messages"][-1].content, "final answer")
+        self.assertEqual(model.unbound_calls, 1)
+        self.assertEqual(model.bound_calls, 0)
+        self.assertEqual(
+            len([
+                message for message in result["messages"]
+                if isinstance(message, ToolMessage) and message.name == "rich_search"
+            ]),
+            1,
+        )
+
     async def test_domain_clarification_checkpoints_original_linked_tool_protocol(self):
         model = _RecordingModel()
         route_arguments = {

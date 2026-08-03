@@ -1000,6 +1000,12 @@ def build_graph(
         tools_closed = (
             force_finalize
             or planned_sequence_complete
+            # A failed rich-search-only chain is an enhancement downgrade, not
+            # a reason to expose the rest of the tool surface.  Closing the
+            # optional tools here guarantees that the public model receives
+            # the original conversation plus a small freshness boundary and
+            # can answer naturally from its own knowledge.
+            or search_only_degraded
             or (finalize_after_rich_search and not remaining_tools)
         )
         route_verified_for_calendar = bool(
@@ -1014,7 +1020,7 @@ def build_graph(
         )
         linked_trip_step = False
         reasoning_tool_step = False
-        if force_finalize:
+        if force_finalize or search_only_degraded:
             active_model = public_model
         elif planned_sequence_complete:
             # The semantic planner's shortest capability chain has completed.
