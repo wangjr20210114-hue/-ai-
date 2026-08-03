@@ -63,10 +63,10 @@ def main() -> None:
     skill_assembler_lines = len(
         skill_assembler.read_text(encoding="utf-8").splitlines()
     )
-    if skill_assembler_lines > 2_200:
+    if skill_assembler_lines > 500:
         failures.append(
-            "builtin_operations.py must keep map/place provider responsibilities "
-            f"split out ({skill_assembler_lines} lines; maximum 2200)"
+            "builtin_operations.py must keep map/place/nearby/route/calendar "
+            f"responsibilities split out ({skill_assembler_lines} lines; maximum 500)"
         )
 
     for path in (AGENTS / "_tests").rglob("test_*.py"):
