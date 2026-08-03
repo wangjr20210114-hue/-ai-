@@ -44,7 +44,10 @@ class SearchProGatewayTests(unittest.IsolatedAsyncioTestCase):
                 "WSA_BASE_URL": "https://search.test",
             },
         )
-        with patch("agents._infrastructure.providers.rich_search._json_request", side_effect=json_request):
+        async def async_json_request(url, payload, headers, timeout):
+            return json_request(url, payload, headers, timeout)
+
+        with patch("agents._infrastructure.providers.rich_search._searchpro_request_json", side_effect=async_json_request):
             execution = await gateway.search(request())
 
         self.assertEqual(calls, ["https://search.test/SearchPro"])

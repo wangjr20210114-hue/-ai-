@@ -245,7 +245,7 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
         def request(*_args, **_kwargs):
             return {"Pages": []}
 
-        with patch("agents._infrastructure.providers.rich_search._json_request", side_effect=request) as provider:
+        with patch("agents._infrastructure.providers.rich_search._searchpro_request_json", new=AsyncMock(side_effect=request)) as provider:
             result = await run_rich_search(
                 {"WSA_API_KEY": "test"}, "factual query", "visual query", "basic",
             )
@@ -261,8 +261,8 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rich_search_retries_one_transient_transport_failure(self):
         with patch(
-            "agents._infrastructure.providers.rich_search._json_request",
-            side_effect=[TimeoutError("transient"), {"Pages": []}],
+            "agents._infrastructure.providers.rich_search._searchpro_request_json",
+            new=AsyncMock(side_effect=[TimeoutError("transient"), {"Pages": []}]),
         ) as provider, patch(
             "agents._infrastructure.providers.rich_search.asyncio.sleep",
             new=AsyncMock(),

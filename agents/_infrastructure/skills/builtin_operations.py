@@ -1078,6 +1078,45 @@ def _learned_route_preference(
     return ranked[0][0]
 
 
+def _route_plan_leg_summary(leg: Any, fallback_mode: str) -> dict[str, Any]:
+    """Keep the provider's per-stop transport composition in durable context.
+
+    A route leg is the journey between two recommended places.  Tencent may
+    describe that one leg as several sections (for example walk -> bus ->
+    subway -> walk).  The full geometry is fetched again by ``/routes`` when a
+    map is opened, so the workspace stores only the bounded, model-safe facts
+    needed by calendar continuation and a later map action.
+    """
+    if not isinstance(leg, dict):
+        return {"mode": fallback_mode, "sections": []}
+    summary: dict[str, Any] = {
+        "mode": str(leg.get("mode") or fallback_mode),
+        "distance_meters": round(float(leg.get("distance_meters") or 0)),
+        "duration_seconds": round(float(leg.get("duration_seconds") or 0)),
+    }
+    sections: list[dict[str, Any]] = []
+    for section in (leg.get("sections") or [])[:8]:
+        if not isinstance(section, dict):
+            continue
+        item: dict[str, Any] = {
+            "mode": str(section.get("mode") or summary["mode"]),
+            "distance_meters": round(float(section.get("distance_meters") or 0)),
+            "duration_seconds": round(float(section.get("duration_seconds") or 0)),
+        }
+        for key in ("line", "vehicle", "geton", "getoff", "station_count", "instruction"):
+            value = section.get(key)
+            if value not in (None, ""):
+                item[key] = str(value)[:240] if key != "station_count" else max(0, int(value or 0))
+        sections.append(item)
+    if sections:
+        summary["sections"] = sections
+    for key in ("fare", "transit"):
+        value = leg.get(key)
+        if isinstance(value, dict):
+            summary[key] = copy.deepcopy(value)
+    return summary
+
+
 async def verify_place_queries_parallel(
     provider: Callable[..., Awaitable[list[dict[str, Any]]]],
     map_key: str,
@@ -2401,11 +2440,7 @@ def build_system_skill_tools(
             "strategy": selected_route_strategy,
             "selection": copy.deepcopy(route.get("selection") or {}),
             "legs": [
-                {
-                    "distance_meters": round(float(leg.get("distance_meters") or 0)),
-                    "duration_seconds": round(float(leg.get("duration_seconds") or 0)),
-                    "mode": str(leg.get("mode") or selected_route_mode),
-                }
+                _route_plan_leg_summary(leg, selected_route_mode)
                 for leg in (route.get("legs") or [])
                 if isinstance(leg, dict)
             ][:11],

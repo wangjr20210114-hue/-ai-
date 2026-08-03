@@ -205,10 +205,34 @@ class MapRouteTests(unittest.IsolatedAsyncioTestCase):
 
         route = {
             "provider": "tencent",
-            "mode": "driving",
+            "mode": "transit",
             "distance_meters": 52_400,
             "duration_seconds": 7_200,
             "fare": {"taxi": {"low": 120, "high": 150}},
+            "legs": [
+                {
+                    "mode": "transit",
+                    "distance_meters": 18_000,
+                    "duration_seconds": 2_400,
+                    "sections": [
+                        {
+                            "mode": "walking",
+                            "distance_meters": 500,
+                            "duration_seconds": 420,
+                            "instruction": "步行到公交站",
+                        },
+                        {
+                            "mode": "bus",
+                            "line": "杭州公交 1 路",
+                            "vehicle": "BUS",
+                            "distance_meters": 17_500,
+                            "duration_seconds": 1_980,
+                            "geton": "起点站",
+                            "getoff": "西湖站",
+                        },
+                    ],
+                },
+            ],
         }
         store = FakeStore()
         with patch("agents._infrastructure.skills.builtin_operations.provider_search_places", new=place_provider), \
@@ -249,6 +273,17 @@ class MapRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [item["place_id"] for item in saved["latest_route_plan"]["ordered_stops"]],
             ["tencent", "jinjiang", "restaurant", "orange"],
+        )
+        saved_leg = saved["latest_route_plan"]["legs"][0]
+        self.assertEqual(
+            [section["mode"] for section in saved_leg["sections"]],
+            ["walking", "bus"],
+        )
+        self.assertEqual(saved_leg["sections"][1]["line"], "杭州公交 1 路")
+        context = json.loads(latest_route_context(saved))
+        self.assertEqual(
+            [section["mode"] for section in context["legs"][0]["sections"]],
+            ["walking", "bus"],
         )
         self.assertIn(result["route_plan_id"], latest_route_context(saved))
 

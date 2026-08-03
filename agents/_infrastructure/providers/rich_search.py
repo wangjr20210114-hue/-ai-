@@ -22,6 +22,7 @@ from datetime import date, datetime
 from html import unescape
 from typing import Any, Awaitable, Callable
 
+from .http_transport import request_json as _transport_request_json
 from .web_media import collect_page_media
 from .vision import vision_completion, vision_providers
 
@@ -192,17 +193,17 @@ async def _searchpro_json_request(
     timeout: int,
 ) -> tuple[dict, int]:
     """Use the shared SearchPro adapter with one bounded transport recovery."""
+    deadline = asyncio.get_running_loop().time() + max(1.0, float(timeout))
     for attempt in range(1, 3):
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise asyncio.TimeoutError()
         try:
-            data = await asyncio.wait_for(
-                asyncio.to_thread(
-                    _json_request,
-                    url,
-                    payload,
-                    headers,
-                    timeout,
-                ),
-                timeout=timeout + 0.5,
+            data = await _searchpro_request_json(
+                url,
+                payload,
+                headers,
+                max(1, min(timeout, int(remaining))),
             )
             return data, attempt
         except Exception as error:
@@ -213,8 +214,31 @@ async def _searchpro_json_request(
                 attempt,
                 type(error).__name__,
             )
-            await asyncio.sleep(0.2)
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise asyncio.TimeoutError() from error
+            await asyncio.sleep(min(0.2, remaining))
     raise RuntimeError("SearchPro request did not complete")
+
+
+async def _searchpro_request_json(
+    url: str,
+    payload: dict,
+    headers: dict,
+    timeout: int,
+) -> dict:
+    """Transport seam kept separate from the vision JSON adapter.
+
+    SearchPro is the high-frequency read-only path, so it uses the shared
+    cancellable keep-alive client.  The seam also makes provider contract tests
+    independent of the concrete HTTP library.
+    """
+    return await _transport_request_json(
+        url,
+        payload,
+        headers,
+        timeout=timeout,
+    )
 
 
 def _parse_pages(data: dict[str, Any], limit: int) -> list[dict[str, Any]]:
@@ -322,12 +346,40 @@ def _source_quality_score(item: dict[str, Any], query: str) -> int:
 def _rank_source_results(
     results: list[dict[str, Any]], query: str,
 ) -> list[dict[str, Any]]:
-    """Stable quality ordering: provider order remains the tie breaker."""
+    """Stable quality ordering with bounded registrable-domain diversity.
+
+    The provider's first page is still the tie breaker, but a single publisher
+    should not consume every evidence slot when another relevant domain is
+    available.  This is a deterministic presentation rule, not a new search
+    provider or a second model decision.
+    """
     ranked = sorted(
         enumerate(results),
         key=lambda pair: (-_source_quality_score(pair[1], query), pair[0]),
     )
-    return [item for _, item in ranked]
+    if len(ranked) < 2:
+        return [item for _, item in ranked]
+
+    def domain(item: dict[str, Any]) -> str:
+        host = (urllib.parse.urlparse(str(item.get("url") or "")).hostname or "").lower().strip(".")
+        labels = [part for part in host.split(".") if part]
+        if len(labels) <= 2:
+            return host
+        # Common public suffix pairs in the WSA result set.  Unknown suffixes
+        # conservatively use the final two labels rather than inventing a PSL.
+        if len(labels) >= 3 and ".".join(labels[-2:]) in {"com.cn", "net.cn", "org.cn", "gov.cn", "co.uk", "com.au"}:
+            return ".".join(labels[-3:])
+        return ".".join(labels[-2:])
+
+    chosen: list[tuple[int, dict[str, Any]]] = [ranked[0]]
+    domains = {domain(ranked[0][1])}
+    for pair in ranked[1:]:
+        if domain(pair[1]) and domain(pair[1]) not in domains:
+            chosen.append(pair)
+            domains.add(domain(pair[1]))
+            break
+    chosen.extend(pair for pair in ranked if pair not in chosen)
+    return [item for _, item in chosen]
 
 
 def _date_from_text(value: str, target_year: int | None = None) -> str:
@@ -788,6 +840,16 @@ async def rich_search(
     results = _rank_source_results(candidate_results, query)[:limit]
     visual_results = results
     date_filter["kept"] = len(results)
+    source_domains: list[str] = []
+    for item in results:
+        host = (urllib.parse.urlparse(str(item.get("url") or "")).hostname or "").lower().strip(".")
+        labels = [part for part in host.split(".") if part]
+        if len(labels) >= 3 and ".".join(labels[-2:]) in {"com.cn", "net.cn", "org.cn", "gov.cn", "co.uk", "com.au"}:
+            host = ".".join(labels[-3:])
+        elif len(labels) > 2:
+            host = ".".join(labels[-2:])
+        if host and host not in source_domains:
+            source_domains.append(host)
     sources = [{
         "id": f"source-{index}", "source": item["source"], "title": item["title"],
         "snippet": item["snippet"][:240], "url": item["url"], "date": item["date"],
@@ -832,6 +894,8 @@ async def rich_search(
             "provider_request_count": provider_request_count,
             "visual_query_merged": distinct_visual_query,
             "provider_timeout_seconds": provider_timeout,
+            "source_domain_count": len(source_domains),
+            "source_domains": source_domains[:12],
             "page_fetch_limit": min(6, max(4, image_limit * 2)) if image_limit else 0,
         },
         "timings_ms": {

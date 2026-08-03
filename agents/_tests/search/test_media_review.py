@@ -106,6 +106,29 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pages[0]["image"], "https://qqpublic.qpic.cn/provider-news.jpg")
         self.assertEqual(pages[0]["provider_images"][0]["caption"], "大会现场")
         self.assertEqual(pages[1]["image"], "https://qqpublic.qpic.cn/embedded.jpg")
+
+    def test_source_ranking_keeps_a_second_domain_when_relevant(self):
+        ranked = _rank_source_results([
+            {
+                "url": "https://news.a.gov.cn/news/1",
+                "title": "AI 进展",
+                "snippet": "AI 进展 官方公告",
+            },
+            {
+                "url": "https://portal.a.gov.cn/news/2",
+                "title": "AI 进展补充",
+                "snippet": "AI 进展 官方公告",
+            },
+            {
+                "url": "https://news.example.com/news/3",
+                "title": "AI 进展观察",
+                "snippet": "AI 进展",
+            },
+        ], "AI 进展")
+        self.assertEqual(
+            [item["url"] for item in ranked[:2]],
+            ["https://news.a.gov.cn/news/1", "https://news.example.com/news/3"],
+        )
         ranked = _rank_source_results([{
             "url": "https://travel.example/guide",
             "title": "北京故宫旅游攻略，性价比高的导游与预算",
@@ -519,7 +542,7 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             "passage": "<p>报道</p><img src='http://img.example.com/hero.jpg'>",
         }
         with (
-            patch("agents._infrastructure.providers.rich_search._json_request", return_value={"Pages": [page]}) as search_request,
+            patch("agents._infrastructure.providers.rich_search._searchpro_request_json", return_value={"Pages": [page]}) as search_request,
             patch("agents._infrastructure.providers.rich_search.collect_page_media", new=AsyncMock(return_value=[])),
         ):
             result = await run_rich_search(
@@ -554,7 +577,7 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             "passage": "今天发布",
         }]
         with (
-            patch("agents._infrastructure.providers.rich_search._json_request", return_value={"Pages": pages}),
+            patch("agents._infrastructure.providers.rich_search._searchpro_request_json", return_value={"Pages": pages}),
             patch("agents._infrastructure.providers.rich_search.collect_page_media", new=AsyncMock(return_value=[])),
         ):
             result = await run_rich_search(
@@ -945,4 +968,3 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("image", first_payload)
         self.assertIn("image_b64", retry_payload)
         self.assertEqual((body, content_type), (b"jpeg", "image/jpeg"))
-
