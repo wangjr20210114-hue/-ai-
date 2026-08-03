@@ -7,7 +7,7 @@ import type {
 } from '../../../shared/types';
 
 
-export const routes = Object.freeze(['/skill_marketplace', '/skills', '/skill-uploads']);
+export const routes = Object.freeze(['/skill_marketplace', '/skill-uploads']);
 
 export function loadSkillMarketplace<T>(
   conversationId: string,

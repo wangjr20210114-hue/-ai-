@@ -164,7 +164,7 @@ test('static acceptance site covers every release capability with executable det
 });
 
 test('reported acceptance regressions keep explicit implementation guards', async () => {
-  const [files, library, readerClient, chatError, chatTools, chatGraph, workspace, messageBubble, clarificationSubmission, capabilityPlan, chatAgent, styles, chatClient, chatRuntime] = await Promise.all([
+  const [files, library, readerClient, chatError, chatTools, chatGraph, workspace, messageBubble, clarificationSubmission, capabilityPlan, chatAgent, styles, chatClient, chatTransport] = await Promise.all([
     read('cloud-functions/files/index.js'),
     read('cloud-functions/library/index.js'),
     read('frontend/src/services/paperApi.ts'),
@@ -178,7 +178,7 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
     read('agents/_application/chat/turn_service.py'),
     read('frontend/src/styles/reset.css'),
     read('frontend/src/features/chat/model/client.ts'),
-    read('frontend/src/features/chat/controller/chatRuntime.ts'),
+    read('frontend/src/features/chat/controller/chatTransport.ts'),
   ]);
   assert.match(files, /image\/png/);
   assert.match(library, /manual_folder/);
@@ -202,7 +202,7 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.match(styles, /themeDiagonalReveal 280ms/);
   assert.match(chatClient, /operation: 'touch_pointer'/);
   assert.match(chatClient, /yuanbao:conversation-saved/);
-  assert.match(chatRuntime, /touchConversationIndex\(this\.conversationId/);
+  assert.match(chatTransport, /touchConversationIndex\(this\.conversationId/);
   assert.doesNotMatch(styles, /themeDiagonalReveal 1100ms/);
 });
 
@@ -414,7 +414,7 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
   assert.match(active, /useChatController/);
   assert.doesNotMatch(active, /useSSEChat/);
   assert.doesNotMatch(active, /AuthGate|loginAppSession|registerAppSession/);
-  const chatClient = await read('frontend/src/features/chat/controller/chatRuntime.ts');
+  const chatClient = await read('frontend/src/features/chat/controller/chatTransport.ts');
   const stopRequest = chatClient.match(/const requestStop[\s\S]*?authorizedFetch\('\/stop'[\s\S]*?body: JSON\.stringify/);
   assert.ok(stopRequest);
   assert.doesNotMatch(stopRequest[0], /makersConversationHeaders/);

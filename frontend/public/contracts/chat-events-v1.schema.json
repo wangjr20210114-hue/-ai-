@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://floris-dev.jlutx.com/contracts/chat-events-v1.schema.json",
-  "title": "Floris Chat SSE Event v1",
+  "title": "Floris Client SSE Event v1",
+  "description": "Versioned streaming events shared by chat, paper reader and image studio clients.",
   "anyOf": [
     { "$ref": "#/$defs/aiResponse" },
     { "$ref": "#/$defs/aiResponseReset" },
@@ -18,6 +19,10 @@
     { "$ref": "#/$defs/followUps" },
     { "$ref": "#/$defs/proactiveUpdate" },
     { "$ref": "#/$defs/usage" },
+    { "$ref": "#/$defs/paperDelta" },
+    { "$ref": "#/$defs/paperDone" },
+    { "$ref": "#/$defs/imageProgress" },
+    { "$ref": "#/$defs/imageAction" },
     { "$ref": "#/$defs/ping" },
     { "$ref": "#/$defs/error" },
     { "$ref": "#/$defs/openEvent" }
@@ -185,6 +190,48 @@
             "total_tokens": { "type": "integer", "minimum": 0 }
           },
           "required": ["input_tokens", "output_tokens", "total_tokens"]
+        }
+      ]
+    },
+    "paperDelta": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "type": { "const": "paper_delta" },
+            "content": { "type": "string" }
+          },
+          "required": ["content"]
+        }
+      ]
+    },
+    "paperDone": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        { "properties": { "type": { "const": "paper_done" } } }
+      ]
+    },
+    "imageProgress": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "type": { "const": "image_progress" },
+            "stage": { "enum": ["preparing", "retrying_blob"] }
+          },
+          "required": ["stage"]
+        }
+      ]
+    },
+    "imageAction": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "type": { "const": "image_action" },
+            "action": { "$ref": "floris-components-v1.schema.json#/$defs/workspaceAction" }
+          },
+          "required": ["action"]
         }
       ]
     },

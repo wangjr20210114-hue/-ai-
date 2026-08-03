@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { routes as calendarRoutes } from './calendar/model/client';
 import { routes as chatRoutes } from './chat/model/client';
+import { routes as imageRoutes } from './image-studio/model/client';
 import { routes as mapsRoutes } from './maps/model/client';
 import { routes as paperRoutes } from './papers/model/client';
 import { routes as searchRoutes } from './search/model/client';
@@ -26,6 +27,7 @@ describe('feature route ownership', () => {
       ...chatRoutes,
       ...searchRoutes,
       ...calendarRoutes,
+      ...imageRoutes,
       ...mapsRoutes,
       ...paperRoutes,
       ...settingsRoutes,

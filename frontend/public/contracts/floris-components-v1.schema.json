@@ -41,6 +41,86 @@
       },
       "additionalProperties": true
     },
+    "routePoint": {
+      "type": "object",
+      "required": ["latitude", "longitude"],
+      "properties": {
+        "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+        "longitude": { "type": "number", "minimum": -180, "maximum": 180 }
+      },
+      "additionalProperties": false
+    },
+    "routeSection": {
+      "type": "object",
+      "required": ["mode", "path", "distance_meters", "duration_seconds"],
+      "properties": {
+        "mode": { "enum": ["driving", "transit", "walking", "bicycling", "bus", "rail"] },
+        "path": { "type": "array", "items": { "$ref": "#/$defs/routePoint" } },
+        "distance_meters": { "type": "number", "minimum": 0 },
+        "duration_seconds": { "type": "number", "minimum": 0 },
+        "line": { "type": "string" },
+        "vehicle": { "type": "string" },
+        "geton": { "type": "string" },
+        "getoff": { "type": "string" },
+        "station_count": { "type": "integer", "minimum": 0 },
+        "instruction": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "routeLeg": {
+      "type": "object",
+      "required": ["from", "to", "mode", "path", "sections", "distance_meters", "duration_seconds"],
+      "properties": {
+        "from": { "$ref": "#/$defs/place" },
+        "to": { "$ref": "#/$defs/place" },
+        "mode": { "enum": ["driving", "transit", "walking", "bicycling"] },
+        "path": { "type": "array", "items": { "$ref": "#/$defs/routePoint" } },
+        "sections": { "type": "array", "items": { "$ref": "#/$defs/routeSection" } },
+        "distance_meters": { "type": "number", "minimum": 0 },
+        "duration_seconds": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "routePlan": {
+      "type": "object",
+      "required": ["schema_version", "provider", "mode", "places", "path", "distance_meters", "duration_seconds", "fare"],
+      "properties": {
+        "schema_version": { "type": "integer" },
+        "provider": { "type": "string" },
+        "mode": { "enum": ["driving", "transit", "walking", "bicycling"] },
+        "strategy": { "enum": ["time_then_cost", "least_time", "least_cost"] },
+        "places": { "type": "array", "items": { "$ref": "#/$defs/place" } },
+        "path": { "type": "array", "items": { "$ref": "#/$defs/routePoint" } },
+        "legs": { "type": "array", "items": { "$ref": "#/$defs/routeLeg" } },
+        "distance_meters": { "type": "number", "minimum": 0 },
+        "duration_seconds": { "type": "number", "minimum": 0 },
+        "fare": { "type": "object", "additionalProperties": true },
+        "transit": { "type": "object", "additionalProperties": true },
+        "cache": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": true
+    },
+    "schedule": {
+      "type": "object",
+      "required": ["id", "title", "start_time", "duration_minutes", "done"],
+      "properties": {
+        "id": { "type": "string" },
+        "session_id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "enum": ["travel", "meeting", "dining", "remind", "task", "other"] },
+        "start_time": { "type": "integer" },
+        "duration_minutes": { "type": "integer", "minimum": 0 },
+        "duration_days": { "type": "integer", "minimum": 0 },
+        "location": { "type": "string" },
+        "description": { "type": "string" },
+        "markdown_content": { "type": "string" },
+        "extra": { "type": "object", "additionalProperties": true },
+        "done": { "type": "boolean" },
+        "created_at": { "type": "integer" },
+        "updated_at": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
     "workspaceAction": {
       "type": "object",
       "required": ["schema_version", "id", "kind", "status", "version", "payload"],
