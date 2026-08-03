@@ -58,6 +58,7 @@ import com.floris.android.core.model.ProactiveNotification
 import com.floris.android.core.model.Profile
 import com.floris.android.ui.components.CatAvatar
 import com.floris.android.ui.components.FlorisCard
+import com.floris.android.ui.components.GuestNotice
 import com.floris.android.ui.components.IconPill
 import com.floris.android.ui.components.PillButton
 import com.floris.android.ui.components.PillStyle
@@ -109,8 +110,11 @@ class ProfileViewModel(
         if (_state.value.refreshing) return
         _state.update { it.copy(refreshing = true) }
         viewModelScope.launch {
-            runCatching { repository.getProfile() }
-                .onSuccess { profile -> _state.update { it.copy(profile = profile) } }
+            // 后端 /profile 对游客返回 403（Login required），不必发这次请求。
+            if (!authManager.isGuest) {
+                runCatching { repository.getProfile() }
+                    .onSuccess { profile -> _state.update { it.copy(profile = profile) } }
+            }
 
             // 主动提醒由后端 /proactive 生成，客户端只展示与转发用户决定。
             loadProactive("refresh")
@@ -205,6 +209,8 @@ fun ProfileScreen(
     val state by viewModel.state.collectAsState()
     val identity = (authState as? AuthState.SignedIn)?.identity ?: Identity()
     val uriHandler = LocalUriHandler.current
+    // 以后端下发的身份为准判断游客态。
+    val isGuest = identity.auth_type == "guest"
 
     Column(
         Modifier
@@ -222,6 +228,16 @@ fun ProfileScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            // 游客提示条：置顶提醒登录才能解锁全部能力与云端保存。
+            if (isGuest) {
+                item(key = "guest-notice") {
+                    GuestNotice(
+                        text = t(StringKey.GuestProfileNotice),
+                        actionText = t(StringKey.GuestSignInCta),
+                        onAction = viewModel::signOut,
+                    )
+                }
+            }
             // 身份卡（品牌渐变描边 + 橘猫头像）
             item(key = "identity") {
                 FlorisCard(corner = 20.dp, modifier = Modifier.onboardingTarget(TourStepKey.PROFILE)) {
@@ -387,14 +403,23 @@ fun ProfileScreen(
                 )
             }
 
-            item(key = "signout") {
+            // 游客没有"登录状态"可退，展示登录入口；正式用户才显示退出登录。
+            item(key = "session-action") {
                 Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
-                    PillButton(
-                        text = t(StringKey.ProfileSignOut),
-                        onClick = viewModel::signOut,
-                        style = PillStyle.Danger,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    if (isGuest) {
+                        PillButton(
+                            text = t(StringKey.GuestSignInCta),
+                            onClick = viewModel::signOut,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        PillButton(
+                            text = t(StringKey.ProfileSignOut),
+                            onClick = viewModel::signOut,
+                            style = PillStyle.Danger,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
             }
         }

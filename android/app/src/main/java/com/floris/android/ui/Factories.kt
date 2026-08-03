@@ -22,7 +22,7 @@ private inline fun <reified VM : ViewModel> factory(crossinline create: () -> VM
 fun AppContainer.loginViewModelFactory() = factory { LoginViewModel(authManager) }
 fun AppContainer.chatViewModelFactory() = factory { ChatViewModel(repository, json) }
 fun AppContainer.historyViewModelFactory() = factory { HistoryViewModel(repository) }
-fun AppContainer.skillsViewModelFactory() = factory { SkillsViewModel(repository) }
+fun AppContainer.skillsViewModelFactory() = factory { SkillsViewModel(repository, authManager) }
 fun AppContainer.calendarViewModelFactory() = factory { CalendarViewModel(repository) }
 fun AppContainer.mapViewModelFactory() = factory { MapViewModel(repository) }
 fun AppContainer.readingViewModelFactory() = factory { ReadingViewModel(repository) }

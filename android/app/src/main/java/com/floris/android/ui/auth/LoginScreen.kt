@@ -1,15 +1,18 @@
 package com.floris.android.ui.auth
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,9 +20,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -132,7 +137,9 @@ fun LoginScreen(container: AppContainer) {
             .background(MaterialTheme.colorScheme.background)
             .systemBarsPadding()
             .imePadding()
-            .padding(horizontal = 30.dp),
+            // 可滚动：键盘弹出时内容不会溢出屏幕，避免按钮被挤到重叠区域。
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 30.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -150,8 +157,15 @@ fun LoginScreen(container: AppContainer) {
         AnimatedContent(
             targetState = state.step,
             transitionSpec = {
-                (slideInHorizontally { it / 3 } + fadeIn()) togetherWith
-                    (slideOutHorizontally { -it / 3 } + fadeOut())
+                ContentTransform(
+                    targetContentEnter = slideInHorizontally { it / 3 } + fadeIn(),
+                    initialContentExit = slideOutHorizontally { -it / 3 } + fadeOut(),
+                    // 关键：退场内容不再参与布局尺寸，否则旧的"发送验证码"按钮
+                    // 仍会占位并抢走点击，导致点游客入口同时触发发送验证码。
+                    sizeTransform = SizeTransform(clip = false) { _, target ->
+                        tween(220)
+                    },
+                )
             },
             label = "loginStep",
         ) { step ->
@@ -220,15 +234,26 @@ fun LoginScreen(container: AppContainer) {
         }
 
         // 游客入口：后端签发 7 天游客会话，不需要邮箱即可先体验。
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(26.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            HairLine(Modifier.weight(1f))
+            Text(
+                t(StringKey.LoginOr),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.padding(horizontal = 10.dp),
+            )
+            HairLine(Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(14.dp))
         PillButton(
             text = t(StringKey.LoginAsGuest),
             onClick = viewModel::continueAsGuest,
-            style = PillStyle.Ghost,
+            style = PillStyle.Tonal,
             enabled = !state.busy,
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             t(StringKey.GuestUpgradeHint),
             style = MaterialTheme.typography.labelSmall,
@@ -236,6 +261,15 @@ fun LoginScreen(container: AppContainer) {
             textAlign = TextAlign.Center,
         )
     }
+}
+
+@Composable
+private fun HairLine(modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .height(1.dp)
+            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.14f)),
+    )
 }
 
 /** 柔和输入框：无描边、药丸底衬，避免突兀的传统文本框。 */

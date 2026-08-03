@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,8 +39,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.outlined.AddCircle
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.AlertDialog
@@ -62,11 +65,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
@@ -79,6 +87,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.floris.android.AppContainer
 import com.floris.android.R
 import com.floris.android.core.chat.ChatMessageUi
+import com.floris.android.core.share.ImageSaver
+import com.floris.android.core.share.MarkdownPlainText
 import com.floris.android.ui.chatViewModelFactory
 import com.floris.android.ui.components.AnimateIn
 import com.floris.android.ui.components.CatAvatar
@@ -264,6 +274,9 @@ fun ChatScreen(
                                             },
                                             onFollowUp = { viewModel.send(it) },
                                             onRetry = viewModel::retryLast,
+                                            onNotify = { text ->
+                                                scope.launch { snackbar.showSnackbar(text) }
+                                            },
                                         )
                                     }
                                 }
@@ -434,33 +447,98 @@ private fun AssistantRow(
     onClarificationSubmit: (com.floris.android.core.model.Clarification, Map<String, Any>) -> Unit,
     onFollowUp: (String) -> Unit,
     onRetry: () -> Unit,
+    onNotify: (String) -> Unit,
 ) {
+    val graphicsLayer = rememberGraphicsLayer()
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var saving by remember { mutableStateOf(false) }
+
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         CatAvatar(size = 28.dp)
         Spacer(Modifier.width(9.dp))
         Column(Modifier.weight(1f)) {
-            // 流式期间展示过程动画：生图走画布节奏，其余走搜索阶段时间线。
-            if (message.streaming) {
-                if (message.isImageIntent) ImageCreationProgress(message)
-                else SearchProgress(message)
-            }
-            if (message.content.isNotBlank() || message.streaming) {
-                MarkdownText(
-                    markdown = message.content,
-                    streaming = message.streaming && message.content.isNotBlank(),
-                )
-            }
-            if (!message.streaming) {
-                SearchCompleteMeta(message)
-            }
-            message.searchResults?.let { meta ->
-                if (meta.results.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
-                    SearchSourcesRow(meta)
+            // 回答框：柔和底衬 + 细描边，让每一轮回答有清晰边界。
+            // 用 graphicsLayer 录制这块内容，"保存图片"即导出它。
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
+                    .border(
+                        1.dp,
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f),
+                        RoundedCornerShape(16.dp),
+                    )
+                    .drawWithContent {
+                        graphicsLayer.record { this@drawWithContent.drawContent() }
+                        drawLayer(graphicsLayer)
+                    }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+            ) {
+                // 流式期间展示过程动画：生图走画布节奏，其余走搜索阶段时间线。
+                if (message.streaming) {
+                    if (message.isImageIntent) ImageCreationProgress(message)
+                    else SearchProgress(message)
                 }
-                if (meta.media.isNotEmpty()) MediaGrid(meta.media)
+                if (message.content.isNotBlank() || message.streaming) {
+                    MarkdownText(
+                        markdown = message.content,
+                        streaming = message.streaming && message.content.isNotBlank(),
+                    )
+                }
+                if (!message.streaming) {
+                    SearchCompleteMeta(message)
+                }
+                message.searchResults?.let { meta ->
+                    if (meta.results.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        SearchSourcesRow(meta)
+                    }
+                    if (meta.media.isNotEmpty()) MediaGrid(meta.media)
+                }
+                PaperListCard(message.papers)
             }
-            PaperListCard(message.papers)
+
+            // 操作栏：复制纯文字 / 保存图片到相册（对齐网页端）。
+            if (!message.streaming && message.content.isNotBlank()) {
+                // 文案先取好：t() 是 @Composable，不能在点击回调里调用。
+                val copiedText = t(StringKey.CopiedToClipboard)
+                val saveFailedText = t(StringKey.SaveImageFailed)
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    GhostAction(
+                        icon = Icons.Default.ContentCopy,
+                        label = t(StringKey.CopyPlainText),
+                        onClick = {
+                            clipboard.setText(
+                                AnnotatedString(MarkdownPlainText.convert(message.content)),
+                            )
+                            onNotify(copiedText)
+                        },
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    GhostAction(
+                        icon = Icons.Default.SaveAlt,
+                        label = if (saving) t(StringKey.Saving) else t(StringKey.SaveAsImage),
+                        enabled = !saving,
+                        onClick = {
+                            saving = true
+                            scope.launch {
+                                val result = runCatching { graphicsLayer.toImageBitmap() }
+                                    .fold(
+                                        onSuccess = { ImageSaver.saveToGallery(context, it) },
+                                        onFailure = { Result.failure(it) },
+                                    )
+                                onNotify(result.getOrElse { saveFailedText })
+                                saving = false
+                            }
+                        },
+                    )
+                }
+            }
+
             message.actions.forEach { action ->
                 WorkspaceActionCard(
                     action = action,
@@ -506,6 +584,37 @@ private fun AssistantRow(
                 FollowUpChips(message.followUps, onClick = onFollowUp)
             }
         }
+    }
+}
+
+/** 回答下方的低调操作按钮：小图标 + 文字，按下有细微缩放。 */
+@Composable
+private fun GhostAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .pressable(enabled = enabled, scaleDown = 0.94f, onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.Icon(
+            icon, contentDescription = label,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                .copy(alpha = if (enabled) 0.85f else 0.4f),
+            modifier = Modifier.size(13.dp),
+        )
+        Spacer(Modifier.width(5.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+                .copy(alpha = if (enabled) 0.85f else 0.4f),
+        )
     }
 }
 

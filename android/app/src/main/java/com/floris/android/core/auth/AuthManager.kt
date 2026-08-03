@@ -187,9 +187,24 @@ class AuthManager(
     suspend fun requireFlorisToken(): String =
         currentFlorisToken() ?: refreshAndExchange()
 
-    /** Called by the network layer when a request needs a guaranteed-fresh token. */
+    /**
+     * Called by the network layer when a request needs a guaranteed-fresh token.
+     *
+     * 已有可用 token 时直接返回，绝不发起任何刷新往返 —— 游客会话没有
+     * CloudBase 凭证，一旦误入刷新分支就会抛异常，表现为"网络错误"。
+     */
     suspend fun ensureFreshToken() {
+        if (currentFlorisToken() != null) return
         requireFlorisToken()
+    }
+
+    /**
+     * 强制换一枚新 token（供 401 重试使用）。游客再领一枚游客会话，
+     * 正式用户走 CloudBase 刷新；两者都不会复用已被服务端拒绝的旧 token。
+     */
+    suspend fun forceRenewToken(): String? {
+        florisExpiresAt = 0
+        return runCatching { refreshAndExchange() }.getOrNull()
     }
 
     /**

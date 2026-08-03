@@ -18,6 +18,9 @@ enum class StringKey {
     RemindLaterAt, ReminderOperationFailed,
     // 游客与退出
     LoginAsGuest, GuestBadge, GuestUpgradeHint, ExitConfirmToast,
+    LoginOr, GuestSignInCta, GuestProfileNotice,
+    // 回答操作
+    CopyPlainText, CopiedToClipboard, SaveAsImage, Saving, SaveImageFailed,
     // 底部导航
     TabChat, TabSkills, TabCalendar, TabReading, TabProfile,
     // 聊天
@@ -34,6 +37,7 @@ enum class StringKey {
     // Skills
     SkillsEyebrow, SkillsTitle, SkillsSubtitle, SkillsSearchHint, SkillsEnabledCount,
     SkillsAlwaysOn, SkillsGuestReady, SkillsRequires, SkillsDependencies, SkillsComponentApi,
+    SkillsLoginRequired, SkillsLoginHint, SkillsGuestNotice,
     // 日程
     CalendarTitle, CalendarToday, CalendarDayEmpty, CalendarEmptyTitle, CalendarEmptyBody,
     // 阅读
@@ -193,6 +197,40 @@ object Strings {
             StringKey.ExitConfirmToast,
             "再按一次返回退出", "再按一次返回離開", "Press back again to exit",
             "再按一次就走啦喵", "再按一次返回退出",
+        )
+        put(StringKey.LoginOr, "或", "或", "or", "或者喵", "或")
+        put(
+            StringKey.GuestSignInCta,
+            "登录账号", "登入帳號", "Sign in", "去登录喵", "登录账号",
+        )
+        put(
+            StringKey.GuestProfileNotice,
+            "你正在以游客身份使用，登录后可解锁全部技能并云端保存记录",
+            "你正在以訪客身分使用，登入後可解鎖全部技能並雲端保存記錄",
+            "You're browsing as a guest. Sign in to unlock all skills and sync your history.",
+            "现在是游客喵，登录之后全部技能都能玩，记录也存得住",
+            "当前为游客身份。登录后解锁全部技能并同步记录。",
+        )
+
+        // ---- 回答操作 ----
+        put(
+            StringKey.CopyPlainText,
+            "复制纯文字", "複製純文字", "Copy text", "把字带走喵", "复制纯文字",
+        )
+        put(
+            StringKey.CopiedToClipboard,
+            "已复制到剪贴板", "已複製到剪貼簿", "Copied to clipboard",
+            "复制好啦喵", "已复制到剪贴板",
+        )
+        put(
+            StringKey.SaveAsImage,
+            "保存图片", "儲存圖片", "Save image", "存成图片喵", "保存图片",
+        )
+        put(StringKey.Saving, "保存中…", "儲存中…", "Saving…", "存着喵…", "保存中…")
+        put(
+            StringKey.SaveImageFailed,
+            "保存失败，请稍后重试", "儲存失敗，請稍後重試", "Save failed, please retry",
+            "没存上喵，再试一次", "保存失败，请稍后重试。",
         )
 
         // ---- 底部导航 ----
@@ -421,6 +459,26 @@ object Strings {
         put(StringKey.SkillsRequires, "需要先启用：{0}", "需要先啟用：{0}", "Requires: {0}", "得先打开：{0}", "需要先启用：{0}")
         put(StringKey.SkillsDependencies, "依赖", "依賴", "Dependencies", "牵着的手", "依赖")
         put(StringKey.SkillsComponentApi, "组件 API", "元件 API", "Component API", "组件 API", "组件 API")
+        put(
+            StringKey.SkillsLoginRequired,
+            "需登录", "需登入", "Sign in required", "要登录喵", "需登录",
+        )
+        put(
+            StringKey.SkillsLoginHint,
+            "登录后即可启用此技能",
+            "登入後即可啟用此技能",
+            "Sign in to enable this skill.",
+            "登录之后就能开啦喵",
+            "登录后可启用此技能。",
+        )
+        put(
+            StringKey.SkillsGuestNotice,
+            "游客可使用通用问答与主动式 Agent，其余技能登录后解锁",
+            "訪客可使用通用問答與主動式 Agent，其餘技能登入後解鎖",
+            "Guests can use general chat and the proactive agent. Sign in for the rest.",
+            "游客只能玩通用问答和主动小助手喵，其他要登录",
+            "游客可用通用问答与主动式 Agent，其余技能需登录。",
+        )
 
         // ---- 日程 ----
         put(StringKey.CalendarTitle, "日程", "日程", "Calendar", "日程", "日程")

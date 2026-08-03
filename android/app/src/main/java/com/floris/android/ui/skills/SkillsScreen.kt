@@ -37,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -48,6 +49,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.floris.android.AppContainer
+import com.floris.android.core.auth.AuthManager
 import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.data.asString
 import com.floris.android.core.data.obj
@@ -56,6 +58,7 @@ import com.floris.android.ui.components.AnimateIn
 import com.floris.android.ui.components.EmptyState
 import com.floris.android.ui.components.FlorisCard
 import com.floris.android.ui.components.FlorisSwitch
+import com.floris.android.ui.components.GuestNotice
 import com.floris.android.ui.components.InlineLoading
 import com.floris.android.ui.components.SectionHeader
 import com.floris.android.ui.components.StatusChip
@@ -67,7 +70,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class SkillsViewModel(private val repository: FlorisRepository) : ViewModel() {
+class SkillsViewModel(
+    private val repository: FlorisRepository,
+    private val authManager: AuthManager,
+) : ViewModel() {
 
     data class UiState(
         val loading: Boolean = true,
@@ -75,15 +81,17 @@ class SkillsViewModel(private val repository: FlorisRepository) : ViewModel() {
         val enabledIds: Set<String> = emptySet(),
         val busyId: String? = null,
         val error: String? = null,
+        /** 游客：只有契约里的 guest_skill_ids 可用，其余需登录。 */
+        val isGuest: Boolean = false,
     )
 
-    private val _state = MutableStateFlow(UiState())
+    private val _state = MutableStateFlow(UiState(isGuest = authManager.isGuest))
     val state = _state.asStateFlow()
 
     init { refresh() }
 
     fun refresh() {
-        _state.value = _state.value.copy(loading = true, error = null)
+        _state.value = _state.value.copy(loading = true, error = null, isGuest = authManager.isGuest)
         viewModelScope.launch {
             val conversationId = repository.activeConversationId()
             runCatching {
@@ -100,15 +108,25 @@ class SkillsViewModel(private val repository: FlorisRepository) : ViewModel() {
                         ?: true
                     if (isEnabled) skill.id else null
                 }.toSet()
-                _state.value = UiState(loading = false, skills = catalog.skills, enabledIds = enabled)
+                _state.value = UiState(
+                    loading = false,
+                    skills = catalog.skills,
+                    enabledIds = enabled,
+                    isGuest = authManager.isGuest,
+                )
             }.onFailure {
-                _state.value = UiState(loading = false, error = "技能市场加载失败")
+                _state.value = _state.value.copy(loading = false, error = "技能市场加载失败")
             }
         }
     }
 
     fun toggle(skill: Skill, enabled: Boolean) {
         if (_state.value.busyId != null) return
+        // 游客越权由后端 403 拦截，这里先在客户端明确提示，避免无谓往返。
+        if (_state.value.isGuest && !skill.availableToGuest) {
+            _state.value = _state.value.copy(error = "请先登录后使用此技能")
+            return
+        }
         _state.value = _state.value.copy(busyId = skill.id)
         viewModelScope.launch {
             runCatching {
@@ -119,14 +137,25 @@ class SkillsViewModel(private val repository: FlorisRepository) : ViewModel() {
                     enabledIds = if (enabled) _state.value.enabledIds + skill.id
                     else _state.value.enabledIds - skill.id,
                 )
-            }.onFailure {
-                _state.value = _state.value.copy(busyId = null, error = "操作失败，请重试")
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    busyId = null,
+                    error = error.message?.takeIf { it.isNotBlank() } ?: "操作失败，请重试",
+                )
             }
         }
     }
 
     fun consumeError() { _state.value = _state.value.copy(error = null) }
 }
+
+/**
+ * 游客可用技能，取自 contracts/entitlements.v1.json 的 guest_skill_ids。
+ * 与后端 auth/entitlements.js skillAccess() 判定保持一致。
+ */
+private val GUEST_SKILL_IDS = setOf("core", "proactive-agent")
+
+private val Skill.availableToGuest: Boolean get() = id in GUEST_SKILL_IDS
 
 private val categoryOrder =
     listOf("foundation", "knowledge", "creative", "productivity", "location", "other")
@@ -191,6 +220,10 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
                     MaterialTheme.colorScheme.primary,
                 )
             }
+            if (state.isGuest) {
+                Spacer(Modifier.height(10.dp))
+                GuestNotice(t(StringKey.SkillsGuestNotice))
+            }
             Spacer(Modifier.height(12.dp))
             SearchField(
                 value = query,
@@ -230,6 +263,7 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
                                         enabled = skill.id in state.enabledIds,
                                         busy = state.busyId == skill.id,
                                         missing = skill.requires.filter { it !in state.enabledIds },
+                                        needsLogin = state.isGuest && !skill.availableToGuest,
                                         onToggle = { enabled -> viewModel.toggle(skill, enabled) },
                                     )
                                 }
@@ -249,10 +283,12 @@ private fun SkillCard(
     enabled: Boolean,
     busy: Boolean,
     missing: List<String>,
+    needsLogin: Boolean,
     onToggle: (Boolean) -> Unit,
 ) {
     FlorisCard {
-        Row(Modifier.padding(14.dp)) {
+        // 未登录不可用的技能整体压暗，一眼能分出哪些要登录。
+        Row(Modifier.padding(14.dp).alpha(if (needsLogin) 0.5f else 1f)) {
             Box(
                 Modifier
                     .size(40.dp)
@@ -275,7 +311,7 @@ private fun SkillCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (skill.locked == true || skill.builtin == true) {
+                    if (needsLogin || skill.locked == true || skill.builtin == true) {
                         Spacer(Modifier.width(5.dp))
                         Icon(
                             Icons.Default.Lock, contentDescription = null,
@@ -300,7 +336,11 @@ private fun SkillCard(
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    StatusChip(t(StringKey.SkillsGuestReady), MaterialTheme.colorScheme.tertiary)
+                    if (needsLogin) {
+                        StatusChip(t(StringKey.SkillsLoginRequired), MaterialTheme.colorScheme.error)
+                    } else {
+                        StatusChip(t(StringKey.SkillsGuestReady), MaterialTheme.colorScheme.tertiary)
+                    }
                     if (skill.locked == true) {
                         StatusChip(t(StringKey.SkillsAlwaysOn), MaterialTheme.colorScheme.secondary)
                     }
@@ -311,7 +351,14 @@ private fun SkillCard(
                         )
                     }
                 }
-                if (missing.isNotEmpty()) {
+                if (needsLogin) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        t(StringKey.SkillsLoginHint),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                } else if (missing.isNotEmpty()) {
                     Spacer(Modifier.height(6.dp))
                     Text(
                         t(StringKey.SkillsRequires, missing.joinToString("、")),
@@ -322,9 +369,9 @@ private fun SkillCard(
             }
             Spacer(Modifier.width(8.dp))
             FlorisSwitch(
-                checked = enabled,
+                checked = enabled && !needsLogin,
                 onCheckedChange = onToggle,
-                enabled = !busy && skill.locked != true,
+                enabled = !busy && !needsLogin && skill.locked != true,
             )
         }
     }

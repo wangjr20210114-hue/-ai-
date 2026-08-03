@@ -39,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -383,6 +384,43 @@ fun FlorisCard(
         modifier = if (onClick != null) base.pressable(scaleDown = 0.985f, onClick = onClick) else base,
         content = content,
     )
+}
+
+/**
+ * 游客提示条：柔和底衬 + 图标 + 文案（可选行动按钮）。
+ * 用于技能页与个人中心，提醒游客登录以解锁全部能力。
+ */
+@Composable
+fun GuestNotice(
+    text: String,
+    actionText: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Outlined.Info, contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.size(15.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.weight(1f),
+        )
+        if (actionText != null && onAction != null) {
+            Spacer(Modifier.width(8.dp))
+            PillButton(text = actionText, onClick = onAction, compact = true)
+        }
+    }
 }
 
 /** 设置类列表行：标题 + 说明 + 右侧内容槽。 */

@@ -62,8 +62,10 @@ class FlorisClient(
 
     private val tokenAuthenticator = Authenticator { _: Route?, response: Response ->
         if (response.request.header("X-Floris-Retried") != null) return@Authenticator null
+        // 强制换新 token：游客再领一枚游客会话，正式用户走 CloudBase 刷新。
+        // 绝不能复用刚被服务端拒绝的旧 token，否则会陷入重试循环。
         val fresh = runBlocking {
-            runCatching { authManager.refreshAndExchange() }.getOrNull()
+            runCatching { authManager.forceRenewToken() }.getOrNull()
         } ?: return@Authenticator null
         response.request.newBuilder()
             .header("Authorization", "Bearer $fresh")
@@ -72,8 +74,9 @@ class FlorisClient(
     }
 
     private val baseClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(20, TimeUnit.SECONDS)
+        // 云函数冷启动首字节可能超过 30s，普通请求给足 90s。
+        .readTimeout(90, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .addInterceptor(authInterceptor)
         .authenticator(tokenAuthenticator)
@@ -171,7 +174,7 @@ class FlorisClient(
                 val detail = runCatching { response.body?.string().orEmpty() }.getOrDefault("")
                 val status = response.code
                 response.close()
-                close(ApiException(status, detail.ifEmpty { "$path failed ($status)" }))
+                close(ApiException(status, friendlyMessage(status, detail, path)))
                 return@callbackFlow
             }
             val source = response.body?.source() ?: run {
@@ -181,9 +184,11 @@ class FlorisClient(
             }
             var buffer = ""
             try {
-                while (!source.exhausted()) {
-                    val chunk = source.readUtf8(4096) ?: break
-                    buffer += chunk
+                // 逐行读取：readUtf8(n) 会阻塞到读满 n 字节，会把先到的小事件
+                // 一直压在缓冲里，观感上就是"卡住不动然后一次性刷出来"。
+                while (true) {
+                    val line = source.readUtf8Line() ?: break
+                    buffer += line + "\n"
                     val split = SseParser.split(buffer)
                     buffer = split.rest
                     for (frame in split.frames) trySend(frame)
@@ -209,6 +214,33 @@ class FlorisClient(
     }
 
     private fun String.ensureTrailingSlash(): String = if (endsWith("/")) this else "$this/"
+
+    /**
+     * 把后端错误翻译成用户看得懂的话。后端对游客越权会返回 403 +
+     * `{"error":"...","code":"LOGIN_REQUIRED"}`，不能一律显示成"网络错误"。
+     */
+    private fun friendlyMessage(status: Int, detail: String, path: String): String {
+        val serverMessage = runCatching {
+            (json.parseToJsonElement(detail) as? JsonObject)?.let { obj ->
+                (obj["error"] ?: obj["message"])
+                    ?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+            }
+        }.getOrNull()
+        val code = runCatching {
+            (json.parseToJsonElement(detail) as? JsonObject)
+                ?.get("code")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+        }.getOrNull()
+        return when {
+            code == "LOGIN_REQUIRED" -> serverMessage ?: "请先登录后再使用此功能"
+            code == "MEMBERSHIP_REQUIRED" -> serverMessage ?: "当前会员等级无法使用此功能"
+            status == 401 -> "登录状态已失效，请重新登录"
+            status == 403 -> serverMessage ?: "该功能需要登录后使用"
+            status == 429 -> serverMessage ?: "请求过于频繁，请稍后再试"
+            status >= 500 -> "服务暂时不可用，请稍后重试"
+            !serverMessage.isNullOrBlank() -> serverMessage
+            else -> "$path 请求失败（$status）"
+        }
+    }
 
     private companion object {
         const val SESSION_COOKIE = "floris_session"
