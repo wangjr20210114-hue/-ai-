@@ -36,6 +36,35 @@ class ChatTurnBoundaryTests(unittest.TestCase):
         self.assertNotIn("_infrastructure", source)
         self.assertNotIn("SearchPro", source)
 
+    def test_turn_service_delegates_policy_and_io_helpers(self):
+        service_path = Path(turn_service_module.__file__)
+        source = service_path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        local_functions = {
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        delegated = {
+            "checkpoint_dialogue_context",
+            "checkpoint_final_answer",
+            "direct_paper_tool_arguments",
+            "dynamic_system_prompt",
+            "normalize_browser_current_location",
+            "runtime_datetime_context",
+            "tools_for_capability_stage",
+        }
+        imports = {
+            node.module
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom)
+        }
+
+        self.assertLessEqual(len(source.splitlines()), 1_800)
+        self.assertTrue(delegated.isdisjoint(local_functions))
+        self.assertIn("turn_io", imports)
+        self.assertIn("turn_policy", imports)
+
     def test_search_experience_hint_is_presentation_only(self):
         fallback = {"_runtime_model_fallback_skills": ["web-search"]}
         prompt = turn_service_module.dynamic_system_prompt(

@@ -2,12 +2,16 @@
 
 from .turn_service import (
     ChatTurnService,
-    SYSTEM_PROMPT,
-    SYSTEM_PROMPT_SECTIONS,
-    SYSTEM_PROMPT_SECTION_ORDER,
+)
+from .turn_io import (
     _document_context,
     checkpoint_dialogue_context,
     checkpoint_final_answer,
+)
+from .turn_policy import (
+    SYSTEM_PROMPT,
+    SYSTEM_PROMPT_SECTIONS,
+    SYSTEM_PROMPT_SECTION_ORDER,
     direct_paper_tool_arguments,
     dynamic_system_prompt,
     empty_generation_error,
