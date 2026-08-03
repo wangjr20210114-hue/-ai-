@@ -43,7 +43,7 @@ async def handler(ctx):
         effective_skill_preferences(identity, intelligence.get("skill_preferences")),
     ):
         return error("图片工坊 Skill 已关闭，请先到 Skills 广场开启", 403, code="SKILL_DISABLED")
-    state = await load_user_workspace(store, conversation_id, user_id)
+    state = await load_user_workspace(store, user_id=user_id)
     parent = get_action(state, parent_id)
     if parent.get("kind") != "image_generate" or parent.get("status") != "succeeded":
         return error("原图版本不可用于修改")
@@ -96,7 +96,7 @@ async def handler(ctx):
                 model=str(result.get("model") or ""),
                 source="image_edit",
             )
-        latest = await load_user_workspace(store, conversation_id, user_id)
+        latest = await load_user_workspace(store, user_id=user_id)
         current = get_action(latest, action["id"])
         finish_provider_call(latest, current, result, int(time.time()))
         if result.get("ok"):

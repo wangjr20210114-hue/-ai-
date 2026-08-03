@@ -1,3 +1,5 @@
+import inspect
+
 from agents._tests.support.workspace_environment import *  # noqa: F401,F403
 
 
@@ -196,8 +198,13 @@ class ProviderContractTests(unittest.IsolatedAsyncioTestCase):
             "event": {"title": "旧数据", "start_time": 100, "place": PLACE},
         }])[0]
         await save_workspace(store, "conversation-old", legacy)
-        current = await load_user_workspace(store, "conversation-old", "new-user")
+        current = await load_user_workspace(store, user_id="new-user")
         self.assertNotIn(event["id"], current["schedules"])
+
+    def test_user_workspace_contract_has_no_conversation_parameter(self):
+        parameters = inspect.signature(load_user_workspace).parameters
+        self.assertEqual(tuple(parameters), ("store", "user_id"))
+        self.assertEqual(parameters["user_id"].kind, inspect.Parameter.KEYWORD_ONLY)
 
     def test_hunyuan_v3_uses_documented_submit_and_query_workflow(self):
         class Response:

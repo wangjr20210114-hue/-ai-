@@ -49,6 +49,14 @@ def main() -> None:
             "agents/_views/chat_progress.py must not shadow the StreamPresenter"
         )
 
+    legacy_chat_controller = (
+        AGENTS / "_application" / "chat" / "turn_controller.py"
+    )
+    if legacy_chat_controller.exists():
+        failures.append(
+            "application turn_controller.py must not shadow the controller layer"
+        )
+
     for path in (AGENTS / "_tests").rglob("test_*.py"):
         line_count = len(path.read_text(encoding="utf-8").splitlines())
         if line_count > MAX_TEST_FILE_LINES:

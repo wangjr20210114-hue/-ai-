@@ -122,7 +122,10 @@ async def handler(ctx):
 
     config = {"configurable": {"thread_id": conversation_id}}
     checkpoint_tuple = await ctx.store.langgraph_checkpointer.aget_tuple(config)
-    workspace = await load_user_workspace(ctx.store.langgraph_store, conversation_id, user_id)
+    workspace = await load_user_workspace(
+        ctx.store.langgraph_store,
+        user_id=user_id,
+    )
     run = await read_chat_run(ctx.store, conversation_id)
     latest_extras = None
     if ctx.store.langgraph_store is not None:

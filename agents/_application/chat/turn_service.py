@@ -600,7 +600,8 @@ async def _handle(ctx):
     state_jobs = []
     if needs_workspace_state:
         state_jobs.append(("workspace", asyncio.create_task(load_user_workspace(
-            ctx.store.langgraph_store, conversation_id, user_id,
+            ctx.store.langgraph_store,
+            user_id=user_id,
         ))))
     if needs_proactive_state:
         state_jobs.append(("proactive", asyncio.create_task(load_proactive_state(

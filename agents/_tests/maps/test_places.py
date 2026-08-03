@@ -267,7 +267,7 @@ class MapPlaceTests(unittest.IsolatedAsyncioTestCase):
             "title": "入住桔子酒店",
             "extra": {"place": anchor},
         }
-        await save_user_workspace(store, state, TEST_USER_ID)
+        await save_user_workspace(store, state, user_id=TEST_USER_ID)
         breakfast_places = [
             {
                 **PLACE,

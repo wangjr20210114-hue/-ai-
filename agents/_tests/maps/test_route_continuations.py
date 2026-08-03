@@ -30,7 +30,7 @@ class RouteContinuationTests(unittest.IsolatedAsyncioTestCase):
             "distance_meters": 62_800,
             "duration_seconds": 9_720,
         }
-        await save_user_workspace(store, state, TEST_USER_ID)
+        await save_user_workspace(store, state, user_id=TEST_USER_ID)
         tools = build_system_skill_tools(
             None,
             store=store,
@@ -95,7 +95,7 @@ class RouteContinuationTests(unittest.IsolatedAsyncioTestCase):
         }
         state["latest_route_plan"] = route_plan
         state["route_plans"] = {route_plan["id"]: route_plan}
-        await save_user_workspace(store, state, TEST_USER_ID)
+        await save_user_workspace(store, state, user_id=TEST_USER_ID)
         tools = build_system_skill_tools(
             None,
             store=store,
@@ -204,7 +204,7 @@ class RouteContinuationTests(unittest.IsolatedAsyncioTestCase):
             intended_route["id"]: intended_route,
             latest_route["id"]: latest_route,
         }
-        await save_user_workspace(store, state, TEST_USER_ID)
+        await save_user_workspace(store, state, user_id=TEST_USER_ID)
         tools = build_system_skill_tools(
             None,
             store=store,
@@ -280,7 +280,7 @@ class RouteContinuationTests(unittest.IsolatedAsyncioTestCase):
             "distance_meters": 7_884,
             "duration_seconds": 1_380,
         }
-        await save_user_workspace(store, state, TEST_USER_ID)
+        await save_user_workspace(store, state, user_id=TEST_USER_ID)
         tools = build_system_skill_tools(
             None,
             store=store,
@@ -348,7 +348,7 @@ class RouteContinuationTests(unittest.IsolatedAsyncioTestCase):
             headquarters["place_id"]: headquarters,
             restaurant["place_id"]: restaurant,
         }
-        await save_user_workspace(store, state, TEST_USER_ID)
+        await save_user_workspace(store, state, user_id=TEST_USER_ID)
         route = {
             "provider": "tencent",
             "mode": "driving",

@@ -28,7 +28,7 @@ async def handler(ctx):
     now = int(time.time())
     store = ctx.store.langgraph_store
     proactive = await load_proactive_state(store, user_id)
-    workspace = await load_user_workspace(store, ctx.conversation_id, user_id)
+    workspace = await load_user_workspace(store, user_id=user_id)
     intelligence = await load_intelligence_state(store, user_id)
     runs = list((proactive.get("runs") or {}).values())
     notifications = list((proactive.get("notifications") or {}).values())

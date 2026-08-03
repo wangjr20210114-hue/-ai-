@@ -1044,7 +1044,7 @@ async def run_proactive_tick(
         workspace = await load_user_workspace(store, user_id=user_id)
         recovered_actions = recover_stale_actions(workspace, timestamp)
         if recovered_actions:
-            await save_user_workspace(store, workspace, user_id)
+            await save_user_workspace(store, workspace, user_id=user_id)
         preferences = _merge_preferences(state.get("preferences"))
         schedules = list((workspace.get("schedules") or {}).values())
         signals = collect_schedule_signals(schedules, timestamp, int(preferences["lookahead_hours"]))

@@ -143,13 +143,9 @@ class ProactiveMemoryTests(unittest.IsolatedAsyncioTestCase):
         }])[0]
         await save_workspace(store, TEST_USER_ID, workspace)
 
-        from_old_conversation = await load_user_workspace(
-            store, "conversation-old", TEST_USER_ID,
-        )
-        from_new_conversation = await load_user_workspace(
-            store, "conversation-new", TEST_USER_ID,
-        )
+        first_read = await load_user_workspace(store, user_id=TEST_USER_ID)
+        second_read = await load_user_workspace(store, user_id=TEST_USER_ID)
 
-        self.assertIn(event["id"], from_old_conversation["schedules"])
-        self.assertIn(event["id"], from_new_conversation["schedules"])
+        self.assertIn(event["id"], first_read["schedules"])
+        self.assertIn(event["id"], second_read["schedules"])
 

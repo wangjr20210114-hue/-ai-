@@ -26,9 +26,8 @@ class ChatTurnBoundaryTests(unittest.TestCase):
     def test_controller_is_a_bounded_delegate_without_runtime_dependencies(self):
         controller_path = (
             Path(__file__).parents[2]
-            / "_application"
-            / "chat"
-            / "turn_controller.py"
+            / "_controllers"
+            / "chat_controller.py"
         )
         source = controller_path.read_text(encoding="utf-8")
         tree = ast.parse(source)

@@ -161,10 +161,10 @@ def build_system_skill_tools(
     turn_visual_context = TurnVisualContext.from_initial(initial_visual_references)
 
     async def _load_state() -> dict[str, Any]:
-        return await load_user_workspace(store, conversation_id, user_id)
+        return await load_user_workspace(store, user_id=user_id)
 
     async def _save_state(state: dict[str, Any]) -> dict[str, Any]:
-        return await save_user_workspace(store, state, user_id)
+        return await save_user_workspace(store, state, user_id=user_id)
 
     async def _record_map_call(source: str, map_key: str) -> None:
         if str(map_key or "").strip():

@@ -110,14 +110,14 @@ async def save_workspace(store: Any, conversation_id: str, state: dict[str, Any]
 
 
 async def load_user_workspace(
-    store: Any, _legacy_conversation_id: str = "", user_id: str = "",
+    store: Any, *, user_id: str,
 ) -> dict[str, Any]:
     """Load only the explicit user namespace; old conversation state is never inherited."""
     return await load_workspace(store, required_user_id(user_id))
 
 
 async def save_user_workspace(
-    store: Any, state: dict[str, Any], user_id: str = "",
+    store: Any, state: dict[str, Any], *, user_id: str,
 ) -> dict[str, Any]:
     return await save_workspace(store, required_user_id(user_id), state)
 

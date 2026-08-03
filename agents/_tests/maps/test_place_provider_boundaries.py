@@ -88,7 +88,7 @@ class MapPlaceProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
         store = FakeStore()
         state = empty_workspace()
         state["place_candidates"][anchor["place_id"]] = anchor
-        await save_user_workspace(store, state, TEST_USER_ID)
+        await save_user_workspace(store, state, user_id=TEST_USER_ID)
         with patch(
             "agents._infrastructure.skills.builtin_operations.provider_search_places_nearby",
             new=AsyncMock(return_value=[]),

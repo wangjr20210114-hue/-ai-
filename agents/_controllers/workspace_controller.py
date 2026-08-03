@@ -217,7 +217,7 @@ async def handler(ctx):
         return error("makers-conversation-id header is required")
     conversation_id = scoped_conversation_id(ctx, user_id, raw_conversation_id)
     store = ctx.store.langgraph_store
-    state = await load_user_workspace(store, conversation_id, user_id)
+    state = await load_user_workspace(store, user_id=user_id)
     intelligence = await load_intelligence_state(store, user_id)
     runtime_env = skill_runtime_env(ctx.env, intelligence)
     enabled_skills = effective_skill_preferences(
