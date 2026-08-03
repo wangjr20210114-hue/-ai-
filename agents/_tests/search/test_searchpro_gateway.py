@@ -50,6 +50,7 @@ class SearchProGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, ["https://search.test/SearchPro"])
         self.assertEqual(execution.provider_request_count, 1)
         self.assertEqual(execution.evidence.sources[0].id, "source-1")
+        self.assertEqual(execution.metadata["results"][0]["id"], "source-1")
 
     async def test_unreviewed_provider_fallback_is_not_domain_media(self):
         provider_result = {

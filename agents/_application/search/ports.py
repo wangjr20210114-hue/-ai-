@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Protocol, TYPE_CHECKING
+from typing import Any, Awaitable, Callable, Mapping, Protocol, TYPE_CHECKING
 
 from agents._domain.search.evidence import SearchEvidence
 
@@ -19,6 +19,7 @@ class EvidenceRecord:
     evidence: SearchEvidence
     cache_hit: bool
     coalesced: bool
+    metadata: Mapping[str, Any] | None = None
 
 
 class SearchPort(Protocol):
@@ -44,4 +45,5 @@ class EvidenceRepository(Protocol):
         evidence: SearchEvidence,
         *,
         ttl_seconds: int,
+        metadata: Mapping[str, Any] | None = None,
     ) -> None: ...

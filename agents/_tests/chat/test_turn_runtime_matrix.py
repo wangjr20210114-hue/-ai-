@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from langchain_core.messages import AIMessageChunk
+from langchain_core.messages import AIMessageChunk, ToolMessage
 
 from agents._application.chat.turn_service import ChatTurnService
 from agents._application.search.search_use_case import SearchExecution
@@ -45,7 +45,28 @@ class _Utils:
 
 
 class _AnswerGraph:
+    def __init__(self, tools=()) -> None:
+        self.tools = list(tools)
+
     async def astream(self, *_args, **_kwargs):
+        rich_search = next(
+            (
+                tool
+                for tool in self.tools
+                if getattr(tool, "name", "") == "rich_search"
+            ),
+            None,
+        )
+        if rich_search is not None:
+            try:
+                content = await rich_search.ainvoke({"query": "planned query"})
+            except Exception as exc:
+                content = str(exc)
+            yield ToolMessage(
+                content=content,
+                name="rich_search",
+                tool_call_id="runtime-rich-search",
+            ), {}
         yield AIMessageChunk(
             content="Production-like runtime matrix answer completed.",
         ), {}
@@ -160,7 +181,9 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "agents._application.chat.turn_service.build_graph",
-                return_value=_AnswerGraph(),
+                side_effect=(
+                    lambda _model, tools, *_args, **_kwargs: _AnswerGraph(tools)
+                ),
             ),
             patch(
                 "agents._application.chat.turn_service.should_generate_followups",
@@ -203,7 +226,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("安装", wire)
         self.assertEqual(_SearchUseCase.execute_count, 0)
 
-    async def test_runtime_search_failure_falls_back_to_plain_model_answer(self):
+    async def test_runtime_search_failure_keeps_main_tool_result_boundary(self):
         wire, _ = await self._run(
             "runtime-search-fallback",
             _plan(
@@ -215,7 +238,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn("Production-like runtime matrix answer completed.", wire)
-        self.assertIn('"status":"skipped"', wire)
+        self.assertNotIn('"type":"search_results"', wire)
         self.assertNotIn("event: error", wire)
 
     async def test_successful_search_publishes_measured_search_time(self):

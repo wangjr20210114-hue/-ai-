@@ -89,4 +89,5 @@ class SearchProGateway:
             evidence=evidence,
             media_tasks=normalized_tasks,
             provider_request_count=1,
+            metadata=dict(metadata),
         )

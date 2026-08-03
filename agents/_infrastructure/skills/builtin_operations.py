@@ -1133,6 +1133,7 @@ def build_system_skill_tools(
     planned_search_query: str = "",
     planned_image_query: str = "",
     force_search_refresh: bool = False,
+    rich_search_operation: Callable[[str, str, str], Awaitable[str]] | None = None,
     search_result_limit: int = 8,
     search_image_limit: int = 8,
     parallel_image_search: bool = True,
@@ -3292,8 +3293,40 @@ def build_system_skill_tools(
 
     async def rich_search(query: str, image_query: str = "", depth: str = "standard") -> str:
         """Run one fresh planner-shaped rich search per turn."""
-        nonlocal rich_search_task, rich_search_invocations
+        nonlocal rich_search_task, rich_search_invocations, turn_visual_references
         rich_search_invocations += 1
+        if rich_search_operation is not None:
+            # The chat application owns search orchestration.  The trusted
+            # Skill adapter retains the established rich_search tool contract,
+            # while SearchUseCase owns provider execution and persistence.
+            if rich_search_task is None:
+                rich_search_task = asyncio.create_task(
+                    rich_search_operation(query, image_query, depth)
+                )
+            serialized = await rich_search_task
+            try:
+                result = json.loads(serialized)
+                metadata = result.get("search_results") if isinstance(result, dict) else None
+                if isinstance(metadata, dict):
+                    search_config = dict(metadata.get("search_config") or {})
+                    metadata["search_config"] = {
+                        **search_config,
+                        "turn_tool_invocations": rich_search_invocations,
+                    }
+                reviewed_references = [
+                    str(item.get("url") or "")
+                    for item in ((metadata or {}).get("media") or [])
+                    if isinstance(item, dict)
+                    and str(item.get("url") or "").startswith("https://")
+                ][:3]
+                turn_visual_references = list(dict.fromkeys([
+                    *turn_visual_references,
+                    *reviewed_references,
+                ]))[:3]
+                serialized = json.dumps(result, ensure_ascii=False)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+            return serialized
         if rich_search_task is None:
             clean_query = str(planned_search_query or query or "").strip()[:500]
             clean_image_query = str(planned_image_query or image_query or "").strip()[:500] if media_enabled else ""

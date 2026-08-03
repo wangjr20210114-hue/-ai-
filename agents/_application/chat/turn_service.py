@@ -8,15 +8,14 @@ import logging
 import math
 import re
 import time
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from .turn_context import (
-    answer_tool_names,
-    model_only_search_fallback,
     experience_hints_for_plan,
     search_request_for_plan,
 )
-from ..search.search_use_case import SearchExecution, SearchUseCase
+from ..search.search_use_case import SearchUseCase
 from ...chat._graph import build_graph, grounded_route_stream_answer
 from ...chat._llm import get_model
 from ..._infrastructure.skills import build_system_skill_tools
@@ -31,7 +30,6 @@ from ...chat._capability_plan import (
     fallback_tools_for_prompt_topics,
     media_enabled_for_plan,
     plan_capabilities_bounded,
-    progressive_media_for_plan,
     required_tools_for_plan,
 )
 from ...chat._followups import generate_followups, should_generate_followups
@@ -57,7 +55,6 @@ from ..._application.intelligence.service import (
 )
 from ..._infrastructure.makers.identity import conversation_index_user_id, require_user, scoped_conversation_id
 from ..._domain.entitlements.policy import effective_skill_preferences
-from ..._domain.search.evidence import SearchEvidence
 from ..._infrastructure.makers.data_version import namespace as data_namespace
 from ..._infrastructure.makers.conversation_repository import (
     RUNNING_STATES,
@@ -67,7 +64,6 @@ from ..._infrastructure.makers.conversation_repository import (
     write_chat_run,
 )
 from ..._infrastructure.http import error
-from ..._models.search_evidence import force_refresh_requested
 from ..._application.workspace.service import load_user_workspace
 from ..._infrastructure.providers.vision import describe_reference_images
 from ..._infrastructure.makers.provider_usage_repository import (
@@ -89,6 +85,7 @@ from ..._presenters.chat_stream import (
 )
 from ..._infrastructure.makers.evidence_repository import MakerEvidenceRepository
 from ..._infrastructure.providers.searchpro import SearchProGateway
+from ..._infrastructure.providers.rich_search import evidence_for_model
 
 WEEKDAY_LABELS = (
     ("Monday", "周一"),
@@ -1815,7 +1812,10 @@ async def _handle(ctx):
         image_limit=search_image_limit,
         parallel_queries=parallel_image_search,
         vision_enabled=vision_enabled,
-        force_refresh=force_refresh_requested(message),
+        # main's rich-search contract is fresh once per logical turn.  The
+        # SearchUseCase still persists evidence and deduplicates a repeated
+        # call inside that turn, but chat never reuses an older turn's facts.
+        force_refresh=True,
     )
     search_use_case = (
         SearchUseCase(
@@ -1830,55 +1830,99 @@ async def _handle(ctx):
     background_tasks: list[asyncio.Task] = []
     latest_enriched_media: dict | None = None
 
-    def search_payload(
-        evidence: SearchEvidence,
-        execution: SearchExecution | None = None,
-    ) -> dict:
-        payload = {
-            **search_evidence_payload(evidence),
+    async def execute_planned_rich_search(
+        query: str,
+        image_query: str = "",
+        depth: str = "standard",
+    ) -> str:
+        """Execute main-compatible rich search through the SearchUseCase."""
+        if planned_search_request is None or search_use_case is None:
+            raise RuntimeError("rich search was not selected for this turn")
+        clean_depth = depth if depth in {"basic", "standard", "deep"} else "standard"
+        request = replace(
+            planned_search_request,
+            query=(planned_search_request.query or str(query or "").strip())[:500],
+            image_query=(
+                planned_search_request.image_query
+                or str(image_query or "").strip()[:500]
+            ),
+            depth=clean_depth,
+            media_mode="blocking",
+            force_refresh=True,
+        )
+        search_started_at = time.monotonic()
+        execution = await search_use_case.execute(request)
+        stage_timings_ms["search"] = round(
+            (time.monotonic() - search_started_at) * 1000
+        )
+        metadata = dict(
+            execution.metadata
+            or search_evidence_payload(execution.evidence)
+        )
+        metadata.update({
             "run_id": run_id,
             "conversation_id": conversation_id,
+        })
+        search_config = dict(metadata.get("search_config") or {})
+        metadata["search_config"] = {
+            **search_config,
+            "result_limit": request.result_limit,
+            "image_limit": request.image_limit,
+            "parallel_image_search": request.parallel_queries,
+            "media_delivery": "blocking",
+            "provider_request_count": execution.provider_request_count,
+            "turn_provider_calls": execution.provider_request_count,
+            "turn_tool_invocations": 1,
         }
-        if execution is not None:
-            payload["cache"] = {
-                "kind": "evidence_only",
-                "hit": execution.cache_hit,
-                "coalesced": execution.coalesced,
-                "answer_cached": False,
-                "bypassed": bool(planned_search_request.force_refresh),
-            }
-            payload["search_config"] = {
-                "result_limit": planned_search_request.result_limit,
-                "image_limit": planned_search_request.image_limit,
-                "parallel_image_search": planned_search_request.parallel_queries,
-                "media_delivery": planned_search_request.media_mode,
-                "provider_request_count": execution.provider_request_count,
-                "turn_provider_calls": execution.provider_request_count,
-                "turn_tool_invocations": 0,
-            }
-        search_elapsed_ms = stage_timings_ms.get("search")
-        if isinstance(search_elapsed_ms, (int, float)):
-            payload["timings_ms"] = {
-                **dict(payload.get("timings_ms") or {}),
-                "search": max(0, round(search_elapsed_ms)),
-            }
-        return payload
+        metadata["cache"] = {
+            "kind": "evidence_only",
+            "hit": execution.cache_hit,
+            "coalesced": execution.coalesced,
+            "answer_cached": False,
+            "bypassed": True,
+        }
+        timings_ms = dict(metadata.get("timings_ms") or {})
+        timings_ms["search"] = max(
+            int(timings_ms.get("search") or 0),
+            int(stage_timings_ms["search"]),
+        )
+        metadata["timings_ms"] = timings_ms
+        if execution.provider_request_count:
+            await record_provider_usage(
+                ctx.store.langgraph_store,
+                user_id,
+                "wsa",
+                "requests",
+                execution.provider_request_count,
+                source="search_use_case",
+            )
+        await record_vision_diagnostics(
+            ctx.store.langgraph_store,
+            user_id,
+            metadata.get("vision_diagnostics"),
+            source="rich_search_media",
+        )
+        logging.info(
+            "rich_search turn_audit conversation=%s invocations=1 "
+            "provider_calls=%s cache_hit=%s coalesced=%s",
+            conversation_id,
+            execution.provider_request_count,
+            execution.cache_hit,
+            execution.coalesced,
+        )
+        return json.dumps({
+            "ui_action": "rich_search_results",
+            "search_results": metadata,
+            "papers": [],
+            "evidence": evidence_for_model(
+                metadata,
+                require_relevant_image=bool(
+                    capability_plan.get("needs_images")
+                ),
+            ),
+        }, ensure_ascii=False)
 
-    async def publish_media(evidence: SearchEvidence) -> None:
-        nonlocal latest_enriched_media
-        metadata = search_payload(evidence)
-        latest_enriched_media = metadata
-        await queue.put(presenter.frame(progress_event(
-            "verification",
-            "completed",
-            activity="image_review",
-        )))
-        await queue.put(presenter.media(metadata))
-
-    def build_all_tools(search_references: list[str]) -> list:
-        # Component tools are constructed only after planned evidence is ready,
-        # so image generation can consume reviewed references without exposing
-        # search as an answer-graph tool.
+    def build_all_tools() -> list:
         return build_system_skill_tools(
             model,
             # Only multi-candidate Tencent suggestion sets need semantic review.
@@ -1901,21 +1945,13 @@ async def _handle(ctx):
                 "limit": capability_plan.get("paper_limit") or 0,
             },
             temporal_context=temporal_context,
-            # Search evidence remains on the answer's critical path, while page
-            # scraping and visual review normally arrive through search_media.
-            # Image generation is the exception because its provider references
-            # must already be reviewed before the generation tool runs.
-            progressive_media=progressive_media_for_plan(
-                capability_plan,
-                planner_timed_out=planner_timed_out,
-            ),
-            media_callback=publish_media,
+            # Match main: the tool result handed to the answer graph already
+            # contains the complete source and reviewed-media evidence.
+            progressive_media=False,
+            media_callback=None,
             background_tasks=background_tasks,
             user_id=user_id,
-            initial_visual_references=[
-                *reference_images,
-                *search_references,
-            ][:3],
+            initial_visual_references=reference_images,
             # A recovered semantic plan may still request media. A hard planner
             # failure exposes no search tool, so this flag cannot trigger provider
             # work by itself.
@@ -1930,7 +1966,8 @@ async def _handle(ctx):
             planned_media_preferred=bool(capability_plan.get("needs_images")),
             planned_search_query=str(capability_plan.get("search_query") or ""),
             planned_image_query=str(capability_plan.get("image_query") or ""),
-            force_search_refresh=force_refresh_requested(message),
+            force_search_refresh=True,
+            rich_search_operation=execute_planned_rich_search,
             search_result_limit=search_result_limit,
             search_image_limit=search_image_limit,
             parallel_image_search=parallel_image_search,
@@ -1960,24 +1997,17 @@ async def _handle(ctx):
             makers_checkpointer=ctx.store.langgraph_checkpointer,
         )
     blocked_skill = str(capability_plan.get("blocked_skill") or "").strip()
-    required_tool_names = answer_tool_names(
-        required_tools_for_plan(capability_plan)
-    )
+    # Preserve main's graph semantics: rich_search is the first required tool,
+    # and its ToolMessage is the evidence consumed by final synthesis.
+    required_tool_names = required_tools_for_plan(capability_plan)
     fallback_tool_names = (
-        answer_tool_names(fallback_tools_for_prompt_topics(
+        fallback_tools_for_prompt_topics(
             capability_plan.get("_prompt_topics") or [],
-        ))
+        )
         if planner_timed_out and not required_tool_names
         else ()
     )
     graph_tool_names = required_tool_names or fallback_tool_names
-    if (
-        planned_search_request is not None
-        and "rich_search" in graph_tool_names
-    ):
-        raise RuntimeError(
-            "planned search must be resolved before the answer graph"
-        )
     if blocked_skill:
         logging.info(
             "runtime skill policy blocked turn before graph model skill=%s",
@@ -2001,10 +2031,7 @@ async def _handle(ctx):
     graph_model = (
         model if capability_plan.get("needs_deep_reasoning") else fast_model
     )
-    def build_answer_graph(
-        search_evidence_text: str = "",
-        search_references: list[str] | None = None,
-    ):
+    def build_answer_graph():
         graph_setup_started_at = time.monotonic()
         tool_system_prompt = dynamic_system_prompt(
             selected_tools=selected_tool_names,
@@ -2050,22 +2077,17 @@ async def _handle(ctx):
             user_skill_context=private_skill_context,
             public_answer=True,
         )
-        all_tools = build_all_tools(search_references or [])
+        all_tools = build_all_tools()
         graph_tools = tools_for_capability_stage(
             all_tools,
             graph_tool_names,
             blocked_skill=blocked_skill,
             planner_timed_out=False,
         )
-        evidence_suffix = (
-            "\n\n[本轮可信搜索证据]\n" + search_evidence_text
-            if search_evidence_text
-            else ""
-        )
         graph = build_graph(
             graph_model,
             graph_tools,
-            tool_system_prompt + evidence_suffix,
+            tool_system_prompt,
             checkpointer=ctx.store.langgraph_checkpointer,
             store=ctx.store.langgraph_store,
             # Routing remains semantic and model-planned rather than keyword based.
@@ -2090,11 +2112,8 @@ async def _handle(ctx):
             # verified place ids, conflicts, and the final confirmation boundary.
             # Public wording and genuinely open-ended reasoning remain separate.
             reasoning_tools=set(),
-            stage_system_prompts={
-                name: prompt + evidence_suffix
-                for name, prompt in stage_system_prompts.items()
-            },
-            public_system_prompt=public_system_prompt + evidence_suffix,
+            stage_system_prompts=stage_system_prompts,
+            public_system_prompt=public_system_prompt,
             planned_tool_arguments={
                 **resumed_planned_arguments,
                 **(
@@ -2289,89 +2308,7 @@ async def _handle(ctx):
                     presenter.error("tool_setup_error", tool_setup_error)
                 )
             try:
-                search_evidence_text = ""
-                search_references: list[str] = []
-                if (
-                    planned_search_request is not None
-                    and search_use_case is not None
-                    and not await cancellation_requested()
-                ):
-                    search_started_at = time.monotonic()
-                    try:
-                        execution = await search_use_case.execute(
-                            planned_search_request,
-                            on_media=publish_media,
-                        )
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as exc:
-                        stage_timings_ms["search"] = round(
-                            (time.monotonic() - search_started_at) * 1000
-                        )
-                        answer_capability_plan = model_only_search_fallback(
-                            capability_plan
-                        )
-                        logging.warning(
-                            "search_use_case unavailable; continuing with "
-                            "model-only answer conversation=%s error_type=%s",
-                            conversation_id,
-                            type(exc).__name__,
-                        )
-                        await queue.put(presenter.frame(progress_event(
-                            "retrieval",
-                            "skipped",
-                            activity="web_search",
-                        )))
-                    else:
-                        stage_timings_ms["search"] = round(
-                            (time.monotonic() - search_started_at) * 1000
-                        )
-                        background_tasks.extend(execution.media_tasks)
-                        initial_search_payload = search_payload(
-                            execution.evidence,
-                            execution,
-                        )
-                        latest_enriched_media = initial_search_payload
-                        await queue.put(presenter.sources(initial_search_payload))
-                        await queue.put(presenter.frame(progress_event(
-                            "retrieval",
-                            "completed",
-                            activity="web_search",
-                        )))
-                        if execution.evidence.media_pending:
-                            await queue.put(presenter.frame(progress_event(
-                                "verification",
-                                "active",
-                                activity="image_review",
-                            )))
-                        if execution.provider_request_count:
-                            await record_provider_usage(
-                                ctx.store.langgraph_store,
-                                user_id,
-                                "wsa",
-                                "requests",
-                                execution.provider_request_count,
-                                source="search_use_case",
-                            )
-                        logging.info(
-                            "search_use_case turn_audit conversation=%s "
-                            "provider_calls=%s cache_hit=%s coalesced=%s",
-                            conversation_id,
-                            execution.provider_request_count,
-                            execution.cache_hit,
-                            execution.coalesced,
-                        )
-                        search_evidence_text = execution.evidence.for_model()
-                        search_references = [
-                            item.url
-                            for item in execution.evidence.media
-                            if item.vision_reviewed
-                        ][:3]
-
-                graph, graph_tools, graph_setup_ms = build_answer_graph(
-                    search_evidence_text,
-                    search_references,
-                )
+                graph, graph_tools, graph_setup_ms = build_answer_graph()
                 stage_timings_ms["tool_graph_setup"] = graph_setup_ms
                 if (
                     not blocked_skill
@@ -2444,6 +2381,7 @@ async def _handle(ctx):
                             if action and action.get("ui_action") == "rich_search_results":
                                 metadata = action.get("search_results")
                                 if isinstance(metadata, dict):
+                                    latest_enriched_media = metadata
                                     pending_search_results = metadata
                                     await queue.put(presenter.sources(metadata))
                                     await queue.put(presenter.frame(progress_event(

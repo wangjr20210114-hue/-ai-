@@ -8,9 +8,7 @@ from pathlib import Path
 
 from agents._application.chat import turn_service as turn_service_module
 from agents._application.chat.turn_context import (
-    answer_tool_names,
     experience_hints_for_plan,
-    model_only_search_fallback,
     search_request_for_plan,
 )
 
@@ -38,30 +36,8 @@ class ChatTurnBoundaryTests(unittest.TestCase):
         self.assertNotIn("_infrastructure", source)
         self.assertNotIn("SearchPro", source)
 
-    def test_planned_search_is_not_an_answer_graph_tool(self):
-        self.assertEqual(
-            answer_tool_names(("rich_search", "search_arxiv")),
-            ("search_arxiv",),
-        )
-
-    def test_runtime_search_failure_becomes_plain_model_fallback(self):
-        original = {
-            "needs_web_search": True,
-            "needs_images": True,
-            "needs_image_generation": False,
-            "_capabilities": ["web_search"],
-        }
-
-        fallback = model_only_search_fallback(original)
-
-        self.assertTrue(original["needs_web_search"])
-        self.assertFalse(fallback["needs_web_search"])
-        self.assertFalse(fallback["needs_images"])
-        self.assertEqual(fallback["_capabilities"], [])
-        self.assertIn(
-            "web-search",
-            fallback["_runtime_model_fallback_skills"],
-        )
+    def test_search_experience_hint_is_presentation_only(self):
+        fallback = {"_runtime_model_fallback_skills": ["web-search"]}
         prompt = turn_service_module.dynamic_system_prompt(
             selected_tools=set(),
             now="2026-08-01 18:00 Asia/Shanghai",
@@ -158,7 +134,7 @@ class ChatTurnBoundaryTests(unittest.TestCase):
         self.assertEqual(request.tenant_id, "tenant-a")
         self.assertEqual(request.user_id, "user-a")
         self.assertEqual(request.depth, "deep")
-        self.assertEqual(request.media_mode, "progressive")
+        self.assertEqual(request.media_mode, "blocking")
 
     def test_image_generation_keeps_reviewed_media_blocking(self):
         request = search_request_for_plan(
@@ -196,7 +172,7 @@ class ChatTurnBoundaryTests(unittest.TestCase):
         self.assertNotIn("SearchPro", source)
         self.assertNotIn("_infrastructure.providers", source)
 
-    def test_production_controller_preexecutes_search_and_filters_answer_tools(self):
+    def test_production_search_use_case_preserves_the_rich_search_tool_contract(self):
         controller_path = (
             Path(__file__).parents[2]
             / "_application"
@@ -206,26 +182,13 @@ class ChatTurnBoundaryTests(unittest.TestCase):
         source = controller_path.read_text(encoding="utf-8")
 
         self.assertIn("search_use_case.execute(", source)
-        self.assertIn("answer_tool_names(", source)
-
-    def test_turn_service_imports_its_search_evidence_annotation(self):
-        service_path = (
-            Path(__file__).parents[2]
-            / "_application"
-            / "chat"
-            / "turn_service.py"
+        self.assertIn("rich_search_operation=execute_planned_rich_search", source)
+        self.assertIn(
+            "required_tool_names = required_tools_for_plan(capability_plan)",
+            source,
         )
-        tree = ast.parse(service_path.read_text(encoding="utf-8"))
-        imported_names = {
-            alias.asname or alias.name
-            for node in tree.body
-            if isinstance(node, ast.ImportFrom)
-            for alias in node.names
-        }
 
-        self.assertIn("SearchEvidence", imported_names)
-
-    def test_progressive_media_call_matches_the_domain_contract(self):
+    def test_chat_keeps_main_blocking_media_boundary(self):
         service_path = (
             Path(__file__).parents[2]
             / "_application"
@@ -238,15 +201,13 @@ class ChatTurnBoundaryTests(unittest.TestCase):
             for node in ast.walk(tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
-            and node.func.id == "progressive_media_for_plan"
+            and node.func.id == "build_system_skill_tools"
         ]
 
         self.assertEqual(len(calls), 1)
-        self.assertEqual(len(calls[0].args), 1)
-        self.assertEqual(
-            [keyword.arg for keyword in calls[0].keywords],
-            ["planner_timed_out"],
-        )
+        keywords = {keyword.arg: keyword.value for keyword in calls[0].keywords}
+        self.assertIsInstance(keywords["progressive_media"], ast.Constant)
+        self.assertFalse(keywords["progressive_media"].value)
 
     def test_runtime_annotations_resolve_from_module_scope(self):
         service_path = Path(turn_service_module.__file__)

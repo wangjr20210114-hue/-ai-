@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from agents._application.search.ports import EvidenceRecord
 from agents._domain.search.evidence import SearchEvidence
 from agents._infrastructure.makers.evidence_cache import (
@@ -44,6 +46,7 @@ class MakerEvidenceRepository:
             evidence=SearchEvidence.from_dict(value),
             cache_hit=True,
             coalesced=False,
+            metadata=value,
         )
 
     async def put(
@@ -53,11 +56,12 @@ class MakerEvidenceRepository:
         evidence: SearchEvidence,
         *,
         ttl_seconds: int,
+        metadata: Mapping | None = None,
     ) -> None:
         await save_search_evidence(
             self._store,
             subject_id,
             cache_key,
-            _to_cache_value(evidence),
+            dict(metadata) if metadata is not None else _to_cache_value(evidence),
             ttl_seconds=ttl_seconds,
         )

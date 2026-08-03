@@ -7,7 +7,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, replace
-from typing import Awaitable, Literal
+from typing import Any, Awaitable, Literal, Mapping
 
 from agents._domain.search.evidence import SearchEvidence
 
@@ -89,6 +89,7 @@ class SearchExecution:
     cache_hit: bool = False
     coalesced: bool = False
     provider_request_count: int = 0
+    metadata: Mapping[str, Any] | None = None
 
     @property
     def initial(self) -> SearchEvidence:
@@ -141,6 +142,7 @@ class SearchUseCase:
                     cache_hit=record.cache_hit,
                     coalesced=record.coalesced,
                     provider_request_count=0,
+                    metadata=record.metadata,
                 )
 
         async def persist_media(evidence: SearchEvidence) -> None:
@@ -169,6 +171,7 @@ class SearchUseCase:
                     cache_key,
                     value.evidence,
                     ttl_seconds=_ttl_seconds(request),
+                    metadata=value.metadata,
                 )
             return value
 
@@ -177,6 +180,13 @@ class SearchUseCase:
         flight_cache_key = (
             f"refresh:{cache_key}" if request.force_refresh else cache_key
         )
+        # A forced refresh means "fresh for this logical turn", matching the
+        # established rich-search contract.  Do not coalesce two different
+        # conversations merely because the same user asked the same words at
+        # nearly the same time; turn-local duplicate calls still share one
+        # flight through the conversation id.
+        if request.force_refresh:
+            flight_cache_key = f"{flight_cache_key}:{request.conversation_id}"
         flight_key = (id(loop), scope, request.subject_id, flight_cache_key)
         task = _FLIGHTS.get(flight_key)
         coalesced = task is not None and not task.done()

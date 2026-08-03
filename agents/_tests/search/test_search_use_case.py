@@ -53,7 +53,15 @@ class InMemoryEvidenceRepository:
         value = self.records.get((subject_id, cache_key))
         return EvidenceRecord(value, cache_hit=True, coalesced=False) if value else None
 
-    async def put(self, subject_id, cache_key, value, *, ttl_seconds):
+    async def put(
+        self,
+        subject_id,
+        cache_key,
+        value,
+        *,
+        ttl_seconds,
+        metadata=None,
+    ):
         self.records[(subject_id, cache_key)] = value
 
 

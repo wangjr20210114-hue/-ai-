@@ -2,43 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 from ..search.search_use_case import SearchRequest
 from ..._domain.entitlements.policy import public_entitlements
-
-
-def answer_tool_names(required_tools: Iterable[str]) -> tuple[str, ...]:
-    """Exclude search after SearchUseCase has resolved the plan."""
-    return tuple(
-        name
-        for name in dict.fromkeys(str(item or "") for item in required_tools)
-        if name and name != "rich_search"
-    )
-
-
-def model_only_search_fallback(
-    plan: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Return a safe plain-model plan after a runtime search failure."""
-    fallback = dict(plan)
-    fallback["needs_web_search"] = False
-    fallback["needs_images"] = False
-    fallback["_capabilities"] = [
-        capability
-        for capability in (fallback.get("_capabilities") or [])
-        if str(capability) != "web_search"
-    ]
-    fallback["_runtime_model_fallback_skills"] = list(dict.fromkeys([
-        *(fallback.get("_runtime_model_fallback_skills") or []),
-        "web-search",
-    ]))
-    fallback["_runtime_omitted_skills"] = list(dict.fromkeys([
-        *(fallback.get("_runtime_omitted_skills") or []),
-        "web-search",
-    ]))
-    return fallback
 
 
 def experience_hints_for_plan(
@@ -95,13 +63,9 @@ def search_request_for_plan(
         and image_limit > 0
         and (plan.get("needs_web_search") or plan.get("needs_images"))
     )
-    media_mode = (
-        "disabled"
-        if not media_enabled
-        else "blocking"
-        if plan.get("needs_image_generation")
-        else "progressive"
-    )
+    # Keep main's evidence boundary: source pages and bounded visual review
+    # complete before the answer graph receives the rich_search ToolMessage.
+    media_mode = "blocking" if media_enabled else "disabled"
     entitlements = public_entitlements(identity)
     return SearchRequest(
         tenant_id=str(identity.get("tenant_id") or ""),

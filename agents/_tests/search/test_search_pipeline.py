@@ -126,6 +126,39 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(config["turn_tool_invocations"], 2)
                     self.assertEqual(config["turn_provider_calls"], 1)
 
+    async def test_search_use_case_tool_adapter_keeps_main_turn_local_dedupe(self):
+        result = json.dumps({
+            "ui_action": "rich_search_results",
+            "search_results": {
+                "query": "AI 近期重要进展",
+                "results": [],
+                "media": [],
+                "total": 0,
+                "search_config": {"turn_provider_calls": 1},
+            },
+            "evidence": "verified evidence",
+        }, ensure_ascii=False)
+        operation = AsyncMock(return_value=result)
+        tools = build_system_skill_tools(
+            None,
+            store=FakeStore(),
+            conversation_id="use-case-adapter",
+            user_id=TEST_USER_ID,
+            env={},
+            media_enabled=False,
+            rich_search_operation=operation,
+        )
+        tool = next(item for item in tools if item.name == "rich_search")
+
+        await tool.ainvoke({"query": "planner query"})
+        repeated = json.loads(await tool.ainvoke({"query": "rewritten query"}))
+
+        self.assertEqual(operation.await_count, 1)
+        self.assertEqual(
+            repeated["search_results"]["search_config"]["turn_tool_invocations"],
+            2,
+        )
+
     def test_search_preferences_have_fast_balanced_defaults_and_public_state(self):
         state = empty_intelligence_state()
         self.assertEqual(state["search_preferences"], {
