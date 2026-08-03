@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENTS = ROOT / "agents"
-MAX_TEST_FILE_LINES = 1_000
+MAX_TEST_FILE_LINES = 750
 MAX_PRODUCTION_FILE_LINES = 3_000
 FORBIDDEN_DOMAIN_PARTS = {
     "_application",

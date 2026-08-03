@@ -50,7 +50,7 @@ export function useAuthController() {
   const [onboardingEnabled, setOnboardingEnabled] = useState(
     () => readOnboardingPreference().enabled,
   );
-  const [busy, setBusy] = useState<'resume' | 'email' | 'verify' | 'profile' | 'switch' | 'logout' | ''>('');
+  const [busy, setBusy] = useState<'resume' | 'email' | 'verify' | 'profile' | 'logout' | ''>('');
   const [error, setError] = useState('');
 
   const clearCloseTimer = useCallback(() => {

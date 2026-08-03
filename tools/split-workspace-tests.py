@@ -38,6 +38,17 @@ DOMAINS = {
     "providers/contracts": ("ProviderContractTests", ROOT / "agents/_tests/providers/test_provider_contracts.py"),
 }
 
+DISCOVERY_PATHS = {
+    "search/media": (
+        ROOT / "agents/_tests/search/test_media_review.py",
+        ROOT / "agents/_tests/search/test_image_provider_fallbacks.py",
+    ),
+    "maps/places": (
+        ROOT / "agents/_tests/maps/test_places.py",
+        ROOT / "agents/_tests/maps/test_place_provider_boundaries.py",
+    ),
+}
+
 
 def classify(test_name: str) -> str:
     value = test_name.removeprefix("test_").lower()
@@ -207,15 +218,16 @@ def write_split():
 def discovered_tests():
     found = {}
     for domain, (_, path) in DOMAINS.items():
-        if not path.exists():
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and node.name.startswith("test_")
-            ):
-                found.setdefault(node.name, []).append(domain)
+        for discovery_path in DISCOVERY_PATHS.get(domain, (path,)):
+            if not discovery_path.exists():
+                continue
+            tree = ast.parse(discovery_path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name.startswith("test_")
+                ):
+                    found.setdefault(node.name, []).append(domain)
     return found
 
 
