@@ -64,10 +64,12 @@ from agents.chat.index import (
     should_persist_user_message,
     tools_for_capability_stage,
 )
-from agents._infrastructure.skills.builtin_operations import (
+from agents._infrastructure.skills.builtin_operations import build_system_skill_tools
+from agents._infrastructure.skills.paper_candidates import (
     _paper_candidate_ids_from_model,
     _paper_candidates_from_searchpro,
-    build_system_skill_tools,
+)
+from agents._infrastructure.skills.route_resolution import (
     preserve_planned_route_stops,
     verify_place_queries_parallel,
 )

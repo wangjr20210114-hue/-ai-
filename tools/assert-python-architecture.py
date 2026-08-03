@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 AGENTS = ROOT / "agents"
 MAX_TEST_FILE_LINES = 750
-MAX_PRODUCTION_FILE_LINES = 3_000
+MAX_PRODUCTION_FILE_LINES = 2_500
 FORBIDDEN_DOMAIN_PARTS = {
     "_application",
     "_controllers",
@@ -42,6 +42,12 @@ def main() -> None:
     legacy_workspace_suite = AGENTS / "_tests" / "test_workspace.py"
     if legacy_workspace_suite.exists():
         failures.append("agents/_tests/test_workspace.py must remain split by domain")
+
+    legacy_stream_view = AGENTS / "_views" / "chat_progress.py"
+    if legacy_stream_view.exists():
+        failures.append(
+            "agents/_views/chat_progress.py must not shadow the StreamPresenter"
+        )
 
     for path in (AGENTS / "_tests").rglob("test_*.py"):
         line_count = len(path.read_text(encoding="utf-8").splitlines())

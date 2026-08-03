@@ -11,8 +11,9 @@ from agents._infrastructure.providers.tencent_location import plan_verified_rout
 from agents.chat._capability_plan import (
     parse_capability_plan,
 )
-from agents._infrastructure.skills.builtin_operations import (
-    RoutePlanInput,
+from agents._infrastructure.skills.builtin_operations import build_system_skill_tools
+from agents._infrastructure.skills.contracts import RoutePlanInput
+from agents._infrastructure.skills.route_resolution import (
     _learned_route_preference,
     _place_resolution,
     _place_resolution_with_provider_review,
@@ -20,7 +21,6 @@ from agents._infrastructure.skills.builtin_operations import (
     _prioritize_provider_candidates_for_city,
     _provider_city_consensus,
     _rank_verified_workspace_matches,
-    build_system_skill_tools,
 )
 from agents.chat.index import (
     clarification_answer_value,

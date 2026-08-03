@@ -11,24 +11,15 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Literal
-from urllib.parse import urlparse
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel
 
 from .contracts import (
     ClarificationFieldInput,
-    RouteStopInput,
-    RoutePlanInput,
-    ProviderPlaceDecision,
-    PaperKnowledgeCandidate,
-    PaperKnowledgeCandidates,
-    PaperSearchEvidenceCandidate,
-    PaperSearchEvidenceCandidates,
 )
 
 from ..._infrastructure.providers.tencent_location import (
-    place_distance_meters,
     plan_verified_route as provider_plan_route,
     reverse_geocode as provider_reverse_geocode,
     search_verified_places_bounded as provider_search_places,
@@ -42,15 +33,7 @@ from ..._application.proactive.service import load_proactive_state, propose_work
 from ..._infrastructure.makers.provider_usage_repository import record_provider_usage, record_vision_diagnostics
 from ..._infrastructure.makers.place_repository import load_place_cache, save_place_cache
 from ..._infrastructure.makers.route_repository import load_route_cache, save_route_cache
-from ..._infrastructure.makers.evidence_cache import (
-    get_or_compute_search_evidence,
-    save_search_evidence,
-)
 from ..._infrastructure.makers.identity import required_user_id
-from ..._models.search_evidence import (
-    evidence_ttl_seconds,
-    search_evidence_key,
-)
 from ..._application.skills.registry import (
     build_adapter_tools,
     capability_skill_map,
@@ -64,52 +47,38 @@ from ..._application.skills.runtime_ports import (
     ToolOperationService,
 )
 from ..._application.workspace.service import (
-    begin_action_execution,
     apply_calendar_changes,
     calendar_change_warnings,
-    finish_provider_call,
-    get_action,
-    image_versions,
     load_user_workspace,
     meeting_action_payload,
     new_action,
     put_action,
     save_user_workspace,
-    seal_action_snapshot,
-    start_provider_call,
     validate_calendar_change_window,
-)
-
-
-from .paper_candidates import (
-    _paper_candidate_ids_from_model,
-    _paper_candidates_from_searchpro,
 )
 
 from .route_resolution import (
     preserve_planned_route_stops,
     _parse_datetime,
-    _message_text,
     _clarification_action,
     _merge_clarification_actions,
     _normalized_place_name,
-    _provider_city_name,
     _prioritize_provider_candidates_for_city,
     _provider_city_consensus,
     _prioritize_clarification_options_for_city,
-    _verified_candidate_matches,
-    _place_choice_value,
     _selected_place_candidate,
     _rank_verified_workspace_matches,
     _place_choice_field,
-    _place_choice_option,
     _place_option_label,
-    _place_resolution,
     _place_resolution_with_provider_review,
     _learned_route_preference,
     _route_plan_leg_summary,
     verify_place_queries_parallel,
 )
+from .image_operations import build_image_operations
+from .paper_operations import build_paper_search_operation
+from .search_operations import build_rich_search_operation
+from .visual_context import TurnVisualContext
 
 def build_system_skill_tools(
     model, *, store=None, conversation_id: str = "", env: dict | None = None,
@@ -187,16 +156,9 @@ def build_system_skill_tools(
     provider_schedule_limit = max(2, min(12, int(
         proactive_scope.get("provider_schedule_limit") or 6
     )))
-    # Per-request handoff: rich-search media can be consumed by image
-    # generation without asking the model to copy fragile URLs between tools.
-    turn_visual_references: list[str] = [
-        str(item) for item in (initial_visual_references or [])
-        if str(item).startswith(("https://", "data:image/"))
-    ][:3]
-    turn_image_group_id = ""
-    rich_search_task: asyncio.Task | None = None
-    rich_search_invocations = 0
-    rich_search_provider_calls = 0
+    # Explicit turn-local handoff: reviewed search media can become image
+    # references without asking the model to copy fragile URLs between tools.
+    turn_visual_context = TurnVisualContext.from_initial(initial_visual_references)
 
     async def _load_state() -> dict[str, Any]:
         return await load_user_workspace(store, conversation_id, user_id)
@@ -2287,477 +2249,56 @@ def build_system_skill_tools(
         await _save_state(state)
         return json.dumps({"ui_action": "side_effect_action", "action": action}, ensure_ascii=False)
 
-    async def propose_image(
-        prompt: str,
-        parent_action_id: str = "",
-        reference_image_urls: list[str] | None = None,
-    ) -> str:
-        """Generate an image immediately, optionally editing one prior generated version."""
-        nonlocal turn_image_group_id
-        clean_prompt = str(prompt or "").strip()[:2000]
-        if not clean_prompt:
-            raise ValueError("生图提示词不能为空")
-        state = await _load_state()
-        parent = state.get("actions", {}).get(str(parent_action_id or ""))
-        references: list[str] = []
-        group_id = ""
-        if isinstance(parent, dict) and parent.get("kind") == "image_generate":
-            parent_payload = parent.get("payload") or {}
-            parent_result = parent.get("result") or {}
-            reference_url = await resolve_image_reference(parent_result)
-            if reference_url.startswith(("https://", "data:image/")):
-                references.append(reference_url)
-            group_id = str(parent_payload.get("group_id") or parent.get("id") or "")
-        elif turn_image_group_id:
-            group_id = turn_image_group_id
-        for raw_url in reference_image_urls or []:
-            url = str(raw_url or "").strip()
-            if url.startswith(("https://", "data:image/")) and url not in references:
-                references.append(url)
-            if len(references) >= 3:
-                break
-        if not group_id and not references:
-            references.extend(turn_visual_references[:3])
-        action = new_action(
-            "image_generate",
-            {
-                "prompt": clean_prompt,
-                "parent_action_id": str(parent_action_id or ""),
-                "group_id": group_id,
-                "reference_image_urls": references,
-            },
-            requires_confirmation=False,
-        )
-        action["payload"]["group_id"] = group_id or action["id"]
-        seal_action_snapshot(action)
-        if not turn_image_group_id:
-            turn_image_group_id = str(action["payload"]["group_id"])
-        now = int(datetime.now().timestamp())
-        begin_action_execution(action, owner=f"chat:{action['id']}", now=now)
-        put_action(state, action)
-        start_provider_call(state, action, now)
-        state = await _save_state(state)
-        result = await provider_generate_image(runtime_env, clean_prompt, references, user_id=user_id)
-        if result.get("ok"):
-            await record_provider_usage(
-                store,
-                user_id,
-                str(result.get("provider") or "image_provider"),
-                "images",
-                1,
-                model=str(result.get("model") or ""),
-                source="chat_image",
-            )
-        state = await _load_state()
-        current = get_action(state, action["id"])
-        finish_provider_call(state, current, result, int(datetime.now().timestamp()))
-        if result.get("ok"):
-            current["result"]["versions"] = image_versions(state, str(current["payload"]["group_id"]))
-        state = await _save_state(state)
-        action = state["actions"][action["id"]]
-        return json.dumps({"ui_action": "side_effect_action", "action": action}, ensure_ascii=False)
-
-    async def collect_page_images(page_url: str, max_images: int = 30) -> str:
-        """Collect up to 30 real image candidates from one public HTML page."""
-        images = await provider_collect_page_images(page_url, max_images)
-        return json.dumps({"page_url": page_url, "images": images, "count": len(images)}, ensure_ascii=False)
-
-    async def rich_search(query: str, image_query: str = "", depth: str = "standard") -> str:
-        """Run one fresh planner-shaped rich search per turn."""
-        nonlocal rich_search_task, rich_search_invocations, turn_visual_references
-        rich_search_invocations += 1
-        if rich_search_operation is not None:
-            # The chat application owns search orchestration.  The trusted
-            # Skill adapter retains the established rich_search tool contract,
-            # while SearchUseCase owns provider execution and persistence.
-            if rich_search_task is None:
-                rich_search_task = asyncio.create_task(
-                    rich_search_operation(query, image_query, depth)
-                )
-            serialized = await rich_search_task
-            try:
-                result = json.loads(serialized)
-                metadata = result.get("search_results") if isinstance(result, dict) else None
-                if isinstance(metadata, dict):
-                    search_config = dict(metadata.get("search_config") or {})
-                    metadata["search_config"] = {
-                        **search_config,
-                        "turn_tool_invocations": rich_search_invocations,
-                    }
-                reviewed_references = [
-                    str(item.get("url") or "")
-                    for item in ((metadata or {}).get("media") or [])
-                    if isinstance(item, dict)
-                    and str(item.get("url") or "").startswith("https://")
-                ][:3]
-                turn_visual_references = list(dict.fromkeys([
-                    *turn_visual_references,
-                    *reviewed_references,
-                ]))[:3]
-                serialized = json.dumps(result, ensure_ascii=False)
-            except (TypeError, ValueError, json.JSONDecodeError):
-                pass
-            return serialized
-        if rich_search_task is None:
-            clean_query = str(planned_search_query or query or "").strip()[:500]
-            clean_image_query = str(planned_image_query or image_query or "").strip()[:500] if media_enabled else ""
-            if not clean_query:
-                raise ValueError("富搜索查询不能为空")
-            clean_depth = depth if depth in {"basic", "standard", "deep"} else "standard"
-            target_date = str(time_scope.get("target_date") or "")
-            strict_date = bool(time_scope.get("strict_date"))
-            cache_key = search_evidence_key(
-                query=clean_query,
-                image_query=clean_image_query,
-                depth=clean_depth,
-                result_limit=search_result_limit,
-                image_limit=search_image_limit,
-                parallel_queries=parallel_image_search,
-                target_date=target_date,
-                strict_date=strict_date,
-                include_media=media_enabled,
-            )
-            cache_ttl = evidence_ttl_seconds(
-                clean_query,
-                target_date=target_date,
-                strict_date=strict_date,
-                depth=clean_depth,
-            )
-
-            async def run_once() -> str:
-                nonlocal turn_visual_references, rich_search_provider_calls
-                logging.info(
-                    "rich_search provider_call conversation=%s media=%s",
-                    conversation_id,
-                    media_enabled,
-                )
-
-                async def publish_enriched_media(enriched: dict[str, Any]) -> None:
-                    completed = {**enriched, "media_pending": False}
-                    await record_vision_diagnostics(
-                        store,
-                        user_id,
-                        completed.get("vision_diagnostics"),
-                        source="rich_search_media",
-                    )
-                    if media_callback is not None:
-                        await media_callback(completed)
-
-                async def publish_and_cache_media(enriched: dict[str, Any]) -> None:
-                    await save_search_evidence(
-                        store,
-                        user_id,
-                        cache_key,
-                        {**enriched, "media_pending": False},
-                        ttl_seconds=cache_ttl,
-                    )
-                    await publish_enriched_media(enriched)
-
-                async def provider_call() -> dict[str, Any]:
-                    nonlocal rich_search_provider_calls
-                    rich_search_provider_calls += 1
-                    try:
-                        return await provider_rich_search(
-                            runtime_env,
-                            clean_query,
-                            image_query=clean_image_query,
-                            depth=clean_depth,
-                            target_date=target_date,
-                            strict_date=strict_date,
-                            media_callback=(
-                                publish_and_cache_media
-                                if progressive_media and media_enabled
-                                else None
-                            ),
-                            background_tasks=(
-                                background_tasks
-                                if progressive_media and media_enabled
-                                else None
-                            ),
-                            include_media=media_enabled,
-                            result_limit=search_result_limit,
-                            image_limit=search_image_limit,
-                            parallel_queries=parallel_image_search,
-                        )
-                    finally:
-                        await record_provider_usage(
-                            store,
-                            user_id,
-                            "wsa",
-                            "requests",
-                            1,
-                            source="rich_search",
-                        )
-
-                cached = await get_or_compute_search_evidence(
-                    store,
-                    user_id,
-                    cache_key,
-                    provider_call,
-                    ttl_seconds=cache_ttl,
-                    bypass_cache=force_search_refresh,
-                )
-                metadata = cached.metadata
-                metadata["cache"] = {
-                    "kind": "evidence_only",
-                    "hit": cached.cache_hit,
-                    "coalesced": cached.coalesced,
-                    "ttl_seconds": cache_ttl,
-                    "answer_cached": False,
-                    "bypassed": force_search_refresh,
-                }
-                if not progressive_media:
-                    await record_vision_diagnostics(
-                        store,
-                        user_id,
-                        metadata.get("vision_diagnostics"),
-                        source="rich_search_media",
-                    )
-                reviewed_references = [
-                    str(item.get("url") or "")
-                    for item in metadata.get("media", [])
-                    if str(item.get("url") or "").startswith("https://")
-                ][:3]
-                turn_visual_references = list(dict.fromkeys([*turn_visual_references, *reviewed_references]))[:3]
-                return json.dumps({
-                    "ui_action": "rich_search_results",
-                    "search_results": metadata,
-                    "papers": [],
-                    "evidence": evidence_for_model(
-                        metadata,
-                        require_relevant_image=planned_media_preferred,
-                    ),
-                }, ensure_ascii=False)
-
-            rich_search_task = asyncio.create_task(run_once())
-        serialized = await rich_search_task
-        result = json.loads(serialized)
-        metadata = result.get("search_results") if isinstance(result, dict) else None
-        if isinstance(metadata, dict):
-            search_config = metadata.get("search_config")
-            if not isinstance(search_config, dict):
-                search_config = {}
-            metadata["search_config"] = {
-                **search_config,
-                "turn_tool_invocations": rich_search_invocations,
-                "turn_provider_calls": rich_search_provider_calls,
-            }
-            logging.info(
-                "rich_search turn_audit conversation=%s invocations=%s provider_calls=%s",
-                conversation_id,
-                rich_search_invocations,
-                rich_search_provider_calls,
-            )
-        return json.dumps(result, ensure_ascii=False)
-
-    async def analyze_images_parallel(image_urls: list[str], goal: str) -> str:
-        """Evaluate up to 30 images in small isolated concurrent batches."""
-        image_urls = list(dict.fromkeys(str(url) for url in image_urls))[:30]
-        if not image_urls:
-            raise ValueError("至少需要一个图片 URL")
-        for url in image_urls:
-            if urlparse(url).scheme not in {"http", "https"}:
-                raise ValueError("图片 URL 必须使用 http 或 https")
-        semaphore = asyncio.Semaphore(4)
-
-        async def inspect(index: int, image_url: str) -> dict:
-            async with semaphore:
-                try:
-                    response = await asyncio.wait_for(
-                        model.ainvoke([{"role": "user", "content": [
-                            {"type": "text", "text": f"视觉评估目标：{goal}\n简洁返回画面内容、相关性和是否建议采用。"},
-                            {"type": "image_url", "image_url": {"url": image_url}},
-                        ]}]),
-                        timeout=45,
-                    )
-                    return {"index": index, "url": image_url, "analysis": _message_text(getattr(response, "content", ""))[:1200], "ok": True}
-                except Exception as exc:
-                    return {"index": index, "url": image_url, "analysis": "", "ok": False, "error": str(exc)[:200]}
-
-        results = await asyncio.gather(*(inspect(index, url) for index, url in enumerate(image_urls)))
-        return json.dumps({"ui_action": "image_analysis", "analyses": results}, ensure_ascii=False)
-
-    async def search_arxiv(
-        topic: str = "",
-        limit: int = 5,
-        titles: list[str] | None = None,
-        author: str = "",
-        institution: str = "",
-        year: int = 0,
-        year_from: int = 0,
-        year_to: int = 0,
-    ) -> str:
-        """Search structured academic papers with an arXiv-first provider cascade."""
-        clean_topic = str(topic or "").strip()[:240]
-        clean_titles = [str(title).strip()[:240] for title in (titles or []) if str(title).strip()][:8]
-        clean_author = str(paper_scope.get("author") or author or "").strip()[:160]
-        clean_institution = str(
-            paper_scope.get("institution") or institution or ""
-        ).strip()[:160]
-        clean_year = int(paper_scope.get("year") or year or 0)
-        clean_year_from = int(
-            paper_scope.get("year_from") or year_from or 0
-        )
-        clean_year_to = int(
-            paper_scope.get("year_to") or year_to or 0
-        )
-        requested_limit = int(paper_scope.get("limit") or 0)
-        if requested_limit:
-            limit = min(max(1, int(limit or requested_limit)), requested_limit)
-        if not clean_topic and not clean_titles and not clean_author:
-            raise ValueError("论文主题、准确标题或作者至少需要一项")
-        candidate_loader = (
-            (
-                lambda: _paper_candidate_ids_from_model(
-                    paper_discovery_model,
-                    topic=clean_topic,
-                    author=clean_author,
-                    institution=clean_institution,
-                    year=clean_year,
-                    year_from=clean_year_from,
-                    year_to=clean_year_to,
-                    limit=limit,
-                )
-            )
-            if paper_discovery_model is not None and not clean_titles
-            else None
-        )
-        provider_args = (
-            clean_topic,
-            limit,
-            clean_titles,
-            clean_author,
-            clean_year,
-            clean_institution,
-            clean_year_from,
-            clean_year_to,
-        )
-
-        async def academic_lookup() -> list[dict[str, Any]]:
-            if candidate_loader is None:
-                return await provider_search_arxiv(*provider_args)
-            return await provider_search_arxiv(
-                *provider_args,
-                candidate_ids_loader=candidate_loader,
-            )
-
-        async def makers_search_fallback() -> list[dict[str, Any]]:
-            if not (
-                paper_discovery_model is not None
-                and clean_author
-                and clean_institution
-                and str(runtime_env.get("WSA_API_KEY") or "").strip()
-            ):
-                return []
-            bounds = " ".join(
-                str(value)
-                for value in (clean_year or clean_year_from, clean_year_to)
-                if int(value or 0)
-            )
-            query = " ".join(
-                value for value in (
-                    clean_author,
-                    clean_institution,
-                    clean_topic,
-                    bounds,
-                    "academic papers publications arXiv DBLP",
-                ) if value
-            )
-            try:
-                try:
-                    metadata = await provider_rich_search(
-                        runtime_env,
-                        query,
-                        depth="basic",
-                        result_limit=max(8, min(18, int(limit or 5) * 4)),
-                        image_limit=0,
-                        include_media=False,
-                    )
-                finally:
-                    await record_provider_usage(
-                        store,
-                        user_id,
-                        "wsa",
-                        "requests",
-                        1,
-                        source="paper_search_fallback",
-                    )
-                return await _paper_candidates_from_searchpro(
-                    paper_discovery_model,
-                    metadata=metadata,
-                    topic=clean_topic,
-                    author=clean_author,
-                    institution=clean_institution,
-                    year=clean_year,
-                    year_from=clean_year_from,
-                    year_to=clean_year_to,
-                    limit=limit,
-                )
-            except Exception as exc:
-                logging.warning(
-                    "paper Makers search fallback failed error_type=%s",
-                    type(exc).__name__,
-                )
-                return []
-
-        provider_error = ""
-        academic_timeout = max(
-            8.0,
-            min(
-                40.0,
-                float(runtime_env.get("PAPER_SEARCH_TIMEOUT_SECONDS") or 40),
-            ),
-        )
-        try:
-            try:
-                academic_rows = await asyncio.wait_for(
-                    academic_lookup(),
-                    timeout=academic_timeout,
-                )
-            except Exception as exc:
-                logging.warning(
-                    "academic provider cascade failed error_type=%s",
-                    type(exc).__name__,
-                )
-                academic_rows = []
-            # SearchPro is recovery, not a parallel default. A successful set
-            # of model-proposed, officially verified arXiv IDs must not wait
-            # for another provider or dilute the result with cached prose.
-            makers_rows = (
-                []
-                if academic_rows
-                else await makers_search_fallback()
-            )
-            papers = []
-            seen_papers: set[str] = set()
-            for paper in [*academic_rows, *makers_rows]:
-                identity = (
-                    str(paper.get("arxiv_id") or "").strip().lower()
-                    or re.sub(
-                        r"\W+",
-                        " ",
-                        str(paper.get("title") or "").lower(),
-                    ).strip()
-                )
-                if not identity or identity in seen_papers:
-                    continue
-                seen_papers.add(identity)
-                papers.append(paper)
-                if len(papers) >= max(1, min(8, int(limit or 5))):
-                    break
-            if not papers:
-                provider_error = "学术索引与 Makers 原生检索本轮没有返回可核实结果"
-        except Exception as exc:
-            logging.warning("academic discovery failed: %s", exc)
-            papers = []
-            provider_error = "学术索引本轮没有返回结果"
-        return json.dumps({
-            "ui_action": "paper_results",
-            "papers": papers,
-            "topic": clean_topic,
-            **({"notice": provider_error} if provider_error else {}),
-        }, ensure_ascii=False)
-
+    image_operations = build_image_operations(
+        model=model,
+        store=store,
+        user_id=user_id,
+        runtime_env=runtime_env,
+        load_state=_load_state,
+        save_state=_save_state,
+        visual_context=turn_visual_context,
+        generate_image_provider=lambda: provider_generate_image,
+        resolve_image_reference_provider=lambda: resolve_image_reference,
+        collect_page_images_provider=lambda: provider_collect_page_images,
+        record_provider_usage_provider=lambda: record_provider_usage,
+    )
+    propose_image = image_operations["propose_image"]
+    collect_page_images = image_operations["collect_page_images"]
+    analyze_images_parallel = image_operations["analyze_images_parallel"]
+    rich_search = build_rich_search_operation(
+        store=store,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        runtime_env=runtime_env,
+        time_scope=time_scope,
+        visual_context=turn_visual_context,
+        progressive_media=progressive_media,
+        media_callback=media_callback,
+        background_tasks=background_tasks,
+        media_enabled=media_enabled,
+        planned_media_preferred=planned_media_preferred,
+        planned_search_query=planned_search_query,
+        planned_image_query=planned_image_query,
+        force_search_refresh=force_search_refresh,
+        search_use_case_operation=rich_search_operation,
+        search_result_limit=search_result_limit,
+        search_image_limit=search_image_limit,
+        parallel_image_search=parallel_image_search,
+        provider_rich_search_provider=lambda: provider_rich_search,
+        evidence_for_model_provider=lambda: evidence_for_model,
+        record_provider_usage_provider=lambda: record_provider_usage,
+        record_vision_diagnostics_provider=lambda: record_vision_diagnostics,
+    )
+    search_arxiv = build_paper_search_operation(
+        store=store,
+        user_id=user_id,
+        runtime_env=runtime_env,
+        paper_scope=paper_scope,
+        paper_discovery_model=paper_discovery_model,
+        provider_search_arxiv_provider=lambda: provider_search_arxiv,
+        provider_rich_search_provider=lambda: provider_rich_search,
+        record_provider_usage_provider=lambda: record_provider_usage,
+    )
     async def propose_workflow(title: str, steps: list[dict[str, Any]], reason: str) -> str:
         """Create a user-confirmable persistent multi-step workflow."""
         state = await load_proactive_state(store, user_id)
