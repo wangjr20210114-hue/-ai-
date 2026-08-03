@@ -5,16 +5,11 @@ import copy
 import contextlib
 import json
 import logging
-import math
 import re
 import time
-from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
-from .turn_context import (
-    experience_hints_for_plan,
-    search_request_for_plan,
-)
+from .turn_context import experience_hints_for_plan
 from .turn_io import (
     _document_context,
     _recent_user_questions,
@@ -25,9 +20,6 @@ from .turn_io import (
     checkpoint_final_answer,
 )
 from .turn_policy import (
-    SYSTEM_PROMPT,
-    SYSTEM_PROMPT_SECTIONS,
-    SYSTEM_PROMPT_SECTION_ORDER,
     direct_paper_tool_arguments,
     dynamic_system_prompt,
     empty_generation_error,
@@ -41,7 +33,6 @@ from .turn_policy import (
 )
 from .turn_protocol import (
     capability_planning_message,
-    checkpoint_clarification_answers,
     checkpoint_clarification_state,
     clarification_answer_value,
     clarification_response_answers,
@@ -50,7 +41,7 @@ from .turn_protocol import (
     resume_capability_protocol,
     should_persist_user_message,
 )
-from ..search.search_use_case import SearchUseCase
+from .turn_search import PlannedSearchRunner
 from ...chat._graph import build_graph, grounded_route_stream_answer
 from ...chat._llm import get_model
 from ..._infrastructure.skills import build_system_skill_tools
@@ -74,7 +65,6 @@ from ...chat._protocol import (
     PublicStreamFilter,
     StreamDeltaNormalizer,
     checkpoint_recovery_needed,
-    public_content,
     public_error,
     safe_error_diagnostics,
 )
@@ -104,7 +94,6 @@ from ..._infrastructure.http import error
 from ..._application.workspace.service import load_user_workspace
 from ..._infrastructure.providers.vision import describe_reference_images
 from ..._infrastructure.makers.provider_usage_repository import (
-    record_provider_usage,
     record_vision_diagnostics,
 )
 from ..._application.proactive.opportunities import detect_opportunity, opportunity_signal
@@ -117,12 +106,8 @@ from ..._application.proactive.service import (
 from ..._presenters.chat_stream import (
     ChatStreamPresenter,
     progress_event,
-    search_evidence_payload,
     tool_progress_event,
 )
-from ..._infrastructure.makers.evidence_repository import MakerEvidenceRepository
-from ..._infrastructure.providers.searchpro import SearchProGateway
-from ..._infrastructure.providers.rich_search import evidence_for_model
 
 HEARTBEAT_SECONDS = 5
 MAX_GRAPH_RECURSION = 24
@@ -647,167 +632,28 @@ async def _handle(ctx):
     # Publication-date strictness is a semantic planner decision.  Keyword
     # matching incorrectly treated “截至今天的最新能力” as “published today”
     # and discarded the latest verifiable release from earlier dates.
-    explicit_today = bool(capability_plan.get("strict_today_only"))
-    time_sensitive = bool(capability_plan.get("needs_web_search"))
-    temporal_context = {
-        # This value is derived for every request; it is deliberately never a
-        # release-date constant.
-        "target_date": current_date if time_sensitive else "",
-        "strict_date": explicit_today,
-    }
-    planned_search_request = search_request_for_plan(
-        capability_plan,
-        identity,
+    queue: asyncio.Queue = asyncio.Queue()
+    search_runner = PlannedSearchRunner(
+        ctx=ctx,
+        presenter=presenter,
+        queue=queue,
+        capability_plan=capability_plan,
+        identity=identity,
         conversation_id=conversation_id,
+        user_id=user_id,
         user_message=message,
         current_date=current_date,
         result_limit=search_result_limit,
         image_limit=search_image_limit,
         parallel_queries=parallel_image_search,
-        # main's rich-search contract is fresh once per logical turn.  The
-        # SearchUseCase still persists evidence and deduplicates a repeated
-        # call inside that turn, but chat never reuses an older turn's facts.
-        force_refresh=True,
         progressive_media=progressive_media_for_plan(
             capability_plan,
             planner_timed_out=planner_timed_out,
         ),
+        runtime_env=runtime_env,
+        run_id=run_id,
+        stage_timings_ms=stage_timings_ms,
     )
-    search_use_case = (
-        SearchUseCase(
-            provider=SearchProGateway(runtime_env),
-            repository=MakerEvidenceRepository(ctx.store.langgraph_store),
-        )
-        if planned_search_request is not None
-        else None
-    )
-
-    queue: asyncio.Queue = asyncio.Queue()
-    background_tasks: list[asyncio.Task] = []
-    latest_enriched_media: dict | None = None
-
-    async def execute_planned_rich_search(
-        query: str,
-        image_query: str = "",
-        depth: str = "standard",
-    ) -> str:
-        """Execute main-compatible rich search through the SearchUseCase."""
-        if planned_search_request is None or search_use_case is None:
-            raise RuntimeError("rich search was not selected for this turn")
-        clean_depth = depth if depth in {"basic", "standard", "deep"} else "standard"
-        request = replace(
-            planned_search_request,
-            query=(planned_search_request.query or str(query or "").strip())[:500],
-            image_query=(
-                planned_search_request.image_query
-                or str(image_query or "").strip()[:500]
-            ),
-            depth=clean_depth,
-            force_refresh=True,
-        )
-        media_context: dict = {}
-
-        async def publish_media(evidence) -> None:
-            nonlocal latest_enriched_media
-            completed = {
-                **media_context,
-                **search_evidence_payload(evidence),
-                "run_id": run_id,
-                "conversation_id": conversation_id,
-                "media_pending": False,
-            }
-            latest_enriched_media = completed
-            await queue.put(presenter.media(completed))
-
-        search_started_at = time.monotonic()
-        try:
-            execution = await search_use_case.execute(
-                request,
-                on_media=publish_media,
-            )
-        except Exception as exc:
-            stage_timings_ms["search"] = round(
-                (time.monotonic() - search_started_at) * 1000
-            )
-            logging.warning(
-                "rich_search failed conversation=%s error_type=%s elapsed_ms=%s",
-                conversation_id,
-                type(exc).__name__,
-                stage_timings_ms["search"],
-            )
-            raise
-        stage_timings_ms["search"] = round(
-            (time.monotonic() - search_started_at) * 1000
-        )
-        metadata = dict(
-            execution.metadata
-            or search_evidence_payload(execution.evidence)
-        )
-        metadata.update({
-            "run_id": run_id,
-            "conversation_id": conversation_id,
-        })
-        media_context.update(metadata)
-        search_config = dict(metadata.get("search_config") or {})
-        metadata["search_config"] = {
-            **search_config,
-            "result_limit": request.result_limit,
-            "image_limit": request.image_limit,
-            "parallel_image_search": request.parallel_queries,
-            "media_delivery": request.media_mode,
-            "provider_request_count": execution.provider_request_count,
-            "turn_provider_calls": execution.provider_request_count,
-            "turn_tool_invocations": 1,
-        }
-        metadata["cache"] = {
-            "kind": "evidence_only",
-            "hit": execution.cache_hit,
-            "coalesced": execution.coalesced,
-            "answer_cached": False,
-            "bypassed": True,
-        }
-        timings_ms = dict(metadata.get("timings_ms") or {})
-        timings_ms["search"] = max(
-            int(timings_ms.get("search") or 0),
-            int(stage_timings_ms["search"]),
-        )
-        metadata["timings_ms"] = timings_ms
-        media_context.update(metadata)
-        background_tasks.extend(execution.media_tasks)
-        if execution.provider_request_count:
-            await record_provider_usage(
-                ctx.store.langgraph_store,
-                user_id,
-                "wsa",
-                "requests",
-                execution.provider_request_count,
-                source="search_use_case",
-            )
-        await record_vision_diagnostics(
-            ctx.store.langgraph_store,
-            user_id,
-            metadata.get("vision_diagnostics"),
-            source="rich_search_media",
-        )
-        logging.info(
-            "rich_search turn_audit conversation=%s invocations=1 "
-            "provider_calls=%s cache_hit=%s coalesced=%s",
-            conversation_id,
-            execution.provider_request_count,
-            execution.cache_hit,
-            execution.coalesced,
-        )
-        return json.dumps({
-            "ui_action": "rich_search_results",
-            "search_results": metadata,
-            "papers": [],
-            "evidence": evidence_for_model(
-                metadata,
-                require_relevant_image=bool(
-                    capability_plan.get("needs_images")
-                ),
-            ),
-        }, ensure_ascii=False)
 
     def build_all_tools() -> list:
         return build_system_skill_tools(
@@ -831,7 +677,7 @@ async def _handle(ctx):
                 "year_to": capability_plan.get("paper_year_to") or 0,
                 "limit": capability_plan.get("paper_limit") or 0,
             },
-            temporal_context=temporal_context,
+            temporal_context=search_runner.temporal_context,
             # SearchUseCase owns delivery; keep the trusted Component adapter
             # on the same per-plan progressive-media policy.
             progressive_media=progressive_media_for_plan(
@@ -839,7 +685,7 @@ async def _handle(ctx):
                 planner_timed_out=planner_timed_out,
             ),
             media_callback=None,
-            background_tasks=background_tasks,
+            background_tasks=search_runner.background_tasks,
             user_id=user_id,
             initial_visual_references=reference_images,
             # A recovered semantic plan may still request media. A hard planner
@@ -857,7 +703,7 @@ async def _handle(ctx):
             planned_search_query=str(capability_plan.get("search_query") or ""),
             planned_image_query=str(capability_plan.get("image_query") or ""),
             force_search_refresh=True,
-            rich_search_operation=execute_planned_rich_search,
+            rich_search_operation=search_runner.execute,
             search_result_limit=search_result_limit,
             search_image_limit=search_image_limit,
             parallel_image_search=parallel_image_search,
@@ -1072,7 +918,7 @@ async def _handle(ctx):
             return run_cancelled(latest)
 
         async def produce():
-            nonlocal answer_capability_plan, latest_enriched_media
+            nonlocal answer_capability_plan
             pending_actions: list[dict] = []
             pending_search_results: dict | None = None
             pending_papers: dict | None = None
@@ -1093,12 +939,12 @@ async def _handle(ctx):
             )))
             await queue.put(presenter.frame(progress_event(
                 "retrieval"
-                if planned_search_request is not None or graph_tool_names
+                if search_runner.planned_request is not None or graph_tool_names
                 else "synthesis",
                 "active",
                 activity=(
                     "web_search"
-                    if planned_search_request is not None
+                    if search_runner.planned_request is not None
                     else "component_action"
                     if graph_tool_names
                     else "general"
@@ -1178,7 +1024,7 @@ async def _handle(ctx):
                     or ctx.store.langgraph_store is None
                     or not (
                         follow_ups
-                        or latest_enriched_media
+                        or search_runner.latest_enriched_media
                         or experience_hints_for_plan(
                             answer_capability_plan,
                             auth_type=str(identity.get("auth_type") or "guest"),
@@ -1197,7 +1043,11 @@ async def _handle(ctx):
                             answer_capability_plan,
                             auth_type=str(identity.get("auth_type") or "guest"),
                         ),
-                        **({"search_results": latest_enriched_media} if latest_enriched_media else {}),
+                        **(
+                            {"search_results": search_runner.latest_enriched_media}
+                            if search_runner.latest_enriched_media
+                            else {}
+                        ),
                     },
                 )
             if tool_setup_error:
@@ -1304,14 +1154,19 @@ async def _handle(ctx):
                                 metadata = action.get("search_results")
                                 if isinstance(metadata, dict):
                                     if (
-                                        isinstance(latest_enriched_media, dict)
-                                        and latest_enriched_media.get("media")
+                                        isinstance(
+                                            search_runner.latest_enriched_media,
+                                            dict,
+                                        )
+                                        and search_runner.latest_enriched_media.get(
+                                            "media"
+                                        )
                                     ):
                                         metadata = {
                                             **metadata,
-                                            **latest_enriched_media,
+                                            **search_runner.latest_enriched_media,
                                         }
-                                    latest_enriched_media = metadata
+                                    search_runner.latest_enriched_media = metadata
                                     pending_search_results = metadata
                                     await queue.put(presenter.sources(metadata))
                                     await queue.put(presenter.frame(progress_event(
@@ -1575,10 +1430,13 @@ async def _handle(ctx):
                     for task in (follow_up_task, memory_task, recent_questions_task):
                         if task is not None and not task.done():
                             task.cancel()
-                if background_tasks:
+                if search_runner.background_tasks:
                     try:
                         outcomes = await asyncio.wait_for(
-                            asyncio.gather(*background_tasks, return_exceptions=True),
+                            asyncio.gather(
+                                *search_runner.background_tasks,
+                                return_exceptions=True,
+                            ),
                             timeout=90,
                         )
                         for outcome in outcomes:
@@ -1586,13 +1444,13 @@ async def _handle(ctx):
                                 logging.warning("rich search media task failed: %s", outcome)
                     except asyncio.TimeoutError:
                         logging.warning("rich search media task timed out")
-                        for task in background_tasks:
+                        for task in search_runner.background_tasks:
                             if not task.done():
                                 task.cancel()
                 # Reviewed media is already a complete user-visible result.
                 # Save it before slower optional post-processing so navigation
                 # cannot make the image disappear when one of those jobs fails.
-                if final_answer and latest_enriched_media:
+                if final_answer and search_runner.latest_enriched_media:
                     try:
                         await persist_answer_extras()
                     except Exception as exc:

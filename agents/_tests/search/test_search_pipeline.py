@@ -107,15 +107,27 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(required_tool_for_plan({"needs_web_search": False}), "")
 
     def test_temporal_policy_is_derived_after_capability_planning(self):
-        source = (
+        service_source = (
             AGENTS_ROOT
             / "_application"
             / "chat"
             / "turn_service.py"
         ).read_text(encoding="utf-8")
-        planned = source.index("capability_plan, planner_timed_out = await plan_capabilities_bounded")
-        strict_date = source.index('explicit_today = bool(capability_plan.get("strict_today_only"))')
-        self.assertLess(planned, strict_date)
+        search_source = (
+            AGENTS_ROOT
+            / "_application"
+            / "chat"
+            / "turn_search.py"
+        ).read_text(encoding="utf-8")
+        planned = service_source.index(
+            "capability_plan, planner_timed_out = await plan_capabilities_bounded"
+        )
+        search_runner = service_source.index("search_runner = PlannedSearchRunner(")
+        self.assertLess(planned, search_runner)
+        self.assertIn(
+            '"strict_date": bool(capability_plan.get("strict_today_only"))',
+            search_source,
+        )
 
     async def test_rich_search_reuses_evidence_but_not_turn_response_state(self):
         store = FakeStore()

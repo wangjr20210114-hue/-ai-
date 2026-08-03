@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from agents._application.chat import turn_service as turn_service_module
+from agents._application.chat import turn_search as turn_search_module
 from agents._application.chat.turn_context import (
     experience_hints_for_plan,
     search_request_for_plan,
@@ -30,9 +31,17 @@ class ChatTurnBoundaryTests(unittest.TestCase):
             / "turn_controller.py"
         )
         source = controller_path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        imported_names = {
+            alias.name
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+        }
 
         self.assertLessEqual(len(source.splitlines()), 100)
         self.assertIn("ChatTurnService(ctx)", source)
+        self.assertEqual(imported_names, {"ChatTurnService"})
         self.assertNotIn("_infrastructure", source)
         self.assertNotIn("SearchPro", source)
 
@@ -204,28 +213,30 @@ class ChatTurnBoundaryTests(unittest.TestCase):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
             and node.name == "handler"
         )
+        imported_names = {
+            alias.name
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+        }
 
         self.assertLessEqual(len(handler.body), 2)
+        self.assertEqual(imported_names, {"ChatTurnController"})
         self.assertNotIn("SearchPro", source)
         self.assertNotIn("_infrastructure.providers", source)
 
     def test_production_search_use_case_preserves_the_rich_search_tool_contract(self):
-        controller_path = (
-            Path(__file__).parents[2]
-            / "_application"
-            / "chat"
-            / "turn_service.py"
-        )
-        source = controller_path.read_text(encoding="utf-8")
+        service_source = Path(turn_service_module.__file__).read_text(encoding="utf-8")
+        search_source = Path(turn_search_module.__file__).read_text(encoding="utf-8")
 
-        self.assertIn("search_use_case.execute(", source)
-        self.assertIn("on_media=publish_media", source)
-        self.assertIn("background_tasks.extend(execution.media_tasks)", source)
-        self.assertIn("queue.put(presenter.media(completed))", source)
-        self.assertIn("rich_search_operation=execute_planned_rich_search", source)
+        self.assertIn("self._use_case.execute(", search_source)
+        self.assertIn("on_media=publish_media", search_source)
+        self.assertIn("self.background_tasks.extend(execution.media_tasks)", search_source)
+        self.assertIn("self._queue.put(self._presenter.media(completed))", search_source)
+        self.assertIn("rich_search_operation=search_runner.execute", service_source)
         self.assertIn(
             "required_tool_names = required_tools_for_plan(capability_plan)",
-            source,
+            service_source,
         )
 
     def test_chat_uses_the_semantic_progressive_media_policy(self):

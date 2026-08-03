@@ -176,7 +176,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value={}),
             ),
             patch(
-                "agents._application.chat.turn_service.SearchUseCase",
+                "agents._application.chat.turn_search.SearchUseCase",
                 new=search_use_case_type,
             ),
             patch(

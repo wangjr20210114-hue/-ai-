@@ -11,7 +11,7 @@ from agents._application.proactive.opportunities import (
     parse_opportunity,
 )
 from agents._application.proactive.service import empty_proactive_state, process_schedule_signals, public_proactive_state
-from agents.chat.index import _document_context
+from agents._application.chat.turn_io import _document_context
 
 
 class FakeModel:

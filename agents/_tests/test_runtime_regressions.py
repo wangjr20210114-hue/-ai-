@@ -18,7 +18,7 @@ from agents._infrastructure.providers.tencent_location import plan_driving_route
 from agents.proactive.index import handler as proactive_handler
 from agents.stop.index import handler as stop_handler
 from agents._controllers.system_controller import _expected_tick_after
-from agents.chat.index import run_cancelled
+from agents._application.chat.turn_policy import run_cancelled
 from agents._infrastructure.makers.identity import scoped_conversation_id
 from agents._tests.auth_helpers import TEST_USER_ID, authenticated_context
 

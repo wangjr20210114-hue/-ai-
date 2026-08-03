@@ -22,11 +22,13 @@ from agents._infrastructure.skills.route_resolution import (
     _provider_city_consensus,
     _rank_verified_workspace_matches,
 )
-from agents.chat.index import (
-    clarification_answer_value,
+from agents._application.chat.turn_policy import (
     location_clarification_copy,
     normalize_browser_current_location,
     normalize_browser_location_request,
+)
+from agents._application.chat.turn_protocol import (
+    clarification_answer_value,
     resume_capability_protocol,
 )
 from agents._controllers.workspace_controller import _learn_from_activated_route
