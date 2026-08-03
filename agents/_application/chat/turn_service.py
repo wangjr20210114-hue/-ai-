@@ -103,11 +103,7 @@ from ..._application.proactive.service import (
     public_proactive_state,
     save_proactive_state,
 )
-from ..._presenters.chat_stream import (
-    ChatStreamPresenter,
-    progress_event,
-    tool_progress_event,
-)
+from ..._presenters.chat_stream import ChatStreamPresenter
 
 HEARTBEAT_SECONDS = 5
 MAX_GRAPH_RECURSION = 24
@@ -483,10 +479,9 @@ async def _handle(ctx):
         )
 
         async def request_browser_location():
-            yield presenter.frame({
-                "type": "browser_location_request",
-                "payload": {"reason": "semantic_capability_plan"},
-            })
+            yield presenter.browser_location_request(
+                "semantic_capability_plan",
+            )
             yield presenter.transport_done()
 
         return ctx.utils.stream_sse(request_browser_location())
@@ -934,11 +929,11 @@ async def _handle(ctx):
             cancelled = False
             clarification_emitted = False
             synthesis_started = False
-            await queue.put(presenter.frame(progress_event(
+            await queue.put(presenter.progress(
                 "planning",
                 "completed",
-            )))
-            await queue.put(presenter.frame(progress_event(
+            ))
+            await queue.put(presenter.progress(
                 "retrieval"
                 if search_runner.planned_request is not None or graph_tool_names
                 else "synthesis",
@@ -950,12 +945,9 @@ async def _handle(ctx):
                     if graph_tool_names
                     else "general"
                 ),
-            )))
+            ))
             if bool(body.get("_diagnostics")):
-                await queue.put(presenter.frame({
-                    "type": "stage_timing",
-                    "timings_ms": stage_timings_ms,
-                }))
+                await queue.put(presenter.stage_timing(stage_timings_ms))
             # Optional post-turn jobs are themselves dynamically planned. They
             # use non-thinking Flash and are never started for every message by
             # default. Result turns can suggest useful adjacent questions;
@@ -1002,7 +994,7 @@ async def _handle(ctx):
                 stream_delta.reset()
                 markdown_image_stream.reset()
                 if public_stream.reset():
-                    await queue.put(presenter.frame({"type": "ai_response_reset"}))
+                    await queue.put(presenter.reset())
 
             async def emit_public(content: str) -> None:
                 if not content:
@@ -1066,10 +1058,9 @@ async def _handle(ctx):
                         for tool in graph_tools
                     )
                 ):
-                    await queue.put(presenter.frame({
-                        "type": "tool_call",
-                        "name": "image_generation_planning",
-                    }))
+                    await queue.put(
+                        presenter.tool_call("image_generation_planning"),
+                    )
                 config = {
                     "configurable": {"thread_id": conversation_id},
                     "recursion_limit": MAX_GRAPH_RECURSION,
@@ -1170,17 +1161,17 @@ async def _handle(ctx):
                                     search_runner.latest_enriched_media = metadata
                                     pending_search_results = metadata
                                     await queue.put(presenter.sources(metadata))
-                                    await queue.put(presenter.frame(progress_event(
+                                    await queue.put(presenter.progress(
                                         "retrieval",
                                         "completed",
                                         activity="web_search",
-                                    )))
+                                    ))
                                     if metadata.get("media_pending"):
-                                        await queue.put(presenter.frame(progress_event(
+                                        await queue.put(presenter.progress(
                                             "verification",
                                             "active",
                                             activity="image_review",
-                                        )))
+                                        ))
                                     pending_search_results = None
                                 papers = action.get("papers")
                                 if (
@@ -1191,17 +1182,15 @@ async def _handle(ctx):
                                     and papers
                                 ):
                                     pending_papers = {"papers": papers, "topic": metadata.get("query", "") if isinstance(metadata, dict) else ""}
-                                    await queue.put(presenter.frame({
-                                        "type": "paper_results",
-                                        "payload": pending_papers,
-                                    }))
+                                    await queue.put(
+                                        presenter.papers(pending_papers),
+                                    )
                                     pending_papers = None
                                 await queue.put(
-                                    presenter.frame({
-                                        "type": "tool_result",
-                                        "name": getattr(streamed_message, "name", ""),
-                                        "content": "富搜索来源和媒体已准备",
-                                    })
+                                    presenter.tool_result(
+                                        getattr(streamed_message, "name", ""),
+                                        "富搜索来源和媒体已准备",
+                                    )
                                 )
                                 continue
                             if action and action.get("ui_action") == "paper_results":
@@ -1209,23 +1198,26 @@ async def _handle(ctx):
                                     "paper_assistant", skill_preferences,
                                 ):
                                     pending_papers = action
-                                    await queue.put(presenter.frame({
-                                        "type": "paper_results",
-                                        "payload": pending_papers,
-                                    }))
+                                    await queue.put(
+                                        presenter.papers(pending_papers),
+                                    )
                                     pending_papers = None
-                                await queue.put(presenter.frame({"type": "tool_result", "name": "search_arxiv", "content": "论文结果已准备"}))
-                                await queue.put(presenter.frame(tool_progress_event(
+                                await queue.put(
+                                    presenter.tool_result(
+                                        "search_arxiv",
+                                        "论文结果已准备",
+                                    ),
+                                )
+                                await queue.put(presenter.tool_progress(
                                     "search_arxiv",
                                     "completed",
-                                )))
+                                ))
                                 continue
                             if action and action.get("ui_action") == "clarification_action":
                                 clarification_emitted = True
-                                await queue.put(presenter.frame({
-                                    "type": "clarification_action",
-                                    "payload": action,
-                                }))
+                                await queue.put(
+                                    presenter.clarification(action),
+                                )
                                 continue
                             if action and action["ui_action"] in {
                                 "map_action", "calendar_action", "side_effect_action",
@@ -1235,24 +1227,18 @@ async def _handle(ctx):
                                 # immediately so a slow final prose pass cannot hide a
                                 # verified map or a safe confirmation card at the
                                 # platform's request deadline.
-                                await queue.put(presenter.frame({
-                                    "type": action["ui_action"],
-                                    "payload": action,
-                                }))
+                                await queue.put(presenter.action(action))
                                 continue
                             await queue.put(
-                                presenter.frame(
-                                    {
-                                        "type": "tool_result",
-                                        "name": getattr(streamed_message, "name", ""),
-                                        "content": tool_content[:500],
-                                    }
+                                presenter.tool_result(
+                                    getattr(streamed_message, "name", ""),
+                                    tool_content[:500],
                                 )
                             )
-                            await queue.put(presenter.frame(tool_progress_event(
+                            await queue.put(presenter.tool_progress(
                                 getattr(streamed_message, "name", ""),
                                 "completed",
-                            )))
+                            ))
                             continue
 
                         tool_calls = getattr(streamed_message, "tool_calls", None) or []
@@ -1264,21 +1250,21 @@ async def _handle(ctx):
                                     if isinstance(tool_call, dict)
                                     else ""
                                 )
-                                await queue.put(presenter.frame({"type": "tool_call", "name": name}))
+                                await queue.put(presenter.tool_call(name))
                                 if name:
-                                    await queue.put(presenter.frame(
-                                        tool_progress_event(name, "active")
-                                    ))
+                                    await queue.put(
+                                        presenter.tool_progress(name, "active"),
+                                    )
                             continue
 
                         content = _text_content(getattr(streamed_message, "content", ""))
                         if content and not suppress_decision_prose:
                             if not synthesis_started:
                                 synthesis_started = True
-                                await queue.put(presenter.frame(progress_event(
+                                await queue.put(presenter.progress(
                                     "synthesis",
                                     "active",
-                                )))
+                                ))
                             normalized_content = stream_delta.push(content)
                             if capability_plan.get("needs_image_generation"):
                                 normalized_content = markdown_image_stream.push(
@@ -1288,7 +1274,7 @@ async def _handle(ctx):
                             if reset_required:
                                 pending_ai_content.clear()
                                 final_answer_parts.clear()
-                                await queue.put(presenter.frame({"type": "ai_response_reset"}))
+                                await queue.put(presenter.reset())
                             await emit_public(delta)
                 image_tail = (
                     markdown_image_stream.finish()
@@ -1300,15 +1286,13 @@ async def _handle(ctx):
                     if reset_required:
                         pending_ai_content.clear()
                         final_answer_parts.clear()
-                        await queue.put(presenter.frame({
-                            "type": "ai_response_reset",
-                        }))
+                        await queue.put(presenter.reset())
                     await emit_public(delta)
                 tail, reset_required = public_stream.finish()
                 if reset_required:
                     pending_ai_content.clear()
                     final_answer_parts.clear()
-                    await queue.put(presenter.frame({"type": "ai_response_reset"}))
+                    await queue.put(presenter.reset())
                 await emit_public(tail)
                 # Manual AIMessage fallbacks are durable in the Makers
                 # checkpoint but are not emitted as LLM token events. Flush
@@ -1357,10 +1341,9 @@ async def _handle(ctx):
                     presenter.error("generation_error", run_error)
                 )
                 if bool(body.get("_diagnostics")):
-                    await queue.put(presenter.frame({
-                        "type": "error_diagnostics",
-                        "payload": run_diagnostics,
-                    }))
+                    await queue.put(
+                        presenter.diagnostics(run_diagnostics),
+                    )
             except asyncio.CancelledError:
                 # abortActiveRun is the platform-owned cancellation path.  A
                 # browser disconnect does not cancel this detached producer.
@@ -1387,27 +1370,26 @@ async def _handle(ctx):
                     # Stop the visible cursor immediately when answer tokens
                     # finish. The already-running follow-up job may land a
                     # moment later, but it must never create a second pause.
-                    await queue.put(presenter.frame(progress_event(
+                    await queue.put(presenter.progress(
                         "synthesis",
                         "completed",
-                    )))
-                    await queue.put(presenter.frame(progress_event(
+                    ))
+                    await queue.put(presenter.progress(
                         "finalizing",
                         "completed",
-                    )))
-                    await queue.put(presenter.frame(progress_event(
+                    ))
+                    await queue.put(presenter.progress(
                         "complete",
                         "completed",
-                    )))
+                    ))
                     hints = experience_hints_for_plan(
                         answer_capability_plan,
                         auth_type=str(identity.get("auth_type") or "guest"),
                     )
                     if hints:
-                        await queue.put(presenter.frame({
-                            "type": "experience_hint",
-                            "payload": {"schema_version": 1, "items": hints},
-                        }))
+                        await queue.put(
+                            presenter.experience_hints(hints),
+                        )
                     await queue.put(presenter.done(run_id))
                     if follow_up_task is not None:
                         if not clarification_emitted and not run_error:
@@ -1422,7 +1404,7 @@ async def _handle(ctx):
                         elif not follow_up_task.done():
                             follow_up_task.cancel()
                     if follow_ups:
-                        await queue.put(presenter.frame({"type": "follow_ups", "payload": {"items": follow_ups}}))
+                        await queue.put(presenter.follow_ups(follow_ups))
                     try:
                         await persist_answer_extras(follow_ups)
                     except Exception as exc:
@@ -1530,16 +1512,15 @@ async def _handle(ctx):
                                 proactive_state = await save_proactive_state(
                                     ctx.store.langgraph_store, proactive_state, user_id,
                                 )
-                                await queue.put(presenter.frame({
-                                    "type": "proactive_update",
-                                    "payload": public_proactive_state(proactive_state),
-                                }))
+                                await queue.put(presenter.proactive_update(
+                                    public_proactive_state(proactive_state),
+                                ))
                     except Exception as exc:
                         logging.warning("answer extras generation failed: %s", exc)
                 if pending_search_results is not None:
                     await queue.put(presenter.sources(pending_search_results))
                 if pending_papers is not None:
-                    await queue.put(presenter.frame({"type": "paper_results", "payload": pending_papers}))
+                    await queue.put(presenter.papers(pending_papers))
                 latest_run = await read_chat_run(ctx.store, conversation_id)
                 owns_run = not (
                     isinstance(latest_run, dict)
@@ -1563,12 +1544,11 @@ async def _handle(ctx):
                         await save_intelligence_state(ctx.store.langgraph_store, latest_intelligence, user_id)
                     except Exception as exc:
                         logging.warning("usage persistence failed: %s", exc)
-                    await queue.put(presenter.frame({
-                        "type": "usage",
-                        "input_tokens": usage[0],
-                        "output_tokens": usage[1],
-                        "total_tokens": usage[2] or usage[0] + usage[1],
-                    }))
+                    await queue.put(presenter.usage(
+                        usage[0],
+                        usage[1],
+                        usage[2] or usage[0] + usage[1],
+                    ))
                 await queue.put(done)
 
         producer = asyncio.create_task(produce())
@@ -1579,9 +1559,7 @@ async def _handle(ctx):
                         queue.get(), timeout=HEARTBEAT_SECONDS
                     )
                 except asyncio.TimeoutError:
-                    yield presenter.frame(
-                        {"type": "ping", "ts": int(time.time() * 1000)}
-                    )
+                    yield presenter.ping(int(time.time() * 1000))
                     continue
                 if frame is done:
                     break

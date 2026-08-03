@@ -118,6 +118,88 @@ class ChatStreamPresenterTests(unittest.TestCase):
         self.assertNotIn("exception", json.dumps(payload))
         self.assertNotIn("traceback", json.dumps(payload))
 
+    def test_typed_runtime_events_preserve_the_public_wire_shapes(self):
+        presenter = ChatStreamPresenter()
+        cases = [
+            (
+                presenter.progress(
+                    "retrieval",
+                    "active",
+                    activity="web_search",
+                ),
+                "progress_event",
+                "progress_event",
+            ),
+            (
+                presenter.tool_progress("rich_search", "completed"),
+                "progress_event",
+                "progress_event",
+            ),
+            (
+                presenter.browser_location_request("semantic_capability_plan"),
+                "browser_location_request",
+                "browser_location_request",
+            ),
+            (
+                presenter.stage_timing({"planning": 12}),
+                "stage_timing",
+                "stage_timing",
+            ),
+            (presenter.reset(), "ai_response_reset", "ai_response_reset"),
+            (presenter.tool_call("rich_search"), "tool_call", "tool_call"),
+            (
+                presenter.tool_result("rich_search", "ready"),
+                "tool_result",
+                "tool_result",
+            ),
+            (
+                presenter.papers({"papers": []}),
+                "paper_results",
+                "paper_results",
+            ),
+            (
+                presenter.clarification({"id": "clarify-1"}),
+                "clarification_action",
+                "clarification_action",
+            ),
+            (
+                presenter.action({
+                    "ui_action": "map_action",
+                    "action": {"id": "map-1"},
+                }),
+                "map_action",
+                "map_action",
+            ),
+            (
+                presenter.diagnostics({"stage": "graph_stream"}),
+                "error_diagnostics",
+                "error_diagnostics",
+            ),
+            (
+                presenter.experience_hints([{"skill_id": "web-search"}]),
+                "experience_hint",
+                "experience_hint",
+            ),
+            (
+                presenter.follow_ups(["继续"]),
+                "follow_ups",
+                "follow_ups",
+            ),
+            (
+                presenter.proactive_update({"notifications": []}),
+                "proactive_update",
+                "proactive_update",
+            ),
+            (presenter.usage(1, 2, 3), "usage", "usage"),
+            (presenter.ping(123), "ping", "ping"),
+        ]
+
+        for frame, expected_event, expected_type in cases:
+            with self.subTest(expected_event):
+                event, payload = decode(frame)
+                self.assertEqual(event, expected_event)
+                self.assertEqual(payload["type"], expected_type)
+
 
 if __name__ == "__main__":
     unittest.main()

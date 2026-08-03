@@ -57,6 +57,24 @@ def main() -> None:
             "application turn_controller.py must not shadow the controller layer"
         )
 
+    chat_turn_service = AGENTS / "_application" / "chat" / "turn_service.py"
+    chat_turn_tree = ast.parse(
+        chat_turn_service.read_text(encoding="utf-8"),
+        filename=str(chat_turn_service),
+    )
+    if any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "frame"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "presenter"
+        for node in ast.walk(chat_turn_tree)
+    ):
+        failures.append(
+            "turn_service.py must emit typed ChatStreamPresenter events, "
+            "not assemble raw presenter.frame payloads"
+        )
+
     skill_assembler = (
         AGENTS / "_infrastructure" / "skills" / "builtin_operations.py"
     )

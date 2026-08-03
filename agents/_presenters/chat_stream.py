@@ -143,6 +143,32 @@ class ChatStreamPresenter:
         payload["payload"]["elapsed_ms"] = max(0, int(elapsed_ms))
         return self.frame(payload, event="stage")
 
+    def progress(
+        self,
+        stage: str,
+        status: str,
+        *,
+        activity: str = "general",
+    ) -> bytes:
+        return self.frame(
+            progress_event(stage, status, activity=activity),
+        )
+
+    def tool_progress(self, tool_name: str, status: str) -> bytes:
+        return self.frame(tool_progress_event(tool_name, status))
+
+    def browser_location_request(self, reason: str) -> bytes:
+        return self.frame({
+            "type": "browser_location_request",
+            "payload": {"reason": reason},
+        })
+
+    def stage_timing(self, timings_ms: Mapping[str, Any]) -> bytes:
+        return self.frame({
+            "type": "stage_timing",
+            "timings_ms": dict(timings_ms),
+        })
+
     def sources(
         self,
         evidence: SearchEvidence | Mapping[str, Any],
@@ -161,6 +187,9 @@ class ChatStreamPresenter:
             event="token",
         )
 
+    def reset(self) -> bytes:
+        return self.frame({"type": "ai_response_reset"})
+
     def media(
         self,
         evidence: SearchEvidence | Mapping[str, Any],
@@ -172,6 +201,72 @@ class ChatStreamPresenter:
             },
             event="media",
         )
+
+    def tool_call(self, name: str) -> bytes:
+        return self.frame({"type": "tool_call", "name": name})
+
+    def tool_result(self, name: str, content: str) -> bytes:
+        return self.frame({
+            "type": "tool_result",
+            "name": name,
+            "content": content,
+        })
+
+    def papers(self, payload: Any) -> bytes:
+        return self.frame({"type": "paper_results", "payload": payload})
+
+    def clarification(self, action: Mapping[str, Any]) -> bytes:
+        return self.frame({
+            "type": "clarification_action",
+            "payload": dict(action),
+        })
+
+    def action(self, action: Mapping[str, Any]) -> bytes:
+        action_payload = dict(action)
+        return self.frame({
+            "type": action_payload["ui_action"],
+            "payload": action_payload,
+        })
+
+    def diagnostics(self, payload: Mapping[str, Any]) -> bytes:
+        return self.frame({
+            "type": "error_diagnostics",
+            "payload": dict(payload),
+        })
+
+    def experience_hints(self, items: list[Mapping[str, Any]]) -> bytes:
+        return self.frame({
+            "type": "experience_hint",
+            "payload": {"schema_version": 1, "items": items},
+        })
+
+    def follow_ups(self, items: list[str]) -> bytes:
+        return self.frame({
+            "type": "follow_ups",
+            "payload": {"items": items},
+        })
+
+    def proactive_update(self, payload: Mapping[str, Any]) -> bytes:
+        return self.frame({
+            "type": "proactive_update",
+            "payload": dict(payload),
+        })
+
+    def usage(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        total_tokens: int,
+    ) -> bytes:
+        return self.frame({
+            "type": "usage",
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+        })
+
+    def ping(self, timestamp_ms: int) -> bytes:
+        return self.frame({"type": "ping", "ts": timestamp_ms})
 
     def error(self, code: str, message: str) -> bytes:
         return self.frame(
