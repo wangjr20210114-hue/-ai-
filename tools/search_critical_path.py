@@ -146,7 +146,7 @@ async def run_fake_critical_path(
             result_limit=8,
             image_limit=2,
             force_refresh=True,
-            media_mode="blocking",
+            media_mode="progressive",
         ),
         on_media=on_media,
     )

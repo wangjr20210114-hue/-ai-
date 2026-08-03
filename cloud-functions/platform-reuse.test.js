@@ -395,7 +395,7 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
   const sources = await Promise.all([
     read('frontend/src/app/App.tsx'),
     read('frontend/src/main.tsx'),
-    read('frontend/src/services/auth.ts'),
+    read('frontend/src/shared/auth/session.ts'),
     read('frontend/src/features/papers/model/api.ts'),
     read('frontend/src/components/chat/InputBar.tsx'),
     read('frontend/src/features/chat/view/MessageBubble.tsx'),

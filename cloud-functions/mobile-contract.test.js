@@ -106,6 +106,7 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   assert.doesNotMatch(publicComponentEnvelope, /tenant_id|user_id|request_id/);
   assert.match(guide, /Android.*HarmonyOS.*iOS/s);
   assert.match(guide, /source_id/);
+  assert.match(guide, /search_media.*可以与.*ai_response.*交错到达/s);
   assert.doesNotMatch(guide, /GitHub/);
   for (const path of Object.keys(api.paths)) {
     assert.match(guide, new RegExp(path.replaceAll('/', '\\/')));

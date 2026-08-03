@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import time
 import unittest
@@ -13,7 +14,11 @@ from agents._application.skills.access import (
     resolve_skill_access as resolve_test_skill_access,
 )
 from agents._application.search.search_use_case import SearchExecution
-from agents._domain.search.evidence import SearchEvidence, SearchSource
+from agents._domain.search.evidence import (
+    ReviewedMedia,
+    SearchEvidence,
+    SearchSource,
+)
 from agents._tests.auth_helpers import auth_env, auth_headers
 from agents._tests.support.fakes import FakeCheckpointer, FakeStore
 from agents.chat._capability_plan import DEFAULT_PLAN
@@ -115,6 +120,51 @@ class _FailingSearchUseCase:
     async def execute(self, request, *, on_media=None) -> SearchExecution:
         del request, on_media
         raise TimeoutError("search provider timed out")
+
+
+class _ProgressiveSearchUseCase:
+    execute_count = 0
+
+    def __init__(self, **_values) -> None:
+        pass
+
+    async def execute(self, request, *, on_media=None) -> SearchExecution:
+        type(self).execute_count += 1
+        source = SearchSource(
+            id="source-runtime-1",
+            title="Runtime source",
+            url="https://example.com/runtime",
+            snippet="Verified runtime evidence.",
+        )
+        enriched = SearchEvidence(
+            query=request.query,
+            sources=(source,),
+            media=(ReviewedMedia(
+                id="media-runtime-1",
+                url="https://img.example.com/runtime.jpg",
+                source_id=source.id,
+                source_url=source.url,
+                vision_reviewed=True,
+            ),),
+            total=1,
+        )
+
+        async def publish_media() -> SearchEvidence:
+            await asyncio.sleep(0)
+            if on_media is not None:
+                await on_media(enriched)
+            return enriched
+
+        return SearchExecution(
+            evidence=SearchEvidence(
+                query=request.query,
+                sources=(source,),
+                total=1,
+                media_pending=True,
+            ),
+            media_tasks=(asyncio.create_task(publish_media()),),
+            provider_request_count=1,
+        )
 
 
 def _plan(**updates) -> dict:
@@ -359,6 +409,42 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertRegex(wire, r'"timings_ms":\{"search":\d+\}')
+
+    async def test_cloudbase_search_streams_sources_and_bound_media_once(self):
+        _ProgressiveSearchUseCase.execute_count = 0
+        wire, store = await self._run(
+            "cloudbase-progressive-search",
+            _plan(
+                needs_web_search=True,
+                needs_images=True,
+                search_query="recent AI progress",
+                image_query="AI launch event",
+                _capabilities=["web_search"],
+            ),
+            identity={"auth_type": "cloudbase", "membership": "free"},
+            search_use_case_type=_ProgressiveSearchUseCase,
+        )
+
+        self.assertEqual(_ProgressiveSearchUseCase.execute_count, 1)
+        self.assertEqual(wire.count('"type":"search_results"'), 1)
+        self.assertEqual(wire.count('"type":"search_media"'), 1)
+        self.assertIn('"source_id":"source-runtime-1"', wire)
+        self.assertIn('"vision_reviewed":true', wire)
+        self.assertLess(wire.index("event: sources"), wire.index("event: token"))
+        self.assertLess(wire.index("event: media"), wire.index("data: [DONE]"))
+        self.assertNotIn('"login_required":true', wire)
+        extras = [
+            value
+            for (namespace, key), value in store.langgraph_store.values.items()
+            if key == "latest_extras" and namespace
+        ]
+        self.assertEqual(len(extras), 1)
+        persisted = extras[0]["search_results"]
+        self.assertEqual(persisted["results"][0]["id"], "source-runtime-1")
+        self.assertEqual(
+            persisted["media"][0]["source_id"],
+            "source-runtime-1",
+        )
 
     async def test_representative_plans_construct_tools_and_finish_streams(self):
         plans = {

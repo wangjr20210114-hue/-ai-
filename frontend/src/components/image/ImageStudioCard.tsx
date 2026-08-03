@@ -5,7 +5,7 @@ import {
   loadGeneratedImage,
   streamImageEdit,
 } from '../../features/image-studio/model/client';
-import { withEdgeOneAuth } from '../../services/auth';
+import { withEdgeOneAuth } from '../../shared/auth/session';
 import { createZip } from '../../services/zip';
 import type { WorkspaceAction } from '../../shared/types';
 import { useLanguage, type TranslationKey } from '../../i18n';

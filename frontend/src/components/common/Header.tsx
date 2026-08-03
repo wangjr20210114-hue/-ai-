@@ -16,7 +16,7 @@ import {
   ensureAuthSession,
   openAuthDialog,
   type AuthSession,
-} from '../../services/auth';
+} from '../../shared/auth/session';
 import { useAvatarUrl } from '../../shared/auth/useAvatarUrl';
 
 const THEME_KEY = 'travel-theme';

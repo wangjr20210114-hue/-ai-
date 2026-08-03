@@ -179,13 +179,13 @@ curl -N -X POST "$BASE/chat" \
 ```text
 progress_event
 search_results
-search_media
-ai_response
+ai_response (重复增量)
+search_media (审核完成后渐进补入)
 answer_complete
 data: [DONE]
 ```
 
-`ai_response.content` 是增量文本。`search_results` 和 `search_media` 也可能多次到达，客户端按 `source_id` 合并，不能先放一个最终占位卡再删除。
+`ai_response.content` 是增量文本。图片审核不阻塞正文首字，`search_media` 可以与多条 `ai_response` 交错到达；`search_results` 和 `search_media` 也可能多次到达或先后互换。客户端必须按 `source_id` 合并，不能先放一个最终占位卡再删除，也不能因为媒体稍后到达而重置正文或计时。
 
 需要渲染结构化组件的事件可能额外携带 `payload.component_api`。其中每项只有 `version`、`action` 和业务 `payload`；`tenant_id`、`user_id`、`request_id` 等身份范围只在服务端可信 Adapter 内存在，不会交给模型或客户端。客户端按 `action` 选择组件，遇到未知 action 时保留正文并忽略该项。
 
