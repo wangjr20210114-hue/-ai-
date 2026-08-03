@@ -20,12 +20,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.outlined.NorthEast
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
@@ -721,12 +723,17 @@ private fun SelectRow(
 fun FollowUpChips(items: List<String>, onClick: (String) -> Unit, modifier: Modifier = Modifier) {
     if (items.isEmpty()) return
     FlowRow(
-        modifier = modifier.padding(top = 8.dp),
+        modifier = modifier.fillMaxWidth().padding(top = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // 必须显式给出垂直间距：FlowRow 默认行间距为 0，
+        // 一旦换行两行 chips 会直接贴死重叠在一起。
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items.take(4).forEach { item ->
             Box(
                 Modifier
+                    // 单条最宽不超过容器的八成，避免过长文字把整行挤爆。
+                    .widthIn(max = 280.dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
                     .pressable { onClick(item) }
@@ -739,12 +746,15 @@ fun FollowUpChips(items: List<String>, onClick: (String) -> Unit, modifier: Modi
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
+                    Spacer(Modifier.width(4.dp))
+                    // 与快捷输入一致：图标表示"填入输入框"而非直接发送。
                     Icon(
-                        Icons.AutoMirrored.Filled.ArrowForward,
+                        Icons.Outlined.NorthEast,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(14.dp).padding(start = 2.dp),
+                        modifier = Modifier.size(13.dp),
                     )
                 }
             }

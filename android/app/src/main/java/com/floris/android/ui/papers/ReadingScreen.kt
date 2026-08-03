@@ -188,7 +188,7 @@ fun ReadingScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
             .statusBarsPadding(),
     ) {
         // 标题区
-        Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 10.dp)) {
+        Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 10.dp)) {
             Text(t(StringKey.ReadingTitle), style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.height(10.dp))
             SearchField(

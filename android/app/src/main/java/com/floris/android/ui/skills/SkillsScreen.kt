@@ -197,7 +197,7 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding(),
     ) {
-        Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 10.dp)) {
+        Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 10.dp)) {
             Text(
                 t(StringKey.SkillsEyebrow),
                 style = MaterialTheme.typography.labelSmall,

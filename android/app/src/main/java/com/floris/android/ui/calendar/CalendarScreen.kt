@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -106,7 +107,11 @@ fun CalendarScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) 
     var month by remember { mutableIntStateOf(today.get(Calendar.MONTH)) } // 0-based
     var selectedDay by remember { mutableStateOf(dayKeyOf(today)) }
 
-    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        // 状态栏由 statusBarsPadding 统一处理，避免与 innerPadding 叠加两遍。
+        contentWindowInsets = WindowInsets(0),
+    ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()

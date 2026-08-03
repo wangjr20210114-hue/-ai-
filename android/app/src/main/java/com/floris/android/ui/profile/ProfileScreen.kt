@@ -221,7 +221,7 @@ fun ProfileScreen(
         Text(
             t(StringKey.ProfileTitle),
             style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 6.dp),
+            modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 6.dp),
         )
 
         LazyColumn(

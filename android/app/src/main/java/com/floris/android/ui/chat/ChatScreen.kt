@@ -29,10 +29,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -45,8 +48,10 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.outlined.AddCircle
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.NorthEast
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -78,6 +83,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
@@ -223,6 +229,9 @@ fun ChatScreen(
         Scaffold(
             containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(snackbar) },
+            // 自己用 statusBarsPadding 处理状态栏，若再叠加 Scaffold 的
+            // innerPadding 会把状态栏高度算两遍，顶部凭空多出一大块空白。
+            contentWindowInsets = WindowInsets(0),
         ) { padding ->
             Column(
                 Modifier
@@ -245,8 +254,11 @@ fun ChatScreen(
                         )
 
                         state.messages.isEmpty() -> ChatEmptyState(
-                            modifier = Modifier.align(Alignment.Center),
-                            onSuggestion = { viewModel.send(it) },
+                            // 不再用 align(Center)：内容比容器高时会被上下裁掉，
+                            // 表现为最后一条快捷输入被压扁。改为可滚动的完整布局。
+                            modifier = Modifier.fillMaxSize(),
+                            // 快捷输入只填进输入框，由用户决定何时发送。
+                            onSuggestion = { draft = it },
                         )
 
                         else -> LazyColumn(
@@ -272,7 +284,8 @@ fun ChatScreen(
                                             onClarificationSubmit = { clarification, answers ->
                                                 viewModel.submitClarification(clarification, answers)
                                             },
-                                            onFollowUp = { viewModel.send(it) },
+                                            // 追问同样只填进输入框，用户可以先改再发。
+                                            onFollowUp = { draft = it },
                                             onRetry = viewModel::retryLast,
                                             onNotify = { text ->
                                                 scope.launch { snackbar.showSnackbar(text) }
@@ -357,13 +370,19 @@ private fun ChatEmptyState(modifier: Modifier, onSuggestion: (String) -> Unit) {
         t(StringKey.SuggestCode),
     )
     Column(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 28.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            // 可滚动 + 垂直居中：屏幕够高时保持居中，不够高时可以滑动，
+            // 任何一条快捷输入都不会被裁切压扁。
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 28.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
         QuotePill()
-        Spacer(Modifier.height(28.dp))
-        CatAvatar(size = 72.dp)
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(22.dp))
+        CatAvatar(size = 68.dp)
+        Spacer(Modifier.height(14.dp))
         Text(
             "FLORIS",
             style = MaterialTheme.typography.headlineLarge,
@@ -376,15 +395,18 @@ private fun ChatEmptyState(modifier: Modifier, onSuggestion: (String) -> Unit) {
             color = MaterialTheme.colorScheme.primary,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
         Text(
             t(StringKey.ChatIntro),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(26.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(Modifier.height(20.dp))
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             suggestions.forEach { suggestion ->
                 Row(
                     Modifier
@@ -400,12 +422,15 @@ private fun ChatEmptyState(modifier: Modifier, onSuggestion: (String) -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    Text(
-                        "→",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
+                    // 箭头改为"填入"语义的图标：点了是进输入框，不是直接发送。
+                    Icon(
+                        Icons.Outlined.NorthEast,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp),
                     )
                 }
             }
@@ -632,8 +657,8 @@ private fun InputBar(
     Column(
         Modifier
             .fillMaxWidth()
-            // 输入框继续下压：只保留必要的呼吸空间，底部贴到 Tab 栏。
-            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 2.dp),
+            // 贴到底部 Tab 栏：只留 4dp 呼吸，不再有多余留白。
+            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 0.dp),
     ) {
         AnimatedVisibility(visible = imageCount > 0, enter = fadeIn(), exit = fadeOut()) {
             Row(
