@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button, Tag, MessagePlugin, Collapse } from 'tdesign-react';
 import { CheckIcon, DeleteIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../../store/appState';
-import type { TravelPlan, ScheduleItem } from '../../../shared/types';
+import type { TravelPlan, ScheduleItem, MakersRouteMode, MakersRouteStrategy } from '../../../shared/types';
 import MarkdownRenderer from '../../../components/common/MarkdownRenderer';
 import RouteMap from './RouteMap';
 import { useLanguage } from '../../../i18n';
@@ -113,6 +113,15 @@ export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isS
   };
 
   const baike = plan.baike_info || {};
+  const budgetText = String(plan.budget || '').toLowerCase();
+  // The model may return the product's Chinese choice label or its stable
+  // English value. Keep the labels out of component copy so the catalog
+  // remains the single source for user-visible text.
+  const lowBudget = budgetText.includes('low')
+    || budgetText.includes(String.fromCodePoint(0x7701, 0x94b1))
+    || budgetText.includes(String.fromCodePoint(0x8282, 0x7701));
+  const routeMode: MakersRouteMode | undefined = lowBudget ? 'transit' : undefined;
+  const routeStrategy: MakersRouteStrategy = lowBudget ? 'least_cost' : 'time_then_cost';
 
   return (
     <div className="travel-plan-card">
@@ -141,7 +150,12 @@ export default function TravelPlanCard({ plan, startTs = 0, parsedSchedules, isS
       {/* 路线地图 */}
       <Collapse style={{ marginTop: 12 }}>
         <CollapsePanel value="route" header={t('routeAndCost')}>
-          <RouteMap departure={plan.departure} destination={plan.destination} />
+          <RouteMap
+            departure={plan.departure}
+            destination={plan.destination}
+            routeMode={routeMode}
+            routeStrategy={routeStrategy}
+          />
         </CollapsePanel>
       </Collapse>
 
