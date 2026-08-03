@@ -30,16 +30,41 @@ def manifest(**changes):
 
 
 class SkillAdapterSecurityTests(unittest.TestCase):
-    def test_only_trusted_system_skill_may_declare_model_fallback(self):
-        with self.assertRaisesRegex(ValueError, "trusted system Skills"):
+    def test_tool_cannot_publish_an_internal_component_action(self):
+        with self.assertRaisesRegex(ValueError, "only public component actions"):
             parse_skill_manifests([
-                manifest(kind="community", unavailable_fallback="model_only"),
+                manifest(
+                    adapter="agents._skill_adapters.example:build_tools",
+                    tools=[{
+                        "name": "adapter_tool",
+                        "capability": "adapter_capability",
+                        "publishes": ["workspace.state.read"],
+                    }],
+                    permissions=["components.workspace"],
+                    component_actions=["workspace.state.read"],
+                ),
             ])
 
-    def test_unknown_unavailable_fallback_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "invalid unavailable fallback"):
+    def test_executable_adapter_component_actions_are_bound_to_tools(self):
+        with self.assertRaisesRegex(ValueError, "unused component actions"):
             parse_skill_manifests([
-                manifest(unavailable_fallback="invent-results"),
+                manifest(
+                    adapter="agents._skill_adapters.example:build_tools",
+                    permissions=["components.search"],
+                    component_actions=["search.evidence.publish"],
+                ),
+            ])
+
+    def test_tool_cannot_publish_an_undeclared_component_action(self):
+        with self.assertRaisesRegex(ValueError, "declared in component_actions"):
+            parse_skill_manifests([
+                manifest(
+                    tools=[{
+                        "name": "adapter_tool",
+                        "capability": "adapter_capability",
+                        "publishes": ["search.evidence.publish"],
+                    }],
+                ),
             ])
 
     def test_system_adapter_must_live_under_trusted_package(self):

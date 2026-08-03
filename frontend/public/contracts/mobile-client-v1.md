@@ -187,6 +187,27 @@ data: [DONE]
 
 `ai_response.content` 是增量文本。`search_results` 和 `search_media` 也可能多次到达，客户端按 `source_id` 合并，不能先放一个最终占位卡再删除。
 
+需要渲染结构化组件的事件可能额外携带 `payload.component_api`。其中每项只有 `version`、`action` 和业务 `payload`；`tenant_id`、`user_id`、`request_id` 等身份范围只在服务端可信 Adapter 内存在，不会交给模型或客户端。客户端按 `action` 选择组件，遇到未知 action 时保留正文并忽略该项。
+
+```json
+{
+  "component_api": {
+    "version": "2026-08-04",
+    "publications": [
+      {
+        "version": "2026-08-04",
+        "action": "search.evidence.publish",
+        "payload": {
+          "source_id": "source-01",
+          "title": "已核验来源",
+          "url": "https://example.com/source"
+        }
+      }
+    ]
+  }
+}
+```
+
 ### POST /conversation
 
 需要单独保存消息时，通过服务端会话存储追加，不在客户端复制持久化逻辑。

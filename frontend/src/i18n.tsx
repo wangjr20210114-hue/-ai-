@@ -691,6 +691,7 @@ const catalog = {
   componentDocsCategoryFiles: ['文件', '檔案', 'Files', '文件喵', '文件'],
   componentDocsCategoryMaps: ['地图', '地圖', 'Maps', '地图喵', '地图'],
   componentDocsCategoryCalendar: ['日程', '日程', 'Calendar', '日程喵', '日程'],
+  componentDocsCategoryPaper: ['论文', '論文', 'Papers', '论文喵', '论文'],
   componentDocsCategoryImage: ['图片', '圖片', 'Images', '图片喵', '图片'],
   componentDocsCategoryOther: ['其他', '其他', 'Other', '其他喵', '其他'],
   componentDocsPermission: ['调用权限', '呼叫權限', 'Permission', '调用权限喵', '调用权限'],

@@ -10,10 +10,10 @@
   "default_enabled": true,
   "locked": true,
   "capabilities": ["clarification"],
-  "tools": [{"name": "ask_user_clarification", "capability": "clarification"}],
+  "tools": [{"name": "ask_user_clarification", "capability": "clarification", "publishes": ["clarification.request"]}],
   "adapter": "agents._skill_adapters.core.adapter:build_tools",
-  "permissions": ["makers.state", "makers.model", "makers.trace", "conversation.read", "user.read", "components.system"],
-  "component_actions": ["chat.progress.publish", "search.evidence.publish"],
+  "permissions": ["makers.state", "makers.model", "makers.trace", "conversation.read", "user.read", "components.chat"],
+  "component_actions": ["clarification.request"],
   "ui": {
     "icon": "◆",
     "name": {"zh-CN": "通用问答与创作", "zh-TW": "通用問答與創作", "en": "General chat and creation"},

@@ -86,13 +86,13 @@
     "workspaceAction": {
       "allOf": [
         { "$ref": "#/$defs/base" },
-        { "properties": { "type": { "enum": ["map_action", "calendar_action", "side_effect_action"] }, "payload": { "type": "object", "required": ["action"], "properties": { "action": { "$ref": "floris-components-v1.schema.json#/$defs/workspaceAction" } }, "additionalProperties": true } }, "required": ["payload"] }
+        { "properties": { "type": { "enum": ["map_action", "calendar_action", "side_effect_action"] }, "payload": { "type": "object", "required": ["action"], "properties": { "action": { "$ref": "floris-components-v1.schema.json#/$defs/workspaceAction" }, "component_api": { "$ref": "floris-components-v1.schema.json#/$defs/componentPublicationBatch" } }, "additionalProperties": true } }, "required": ["payload"] }
       ]
     },
     "clarification": {
       "allOf": [
         { "$ref": "#/$defs/base" },
-        { "properties": { "type": { "const": "clarification_action" }, "payload": { "type": "object", "required": ["clarification"], "properties": { "clarification": { "$ref": "floris-components-v1.schema.json#/$defs/clarification" } } } }, "required": ["payload"] }
+        { "properties": { "type": { "const": "clarification_action" }, "payload": { "type": "object", "required": ["clarification"], "properties": { "clarification": { "$ref": "floris-components-v1.schema.json#/$defs/clarification" }, "component_api": { "$ref": "floris-components-v1.schema.json#/$defs/componentPublicationBatch" } } } }, "required": ["payload"] }
       ]
     },
     "browserLocationRequest": {

@@ -15,8 +15,8 @@
   "adapter": "agents._skill_adapters.proactive_agent.adapter:build_tools",
   "preference_hook": "agents._skill_adapters.proactive_agent.adapter:on_preference_changed",
   "recommends": ["calendar", "maps"],
-  "permissions": ["makers.state", "makers.trace", "conversation.read", "user.read", "components.chat", "components.workspace"],
-  "component_actions": ["chat.progress.publish", "workspace.action.propose", "workspace.state.read"],
+  "permissions": ["makers.state", "makers.trace", "conversation.read", "user.read", "components.workspace"],
+  "component_actions": [],
   "ui": {
     "icon": "✦",
     "name": {"zh-CN": "主动式 Agent", "zh-TW": "主動式 Agent", "en": "Proactive Agent"},

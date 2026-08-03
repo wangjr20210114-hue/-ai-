@@ -10,11 +10,11 @@
   "default_enabled": true,
   "capabilities": ["meeting_action"],
   "plan_flags": ["needs_meeting_action"],
-  "tools": [{"name": "propose_meeting", "capability": "meeting_action"}],
+  "tools": [{"name": "propose_meeting", "capability": "meeting_action", "publishes": ["workspace.action.propose"]}],
   "adapter": "agents._skill_adapters.tencent_meeting.adapter:build_tools",
   "action_kinds": ["meeting_create"],
   "requires": ["calendar"],
-  "permissions": ["makers.state", "makers.trace", "conversation.read", "user.read", "components.calendar"],
+  "permissions": ["makers.state", "makers.trace", "conversation.read", "user.read", "components.workspace"],
   "env_keys": ["TENCENT_MEETING_TOKEN", "TENCENT_MEETING_SKILL_VERSION"],
   "external": true,
   "provider_env": ["TENCENT_MEETING_TOKEN"],
@@ -30,7 +30,7 @@
       "en": "Open Tencent Meeting AI Skill, sign in, and paste the personal token. Floris stores it server-side for seven days."
     }
   },
-  "component_actions": ["calendar.change.propose"],
+  "component_actions": ["workspace.action.propose"],
   "ui": {
     "icon": "会",
     "name": {"zh-CN": "腾讯会议", "zh-TW": "騰訊會議", "en": "Tencent Meeting"},

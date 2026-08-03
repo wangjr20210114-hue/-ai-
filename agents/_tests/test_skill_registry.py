@@ -97,21 +97,12 @@ class SkillRegistryContractTests(unittest.TestCase):
         )
         self.assertEqual(
             public_catalog["paper-reading"]["component_actions"],
-            [],
+            ["paper.results.publish"],
         )
         self.assertNotIn(
             "chat.progress.publish",
             public_catalog["web-search"]["component_actions"],
         )
-        self.assertEqual(
-            next(
-                manifest.unavailable_fallback
-                for manifest in manifests
-                if manifest.id == "web-search"
-            ),
-            "model_only",
-        )
-
     def test_edgeone_runtime_package_name_is_resolved_for_dynamic_entrypoints(self):
         with patch.object(
             runtime_module,

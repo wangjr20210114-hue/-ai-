@@ -19,18 +19,32 @@ const ERROR_CODES = [
   ['PERMISSION_DENIED', 'componentDocsErrorPermission'],
   ['CONFLICT', 'componentDocsErrorConflict'],
 ] as const;
-const CATEGORY_ORDER = ['search', 'maps', 'calendar', 'image'];
+const CATEGORY_ORDER = ['chat', 'search', 'maps', 'calendar', 'paper', 'image', 'workspace'];
 const CATEGORY_LABELS: Record<string, TranslationKey> = {
+  chat: 'componentDocsCategoryChat',
   search: 'componentDocsCategorySearch',
   maps: 'componentDocsCategoryMaps',
   calendar: 'componentDocsCategoryCalendar',
+  paper: 'componentDocsCategoryPaper',
   image: 'componentDocsCategoryImage',
+  workspace: 'componentDocsCategoryWorkspace',
 };
 
 type ComponentAction = SkillComponentApi['actions'][number];
 
 function actionExample(action: ComponentAction) {
   const examples: Record<string, Record<string, unknown>> = {
+    'clarification.request': {
+      action: action.id,
+      payload: {
+        clarification: {
+          id: 'travel-budget',
+          title: 'Budget preference',
+          prompt: 'Which style fits this trip?',
+          fields: [{ id: 'budget', label: 'Budget', type: 'single', options: ['Economy', 'Standard', 'Undecided'] }],
+        },
+      },
+    },
     'search.evidence.publish': {
       action: action.id,
       payload: { source_id: 'source-01', title: 'Product announcement', url: 'https://example.com/news' },
@@ -53,6 +67,14 @@ function actionExample(action: ComponentAction) {
     'image.result.publish': {
       action: action.id,
       payload: { storage_key: 'images/result.png', versions: [{ label: 'Original' }] },
+    },
+    'paper.results.publish': {
+      action: action.id,
+      payload: { papers: [{ title: 'Attention Is All You Need', arxiv_id: '1706.03762' }], topic: 'Transformer' },
+    },
+    'workspace.action.propose': {
+      action: action.id,
+      payload: { kind: 'meeting_create', payload: { subject: 'Project sync', start_time: '2026-08-05T10:00:00+08:00' } },
     },
   };
   if (examples[action.id]) return examples[action.id];

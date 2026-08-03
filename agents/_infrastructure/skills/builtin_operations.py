@@ -35,6 +35,7 @@ from ..._application.skills.registry import (
     tool_skill_map,
 )
 from ..._application.skills.runtime import build_adapter_tools
+from ..._application.skills.component_api import ComponentPublicationJournal
 from ..._application.skills.runtime_ports import (
     SKILL_SERVICE_NAMES,
     ToolOperationService,
@@ -94,6 +95,8 @@ def build_system_skill_tools(
     proactive_preferences: dict[str, Any] | None = None,
     tracer: Any = None,
     makers_checkpointer: Any = None,
+    request_id: str = "",
+    component_journal: ComponentPublicationJournal | None = None,
 ) -> list[StructuredTool]:
     user_id = required_user_id(user_id)
     runtime_env = env or {}
@@ -429,17 +432,20 @@ def build_system_skill_tools(
         for skill_id in active
         if skill_id in SKILL_SERVICE_NAMES
     }
+    journal = component_journal or ComponentPublicationJournal()
     adapter_tools = build_adapter_tools({
         "state_store": store,
         "checkpointer": makers_checkpointer,
         "model": model,
         "tracer": tracer,
         "conversation_id": conversation_id,
+        "request_id": str(request_id or conversation_id),
         "user_id": user_id,
         "identity": identity or {"user_id": user_id, "membership": "free"},
         "env": runtime_env,
         "browser_location": browser_current_location,
         "services": services,
+        "components": journal.handlers(),
     }, active)
     adapter_names = [str(getattr(tool, "name", "") or "") for tool in adapter_tools]
     duplicate_adapter_names = {

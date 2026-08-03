@@ -81,11 +81,14 @@ class SkillAndDataVersionTests(unittest.TestCase):
             item["id"] for item in public_component_api()["actions"]
         }
         self.assertEqual(public_actions, {
+            "clarification.request",
             "search.evidence.publish",
             "search.media.publish",
             "maps.place.select",
             "calendar.change.propose",
+            "paper.results.publish",
             "image.result.publish",
+            "workspace.action.propose",
         })
         self.assertIn("chat.progress.publish", known_component_actions())
         self.assertNotIn("chat.progress.publish", public_actions)

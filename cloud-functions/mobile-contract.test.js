@@ -97,6 +97,13 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   assert.ok(components.$defs.media.properties.source_id);
   assert.ok(components.$defs.routePlan.properties.legs);
   assert.ok(components.$defs.routeLeg.properties.sections);
+  assert.ok(components.$defs.componentPublicationBatch);
+  assert.deepEqual(
+    components.$defs.componentPublication.required,
+    ['version', 'action', 'payload'],
+  );
+  const publicComponentEnvelope = JSON.stringify(components.$defs.componentPublicationBatch);
+  assert.doesNotMatch(publicComponentEnvelope, /tenant_id|user_id|request_id/);
   assert.match(guide, /Android.*HarmonyOS.*iOS/s);
   assert.match(guide, /source_id/);
   assert.doesNotMatch(guide, /GitHub/);

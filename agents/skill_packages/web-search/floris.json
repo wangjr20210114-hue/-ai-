@@ -8,16 +8,15 @@
   "order": 10,
   "category": "knowledge",
   "default_enabled": true,
-  "unavailable_fallback": "model_only",
   "capabilities": ["web_search"],
   "plan_flags": ["needs_web_search"],
   "tools": [
-    {"name": "rich_search", "capability": "web_search"},
+    {"name": "rich_search", "capability": "web_search", "publishes": ["search.evidence.publish", "search.media.publish"]},
     {"name": "collect_page_images", "capability": "web_search", "required": false}
   ],
   "adapter": "agents._skill_adapters.web_search.adapter:build_tools",
-  "permissions": ["makers.state", "makers.trace", "conversation.read", "user.read", "components.chat", "components.search"],
-  "component_actions": ["chat.progress.publish", "search.evidence.publish", "search.media.publish"],
+  "permissions": ["makers.state", "makers.trace", "conversation.read", "user.read", "components.search"],
+  "component_actions": ["search.evidence.publish", "search.media.publish"],
   "ui": {
     "icon": "◎",
     "name": {"zh-CN": "实时搜索", "zh-TW": "即時搜尋", "en": "Live search"},

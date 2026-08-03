@@ -58,13 +58,12 @@ class SkillRuntimeContext:
         "_browser_location",
         "_components",
         "_component_actions",
+        "_tool_component_actions",
         "_services",
-        "_kind",
     )
 
     def __init__(self, manifest: SkillManifest, runtime: Mapping[str, Any]):
         self.skill_id = manifest.id
-        self._kind = manifest.kind
         self.permissions = manifest.permissions
         self.conversation_id = (
             str(runtime.get("conversation_id") or "")
@@ -138,6 +137,10 @@ class SkillRuntimeContext:
             else {}
         )
         self._component_actions = frozenset(manifest.component_actions)
+        self._tool_component_actions = MappingProxyType({
+            binding.name: tuple(binding.publishes)
+            for binding in manifest.tools
+        })
         services = runtime.get("services")
         self._services = (
             services
@@ -180,7 +183,7 @@ class SkillRuntimeContext:
             raise ValueError("Makers Blob store name is required")
         return get_store(clean_name, consistency=consistency)
 
-    def component(self, action: str):
+    def component(self, action: str, *, publication_key: str = ""):
         """Return one host-provided typed component action after permission checks."""
         clean_action = str(action or "").strip()
         if clean_action not in known_component_actions():
@@ -191,13 +194,7 @@ class SkillRuntimeContext:
                 f"{clean_action}"
             )
         permission = component_permission(clean_action)
-        if (
-            permission not in self.permissions
-            and not (
-                self._kind == "system"
-                and "components.system" in self.permissions
-            )
-        ):
+        if permission not in self.permissions:
             raise PermissionError(
                 f"Skill {self.skill_id} did not declare component permission {permission}"
             )
@@ -211,10 +208,20 @@ class SkillRuntimeContext:
                 request_id=self.request_id,
                 tenant_id=self.tenant_id,
                 user_id=self.user_id,
+                publication_key=publication_key,
             )
             return handler(envelope)
 
         return dispatch
+
+    def component_actions_for_tool(self, name: str) -> tuple[str, ...]:
+        """Return the manifest-owned publications for one Adapter tool."""
+        clean_name = str(name or "").strip()
+        if clean_name not in self._tool_component_actions:
+            raise PermissionError(
+                f"Skill {self.skill_id} does not own tool {clean_name}"
+            )
+        return self._tool_component_actions[clean_name]
 
     def service(self, name: str):
         """Return only a declared, controller-supplied application service."""

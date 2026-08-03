@@ -47,6 +47,10 @@ from ...chat._graph import build_graph, grounded_route_stream_answer
 from ...chat._llm import get_model
 from ..._infrastructure.skills import build_system_skill_tools
 from ..._application.skills.access import resolve_skill_access
+from ..._application.skills.component_api import (
+    ComponentPublicationJournal,
+    attach_component_publications,
+)
 from ...chat._capability_plan import (
     DEFAULT_PLAN,
     fallback_tools_for_prompt_topics,
@@ -630,6 +634,7 @@ async def _handle(ctx):
     # matching incorrectly treated “截至今天的最新能力” as “published today”
     # and discarded the latest verifiable release from earlier dates.
     queue: asyncio.Queue = asyncio.Queue()
+    component_journal = ComponentPublicationJournal()
     search_runner = PlannedSearchRunner(
         ctx=ctx,
         presenter=presenter,
@@ -733,6 +738,8 @@ async def _handle(ctx):
             proactive_preferences=proactive_state.get("preferences") or {},
             tracer=getattr(ctx, "tracer", None),
             makers_checkpointer=ctx.store.langgraph_checkpointer,
+            request_id=run_id,
+            component_journal=component_journal,
         )
     blocked_skill = str(capability_plan.get("blocked_skill") or "").strip()
     # Preserve main's graph semantics: rich_search is the first required tool,
@@ -1151,9 +1158,22 @@ async def _handle(ctx):
                                     "_runtime_model_fallback_skills"
                                 ] = fallback_skills
                             action = _ui_action(tool_content)
+                            component_publications = component_journal.drain_public(
+                                str(tool_name or ""),
+                            )
+                            if action and component_publications:
+                                action = attach_component_publications(
+                                    action,
+                                    component_publications,
+                                )
                             if action and action.get("ui_action") == "rich_search_results":
                                 metadata = action.get("search_results")
                                 if isinstance(metadata, dict):
+                                    if action.get("component_api"):
+                                        metadata = {
+                                            **metadata,
+                                            "component_api": action["component_api"],
+                                        }
                                     if (
                                         isinstance(
                                             search_runner.latest_enriched_media,

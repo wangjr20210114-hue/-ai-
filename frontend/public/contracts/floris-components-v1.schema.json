@@ -9,9 +9,32 @@
     { "$ref": "#/$defs/paperResults" },
     { "$ref": "#/$defs/clarification" },
     { "$ref": "#/$defs/workspaceAction" },
+    { "$ref": "#/$defs/componentPublicationBatch" },
     { "$ref": "#/$defs/experienceHintEnvelope" }
   ],
   "$defs": {
+    "componentPublication": {
+      "type": "object",
+      "required": ["version", "action", "payload"],
+      "properties": {
+        "version": { "type": "string" },
+        "action": { "type": "string" },
+        "payload": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+    "componentPublicationBatch": {
+      "type": "object",
+      "required": ["version", "publications"],
+      "properties": {
+        "version": { "type": "string" },
+        "publications": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/componentPublication" }
+        }
+      },
+      "additionalProperties": false
+    },
     "progress": {
       "type": "object",
       "required": ["schema_version", "stage", "status", "activity", "source"],
@@ -235,7 +258,8 @@
         "target_date": { "type": "string" },
         "strict_date": { "type": "boolean" },
         "media_pending": { "type": "boolean" },
-        "timings_ms": { "type": "object", "additionalProperties": { "type": "number" } }
+        "timings_ms": { "type": "object", "additionalProperties": { "type": "number" } },
+        "component_api": { "$ref": "#/$defs/componentPublicationBatch" }
       },
       "additionalProperties": true
     },
@@ -262,7 +286,8 @@
       "required": ["papers"],
       "properties": {
         "papers": { "type": "array", "items": { "$ref": "#/$defs/paper" } },
-        "topic": { "type": "string" }
+        "topic": { "type": "string" },
+        "component_api": { "$ref": "#/$defs/componentPublicationBatch" }
       },
       "additionalProperties": true
     },

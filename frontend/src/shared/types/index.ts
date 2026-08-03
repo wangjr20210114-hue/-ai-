@@ -420,6 +420,17 @@ export interface RichMediaAsset {
   vision_fallback?: boolean;
 }
 
+export interface ComponentPublication {
+  version: string;
+  action: string;
+  payload: Record<string, unknown>;
+}
+
+export interface ComponentPublicationBatch {
+  version: string;
+  publications: ComponentPublication[];
+}
+
 export interface SearchMeta {
   schema_version?: number;
   query: string;
@@ -434,6 +445,8 @@ export interface SearchMeta {
   media_pending?: boolean;
   vision_diagnostics?: Record<string, number>;
   timings_ms?: Record<string, number>;
+  /** Sanitized trusted-Adapter publications; identity remains server-side. */
+  component_api?: ComponentPublicationBatch;
   search_config?: {
     result_limit: number;
     image_limit: number;

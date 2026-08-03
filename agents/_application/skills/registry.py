@@ -38,7 +38,6 @@ _PERMISSIONS = {
     "conversation.read",
     "user.read",
     "browser.location",
-    "components.system",
 }
 from .component_api import (  # noqa: E402
     COMPONENT_PERMISSIONS,
@@ -149,6 +148,7 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
             name=name,
             capability=capability,
             required=bool(item.get("required", True)),
+            publishes=_string_tuple(item.get("publishes")),
         ))
     action_kinds = _string_tuple(raw.get("action_kinds"))
     if any(not _ACTION_ID.fullmatch(item) for item in action_kinds):
@@ -162,8 +162,6 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         raise ValueError(
             f"{source}: unknown Makers permissions {sorted(unknown_permissions)}"
         )
-    if kind != "system" and "components.system" in permissions:
-        raise ValueError(f"{source}: only system Skills may request components.system")
     component_actions = _string_tuple(raw.get("component_actions"))
     unknown_component_actions = set(component_actions) - set(
         known_component_actions()
@@ -172,11 +170,40 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         raise ValueError(
             f"{source}: unknown component actions {sorted(unknown_component_actions)}"
         )
+    published_component_actions = {
+        action
+        for binding in tool_bindings
+        for action in binding.publishes
+    }
+    non_public_tool_publications = (
+        published_component_actions - set(PUBLIC_COMPONENT_ACTIONS)
+    )
+    if non_public_tool_publications:
+        raise ValueError(
+            f"{source}: tools may publish only public component actions "
+            f"{sorted(non_public_tool_publications)}"
+        )
+    undeclared_tool_publications = (
+        published_component_actions - set(component_actions)
+    )
+    if undeclared_tool_publications:
+        raise ValueError(
+            f"{source}: tool publications must be declared in component_actions "
+            f"{sorted(undeclared_tool_publications)}"
+        )
+    if str(raw.get("adapter") or "").strip():
+        unused_component_actions = (
+            set(component_actions) - published_component_actions
+        )
+        if unused_component_actions:
+            raise ValueError(
+                f"{source}: executable adapter declares unused component actions "
+                f"{sorted(unused_component_actions)}"
+            )
     missing_component_permissions = {
         component_permission(action)
         for action in component_actions
         if component_permission(action) not in permissions
-        and not (kind == "system" and "components.system" in permissions)
     }
     if missing_component_permissions:
         raise ValueError(
@@ -218,15 +245,6 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
     recovery_tools = _string_tuple(planner.get("recovery_tools"))
     if any(not _TOOL_ID.fullmatch(item) for item in recovery_tools):
         raise ValueError(f"{source}: invalid planner recovery tool")
-    unavailable_fallback = str(
-        raw.get("unavailable_fallback") or "block"
-    ).strip()
-    if unavailable_fallback not in {"block", "model_only"}:
-        raise ValueError(f"{source}: invalid unavailable fallback")
-    if unavailable_fallback != "block" and kind != "system":
-        raise ValueError(
-            f"{source}: only trusted system Skills may declare a fallback"
-        )
     manifest = SkillManifest(
         id=skill_id,
         version=version,
@@ -249,10 +267,6 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         requires=_string_tuple(raw.get("requires")),
         recommends=_string_tuple(raw.get("recommends")),
         conflicts=_string_tuple(raw.get("conflicts")),
-        degrade_when_capabilities=_string_tuple(
-            raw.get("degrade_when_capabilities")
-        ),
-        unavailable_fallback=unavailable_fallback,
         permissions=permissions,
         env_keys=_string_tuple(raw.get("env_keys")),
         adapter=str(raw.get("adapter") or "").strip(),
@@ -321,15 +335,6 @@ def _validate_registry(manifests: Iterable[SkillManifest]) -> tuple[SkillManifes
             )
         if manifest.id in related:
             raise ValueError(f"Skill {manifest.id} cannot relate to itself")
-        missing_capabilities = (
-            set(manifest.degrade_when_capabilities) - set(capability_owner)
-        )
-        if missing_capabilities:
-            raise ValueError(
-                f"Skill {manifest.id} references missing degradation "
-                f"capabilities {sorted(missing_capabilities)}"
-            )
-
     visiting: set[str] = set()
     visited: set[str] = set()
 
@@ -544,23 +549,6 @@ def skill_plan_flags() -> dict[str, tuple[str, ...]]:
         manifest.id: manifest.plan_flags
         for manifest in skill_manifests()
         if manifest.plan_flags
-    }
-
-
-def skill_degradation_capabilities() -> dict[str, tuple[str, ...]]:
-    return {
-        manifest.id: manifest.degrade_when_capabilities
-        for manifest in skill_manifests()
-        if manifest.degrade_when_capabilities
-    }
-
-
-def skill_unavailable_fallbacks() -> dict[str, str]:
-    """Return manifest-owned behavior when an entitled Skill is unavailable."""
-    return {
-        manifest.id: manifest.unavailable_fallback
-        for manifest in skill_manifests()
-        if manifest.unavailable_fallback != "block"
     }
 
 
