@@ -41,6 +41,20 @@ def _client() -> httpx.AsyncClient:
     return client
 
 
+async def close_http_transport() -> None:
+    """Close the current loop's shared client during worker/test shutdown.
+
+    Makers keeps a warm event loop for normal requests, so callers should not
+    use this between requests.  It is an explicit lifecycle hook for bounded
+    workers, local benchmarks and graceful shutdown; keeping it explicit avoids
+    defeating connection reuse on every chat turn.
+    """
+    loop = asyncio.get_running_loop()
+    client = _CLIENTS.pop(loop, None)
+    if client is not None and not client.is_closed:
+        await client.aclose()
+
+
 def _timeout(value: float) -> httpx.Timeout:
     bounded = max(1.0, min(60.0, float(value)))
     return httpx.Timeout(

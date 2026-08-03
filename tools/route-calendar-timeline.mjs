@@ -1,7 +1,15 @@
+import {
+  createSmokeClient,
+  createSmokeConversationId,
+} from './smoke-session.mjs';
+
+
 const baseUrl = String(
   process.env.FLORIS_SMOKE_BASE_URL || 'https://floris.jlutx.com',
 ).replace(/\/+$/, '');
-const conversationId = `yb7_timeline_${Date.now()}`;
+const authQuery = String(process.env.FLORIS_SMOKE_AUTH_QUERY || '').replace(/^\?/, '');
+const smoke = await createSmokeClient({ baseUrl, authQuery });
+const conversationId = createSmokeConversationId('route-timeline');
 const startedAt = performance.now();
 const events = [];
 
@@ -52,7 +60,7 @@ const message = coldScenario
       '依次为：北京站、天安们、故宫博物院、景山公园、北海公园、北京西站。',
     ].join('');
 
-const response = await fetch(`${baseUrl}/chat`, {
+const response = await smoke.fetch('/chat', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -84,6 +92,7 @@ if (buffer.trim()) record(buffer);
 
 process.stdout.write(`${JSON.stringify({
   base_url: baseUrl,
+  auth: smoke.auth,
   conversation_id: conversationId,
   total_ms: elapsedMs(),
   events,

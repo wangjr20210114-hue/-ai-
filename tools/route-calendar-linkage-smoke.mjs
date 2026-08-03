@@ -1,10 +1,13 @@
+import {
+  createSmokeClient,
+  createSmokeConversationId,
+} from './smoke-session.mjs';
+
+
 const baseUrl = String(process.env.FLORIS_SMOKE_BASE_URL || 'https://floris.jlutx.com').replace(/\/+$/, '');
 const authQuery = String(process.env.FLORIS_SMOKE_AUTH_QUERY || '').replace(/^\?/, '');
 const runStamp = Date.now();
-
-function endpoint(path) {
-  return `${baseUrl}${path}${authQuery ? `?${authQuery}` : ''}`;
-}
+const smoke = await createSmokeClient({ baseUrl, authQuery });
 
 function parseEvents(body) {
   const events = [];
@@ -71,7 +74,7 @@ function summarize(id, conversationId, durationMs, events) {
 
 async function chat(id, conversationId, body) {
   const startedAt = Date.now();
-  const response = await fetch(endpoint('/chat'), {
+  const response = await smoke.fetch('/chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -139,7 +142,7 @@ const results = [];
 const selectedScenario = String(process.env.FLORIS_LINKAGE_SCENARIO || '').trim();
 
 if (!selectedScenario || selectedScenario === 'clean') {
-  const conversationId = `yb7_linkage_${runStamp}_clean`;
+  const conversationId = createSmokeConversationId('linkage', 'clean');
   let result = await chat('six-stops-clean-with-typos', conversationId, {
     message: `${baseInstruction}依次为：北京站、天安们、故宫博物院、景山公园、北海公园、北京西站。`,
   });
@@ -187,7 +190,7 @@ if (!selectedScenario || selectedScenario === 'clean') {
 }
 
 if (!selectedScenario || selectedScenario === 'ambiguous') {
-  const conversationId = `yb7_linkage_${runStamp}_ambiguous`;
+  const conversationId = createSmokeConversationId('linkage', 'ambiguous');
   const result = await chat('six-stops-ambiguous-place', conversationId, {
     message: `${baseInstruction}依次为：北京站、天安门、故宫博物院、万达广场、北海公园、北京西站。`,
   });
@@ -198,7 +201,7 @@ if (!selectedScenario || selectedScenario === 'ambiguous') {
 }
 
 if (!selectedScenario || selectedScenario === 'missing') {
-  const conversationId = `yb7_linkage_${runStamp}_missing`;
+  const conversationId = createSmokeConversationId('linkage', 'missing');
   let result = await chat('six-stops-missing-place', conversationId, {
     message: `${baseInstruction}依次为：北京站、天安门、故宫博物院、景山公园、北海公园、咕咕塔XYZ。`,
   });
@@ -221,7 +224,7 @@ if (!selectedScenario || selectedScenario === 'missing') {
 }
 
 if (!selectedScenario || selectedScenario === 'mixed') {
-  const conversationId = `yb7_linkage_${runStamp}_mixed`;
+  const conversationId = createSmokeConversationId('linkage', 'mixed');
   let result = await chat('six-stops-mixed-turn-1', conversationId, {
     message: `${baseInstruction}依次为：北京站、天安们、故宫博物院、万达广场、北京301医元、咕咕塔XYZ。`,
   });
@@ -252,6 +255,7 @@ if (!selectedScenario || selectedScenario === 'mixed') {
 process.stdout.write(`${JSON.stringify({
   ok: true,
   base_url: baseUrl,
+  auth: smoke.auth,
   run_stamp: runStamp,
   cases: results,
 }, null, 2)}\n`);
