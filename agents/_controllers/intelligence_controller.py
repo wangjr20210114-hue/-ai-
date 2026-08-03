@@ -27,10 +27,8 @@ from .._domain.entitlements.policy import (
     public_entitlements,
 )
 from .._infrastructure.http import error
-from .._application.skills.registry import (
-    run_preference_hooks,
-    skill_manifest,
-)
+from .._application.skills.registry import skill_manifest
+from .._application.skills.runtime import run_preference_hooks
 from .._views.intelligence import public_intelligence_view
 
 

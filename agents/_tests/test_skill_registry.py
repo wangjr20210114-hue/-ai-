@@ -9,9 +9,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import agents._application.skills.registry as registry_module
+import agents._application.skills.runtime as runtime_module
 from agents._application.skills.registry import (
-    SkillRuntimeContext,
-    build_adapter_tools,
     default_skill_preferences,
     locked_skill_ids,
     parse_skill_manifests,
@@ -23,6 +22,10 @@ from agents._application.skills.registry import (
     skill_manifests,
     tool_skill_map,
     unavailable_skills_for_action,
+)
+from agents._application.skills.runtime import (
+    SkillRuntimeContext,
+    build_adapter_tools,
 )
 from agents._application.intelligence.service import (
     configure_skill_connection,
@@ -111,12 +114,12 @@ class SkillRegistryContractTests(unittest.TestCase):
 
     def test_edgeone_runtime_package_name_is_resolved_for_dynamic_entrypoints(self):
         with patch.object(
-            registry_module,
+            runtime_module,
             "__package__",
             "pages_agents._application.skills",
         ):
             self.assertEqual(
-                registry_module._runtime_module_name(
+                runtime_module._runtime_module_name(
                     "agents._skill_adapters.proactive_agent"
                 ),
                 "pages_agents._skill_adapters.proactive_agent",

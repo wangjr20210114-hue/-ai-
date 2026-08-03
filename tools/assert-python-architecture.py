@@ -75,6 +75,45 @@ def main() -> None:
             "not assemble raw presenter.frame payloads"
         )
 
+    skill_registry = AGENTS / "_application" / "skills" / "registry.py"
+    skill_runtime = AGENTS / "_application" / "skills" / "runtime.py"
+    skill_registry_tree = ast.parse(
+        skill_registry.read_text(encoding="utf-8"),
+        filename=str(skill_registry),
+    )
+    runtime_declarations = {
+        "_runtime_root_package",
+        "_runtime_module_name",
+        "SkillRuntimeContext",
+        "build_adapter_tools",
+        "run_preference_hooks",
+    }
+    registry_runtime_shadows = {
+        node.name
+        for node in skill_registry_tree.body
+        if isinstance(
+            node,
+            (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+        )
+        and node.name in runtime_declarations
+    }
+    if registry_runtime_shadows:
+        failures.append(
+            "skills/registry.py must not shadow trusted runtime declarations: "
+            f"{sorted(registry_runtime_shadows)}"
+        )
+    registry_lines = len(
+        skill_registry.read_text(encoding="utf-8").splitlines()
+    )
+    runtime_lines = len(
+        skill_runtime.read_text(encoding="utf-8").splitlines()
+    )
+    if registry_lines > 750 or runtime_lines > 450:
+        failures.append(
+            "Skill manifest and runtime responsibilities must remain split "
+            f"(registry={registry_lines}/750, runtime={runtime_lines}/450)"
+        )
+
     skill_assembler = (
         AGENTS / "_infrastructure" / "skills" / "builtin_operations.py"
     )

@@ -6,10 +6,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agents._application.skills.registry import (
-    build_adapter_tools,
-    parse_skill_manifests,
-)
+from agents._application.skills.registry import parse_skill_manifests
+from agents._application.skills.runtime import build_adapter_tools
 
 
 def manifest(**changes):

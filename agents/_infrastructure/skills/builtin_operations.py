@@ -28,13 +28,13 @@ from ..._application.proactive.service import load_proactive_state, propose_work
 from ..._infrastructure.makers.provider_usage_repository import record_provider_usage, record_vision_diagnostics
 from ..._infrastructure.makers.identity import required_user_id
 from ..._application.skills.registry import (
-    build_adapter_tools,
     capability_skill_map,
     default_skill_preferences,
     locked_skill_ids,
     resolve_enabled_skills,
     tool_skill_map,
 )
+from ..._application.skills.runtime import build_adapter_tools
 from ..._application.skills.runtime_ports import (
     SKILL_SERVICE_NAMES,
     ToolOperationService,
