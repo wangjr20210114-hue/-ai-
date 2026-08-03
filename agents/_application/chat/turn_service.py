@@ -1071,6 +1071,29 @@ def _apply_route_protocol_answers(
     return updated
 
 
+def _apply_calendar_protocol_answers(
+    arguments: dict,
+    answers: list[dict],
+) -> dict:
+    """Bind route-calendar card values without asking the model to rebuild stops."""
+    updated = copy.deepcopy(arguments)
+    for answer in answers:
+        field_id = str(answer.get("id") or "")
+        value = _clarification_scalar(answer)
+        if not value:
+            continue
+        if field_id == "route_calendar_start":
+            updated["route_start_time"] = value
+        elif field_id == "route_calendar_stop_minutes":
+            try:
+                updated["route_stop_minutes"] = max(15, min(720, int(value)))
+            except ValueError:
+                continue
+    if updated.get("route_start_time"):
+        updated["changes"] = []
+    return updated
+
+
 def _apply_nearby_protocol_answers(
     arguments: dict,
     answers: list[dict],
@@ -1215,6 +1238,18 @@ def resume_capability_protocol(
         plan["route_uses_current_location"] = bool(
             route_arguments.get("use_current_location_as_origin")
         )
+    calendar_arguments = planned_arguments.get("propose_calendar_changes")
+    if isinstance(calendar_arguments, dict):
+        planned_arguments["propose_calendar_changes"] = _apply_calendar_protocol_answers(
+            calendar_arguments,
+            clarification_answers or [],
+        )
+        if any(
+            str(answer.get("id") or "").startswith("route_calendar_")
+            for answer in (clarification_answers or [])
+            if isinstance(answer, dict)
+        ):
+            plan["reuse_latest_route"] = True
     return plan, planned_arguments
 
 
@@ -2020,6 +2055,11 @@ async def _handle(ctx):
             planned_route_calendar_hint=str(
                 capability_plan.get("route_calendar_hint") or ""
             ),
+            planned_reuse_latest_route=bool(
+                capability_plan.get("reuse_latest_route")
+                or body.get("activity") == "route_calendar_offer_accepted"
+            ),
+            requested_route_plan_id=str(body.get("route_plan_id") or "")[:80],
             planned_calendar_place_resolution=bool(
                 capability_plan.get("needs_calendar_action")
                 and capability_plan.get("needs_places")

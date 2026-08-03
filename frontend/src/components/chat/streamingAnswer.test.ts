@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { publicAssistantMarkdown } from './streamingAnswer';
+import { publicAssistantMarkdown, workspaceActionsReady } from './streamingAnswer';
 
 describe('publicAssistantMarkdown', () => {
   it('removes leaked internal action buttons while preserving the answer', () => {
@@ -17,5 +17,10 @@ describe('publicAssistantMarkdown', () => {
     expect(publicAssistantMarkdown(
       '地点已找到。\n\n<button data-action="map" data-action-id="maprec_123"',
     )).toBe('地点已找到。');
+  });
+
+  it('reveals map and calendar actions only after the answer finishes', () => {
+    expect(workspaceActionsReady(true)).toBe(false);
+    expect(workspaceActionsReady(false)).toBe(true);
   });
 });

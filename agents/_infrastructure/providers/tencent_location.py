@@ -651,6 +651,130 @@ def _decoded_route_path(route: dict[str, Any]) -> list[dict[str, float]]:
     return path
 
 
+def _decoded_polyline(value: Any) -> list[dict[str, float]]:
+    """Decode one Tencent geometry without walking unrelated sibling nodes."""
+    if not isinstance(value, dict):
+        return []
+    polyline = value.get("polyline")
+    if not isinstance(polyline, list) or not polyline:
+        return []
+    try:
+        return decode_polyline(polyline)
+    except (TypeError, ValueError):
+        return []
+
+
+def _route_section_mode(value: str, fallback: str) -> str:
+    normalized = str(value or "").strip().upper()
+    if normalized == "WALKING":
+        return "walking"
+    if normalized in {"BICYCLING", "BICYCLE", "BIKE"}:
+        return "bicycling"
+    if normalized in {"RAIL", "SUBWAY", "METRO", "TRAIN"}:
+        return "rail"
+    if normalized in {"BUS", "COACH"}:
+        return "bus"
+    if normalized in {"DRIVING", "CAR", "TAXI"}:
+        return "driving"
+    if normalized in {"TRANSIT", "PUBLIC_TRANSPORT"}:
+        return "transit"
+    return fallback
+
+
+def _route_sections(route: dict[str, Any], mode: str) -> list[dict[str, Any]]:
+    """Preserve Tencent's selected walking/vehicle geometry for map layers."""
+    sections: list[dict[str, Any]] = []
+    for step in route.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        step_mode = str(step.get("mode") or "")
+        if step_mode.upper() == "WALKING":
+            path = _decoded_polyline(step)
+            if path:
+                sections.append({
+                    "mode": "walking",
+                    "path": path,
+                    "distance_meters": round(float(step.get("distance") or 0)),
+                    "duration_seconds": round(float(step.get("duration") or 0) * 60),
+                    "instruction": str(step.get("instruction") or "")[:240],
+                })
+            continue
+        selected_lines = [
+            line for line in (step.get("lines") or [])
+            if isinstance(line, dict)
+        ]
+        selected = selected_lines[0] if selected_lines else step
+        path = _decoded_polyline(selected) or _decoded_polyline(step)
+        if not path:
+            continue
+        vehicle = str(selected.get("vehicle") or step_mode)
+        geton = selected.get("geton") if isinstance(selected.get("geton"), dict) else {}
+        getoff = selected.get("getoff") if isinstance(selected.get("getoff"), dict) else {}
+        sections.append({
+            "mode": _route_section_mode(vehicle, mode),
+            "path": path,
+            "distance_meters": round(float(selected.get("distance") or step.get("distance") or 0)),
+            "duration_seconds": round(float(selected.get("duration") or step.get("duration") or 0) * 60),
+            "line": str(selected.get("title") or selected.get("name") or "")[:120],
+            "vehicle": vehicle.upper(),
+            "geton": str(geton.get("title") or "")[:120],
+            "getoff": str(getoff.get("title") or "")[:120],
+            "station_count": max(0, int(selected.get("station_count") or 0)),
+            "instruction": str(step.get("instruction") or "")[:240],
+        })
+    if sections:
+        return sections
+    path = _decoded_route_path(route)
+    return ([{
+        "mode": mode,
+        "path": path,
+        "distance_meters": round(float(route.get("distance") or 0)),
+        "duration_seconds": round(float(route.get("duration") or 0) * 60),
+    }] if path else [])
+
+
+def _path_distance(path: list[dict[str, float]]) -> float:
+    distance = 0.0
+    for left, right in zip(path, path[1:]):
+        lat = math.radians((float(left["latitude"]) + float(right["latitude"])) / 2)
+        dy = (float(right["latitude"]) - float(left["latitude"])) * 111_320
+        dx = (
+            (float(right["longitude"]) - float(left["longitude"]))
+            * 111_320
+            * math.cos(lat)
+        )
+        distance += math.hypot(dx, dy)
+    return distance
+
+
+def _split_route_path(
+    path: list[dict[str, float]], places: list[dict[str, Any]],
+) -> list[list[dict[str, float]]]:
+    """Split a single waypoint route at the nearest ordered stop coordinates."""
+    if len(places) < 2:
+        return []
+    if len(path) < 2:
+        return [[] for _ in range(len(places) - 1)]
+    boundaries = [0]
+    cursor = 0
+    for place in places[1:-1]:
+        target_lat = float(place.get("latitude") or 0)
+        target_lng = float(place.get("longitude") or 0)
+        remaining = range(cursor, len(path) - 1)
+        nearest = min(
+            remaining,
+            key=lambda index: (
+                (float(path[index]["latitude"]) - target_lat) ** 2
+                + (float(path[index]["longitude"]) - target_lng) ** 2
+            ),
+            default=cursor,
+        )
+        cursor = max(cursor, nearest)
+        boundaries.append(cursor)
+    boundaries.append(len(path) - 1)
+    return [path[start:end + 1] for start, end in zip(boundaries, boundaries[1:])]
+
+
 async def normalize_route_places(
     key: str, places: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -866,6 +990,7 @@ async def _plan_route_leg(
     return {
         "places": coords,
         "path": _decoded_route_path(route),
+        "sections": _route_sections(route, mode),
         "distance_meters": distance,
         "duration_seconds": duration,
         "fare": fare,
@@ -932,6 +1057,32 @@ async def plan_route(
             strategy=strategy,
             near_time_tolerance_minutes=near_time_tolerance_minutes,
         )
+        leg_paths = _split_route_path(
+            list(combined.get("path") or []), places,
+        )
+        measured_total = sum(_path_distance(path) for path in leg_paths)
+        combined["legs"] = []
+        for index, leg_path in enumerate(leg_paths):
+            share = (
+                _path_distance(leg_path) / measured_total
+                if measured_total > 0 else 1 / max(1, len(leg_paths))
+            )
+            leg_distance = round(float(combined.get("distance_meters") or 0) * share)
+            leg_duration = round(float(combined.get("duration_seconds") or 0) * share)
+            combined["legs"].append({
+                "from": places[index],
+                "to": places[index + 1],
+                "mode": mode,
+                "path": leg_path,
+                "sections": [{
+                    "mode": mode,
+                    "path": leg_path,
+                    "distance_meters": leg_distance,
+                    "duration_seconds": leg_duration,
+                }],
+                "distance_meters": leg_distance,
+                "duration_seconds": leg_duration,
+            })
     else:
         semaphore = asyncio.Semaphore(3)
 
@@ -955,6 +1106,20 @@ async def plan_route(
             path.extend(segment)
         combined = {
             "path": path,
+            "legs": [
+                {
+                    "from": places[index],
+                    "to": places[index + 1],
+                    "mode": mode,
+                    "path": list(leg.get("path") or []),
+                    "sections": list(leg.get("sections") or []),
+                    "distance_meters": round(float(leg.get("distance_meters") or 0)),
+                    "duration_seconds": round(float(leg.get("duration_seconds") or 0)),
+                    **({"fare": leg.get("fare") or {}} if leg.get("fare") else {}),
+                    **({"transit": leg.get("transit") or {}} if mode == "transit" else {}),
+                }
+                for index, leg in enumerate(legs)
+            ],
             "distance_meters": sum(float(leg.get("distance_meters") or 0) for leg in legs),
             "duration_seconds": sum(float(leg.get("duration_seconds") or 0) for leg in legs),
             "fare": (
@@ -1005,7 +1170,7 @@ async def plan_route(
             },
         }
     return {
-        "schema_version": 2 if mode == "driving" else 3,
+        "schema_version": 4,
         "provider": "tencent",
         "mode": mode,
         "places": places,

@@ -640,6 +640,30 @@ export interface MakersMapPlace {
 
 export type MakersRouteMode = 'driving' | 'transit' | 'walking' | 'bicycling';
 export type MakersRouteStrategy = 'time_then_cost' | 'least_time' | 'least_cost';
+export type MakersRouteSectionMode = MakersRouteMode | 'bus' | 'rail';
+
+export interface MakersRouteSection {
+  mode: MakersRouteSectionMode;
+  path: Array<{ latitude: number; longitude: number }>;
+  distance_meters: number;
+  duration_seconds: number;
+  line?: string;
+  vehicle?: string;
+  geton?: string;
+  getoff?: string;
+  station_count?: number;
+  instruction?: string;
+}
+
+export interface MakersRouteLeg {
+  from: MakersMapPlace;
+  to: MakersMapPlace;
+  mode: MakersRouteMode;
+  path: Array<{ latitude: number; longitude: number }>;
+  sections: MakersRouteSection[];
+  distance_meters: number;
+  duration_seconds: number;
+}
 
 export type WorkspaceActionKind = 'map_recommendation' | 'calendar_changes' | 'meeting_create' | 'image_generate';
 export type WorkspaceActionStatus = 'ready' | 'active' | 'awaiting_confirmation' | 'executing' | 'succeeded' | 'failed' | 'cancelled' | 'reconciliation_required';
@@ -690,6 +714,7 @@ export interface MakersRoutePlan {
   mode: MakersRouteMode;
   places: MakersMapPlace[];
   path: Array<{ latitude: number; longitude: number }>;
+  legs?: MakersRouteLeg[];
   distance_meters: number;
   duration_seconds: number;
   fare: {

@@ -1,5 +1,9 @@
 const INTERNAL_ACTION_BUTTON = /<button\b[^>]*\bdata-action(?:-id)?\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>[\s\S]*?<\/button\s*>/gi;
 
+export function workspaceActionsReady(streaming?: boolean): boolean {
+  return !streaming;
+}
+
 function hideUnclosedDelimiterTail(content: string, delimiter: string): string {
   let count = 0;
   let cursor = 0;

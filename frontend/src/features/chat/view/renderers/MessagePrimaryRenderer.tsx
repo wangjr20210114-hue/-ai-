@@ -2,7 +2,7 @@ import type { RefObject } from 'react';
 import { CheckIcon, CopyIcon, ImageIcon } from 'tdesign-icons-react';
 
 import type { MessageBubbleController } from '../../controller/useMessageBubbleController';
-import { publicAssistantMarkdown, streamingMarkdownAnswer } from '../../../../components/chat/streamingAnswer';
+import { publicAssistantMarkdown, streamingMarkdownAnswer, workspaceActionsReady } from '../../../../components/chat/streamingAnswer';
 import { useLanguage } from '../../../../i18n';
 import type { ChatClient } from '../../../../services/chatClient';
 import type { ChatMessage, ProactiveState } from '../../../../shared/types';
@@ -95,7 +95,7 @@ export function MessagePrimaryRenderer({
     >
       {controller.retryingAnswer ? t('retrying') : t('retryGeneration')}
     </button>}
-    <WorkspaceActionRenderer
+    {workspaceActionsReady(message.streaming) && <WorkspaceActionRenderer
       actions={controller.workspaceActions}
       busyKey={controller.workspaceBusy}
       conversationId={conversationId}
@@ -114,7 +114,7 @@ export function MessagePrimaryRenderer({
         onConfirm={() => controller.handleWorkspaceAction(action, 'confirm_action')}
         onCancel={() => controller.handleWorkspaceAction(action, 'cancel_action')}
       />}
-    />
+    />}
     {!message.streaming && markdown.trim() && assistantChainTail && <div className="answer-action-group">
       <button
         type="button"

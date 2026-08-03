@@ -253,7 +253,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         with patch("agents._infrastructure.providers.tencent_location._get", AsyncMock(return_value=response)):
             route = await plan_driving_route("key", places)
         self.assertEqual(route["duration_seconds"], 24 * 60)
-        self.assertEqual(route["schema_version"], 2)
+        self.assertEqual(route["schema_version"], 4)
 
     async def test_tencent_taxi_fare_is_not_misreported_as_a_road_toll(self):
         places = [

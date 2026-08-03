@@ -29,6 +29,7 @@ def route_cache_key(
     } for item in places if isinstance(item, dict)]
     value = json.dumps(
         {
+            "contract_version": 2,
             "places": normalized,
             "optimize": bool(optimize),
             "mode": str(mode or "driving"),

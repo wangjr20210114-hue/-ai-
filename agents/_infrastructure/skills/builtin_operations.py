@@ -1146,6 +1146,8 @@ def build_system_skill_tools(
     planned_route_strategy: str = "default",
     planned_route_uses_current_location: bool = False,
     planned_route_calendar_hint: str = "",
+    planned_reuse_latest_route: bool = False,
+    requested_route_plan_id: str = "",
     planned_calendar_place_resolution: bool = False,
     browser_current_location: dict[str, Any] | None = None,
     map_preferences: dict[str, Any] | None = None,
@@ -2398,6 +2400,15 @@ def build_system_skill_tools(
             "mode": selected_route_mode,
             "strategy": selected_route_strategy,
             "selection": copy.deepcopy(route.get("selection") or {}),
+            "legs": [
+                {
+                    "distance_meters": round(float(leg.get("distance_meters") or 0)),
+                    "duration_seconds": round(float(leg.get("duration_seconds") or 0)),
+                    "mode": str(leg.get("mode") or selected_route_mode),
+                }
+                for leg in (route.get("legs") or [])
+                if isinstance(leg, dict)
+            ][:11],
             "calendar_hint": str(planned_route_calendar_hint or "").strip()[:240],
         }
         state["latest_route_plan"] = route_plan
@@ -2624,17 +2635,22 @@ def build_system_skill_tools(
 
     async def propose_calendar_changes(
         summary: str,
-        changes: list[dict],
+        changes: list[dict] | None = None,
         source_route_plan_id: str = "",
+        route_start_time: str = "",
+        route_stop_minutes: int = 90,
     ) -> str:
         """Prepare create/update/delete changes; the calendar is mutated only after UI confirmation."""
-        if not isinstance(changes, list) or not 1 <= len(changes) <= 24:
-            raise ValueError("日程变更数量必须在 1 到 24 项之间")
         state = await _load_state()
+        changes = changes if isinstance(changes, list) else []
         candidates = state.get("place_candidates", {})
         latest_route = state.get("latest_route_plan")
         route_plans = state.get("route_plans", {})
-        route_source_id = str(source_route_plan_id or "").strip()
+        route_source_id = str(
+            requested_route_plan_id or source_route_plan_id or ""
+        ).strip()
+        if not route_source_id and planned_reuse_latest_route and isinstance(latest_route, dict):
+            route_source_id = str(latest_route.get("id") or "").strip()
         if not route_source_id and isinstance(latest_route, dict):
             # Infer the route link before normalizing event durations. This
             # lets the adapter safely represent an instantaneous verified
@@ -2682,6 +2698,86 @@ def build_system_skill_tools(
             # Workspaces created before route history was introduced still
             # expose one valid route through latest_route_plan.
             linked_route = latest_route
+        linked_calendar_stops = [
+            stop
+            for stop in (
+                (linked_route.get("ordered_stops") or [])
+                if isinstance(linked_route, dict)
+                else []
+            )
+            if isinstance(stop, dict) and str(stop.get("place_id") or "")
+        ]
+        if (
+            isinstance(linked_route, dict)
+            and linked_route.get("implicit_browser_origin")
+            and linked_calendar_stops
+        ):
+            linked_calendar_stops = linked_calendar_stops[1:]
+        # The route continuation is a trusted adapter boundary. When the UI
+        # carries the route id, do not make the model copy every stop and
+        # schedule timestamp back into a fragile tool call. Ask only for the
+        # missing user-owned timing choices, then derive the ordered proposal
+        # from the provider-verified route below.
+        route_continuation = bool(
+            isinstance(linked_route, dict)
+            and route_source_id
+            and (planned_reuse_latest_route or requested_route_plan_id)
+        )
+        if route_continuation and linked_calendar_stops and route_start_time:
+            stop_minutes = max(15, min(720, int(route_stop_minutes or 90)))
+            start = _parse_datetime(route_start_time)
+            leg_data = linked_route.get("legs") if isinstance(linked_route, dict) else []
+            leg_offset = 1 if linked_route.get("implicit_browser_origin") else 0
+            generated_changes: list[dict[str, Any]] = []
+            current = start
+            for index, stop in enumerate(linked_calendar_stops):
+                end = current + timedelta(minutes=stop_minutes)
+                generated_changes.append({
+                    "operation": "create",
+                    "event": {
+                        "title": f"第{index + 1}站：{str(stop.get('name') or '行程地点')[:100]}",
+                        "start_time": current.isoformat(),
+                        "end_time": end.isoformat(),
+                        "place_id": str(stop.get("place_id") or ""),
+                        "location_kind": "physical",
+                        "description": "由已核实路线自动排入；确认前仍可编辑",
+                    },
+                })
+                current = end
+                leg_index = index + leg_offset
+                if isinstance(leg_data, list) and leg_index < len(leg_data):
+                    current += timedelta(
+                        seconds=max(0, int(float((leg_data[leg_index] or {}).get("duration_seconds") or 0)))
+                    )
+            changes = generated_changes
+        elif route_continuation and linked_calendar_stops and (
+            len(changes) != len(linked_calendar_stops)
+        ):
+            return _clarification_action(
+                conversation_id,
+                title="把这条路线排进日程",
+                prompt="请补充出发日期和时间，以及每个地点预计停留多久；我会按已核实的路线顺序生成可编辑日程。",
+                fields=[
+                    {
+                        "id": "route_calendar_start",
+                        "label": "什么时候出发？",
+                        "type": "datetime",
+                        "required": True,
+                        "options": [],
+                        "placeholder": "例如：2026-08-04 08:00",
+                    },
+                    {
+                        "id": "route_calendar_stop_minutes",
+                        "label": "每个地点停留多久？",
+                        "type": "single",
+                        "required": True,
+                        "options": ["60 分钟", "90 分钟", "120 分钟"],
+                        "option_values": {"60 分钟": "60", "90 分钟": "90", "120 分钟": "120"},
+                    },
+                ],
+            )
+        if not 1 <= len(changes) <= 24:
+            raise ValueError("日程变更数量必须在 1 到 24 项之间")
         if isinstance(linked_route, dict):
             for stop in linked_route.get("ordered_stops") or []:
                 if not isinstance(stop, dict) or stop.get("ephemeral"):
@@ -2712,21 +2808,6 @@ def build_system_skill_tools(
             )
             if isinstance(place, dict) and str(place.get("place_id") or "")
         }
-        linked_calendar_stops = [
-            stop
-            for stop in (
-                (linked_route.get("ordered_stops") or [])
-                if isinstance(linked_route, dict)
-                else []
-            )
-            if isinstance(stop, dict) and str(stop.get("place_id") or "")
-        ]
-        if (
-            isinstance(linked_route, dict)
-            and linked_route.get("implicit_browser_origin")
-            and linked_calendar_stops
-        ):
-            linked_calendar_stops = linked_calendar_stops[1:]
         submitted_create_count = sum(
             1
             for raw_change in changes

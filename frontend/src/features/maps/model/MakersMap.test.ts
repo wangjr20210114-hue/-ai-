@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
 import { chronologicalSchedulePlaces, shouldPlanMakersRoute } from './makersMapRouting';
-import type { MakersMapPlace, ScheduleItem } from '../../../shared/types';
+import { legModeSequence, routeLegs, routeZoomLevel } from './routePresentation';
+import type { MakersMapPlace, MakersRoutePlan, ScheduleItem } from '../../../shared/types';
 
 describe('MakersMap geolocation recovery', () => {
   it('reuses a recent authorized location after a page refresh', () => {
@@ -61,5 +62,38 @@ describe('MakersMap geolocation recovery', () => {
 
     expect(chronologicalSchedulePlaces(items).map((item) => item.name))
       .toEqual(['早餐店', '北京站', '锦江之星']);
+  });
+
+  it('changes route detail naturally with map zoom', () => {
+    expect(routeZoomLevel(7)).toBe('overview');
+    expect(routeZoomLevel(10)).toBe('legs');
+    expect(routeZoomLevel(15)).toBe('sections');
+  });
+
+  it('keeps mixed transport modes in the provider order for each leg', () => {
+    const place = (name: string): MakersMapPlace => ({
+      place_id: name, name, address: name, latitude: 30.2, longitude: 120.1,
+    });
+    const route: MakersRoutePlan = {
+      schema_version: 4,
+      provider: 'tencent',
+      mode: 'transit',
+      places: [place('灵隐寺'), place('西湖')],
+      path: [],
+      distance_meters: 5000,
+      duration_seconds: 1800,
+      fare: { currency: 'CNY', basis: '' },
+      legs: [{
+        from: place('灵隐寺'), to: place('西湖'), mode: 'transit', path: [],
+        distance_meters: 5000, duration_seconds: 1800,
+        sections: [
+          { mode: 'walking', path: [], distance_meters: 300, duration_seconds: 300 },
+          { mode: 'bus', line: '278路', path: [], distance_meters: 4200, duration_seconds: 1200 },
+          { mode: 'walking', path: [], distance_meters: 500, duration_seconds: 300 },
+        ],
+      }],
+    };
+    expect(routeLegs(route)).toHaveLength(1);
+    expect(legModeSequence(routeLegs(route)[0])).toEqual(['walking', 'bus', 'walking']);
   });
 });

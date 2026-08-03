@@ -27,6 +27,7 @@ from agents.chat.index import (
     location_clarification_copy,
     normalize_browser_current_location,
     normalize_browser_location_request,
+    resume_capability_protocol,
 )
 from agents._controllers.workspace_controller import _learn_from_activated_route
 
@@ -59,6 +60,30 @@ class FakeStore:
 
 
 class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    def test_route_calendar_clarification_resumes_with_structured_timing(self):
+        plan, arguments = resume_capability_protocol(
+            {},
+            {
+                "version": "1",
+                "required_tools": ["propose_calendar_changes"],
+                "planned_tool_arguments": {
+                    "propose_calendar_changes": {
+                        "summary": "把路线排进日程",
+                        "changes": [],
+                    },
+                },
+            },
+            [
+                {"id": "route_calendar_start", "value": "2099-08-04T08:00"},
+                {"id": "route_calendar_stop_minutes", "value": "60"},
+            ],
+        )
+        self.assertTrue(plan["reuse_latest_route"])
+        calendar = arguments["propose_calendar_changes"]
+        self.assertEqual(calendar["route_start_time"], "2099-08-04T08:00")
+        self.assertEqual(calendar["route_stop_minutes"], 60)
+        self.assertEqual(calendar["changes"], [])
+
     def test_route_plan_decoder_never_rewrites_place_spelling(self):
         plan = parse_capability_plan({
             "needs_route": True,
@@ -1112,6 +1137,11 @@ class RouteDialogueBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(route["fare"]["transit"]["estimate"], 3)
         self.assertEqual(route["transit"]["walking_distance_meters"], 500)
         self.assertEqual(route["transit"]["lines"], ["地铁1号线"])
+        self.assertEqual(
+            [section["mode"] for section in route["legs"][0]["sections"]],
+            ["walking", "rail"],
+        )
+        self.assertEqual(route["legs"][0]["sections"][1]["line"], "地铁1号线")
         self.assertEqual(route["places"][0]["coordinate_type"], "gcj02")
         self.assertGreaterEqual(len(route["path"]), 2)
 

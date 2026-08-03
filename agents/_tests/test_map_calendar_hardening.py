@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -55,6 +56,71 @@ class FakeStore:
 
 
 class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
+    async def test_route_calendar_continuation_collects_timing_then_reuses_verified_stops(self):
+        store = FakeStore()
+        state = empty_workspace()
+        stops = [
+            {
+                **PLACE_A,
+                "place_id": f"hangzhou-{index}",
+                "name": name,
+                "address": f"杭州市{name}",
+            }
+            for index, name in enumerate(("灵隐寺", "西湖", "河坊街"), 1)
+        ]
+        state["place_candidates"] = {item["place_id"]: item for item in stops}
+        route_plan = {
+            "id": "routeplan-hangzhou",
+            "created_at": int(time.time()),
+            "ordered_stops": stops,
+            "distance_meters": 16_900,
+            "duration_seconds": 8_700,
+            "mode": "transit",
+            "legs": [
+                {"duration_seconds": 1_800, "distance_meters": 6_000, "mode": "transit"},
+                {"duration_seconds": 2_100, "distance_meters": 10_900, "mode": "transit"},
+            ],
+        }
+        state["latest_route_plan"] = route_plan
+        state["route_plans"] = {route_plan["id"]: route_plan}
+        await save_workspace(store, TEST_USER_ID, state)
+        tools = build_system_skill_tools(
+            None,
+            store=store,
+            conversation_id="route-calendar-continuation",
+            user_id=TEST_USER_ID,
+            env={},
+            planned_reuse_latest_route=True,
+            requested_route_plan_id=route_plan["id"],
+        )
+        calendar_tool = next(item for item in tools if item.name == "propose_calendar_changes")
+
+        clarification = json.loads(await calendar_tool.ainvoke({
+            "summary": "把路线添加到日程",
+            "changes": [],
+        }))
+        self.assertEqual(clarification["ui_action"], "clarification_action")
+        self.assertEqual(
+            [field["id"] for field in clarification["clarification"]["fields"]],
+            ["route_calendar_start", "route_calendar_stop_minutes"],
+        )
+
+        result = json.loads(await calendar_tool.ainvoke({
+            "summary": "杭州一日游",
+            "changes": [],
+            "route_start_time": "2099-08-04T08:00:00+08:00",
+            "route_stop_minutes": 60,
+        }))
+        payload = result["action"]["payload"]
+        self.assertEqual(payload["source_route_plan_id"], route_plan["id"])
+        self.assertEqual(
+            [change["event"]["place"]["place_id"] for change in payload["changes"]],
+            [item["place_id"] for item in stops],
+        )
+        starts = [change["event"]["start_time"] for change in payload["changes"]]
+        self.assertEqual(starts[1] - starts[0], 90 * 60)
+        self.assertEqual(starts[2] - starts[1], 95 * 60)
+
     def test_map_preferences_are_bounded_and_have_speed_profiles(self):
         self.assertEqual(
             normalize_map_preferences({"service_mode": "fast"})["search_timeout_seconds"],

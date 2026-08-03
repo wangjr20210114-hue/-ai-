@@ -202,9 +202,6 @@ html:lang(en) { --app-display-font-family: 'New York', Georgia, 'Times New Roman
 .makers-route-error { padding: 8px 10px; font-size: 12px; }
 .makers-route-loading { color: var(--app-text-2); }
 .makers-route-error { color: #b4232c; background: color-mix(in srgb, #d54941 7%, var(--app-panel)); }
-.makers-route-summary { display: flex; flex-wrap: wrap; gap: 6px 10px; padding: 9px 10px; background: rgba(var(--app-accent-rgb), .06); font-size: 12px; color: var(--app-text-2); }
-.makers-route-summary span { font-weight: 600; }
-.makers-route-summary small { flex-basis: 100%; color: var(--app-text-3); line-height: 1.45; }
 
 .makers-schedule-form { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; padding: 10px; border: 1px solid var(--app-border); border-radius: 10px; background: var(--app-panel); }
 .schedule-inline-editor,

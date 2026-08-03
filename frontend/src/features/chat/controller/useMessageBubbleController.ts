@@ -292,6 +292,7 @@ export function useMessageBubbleController({
           client_message: requestMessage,
           reference_images: [],
           response_language: getStoredLanguage(),
+          route_plan_id: action.payload.route_plan_id,
         },
       }));
     } catch {
