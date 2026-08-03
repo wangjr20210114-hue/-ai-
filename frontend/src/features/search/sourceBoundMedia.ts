@@ -16,6 +16,14 @@ interface SourceBoundMediaOptions {
   media: RichMediaAsset[];
 }
 
+export function presentableSourceBoundMedia(item: RichMediaAsset): boolean {
+  return item.vision_reviewed === true || (
+    item.vision_reviewed === false
+    && item.vision_fallback === true
+    && item.source_bound_fallback === true
+  );
+}
+
 type MarkdownTransformer = (tree: MarkdownAstNode) => void;
 type MarkdownPlugin = () => MarkdownTransformer;
 
@@ -67,7 +75,7 @@ export function remarkSourceBoundMedia(
   }
   const eligible = options.media.filter((item) => {
     const source = item.source_id ? sourceById.get(item.source_id) : undefined;
-    return item.vision_reviewed === true
+    return presentableSourceBoundMedia(item)
       && Boolean(item.id)
       && Boolean(source)
       && item.source_url === source?.url

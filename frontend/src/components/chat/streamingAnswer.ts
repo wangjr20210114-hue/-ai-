@@ -42,6 +42,15 @@ export function publicAssistantMarkdown(content: string): string {
 export function streamingMarkdownAnswer(content: string): string {
   let visible = content;
 
+  // Internal provider/citation markers are never part of the public rich-
+  // search protocol. Completed legacy markers are sanitized by the Markdown
+  // renderer; hold an unfinished `[[...` tail so it cannot flash on screen.
+  const internalMarkerStart = visible.lastIndexOf('[[');
+  if (internalMarkerStart >= 0) {
+    const suffix = visible.slice(internalMarkerStart + 2);
+    if (!suffix.includes(']]')) visible = visible.slice(0, internalMarkerStart);
+  }
+
   // A Markdown image cannot render until its closing parenthesis arrives.
   // Hide that short-lived tail instead of exposing `![alt](partial-url`.
   const imageStart = visible.lastIndexOf('![');

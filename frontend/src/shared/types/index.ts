@@ -415,6 +415,9 @@ export interface RichMediaAsset {
   /** Search-provider hero shown only while pixel review is still pending. */
   preview?: boolean;
   vision_reviewed?: boolean;
+  /** SearchPro hero image retained only through exact source_id/source_url binding. */
+  source_bound_fallback?: boolean;
+  vision_fallback?: boolean;
 }
 
 export interface SearchMeta {

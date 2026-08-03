@@ -49,7 +49,6 @@ def search_request_for_plan(
     result_limit: int,
     image_limit: int,
     parallel_queries: bool,
-    vision_enabled: bool,
     force_refresh: bool,
 ) -> SearchRequest | None:
     if (
@@ -58,9 +57,12 @@ def search_request_for_plan(
         or str(plan.get("blocked_skill") or "").strip()
     ):
         return None
+    # Real article media belongs to the web-search component contract. Turning
+    # off the standalone Vision Skill must not silently make every rich-search
+    # answer text-only; the provider adapter still applies its configured
+    # review chain and source-bound fallback policy.
     media_enabled = bool(
-        vision_enabled
-        and image_limit > 0
+        image_limit > 0
         and (plan.get("needs_web_search") or plan.get("needs_images"))
     )
     # Keep main's evidence boundary: source pages and bounded visual review

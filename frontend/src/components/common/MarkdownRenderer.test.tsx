@@ -58,6 +58,14 @@ describe('MarkdownRenderer', () => {
     expect(html).toContain('>AI 新闻</a>');
   });
 
+  it('does not flash the full source directory before inline citations stream in', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer streaming content={'正在组织第一条进展。'} searchMeta={searchMeta} />,
+    );
+    expect(html).not.toContain('class="search-evidence-links"');
+    expect(html).not.toContain('href="https://news.example/ai"');
+  });
+
   it('turns a URL-only Markdown link into a small clickable inline citation', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer content={'结论（[https://news.example/ai](https://news.example/ai)）。'} searchMeta={searchMeta} />,
@@ -196,6 +204,26 @@ describe('MarkdownRenderer', () => {
       />,
     );
     expect(html).not.toContain('one.jpg');
+  });
+
+  it('renders an explicit SearchPro fallback only through exact source binding', () => {
+    const fallback = {
+      ...searchMeta.media[0],
+      source_id: 'source-1',
+      source_url: 'https://news.example/ai',
+      vision_reviewed: false,
+      vision_fallback: true,
+      source_bound_fallback: true,
+    };
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer
+        streaming
+        content={'第一条进展。[来源](https://news.example/ai)'}
+        searchMeta={{ ...searchMeta, media: [fallback], images: [fallback.url] }}
+      />,
+    );
+    expect(html).toContain('one.jpg');
+    expect(html).toContain('data-source-id="source-1"');
   });
 
   it('rejects a model-authored searched image even when its URL was reviewed', () => {

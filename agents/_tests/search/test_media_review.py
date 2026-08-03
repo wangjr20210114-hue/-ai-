@@ -512,6 +512,7 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["media"][0]["url"], "https://img.example.com/hero.jpg")
         self.assertFalse(result["media"][0]["vision_reviewed"])
         self.assertTrue(result["media"][0]["vision_fallback"])
+        self.assertTrue(result["media"][0]["source_bound_fallback"])
         self.assertEqual(result["vision_diagnostics"]["missing_api_key"], 1)
         self.assertEqual(result["vision_diagnostics"]["provider_fallback"], 1)
 

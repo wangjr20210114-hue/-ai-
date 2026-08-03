@@ -114,7 +114,9 @@ class ChatTurnBoundaryTests(unittest.TestCase):
         request = search_request_for_plan(
             {
                 "needs_web_search": True,
-                "needs_images": True,
+                # Ordinary rich search still owns its source-bound article
+                # media; it does not require a separate visual user request.
+                "needs_images": False,
                 "search_query": "Floris 最新架构",
                 "image_query": "Floris 界面",
             },
@@ -125,7 +127,6 @@ class ChatTurnBoundaryTests(unittest.TestCase):
             result_limit=8,
             image_limit=4,
             parallel_queries=True,
-            vision_enabled=True,
             force_refresh=False,
         )
 
@@ -151,7 +152,6 @@ class ChatTurnBoundaryTests(unittest.TestCase):
             result_limit=8,
             image_limit=3,
             parallel_queries=True,
-            vision_enabled=True,
             force_refresh=False,
         )
 

@@ -135,7 +135,9 @@
         "attribution": { "type": "string" },
         "generated": { "type": "boolean" },
         "preview": { "type": "boolean" },
-        "vision_reviewed": { "type": "boolean" }
+        "vision_reviewed": { "type": "boolean" },
+        "source_bound_fallback": { "type": "boolean" },
+        "vision_fallback": { "type": "boolean" }
       },
       "additionalProperties": true
     },

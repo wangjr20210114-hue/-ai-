@@ -1811,7 +1811,6 @@ async def _handle(ctx):
         result_limit=search_result_limit,
         image_limit=search_image_limit,
         parallel_queries=parallel_image_search,
-        vision_enabled=vision_enabled,
         # main's rich-search contract is fresh once per logical turn.  The
         # SearchUseCase still persists evidence and deduplicates a repeated
         # call inside that turn, but chat never reuses an older turn's facts.

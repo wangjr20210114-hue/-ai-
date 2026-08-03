@@ -71,9 +71,13 @@ test('wrong confirmation leaves the Makers Blob store untouched', async () => {
 });
 
 test('valid confirmation clears only this user files and conversations', async () => {
+  const profileKey = `${PREFIX}profile/current.json`;
+  const avatarKey = `${PREFIX}profile/avatars/avatar.png`;
   const stores = Object.fromEntries(__test.STORE_NAMES.map((name) => [name, new FakeStore([
     `${PREFIX}${name}/one`,
     `${PREFIX}${name}/two`,
+    profileKey,
+    avatarKey,
     `tenants/floris/users/22222222-2222-4222-8222-222222222222/${name}/keep`,
   ])]));
   const response = await onRequest({
@@ -90,9 +94,30 @@ test('valid confirmation clears only this user files and conversations', async (
   });
   for (const store of Object.values(stores)) {
     assert.deepEqual(store.keys, [
+      profileKey,
+      avatarKey,
       `tenants/floris/users/22222222-2222-4222-8222-222222222222/yuanbao-files/keep`,
     ]);
   }
+});
+
+test('database clearing preserves the signed-in user profile and every uploaded avatar', async () => {
+  const profile = `${PREFIX}profile/current.json`;
+  const currentAvatar = `${PREFIX}profile/avatars/current.webp`;
+  const previousAvatar = `${PREFIX}profile/avatars/previous.jpg`;
+  const activity = `${PREFIX}uploads/document.pdf`;
+  const store = new FakeStore([profile, currentAvatar, previousAvatar, activity]);
+
+  const response = await onRequest({
+    request: await request('DELETE'),
+    env: TEST_AUTH_ENV,
+    __stores: { 'yuanbao-files': store },
+    __conversationStore: new FakeConversationStore([]),
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).deleted, { 'yuanbao-files': 1 });
+  assert.deepEqual(store.keys, [profile, currentAvatar, previousAvatar]);
 });
 
 test('inspect returns conversation ids without deleting any Makers data', async () => {

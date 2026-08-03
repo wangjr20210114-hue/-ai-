@@ -1,5 +1,6 @@
 import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
+import { profileAvatarPrefix, profileKey } from '../../auth/profile.js';
 import { conversationPointerKey, listUserConversations } from '../conversation-index.js';
 
 const STORE_NAMES = ['yuanbao-files'];
@@ -11,15 +12,19 @@ function json(data, status = 200) {
   });
 }
 
-async function clearStore(store, prefix) {
+async function clearStore(store, prefix, preservedKeys = [], preservedPrefixes = []) {
   let deleted = 0;
   for (let page = 0; page < 1000; page += 1) {
     const { blobs = [] } = await store.list({ prefix, consistency: 'strong' });
-    if (!blobs.length) break;
-    for (let offset = 0; offset < blobs.length; offset += 20) {
-      await Promise.all(blobs.slice(offset, offset + 20).map((item) => store.delete(item.key)));
+    const deletable = blobs.filter((item) => (
+      !preservedKeys.includes(item.key)
+      && !preservedPrefixes.some((preservedPrefix) => item.key.startsWith(preservedPrefix))
+    ));
+    if (!deletable.length) break;
+    for (let offset = 0; offset < deletable.length; offset += 20) {
+      await Promise.all(deletable.slice(offset, offset + 20).map((item) => store.delete(item.key)));
     }
-    deleted += blobs.length;
+    deleted += deletable.length;
   }
   return deleted;
 }
@@ -84,8 +89,15 @@ export async function onRequest(context) {
   }
 
   const conversationsDeleted = await clearConversations(conversationStore, user, indexStore);
+  const preservedProfileKeys = [profileKey(user)];
+  const preservedProfilePrefixes = [profileAvatarPrefix(user)];
   const storeCounts = await Promise.all(
-    STORE_NAMES.map((name) => clearStore(stores[name], tenantPrefix(user))),
+    STORE_NAMES.map((name) => clearStore(
+      stores[name],
+      tenantPrefix(user),
+      preservedProfileKeys,
+      preservedProfilePrefixes,
+    )),
   );
   return json({
     ok: true,

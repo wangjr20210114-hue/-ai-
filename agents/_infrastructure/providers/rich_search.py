@@ -663,6 +663,11 @@ async def rich_search(
                     "description": str(candidate.get("source_title") or "搜索结果文章主图")[:240],
                     "vision_reviewed": False,
                     "vision_fallback": True,
+                    # SearchPro supplied this hero image on the exact source
+                    # record. It is safe for presentation only when the
+                    # frontend also verifies source_id + source_url; it never
+                    # becomes vision-reviewed model evidence.
+                    "source_bound_fallback": True,
                 } for candidate in fallback_candidates]
                 diagnostics = {
                     **diagnostics,
@@ -680,6 +685,7 @@ async def rich_search(
                 "attribution": candidate["source_title"], "generated": False,
                 "vision_reviewed": candidate.get("vision_reviewed", True),
                 **({"vision_fallback": True} if candidate.get("vision_fallback") else {}),
+                **({"source_bound_fallback": True} if candidate.get("source_bound_fallback") else {}),
             })
         enriched = {
             **base_metadata, "media": media, "images": [item["url"] for item in media],

@@ -29,10 +29,11 @@ describe('message selection auto-follow guard', () => {
 });
 
 describe('streaming Markdown answer', () => {
-  it('does not apply special buffering rules to legacy media markers', () => {
+  it('never exposes an unfinished internal rich-search marker', () => {
     expect(streamingMarkdownAnswer('**重点**\n\n[[YUANBAO_MEDIA: 1]]\n\n继续'))
       .toBe('**重点**\n\n[[YUANBAO_MEDIA: 1]]\n\n继续');
-    expect(streamingMarkdownAnswer('正文\n[[YUANBAO_MED')).toBe('正文\n[[YUANBAO_MED');
+    expect(streamingMarkdownAnswer('正文\n[[YUANBAO_MED')).toBe('正文\n');
+    expect(streamingMarkdownAnswer('正文\n[[cite:source-')).toBe('正文\n');
   });
 
   it('hides an incomplete Markdown image tail and restores it when complete', () => {

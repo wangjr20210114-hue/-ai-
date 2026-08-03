@@ -5,6 +5,7 @@ import type { RichMediaAsset, SearchMeta } from '../../shared/types';
 import { isSafeRemoteUrl, linkBareCitations, replaceCitationMarkers, sourceLabel } from './richContent';
 import { useLanguage } from '../../i18n';
 import {
+  presentableSourceBoundMedia,
   remarkSourceBoundMedia,
   stripLegacyMediaMarkers,
 } from '../../features/search/sourceBoundMedia';
@@ -137,16 +138,16 @@ function MarkdownRenderer({
   const { t } = useLanguage();
   const enhancements = useMarkdownEnhancements();
   const sources = useMemo(() => searchMeta?.results || [], [searchMeta?.results]);
-  const uncitedSources = useMemo(() => sources
+  const uncitedSources = useMemo(() => (streaming ? [] : sources)
     .filter((source) => (
       isSafeRemoteUrl(source.url)
       && !content.includes(source.url)
       && !content.includes(`[[cite:${source.id}]]`)
     ))
-    .slice(0, 6), [content, sources]);
+    .slice(0, 6), [content, sources, streaming]);
   const visibleMedia = useMemo(
     () => uniqueMediaAssets(searchMeta?.media || [])
-      .filter((asset) => asset.vision_reviewed === true),
+      .filter(presentableSourceBoundMedia),
     [searchMeta?.media],
   );
   const cleanedContent = useMemo(() => {

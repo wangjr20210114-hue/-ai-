@@ -84,6 +84,17 @@ describe('remarkSourceBoundMedia', () => {
     expect(insertedImages(transform([media]))).toHaveLength(0);
   });
 
+  it('accepts only the explicit SearchPro source-bound fallback shape', () => {
+    const fallback = {
+      ...reviewed,
+      vision_reviewed: false,
+      vision_fallback: true,
+      source_bound_fallback: true,
+    };
+    expect(insertedImages(transform([fallback]))).toHaveLength(1);
+    expect(insertedImages(transform([{ ...fallback, source_url: 'https://news.example/other' }]))).toHaveLength(0);
+  });
+
   it('does not accept redirect-like or normalized-near-match citation URLs', () => {
     expect(
       insertedImages(transform([reviewed], sources, 'https://redirect.example/?to=https://news.example/ai')),
