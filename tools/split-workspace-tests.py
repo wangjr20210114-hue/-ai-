@@ -24,7 +24,14 @@ DOMAINS = {
     "workspace/calendar": ("CalendarWorkspaceTests", ROOT / "agents/_tests/workspace/test_calendar.py"),
     "workspace/workflows": ("WorkspaceWorkflowTests", ROOT / "agents/_tests/workspace/test_workflows.py"),
     "maps/places": ("MapPlaceTests", ROOT / "agents/_tests/maps/test_places.py"),
-    "maps/routes": ("MapRouteTests", ROOT / "agents/_tests/maps/test_routes.py"),
+    "maps/routes/core": (
+        "MapRouteCoreTests",
+        ROOT / "agents/_tests/maps/test_routes_core.py",
+    ),
+    "maps/routes/continuations": (
+        "RouteContinuationTests",
+        ROOT / "agents/_tests/maps/test_route_continuations.py",
+    ),
     "proactive/opportunities": ("ProactiveOpportunityTests", ROOT / "agents/_tests/proactive/test_opportunities.py"),
     "proactive/memory": ("ProactiveMemoryTests", ROOT / "agents/_tests/proactive/test_memory.py"),
     "papers/discovery": ("PaperDiscoveryTests", ROOT / "agents/_tests/papers/test_discovery.py"),
@@ -40,10 +47,15 @@ def classify(test_name: str) -> str:
         "named_author", "author_institution", "title_matching",
     )):
         return "papers/discovery"
+    if value.startswith("route") and any(token in value for token in (
+        "calendar", "revalidates", "failure", "nearby_brand",
+        "card_choices", "silently_picks", "route_change",
+    )):
+        return "maps/routes/continuations"
     if value.startswith("route") or any(token in value for token in (
         "latest_route", "planned_route", "multi_stop",
     )):
-        return "maps/routes"
+        return "maps/routes/core"
     if value.startswith("calendar") or value.startswith("meeting"):
         return "workspace/calendar"
     if value.startswith("hunyuan") and "workflow" in words:
