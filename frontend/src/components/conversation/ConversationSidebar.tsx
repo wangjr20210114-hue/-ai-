@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import {
   createNewConversation,
@@ -8,9 +8,16 @@ import { reconcileConversationSummary, setActiveConversationId } from '../../ser
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ConversationSummary } from '../../shared/types';
 import { formatConversationTime } from '../../services/time';
-import { AppSettingsButton, ProactiveBriefPanel } from '../../features/settings/view';
-import { SkillsMarketplaceButton } from '../../features/skills/view';
+import ProactiveBriefPanel from '../../features/settings/view/ProactiveBriefPanel';
 import { translate, useLanguage } from '../../i18n';
+
+const AppSettingsButton = lazy(
+  () => import('../../features/settings/view/AppSettingsButton'),
+);
+const SkillsMarketplaceButton = lazy(
+  () => import('../../features/skills/view/SkillsMarketplaceButton'),
+);
+const COMPACT_SIDEBAR_QUERY = '(max-width: 860px)';
 
 interface Props {
   open: boolean;
@@ -36,6 +43,13 @@ export default function ConversationSidebar({ open, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [toolsLoaded, setToolsLoaded] = useState(
+    () => !window.matchMedia(COMPACT_SIDEBAR_QUERY).matches,
+  );
+
+  useEffect(() => {
+    if (open) setToolsLoaded(true);
+  }, [open]);
 
   const load = useCallback(async () => {
     setLoadError('');
@@ -176,8 +190,17 @@ export default function ConversationSidebar({ open, onClose }: Props) {
         </div>
         <ProactiveBriefPanel />
         <div className="conversation-sidebar-tools">
-          <SkillsMarketplaceButton />
-          <AppSettingsButton />
+          {toolsLoaded && (
+            <Suspense fallback={(
+              <div className="sidebar-tools-loading" role="status" aria-label={t('loading')}>
+                <span className="skeleton skeleton-line" />
+                <span className="skeleton skeleton-line" />
+              </div>
+            )}>
+              <SkillsMarketplaceButton />
+              <AppSettingsButton />
+            </Suspense>
+          )}
         </div>
       </aside>
     </>

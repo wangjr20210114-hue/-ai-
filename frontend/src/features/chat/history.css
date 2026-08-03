@@ -51,6 +51,16 @@
 .conversation-sidebar-tools { flex: 0 0 auto; margin-top: 10px; border-top: 1px solid var(--app-border); padding-top: 8px; }
 .conversation-sidebar-tools .my-panel-card { padding: 8px 4px; border: 0; }
 .conversation-sidebar-tools .section-title { font-size: 12px; }
+.sidebar-tools-loading {
+  display: grid;
+  gap: 10px;
+  padding: 10px 8px;
+}
+.sidebar-tools-loading .skeleton-line {
+  width: 100%;
+  height: 34px;
+  border-radius: 10px;
+}
 .sidebar-reminders { flex: 0 0 auto; max-height: 40%; margin-top: 9px; padding-top: 9px; overflow: auto; border-top: 1px solid var(--app-border); }
 .sidebar-reminders-heading { display: flex; align-items: center; gap: 6px; padding: 0 5px 6px; color: var(--app-text-2); font-size: 12px; font-weight: 650; }
 .sidebar-reminders-heading > span { display: inline-flex; align-items: center; gap: 5px; }

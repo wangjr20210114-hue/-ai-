@@ -13,7 +13,7 @@ import {
   paperDownloadId,
   paperSourceHref,
 } from '../../../services/paperUtils';
-import PaperFullReader from './PaperFullReader';
+import PaperFullReader from './LazyPaperFullReader';
 import { useLanguage } from '../../../i18n';
 import { usePapersController } from '../controller/usePapersController';
 

@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button, Loading, MessagePlugin } from 'tdesign-react';
 import { BookOpenIcon, FullscreenIcon } from 'tdesign-icons-react';
-import PaperFullReader from './PaperFullReader';
+import PaperFullReader from './LazyPaperFullReader';
 import { useLanguage } from '../../../i18n';
 import { usePapersController } from '../controller/usePapersController';
 

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { AddIcon, DeleteIcon, DownloadIcon, EditIcon, FileIcon, FolderIcon, RefreshIcon } from 'tdesign-icons-react';
 import { createZip } from '../../../services/zip';
-import PaperFullReader from './PaperFullReader';
+import PaperFullReader from './LazyPaperFullReader';
 import { useLanguage } from '../../../i18n';
 import { usePapersController } from '../controller/usePapersController';
 import { currentAuthSession, ensureAuthSession, openAuthDialog } from '../../../shared/auth/session';

@@ -16,7 +16,7 @@ import { usePapersController } from '../controller/usePapersController';
 import type { PaperAssistantResult } from '../model/types';
 import { translationsInTimeOrder } from '../model/paperHistory';
 
-interface Props {
+export interface PaperFullReaderProps {
   fileId: string;
   title: string;
   arxivId?: string;
@@ -43,7 +43,7 @@ interface PageData {
   rendered: boolean;
 }
 
-export default function PaperFullReader({ fileId, title, fileSize, partSize, assistantEnabled = true, onClose }: Props) {
+export default function PaperFullReader({ fileId, title, fileSize, partSize, assistantEnabled = true, onClose }: PaperFullReaderProps) {
   const { t, language } = useLanguage();
   const { api } = usePapersController();
   const {
