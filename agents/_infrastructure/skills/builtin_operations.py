@@ -168,6 +168,7 @@ def build_system_skill_tools(
     )
     _search_places_metered = map_runtime.search_places
     _search_places_nearby_metered = map_runtime.search_nearby
+    _reverse_geocode_metered = map_runtime.reverse_geocode
     _plan_route_metered = map_runtime.plan_route
 
     place_operations = PlaceOperations(
@@ -207,6 +208,7 @@ def build_system_skill_tools(
         _load_state=_load_state,
         _normalize_route_contract=provider_normalize_route_contract,
         _plan_route_metered=_plan_route_metered,
+        _reverse_geocode_metered=_reverse_geocode_metered,
         _save_state=_save_state,
         _search_places_metered=_search_places_metered,
         _search_places_nearby_metered=_search_places_nearby_metered,

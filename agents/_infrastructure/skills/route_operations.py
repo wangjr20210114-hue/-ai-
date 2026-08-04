@@ -37,6 +37,7 @@ def build_route_operation(
     _load_state,
     _normalize_route_contract,
     _plan_route_metered,
+    _reverse_geocode_metered,
     _save_state,
     _search_places_metered,
     _search_places_nearby_metered,
@@ -564,6 +565,49 @@ def build_route_operation(
             strategy=selected_route_strategy,
             near_time_tolerance_minutes=map_near_time_tolerance,
         )
+        if route is not None and bool((route.get("cache") or {}).get("hit")):
+            missing_city_indexes = [
+                index for index, place in enumerate(resolved_stops)
+                if not str(place.get("city") or "").strip()
+                and isinstance(place.get("latitude"), (int, float))
+                and isinstance(place.get("longitude"), (int, float))
+            ]
+            if missing_city_indexes:
+                administrative_semaphore = asyncio.Semaphore(map_parallelism)
+
+                async def enrich_administrative_metadata(index: int):
+                    place = copy.deepcopy(resolved_stops[index])
+                    async with administrative_semaphore:
+                        metadata = await _reverse_geocode_metered(map_key, place)
+                    if isinstance(metadata, dict):
+                        if metadata.get("city"):
+                            place["city"] = str(metadata["city"])[:80]
+                        if not place.get("address") and metadata.get("address"):
+                            place["address"] = str(metadata["address"])[:240]
+                    return index, place
+
+                metadata_budget = min(
+                    12.0,
+                    route_operation_deadline
+                    - asyncio.get_running_loop().time()
+                    - 1.0,
+                )
+                if metadata_budget > 0.5:
+                    try:
+                        enriched_places = await asyncio.wait_for(
+                            asyncio.gather(*(
+                                enrich_administrative_metadata(index)
+                                for index in missing_city_indexes
+                            )),
+                            timeout=metadata_budget,
+                        )
+                        for index, place in enriched_places:
+                            resolved_stops[index] = place
+                    except Exception as exc:
+                        logging.warning(
+                            "cached route administrative enrichment failed: %s",
+                            type(exc).__name__,
+                        )
         if route is None:
             try:
                 route = await asyncio.wait_for(

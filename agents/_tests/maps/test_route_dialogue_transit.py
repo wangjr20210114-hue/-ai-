@@ -1,7 +1,105 @@
 from agents._tests.support.route_dialogue_environment import *  # noqa: F401,F403
+from agents._infrastructure.makers.route_repository import save_route_cache
+from agents._application.workspace.service import load_user_workspace
 
 
 class RouteDialogueTransitTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cached_route_enriches_missing_cities_through_tencent_adapter(self):
+        origin = {
+            **PLACE,
+            "place_id": "origin",
+            "name": "Origin",
+            "city": "",
+            "latitude": 31.2,
+            "longitude": 121.3,
+        }
+        destination = {
+            **PLACE,
+            "place_id": "destination",
+            "name": "Destination",
+            "city": "",
+            "latitude": 30.3,
+            "longitude": 120.2,
+        }
+        cached_route = {
+            "schema_version": 4,
+            "provider": "tencent",
+            "mode": "transit",
+            "places": [origin, destination],
+            "path": [],
+            "legs": [{
+                "from": origin,
+                "to": destination,
+                "mode": "transit",
+                "path": [],
+                "sections": [{"mode": "rail", "vehicle": "RAIL"}],
+                "distance_meters": 100_000,
+                "duration_seconds": 3_600,
+            }],
+            "distance_meters": 100_000,
+            "duration_seconds": 3_600,
+            "fare": {},
+            "transit": {"segments": [{"vehicle": "RAIL"}]},
+        }
+        store = FakeStore()
+        await save_route_cache(
+            store,
+            TEST_USER_ID,
+            [origin, destination],
+            False,
+            cached_route,
+            mode="transit",
+            strategy="time_then_cost",
+            near_time_tolerance_minutes=10,
+        )
+
+        async def place_provider(_key, query, *, city, limit):
+            return [origin] if query == "Origin" else [destination]
+
+        reverse_provider = AsyncMock(side_effect=[
+            {"city": "City One", "address": "Origin address"},
+            {"city": "City Two", "address": "Destination address"},
+        ])
+        route_provider = AsyncMock()
+        tools = build_system_skill_tools(
+            None,
+            store=store,
+            conversation_id="cached-route-city-enrichment",
+            user_id=TEST_USER_ID,
+            env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+        )
+        route_tool = next(
+            item for item in tools
+            if item.name == "plan_route_between_places"
+        )
+        with (
+            patch(
+                "agents._infrastructure.skills.builtin_operations.provider_search_places",
+                new=place_provider,
+            ),
+            patch(
+                "agents._infrastructure.skills.builtin_operations.provider_reverse_geocode",
+                new=reverse_provider,
+            ),
+            patch(
+                "agents._infrastructure.skills.builtin_operations.provider_plan_route",
+                new=route_provider,
+            ),
+        ):
+            result = json.loads(await route_tool.ainvoke({
+                "origin_query": "Origin",
+                "destination_query": "Destination",
+                "route_mode": "transit",
+            }))
+
+        route_provider.assert_not_awaited()
+        self.assertEqual(reverse_provider.await_count, 2)
+        action_id = result["action"]["id"]
+        saved = await load_user_workspace(store, user_id=TEST_USER_ID)
+        route = saved["actions"][action_id]["payload"]["route"]
+        self.assertEqual(route["legs"][0]["scope"], "intercity")
+        self.assertEqual(route["transit"]["modes"], ["rail"])
+
     async def test_exact_bare_name_among_multiple_tencent_branches_requires_choice(self):
         station = {
             **PLACE,
