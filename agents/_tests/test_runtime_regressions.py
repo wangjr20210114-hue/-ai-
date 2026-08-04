@@ -242,8 +242,8 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_tencent_duration_is_normalized_from_minutes_to_seconds(self):
         places = [
-            {"place_id": "a", "latitude": 39.9, "longitude": 116.3},
-            {"place_id": "b", "latitude": 39.8, "longitude": 116.4},
+            {"place_id": "a", "city": "City One", "latitude": 39.9, "longitude": 116.3},
+            {"place_id": "b", "city": "City Two", "latitude": 39.8, "longitude": 116.4},
         ]
         response = {
             "result": {
@@ -254,6 +254,7 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
             route = await plan_driving_route("key", places)
         self.assertEqual(route["duration_seconds"], 24 * 60)
         self.assertEqual(route["schema_version"], 4)
+        self.assertEqual(route["legs"][0]["scope"], "intercity")
 
     async def test_tencent_taxi_fare_is_not_misreported_as_a_road_toll(self):
         places = [

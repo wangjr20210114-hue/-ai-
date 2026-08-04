@@ -460,7 +460,7 @@ curl -X POST "$BASE/routes" \
   }'
 ```
 
-`route.legs` 表示推荐地点之间的路段；每个 `leg.sections` 可包含步行、公交、轨道、骑行或驾车等多种交通方式。客户端应为不同 `section.mode` 使用一致且可辨认的颜色，并根据地图缩放级别自然调整路线细节。
+`route.legs` 表示推荐地点之间的路段；`leg.scope` 区分 `intercity`、`local` 与 `unknown`，每个 `leg.sections` 可包含步行、公交、轨道、骑行或驾车等多种交通方式。`route.transit.coverage=bus_metro` 表示腾讯公交路线仅覆盖公交/地铁，跨城时不能把它描述成完整铁路方案。客户端应为不同 `section.mode` 使用一致且可辨认的颜色，并根据地图缩放级别自然调整路线细节。
 
 ## 11. 论文与阅读
 

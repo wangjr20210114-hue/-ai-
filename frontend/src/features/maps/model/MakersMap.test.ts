@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
 import { chronologicalSchedulePlaces, shouldPlanMakersRoute, shouldRequestMakersRoute } from './makersMapRouting';
-import { legModeSequence, routeLegs, routeZoomLevel } from './routePresentation';
+import { legModeSequence, routeHasIntercityLeg, routeLegScope, routeLegs, routeZoomLevel } from './routePresentation';
 import type { ScheduleItem } from '../../calendar/model';
 import type { MakersMapPlace, MakersRoutePlan } from './types';
 
@@ -102,5 +102,22 @@ describe('MakersMap geolocation recovery', () => {
     };
     expect(routeLegs(route)).toHaveLength(1);
     expect(legModeSequence(routeLegs(route)[0])).toEqual(['walking', 'bus', 'walking']);
+  });
+
+  it('classifies route scope from provider cities without city-specific rules', () => {
+    const place = (name: string, city: string): MakersMapPlace => ({
+      place_id: name, name, city, address: name, latitude: 30.2, longitude: 120.1,
+    });
+    const leg = {
+      from: place('A', 'City One'), to: place('B', 'City Two'), mode: 'transit' as const,
+      path: [], sections: [], distance_meters: 10, duration_seconds: 10,
+    };
+    const route = {
+      schema_version: 4, provider: 'tencent', mode: 'transit' as const,
+      places: [leg.from, leg.to], path: [], legs: [leg], distance_meters: 10,
+      duration_seconds: 10, fare: { currency: 'CNY', basis: '' },
+    };
+    expect(routeLegScope(leg)).toBe('intercity');
+    expect(routeHasIntercityLeg(route)).toBe(true);
   });
 });

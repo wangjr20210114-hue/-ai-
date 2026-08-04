@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -13,6 +14,14 @@ def _required(value: Any, field: str) -> str:
     return normalized
 
 
+def _relevance_score(value: Any) -> float:
+    try:
+        score = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, min(1.0, score)) if math.isfinite(score) else 0.0
+
+
 @dataclass(frozen=True, slots=True)
 class SearchSource:
     id: str
@@ -20,10 +29,16 @@ class SearchSource:
     url: str
     snippet: str
     published_at: str = ""
+    publisher: str = ""
+    relevance_score: float = 0.0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _required(self.id, "source id"))
         object.__setattr__(self, "url", _required(self.url, "source url"))
+        object.__setattr__(self, "publisher", str(self.publisher or "").strip())
+        object.__setattr__(
+            self, "relevance_score", _relevance_score(self.relevance_score),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -32,6 +47,8 @@ class SearchSource:
             "url": self.url,
             "snippet": self.snippet,
             "published_at": self.published_at,
+            "publisher": self.publisher,
+            "relevance_score": self.relevance_score,
         }
 
     @classmethod
@@ -42,6 +59,10 @@ class SearchSource:
             url=str(value.get("url") or ""),
             snippet=str(value.get("snippet") or ""),
             published_at=str(value.get("published_at") or value.get("date") or ""),
+            publisher=str(value.get("publisher") or value.get("site") or ""),
+            relevance_score=_relevance_score(
+                value.get("relevance_score") or value.get("score") or 0
+            ),
         )
 
 

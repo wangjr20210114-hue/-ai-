@@ -290,6 +290,12 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
                 prefer_recent=True,
             )
         provider_query = provider.call_args.args[1]["Query"]
+        payload = provider.call_args.args[1]
+        self.assertLess(payload["FromTime"], payload["ToTime"])
+        self.assertEqual(
+            payload["ToTime"] - payload["FromTime"] + 1,
+            121 * 24 * 60 * 60,
+        )
         self.assertLessEqual(len(provider_query), 500)
         self.assertTrue(provider_query.startswith("original-user-query-"))
         self.assertIn("优先检索可直接访问", provider_query)

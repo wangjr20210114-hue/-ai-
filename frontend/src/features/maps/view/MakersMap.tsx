@@ -14,6 +14,8 @@ import {
   legModeSequence,
   ROUTE_MODE_COLORS,
   routeCities,
+  routeHasIntercityLeg,
+  routeLegScope,
   routeLegs,
   routeZoomLevel,
   type RouteZoomLevel,
@@ -516,7 +518,9 @@ export default function MakersMap({
       {showRoute && route && (
         <><div className="makers-route-summary">
           <span>{t(
-            route.mode === 'transit' ? 'routeModeTransit'
+            route.mode === 'transit' && routeHasIntercityLeg(route)
+              && route.transit?.coverage === 'bus_metro' ? 'routeModeTransitIntercity'
+              : route.mode === 'transit' ? 'routeModeTransit'
               : route.mode === 'walking' ? 'routeModeWalking'
                 : route.mode === 'bicycling' ? 'routeModeBicycling'
                   : 'routeModeDriving',
@@ -535,6 +539,9 @@ export default function MakersMap({
           {routeLegs(route).map((leg, legIndex) => <div className="makers-route-leg" key={`${leg.from.place_id}-${leg.to.place_id}-${legIndex}`}>
             <div className="makers-route-leg-heading">
               <strong>{legIndex + 1}. {leg.from.name} → {leg.to.name}</strong>
+              {routeLegScope(leg) !== 'unknown' && <em>{t(
+                routeLegScope(leg) === 'intercity' ? 'routeScopeIntercity' : 'routeScopeLocal',
+              )}</em>}
               <span>{t('kilometers', { count: (leg.distance_meters / 1000).toFixed(1) })} · {hoursMinutes(leg.duration_seconds)}</span>
             </div>
             <div className="makers-route-mode-sequence" aria-label={t('routeLegTransport')}>

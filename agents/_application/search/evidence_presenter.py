@@ -27,6 +27,8 @@ def evidence_for_model(
             source_type=item.get("source") or "web",
             title=item["title"], url=item["url"],
             date=item.get("date") or "N/A", snippet=item["snippet"],
+            publisher=item.get("publisher") or "N/A",
+            relevance=item.get("relevance_score") or "N/A",
             has_image=(
                 "true"
                 if str(item.get("id") or "") in media_source_ids

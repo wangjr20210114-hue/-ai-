@@ -687,6 +687,17 @@ def _route_section_mode(value: str, fallback: str) -> str:
     return fallback
 
 
+def _route_leg_scope(
+    origin: dict[str, Any], destination: dict[str, Any],
+) -> str:
+    """Classify a provider leg without city- or product-specific rules."""
+    origin_city = str(origin.get("city") or "").strip().casefold()
+    destination_city = str(destination.get("city") or "").strip().casefold()
+    if not origin_city or not destination_city:
+        return "unknown"
+    return "local" if origin_city == destination_city else "intercity"
+
+
 def _route_sections(route: dict[str, Any], mode: str) -> list[dict[str, Any]]:
     """Preserve Tencent's selected walking/vehicle geometry for map layers."""
     sections: list[dict[str, Any]] = []
@@ -881,6 +892,7 @@ def _transit_summary(route: dict[str, Any]) -> dict[str, Any]:
             "station_count": max(0, int(line.get("station_count") or 0)),
         })
     return {
+        "coverage": "bus_metro",
         "walking_distance_meters": round(float(walking_distance or 0)),
         "lines": lines[:12],
         "transfer_count": max(0, len(segments) - 1),
@@ -995,6 +1007,7 @@ async def _plan_route_leg(
         fare = _non_driving_fare(mode, transit)
     return {
         "places": coords,
+        "scope": _route_leg_scope(origin, destination),
         "path": _decoded_route_path(route),
         "sections": _route_sections(route, mode),
         "distance_meters": distance,
@@ -1078,6 +1091,7 @@ async def plan_route(
             combined["legs"].append({
                 "from": places[index],
                 "to": places[index + 1],
+                "scope": _route_leg_scope(places[index], places[index + 1]),
                 "mode": mode,
                 "path": leg_path,
                 "sections": [{
@@ -1116,6 +1130,10 @@ async def plan_route(
                 {
                     "from": places[index],
                     "to": places[index + 1],
+                    "scope": str(
+                        leg.get("scope")
+                        or _route_leg_scope(places[index], places[index + 1])
+                    ),
                     "mode": mode,
                     "path": list(leg.get("path") or []),
                     "sections": list(leg.get("sections") or []),
@@ -1148,6 +1166,7 @@ async def plan_route(
             ),
             **(
                 {"transit": {
+                    "coverage": "bus_metro",
                     "walking_distance_meters": round(sum(
                         float((leg.get("transit") or {}).get("walking_distance_meters") or 0)
                         for leg in legs

@@ -18,6 +18,7 @@ _NONPROFIT_HOST_LABEL = "org"
 _COUNTRY_REGISTRATION_LABELS = frozenset(
     {"ac", "co", "com", "edu", "gov", "net", "org"}
 )
+RECENT_SOURCE_WINDOW_DAYS = 120
 
 
 def source_host(url: object) -> str:
@@ -132,7 +133,7 @@ def source_recency_score(
         return 34, published
     if age_days <= 30:
         return 22, published
-    if age_days <= 120:
+    if age_days <= RECENT_SOURCE_WINDOW_DAYS:
         return 7, published
     if age_days <= 365:
         return 0, published
@@ -182,6 +183,14 @@ def source_quality_score(
         score += 4
     terms = query_match_terms(query)
     score += min(12, sum(term in searchable for term in terms))
+    try:
+        provider_relevance = float(
+            item.get("relevance_score") or item.get("score") or 0
+        )
+    except (TypeError, ValueError):
+        provider_relevance = 0.0
+    if provider_relevance == provider_relevance:
+        score += round(max(0.0, min(1.0, provider_relevance)) * 12)
     recency_score, _ = source_recency_score(item, target_date, prefer_recent)
     return score + recency_score
 
@@ -250,6 +259,7 @@ def filter_sources_for_target_date(
 
 
 __all__ = (
+    "RECENT_SOURCE_WINDOW_DAYS",
     "date_from_text",
     "filter_preferred_recent_sources",
     "filter_sources_for_target_date",

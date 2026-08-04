@@ -81,6 +81,8 @@ class SearchEvidenceTests(unittest.TestCase):
                     url="https://a.test/1",
                     snippet="晴",
                     published_at="2026-07-31",
+                    publisher="Example Publisher",
+                    relevance_score=0.91,
                 ),
             ),
             media=(
@@ -102,6 +104,8 @@ class SearchEvidenceTests(unittest.TestCase):
         self.assertEqual(restored, evidence)
         self.assertIsInstance(restored.sources, tuple)
         self.assertIsInstance(restored.media, tuple)
+        self.assertEqual(restored.sources[0].publisher, "Example Publisher")
+        self.assertEqual(restored.sources[0].relevance_score, 0.91)
 
 
 if __name__ == "__main__":

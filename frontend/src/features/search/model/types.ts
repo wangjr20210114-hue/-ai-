@@ -10,6 +10,8 @@ export interface SearchResultItem {
   avatar?: string;
   image?: string;
   date?: string;
+  publisher?: string;
+  relevance_score?: number;
 }
 
 export interface RichMediaAsset {
@@ -64,5 +66,6 @@ export interface SearchMeta {
     page_fetch_limit: number;
     turn_provider_calls?: number;
     turn_tool_invocations?: number;
+    provider_time_window?: { FromTime: number; ToTime: number } | Record<string, never>;
   };
 }

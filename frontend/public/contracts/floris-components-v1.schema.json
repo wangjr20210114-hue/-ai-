@@ -96,6 +96,7 @@
       "properties": {
         "from": { "$ref": "#/$defs/place" },
         "to": { "$ref": "#/$defs/place" },
+        "scope": { "enum": ["intercity", "local", "unknown"] },
         "mode": { "enum": ["driving", "transit", "walking", "bicycling"] },
         "path": { "type": "array", "items": { "$ref": "#/$defs/routePoint" } },
         "sections": { "type": "array", "items": { "$ref": "#/$defs/routeSection" } },
@@ -118,7 +119,11 @@
         "distance_meters": { "type": "number", "minimum": 0 },
         "duration_seconds": { "type": "number", "minimum": 0 },
         "fare": { "type": "object", "additionalProperties": true },
-        "transit": { "type": "object", "additionalProperties": true },
+        "transit": {
+          "type": "object",
+          "properties": { "coverage": { "enum": ["bus_metro"] } },
+          "additionalProperties": true
+        },
         "cache": { "type": "object", "additionalProperties": true }
       },
       "additionalProperties": true
@@ -220,7 +225,9 @@
         "title": { "type": "string" },
         "snippet": { "type": "string" },
         "url": { "type": "string" },
-        "date": { "type": "string" }
+        "date": { "type": "string" },
+        "publisher": { "type": "string" },
+        "relevance_score": { "type": "number", "minimum": 0, "maximum": 1 }
       },
       "additionalProperties": true
     },

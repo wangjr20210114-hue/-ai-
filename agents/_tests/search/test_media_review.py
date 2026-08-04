@@ -96,6 +96,8 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
     def test_searchpro_html_passage_exposes_provider_article_image(self):
         pages = _parse_pages({"Response": {"Pages": [{
             "url": "https://news.example/item",
+            "site": "Example Publisher",
+            "score": 0.87,
             "title": "大会新闻",
             "passage": "<p>正文</p><img src='http://qqpublic.qpic.cn/news.jpg' width='700'>",
             "pics": [{
@@ -108,6 +110,8 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             "passage": "<p>正文</p><img src='http://qqpublic.qpic.cn/embedded.jpg'>",
         }]}}, 8)
         self.assertEqual(pages[0]["image"], "https://qqpublic.qpic.cn/provider-news.jpg")
+        self.assertEqual(pages[0]["publisher"], "Example Publisher")
+        self.assertEqual(pages[0]["relevance_score"], 0.87)
         self.assertEqual(pages[0]["provider_images"][0]["caption"], "大会现场")
         self.assertEqual(pages[1]["image"], "https://qqpublic.qpic.cn/embedded.jpg")
 

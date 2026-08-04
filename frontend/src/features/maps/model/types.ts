@@ -31,6 +31,7 @@ export interface MakersRouteSection {
 export interface MakersRouteLeg {
   from: MakersMapPlace;
   to: MakersMapPlace;
+  scope?: 'intercity' | 'local' | 'unknown';
   mode: MakersRouteMode;
   path: Array<{ latitude: number; longitude: number }>;
   sections: MakersRouteSection[];
@@ -55,6 +56,7 @@ export interface MakersRoutePlan {
     transit?: { estimate: number; provider_estimate?: boolean };
   };
   transit?: {
+    coverage?: 'bus_metro';
     walking_distance_meters?: number;
     lines?: string[];
     transfer_count?: number;

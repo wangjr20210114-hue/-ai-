@@ -151,7 +151,7 @@ export function ClarificationCard({
         value={typeof value === 'string' ? value : ''}
         placeholder={field.placeholder}
         step={field.type === 'time' ? 300 : undefined}
-        onChange={(event) => setValue(field.id, event.target.value)}
+        onInput={(event) => setValue(field.id, event.currentTarget.value)}
         onKeyDown={(event) => {
           if (event.key !== 'Enter' || !currentComplete) return;
           event.preventDefault();

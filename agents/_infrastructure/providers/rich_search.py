@@ -12,12 +12,14 @@ import http.client
 import io
 import json
 import logging
+import math
 import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
+from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from html import unescape
 from typing import Any, Awaitable, Callable
 
@@ -26,6 +28,7 @@ from .vision import vision_completion, vision_providers
 from ..._application.i18n import text
 from ..._application.search.evidence_presenter import evidence_for_model
 from ..._domain.search.source_policy import (
+    RECENT_SOURCE_WINDOW_DAYS,
     filter_preferred_recent_sources,
     filter_sources_for_target_date,
     query_match_terms,
@@ -277,6 +280,14 @@ def _parse_pages(data: dict[str, Any], limit: int) -> list[dict[str, Any]]:
         snippet = str(page.get("passage") or page.get("snippet") or page.get("description") or "")
         provider_images = _provider_page_images(page, snippet)
         image = provider_images[0]["url"] if provider_images else ""
+        raw_score = page.get("score")
+        relevance_score = (
+            max(0.0, min(1.0, float(raw_score)))
+            if isinstance(raw_score, (int, float))
+            and not isinstance(raw_score, bool)
+            and math.isfinite(float(raw_score))
+            else 0.0
+        )
         results.append({
             "source": source_kind, "title": str(page.get("title") or page.get("name") or url)[:200],
             "snippet": snippet[:500],
@@ -284,6 +295,8 @@ def _parse_pages(data: dict[str, Any], limit: int) -> list[dict[str, Any]]:
             "image": image,
             "provider_images": provider_images,
             "date": str(page.get("date") or page.get("publish_time") or "")[:40],
+            "publisher": str(page.get("site") or page.get("site_name") or "")[:120],
+            "relevance_score": relevance_score,
         })
         if len(results) >= limit:
             break
@@ -335,6 +348,35 @@ def _bounded_provider_query(
         value[:allocations[index]]
         for index, value in enumerate(sections)
     )[:limit]
+
+
+def _provider_time_window(
+    target_date: str, *, strict_date: bool, prefer_recent: bool,
+) -> dict[str, int]:
+    """Translate semantic recency into SearchPro's native time filter.
+
+    The window is intentionally generic and timezone-stable. SearchPro still
+    receives one request; local date verification remains the truth boundary
+    for incomplete provider metadata.
+    """
+    if not target_date or not (strict_date or prefer_recent):
+        return {}
+    try:
+        target = date.fromisoformat(target_date)
+    except ValueError:
+        return {}
+    start = (
+        target
+        if strict_date
+        else target - timedelta(days=RECENT_SOURCE_WINDOW_DAYS)
+    )
+    beijing = timezone(timedelta(hours=8))
+    return {
+        "FromTime": int(datetime.combine(start, datetime_time.min, beijing).timestamp()),
+        "ToTime": int(datetime.combine(
+            target + timedelta(days=1), datetime_time.min, beijing,
+        ).timestamp()) - 1,
+    }
 
 
 async def _extract_candidates(
@@ -769,12 +811,18 @@ async def rich_search(
             image_query=image_query[:180],
         ))
     provider_query = _bounded_provider_query(query, provider_qualifiers)
+    provider_time_window = _provider_time_window(
+        target_date,
+        strict_date=strict_date,
+        prefer_recent=prefer_recent,
+    )
+    provider_payload = {"Query": provider_query, **provider_time_window}
     data, provider_request_count = await _searchpro_json_request(
         f"{base_url}/SearchPro",
-        # Keep the request compatible with every WSA tier.  ``Cnt`` is a
-        # premium-only API parameter even though lower tiers can return a
-        # provider-selected result count.  Main has always sent Query only.
-        {"Query": provider_query},
+        # Cnt and Industry remain premium-only. FromTime/ToTime are native
+        # standard filters and let SearchPro do the first recency pass without
+        # another provider call.
+        provider_payload,
         headers,
         provider_timeout,
     )
@@ -818,6 +866,8 @@ async def rich_search(
         # well as the separately reviewed full-width media pipeline.  Dropping
         # it here made visually rich provider results look text-only.
         "image": item.get("image", ""),
+        "publisher": item.get("publisher", ""),
+        "relevance_score": item.get("relevance_score", 0.0),
     } for index, item in enumerate(results, 1)]
     # Keep SearchPro's own article hero images as explicitly provisional
     # diagnostics. Production waits for pixel review and never exposes these
@@ -858,6 +908,7 @@ async def rich_search(
             "provider_timeout_seconds": provider_timeout,
             "source_domain_count": len(source_domains),
             "source_domains": source_domains[:12],
+            "provider_time_window": provider_time_window,
             "page_fetch_limit": min(6, max(4, image_limit * 2)) if image_limit else 0,
         },
         "timings_ms": {

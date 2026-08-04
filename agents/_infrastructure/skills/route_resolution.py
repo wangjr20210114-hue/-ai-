@@ -609,6 +609,7 @@ def _route_plan_leg_summary(leg: Any, fallback_mode: str) -> dict[str, Any]:
         return {"mode": fallback_mode, "sections": []}
     summary: dict[str, Any] = {
         "mode": str(leg.get("mode") or fallback_mode),
+        "scope": str(leg.get("scope") or "unknown"),
         "distance_meters": round(float(leg.get("distance_meters") or 0)),
         "duration_seconds": round(float(leg.get("duration_seconds") or 0)),
     }

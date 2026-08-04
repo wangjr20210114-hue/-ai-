@@ -57,6 +57,20 @@ export function routeLegs(route: MakersRoutePlan): MakersRouteLeg[] {
   }];
 }
 
+export function routeLegScope(
+  leg: MakersRouteLeg,
+): 'intercity' | 'local' | 'unknown' {
+  if (leg.scope) return leg.scope;
+  const originCity = String(leg.from.city || '').trim().toLowerCase();
+  const destinationCity = String(leg.to.city || '').trim().toLowerCase();
+  if (!originCity || !destinationCity) return 'unknown';
+  return originCity === destinationCity ? 'local' : 'intercity';
+}
+
+export function routeHasIntercityLeg(route: MakersRoutePlan): boolean {
+  return routeLegs(route).some((leg) => routeLegScope(leg) === 'intercity');
+}
+
 export function visibleRouteSections(route: MakersRoutePlan): MakersRouteSection[] {
   const legs = routeLegs(route);
   const sections = legs.flatMap((leg) => leg.sections || []);
