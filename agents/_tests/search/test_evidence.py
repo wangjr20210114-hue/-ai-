@@ -66,6 +66,57 @@ class SearchEvidenceTests(unittest.TestCase):
                 ),
             )
 
+    def test_model_evidence_requires_real_publisher_diversity_when_available(self):
+        evidence = SearchEvidence(
+            query="近期进展",
+            sources=(
+                SearchSource(
+                    id="source-1",
+                    title="机构公告",
+                    url="https://news.example.test/one",
+                    snippet="第一项事实",
+                    publisher_domain="example.test",
+                ),
+                SearchSource(
+                    id="source-2",
+                    title="独立公告",
+                    url="https://official.example.org/two",
+                    snippet="第二项事实",
+                    publisher_domain="example.org",
+                ),
+            ),
+        )
+
+        model_evidence = present_search_evidence(evidence)
+
+        self.assertIn("包含 2 个独立发布者域", model_evidence)
+        self.assertIn("必须覆盖至少两个发布者域", model_evidence)
+        self.assertIn("不得把同一发布者的系列文章", model_evidence)
+
+    def test_model_evidence_discloses_when_publishers_are_concentrated(self):
+        evidence = SearchEvidence(
+            query="近期进展",
+            sources=(
+                SearchSource(
+                    id="source-1",
+                    title="系列一",
+                    url="https://news.example.test/one",
+                    snippet="第一项事实",
+                ),
+                SearchSource(
+                    id="source-2",
+                    title="系列二",
+                    url="https://news.example.test/two",
+                    snippet="第二项事实",
+                ),
+            ),
+        )
+
+        model_evidence = present_search_evidence(evidence)
+
+        self.assertIn("只有 1 个独立发布者域", model_evidence)
+        self.assertIn("不得声称已经得到多方独立核验", model_evidence)
+
     def test_rejects_empty_source_identity(self):
         with self.assertRaisesRegex(ValueError, "source id"):
             SearchSource(id="", title="气象局", url="https://a.test/1", snippet="晴")

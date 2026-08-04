@@ -292,8 +292,9 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
         prompt = evidence_for_model({
             "results": [], "media": [], "media_pending": True,
         })
-        self.assertIn("界面在审核完成后自动放到同源段落", prompt)
-        self.assertIn("不要向用户描述审核、生成或稍后补充图片", prompt)
+        self.assertNotIn("经视觉模型审核、可由界面展示的图片素材", prompt)
+        self.assertNotIn("无通过视觉筛选的图片", prompt)
+        self.assertIn("不得评论图片是否存在、是否通过审核", prompt)
         self.assertIn("不要输出任何媒体占位符", prompt)
         self.assertNotIn("[[YUANBAO_MEDIA]]", prompt)
 
@@ -306,7 +307,8 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             }],
             "media_pending": True,
         }, require_relevant_image=True)
-        self.assertIn("界面在审核完成后自动放到同源段落", prompt)
+        self.assertNotIn("provider-preview.jpg", prompt)
+        self.assertNotIn("经视觉模型审核、可由界面展示的图片素材", prompt)
         self.assertIn("不要输出任何媒体占位符", prompt)
         self.assertNotIn("[[YUANBAO_MEDIA", prompt)
 

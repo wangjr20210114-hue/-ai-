@@ -61,22 +61,20 @@ def evidence_for_model(
             ),
         )
         for item in metadata.get("media", [])
-    ) or text("model.search.media_none", language)
-    media_status = text(
-        (
-            "model.search.media_pending"
-            if metadata.get("media_pending")
-            else "model.search.media_ready"
-        ),
-        language,
     )
-    image_instruction = text(
-        (
-            "model.search.image_required"
-            if require_relevant_image and metadata.get("media")
-            else "model.search.image_default"
-        ),
-        language,
+    media_section = (
+        text(
+            "model.search.media_section", language,
+            media=media,
+            media_status=text("model.search.media_ready", language),
+        )
+        if media
+        else ""
+    )
+    image_instruction = (
+        text("model.search.image_required", language)
+        if require_relevant_image and media
+        else ""
     )
     target_date = str(metadata.get("target_date") or "")
     search_config = metadata.get("search_config")
@@ -96,12 +94,28 @@ def evidence_for_model(
         )
     else:
         temporal_instruction = ""
+    publisher_domains = {
+        str(item.get("publisher_domain") or source_domain(item.get("url")))
+        for item in metadata.get("results", [])
+        if str(
+            item.get("publisher_domain") or source_domain(item.get("url"))
+        ).strip()
+    }
+    source_diversity = text(
+        (
+            "model.search.diversity_available"
+            if len(publisher_domains) >= 2
+            else "model.search.diversity_limited"
+        ),
+        language,
+        count=len(publisher_domains),
+    )
     return text(
         "model.search.evidence", language,
         temporal=temporal_instruction,
         sources=sources or "[]",
-        media=media,
-        media_status=media_status,
+        source_diversity=source_diversity,
+        media_section=media_section,
         image_instruction=image_instruction,
     )
 
