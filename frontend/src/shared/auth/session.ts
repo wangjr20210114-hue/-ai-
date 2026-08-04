@@ -46,6 +46,35 @@ let cachedAuthSession: AuthSession | null = null;
 // Ignore a late guest bootstrap response after a login/logout refresh.
 let authSessionGeneration = 0;
 const LOCAL_IDENTITY_KEY = 'floris.auth.identity';
+const AUTH_SESSION_RETRY_DELAY_MS = 250;
+
+class AuthSessionRequestError extends Error {
+  readonly retryable: boolean;
+
+  constructor(message: string, retryable: boolean) {
+    super(message);
+    this.name = 'AuthSessionRequestError';
+    this.retryable = retryable;
+  }
+}
+
+function transientSessionStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+function retryableSessionError(error: unknown): boolean {
+  return error instanceof AuthSessionRequestError
+    ? error.retryable
+    : error instanceof TypeError || (
+      typeof DOMException !== 'undefined'
+      && error instanceof DOMException
+      && error.name === 'AbortError'
+    );
+}
+
+function waitForSessionRetry(): Promise<void> {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, AUTH_SESSION_RETRY_DELAY_MS));
+}
 
 function hasEdgeOneAccessParams(): boolean {
   if (typeof window === 'undefined') return false;
@@ -114,14 +143,18 @@ export async function ensureAuthSession(force = false): Promise<AuthSession> {
   }
   if (authSessionPromise) return authSessionPromise;
   const generation = authSessionGeneration;
-  authSessionPromise = fetch(withEdgeOneAuth('/auth/session'), {
-    method: 'GET',
-    credentials: 'same-origin',
-    headers: { Accept: 'application/json' },
-  }).then(async (response) => {
+  const loadSession = async (): Promise<AuthSession> => {
+    const response = await fetch(withEdgeOneAuth('/auth/session'), {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    });
     const data = await response.json().catch(() => ({})) as Partial<AuthSession> & { error?: string };
     if (!response.ok || !data.identity || !data.entitlements || !data.login) {
-      throw new Error(data.error || translate('secureSessionFailed'));
+      throw new AuthSessionRequestError(
+        data.error || translate('secureSessionFailed'),
+        transientSessionStatus(response.status),
+      );
     }
     if (generation !== authSessionGeneration) {
       throw new Error(translate('staleAuthSession'));
@@ -145,6 +178,18 @@ export async function ensureAuthSession(force = false): Promise<AuthSession> {
       }));
     }
     return cachedAuthSession;
+  };
+  // Session bootstrap is an idempotent platform read. One bounded retry
+  // absorbs cold-start/network transients without repeating any user action.
+  authSessionPromise = loadSession().catch(async (error) => {
+    if (generation !== authSessionGeneration || !retryableSessionError(error)) {
+      throw error;
+    }
+    await waitForSessionRetry();
+    if (generation !== authSessionGeneration) {
+      throw new Error(translate('staleAuthSession'));
+    }
+    return loadSession();
   }).catch((error) => {
     if (generation === authSessionGeneration) authSessionPromise = null;
     throw error;
