@@ -48,6 +48,7 @@ type PermissionState = 'checking' | 'prompt' | 'granted' | 'denied' | 'unavailab
 
 let sdkPromise: Promise<TencentMapNamespace> | null = null;
 const MAP_SDK_TIMEOUT_MS = 12_000;
+const ROUTE_FOCUS_SETTLE_MS = 900;
 
 function resetTencentMapSdk() {
   sdkPromise = null;
@@ -109,6 +110,7 @@ export default function MakersMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<TencentMapInstance | null>(null);
   const mapNamespaceRef = useRef<TencentMapNamespace | null>(null);
+  const manualRouteFocusUntilRef = useRef(0);
   const [animating, setAnimating] = useState(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
   const [mapLoading, setMapLoading] = useState(false);
@@ -147,6 +149,10 @@ export default function MakersMap({
     const steps = routeSectionSteps(route);
     const nextIndex = Math.max(0, Math.min(index, Math.max(0, steps.length - 1)));
     setActiveRouteStep(nextIndex);
+    // Tencent Map animates fitBounds through several centre updates. Keep the
+    // explicitly selected navigation step stable until that animation settles;
+    // later user map movement resumes the attention-driven selection.
+    manualRouteFocusUntilRef.current = Date.now() + ROUTE_FOCUS_SETTLE_MS;
     const map = mapRef.current;
     const TMap = mapNamespaceRef.current;
     const path = steps[nextIndex] ? routeSectionPath(steps[nextIndex]) : [];
@@ -475,6 +481,7 @@ export default function MakersMap({
         placeMarkers.setMap?.(cityOverview ? null : map);
         placeLabels.setMap?.(cityOverview ? null : map);
         const center = mapCenterPoint(map.getCenter?.());
+        if (Date.now() < manualRouteFocusUntilRef.current) return;
         if (center) {
           const focused = closestRouteSectionIndex(route, center);
           if (focused >= 0) setActiveRouteStep((current) => current === focused ? current : focused);
