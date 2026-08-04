@@ -334,7 +334,6 @@ async def handler(ctx):
                 raise ValueError(text("workspace.calendar.missing", response_language))
             validate_calendar_change_window(state, changes)
             changed = apply_calendar_changes(state, changes)
-            state["active_map_action_id"] = ""
             state = await save_workspace(store, workspace_id, state)
             await _record_calendar_signal(store, changed, "direct_calendar_changes", user_id, ctx.env)
             return _response(state, changed=changed)
@@ -435,7 +434,6 @@ async def handler(ctx):
             )
             action["version"] = int(action.get("version") or 1) + 1
             action["updated_at"] = int(time.time())
-            state["active_map_action_id"] = ""
             state = await save_workspace(store, workspace_id, state)
             if changed:
                 await _record_calendar_signal(store, changed, action["id"], user_id, ctx.env)

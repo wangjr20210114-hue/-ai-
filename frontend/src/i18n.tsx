@@ -1078,6 +1078,7 @@ const catalog = {
   cancelFailed: ['取消失败', '取消失敗', 'Cancellation failed', '取消失败了喵', '取消失败'],
   mapShown: ['已在右侧地图显示这些地点', '已在右側地圖顯示這些地點', 'These places are now shown on the map', '这些地点已经显示在右侧地图啦喵', '已在右侧地图显示这些地点'],
   mapSnapshotUnavailable: ['地点数据暂时不可用，请重新生成地点推荐', '地點資料暫時不可用，請重新生成地點推薦', 'Place data is temporarily unavailable. Generate the place recommendations again.', '地点数据暂时不可用喵，请重新生成地点推荐。', '地点数据暂时不可用。请重新生成地点推荐'],
+  actionExpired: ['这项操作已失效，请重新生成', '這項操作已失效，請重新產生', 'This action has expired. Generate it again.', '这项操作已经过期啦，请重新生成喵。', '这项操作已失效。请重新生成'],
   mapSnapshotNotSaved: ['地点已显示；刷新页面后可能需要重新打开', '地點已顯示；重新整理頁面後可能需要再次開啟', 'Places are shown. You may need to open them again after refreshing.', '地点已经显示啦喵，刷新后可能要再打开一次。', '地点已显示。刷新后可能需要重新打开'],
   meetingChecked: ['会议信息已检查，请确认后创建', '會議資訊已檢查，請確認後建立', 'Meeting details checked. Confirm to create it.', '会议信息检查好啦喵，确认后创建。', '会议信息已检查。确认后创建'],
   calendarChangesApplied: ['日程变更已确认并写入', '日程變更已確認並寫入', 'Schedule changes confirmed and saved', '日程变更确认并写入啦喵', '日程变更已确认并写入'],

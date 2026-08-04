@@ -646,6 +646,7 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
     def test_semantic_plan_builds_short_native_action_chain(self):
         plan = {
             "needs_web_search": True,
+            "web_search_is_independent": True,
             "needs_places": True,
             "needs_map_action": True,
             "needs_calendar_action": True,

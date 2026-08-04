@@ -52,20 +52,23 @@ export function WorkspaceActionRenderer({
   return <>{actions.map((action) => {
     const busy = busyKey === action.id;
     if (action.kind === 'map_recommendation') {
+      const actionable = action.status === 'ready' || action.status === 'active';
       const calendarAlreadyProposed = actions.some(
         (item) => item.kind === 'calendar_changes',
       );
       return (
         <div className="workspace-map-actions streamed-component" key={action.id}>
-          <button
+          {actionable ? <button
             type="button"
             className="workspace-map-action"
-            disabled={generationActive || busy || action.status === 'cancelled'}
+            disabled={generationActive || busy}
             onClick={() => void onAction(action, 'activate_map')}
           >
             {busy ? t('openingMap') : action.payload.action_text || t('viewPlacesOnMap')}
-          </button>
-          {action.payload.calendar_offer && !calendarAlreadyProposed && (
+          </button> : <div className={`workspace-action-status status-${action.status}`}>
+            {action.status === 'cancelled' ? t('cancelled') : t('actionExpired')}
+          </div>}
+          {actionable && action.payload.calendar_offer && !calendarAlreadyProposed && (
             <button
               type="button"
               className="workspace-map-action"

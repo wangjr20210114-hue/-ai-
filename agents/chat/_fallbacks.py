@@ -709,10 +709,37 @@ def grounded_route_stream_answer(
     """Apply the completion rules before replacing buffered route prose."""
     if clarification_emitted or str(run_error or "").strip():
         return ""
-    if calendar_required and not any(
-        isinstance(action, dict)
+    calendar_payload = next((
+        action
+        for action in reversed(actions)
+        if isinstance(action, dict)
         and action.get("ui_action") == "calendar_action"
-        for action in actions
-    ):
-        return ""
+        and isinstance(action.get("action"), dict)
+    ), None)
+    if calendar_required:
+        if calendar_payload is None:
+            return ""
+        route_answer = grounded_route_action_answer(actions, response_language)
+        if route_answer:
+            return route_answer
+        payload = calendar_payload["action"].get("payload") or {}
+        changes = payload.get("changes") or []
+        if not isinstance(changes, list) or not changes:
+            return ""
+        warning_count = len(payload.get("warnings") or [])
+        warning_text = (
+            text(
+                "chat.fallback.calendar_warnings", response_language,
+                count=warning_count,
+            )
+            if warning_count
+            else ""
+        )
+        # A route-calendar continuation may contain only the newly prepared
+        # calendar Action in this turn. Keep its structured card authoritative
+        # instead of letting prose recalculate and contradict frozen times.
+        return text(
+            "chat.fallback.calendar_proposal", response_language,
+            count=len(changes), warnings=warning_text,
+        )
     return grounded_route_action_answer(actions, response_language)

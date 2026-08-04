@@ -83,6 +83,35 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
+    def test_calendar_continuation_keeps_the_card_as_the_only_timetable(self):
+        answer = grounded_route_stream_answer(
+            [{
+                "ui_action": "calendar_action",
+                "action": {
+                    "kind": "calendar_changes",
+                    "payload": {
+                        "source_route_plan_id": "routeplan-1",
+                        "changes": [
+                            {"operation": "create", "event": {
+                                "title": "第一站", "start_time": 1_900_000_000,
+                            }},
+                            {"operation": "create", "event": {
+                                "title": "第二站", "start_time": 1_900_012_300,
+                            }},
+                        ],
+                    },
+                },
+            }],
+            calendar_required=True,
+            clarification_emitted=False,
+            run_error="",
+        )
+        self.assertIn("包含 2 项变更", answer)
+        self.assertIn("尚未写入日程", answer)
+        self.assertNotIn("第一站", answer)
+        self.assertNotIn("第二站", answer)
+        self.assertNotIn("1900000000", answer)
+
     def test_route_result_answer_discloses_verified_correction_and_facts(self):
         answer = _route_result_answer({
             "ui_action": "map_action",

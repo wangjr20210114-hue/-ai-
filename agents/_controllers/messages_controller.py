@@ -217,6 +217,30 @@ async def handler(ctx):
                         if isinstance(current, dict)
                         else prepared
                     )
+                    if not isinstance(current, dict):
+                        kind = str(prepared.get("kind") or "")
+                        status = str(prepared.get("status") or "")
+                        payload = prepared.get("payload")
+                        usable_legacy_map = (
+                            kind == "map_recommendation"
+                            and isinstance(payload, dict)
+                            and bool(payload.get("places"))
+                        )
+                        if (
+                            status in {
+                                "awaiting_confirmation", "ready", "active",
+                                "executing", "reconciliation_required",
+                            }
+                            and not usable_legacy_map
+                        ):
+                            hydrated = {
+                                **prepared,
+                                "status": "failed",
+                                "error": text(
+                                    "workspace.action.missing",
+                                    response_language,
+                                ),
+                            }
                     if hydrated.get("kind") == "image_generate":
                         payload = hydrated.get("payload") or {}
                         group_id = str(payload.get("group_id") or hydrated.get("id") or "")

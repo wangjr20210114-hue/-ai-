@@ -93,6 +93,57 @@ class CalendarWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         proactive = public_proactive_state(await load_proactive_state(store, TEST_USER_ID))
         self.assertTrue(any(item["type"] == "schedule_upcoming" for item in proactive["notifications"]))
 
+    async def test_calendar_changes_preserve_the_active_verified_map(self):
+        store = FakeStore()
+        state = empty_workspace()
+        map_action = new_action(
+            "map_recommendation",
+            {
+                "title": "已核实公共交通路线",
+                "places": [PLACE],
+                "route": {"provider": "tencent", "mode": "transit"},
+                "show_route": True,
+            },
+            requires_confirmation=False,
+        )
+        put_action(state, map_action)
+        state["active_map_action_id"] = map_action["id"]
+        await save_workspace(store, TEST_USER_ID, state)
+
+        start = int(time.time()) + 7200
+        direct = await handler(FakeContext(store, {
+            "operation": "direct_calendar_changes",
+            "changes": [{"operation": "create", "event": {
+                "title": "直接新增",
+                "start_time": start,
+                "duration_minutes": 30,
+                "place": PLACE,
+            }}],
+        }))
+        self.assertEqual(direct["map"]["route"]["mode"], "transit")
+
+        restored = await load_user_workspace(store, user_id=TEST_USER_ID)
+        calendar_action = new_action(
+            "calendar_changes",
+            {"changes": [{"operation": "create", "event": {
+                "title": "确认新增",
+                "start_time": start + 7200,
+                "duration_minutes": 30,
+                "place": PLACE,
+            }}]},
+            requires_confirmation=True,
+        )
+        put_action(restored, calendar_action)
+        await save_workspace(store, TEST_USER_ID, restored)
+        confirmed = await handler(FakeContext(store, {
+            "operation": "confirm_action",
+            "action_id": calendar_action["id"],
+            "version": calendar_action["version"],
+        }))
+        self.assertEqual(confirmed["map"]["route"]["mode"], "transit")
+        final = await load_user_workspace(store, user_id=TEST_USER_ID)
+        self.assertEqual(final["active_map_action_id"], map_action["id"])
+
     def test_schedule_location_must_be_verified(self):
         with self.assertRaises(ValueError):
             normalize_schedule({"title": "参观", "start_time": 1, "place": {"name": "幻觉地点"}})

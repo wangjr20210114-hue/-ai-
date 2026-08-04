@@ -119,6 +119,7 @@ export function remarkSourceBoundMedia(
     if (!options.placeUncited) return;
     const remaining = eligible
       .filter((item) => !placed.has(item.id))
+      .filter((item) => item.vision_reviewed === true)
       .map((item): MarkdownAstNode => ({
         type: 'image',
         url: item.url,
@@ -131,10 +132,10 @@ export function remarkSourceBoundMedia(
         },
       }));
     if (!remaining.length) return;
-    // Progressive media may finish for a source that the answer model did not
-    // cite inline. Once the text stream is complete, keep those query-relevant
-    // assets near the opening paragraph; RichImage still labels and links the
-    // exact bound source. Never append a detached source directory at the end.
+    // A visually reviewed asset may finish for a source that the answer model
+    // did not cite inline. Once the text stream is complete, keep that reviewed
+    // asset near the opening paragraph; unreviewed source fallbacks still need
+    // an exact inline citation. Never append a detached source directory.
     let anchor = children.findIndex((child) => child.type === 'paragraph');
     if (anchor < 0) return;
     while (children[anchor + 1]?.type === 'image') anchor += 1;

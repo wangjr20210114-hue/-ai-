@@ -218,6 +218,32 @@ class ChatStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("点击", restored["content"])
         self.assertEqual(restored["workspaceActions"][0]["id"], action["id"])
 
+    async def test_message_restore_expires_a_compact_action_missing_from_workspace(self):
+        compact_action = {
+            "id": "map-cleaned",
+            "kind": "map_recommendation",
+            "status": "ready",
+        }
+        messages = [
+            {"type": "human", "content": "打开刚才的路线", "id": "u-map-cleaned"},
+            {"type": "tool", "content": json.dumps({
+                "ui_action": "map_action",
+                "action": compact_action,
+            })},
+            {"type": "ai", "content": "路线已经准备好。", "id": "a-map-cleaned"},
+        ]
+        store = SimpleNamespace(
+            langgraph_checkpointer=FakeCheckpointer(messages),
+            langgraph_store=FakeStore(),
+        )
+        response = await messages_handler(authenticated_namespace(
+            conversation_id="restore-map-cleaned", store=store,
+        ))
+        restored = next(item for item in response["messages"] if item["role"] == "ai")
+        action = restored["workspaceActions"][0]
+        self.assertEqual(action["status"], "failed")
+        self.assertIn("过期", action["error"])
+
     async def test_message_restore_coalesces_model_prose_and_action_fallback(self):
         action = new_action(
             "image_generate", {"prompt": "蓝围巾橘猫", "group_id": "cat-duplicate"},

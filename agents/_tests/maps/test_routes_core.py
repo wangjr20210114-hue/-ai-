@@ -136,6 +136,15 @@ class MapRouteCoreTests(unittest.IsolatedAsyncioTestCase):
             }),
             ("plan_route_between_places", "propose_calendar_changes"),
         )
+        duplicate = dict(needs_web_search=True, needs_images=True, needs_route=True,
+                         needs_calendar_action=True,
+                         _capabilities=["web_search", "route", "calendar_action"])
+        independent = dict(needs_web_search=True, web_search_is_independent=True,
+                           needs_route=True, _capabilities=["web_search", "route"])
+        self.assertEqual(required_tools_for_plan(duplicate),
+                         ("plan_route_between_places", "propose_calendar_changes"))
+        self.assertEqual(required_tools_for_plan(independent),
+                         ("rich_search", "plan_route_between_places"))
         self.assertIn("一个/多个依次停靠点", SYSTEM_PROMPT)
         self.assertIn("ordered_stops", SYSTEM_PROMPT)
         self.assertIn("不要再问用户“是否需要写入日程”", SYSTEM_PROMPT)

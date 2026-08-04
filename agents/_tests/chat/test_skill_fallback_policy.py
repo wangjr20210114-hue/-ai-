@@ -11,6 +11,7 @@ class SkillFallbackPolicyTests(unittest.TestCase):
             {
                 "needs_clarification": True,
                 "needs_web_search": True,
+                "web_search_is_independent": True,
                 "needs_calendar_action": True,
                 "route_stops": [{"query": "A"}, {"query": "B"}],
                 "_capabilities": [

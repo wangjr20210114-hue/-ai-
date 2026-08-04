@@ -30,6 +30,7 @@ from .._application.skills.registry import (
 DEFAULT_PLAN = {
     "needs_clarification": False,
     "needs_web_search": False,
+    "web_search_is_independent": False,
     "strict_today_only": False,
     "prefer_recent_results": False,
     "needs_images": False,
@@ -142,6 +143,10 @@ class CapabilityPlan(BaseModel):
     )
     needs_clarification: bool = False
     needs_web_search: bool = False
+    web_search_is_independent: bool = Field(
+        default=False,
+        description=_schema("field_50"),
+    )
     strict_today_only: bool = Field(
         default=False,
         description=_schema("field_09"),
@@ -710,6 +715,10 @@ class SemanticPreflight(BaseModel):
         description=_schema("field_48", capability_ids=_CAPABILITY_IDS),
     )
     needs_web_search: bool = False
+    web_search_is_independent: bool = Field(
+        default=False,
+        description=_schema("field_50"),
+    )
     strict_today_only: bool = Field(
         default=False,
         description=_schema("field_46"),
@@ -781,6 +790,33 @@ def reconcile_capability_contract(plan: dict[str, Any]) -> dict[str, Any]:
         for flag in _PREFLIGHT_CAPABILITY_FLAGS[capability]:
             merged[flag] = True
     merged["_capabilities"] = list(effective)
+    # A provider-backed location/workspace capability already owns its facts.
+    # Generic Web search is additive only when the planner identifies a
+    # separate information need; it must not duplicate route, place, location,
+    # calendar, or meeting verification merely because those facts are current.
+    provider_fact_capability = any(bool(merged.get(flag)) for flag in (
+        "needs_current_location",
+        "needs_nearby_places",
+        "needs_places",
+        "needs_map_action",
+        "needs_route",
+        "needs_calendar_action",
+        "needs_meeting_action",
+    ))
+    if (
+        provider_fact_capability
+        and merged.get("needs_web_search")
+        and not merged.get("web_search_is_independent")
+    ):
+        merged["needs_web_search"] = False
+        merged["needs_images"] = False
+        merged["search_query"] = ""
+        merged["image_query"] = ""
+        merged["_capabilities"] = [
+            capability
+            for capability in merged["_capabilities"]
+            if capability != "web_search"
+        ]
     if merged.get("needs_calendar_action"):
         merged["needs_calendar_context"] = True
     return merged
@@ -849,6 +885,9 @@ async def plan_required_clarification(
                     )
                 ),
                 "needs_web_search": bool(parsed.get("needs_web_search")),
+                "web_search_is_independent": bool(
+                    parsed.get("web_search_is_independent")
+                ),
                 "strict_today_only": bool(parsed.get("strict_today_only")),
                 "prefer_recent_results": bool(
                     parsed.get("prefer_recent_results")
@@ -1091,6 +1130,7 @@ async def plan_capabilities_bounded(
                         "clarification_prompt",
                         "clarification_fields",
                         "needs_web_search",
+                        "web_search_is_independent",
                         "strict_today_only",
                         "prefer_recent_results",
                         "search_query",

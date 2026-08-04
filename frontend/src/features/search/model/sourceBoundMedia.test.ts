@@ -137,6 +137,28 @@ describe('remarkSourceBoundMedia', () => {
     });
   });
 
+  it('does not place an uncited source fallback that was not visually reviewed', () => {
+    const tree: MarkdownAstNode = {
+      type: 'root',
+      children: [{
+        type: 'paragraph',
+        children: [{ type: 'text', value: 'Query-level verified summary' }],
+      }],
+    };
+    remarkSourceBoundMedia({
+      sources,
+      media: [{
+        ...reviewed,
+        vision_reviewed: false,
+        vision_fallback: true,
+        source_bound_fallback: true,
+      }],
+      placeUncited: true,
+    })()(tree);
+
+    expect(insertedImages(tree)).toHaveLength(0);
+  });
+
   it('does not move uncited media while the answer can still add a citation', () => {
     const tree: MarkdownAstNode = {
       type: 'root',
