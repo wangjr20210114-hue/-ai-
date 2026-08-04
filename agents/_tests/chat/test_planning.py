@@ -697,12 +697,22 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
         result = await generate_followups(
             model,
             "What is new in artificial intelligence this week?",
-            plan_context='{"needs_web_search": true}',
+            answer="Only one development was supported by a verifiable source.",
             response_language="en",
         )
         self.assertEqual(result, ["What changed most?"])
-        system_prompt = model.ainvoke.await_args.args[0][0]["content"]
+        messages = model.ainvoke.await_args.args[0]
+        system_prompt = messages[0]["content"]
         self.assertIn("Write every question in clear, concise English.", system_prompt)
+        self.assertIn("only completed facts", system_prompt)
+        self.assertIn("Only one development", messages[1]["content"])
+        model.ainvoke.reset_mock()
+        self.assertEqual(await generate_followups(
+            model,
+            "This question is deliberately long enough to cross the old threshold.",
+            response_language="en",
+        ), [])
+        model.ainvoke.assert_not_awaited()
 
     async def test_clarification_tool_converts_finite_text_options_to_single_choice(self):
         tools = build_system_skill_tools(

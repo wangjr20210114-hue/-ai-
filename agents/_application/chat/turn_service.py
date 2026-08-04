@@ -7,7 +7,8 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from .turn_context import experience_hints_for_plan, state_requirements_for_plan
+from .turn_context import state_requirements_for_plan
+from .turn_finalizer import TurnFinalizer
 from .turn_io import (
     _document_context,
     _recent_user_questions,
@@ -21,7 +22,6 @@ from .turn_io import (
 from .turn_policy import (
     direct_paper_tool_arguments,
     dynamic_system_prompt,
-    empty_generation_error,
     location_clarification_arguments,
     run_cancelled,
     runtime_datetime_context,
@@ -55,7 +55,7 @@ from ...chat._capability_plan import (
     progressive_media_for_plan,
     required_tools_for_plan,
 )
-from ...chat._followups import generate_followups, should_generate_followups
+from ...chat._followups import should_generate_followups
 from ...chat._protocol import (
     MarkdownImageStreamFilter,
     PublicStreamFilter,
@@ -66,17 +66,13 @@ from ...chat._protocol import (
 )
 from ...chat._calendar_context import calendar_context, latest_route_context
 from ..._application.intelligence.service import (
-    apply_automatic_memory_candidates,
     confirmed_memory_context,
     extract_automatic_memory_candidates,
     load_intelligence_state,
-    record_usage,
-    save_intelligence_state,
     usage_summary,
     skill_runtime_env,
     user_skill_prompt_context,
 )
-from ..._infrastructure.makers.data_version import namespace as data_namespace
 from ..._infrastructure.makers.conversation_repository import (
     read_chat_run,
     write_chat_run,
@@ -87,13 +83,7 @@ from ..._infrastructure.providers.vision import describe_reference_images
 from ..._infrastructure.makers.provider_usage_repository import (
     record_vision_diagnostics,
 )
-from ..._application.proactive.opportunities import detect_opportunity, opportunity_signal
-from ..._application.proactive.service import (
-    load_proactive_state,
-    process_schedule_signals,
-    public_proactive_state,
-    save_proactive_state,
-)
+from ..._application.proactive.service import load_proactive_state
 from ..._presenters.chat_stream import ChatStreamPresenter
 HEARTBEAT_SECONDS = 5
 MAX_GRAPH_RECURSION = 24
@@ -843,22 +833,11 @@ async def _handle(ctx):
             ))
             if bool(body.get("_diagnostics")):
                 await queue.put(presenter.stage_timing(stage_timings_ms))
-            # Optional post-turn jobs are themselves dynamically planned. They
-            # use non-thinking Flash and are never started for every message by
-            # default. Result turns can suggest useful adjacent questions;
-            # clarification and blocked turns must not compete with their card.
-            follow_up_task = (
-                asyncio.create_task(generate_followups(
-                    fast_model,
-                    message,
-                    plan_context=json.dumps(capability_plan, ensure_ascii=False),
-                    response_language=response_language,
-                ))
-                if should_generate_followups(
-                    capability_plan,
-                    blocked_skill=blocked_skill,
-                )
-                else None
+            # Follow-up generation waits for the actual answer so the original
+            # request cannot be mistaken for a completed fact or item count.
+            followups_enabled = should_generate_followups(
+                capability_plan,
+                blocked_skill=blocked_skill,
             )
             memory_enabled = bool(
                 (intelligence.get("memory_preferences") or {}).get("enabled", True)
@@ -902,44 +881,6 @@ async def _handle(ctx):
                 else:
                     await queue.put(presenter.token(content))
 
-            async def persist_answer_extras(follow_ups: list[str] | None = None) -> None:
-                """Persist media independently from optional post-answer jobs.
-
-                Follow-up, memory, or opportunity generation may time out after
-                the answer and reviewed images are already complete. Media must
-                still survive a conversation switch or page reload in that case.
-                """
-                if (
-                    not final_answer
-                    or ctx.store.langgraph_store is None
-                    or not (
-                        follow_ups
-                        or search_runner.latest_enriched_media
-                        or experience_hints_for_plan(
-                            answer_capability_plan,
-                            auth_type=str(identity.get("auth_type") or "guest"),
-                        )
-                    )
-                ):
-                    return
-                await ctx.store.langgraph_store.aput(
-                    data_namespace("message_meta", conversation_id),
-                    "latest_extras",
-                    {
-                        "original_content": final_answer,
-                        "content": final_answer,
-                        "follow_ups": follow_ups or [],
-                        "experience_hints": experience_hints_for_plan(
-                            answer_capability_plan,
-                            auth_type=str(identity.get("auth_type") or "guest"),
-                        ),
-                        **(
-                            {"search_results": search_runner.latest_enriched_media}
-                            if search_runner.latest_enriched_media
-                            else {}
-                        ),
-                    },
-                )
             if tool_setup_error:
                 await queue.put(
                     presenter.error("tool_setup_error", tool_setup_error)
@@ -1263,189 +1204,38 @@ async def _handle(ctx):
                     run_error = text("chat.run_interrupted", response_language)
             finally:
                 final_answer = "".join(final_answer_parts).strip()
-                empty_error = empty_generation_error(
-                    final_answer,
-                    has_actions=bool(pending_actions),
-                    clarification_emitted=clarification_emitted,
-                    run_error=run_error,
-                    cancelled=cancelled,
+                await TurnFinalizer(
+                    ctx=ctx,
+                    presenter=presenter,
+                    queue=queue,
+                    completion_sentinel=done,
+                    search_runner=search_runner,
+                    fast_model=fast_model,
+                    message=message,
                     response_language=response_language,
+                    conversation_id=conversation_id,
+                    user_id=user_id,
+                    run_id=run_id,
+                    body=body,
+                    identity=identity,
+                    capability_plan=capability_plan,
+                    answer_capability_plan=answer_capability_plan,
+                    memory_context=memory_context,
+                    pending_actions=pending_actions,
+                    followups_enabled=followups_enabled,
+                    memory_task=memory_task,
+                    recent_questions_task=recent_questions_task,
+                    opportunity_enabled=opportunity_enabled,
+                ).finish(
+                    answer=final_answer,
+                    run_error=run_error,
+                    run_diagnostics=run_diagnostics,
+                    cancelled=cancelled,
+                    clarification_emitted=clarification_emitted,
+                    pending_search_results=pending_search_results,
+                    pending_papers=pending_papers,
+                    usage=usage,
                 )
-                if empty_error:
-                    run_error = empty_error
-                    await queue.put(
-                        presenter.error("empty_generation", run_error)
-                    )
-                await search_runner.finish_media()
-                # Media is a complete user-visible result. Persist it before
-                # the terminal event so refresh and every client consume the
-                # same ordered protocol.
-                if final_answer and search_runner.latest_enriched_media:
-                    try:
-                        await persist_answer_extras()
-                    except Exception as exc:
-                        logging.warning("answer media persistence failed: %s", exc)
-                follow_ups: list[str] = []
-                if final_answer:
-                    # Stop the visible cursor immediately when answer tokens
-                    # finish. The already-running follow-up job may land a
-                    # moment later, but it must never create a second pause.
-                    await queue.put(presenter.progress(
-                        "synthesis",
-                        "completed",
-                    ))
-                    await queue.put(presenter.progress(
-                        "finalizing",
-                        "completed",
-                    ))
-                    await queue.put(presenter.progress(
-                        "complete",
-                        "completed",
-                    ))
-                    hints = experience_hints_for_plan(
-                        answer_capability_plan,
-                        auth_type=str(identity.get("auth_type") or "guest"),
-                    )
-                    if hints:
-                        await queue.put(
-                            presenter.experience_hints(hints),
-                        )
-                    await queue.put(presenter.done(run_id))
-                    if follow_up_task is not None:
-                        if not clarification_emitted and not run_error:
-                            try:
-                                follow_ups = await asyncio.wait_for(
-                                    asyncio.shield(follow_up_task), timeout=3,
-                                )
-                            except Exception as exc:
-                                logging.warning("parallel follow-up generation failed: %s", exc)
-                                if not follow_up_task.done():
-                                    follow_up_task.cancel()
-                        elif not follow_up_task.done():
-                            follow_up_task.cancel()
-                    if follow_ups:
-                        await queue.put(presenter.follow_ups(follow_ups))
-                    try:
-                        await persist_answer_extras(follow_ups)
-                    except Exception as exc:
-                        logging.warning("answer follow-up persistence failed: %s", exc)
-                else:
-                    for task in (follow_up_task, memory_task, recent_questions_task):
-                        if task is not None and not task.done():
-                            task.cancel()
-                if final_answer and (memory_task is not None or opportunity_enabled):
-                    try:
-                        recent_questions = []
-                        if recent_questions_task is not None:
-                            try:
-                                recent_questions = await asyncio.wait_for(
-                                    asyncio.shield(recent_questions_task),
-                                    timeout=1.5,
-                                )
-                            except Exception:
-                                recent_questions = []
-                        opportunity_task = (
-                            asyncio.create_task(detect_opportunity(
-                                fast_model,
-                                user_message=message,
-                                answer=final_answer,
-                                capability_plan=capability_plan,
-                                memory_context=(
-                                    memory_context
-                                    if capability_plan.get("use_memory_context")
-                                    else ""
-                                ),
-                                recent_questions=recent_questions,
-                                has_pending_action=any(
-                                    action.get("action", {}).get("status") in {"awaiting_confirmation", "ready"}
-                                    for action in pending_actions
-                                ),
-                                timeout_seconds=float(ctx.env.get("OPPORTUNITY_PLAN_TIMEOUT_SECONDS") or 6),
-                                response_language=response_language,
-                            ))
-                            if opportunity_enabled
-                            else None
-                        )
-                        optional_jobs = [
-                            task for task in (memory_task, opportunity_task)
-                            if task is not None
-                        ]
-                        optional_results = await asyncio.wait_for(
-                            asyncio.gather(*optional_jobs), timeout=8,
-                        )
-                        result_index = 0
-                        memory_candidates = []
-                        opportunity = None
-                        if memory_task is not None:
-                            memory_candidates = optional_results[result_index]
-                            result_index += 1
-                        if opportunity_task is not None:
-                            opportunity = optional_results[result_index]
-                        await persist_answer_extras(follow_ups)
-                        if memory_candidates:
-                            latest_intelligence = await load_intelligence_state(ctx.store.langgraph_store, user_id)
-                            if apply_automatic_memory_candidates(
-                                latest_intelligence,
-                                memory_candidates,
-                                source_message_id=str(body.get("client_message_id") or ""),
-                            ):
-                                await save_intelligence_state(ctx.store.langgraph_store, latest_intelligence, user_id)
-                        if opportunity and ctx.store.langgraph_store is not None:
-                            now = int(time.time())
-                            proactive_state = await load_proactive_state(ctx.store.langgraph_store, user_id)
-                            source_id = str(body.get("client_message_id") or run_id)
-                            opportunity_stats = process_schedule_signals(
-                                proactive_state,
-                                [opportunity_signal(opportunity, source_id=source_id, now=now)],
-                                now,
-                            )
-                            if opportunity_stats.get("notifications_created"):
-                                proactive_state.setdefault("checkpoints", {})["semantic_opportunity"] = {
-                                    "last_detected_at": now,
-                                    "type": opportunity.get("type"),
-                                    "source_id": source_id,
-                                }
-                                proactive_state = await save_proactive_state(
-                                    ctx.store.langgraph_store, proactive_state, user_id,
-                                )
-                                await queue.put(presenter.proactive_update(
-                                    public_proactive_state(proactive_state),
-                                ))
-                    except Exception as exc:
-                        logging.warning("answer extras generation failed: %s", exc)
-                if pending_search_results is not None:
-                    await queue.put(presenter.sources(pending_search_results))
-                if pending_papers is not None:
-                    await queue.put(presenter.papers(pending_papers))
-                latest_run = await read_chat_run(ctx.store, conversation_id)
-                owns_run = not (
-                    isinstance(latest_run, dict)
-                    and latest_run.get("run_id")
-                    and str(latest_run.get("run_id")) != run_id
-                )
-                if owns_run:
-                    cancelled = cancelled or run_cancelled(latest_run)
-                    await write_chat_run(
-                        ctx.store,
-                        conversation_id,
-                        run_id=run_id,
-                        status="cancelled" if cancelled else ("failed" if run_error else "completed"),
-                        error=run_error,
-                        diagnostics=run_diagnostics,
-                    )
-                if any(usage):
-                    try:
-                        latest_intelligence = await load_intelligence_state(ctx.store.langgraph_store, user_id)
-                        record_usage(latest_intelligence, usage[0], usage[1], usage[2] or usage[0] + usage[1], "chat")
-                        await save_intelligence_state(ctx.store.langgraph_store, latest_intelligence, user_id)
-                    except Exception as exc:
-                        logging.warning("usage persistence failed: %s", exc)
-                    await queue.put(presenter.usage(
-                        usage[0],
-                        usage[1],
-                        usage[2] or usage[0] + usage[1],
-                    ))
-                await queue.put(done)
 
         producer = asyncio.create_task(produce())
         try:

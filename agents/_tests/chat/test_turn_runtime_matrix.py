@@ -186,6 +186,8 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         enabled_preferences: dict[str, bool] | None = None,
         identity: dict | None = None,
         search_use_case_type=_SearchUseCase,
+        followups_enabled: bool = False,
+        followup_generator=None,
     ) -> tuple[str, _ConversationStore]:
         store = store or _ConversationStore()
         ctx = SimpleNamespace(
@@ -251,7 +253,11 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "agents._application.chat.turn_service.should_generate_followups",
-                return_value=False,
+                return_value=followups_enabled,
+            ),
+            patch(
+                "agents._application.chat.turn_finalizer.generate_followups",
+                new=(followup_generator or AsyncMock(return_value=[])),
             ),
         ):
             stream = await ChatTurnService(ctx).handle()
@@ -414,6 +420,18 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cloudbase_search_streams_sources_and_bound_media_once(self):
         _ProgressiveSearchUseCase.execute_count = 0
+        observed: dict[str, str] = {}
+
+        async def grounded_followups(
+            _model,
+            user_message,
+            answer="",
+            **_kwargs,
+        ):
+            observed["question"] = user_message
+            observed["answer"] = answer
+            return ["Which verified result should we examine next?"]
+
         wire, store = await self._run(
             "cloudbase-progressive-search",
             _plan(
@@ -425,6 +443,8 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             ),
             identity={"auth_type": "cloudbase", "membership": "free"},
             search_use_case_type=_ProgressiveSearchUseCase,
+            followups_enabled=True,
+            followup_generator=grounded_followups,
         )
 
         self.assertEqual(_ProgressiveSearchUseCase.execute_count, 1)
@@ -434,6 +454,11 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"vision_reviewed":true', wire)
         self.assertLess(wire.index("event: sources"), wire.index("event: token"))
         self.assertLess(wire.index("event: media"), wire.index("data: [DONE]"))
+        self.assertLess(wire.index("event: done"), wire.index('"type":"follow_ups"'))
+        self.assertEqual(
+            observed["answer"],
+            "Production-like runtime matrix answer completed.",
+        )
         self.assertNotIn('"login_required":true', wire)
         extras = [
             value

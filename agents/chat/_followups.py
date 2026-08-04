@@ -78,12 +78,11 @@ async def generate_followups(
     user_message: str,
     answer: str = "",
     *,
-    plan_context: str = "",
     response_language: str = "zh-CN",
 ) -> list[str]:
-    """Return useful next questions and allow planning beside answer synthesis."""
-    grounding = answer.strip() or plan_context.strip()
-    if len(user_message.strip()) + len(grounding) < 20:
+    """Return useful next questions grounded in the completed public answer."""
+    grounding = answer.strip()
+    if not grounding or len(user_message.strip()) + len(grounding) < 20:
         return []
     language = normalize_language(response_language)
     language_copy = text("model.followups.language", language)
@@ -99,11 +98,10 @@ async def generate_followups(
         {
             "role": "user",
             "content": text(
-                "model.followups.user_with_answer" if answer.strip() else "model.followups.user_with_plan",
+                "model.followups.user_with_answer",
                 language,
                 question=user_message[:1200],
                 answer=answer[:6000],
-                plan=plan_context[:2400],
             ),
         },
     ])

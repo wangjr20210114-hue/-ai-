@@ -307,11 +307,11 @@ CATALOG: Final[dict[str, LocalizedEntry]] = {
         "clarification_title、clarification_prompt、字段标签、占位提示和选项必须使用简洁、克制、清晰的简体中文。",
     ),
     "model.followups.system": (
-        "你只生成对话界面的“猜你想问”，不续写或编排回答。结合用户原问题和回答，给出 2 到 3 个自然、有信息增量、用户可能真的会点的简短问题。不要重复原问题，不要写“还有什么可以帮你”。如果不适合追问，返回 []。{language_instruction}只返回 JSON 字符串数组。",
-        "你只生成對話介面的「猜你想問」，不續寫或編排回答。結合使用者原問題和回答，給出 2 到 3 個自然、有資訊增量、使用者可能真的會點的簡短問題。不要重複原問題，不要寫「還有什麼可以幫你」。如果不適合追問，傳回 []。{language_instruction}只傳回 JSON 字串陣列。",
-        "Generate only the conversation UI's suggested follow-up questions; do not continue or restructure the answer. Based on the original question and answer, return 2 or 3 short, natural questions that add information and a user might genuinely select. Do not repeat the original question or ask a generic offer-to-help question. Return [] when no follow-up fits. {language_instruction} Return only a JSON array of strings.",
-        "你只生成对话界面的“猜你想问”，不续写回答。结合原问题和回答，给出 2 到 3 个自然、有信息增量、用户可能会点的简短问题；不要重复原问题或泛泛问还能帮什么。不适合时返回 []。{language_instruction}只返回 JSON 字符串数组。",
-        "只生成对话界面的“猜你想问”，不要续写回答。给出 2 到 3 个自然、简短且有信息增量的问题；不得重复原问题或泛泛询问。不适合时返回 []。{language_instruction}只返回 JSON 字符串数组。",
+        "你只生成对话界面的“猜你想问”，不续写或编排回答。结合用户原问题和回答，给出 2 到 3 个自然、有信息增量、用户可能真的会点的简短问题。回答是唯一可视为已经完成的事实；不得假设原问题要求的数量、对象或操作已经满足，回答明确不足时必须据此追问。不要重复原问题，不要写“还有什么可以帮你”。如果不适合追问，返回 []。{language_instruction}只返回 JSON 字符串数组。",
+        "你只生成對話介面的「猜你想問」，不續寫或編排回答。結合使用者原問題和回答，給出 2 到 3 個自然、有資訊增量、使用者可能真的會點的簡短問題。回答是唯一可視為已經完成的事實；不得假設原問題要求的數量、對象或操作已經滿足，回答明確不足時必須據此追問。不要重複原問題，不要寫「還有什麼可以幫你」。如果不適合追問，傳回 []。{language_instruction}只傳回 JSON 字串陣列。",
+        "Generate only the conversation UI's suggested follow-up questions; do not continue or restructure the answer. Based on the original question and answer, return 2 or 3 short, natural questions that add information and a user might genuinely select. Treat the answer as the only completed facts: never assume that a count, entity, or action requested in the question was satisfied, and ground follow-ups in any stated shortfall. Do not repeat the original question or ask a generic offer-to-help question. Return [] when no follow-up fits. {language_instruction} Return only a JSON array of strings.",
+        "你只生成对话界面的“猜你想问”，不续写回答。结合原问题和回答，给出 2 到 3 个自然、有信息增量、用户可能会点的简短问题。回答是唯一已经完成的事实，不得假设原问题中的数量、对象或操作已经满足；回答说不足时要据此追问。不要重复原问题或泛泛问还能帮什么。不适合时返回 []。{language_instruction}只返回 JSON 字符串数组。",
+        "只生成对话界面的“猜你想问”，不要续写回答。给出 2 到 3 个自然、简短且有信息增量的问题。只把回答视为已经完成的事实，不得假设原问题中的数量、对象或操作已经满足；回答明确不足时应据此追问。不得重复原问题或泛泛询问。不适合时返回 []。{language_instruction}只返回 JSON 字符串数组。",
     ),
     "model.followups.language": (
         "问题必须使用自然、简洁的简体中文。",
@@ -326,13 +326,6 @@ CATALOG: Final[dict[str, LocalizedEntry]] = {
         "Original question: {question}\n\nAnswer: {answer}",
         "原问题：{question}\n\n回答：{answer}",
         "原问题：{question}\n\n回答：{answer}",
-    ),
-    "model.followups.user_with_plan": (
-        "原问题：{question}\n\n已识别的任务方向：{plan}",
-        "原問題：{question}\n\n已識別的任務方向：{plan}",
-        "Original question: {question}\n\nRecognized task direction: {plan}",
-        "原问题：{question}\n\n已识别的任务方向：{plan}",
-        "原问题：{question}\n\n已识别的任务方向：{plan}",
     ),
     **MODEL_CATALOG,
 }
