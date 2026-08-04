@@ -95,11 +95,21 @@ class TurnTelemetry:
     def answer_completed(self) -> None:
         self.mark_and_emit("answer_completed", "chat.answer_completed")
 
-    def media_completed(self, outcome: str) -> None:
+    def media_completed(
+        self,
+        outcome: str,
+        diagnostics: Mapping[str, Any] | None = None,
+    ) -> None:
+        attributes = {"chat.media.outcome": outcome}
+        attributes.update({
+            f"chat.media.{key}": value
+            for key, value in dict(diagnostics or {}).items()
+            if isinstance(value, (int, str))
+        })
         self.mark_and_emit(
             "media_completed",
             "chat.media_completed",
-            {"chat.media.outcome": outcome},
+            attributes,
         )
 
     def settle(self, outcome: str) -> None:

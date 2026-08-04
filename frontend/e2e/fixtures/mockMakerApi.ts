@@ -229,15 +229,19 @@ export async function installMockMakerApi(
     contentType: 'image/jpeg',
     path: resolve(process.cwd(), 'public/floris-chat-light.jpg'),
   }));
-  await page.route('**/messages', (route) => json(route, {
-    messages: options.messages || richMessages,
-    schedules: options.messageState?.schedules || [],
-    map_places: options.messageState?.map_places || [],
-    map_title: options.messageState?.map_title || '',
-    workspace_revision: 1,
-    workspace_actions: [],
-    run: null,
-  }));
+  await page.route('**/messages', (route) => {
+    const conversationId = route.request().headers()['makers-conversation-id'];
+    const baselineConversation = conversationId === 'visual-baseline';
+    return json(route, {
+      messages: baselineConversation ? options.messages || richMessages : [],
+      schedules: baselineConversation ? options.messageState?.schedules || [] : [],
+      map_places: baselineConversation ? options.messageState?.map_places || [] : [],
+      map_title: baselineConversation ? options.messageState?.map_title || '' : '',
+      workspace_revision: 1,
+      workspace_actions: [],
+      run: null,
+    });
+  });
   await page.route('**/proactive', (route) => json(route, {
     schema_version: 1,
     revision: 1,

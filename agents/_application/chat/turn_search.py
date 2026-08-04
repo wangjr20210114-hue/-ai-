@@ -26,6 +26,55 @@ from ..._infrastructure.providers.searchpro import SearchProGateway
 from ..._presenters.chat_stream import search_evidence_payload
 
 
+def media_observability(metadata: dict | None) -> dict[str, int | str]:
+    """Classify an empty media result without weakening source-bound safety."""
+    value = metadata if isinstance(metadata, dict) else {}
+    diagnostics = (
+        value.get("vision_diagnostics")
+        if isinstance(value.get("vision_diagnostics"), dict)
+        else {}
+    )
+    media = value.get("media") if isinstance(value.get("media"), list) else []
+    count = len(media)
+
+    def number(key: str) -> int:
+        try:
+            return max(0, int(diagnostics.get(key) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    candidates = number("candidates")
+    reviewed = number("reviewed")
+    approved = number("approved")
+    rejected = number("irrelevant") + number("promotional")
+    fallback = number("source_bound_fallback")
+    if count:
+        reason = "source_bound_fallback" if fallback else "published"
+    elif number("timeout"):
+        reason = "timeout"
+    elif candidates == 0:
+        reason = "no_candidates"
+    elif rejected and not approved:
+        reason = "rejected"
+    elif number("missing_api_key"):
+        reason = "provider_unavailable"
+    elif number("eligible_candidates") == 0:
+        reason = "prefiltered"
+    elif reviewed and not approved and not rejected:
+        reason = "provider_failed"
+    else:
+        reason = "empty"
+    return {
+        "reason": reason,
+        "count": count,
+        "candidates": candidates,
+        "reviewed": reviewed,
+        "approved": approved,
+        "rejected": rejected,
+        "fallback": fallback,
+    }
+
+
 class PlannedSearchRunner:
     """Execute at most one provider-backed rich search for a logical turn."""
 
@@ -61,6 +110,15 @@ class PlannedSearchRunner:
         self._response_language = response_language
         self.background_tasks: list[asyncio.Task] = []
         self.latest_enriched_media: dict | None = None
+        self.media_diagnostics: dict[str, int | str] = {
+            "reason": "not_requested",
+            "count": 0,
+            "candidates": 0,
+            "reviewed": 0,
+            "approved": 0,
+            "rejected": 0,
+            "fallback": 0,
+        }
 
         time_sensitive = bool(capability_plan.get("needs_web_search"))
         self.temporal_context = {
@@ -110,12 +168,20 @@ class PlannedSearchRunner:
                 if isinstance(task_outcome, Exception):
                     logging.warning("rich search media task failed: %s", task_outcome)
                     media_outcome = "completed_with_errors"
+                    self.media_diagnostics = {
+                        **self.media_diagnostics,
+                        "reason": "task_error",
+                    }
             return media_outcome
         except asyncio.TimeoutError:
             logging.warning("rich search media task timed out")
             for task in self.background_tasks:
                 if not task.done():
                     task.cancel()
+            self.media_diagnostics = {
+                **self.media_diagnostics,
+                "reason": "timeout",
+            }
             return "timeout"
 
     async def execute(
@@ -150,6 +216,14 @@ class PlannedSearchRunner:
                 "media_pending": False,
             }
             self.latest_enriched_media = completed
+            self.media_diagnostics = media_observability(completed)
+            logging.info(
+                "rich_search media_audit request_id=%s reason=%s count=%s candidates=%s",
+                self._run_id,
+                self.media_diagnostics["reason"],
+                self.media_diagnostics["count"],
+                self.media_diagnostics["candidates"],
+            )
             await self._queue.put(self._presenter.media(completed))
 
         search_started_at = time.monotonic()

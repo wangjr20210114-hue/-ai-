@@ -340,7 +340,10 @@ class TurnFinalizer:
                 ))
             media_outcome = await self._search_runner.finish_media()
             if media_outcome != "not_requested":
-                self._telemetry.media_completed(media_outcome)
+                self._telemetry.media_completed(
+                    media_outcome,
+                    self._search_runner.media_diagnostics,
+                )
             if answer and self._search_runner.latest_enriched_media:
                 try:
                     await self._persist_answer_extras(answer)

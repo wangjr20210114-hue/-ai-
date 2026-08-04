@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 from langchain_core.messages import AIMessageChunk, ToolMessage
 
 from agents._application.chat.turn_service import ChatTurnService
+from agents._application.chat.turn_search import media_observability
 from agents._application.skills.access import (
     resolve_skill_access as resolve_test_skill_access,
 )
@@ -184,6 +185,49 @@ def _plan(**updates) -> dict:
 
 
 class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
+    def test_media_observability_classifies_safe_empty_results(self):
+        self.assertEqual(
+            media_observability({
+                "media": [],
+                "vision_diagnostics": {"candidates": 0, "reviewed": 0},
+            })["reason"],
+            "no_candidates",
+        )
+        self.assertEqual(
+            media_observability({
+                "media": [],
+                "vision_diagnostics": {
+                    "candidates": 3,
+                    "reviewed": 3,
+                    "irrelevant": 2,
+                    "promotional": 1,
+                },
+            })["reason"],
+            "rejected",
+        )
+        self.assertEqual(
+            media_observability({
+                "media": [],
+                "vision_diagnostics": {
+                    "candidates": 2,
+                    "eligible_candidates": 2,
+                    "reviewed": 2,
+                    "providers_failed": 2,
+                },
+            })["reason"],
+            "provider_failed",
+        )
+        self.assertEqual(
+            media_observability({
+                "media": [{"source_id": "source-1"}],
+                "vision_diagnostics": {
+                    "candidates": 2,
+                    "source_bound_fallback": 1,
+                },
+            })["reason"],
+            "source_bound_fallback",
+        )
+
     async def _run(
         self,
         name: str,
@@ -505,7 +549,10 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             sorted(event_names.index(name) for name in expected_events),
         )
         settled = dict(tracer.events)["chat.request_settled"]
+        media_event = dict(tracer.events)["chat.media_completed"]
         self.assertEqual(settled["chat.outcome"], "completed")
+        self.assertEqual(media_event["chat.media.reason"], "published")
+        self.assertEqual(media_event["chat.media.count"], 1)
         self.assertEqual(
             settled["chat.request_id"],
             "run-cloudbase-progressive-search",

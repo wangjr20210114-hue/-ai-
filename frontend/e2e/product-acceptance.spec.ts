@@ -210,6 +210,31 @@ test('sending a question rejoins the live edge and scrolls to the bottom', async
   ))).toBeLessThan(4);
 });
 
+test('a new conversation owns the next request without inheriting old rows', async ({ page }) => {
+  let chatRequest: { body: Record<string, unknown>; headers: Record<string, string> } | undefined;
+  await installMockMakerApi(page, {
+    chatEvents: [
+      { type: 'ai_response', content: 'Fresh conversation answer' },
+      { type: 'answer_complete', payload: { turn_id: 'fresh-turn' } },
+    ],
+    onChatRequest: (request) => { chatRequest = request; },
+  });
+  await waitForApp(page);
+
+  await expect(page.locator('.msg-row')).toHaveCount(2);
+  const create = page.locator('[data-onboarding="new-conversation"]');
+  await expect(create).toBeVisible();
+  await create.click();
+  await expect(page.locator('.msg-row')).toHaveCount(0);
+
+  await page.locator('.input-box textarea').fill('Start a genuinely fresh turn');
+  await page.locator('.input-submit-button').click();
+  await expect(page.locator('.msg-row.ai')).toContainText('Fresh conversation answer');
+  await expect(page.locator('.chat-scroll')).not.toContainText('鍙俊绯荤粺姝ｅ湪');
+  expect(chatRequest?.headers['makers-conversation-id']).not.toBe('visual-baseline');
+  expect(chatRequest?.headers['makers-conversation-id']).toMatch(/^yb7_/);
+});
+
 test('settings open through the feature controller without blocking on optional providers', async ({ page }) => {
   await installMockMakerApi(page);
   await waitForApp(page);
