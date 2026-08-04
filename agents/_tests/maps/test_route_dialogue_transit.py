@@ -30,6 +30,7 @@ class RouteDialogueTransitTests(unittest.IsolatedAsyncioTestCase):
             "legs": [{
                 "from": origin,
                 "to": destination,
+                "scope": "unknown",
                 "mode": "transit",
                 "path": [],
                 "sections": [{"mode": "rail", "vehicle": "RAIL"}],

@@ -116,9 +116,10 @@ def normalize_route_contract(
         destination = _enrich_route_place(destination, references)
         leg["from"] = origin
         leg["to"] = destination
-        if str(leg.get("scope") or "") not in {
-            "intercity", "local", "unknown",
-        }:
+        current_scope = str(leg.get("scope") or "")
+        if current_scope not in {"intercity", "local"}:
+            # ``unknown`` is a recoverable legacy value, not an immutable
+            # decision. Promote it when newer Provider metadata is available.
             leg["scope"] = route_leg_scope(origin, destination)
         if str(leg.get("mode") or normalized.get("mode") or "") == "transit":
             leg_transit = leg.setdefault("transit", {})
