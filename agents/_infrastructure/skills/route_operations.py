@@ -580,8 +580,11 @@ def build_route_operation(
                     async with administrative_semaphore:
                         metadata = await _reverse_geocode_metered(map_key, place)
                     if isinstance(metadata, dict):
-                        if metadata.get("city"):
-                            place["city"] = str(metadata["city"])[:80]
+                        administrative_city = (
+                            metadata.get("city") or metadata.get("province")
+                        )
+                        if administrative_city:
+                            place["city"] = str(administrative_city)[:80]
                         if not place.get("address") and metadata.get("address"):
                             place["address"] = str(metadata["address"])[:240]
                     return index, place

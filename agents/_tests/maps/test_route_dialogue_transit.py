@@ -57,7 +57,7 @@ class RouteDialogueTransitTests(unittest.IsolatedAsyncioTestCase):
             return [origin] if query == "Origin" else [destination]
 
         reverse_provider = AsyncMock(side_effect=[
-            {"city": "City One", "address": "Origin address"},
+            {"city": "", "province": "Region One", "address": "Origin address"},
             {"city": "City Two", "address": "Destination address"},
         ])
         route_provider = AsyncMock()
@@ -97,6 +97,7 @@ class RouteDialogueTransitTests(unittest.IsolatedAsyncioTestCase):
         action_id = result["action"]["id"]
         saved = await load_user_workspace(store, user_id=TEST_USER_ID)
         route = saved["actions"][action_id]["payload"]["route"]
+        self.assertEqual(route["places"][0]["city"], "Region One")
         self.assertEqual(route["legs"][0]["scope"], "intercity")
         self.assertEqual(route["transit"]["modes"], ["rail"])
 
