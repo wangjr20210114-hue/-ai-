@@ -106,6 +106,25 @@ class ChatTurnBoundaryTests(unittest.TestCase):
             }],
         )
 
+    def test_public_search_answer_cannot_narrate_media_pipeline_state(self):
+        prompt = turn_service_module.dynamic_system_prompt(
+            selected_tools={"rich_search"},
+            now="2026-08-05 02:30 Asia/Shanghai",
+            response_language_instruction="请使用简体中文回答。",
+            capability_plan={"needs_web_search": True, "needs_images": True},
+            calendar_context="",
+            reference_image_context="",
+            document_context="",
+            current_location_context="",
+            current_route_context="",
+            memory_context="",
+            public_answer=True,
+        )
+
+        self.assertIn("完全属于可信后端与前端 Presenter", prompt)
+        self.assertIn("不得评论候选图片是否存在、是否通过审核", prompt)
+        self.assertIn("只自然回答用户的主题", prompt)
+
     def test_disabled_non_search_skill_uses_a_small_presentation_hint(self):
         self.assertEqual(
             experience_hints_for_plan(
