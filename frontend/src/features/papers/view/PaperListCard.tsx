@@ -6,7 +6,8 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { BookOpenIcon, JumpIcon } from 'tdesign-icons-react';
-import type { ChatMessage, PaperInfo } from '../../../shared/types';
+import type { ChatMessage } from '../../chat/model';
+import type { PaperInfo } from '../model';
 import {
   dedupePapers,
   paperArxivHref,

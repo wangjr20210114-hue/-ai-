@@ -20,7 +20,7 @@ import type {
   InstalledSkill,
   SkillConnectionState,
   SkillMarketplaceState,
-} from '../../../shared/types';
+} from '../model';
 import {
   filterMarketplaceSkills,
   localizedSkillText,

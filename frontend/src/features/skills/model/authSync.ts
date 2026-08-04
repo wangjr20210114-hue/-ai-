@@ -1,5 +1,5 @@
 import type { AuthSession } from '../../../shared/auth/session';
-import type { SkillMarketplaceState } from '../../../shared/types';
+import type { SkillMarketplaceState } from './types';
 
 export function marketplaceAccount(
   current: SkillMarketplaceState | null,

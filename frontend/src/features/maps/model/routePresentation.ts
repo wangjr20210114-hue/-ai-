@@ -5,7 +5,7 @@ import type {
   MakersRoutePlan,
   MakersRouteSection,
   MakersRouteSectionMode,
-} from '../../../shared/types';
+} from './types';
 
 export type RouteZoomLevel = 'overview' | 'legs' | 'sections';
 

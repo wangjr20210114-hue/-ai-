@@ -3,7 +3,7 @@ import { Button, MessagePlugin, Textarea, Upload } from 'tdesign-react';
 import { SendIcon, AttachIcon } from 'tdesign-icons-react';
 import type { UploadFile } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
-import type { ChatMessage, WSMessage } from '../../shared/types';
+import type { ChatMessage, WSMessage } from '../../features/chat/model';
 import type { ChatClient } from '../../services/chatClient';
 import {
   saveConversationMessage,

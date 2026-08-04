@@ -12,7 +12,7 @@ import type {
   ChatMessage,
   ConversationSummary,
   StoredFileInfo,
-} from '../../../shared/types';
+} from './types';
 import type {
   BootstrapData,
   BootstrapOptions,

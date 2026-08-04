@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../../shared/types';
+import type { ChatMessage } from '../../features/chat/model';
 
 export type AssistantChainPosition = 'single' | 'start' | 'middle' | 'end';
 

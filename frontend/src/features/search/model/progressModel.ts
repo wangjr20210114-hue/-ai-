@@ -2,8 +2,7 @@ import type {
   StructuredProgressActivity,
   StructuredProgressStage,
   StructuredProgressStep,
-} from '../../../shared/types';
-export { progressTranslationKey } from '../../../shared/ui/progressLabel';
+} from '../../chat/model';
 
 const STAGES = new Set<StructuredProgressStage>([
   'planning',

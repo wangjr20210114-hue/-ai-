@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { MessagePlugin } from 'tdesign-react';
 
 import { useLanguage } from '../../../i18n';
-import type { SkillUploadRecord, UserSkillRecord } from '../../../shared/types';
+import type { SkillUploadRecord, UserSkillRecord } from '../model';
 import { intelligenceOperation } from '../../settings/model/client';
 import {
   requestMarketplaceReview,

@@ -1,10 +1,9 @@
+import type { TranslationKey } from '../../../i18n';
 import type {
   StructuredProgressActivity,
   StructuredProgressStage,
   StructuredProgressStep,
-} from '../../shared/types';
-import type { TranslationKey } from '../../i18n';
-
+} from './types';
 
 export function progressTranslationKey(
   step: StructuredProgressStep,

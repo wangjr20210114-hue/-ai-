@@ -1,5 +1,5 @@
 import { hasDurableAssistantPayload } from '../../../services/conversation';
-import type { ChatMessage, SearchMeta, WorkspaceAction } from '../../../shared/types';
+import type { ChatMessage, SearchMeta, WorkspaceAction } from '../model';
 import { translate } from '../../../i18n';
 
 export function restoredConversationWasInterrupted(

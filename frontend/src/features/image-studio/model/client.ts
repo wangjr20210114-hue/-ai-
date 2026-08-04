@@ -2,7 +2,7 @@ import { translate } from '../../../i18n';
 import { authorizedFetch } from '../../../shared/auth/session';
 import { requestRaw } from '../../../shared/transport/httpClient';
 import { splitSseFrames } from '../../../shared/transport/sseClient';
-import type { WorkspaceAction } from '../../../shared/types';
+import type { WorkspaceAction } from '../../workspace/model';
 import { makersConversationHeaders } from '../../../services/conversation';
 
 

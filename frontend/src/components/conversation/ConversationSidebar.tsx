@@ -6,7 +6,7 @@ import {
 } from '../../features/chat/model/client';
 import { reconcileConversationSummary, setActiveConversationId } from '../../services/conversation';
 import { useAppDispatch, useAppState } from '../../store/appState';
-import type { ConversationSummary } from '../../shared/types';
+import type { ConversationSummary } from '../../features/chat/model';
 import { formatConversationTime } from '../../services/time';
 import ProactiveBriefPanel from '../../features/settings/view/ProactiveBriefPanel';
 import { translate, useLanguage } from '../../i18n';

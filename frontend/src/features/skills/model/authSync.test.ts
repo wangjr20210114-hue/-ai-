@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { AuthSession } from '../../../shared/auth/session';
-import type { SkillMarketplaceState } from '../../../shared/types';
+import type { SkillMarketplaceState } from './types';
 import { marketplaceAccount, syncMarketplaceAuth } from './authSync';
 
 function cloudBaseSession(): AuthSession {

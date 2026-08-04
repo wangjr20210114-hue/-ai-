@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../../../../shared/types';
+import type { ChatMessage } from '../../model';
 
 export interface MessageContentRenderer {
   id: string;

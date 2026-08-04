@@ -4,7 +4,7 @@ import type {
   MakersMapPlace,
   MakersRouteMode,
   MakersRouteStrategy,
-} from '../../../shared/types';
+} from '../model';
 import { workspaceOperation } from '../../calendar/model/client';
 import { proactiveOperation } from '../../settings/model/client';
 import {

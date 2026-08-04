@@ -7,7 +7,7 @@ import {
 } from '../../features/image-studio/model/client';
 import { withEdgeOneAuth } from '../../shared/auth/session';
 import { createZip } from '../../services/zip';
-import type { WorkspaceAction } from '../../shared/types';
+import type { WorkspaceAction } from '../../features/workspace/model';
 import { useLanguage, type TranslationKey } from '../../i18n';
 
 interface ImageVersion {

@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { CheckCircleIcon } from 'tdesign-icons-react';
 
 import type { TranslationKey } from '../../../i18n';
-import type { InstalledSkill } from '../../../shared/types';
+import type { InstalledSkill } from '../model';
 import type { SkillMarketplaceController } from './SkillsMarketplaceShell';
 
 const PLAN_LABELS: Record<NonNullable<InstalledSkill['required_plan']>, TranslationKey> = {

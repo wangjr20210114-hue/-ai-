@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ProactiveNotification } from '../shared/types';
+import type { ProactiveNotification } from '../features/settings/model';
 import { proactiveDocumentReference } from './proactiveDocument';
 
 function notification(patch: Partial<ProactiveNotification> = {}): ProactiveNotification {

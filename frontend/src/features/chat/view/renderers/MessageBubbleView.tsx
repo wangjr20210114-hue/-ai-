@@ -5,7 +5,7 @@ import type { AssistantChainPosition } from '../../../../components/chat/assista
 import { hasTextSelectionInside } from '../../../../components/chat/scrollSelection';
 import { useLanguage } from '../../../../i18n';
 import type { ChatClient } from '../../../../services/chatClient';
-import type { ChatMessage, ProactiveState } from '../../../../shared/types';
+import type { ChatMessage, ProactiveState } from '../../model';
 import { MessageExtrasRenderer } from './MessageExtrasRenderer';
 import { MessagePrimaryRenderer } from './MessagePrimaryRenderer';
 import { selectRenderer } from './rendererRegistry';

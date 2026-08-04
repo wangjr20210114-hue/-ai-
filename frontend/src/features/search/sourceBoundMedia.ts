@@ -1,4 +1,4 @@
-import type { RichMediaAsset, SearchResultItem } from '../../shared/types';
+import type { RichMediaAsset, SearchResultItem } from './model';
 
 export interface MarkdownAstNode {
   type: string;

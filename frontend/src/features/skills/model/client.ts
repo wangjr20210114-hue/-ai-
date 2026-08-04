@@ -4,7 +4,7 @@ import type {
   SkillMarketplaceState,
   SkillUploadRecord,
   UserSkillRecord,
-} from '../../../shared/types';
+} from './types';
 
 
 export const routes = Object.freeze(['/skill_marketplace', '/skill-uploads']);

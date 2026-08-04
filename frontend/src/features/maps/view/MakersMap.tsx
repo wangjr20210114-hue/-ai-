@@ -7,7 +7,7 @@ import type {
   MakersRoutePlan,
   MakersRouteSectionMode,
   MakersRouteStrategy,
-} from '../../../shared/types';
+} from '../model';
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from '../model/makersMapLocation';
 import { shouldPlanMakersRoute } from '../model/makersMapRouting';
 import {

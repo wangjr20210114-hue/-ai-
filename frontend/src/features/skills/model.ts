@@ -1,4 +1,6 @@
-import type { InstalledSkill } from '../../shared/types';
+import type { InstalledSkill } from './model/types';
+
+export type * from './model/types';
 
 export type MarketplaceView = 'catalog' | 'enabled' | 'docs' | 'upload';
 

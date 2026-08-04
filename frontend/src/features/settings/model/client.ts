@@ -4,7 +4,7 @@ import type {
   MakersIntelligenceState,
   ProactiveState,
   ProviderUsageSummary,
-} from '../../../shared/types';
+} from './types';
 
 
 export const routes = Object.freeze([

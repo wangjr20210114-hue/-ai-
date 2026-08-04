@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { splitSseFrames } from './sse';
+
+import { splitSseFrames } from './sseClient';
 
 describe('splitSseFrames', () => {
   it('keeps partial frames and returns complete JSON events', () => {

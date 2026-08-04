@@ -1,4 +1,4 @@
-import type { UserSkillRecord } from '../../../shared/types';
+import type { UserSkillRecord } from './types';
 import { requestRaw } from '../../../shared/transport/httpClient';
 
 export type UserSkillDraft = Pick<

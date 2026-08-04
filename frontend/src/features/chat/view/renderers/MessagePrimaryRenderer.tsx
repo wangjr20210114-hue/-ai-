@@ -5,7 +5,7 @@ import type { MessageBubbleController } from '../../controller/useMessageBubbleC
 import { publicAssistantMarkdown, streamingMarkdownAnswer, workspaceActionsReady } from '../../../../components/chat/streamingAnswer';
 import { useLanguage } from '../../../../i18n';
 import type { ChatClient } from '../../../../services/chatClient';
-import type { ChatMessage, ProactiveState } from '../../../../shared/types';
+import type { ChatMessage, ProactiveState } from '../../model';
 import { ClarificationCard } from './ClarificationCard';
 import { MeetingConfirmationCard } from './MeetingConfirmationCard';
 import { ProgressRenderer } from './ProgressRenderer';

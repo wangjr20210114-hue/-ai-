@@ -4,7 +4,7 @@ import {
   stripLegacyMediaMarkers,
   type MarkdownAstNode,
 } from './sourceBoundMedia';
-import type { RichMediaAsset, SearchResultItem } from '../../shared/types';
+import type { RichMediaAsset, SearchResultItem } from './model';
 
 const sources: SearchResultItem[] = [{
   id: 'source-1',

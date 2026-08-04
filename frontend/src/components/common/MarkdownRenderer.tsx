@@ -1,7 +1,7 @@
 import React, { memo, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { RichMediaAsset, SearchMeta } from '../../shared/types';
+import type { RichMediaAsset, SearchMeta } from '../../features/search/model';
 import { isSafeRemoteUrl, linkBareCitations, replaceCitationMarkers, sourceLabel } from './richContent';
 import { useLanguage } from '../../i18n';
 import {

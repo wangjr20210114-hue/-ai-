@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Button } from 'tdesign-react';
 
 import ImageStudioCard from '../../../../components/image/ImageStudioCard';
-import type { WorkspaceAction } from '../../../../shared/types';
+import type { WorkspaceAction } from '../../model';
 import { useLanguage } from '../../../../i18n';
 
 

@@ -1,4 +1,4 @@
-import type { ProactiveNotification } from '../../../shared/types';
+import type { ProactiveNotification } from './types';
 import { translate } from '../../../i18n';
 
 export interface ProactiveReminderLine {

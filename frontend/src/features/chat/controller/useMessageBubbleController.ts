@@ -19,10 +19,10 @@ import { useAppDispatch } from '../../../store/appState';
 import type {
   ChatMessage,
   MeetingResult,
-  ProactiveNotification,
   SkillInfo,
   WorkspaceAction,
-} from '../../../shared/types';
+} from '../model';
+import type { ProactiveNotification } from '../../settings/model';
 
 export interface MessageBubbleControllerInput {
   message: ChatMessage;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { InstalledSkill } from '../../shared/types';
+import type { InstalledSkill } from './model';
 import {
   filterMarketplaceSkills,
   groupMarketplaceSkills,

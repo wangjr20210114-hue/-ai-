@@ -1,4 +1,4 @@
-import type { PaperInfo } from '../shared/types';
+import type { PaperInfo } from '../features/papers/model';
 
 export function dedupePapers(items: PaperInfo[]): PaperInfo[] {
   const seenIds = new Set<string>();

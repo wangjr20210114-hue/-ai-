@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { ChevronLeftIcon, ChevronRightIcon } from 'tdesign-icons-react';
 
 import type { TranslationKey } from '../../../i18n';
-import type { SkillComponentApi } from '../../../shared/types';
+import type { SkillComponentApi } from '../model';
 import type { SkillMarketplaceController } from './SkillsMarketplaceShell';
 
 const DOC_SECTIONS = [

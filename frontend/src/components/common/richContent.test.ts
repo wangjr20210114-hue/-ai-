@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { markdownToPlainText, replaceCitationMarkers } from './richContent';
-import type { SearchResultItem } from '../../shared/types';
+import type { SearchResultItem } from '../../features/search/model';
 
 const source: SearchResultItem = {
   id: 'source-1',

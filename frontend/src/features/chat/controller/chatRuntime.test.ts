@@ -10,8 +10,8 @@ import {
   restoredConversationWasInterrupted,
   terminalGenerationError,
 } from './useChatController';
-import type { ChatMessage, WorkspaceAction } from '../../../shared/types';
-import type { SearchMeta } from '../../../shared/types';
+import type { ChatMessage, WorkspaceAction } from '../model';
+import type { SearchMeta } from '../model';
 
 const media = [{
   id: 'media-1', kind: 'image' as const, url: 'https://example.com/news.jpg',

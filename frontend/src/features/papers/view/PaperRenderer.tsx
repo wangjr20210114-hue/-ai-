@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../../../shared/types';
+import type { ChatMessage } from '../../chat/model';
 import { useLanguage } from '../../../i18n';
 import PaperInlineReader from './PaperInlineReader';
 import PaperListCard from './PaperListCard';

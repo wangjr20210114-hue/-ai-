@@ -1,4 +1,4 @@
-import type { MakersMapPlace } from '../shared/types';
+import type { MakersMapPlace } from '../features/maps/model';
 import { translate } from '../i18n';
 
 export interface BrowserLocationContext {

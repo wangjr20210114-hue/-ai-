@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useAppDispatch, useAppState } from '../../store/appState';
-import MessageBubble from './MessageBubble';
+import MessageBubble from '../../features/chat/view/MessageBubble';
 import type { ChatClient } from '../../services/chatClient';
 import { autoFollowAfterScroll, hasTextSelectionInside } from './scrollSelection';
 import { useLanguage, type TranslationKey } from '../../i18n';

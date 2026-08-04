@@ -4,7 +4,7 @@ import type {
   MakersRouteMode,
   MakersRoutePlan,
   MakersRouteStrategy,
-} from '../../../shared/types';
+} from './types';
 
 
 export const routes = Object.freeze(['/places', '/routes']);

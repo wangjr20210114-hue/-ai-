@@ -8,7 +8,7 @@ import {
 } from '../../../../components/chat/clarificationSubmission';
 import { getStoredLanguage, useLanguage } from '../../../../i18n';
 import type { ChatClient } from '../../../../services/chatClient';
-import type { ClarificationPrompt } from '../../../../shared/types';
+import type { ClarificationPrompt } from '../../model';
 
 interface Props {
   clarification: ClarificationPrompt;

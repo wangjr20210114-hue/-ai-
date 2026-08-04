@@ -2,7 +2,7 @@ import { Button } from 'tdesign-react';
 
 import type { MessageBubbleController } from '../../controller/useMessageBubbleController';
 import { useLanguage } from '../../../../i18n';
-import type { ChatMessage } from '../../../../shared/types';
+import type { ChatMessage } from '../../model';
 import { PaperRenderer } from './PaperRenderer';
 
 interface Props {

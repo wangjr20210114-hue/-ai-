@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
-import type { ChatMessage } from '../../../../shared/types';
-import { progressTranslationKey } from '../../../../shared/ui/progressLabel';
+import type { ChatMessage } from '../../model';
+import { progressTranslationKey } from '../../model';
 import { useLanguage } from '../../../../i18n';
 
 

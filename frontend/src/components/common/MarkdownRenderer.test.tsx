@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import MarkdownRenderer from './MarkdownRenderer';
 import { loadMarkdownEnhancements } from './markdownEnhancements';
-import type { SearchMeta } from '../../shared/types';
+import type { SearchMeta } from '../../features/search/model';
 import { LanguageProvider } from '../../i18n';
 
 const searchMeta: SearchMeta = {

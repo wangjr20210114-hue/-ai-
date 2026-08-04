@@ -1,4 +1,4 @@
-import type { ChatMessage, ConversationSummary } from '../shared/types';
+import type { ChatMessage, ConversationSummary } from '../features/chat/model';
 import { CONVERSATION_PREFIX } from './dataVersion';
 
 const CONVERSATION_KEY = 'yuanbao.v6.conversationId';

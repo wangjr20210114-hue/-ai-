@@ -5,7 +5,7 @@ import { proactiveOperation } from '../../settings/model/client';
 import { presentableChatError } from '../../../services/chatError';
 import { durableMessageCount, hasDurableAssistantPayload, isDurableChatMessage, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../../../services/conversation';
 import { useAppDispatch, useAppState } from '../../../store/appState';
-import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, StructuredProgressStep, WorkspaceAction } from '../../../shared/types';
+import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, StructuredProgressStep, WorkspaceAction } from '../model';
 import { translate } from '../../../i18n';
 import {
   initialPlanningProgress,

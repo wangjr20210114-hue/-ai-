@@ -1,15 +1,17 @@
 import { createContext, useContext, type Dispatch } from 'react';
+import type { ThemeMode } from '../app/types';
 import type {
   ChatMessage,
-  ThemeMode,
-  ScheduleItem,
+  ConversationSummary,
+  DocumentContext,
+} from '../features/chat/model';
+import type { ScheduleItem } from '../features/calendar/model';
+import type {
   MakersMapPlace,
   MakersRouteMode,
   MakersRouteStrategy,
-  ConversationSummary,
-  ProactiveState,
-  DocumentContext,
-} from '../shared/types';
+} from '../features/maps/model';
+import type { ProactiveState } from '../features/settings/model';
 import { translate } from '../i18n';
 
 const THEME_KEY = 'travel-theme';
