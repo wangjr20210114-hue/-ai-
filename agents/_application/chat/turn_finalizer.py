@@ -60,6 +60,7 @@ class TurnFinalizer:
         memory_task: asyncio.Task | None,
         recent_questions_task: asyncio.Task | None,
         opportunity_enabled: bool,
+        telemetry: Any,
     ) -> None:
         self._ctx = ctx
         self._presenter = presenter
@@ -82,6 +83,7 @@ class TurnFinalizer:
         self._memory_task = memory_task
         self._recent_questions_task = recent_questions_task
         self._opportunity_enabled = opportunity_enabled
+        self._telemetry = telemetry
 
     def _experience_hints(self) -> list[dict[str, Any]]:
         return experience_hints_for_plan(
@@ -317,6 +319,9 @@ class TurnFinalizer:
         usage: list[int],
     ) -> None:
         """Finish media, UI events, durable state, and usage exactly once."""
+        terminal_outcome = (
+            "cancelled" if cancelled else "failed" if run_error else "completed"
+        )
         try:
             empty_error = empty_generation_error(
                 answer,
@@ -328,11 +333,14 @@ class TurnFinalizer:
             )
             if empty_error:
                 run_error = empty_error
+                terminal_outcome = "failed"
                 await self._queue.put(self._presenter.error(
                     "empty_generation",
                     run_error,
                 ))
-            await self._search_runner.finish_media()
+            media_outcome = await self._search_runner.finish_media()
+            if media_outcome != "not_requested":
+                self._telemetry.media_completed(media_outcome)
             if answer and self._search_runner.latest_enriched_media:
                 try:
                     await self._persist_answer_extras(answer)
@@ -365,5 +373,13 @@ class TurnFinalizer:
                 await self._queue.put(self._presenter.papers(pending_papers))
             await self._finish_run(run_error, cancelled, run_diagnostics)
             await self._persist_usage(usage)
+        except Exception:
+            terminal_outcome = "failed"
+            raise
         finally:
+            self._telemetry.settle(terminal_outcome)
+            if bool(self._body.get("_diagnostics")):
+                await self._queue.put(
+                    self._presenter.stage_timing(self._telemetry.timings_ms)
+                )
             await self._queue.put(self._completion_sentinel)

@@ -473,19 +473,25 @@ sequenceDiagram
 - 生图参考链路仍只使用审核后的 HTTPS 图片。
 - 媒体失败不影响文字回答。
 
-### P0-B：建立性能可观测性和预算
+### P0-B：建立性能可观测性和预算（代码侧已实施）
 
-建议下一步：
+`dev` 已通过独立 `TurnTelemetry` 把 `request_received`、`pre_graph`、
+`answer_first_token`、`answer_completed`、`media_completed` 和
+`request_settled` 接入 Makers Tracing。计时使用同一单调时钟，Tracing
+故障不会改变回答、持久化或 SSE；完整计时只在显式诊断请求中进入
+`stage_timing`，不会向普通用户展示技术字段。没有为此自建日志服务、
+队列或监控存储。
+
+运营侧后续：
 
 1. 为每轮生成稳定 `request_id`，贯穿前端、Agent、Provider 和存储日志。
-2. 把现有 `stage_timings_ms` 扩展到首字、回答完成和媒体完成。
-3. 建立仪表盘和告警：
+2. 基于 Makers Tracing 建立仪表盘和告警：
    - 普通问答 TTFT p95 < 5 秒；
    - 搜索问答 TTFT p95 < 10 秒；
    - 搜索回答完成 p95 < 20 秒；
    - 媒体完成 p95 < 15 秒；
    - 搜索成功率 > 99%。
-4. 在 CI 加入模拟慢 Provider 的关键路径测试。
+3. 在 CI 加入模拟慢 Provider 的关键路径测试。
 
 ### P0-C：建立纯多用户安全边界（`dev` 已实施）
 

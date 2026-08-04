@@ -52,6 +52,14 @@ class _Utils:
         return None
 
 
+class _Tracer:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict]] = []
+
+    def event(self, name: str, attributes: dict) -> None:
+        self.events.append((name, copy.deepcopy(attributes)))
+
+
 class _AnswerGraph:
     last_tool_names: tuple[str, ...] = ()
 
@@ -188,6 +196,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         search_use_case_type=_SearchUseCase,
         followups_enabled: bool = False,
         followup_generator=None,
+        tracer=None,
     ) -> tuple[str, _ConversationStore]:
         store = store or _ConversationStore()
         ctx = SimpleNamespace(
@@ -203,7 +212,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             ),
             env=auth_env(),
             utils=_Utils(),
-            tracer=None,
+            tracer=tracer,
         )
         enabled = {
             "core": True,
@@ -421,6 +430,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
     async def test_cloudbase_search_streams_sources_and_bound_media_once(self):
         _ProgressiveSearchUseCase.execute_count = 0
         observed: dict[str, str] = {}
+        tracer = _Tracer()
 
         async def grounded_followups(
             _model,
@@ -445,6 +455,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             search_use_case_type=_ProgressiveSearchUseCase,
             followups_enabled=True,
             followup_generator=grounded_followups,
+            tracer=tracer,
         )
 
         self.assertEqual(_ProgressiveSearchUseCase.execute_count, 1)
@@ -472,6 +483,30 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             persisted["media"][0]["source_id"],
             "source-runtime-1",
         )
+        event_names = [name for name, _ in tracer.events]
+        expected_events = [
+            "chat.request_received",
+            "chat.pre_graph_timing",
+            "chat.answer_first_token",
+            "chat.answer_completed",
+            "chat.media_completed",
+            "chat.request_settled",
+        ]
+        for event_name in expected_events:
+            self.assertEqual(event_names.count(event_name), 1)
+        self.assertEqual(
+            [event_names.index(name) for name in expected_events],
+            sorted(event_names.index(name) for name in expected_events),
+        )
+        settled = dict(tracer.events)["chat.request_settled"]
+        self.assertEqual(settled["chat.outcome"], "completed")
+        for metric in (
+            "answer_first_token",
+            "answer_completed",
+            "media_completed",
+            "request_settled",
+        ):
+            self.assertIsInstance(settled[f"chat.timing.{metric}"], int)
 
     async def test_representative_plans_construct_tools_and_finish_streams(self):
         plans = {
@@ -540,6 +575,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         store = _ConversationStore()
         conversation_id = "runtime-location-retry"
         location_plan = _plan(needs_current_location=True)
+        tracer = _Tracer()
 
         first_wire, _ = await self._run(
             "location-first",
@@ -547,6 +583,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             store=store,
             conversation_id=conversation_id,
             body_updates={"message": "Where am I?"},
+            tracer=tracer,
         )
         self.assertIn("browser_location_request", first_wire)
         self.assertEqual(store.append_count, 1)
@@ -554,6 +591,9 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             store.metadata["yuanbao_chat_run_v1"]["status"],
             "completed",
         )
+        settled = dict(tracer.events)["chat.request_settled"]
+        self.assertEqual(settled["chat.outcome"], "location_retry")
+        self.assertIsInstance(settled["chat.timing.request_settled"], int)
 
         retry_wire, _ = await self._run(
             "location-second",

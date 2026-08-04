@@ -38,6 +38,7 @@ from .turn_protocol import (
 from .turn_search import PlannedSearchRunner
 from .turn_admission import admit_turn
 from .skill_policy import apply_runtime_skill_policy
+from .turn_telemetry import TurnTelemetry
 from ..i18n import text
 from ...chat._graph import build_graph, grounded_route_stream_answer
 from ...chat._llm import get_model
@@ -101,8 +102,14 @@ class ChatTurnService:
 async def _handle(ctx):
     handler_started_at = time.monotonic()
     stage_timings_ms: dict[str, int | bool] = {}
+    telemetry = TurnTelemetry(
+        getattr(ctx, "tracer", None), stage_timings_ms,
+        started_at=handler_started_at,
+    )
+    telemetry.request_received()
     admission, rejection = await admit_turn(ctx)
     if rejection is not None:
+        telemetry.settle("rejected")
         return rejection
     assert admission is not None
     identity = admission.identity
@@ -156,6 +163,7 @@ async def _handle(ctx):
             message_text,
             safe_error_diagnostics(exc, stage="model_configuration"),
         )
+        telemetry.settle("failed")
         return error(message_text, 503)
     intelligence_started_at = time.monotonic()
     stage_timings_ms["request_setup"] = round(
@@ -182,6 +190,7 @@ async def _handle(ctx):
     ):
         message_text = text("chat.token_budget_reached", response_language)
         await fail_run(message_text)
+        telemetry.settle("rate_limited")
         return error(message_text, 429)
     # The planner only needs a bounded recent slice to decide whether memory is
     # relevant. The answer prompt receives it only when use_memory_context=true.
@@ -392,6 +401,7 @@ async def _handle(ctx):
             )
             yield presenter.transport_done()
 
+        telemetry.settle("location_retry")
         return ctx.utils.stream_sse(request_browser_location())
     if (
         not browser_current_location
@@ -770,12 +780,7 @@ async def _handle(ctx):
     stage_timings_ms["pre_graph_total"] = round(
         (time.monotonic() - handler_started_at) * 1000
     )
-    tracer_event = getattr(getattr(ctx, "tracer", None), "event", None)
-    if callable(tracer_event):
-        tracer_event("chat.pre_graph_timing", {
-            f"chat.timing.{key}": value
-            for key, value in stage_timings_ms.items()
-        })
+    telemetry.pre_graph()
 
     async def gen():
         done = object()
@@ -879,6 +884,7 @@ async def _handle(ctx):
                 if buffer_public_answer:
                     pending_ai_content.append(content)
                 else:
+                    telemetry.answer_first_token()
                     await queue.put(presenter.token(content))
 
             if tool_setup_error:
@@ -1181,6 +1187,7 @@ async def _handle(ctx):
                     if any(action.get("action", {}).get("kind") == "image_generate" for action in pending_actions):
                         final_content = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", final_content).strip()
                     if final_content:
+                        telemetry.answer_first_token()
                         await queue.put(presenter.token(final_content))
             except Exception as exc:
                 logging.exception("chat stream failed conversation=%s", conversation_id)
@@ -1204,6 +1211,8 @@ async def _handle(ctx):
                     run_error = text("chat.run_interrupted", response_language)
             finally:
                 final_answer = "".join(final_answer_parts).strip()
+                if final_answer:
+                    telemetry.answer_completed()
                 await TurnFinalizer(
                     ctx=ctx,
                     presenter=presenter,
@@ -1226,6 +1235,7 @@ async def _handle(ctx):
                     memory_task=memory_task,
                     recent_questions_task=recent_questions_task,
                     opportunity_enabled=opportunity_enabled,
+                    telemetry=telemetry,
                 ).finish(
                     answer=final_answer,
                     run_error=run_error,

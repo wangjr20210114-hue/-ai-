@@ -339,12 +339,13 @@ test('new multi-user and Skill surfaces follow the layered MVC boundary', async 
   assert.match(marketplaceModel, /filterMarketplaceSkills/);
 });
 
-test('runtime does not reimplement generic tracing, queue or cron services', async () => {
-  const [system, tick, proactive, skillRuntime, adapters] = await Promise.all([
+test('runtime reuses Makers tracing and does not reimplement queue or cron services', async () => {
+  const [system, tick, proactive, skillRuntime, turnTelemetry, adapters] = await Promise.all([
     read('agents/_controllers/system_controller.py'),
     read('cloud-functions/proactive-tick/index.js'),
     read('agents/_application/proactive/service.py'),
     read('agents/_application/skills/runtime_ports.py'),
+    read('agents/_application/chat/turn_telemetry.py'),
     Promise.all([
       'core',
       'proactive_agent',
@@ -366,8 +367,11 @@ test('runtime does not reimplement generic tracing, queue or cron services', asy
   assert.doesNotMatch(system, /["']schedule["']:\s*["']0 \* \* \* \*["']/);
   assert.match(proactive, /Policy|policy|notification/i);
   assert.match(skillRuntime, /ToolOperationService/);
+  assert.match(turnTelemetry, /getattr\(tracer, "event", None\)/);
+  assert.match(turnTelemetry, /chat\.answer_first_token/);
+  assert.match(turnTelemetry, /chat\.request_settled/);
   assert.doesNotMatch(
-    system + tick + skillRuntime + adapters,
+    system + tick + skillRuntime + turnTelemetry + adapters,
     /OPS_ALERT_WEBHOOK|PROACTIVE_OPS_WEBHOOK|Sentry|OpenTelemetry|Redis|BullMQ|Celery|APScheduler|node-cron|sqlite|boto3|new WebSocket/i,
   );
   assert.doesNotMatch(adapters, /pages_blob|get_store|langgraph_checkpointer|langgraph_store/);
