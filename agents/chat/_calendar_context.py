@@ -55,7 +55,7 @@ def latest_route_context(workspace: dict) -> str:
     """Expose one bounded, provider-verified route for calendar continuation."""
     route = workspace.get("latest_route_plan")
     if not isinstance(route, dict) or not str(route.get("id") or ""):
-        return "无"
+        return "[]"
     stops = []
     for item in (route.get("ordered_stops") or [])[:12]:
         if not isinstance(item, dict):
@@ -66,7 +66,7 @@ def latest_route_context(workspace: dict) -> str:
             "address": str(item.get("address") or "")[:180],
         })
     if len(stops) < 2:
-        return "无"
+        return "[]"
     public = {
         "id": str(route.get("id") or ""),
         "created_at": int(route.get("created_at") or 0),

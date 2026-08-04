@@ -25,6 +25,8 @@ from typing import Any, Awaitable, Callable
 from .http_transport import request_json as _transport_request_json
 from .web_media import collect_page_media
 from .vision import vision_completion, vision_providers
+from ..._application.i18n import text
+from ..._application.search.evidence_presenter import evidence_for_model
 
 
 def _vision_review_timeout(env: dict[str, Any]) -> float:
@@ -84,7 +86,9 @@ def _provider_page_images(page: dict[str, Any], snippet: str) -> list[dict[str, 
     return output
 
 
-def _provider_image_candidates(results: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _provider_image_candidates(
+    results: list[dict[str, Any]], response_language: object = "zh-CN",
+) -> list[dict[str, str]]:
     """Return only SearchPro-supplied article images, never page-scraped media.
 
     These are the conservative fallback when every configured vision provider is
@@ -115,7 +119,7 @@ def _provider_image_candidates(results: list[dict[str, Any]]) -> list[dict[str, 
             candidates.append({
                 "url": image,
                 "alt": caption,
-                "context": caption or "搜索服务返回的文章配图",
+                "context": caption or text("search.article_image", response_language),
                 "source_url": result["url"],
                 "source_title": result["title"],
             })
@@ -605,14 +609,10 @@ def _review_image(
     if not api_key:
         return "", "missing_api_key"
     model = str(env.get("HUNYUAN_VISION_MODEL") or "hy-vision-2.0-instruct")
-    prompt = (
-        '分析图片与用户查询的关系，只返回 JSON：'
-        '{"description":"准确描述图片实际内容","relevant":true或false,"promotional":true或false}。\n'
-        '以图片本身为准，网页上下文仅供参考。广告、促销价格、热线、二维码、Logo、图标、装饰、UI、占位图、纯文字截图或无关内容必须为 false；'
-        '图片能识别或呈现查询中的具体事件、人物、产品、地点或报道主体，且与来源标题语义一致时即可为 true；'
-        '不要求图片证明整篇回答，也不要因为无法确认次要背景细节而拒绝一张明显相关的非宣传图片。'
-        '品牌营销海报、带促销卖点的产品宣传图或商业导流图必须 promotional=true；普通新闻现场或客观产品实拍为 false。\n'
-        f'用户问题：{query[:120]}\n网页上下文：{(candidate.get("context") or candidate.get("alt") or candidate.get("source_title") or "")[:300]}'
+    prompt = text(
+        "model.search.vision_review", "zh-CN",
+        query=query[:120],
+        context=(candidate.get("context") or candidate.get("alt") or candidate.get("source_title") or "")[:300],
     )
     payload = {"model": model, "messages": [{"role": "user", "content": [
         {"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": candidate["url"]}},
@@ -708,15 +708,9 @@ async def _vision_filter(
 
     async def review(candidate: dict[str, str]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         context = str(candidate.get("context") or candidate.get("alt") or candidate.get("source_title") or "")[:240]
-        prompt = (
-            '快速审核图片，不做背景推理或深度分析。只判断图片是否直接帮助回答用户问题，以及是否属于广告、'
-            '促销、二维码、Logo、图标、UI、占位图、纯文字截图或无关内容；这些情况必须判为 false。'
-            '图片能识别或呈现查询中的具体事件、人物、产品、地点或报道主体，且与来源标题语义一致时即可判为 true；'
-            '不要因无法确认次要背景细节而拒绝明显相关的非宣传图片。'
-            '品牌营销海报、带促销卖点的产品宣传图或商业导流图必须 promotional=true；'
-            '普通新闻现场或客观产品实拍为 false。'
-            '只返回简短 JSON：{"description":"一句话描述可见主体","relevant":true,"promotional":false}。\n'
-            f'用户问题：{query[:160]}\n网页上下文：{context}'
+        prompt = text(
+            "model.search.vision_quick_review", "zh-CN",
+            query=query[:160], context=context,
         )
         try:
             raw, provider = await vision_completion(
@@ -787,12 +781,13 @@ async def rich_search(
     media_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     background_tasks: list[asyncio.Task] | None = None,
     include_media: bool = True,
+    response_language: object = "zh-CN",
 ) -> dict[str, Any]:
     started = time.perf_counter()
     api_key = str(env.get("WSA_API_KEY") or "").strip()
     base_url = str(env.get("WSA_BASE_URL") or "https://api.wsa.cloud.tencent.com").rstrip("/")
     if not api_key:
-        raise RuntimeError("富搜索缺少 WSA_API_KEY")
+        raise RuntimeError(text("search.provider_unconfigured", response_language))
     limit = max(4, min(18, int(result_limit))) if result_limit is not None else {
         "basic": 8, "standard": 12, "deep": 18,
     }.get(depth, 12)
@@ -800,10 +795,13 @@ async def rich_search(
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json; charset=utf-8"}
     provider_query = query
     if target_date:
-        provider_query += (
-            f"\n当前日期：{target_date}。"
-            + (f"只返回发布日期可核验为 {target_date} 的当日内容，每条结果必须带发布日期。" if strict_date
-               else "检索和排序必须以该日期为时间基准，不要混用旧年份信息。")
+        provider_query += "\n" + text(
+            "model.search.provider_date", response_language,
+            target_date=target_date,
+            constraint=text(
+                "model.search.provider_date_strict" if strict_date else "model.search.provider_date_asof",
+                response_language, target_date=target_date,
+            ),
         )
     provider_timeout = max(4, min(20, int(env.get("RICH_SEARCH_PROVIDER_TIMEOUT_SECONDS") or 10)))
     distinct_visual_query = bool(image_query and image_query.strip() != query.strip())
@@ -812,7 +810,10 @@ async def rich_search(
     # paying for a second near-duplicate search. Page extraction remains
     # concurrent and pixel review still happens below.
     if distinct_visual_query:
-        provider_query += f"\n同时优先返回包含这些可视对象的结果：{image_query[:180]}"
+        provider_query += "\n" + text(
+            "model.search.provider_visual", response_language,
+            image_query=image_query[:180],
+        )
     data, provider_request_count = await _searchpro_json_request(
         f"{base_url}/SearchPro",
         # Keep the request compatible with every WSA tier.  ``Cnt`` is a
@@ -864,9 +865,9 @@ async def rich_search(
     # older persisted runs and the optional progressive provider API.
     source_by_url = {item["url"]: item for item in sources}
     preview_media = []
-    for index, candidate in enumerate(_provider_image_candidates(results)[:image_limit], 1):
+    for index, candidate in enumerate(_provider_image_candidates(results, response_language)[:image_limit], 1):
         source = source_by_url.get(candidate["source_url"], {})
-        source_title = candidate.get("source_title") or source.get("title") or "搜索结果文章配图"
+        source_title = candidate.get("source_title") or source.get("title") or text("search.preview_image", response_language)
         preview_media.append({
             "id": f"preview-media-{index}", "kind": "image", "url": candidate["url"],
             "source_id": source.get("id", ""), "source_url": candidate["source_url"],
@@ -916,7 +917,7 @@ async def rich_search(
         except asyncio.TimeoutError:
             # Do not discard fast provider-supplied article images merely
             # because one source page was slow to parse.
-            visual_candidates = _provider_image_candidates(visual_results)
+            visual_candidates = _provider_image_candidates(visual_results, response_language)
         extracted_at = time.perf_counter()
         review_goal = image_query.strip() or query
         vision_timeout = _vision_review_timeout(env)
@@ -937,11 +938,11 @@ async def rich_search(
             or diagnostics.get("irrelevant", 0)
         )
         if not reviewed and not explicit_rejection:
-            fallback_candidates = _provider_image_candidates(results)[:image_limit]
+            fallback_candidates = _provider_image_candidates(results, response_language)[:image_limit]
             if fallback_candidates:
                 reviewed = [{
                     **candidate,
-                    "description": str(candidate.get("source_title") or "搜索结果文章主图")[:240],
+                    "description": str(candidate.get("source_title") or text("search.article_hero", response_language))[:240],
                     "vision_reviewed": False,
                     "vision_fallback": True,
                     # SearchPro supplied this hero image on the exact source
@@ -993,56 +994,3 @@ async def rich_search(
         background_tasks.append(task)
         return base_metadata
     return await enrich_media()
-
-
-def evidence_for_model(
-    metadata: dict[str, Any], *, require_relevant_image: bool = False,
-) -> str:
-    media_source_ids = {
-        str(item.get("source_id") or "")
-        for item in metadata.get("media", [])
-        if item.get("source_id")
-    }
-    sources = "\n".join(
-        f"- {item.get('id') or 'source'} | 类型={item.get('source') or 'web'} | [{item['title']}]({item['url']})"
-        f" | 发布日期={item.get('date') or '未标注'} | 摘要={item['snippet']}"
-        f" | 有可用图片={'是' if str(item.get('id') or '') in media_source_ids else '否'}"
-        for item in metadata.get("results", [])
-    )
-    media = "\n".join(
-        f"- {item.get('id') or 'media'} | source_id={item.get('source_id') or 'none'}"
-        f" | 图片说明={item['caption']} | 图片URL={item['url']}"
-        f" | 来源={item.get('source_title') or item.get('source_url') or '未知'}"
-        f"{' | 视觉审核暂不可用，仅作文章主图降级' if item.get('vision_fallback') or item.get('vision_reviewed') is False else ''}"
-        for item in metadata.get("media", [])
-    ) or "无通过视觉筛选的图片，不要插图。"
-    media_status = (
-        "图片正在后台审核。本轮只写正文与来源链接，不要插图，也不要声称正在生成图片。"
-        if metadata.get("media_pending")
-        else
-        "这里只列出审核通过的图片；若正文采用相应事实，请正常引用该图片 source_id 对应的网页来源。"
-        "前端会按 source_id 把图片放在同源引用段落后；没有精确来源引用时不会插图。"
-    )
-    image_instruction = (
-        "本轮语义计划器已判断真实图片能明显帮助理解；若采用相关事实，必须引用它对应的网页来源，"
-        "但不要自行输出图片 Markdown。"
-        if require_relevant_image and metadata.get("media")
-        else
-        "图片由前端确定性放置，不属于回答正文协议。"
-    )
-    temporal_instruction = (
-        f"本轮要求严格限定发布日期为 {metadata.get('target_date')}。"
-        "上方为空即表示没有核实到当日来源；必须直接说明这一证据边界，"
-        "不得用其他日期、未标日期或模型记忆补成当日新闻。\n\n"
-        if metadata.get("strict_date") and metadata.get("target_date")
-        else ""
-    )
-    return (
-        temporal_instruction
-        + f"可选网页/视频素材：\n{sources or '无'}\n\n"
-        f"经视觉模型审核的可选图片素材：\n{media}\n{media_status}\n\n"
-        f"这些只是事实素材，不是回答提纲。由你决定采用哪些事实以及以什么顺序呈现。{image_instruction}"
-        "若采用网页或视频，必须直接在支持该事实的段落使用上面给出的精确 Markdown 链接；"
-        "只写来源标题或来源名称不算引用。图片有助理解时，在事实同样适用的前提下优先引用标记为有可用图片的来源。"
-        "不要输出任何媒体占位符，不要自行输出图片 Markdown，不要使用未提供的图片 URL。"
-    )

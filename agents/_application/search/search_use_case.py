@@ -36,6 +36,7 @@ class SearchRequest:
     strict_date: bool = False
     force_refresh: bool = False
     media_mode: MediaMode = "progressive"
+    response_language: str = "zh-CN"
 
     def __post_init__(self) -> None:
         if not str(self.tenant_id or "").strip():
@@ -72,6 +73,7 @@ class SearchRequest:
             "strict_date": self.strict_date,
             "include_media": self.media_mode != "disabled",
             "provider_version": "searchpro-v1",
+            "response_language": self.response_language,
         }
         serialized = json.dumps(
             value,

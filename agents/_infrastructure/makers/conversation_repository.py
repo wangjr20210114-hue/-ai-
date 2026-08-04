@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 import re
 from typing import Any
+from ..._application.i18n import text
 
 
 RUN_METADATA_KEY = "yuanbao_chat_run_v1"
@@ -18,9 +19,11 @@ TERMINAL_STATES = {"completed", "failed", "cancelled"}
 STALE_AFTER_SECONDS = 35 * 60
 
 
-def conversation_title(content: str) -> str:
+def conversation_title(content: str, response_language: object = "zh-CN") -> str:
     value = re.sub(r"\s+", " ", str(content or "")).strip().lstrip("#>*`- ")
-    return (value[:32] + "…") if len(value) > 32 else (value or "新对话")
+    return (value[:32] + "…") if len(value) > 32 else (
+        value or text("conversation.new_title", response_language)
+    )
 
 
 async def ensure_conversation_title(
@@ -28,6 +31,7 @@ async def ensure_conversation_title(
     *,
     tenant_id: str = "",
     client_conversation_id: str = "",
+    response_language: object = "zh-CN",
 ) -> None:
     if not hasattr(conversation_store, "get_conversation") or not hasattr(conversation_store, "update_conversation"):
         return
@@ -39,8 +43,16 @@ async def ensure_conversation_title(
         "tenant_id": str(tenant_id or ""),
         "client_conversation_id": str(client_conversation_id or ""),
     }
-    if current in {"", "新对话", "历史对话"}:
-        updates["title"] = conversation_title(content)
+    default_titles = {
+        "",
+        *(
+            text(key, language)
+            for key in ("conversation.new_title", "conversation.history_title")
+            for language in ("zh-CN", "zh-TW", "en", "cat-cute", "cat-cold")
+        ),
+    }
+    if current in default_titles:
+        updates["title"] = conversation_title(content, response_language)
     await conversation_store.update_conversation(
         conversation_id=conversation_id,
         metadata=updates,

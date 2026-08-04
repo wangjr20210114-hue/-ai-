@@ -10,6 +10,7 @@ from .._infrastructure.http import error
 from .._application.intelligence.service import load_intelligence_state
 from .._infrastructure.makers.provider_usage_repository import record_provider_usage
 from .._application.skills.access import resolve_skill_access
+from .._application.i18n import normalize_language, text
 from .._application.workspace.service import (
     begin_action_execution,
     finish_provider_call,
@@ -26,6 +27,8 @@ from .._application.workspace.service import (
 
 
 async def handler(ctx):
+    body = ctx.request.body or {}
+    response_language = normalize_language(body.get("response_language"))
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
     conversation_id = scoped_conversation_id(ctx, user_id)
@@ -34,23 +37,22 @@ async def handler(ctx):
     access = resolve_skill_access(identity, intelligence.get("skill_preferences"))
     if not access.allows_capability("image_generation"):
         if access.reason_for_capability("image_generation") == "login_required":
-            return error("请登录后使用图片工坊", 403, code="LOGIN_REQUIRED")
-        return error("图片工坊 Skill 已关闭，请先到 Skills 广场开启", 403, code="SKILL_DISABLED")
-    body = ctx.request.body or {}
+            return error(text("image.login_required", response_language), 403, code="LOGIN_REQUIRED")
+        return error(text("image.skill_disabled", response_language), 403, code="SKILL_DISABLED")
     prompt = str(body.get("prompt") or "").strip()[:2000]
     parent_id = str(body.get("parent_action_id") or "").strip()
     if not prompt or not parent_id:
-        return error("修改提示词和原图版本不能为空")
+        return error(text("image.edit_fields_required", response_language))
 
     state = await load_user_workspace(store, user_id=user_id)
     parent = get_action(state, parent_id)
     if parent.get("kind") != "image_generate" or parent.get("status") != "succeeded":
-        return error("原图版本不可用于修改")
+        return error(text("image.source_unavailable", response_language))
     parent_payload = parent.get("payload") or {}
     parent_result = parent.get("result") or {}
     reference = await resolve_image_reference(parent_result)
     if not reference.startswith(("https://", "data:image/")):
-        return error("无法读取原图，请重新生成后再修改")
+        return error(text("image.source_unreadable", response_language))
 
     group_id = str(parent_payload.get("group_id") or parent.get("id") or "")
     action = new_action(
@@ -68,7 +70,10 @@ async def handler(ctx):
 
     async def gen():
         yield ctx.utils.sse({"type": "image_progress", "stage": "preparing"})
-        task = asyncio.create_task(generate_image(ctx.env, prompt, [reference], user_id=user_id))
+        task = asyncio.create_task(generate_image(
+            ctx.env, prompt, [reference], user_id=user_id,
+            response_language=response_language,
+        ))
         while not task.done():
             done, _pending = await asyncio.wait({task}, timeout=5)
             if not done:
@@ -78,7 +83,10 @@ async def handler(ctx):
             blob_reference = await resolve_image_reference(parent_result, prefer_blob=True)
             if blob_reference.startswith("data:image/") and blob_reference != reference:
                 yield ctx.utils.sse({"type": "image_progress", "stage": "retrying_blob"})
-                retry = asyncio.create_task(generate_image(ctx.env, prompt, [blob_reference], user_id=user_id))
+                retry = asyncio.create_task(generate_image(
+                    ctx.env, prompt, [blob_reference], user_id=user_id,
+                    response_language=response_language,
+                ))
                 while not retry.done():
                     done, _pending = await asyncio.wait({retry}, timeout=5)
                     if not done:

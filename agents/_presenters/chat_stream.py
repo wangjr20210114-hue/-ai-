@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from agents._domain.search.evidence import SearchEvidence
+from agents._application.i18n import text
 
 
 PROGRESS_STAGES = frozenset({
@@ -273,7 +274,9 @@ class ChatStreamPresenter:
             {
                 "type": "error_message",
                 "code": str(code or "internal_error"),
-                "content": str(message or "请求失败"),
+                "content": str(message or text(
+                    "chat.request_failed", self._response_language,
+                )),
             },
             event="error",
         )
@@ -290,3 +293,5 @@ class ChatStreamPresenter:
     @staticmethod
     def transport_done() -> bytes:
         return b"data: [DONE]\n\n"
+    def __init__(self, response_language: object = "zh-CN") -> None:
+        self._response_language = response_language

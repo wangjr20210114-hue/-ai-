@@ -8,6 +8,7 @@ import json
 import logging
 from typing import Any
 
+from ..._application.i18n import normalize_language, text
 from ..._application.workspace.service import new_action, put_action
 from .route_resolution import (
     _clarification_action,
@@ -29,7 +30,9 @@ def build_nearby_operation(
     map_place_result_limit,
     map_search_timeout,
     runtime_env,
+    response_language: object = "zh-CN",
 ):
+    response_language = normalize_language(response_language)
     async def recommend_nearby_places_on_map(
         anchor_query: str,
         query: str,
@@ -63,27 +66,28 @@ def build_nearby_operation(
             clean_anchor_queries.insert(0, "__browser_current_location__")
         clean_query = str(query or "").strip()
         if not clean_anchor_queries:
-            raise ValueError("附近搜索缺少参照地点")
+            raise ValueError(text("nearby.error.anchor_missing", response_language))
         if len(clean_anchor_queries) > 4:
-            raise ValueError("一次附近搜索最多支持 4 个备选参照地点")
+            raise ValueError(text("nearby.error.anchor_count", response_language))
         if not clean_query:
-            raise ValueError("附近搜索缺少要查找的地点类别")
+            raise ValueError(text("nearby.error.query_missing", response_language))
         if current_location_requested and browser_current_location is None:
             if len(clean_anchor_queries) == 1:
                 return _clarification_action(
                     conversation_id,
-                    title="需要附近搜索的起点",
-                    prompt=(
-                        "浏览器没有提供当前位置。请填写你所在的区域或附近地标，"
-                        "提交后我会自动继续查找，不需要重新描述需求。"
-                    ),
+                    title=text("nearby.location_required.title", response_language),
+                    prompt=text("nearby.location_required.prompt", response_language),
                     fields=[{
                         "id": "nearby_anchor",
-                        "label": "你现在在哪里？",
+                        "label": text(
+                            "nearby.location_required.label", response_language,
+                        ),
                         "type": "text",
                         "required": True,
                         "options": [],
-                        "placeholder": "例如：北京市海淀区中关村，或吉林大学前卫南区",
+                        "placeholder": text(
+                            "place.location_required.placeholder", response_language,
+                        ),
                     }],
                 )
             # Keep explicit alternative anchors useful even when the browser
@@ -175,9 +179,10 @@ def build_nearby_operation(
                 timeout=map_search_timeout,
             )
         except asyncio.TimeoutError as exc:
-            raise TimeoutError(
-                f"参照地点搜索超过 {round(map_search_timeout)} 秒；请减少地点数量或使用快速档"
-            ) from exc
+            raise TimeoutError(text(
+                "nearby.error.anchor_timeout", response_language,
+                seconds=round(map_search_timeout),
+            )) from exc
         ambiguous_anchors = [
             (index, item)
             for index, item in enumerate(resolved_anchors)
@@ -209,16 +214,17 @@ def build_nearby_operation(
             await _save_state(state)
             return _clarification_action(
                 conversation_id,
-                title="请选择附近搜索的参照地点",
-                prompt=(
-                    "地点服务返回了多个候选，已按腾讯地图相关度排序。"
-                    "请选择与原目标一致的地点后，我会继续附近搜索。"
-                ),
+                title=text("nearby.anchor_choice.title", response_language),
+                prompt=text("nearby.anchor_choice.prompt", response_language),
                 fields=[
                     _place_choice_field(
                         f"anchor_{index}",
-                        str(item.get("_query") or "参照地点"),
+                        str(
+                            item.get("_query")
+                            or text("nearby.anchor.default", response_language)
+                        ),
                         item["_ambiguous_candidates"],
+                        response_language,
                     )
                     for index, item in ambiguous_anchors
                 ],
@@ -236,7 +242,7 @@ def build_nearby_operation(
             anchor: dict[str, Any] | None,
         ) -> dict[str, Any]:
             display_anchor_query = (
-                "当前位置"
+                text("nearby.current_location", response_language)
                 if clean_anchor_query == "__browser_current_location__"
                 else clean_anchor_query
             )
@@ -245,7 +251,10 @@ def build_nearby_operation(
                     "anchor_query": display_anchor_query,
                     "anchor": None,
                     "places": [],
-                    "error": f"没有核实到参照地点“{display_anchor_query}”",
+                    "error": text(
+                        "nearby.error.anchor_unverified", response_language,
+                        anchor=display_anchor_query,
+                    ),
                 }
             try:
                 found = await _search_places_nearby_metered(
@@ -291,9 +300,10 @@ def build_nearby_operation(
 
         remaining = search_deadline - asyncio.get_running_loop().time()
         if remaining <= 0:
-            raise TimeoutError(
-                f"附近地点搜索超过 {round(map_search_timeout)} 秒；请减少地点数量或使用快速档"
-            )
+            raise TimeoutError(text(
+                "nearby.error.search_timeout", response_language,
+                seconds=round(map_search_timeout),
+            ))
         try:
             groups = await asyncio.wait_for(
                 asyncio.gather(*(
@@ -303,9 +313,10 @@ def build_nearby_operation(
                 timeout=remaining,
             )
         except asyncio.TimeoutError as exc:
-            raise TimeoutError(
-                f"附近地点搜索超过 {round(map_search_timeout)} 秒；请减少地点数量或使用快速档"
-            ) from exc
+            raise TimeoutError(text(
+                "nearby.error.search_timeout", response_language,
+                seconds=round(map_search_timeout),
+            )) from exc
         places: list[dict[str, Any]] = []
         seen_place_ids: set[str] = set()
         max_group_size = max((len(group["places"]) for group in groups), default=0)
@@ -327,12 +338,14 @@ def build_nearby_operation(
                 break
         if not places:
             anchors_text = "、".join(
-                "“当前位置”" if value == "__browser_current_location__" else f"“{value}”"
+                f"“{text('nearby.current_location', response_language)}”"
+                if value == "__browser_current_location__" else f"“{value}”"
                 for value in clean_anchor_queries
             )
-            raise ValueError(
-                f"没有在{anchors_text}附近 {radius} 米内核实到“{clean_query}”"
-            )
+            raise ValueError(text(
+                "nearby.error.none", response_language,
+                anchors=anchors_text, radius=radius, query=clean_query,
+            ))
 
         candidates = state.setdefault("place_candidates", {})
         for anchor in resolved_anchors:
@@ -348,14 +361,18 @@ def build_nearby_operation(
             for group in groups
             if group["anchor"] is not None
         ]
-        natural_title = str(
-            title or f"{'、'.join(anchor_names or clean_anchor_queries)}附近的{clean_query}"
-        )[:120]
+        natural_title = str(title or text(
+            "nearby.map.title", response_language,
+            anchors="、".join(anchor_names or clean_anchor_queries),
+            query=clean_query,
+        ))[:120]
         action = new_action(
             "map_recommendation",
             {
                 "title": natural_title,
-                "action_text": str(action_text or "在地图中查看附近地点")[:80],
+                "action_text": str(action_text or text(
+                    "nearby.map.action", response_language,
+                ))[:80],
                 "places": places,
             },
             requires_confirmation=False,
@@ -371,11 +388,13 @@ def build_nearby_operation(
             "places": places,
             "verified_place_count": len(places),
             "radius_meters": radius,
-            "response_constraint": (
-                f"已基于 {len([anchor for anchor in resolved_anchors if anchor is not None])} 个"
-                f"参照地点的核实坐标，在 {radius} 米范围内合并找到 {len(places)} 个真实地点。"
-                "每个地点的 nearby_anchor_name 表示其对应参照点；正文只使用这些地点及其"
-                " distance_to_anchor_meters，不要补写未核实地点、评分或营业时间。"
+            "response_constraint": text(
+                "model.nearby.response_constraint", response_language,
+                anchors=len([
+                    anchor for anchor in resolved_anchors
+                    if anchor is not None
+                ]),
+                radius=radius, places=len(places),
             ),
         }, ensure_ascii=False)
 

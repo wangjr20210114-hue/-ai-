@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from ..._application.i18n import normalize_language, text
 from ..._application.workspace.service import new_action, put_action
 from ..._infrastructure.makers.route_repository import load_route_cache, save_route_cache
 from .route_resolution import (
@@ -61,7 +62,9 @@ def build_route_operation(
     runtime_env,
     store,
     user_id,
+    response_language: object = "zh-CN",
 ):
+    response_language = normalize_language(response_language)
     async def plan_route_between_places(
         origin_query: str = "",
         destination_query: str = "",
@@ -81,7 +84,7 @@ def build_route_operation(
         item contains query and may contain near_query. Never optimize or
         reorder user-provided stops. When a place is described relative to
         another place, keep them separate, for example
-        {"query":"锦江之星","near_query":"北京301医院"}.
+        Each relative stop keeps a separate query and near_query value.
         """
         map_key = str(
             runtime_env.get("TENCENT_MAP_SERVER_KEY")
@@ -125,15 +128,17 @@ def build_route_operation(
         ):
             return _clarification_action(
                 conversation_id,
-                title="需要路线起点",
-                prompt="浏览器当前位置未授权或已经过期。请先在地图卡片授权定位，或直接填写起点。",
+                title=text("route.location_required.title", response_language),
+                prompt=text("route.location_required.prompt", response_language),
                 fields=[{
                     "id": "route_origin",
-                    "label": "从哪里出发？",
+                    "label": text("route.location_required.label", response_language),
                     "type": "text",
                     "required": True,
                     "options": [],
-                    "placeholder": "例如：吉林大学前卫南区",
+                    "placeholder": text(
+                        "route.location_required.placeholder", response_language,
+                    ),
                 }],
             )
         route_operation_deadline = asyncio.get_running_loop().time() + 58.0
@@ -183,32 +188,44 @@ def build_route_operation(
             timed_out: bool = False,
         ) -> str:
             qualifier = (
-                f"（{near_query}附近 {radius} 米内）"
+                text(
+                    "route.near_qualifier", response_language,
+                    place=near_query, radius=radius,
+                )
                 if str(near_query or "").strip()
                 else ""
             )
             evidence_state = (
-                "在本次时间预算内没有足够证据核实"
+                text("route.evidence.timeout", response_language)
                 if timed_out
-                else "没有足够证据确认"
+                else text("route.evidence.missing", response_language)
             )
             return _clarification_action(
                 conversation_id,
-                title=f"请确认{endpoint_label}",
-                prompt=(
-                    f"地点服务{evidence_state}“{query}”{qualifier}。"
-                    "可能是名称有误、存在同名地点或缺少城市，请补充更完整名称。"
+                title=text(
+                    "route.confirm.title", response_language,
+                    endpoint=endpoint_label,
+                ),
+                prompt=text(
+                    "route.confirm.prompt", response_language,
+                    evidence=evidence_state, query=query, qualifier=qualifier,
                 ),
                 fields=[{
                     "id": (
                         f"{endpoint_id}_"
                         f"{hashlib.sha256(str(query).encode()).hexdigest()[:6]}"
                     ),
-                    "label": f"{endpoint_label}的正确名称或城市是什么？",
+                    "label": text(
+                        "route.confirm.label", response_language,
+                        endpoint=endpoint_label,
+                    ),
                     "type": "text",
                     "required": True,
                     "options": [],
-                    "placeholder": f"例如：城市 + {query}",
+                    "placeholder": text(
+                        "route.confirm.placeholder", response_language,
+                        query=query,
+                    ),
                 }],
             )
 
@@ -223,7 +240,10 @@ def build_route_operation(
             if clean_query == "__browser_current_location__":
                 return copy.deepcopy(browser_current_location), None
             if not clean_query:
-                raise ValueError(f"{endpoint_label}地点不能为空")
+                raise ValueError(text(
+                    "route.error.empty_place", response_language,
+                    endpoint=endpoint_label,
+                ))
             if clean_near:
                 selected_anchor = _selected_place_candidate(
                     clean_near,
@@ -247,15 +267,17 @@ def build_route_operation(
                 if len(anchors) > 1:
                     return None, _clarification_action(
                         conversation_id,
-                        title="请选择附近参照地点",
-                        prompt=(
-                            f"腾讯地点服务查到多个“{clean_near}”，候选已按相关度排序。"
-                            f"请先选择用于查找{endpoint_label}“{clean_query}”的参照地点。"
+                        title=text("route.anchor.title", response_language),
+                        prompt=text(
+                            "route.anchor.prompt", response_language,
+                            anchor=clean_near, endpoint=endpoint_label,
+                            query=clean_query,
                         ),
                         fields=[_place_choice_field(
                             f"{endpoint_id}_anchor",
-                            "附近搜索以哪个地点为参照？",
+                            text("route.anchor.label", response_language),
                             anchors,
+                            response_language,
                         )],
                     )
                 matches = await _search_places_nearby_metered(
@@ -306,15 +328,20 @@ def build_route_operation(
             if clean_near and len(matches) > 1:
                 field = _place_choice_field(
                     endpoint_id,
-                    f"请选择具体{endpoint_label}",
+                    text(
+                        "route.choice.label", response_language,
+                        endpoint=endpoint_label,
+                    ),
                     matches,
+                    response_language,
                 )
                 return None, _clarification_action(
                     conversation_id,
-                    title="请选择具体地点",
-                    prompt=(
-                        f"查到多个位于“{clean_near}”附近的“{clean_query}”，候选已按相关度排序。"
-                        f"请选择具体{endpoint_label}，提交后我会继续规划。"
+                    title=text("route.choice.title", response_language),
+                    prompt=text(
+                        "route.choice.nearby_prompt", response_language,
+                        anchor=clean_near, query=clean_query,
+                        endpoint=endpoint_label,
                     ),
                     fields=[field],
                 )
@@ -326,20 +353,25 @@ def build_route_operation(
                     context=endpoint_label,
                     enabled=provider_place_review_enabled,
                     timeout_seconds=min(8.0, map_search_timeout),
+                    response_language=response_language,
                 )
                 if decision == "auto_use" and isinstance(selected, dict):
                     return selected, None
                 field = _place_choice_field(
                     endpoint_id,
-                    f"请选择具体{endpoint_label}",
+                    text(
+                        "route.choice.label", response_language,
+                        endpoint=endpoint_label,
+                    ),
                     matches,
+                    response_language,
                 )
                 return None, _clarification_action(
                     conversation_id,
-                    title="请选择具体地点",
-                    prompt=(
-                        f"查到多个符合“{clean_query}”的地点，候选已按相关度返回。"
-                        f"请选择具体{endpoint_label}，提交后我会继续规划。"
+                    title=text("route.choice.title", response_language),
+                    prompt=text(
+                        "route.choice.prompt", response_language,
+                        query=clean_query, endpoint=endpoint_label,
                     ),
                     fields=[field],
                 )
@@ -352,19 +384,25 @@ def build_route_operation(
                 not isinstance(ordered_stops, list)
                 or not minimum_stops <= len(ordered_stops) <= map_route_stop_limit
             ):
-                raise ValueError(
-                    f"有序行程必须包含 {minimum_stops} 到 {map_route_stop_limit} 个地点；"
-                    "可在设置的“地图与路线”中调整上限"
-                )
+                raise ValueError(text(
+                    "route.error.stop_count", response_language,
+                    minimum=minimum_stops, maximum=map_route_stop_limit,
+                ))
             for index, raw_stop in enumerate(ordered_stops, 1):
                 if isinstance(raw_stop, BaseModel):
                     raw_stop = raw_stop.model_dump()
                 if not isinstance(raw_stop, dict):
-                    raise ValueError(f"第 {index} 个行程地点格式无效")
+                    raise ValueError(text(
+                        "route.error.stop_format", response_language,
+                        index=index,
+                    ))
                 query = str(raw_stop.get("query") or "").strip()
                 near_query = str(raw_stop.get("near_query") or "").strip()
                 if not query:
-                    raise ValueError(f"第 {index} 个行程地点不能为空")
+                    raise ValueError(text(
+                        "route.error.stop_empty", response_language,
+                        index=index,
+                    ))
                 requested_stops.append((query, near_query))
         else:
             requested_stops = [
@@ -383,10 +421,10 @@ def build_route_operation(
                 *[item for item in requested_stops if item[0]],
             ]
         if len(requested_stops) > map_route_stop_limit:
-            raise ValueError(
-                f"当前地图设置允许单条路线最多 {map_route_stop_limit} 个地点，"
-                "请减少站点或在设置中提高上限"
-            )
+            raise ValueError(text(
+                "route.error.stop_limit", response_language,
+                maximum=map_route_stop_limit,
+            ))
         logging.info(
             "route stop handoff planner=%s tool_model=%s selected=%s",
             len(planned_route_stops or []),
@@ -409,9 +447,17 @@ def build_route_operation(
             index: int, query: str, near_query: str,
         ) -> tuple[dict[str, Any] | None, str | None]:
             endpoint_id, endpoint_label = (
-                ("route_origin", "起点") if index == 1
-                else ("route_destination", "终点") if index == len(requested_stops)
-                else (f"route_stop_{index}", f"第 {index} 站")
+                ("route_origin", text("route.origin", response_language))
+                if index == 1
+                else (
+                    "route_destination",
+                    text("route.destination", response_language),
+                )
+                if index == len(requested_stops)
+                else (
+                    f"route_stop_{index}",
+                    text("route.stop", response_language, index=index),
+                )
             )
 
             async def resolve_with_capacity():
@@ -457,6 +503,7 @@ def build_route_operation(
                         clarification,
                         candidates,
                         card_city,
+                        response_language,
                     )
                     if clarification
                     else None,
@@ -474,30 +521,38 @@ def build_route_operation(
             return _merge_clarification_actions(
                 conversation_id,
                 unresolved_cards,
+                response_language=response_language,
             )
 
         resolved_stops: list[dict[str, Any]] = []
         for index, (place, clarification) in enumerate(resolution_results, 1):
             endpoint = (
-                "起点" if index == 1
-                else "终点" if index == len(requested_stops)
-                else f"第 {index} 站"
+                text("route.origin", response_language) if index == 1
+                else text("route.destination", response_language)
+                if index == len(requested_stops)
+                else text("route.stop", response_language, index=index)
             )
             if not place:
-                raise ValueError(f"{endpoint}没有完成核实")
+                raise ValueError(text(
+                    "route.error.unverified", response_language,
+                    endpoint=endpoint,
+                ))
             if (
                 resolved_stops
                 and str(resolved_stops[-1].get("place_id") or "")
                 == str(place.get("place_id") or "")
             ):
-                raise ValueError(f"{endpoint}和上一站解析成了同一个地点，请选择不同地点")
+                raise ValueError(text(
+                    "route.error.duplicate", response_language,
+                    endpoint=endpoint,
+                ))
             resolved_stops.append(place)
 
         remaining_route_time = route_operation_deadline - asyncio.get_running_loop().time()
         if remaining_route_time <= 1:
-            raise TimeoutError(
-                "路线规划总耗时已接近 60 秒上限，请减少站点或在设置中选择快速档"
-            )
+            raise TimeoutError(text(
+                "route.error.timeout_near", response_language,
+            ))
         route = await load_route_cache(
             store,
             user_id,
@@ -523,9 +578,9 @@ def build_route_operation(
                     timeout=remaining_route_time,
                 )
             except asyncio.TimeoutError as exc:
-                raise TimeoutError(
-                    "路线规划超过 60 秒上限，请减少站点或在设置中选择快速档"
-                ) from exc
+                raise TimeoutError(text(
+                    "route.error.timeout", response_language,
+                )) from exc
             await save_route_cache(
                 store,
                 user_id,
@@ -627,8 +682,11 @@ def build_route_operation(
         map_action = new_action(
             "map_recommendation",
             {
-                "title": f"{resolved_stops[0].get('name') or '起点'} → {resolved_stops[-1].get('name') or '终点'}",
-                "action_text": "在地图中查看这条路线",
+                "title": (
+                    f"{resolved_stops[0].get('name') or text('route.origin', response_language)}"
+                    f" → {resolved_stops[-1].get('name') or text('route.destination', response_language)}"
+                ),
+                "action_text": text("route.action_text", response_language),
                 "places": resolved_stops,
                 "route_plan_id": route_plan_id,
                 "route_mode": selected_route_mode,
@@ -718,21 +776,14 @@ def build_route_operation(
                     "one leg. Unknown fields must not be inferred or mentioned."
                 ),
             },
-            "response_constraint": (
-                f"距离和耗时来自按用户指定顺序核实的 {len(resolved_stops)} 个地点之间的真实道路路线；"
-                f"交通方式为 {selected_route_mode}；"
-                f"路线策略为 {selected_route_strategy}，由腾讯返回候选并按"
-                f"{map_near_time_tolerance} 分钟的时间相近容差选择；"
-                + (
-                    "query_corrections 是腾讯建议服务返回的唯一候选证据，回答应简短说明按 Provider 名称规划；"
-                    if query_corrections else ""
-                )
-                + "必须按 ordered_stops 原顺序描述各站，绝不能重新排序；"
-                "回答必须使用这里的数值，不得改用网页估算、直线距离或模型猜测。"
-                "公交 transit.walking_distance_meters 是全程接驳步行合计，不是任一单段距离；"
-                "只有 transit.segments 中的 line、vehicle、geton、getoff、station_count 可以"
-                "作为公交分段事实。未返回的运营时段、线路方向、班次、途经道路、入口规则和"
-                "步行分段距离不得补写；证据不足时只报告聚合值并引导查看地图卡。"
+            "response_constraint": text(
+                "model.route.response_constraint", response_language,
+                count=len(resolved_stops), mode=selected_route_mode,
+                strategy=selected_route_strategy,
+                tolerance=map_near_time_tolerance,
+                correction_clause=text(
+                    "model.route.correction_clause", response_language,
+                ) if query_corrections else "",
             ),
         }, ensure_ascii=False)
 

@@ -107,33 +107,6 @@ class SearchEvidence:
             "media_pending": self.media_pending,
         }
 
-    def for_model(self) -> str:
-        """Return factual evidence only, never cached/generated answer prose."""
-        source_lines = "\n".join(
-            (
-                f"- {source.id} | [{source.title}]({source.url})"
-                f" | 发布日期={source.published_at or '未标注'}"
-                f" | 摘要={source.snippet}"
-            )
-            for source in self.sources
-        )
-        media_status = (
-            f"{len(self.media)} 张审核图片已由 source_id 绑定；"
-            "正文只需引用对应网页来源，禁止输出图片 Markdown 或媒体占位符。"
-            if self.media
-            else (
-                "图片仍在后台审核；正文只写事实与精确来源链接。"
-                if self.media_pending
-                else "没有可确定性绑定的审核图片。"
-            )
-        )
-        return (
-            "本轮 SearchUseCase 已完成唯一一次搜索。以下内容是可引用的事实证据，"
-            "不是回答提纲；不得再次搜索，也不得把未列出的时效事实写成已核验结论。\n"
-            f"{source_lines or '无可核验来源。'}\n"
-            f"{media_status}"
-        )
-
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "SearchEvidence":
         sources = value.get("sources")

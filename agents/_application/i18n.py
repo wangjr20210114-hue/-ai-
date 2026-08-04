@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Final
 
+from agents._application.i18n_catalogs import MODEL_CATALOG
+
 
 SUPPORTED_LANGUAGES: Final = ("zh-CN", "zh-TW", "en", "cat-cute", "cat-cold")
 _LANGUAGE_INDEX: Final = {
@@ -332,6 +334,7 @@ CATALOG: Final[dict[str, LocalizedEntry]] = {
         "原问题：{question}\n\n已识别的任务方向：{plan}",
         "原问题：{question}\n\n已识别的任务方向：{plan}",
     ),
+    **MODEL_CATALOG,
 }
 
 
@@ -346,7 +349,7 @@ def text(key: str, language: object = "zh-CN", **params: object) -> str:
         raise KeyError(f"Unknown backend i18n key: {key}")
     normalized = normalize_language(language)
     value = CATALOG[key][_LANGUAGE_INDEX[normalized]]
-    return value.format(**params)
+    return value.format(**params) if params else value
 
 
 def language_instruction(language: object) -> str:
@@ -354,10 +357,16 @@ def language_instruction(language: object) -> str:
     return text(f"chat.language_instruction.{normalized}", normalized)
 
 
+def localized_values(key: str) -> dict[str, str]:
+    """Return every product-language variant for public component metadata."""
+    return {language: text(key, language) for language in SUPPORTED_LANGUAGES}
+
+
 __all__ = (
     "CATALOG",
     "SUPPORTED_LANGUAGES",
     "language_instruction",
+    "localized_values",
     "normalize_language",
     "text",
 )

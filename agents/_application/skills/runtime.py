@@ -50,6 +50,7 @@ class SkillRuntimeContext:
         "request_id",
         "tenant_id",
         "user_id",
+        "response_language",
         "env",
         "_state_store",
         "_checkpointer",
@@ -99,6 +100,9 @@ class SkillRuntimeContext:
             )
             if "user.read" in self.permissions
             else ""
+        )
+        self.response_language = str(
+            runtime.get("response_language") or "zh-CN"
         )
         raw_env = runtime.get("env") if isinstance(runtime.get("env"), Mapping) else {}
         self.env = MappingProxyType({

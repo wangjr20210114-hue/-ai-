@@ -10,6 +10,7 @@ from .._infrastructure.makers.identity import require_user
 from .._application.intelligence.service import load_intelligence_state, usage_summary
 from .._application.proactive.service import load_proactive_state
 from .._application.workspace.service import load_user_workspace
+from .._application.i18n import normalize_language, text
 
 
 BEIJING = timezone(timedelta(hours=8))
@@ -25,6 +26,9 @@ def _expected_tick_after(now: int) -> int:
 async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
+    response_language = normalize_language(
+        (ctx.request.body or {}).get("response_language")
+    )
     now = int(time.time())
     store = ctx.store.langgraph_store
     proactive = await load_proactive_state(store, user_id)
@@ -88,7 +92,7 @@ async def handler(ctx):
             "acceptance_rate": round(accepted / evaluated, 4) if evaluated else None,
             "dismissal_rate": round(dismissed / evaluated, 4) if evaluated else None,
             "pending_rule_proposals": pending_rules,
-            "note": "业务策略效果；通用日志、Trace、Token 与平台告警由 Makers/CLS 承担",
+            "note": text("system.policy_evaluation.note", response_language),
         },
         "providers": {
             "model": all(bool(ctx.env.get(key)) for key in ("AI_GATEWAY_API_KEY", "AI_GATEWAY_BASE_URL")),

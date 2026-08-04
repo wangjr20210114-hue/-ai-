@@ -7,7 +7,6 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-
 from .turn_context import experience_hints_for_plan
 from .turn_io import (
     _document_context,
@@ -95,10 +94,8 @@ from ..._application.proactive.service import (
     save_proactive_state,
 )
 from ..._presenters.chat_stream import ChatStreamPresenter
-
 HEARTBEAT_SECONDS = 5
 MAX_GRAPH_RECURSION = 24
-
 
 class ChatTurnService:
     """Execute one authenticated chat turn behind the thin controller."""
@@ -112,7 +109,6 @@ class ChatTurnService:
 
 async def _handle(ctx):
     handler_started_at = time.monotonic()
-    presenter = ChatStreamPresenter()
     stage_timings_ms: dict[str, int | bool] = {}
     admission, rejection = await admit_turn(ctx)
     if rejection is not None:
@@ -129,6 +125,7 @@ async def _handle(ctx):
     silent_clarification = admission.silent_clarification
     direct_public_answer = admission.direct_public_answer
     response_language = admission.response_language
+    presenter = ChatStreamPresenter(response_language)
     response_language_instruction = admission.response_language_instruction
     browser_current_location = admission.browser_current_location
     browser_location_request = admission.browser_location_request
@@ -163,7 +160,7 @@ async def _handle(ctx):
         )
     except Exception as exc:
         logging.exception("chat model configuration failed")
-        message_text = public_error(exc)
+        message_text = public_error(exc, response_language)
         await fail_run(
             message_text,
             safe_error_diagnostics(exc, stage="model_configuration"),
@@ -224,6 +221,7 @@ async def _handle(ctx):
             reference_images,
             message,
             timeout=float(ctx.env.get("REFERENCE_VISION_TIMEOUT_SECONDS") or 8),
+            response_language=response_language,
         )
         logging.info(
             "reference image analysis provider=%s attempted=%s",
@@ -543,6 +541,7 @@ async def _handle(ctx):
         runtime_env=runtime_env,
         run_id=run_id,
         stage_timings_ms=stage_timings_ms,
+        response_language=response_language,
     )
 
     def build_all_tools() -> list:
@@ -628,6 +627,7 @@ async def _handle(ctx):
             makers_checkpointer=ctx.store.langgraph_checkpointer,
             request_id=run_id,
             component_journal=component_journal,
+            response_language=response_language,
         )
     blocked_skill = str(capability_plan.get("blocked_skill") or "").strip()
     required_tool_names = required_tools_for_plan(capability_plan)
@@ -870,7 +870,9 @@ async def _handle(ctx):
             )
             memory_task = (
                 asyncio.create_task(
-                    extract_automatic_memory_candidates(fast_model, message)
+                    extract_automatic_memory_candidates(
+                        fast_model, message, response_language=response_language,
+                    )
                 )
                 if memory_enabled
                 and capability_plan.get("needs_memory_extraction")
@@ -1234,6 +1236,7 @@ async def _handle(ctx):
                         ),
                         clarification_emitted=clarification_emitted,
                         run_error=run_error,
+                        response_language=response_language,
                     )
                     if grounded_route_answer:
                         pending_ai_content[:] = [grounded_route_answer]
@@ -1245,7 +1248,7 @@ async def _handle(ctx):
                         await queue.put(presenter.token(final_content))
             except Exception as exc:
                 logging.exception("chat stream failed conversation=%s", conversation_id)
-                run_error = public_error(exc)
+                run_error = public_error(exc, response_language)
                 run_diagnostics = safe_error_diagnostics(
                     exc, stage="graph_stream",
                 )
@@ -1379,6 +1382,7 @@ async def _handle(ctx):
                                     for action in pending_actions
                                 ),
                                 timeout_seconds=float(ctx.env.get("OPPORTUNITY_PLAN_TIMEOUT_SECONDS") or 6),
+                                response_language=response_language,
                             ))
                             if opportunity_enabled
                             else None

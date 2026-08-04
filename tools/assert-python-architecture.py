@@ -5,11 +5,14 @@ from __future__ import annotations
 import ast
 import re
 import runpy
+import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENTS = ROOT / "agents"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 MAX_TEST_FILE_LINES = 750
 MAX_PRODUCTION_FILE_LINES = 2_500
 CRITICAL_FILE_LIMITS = {
@@ -29,11 +32,39 @@ FORBIDDEN_DOMAIN_PARTS = {
 }
 LOCALIZED_CHAT_BOUNDARIES = (
     "_application/chat/turn_admission.py",
+    "_application/chat/turn_policy.py",
     "_application/chat/turn_protocol.py",
     "_application/chat/turn_service.py",
+    "chat/_capability_plan.py",
+    "chat/_fallbacks.py",
     "chat/_followups.py",
+    "chat/_graph.py",
+    "chat/_protocol.py",
+    "_controllers/reader_controller.py",
+    "_controllers/messages_controller.py",
+    "_controllers/system_controller.py",
+    "_controllers/workspace_controller.py",
+    "_infrastructure/skills/builtin_operations.py",
+    "_infrastructure/skills/calendar_operations.py",
+    "_infrastructure/skills/nearby_operations.py",
+    "_infrastructure/skills/place_operations.py",
+    "_infrastructure/skills/route_operations.py",
+    "_infrastructure/skills/route_resolution.py",
+    "_application/chat/turn_io.py",
+    "_application/search/evidence_presenter.py",
+    "_application/skills/component_api.py",
+    "_application/workspace/service.py",
+    "_infrastructure/makers/identity.py",
+    "_infrastructure/makers/conversation_repository.py",
+    "_infrastructure/providers/arxiv.py",
+    "_infrastructure/providers/web_media.py",
+    "_infrastructure/skills/paper_candidates.py",
+    "_infrastructure/skills/paper_operations.py",
+    "_infrastructure/skills/search_operations.py",
+    "_presenters/chat_stream.py",
+    "_skill_adapters/core/adapter.py",
 )
-NON_PRESENTATION_PROVIDER_LITERALS = {"全国"}
+NON_PRESENTATION_PROVIDER_LITERALS = {"全国", "中国"}
 
 
 def imported_modules(path: Path) -> list[str]:
@@ -45,6 +76,61 @@ def imported_modules(path: Path) -> list[str]:
         elif isinstance(node, ast.ImportFrom):
             modules.append(node.module or "")
     return modules
+
+
+def literal_copy_violations(path: Path) -> list[int]:
+    """Catch model-facing literals even when their source language is English."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    lines: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            for keyword in node.keywords:
+                if keyword.arg == "description" and isinstance(
+                    keyword.value, (ast.Constant, ast.JoinedStr),
+                ):
+                    lines.add(node.lineno)
+            function_name = (
+                node.func.id
+                if isinstance(node.func, ast.Name)
+                else node.func.attr
+                if isinstance(node.func, ast.Attribute)
+                else ""
+            )
+            if function_name in {"SystemMessage", "HumanMessage"}:
+                content_values = list(node.args[:1]) + [
+                    keyword.value
+                    for keyword in node.keywords
+                    if keyword.arg == "content"
+                ]
+                if any(
+                    isinstance(value, (ast.Constant, ast.JoinedStr))
+                    for value in content_values
+                ):
+                    lines.add(node.lineno)
+        if isinstance(node, ast.Dict):
+            values = {
+                key.value: value
+                for key, value in zip(node.keys, node.values)
+                if isinstance(key, ast.Constant) and isinstance(key.value, str)
+            }
+            role = values.get("role")
+            content = values.get("content")
+            if (
+                isinstance(role, ast.Constant)
+                and role.value in {"system", "user", "human"}
+                and isinstance(content, (ast.Constant, ast.JoinedStr))
+            ):
+                lines.add(node.lineno)
+        if isinstance(node, ast.Assign) and isinstance(
+            node.value, (ast.Constant, ast.JoinedStr),
+        ):
+            names = {
+                target.id for target in node.targets
+                if isinstance(target, ast.Name)
+            }
+            if names & {"prompt", "system_prompt", "instruction", "instructions"}:
+                lines.add(node.lineno)
+    return sorted(lines)
 
 
 def main() -> None:
@@ -76,6 +162,15 @@ def main() -> None:
             failures.append(
                 f"{path.relative_to(ROOT)} contains user/model copy outside "
                 f"agents/_application/i18n.py: {hardcoded[:3]}"
+            )
+    for path in AGENTS.rglob("*.py"):
+        if "_tests" in path.parts or path.name in {"i18n.py", "i18n_catalogs.py"}:
+            continue
+        violation_lines = literal_copy_violations(path)
+        if violation_lines:
+            failures.append(
+                f"{path.relative_to(ROOT)} contains literal model/schema copy "
+                f"outside backend i18n at lines {violation_lines[:5]}"
             )
     shared = AGENTS / "_shared"
     if shared.exists():

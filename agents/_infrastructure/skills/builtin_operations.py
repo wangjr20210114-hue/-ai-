@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from .calendar_operations import build_calendar_operation
 from ..._application.skills.tool_contracts import ClarificationFieldInput
+from ..._application.i18n import normalize_language, text
 
 from ..._infrastructure.providers.tencent_location import (
     plan_verified_route as provider_plan_route,
@@ -21,7 +22,8 @@ from ..._infrastructure.providers.tencent_location import (
     search_verified_places_nearby as provider_search_places_nearby,
 )
 from ..._infrastructure.providers.web_media import collect_page_images as provider_collect_page_images
-from ..._infrastructure.providers.rich_search import evidence_for_model, rich_search as provider_rich_search
+from ..._application.search.evidence_presenter import evidence_for_model
+from ..._infrastructure.providers.rich_search import rich_search as provider_rich_search
 from ..._infrastructure.providers.side_effects import generate_image as provider_generate_image, resolve_image_reference
 from ..._infrastructure.providers.arxiv import search_arxiv as provider_search_arxiv
 from ..._application.proactive.service import load_proactive_state, propose_workflow as create_workflow_proposal, save_proactive_state
@@ -97,8 +99,10 @@ def build_system_skill_tools(
     makers_checkpointer: Any = None,
     request_id: str = "",
     component_journal: ComponentPublicationJournal | None = None,
+    response_language: object = "zh-CN",
 ) -> list[StructuredTool]:
     user_id = required_user_id(user_id)
+    response_language = normalize_language(response_language)
     runtime_env = env or {}
     place_skill_id = capability_skill_map().get("places", "")
     calendar_skill_id = capability_skill_map().get("calendar_action", "")
@@ -178,6 +182,7 @@ def build_system_skill_tools(
         route_stop_limit=map_route_stop_limit,
         parallelism=map_parallelism,
         search_timeout=map_search_timeout,
+        response_language=response_language,
     )
     get_current_location = place_operations.get_current_location
     search_places = place_operations.search_places
@@ -193,6 +198,7 @@ def build_system_skill_tools(
         map_place_result_limit=map_place_result_limit,
         map_search_timeout=map_search_timeout,
         runtime_env=runtime_env,
+        response_language=response_language,
     )
 
     plan_route_between_places = build_route_operation(
@@ -224,6 +230,7 @@ def build_system_skill_tools(
         runtime_env=runtime_env,
         store=store,
         user_id=user_id,
+        response_language=response_language,
     )
 
     prepare_map_recommendation = (
@@ -251,6 +258,7 @@ def build_system_skill_tools(
         store=store,
         travel_buffer_minutes=travel_buffer_minutes,
         user_id=user_id,
+        response_language=response_language,
     )
 
     async def propose_meeting(subject: str = "", start_time: str = "", end_time: str = "") -> str:
@@ -277,6 +285,7 @@ def build_system_skill_tools(
         resolve_image_reference_provider=lambda: resolve_image_reference,
         collect_page_images_provider=lambda: provider_collect_page_images,
         record_provider_usage_provider=lambda: record_provider_usage,
+        response_language=response_language,
     )
     propose_image = image_operations["propose_image"]
     collect_page_images = image_operations["collect_page_images"]
@@ -304,6 +313,7 @@ def build_system_skill_tools(
         evidence_for_model_provider=lambda: evidence_for_model,
         record_provider_usage_provider=lambda: record_provider_usage,
         record_vision_diagnostics_provider=lambda: record_vision_diagnostics,
+        response_language=response_language,
     )
     search_arxiv = build_paper_search_operation(
         store=store,
@@ -314,20 +324,23 @@ def build_system_skill_tools(
         provider_search_arxiv_provider=lambda: provider_search_arxiv,
         provider_rich_search_provider=lambda: provider_rich_search,
         record_provider_usage_provider=lambda: record_provider_usage,
+        response_language=response_language,
     )
     async def propose_workflow(title: str, steps: list[dict[str, Any]], reason: str) -> str:
         """Create a user-confirmable persistent multi-step workflow."""
         state = await load_proactive_state(store, user_id)
         mode = str((state.get("preferences") or {}).get("autonomy_mode") or "propose")
         if mode not in {"propose", "low_risk_auto"}:
-            raise ValueError("当前主动权限只允许观察或提醒；请先在主动提醒设置中允许提案")
+            raise ValueError(text(
+                "skill.workflow.permission_denied", response_language,
+            ))
         workflow = create_workflow_proposal(
             state, title=title, steps=steps, reason=reason, now=int(time.time()),
         )
         await save_proactive_state(store, state, user_id)
         return json.dumps({
             "workflow_proposal": workflow,
-            "message": "工作流提案已加入主动提醒中心，只有用户确认后才会激活",
+            "message": text("skill.workflow.proposed", response_language),
         }, ensure_ascii=False)
 
     async def ask_user_clarification(
@@ -356,7 +369,10 @@ def build_system_skill_tools(
             if field_type not in allowed:
                 field_type = "single" if len(options) >= 2 else "text"
             field_id = re.sub(r"[^a-zA-Z0-9_-]", "-", str(raw.get("id") or f"field-{index + 1}"))[:48] or f"field-{index + 1}"
-            label = str(raw.get("label") or "请补充").strip()[:80]
+            label = str(
+                raw.get("label")
+                or text("chat.clarification.default_label", response_language)
+            ).strip()[:80]
             item: dict[str, Any] = {
                 "id": field_id,
                 "label": label,
@@ -368,36 +384,45 @@ def build_system_skill_tools(
                     continue
                 item["options"] = options
             elif field_type == "text":
-                item["placeholder"] = str(raw.get("placeholder") or "请填写").strip()[:120]
+                item["placeholder"] = str(
+                    raw.get("placeholder")
+                    or text("skill.clarification.fill", response_language)
+                ).strip()[:120]
             normalized.append(item)
             if len(normalized) >= 12:
                 break
         if not normalized:
-            raise ValueError("至少需要一个有效的澄清字段")
+            raise ValueError(text(
+                "skill.clarification.invalid_fields", response_language,
+            ))
         return _clarification_action(
             conversation_id,
-            title=str(title or "请补充几个信息"),
-            prompt=str(prompt or "为了更准确地帮你处理，请选择或补充以下信息。"),
+            title=str(title or text(
+                "skill.clarification.default_title", response_language,
+            )),
+            prompt=str(prompt or text(
+                "skill.clarification.default_prompt", response_language,
+            )),
             fields=normalized,
         )
 
     definitions = [
-        (get_current_location, "get_current_location", "用户直接询问“我现在在哪、当前位置是什么、你能否读到我的位置”时使用。它只读取本轮浏览器真实上传的新鲜定位，并调用腾讯逆地址解析返回可读地址、行政区和附近地标；不得输出经纬度、不得使用 IP 猜测、不得保存位置。没有浏览器定位时会生成填写大致位置的结构化卡片，以便继续附近推荐或路线规划。"),
-        (search_places, "search_places", "使用腾讯地点服务搜索真实地点。普通查看传 purpose=browse；新增或修改含现实地点的日程必须传 purpose=calendar。唯一候选直接返回可用 place_id；多个腾讯建议只在无深度思考的结构化语义复核判定实际目的地近乎唯一时采用一个已提供的 place_id，否则生成按可靠城市证据优先的单选卡；无候选生成文本填空卡。快速地图模式跳过该额外复核并采用 Provider 首选。"),
-        (search_places_batch, "search_places_batch", "多地点推荐必须使用：把每个地点作为独立 query 核实，并从每组选择一个最匹配的真实 place_id。"),
-        (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", "用户要找某个已知地点、当前位置或日程地点附近的餐馆、早餐店、酒店、商店、景点等真实地点时使用。用户说“我附近/当前位置附近”时必须设置 use_current_location_as_anchor=true；工具只会使用本轮浏览器实际上传的新鲜坐标，未收到坐标会明确失败，绝不能把“当前位置”当普通 POI 搜索或声称已经定位。其他情况传入完整明确的 anchor_query 与要找的类别 query；若用户给出多个备选参照地点，还必须把全部备选放入 anchor_queries，一次并行查询并保留各组成功结果，不能只选一个或拆成多次调用。工具优先复用 Makers 工作区和日程中已核实的参照地点坐标，再调用腾讯位置附近检索，并一次生成地图 Action。用户没有明确距离时不要自行缩小 radius_meters，保持默认 2000 米且 strict_radius=false；只有用户明确说“X 米内”时才传该距离并设 strict_radius=true。不要先用 rich_search 发现地点，也不要把“某地附近某类别”拼成普通 search_places 查询。"),
-        (plan_route_between_places, "plan_route_between_places", "查询真实地点之间的道路距离、耗时或费用，或规划含多个停靠点的有序出行时必须使用。支持 route_mode=driving/transit/walking/bicycling 和 route_strategy=time_then_cost/least_time/least_cost，未指定均传 default。默认由腾讯多方案按省时优先、时间相近选省钱；用户明确选择会形成非敏感习惯计数，至少三次且占比达到 60% 后可影响后续默认。浏览器当前位置可用且用户未给起点时传 use_current_location_as_origin=true；不得把当前位置作为普通 POI 搜索。两点路线传 origin_query/destination_query；多段行程把全部文本地点按用户指定先后一次传入 ordered_stops，每项包含 query，可选 near_query，禁止拆成多次调用或自行重排。若地点序列或已核实地点已经给出城市，必须把该城市传入 city，以约束后续地点搜索；只有没有可靠城市证据时才传全国。工具会核实全部地点并调用真实腾讯路线服务，禁止先用网页搜索估算距离。若地点形如“301医院附近的锦江之星”，把 query 传“锦江之星”、near_query 传“北京301医院”。唯一候选直接采用；多个腾讯建议只在无深度思考的结构化语义复核判定实际目的地近乎唯一时采用一个已提供的 place_id，否则生成按可靠城市证据优先的单选卡；无候选生成填空卡。快速地图模式跳过该额外复核并采用 Provider 首选。"),
-        (prepare_map_recommendation, "prepare_map_recommendation", "从已核实的真实 ID 生成可点击地图推荐；多地点推荐必须传 expected_place_count 和每组各一个 ID，数量不足时继续核实。只准备 Action，不直接更新地图。"),
-        (recommend_places_on_map, "recommend_places_on_map", "模型驱动的非周边多地点推荐组合工具：根据用户目标自行给出 2-12 个具体地点名称、城市、自然地图标题和自然链接文案；工具逐个核实并准备最终地图 Action。用户指定数量时 queries 必须严格等于该数量。只要用户目标表达了相对某个或多个参照点“附近、周边、离它近”，不得使用本工具，也不得从模型知识猜餐厅名称；必须改用 recommend_nearby_places_on_map，把全部参照点放入 anchor_queries。"),
-        (propose_calendar_changes, "propose_calendar_changes", "必须用此工具准备日程新增、更新或删除提案并生成确认卡；不要只在正文里口头询问。格式示例：changes=[{operation:'create',event:{title:'游览北海公园',start_time:'2026-07-16T09:00:00+08:00',end_time:'2026-07-16T10:00:00+08:00',place_id:'地点工具返回的ID',location_kind:'physical'}}]。location_kind 是模型按语义填写的协议枚举，只能为 physical 或 online；工具不会用地点名称词表猜测。把刚规划的多站路线写入日程时，必须传路线工具返回的 source_route_plan_id，并为 ordered_stops 中每个地点分别创建至少一个事件，严格保持顺序，禁止把多个站点合并成一个事件。更新/删除还要传 schedule_id。用户点击确认前不会真正写入。"),
-        (propose_meeting, "propose_meeting", "准备可编辑的腾讯会议确认卡；即使主题、开始时间或结束时间不完整也要调用本工具，把未知值留空，不要在正文中连续追问多个条件。确认卡会让用户逐项补齐、检查冲突并确认，之后才由后台通过腾讯会议官方 MCP Skill 执行。"),
-        (propose_image, "propose_image", "直接调用混元生图并返回图片，不要询问确认。现实人物、地点或物体可先用 rich_search 获取经 HY-Vision 审核的图片 URL，再通过 reference_image_urls（最多 3 张）作为视觉参考；修改历史版本时传 parent_action_id。"),
-        (collect_page_images, "collect_page_images", "从一个公开网页提取最多 30 张真实图片候选，网页图片不足时返回实际数量。"),
-        (rich_search, "rich_search", "项目 v4.2 富搜索。搜索前的独立 LLM 规划器已经合并本轮事实查询，并判断图片是否有助于理解；同一轮无论怎样改写参数都只执行一次 Provider 搜索。"),
-        (analyze_images_parallel, "analyze_images_parallel", "并行视觉评估最多 30 张图片；单张失败不影响其他图片。"),
-        (search_arxiv, "search_arxiv", "检索结构化学术论文。富搜索已找到论文时，把准确标题列表一次性传给 titles；按作者、单位和时间范围查找时分别传 author（英文论文署名）、institution（英文规范名）与 year/year_from/year_to，不要把这些条件混在宽泛 topic 中。工具会并行利用轻量模型自身知识提名精确 arXiv ID、用官方 arXiv 核验，并用 DBLP 的单位档案锁定作者身份；不足时再使用严格过滤的 Crossref 元数据。模型候选未经官方核验绝不会展示，同名作者的宽泛 arXiv 结果也不会凑数；每轮最多调用一次。"),
-        (propose_workflow, "propose_workflow", "用户明确要求建立跨时间、多步骤的持续提醒或计划时创建工作流提案。steps 每项包含 offset_minutes、title、body、action_prompt，可用 depends_on=['step_1'] 建立 DAG 依赖；失败时需要回退提示的步骤可增加 compensation={title,body,action_prompt}。默认按顺序依赖。必须由用户确认后才会激活，依赖步骤需用户标记完成后才推进。"),
-        (ask_user_clarification, "ask_user_clarification", "所有问答场景统一的必要信息收集入口。只有缺少该字段会阻断所有安全有用的回答，或无法唯一确定真实副作用对象时才能调用；“知道后更好”、可选偏好和用户尚未决定都不得调用，应直接在正文给出 2–3 套带假设与取舍的方案。这条边界适用于所有主题，禁止套用固定画像问题。本轮最多调用一次并只收最少必要字段；能由当前上下文、已核实结果、其他字段或安全默认值推导出的字段不得再问。有限候选优先 single/multi，能用是/否表达就用 boolean，只缺日期用 date、日期已知只缺时刻用 time、两者都缺才用 datetime，仅答案无法枚举时用 text。卡片提交后由前端自动把答案作为对话补充信息继续推理，不要要求用户再次发送，也不要重复询问已提交字段。"),
+        (get_current_location, "get_current_location", text("model.tool.get_current_location.description", response_language)),
+        (search_places, "search_places", text("model.tool.search_places.description", response_language)),
+        (search_places_batch, "search_places_batch", text("model.tool.search_places_batch.description", response_language)),
+        (recommend_nearby_places_on_map, "recommend_nearby_places_on_map", text("model.tool.recommend_nearby_places_on_map.description", response_language)),
+        (plan_route_between_places, "plan_route_between_places", text("model.tool.plan_route_between_places.description", response_language)),
+        (prepare_map_recommendation, "prepare_map_recommendation", text("model.tool.prepare_map_recommendation.description", response_language)),
+        (recommend_places_on_map, "recommend_places_on_map", text("model.tool.recommend_places_on_map.description", response_language)),
+        (propose_calendar_changes, "propose_calendar_changes", text("model.tool.propose_calendar_changes.description", response_language)),
+        (propose_meeting, "propose_meeting", text("model.tool.propose_meeting.description", response_language)),
+        (propose_image, "propose_image", text("model.tool.propose_image.description", response_language)),
+        (collect_page_images, "collect_page_images", text("model.tool.collect_page_images.description", response_language)),
+        (rich_search, "rich_search", text("model.tool.rich_search.description", response_language)),
+        (analyze_images_parallel, "analyze_images_parallel", text("model.tool.analyze_images_parallel.description", response_language)),
+        (search_arxiv, "search_arxiv", text("model.tool.search_arxiv.description", response_language)),
+        (propose_workflow, "propose_workflow", text("model.tool.propose_workflow.description", response_language)),
+        (ask_user_clarification, "ask_user_clarification", text("model.tool.ask_user_clarification.description", response_language)),
     ]
     active = (
         enabled_skills
@@ -441,6 +466,7 @@ def build_system_skill_tools(
         "conversation_id": conversation_id,
         "request_id": str(request_id or conversation_id),
         "user_id": user_id,
+        "response_language": response_language,
         "identity": identity or {"user_id": user_id, "membership": "free"},
         "env": runtime_env,
         "browser_location": browser_current_location,

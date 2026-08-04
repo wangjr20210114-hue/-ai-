@@ -11,6 +11,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from ..intelligence.service import confirmed_memory_context, safe_non_sensitive_text
+from ..i18n import language_instruction, normalize_language, text
 
 
 def _message_text(value: Any) -> str:
@@ -50,6 +51,7 @@ async def infer_memory_reminder(
     existing_reminders: list[str],
     now: int,
     timeout_seconds: float = 6,
+    response_language: object = "zh-CN",
 ) -> dict[str, Any] | None:
     """Return at most one safe reminder, or None when memory is insufficient."""
     memory_context = confirmed_memory_context(intelligence_state, limit=12)
@@ -64,23 +66,18 @@ async def infer_memory_reminder(
         }
         and value not in (None, "")
     }
-    existing = "\n".join(f"- {item[:180]}" for item in existing_reminders[:8]) or "（当前为空）"
+    language = normalize_language(response_language)
+    existing = "\n".join(f"- {item[:180]}" for item in existing_reminders[:8]) or "[]"
     prompt = [
-        SystemMessage(content=(
-            "你是 Floris 的主动关怀判断器。仅依据给出的非敏感用户记忆，并可结合粗粒度城市天气，"
-            "判断现在是否有一条真正有帮助、自然且不过度打扰的提醒。记忆必须是主要依据；"
-            "不得猜测未提供的事实，不得提及“记忆、数据库、模型、后台、画像”，不得输出敏感信息。"
-            "若依据不足、只是泛泛问候、或与当前窗口重复，should_remind 必须为 false。"
-            "只输出严格 JSON："
-            "{\"should_remind\":true或false,\"title\":\"不超过18字\","
-            "\"detail\":\"一条自然短句，不超过70字\",\"action\":\"用户可直接继续询问的建议，不超过80字\","
-            "\"priority\":\"normal或low\"}。"
+        SystemMessage(content=text(
+            "model.proactive.memory_system", language,
+            language_instruction=language_instruction(language),
         )),
-        HumanMessage(content=(
-            f"当前 Unix 时间：{now}\n"
-            f"用户的安全记忆：\n{memory_context}\n"
-            f"粗粒度位置与天气：{json.dumps(location, ensure_ascii=False, default=str)}\n"
-            f"当前窗口已有提醒：\n{existing}"
+        HumanMessage(content=text(
+            "model.proactive.memory_context", language,
+            now=now, memory_context=memory_context,
+            location=json.dumps(location, ensure_ascii=False, default=str),
+            existing=existing,
         )),
     ]
     try:

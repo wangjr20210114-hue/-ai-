@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from ..._application.skills.tool_contracts import PaperKnowledgeCandidates, PaperSearchEvidenceCandidates
+from ..._application.i18n import text
 
 
 async def _paper_candidate_ids_from_model(
@@ -26,21 +27,13 @@ async def _paper_candidate_ids_from_model(
     year_to: int,
     limit: int,
     timeout_seconds: float = 8.0,
+    response_language: object = "zh-CN",
 ) -> list[str]:
     """Ask a fast model for high-confidence identities, never final metadata."""
     if model is None:
         return []
     current_year = datetime.now(timezone.utc).year
-    prompt = (
-        "Use only your pretrained/internal scholarly knowledge. Do not search, "
-        "browse, call tools, or explain your reasoning. Propose at most the "
-        "requested number of exact arXiv paper identities matching every "
-        "constraint. A named scholar must be the scholar at the requested "
-        "institution, not a homonym. Include an arXiv identifier only when you "
-        "know the exact ID with high confidence; omit uncertain papers and "
-        "return an empty list when necessary. These are only candidates: the "
-        "application will verify every ID against official arXiv metadata."
-    )
+    prompt = text("model.paper.knowledge_candidates", response_language)
     payload = json.dumps({
         "topic": topic,
         "author": author,
@@ -106,6 +99,7 @@ async def _paper_candidates_from_searchpro(
     year_to: int,
     limit: int,
     timeout_seconds: float = 6.0,
+    response_language: object = "zh-CN",
 ) -> list[dict[str, Any]]:
     """Convert native Makers search evidence into strictly source-bound cards."""
     if model is None:
@@ -129,15 +123,7 @@ async def _paper_candidates_from_searchpro(
     if not sources:
         return []
     source_by_id = {source["id"]: source for source in sources}
-    prompt = (
-        "Select academic papers only from the supplied Makers SearchPro evidence. "
-        "Return the fixed schema and no prose. Every candidate must match the "
-        "named author identity, institution, topic and year constraints. Use an "
-        "exact supplied source_id; never invent a source, title, author, year, or "
-        "identifier. The source may be an arXiv, DBLP, DOI, publisher, or official "
-        "research page. Include arxiv_id only if the exact identifier is visibly "
-        "present in that source record. Omit uncertain or merely related records."
-    )
+    prompt = text("model.paper.search_candidates", response_language)
     payload = json.dumps({
         "constraints": {
             "topic": topic,
@@ -227,7 +213,9 @@ async def _paper_candidates_from_searchpro(
             "year": paper_year,
             "abstract_zh": source["snippet"],
             "key_contribution": "",
-            "citations": f"{source_name} · Makers 原生检索核实",
+            "citations": text(
+                "paper.makers_verified", response_language, source=source_name,
+            ),
             "source": source_name,
             "source_url": source_url,
             "arxiv_url": arxiv_url,

@@ -7,6 +7,7 @@ from agents._domain.search.evidence import (
     SearchEvidence,
     SearchSource,
 )
+from agents._application.search.evidence_presenter import present_search_evidence
 
 
 class SearchEvidenceTests(unittest.TestCase):
@@ -35,11 +36,11 @@ class SearchEvidenceTests(unittest.TestCase):
             total=1,
         )
 
-        model_evidence = evidence.for_model()
+        model_evidence = present_search_evidence(evidence)
 
         self.assertIn("[架构资料](https://example.test/architecture)", model_evidence)
         self.assertIn("source-1", model_evidence)
-        self.assertNotIn("https://cdn.example.test/architecture.jpg", model_evidence)
+        self.assertIn("source_id=source-1", model_evidence)
         self.assertNotIn("最终回答", model_evidence)
         self.assertNotIn("![", model_evidence)
         self.assertNotIn("MEDIA_SLOT", model_evidence)

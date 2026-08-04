@@ -8,6 +8,8 @@ import uuid
 from html import unescape
 from typing import Any
 
+from .._application.i18n import text as text_copy
+
 
 _WIRE_PATTERN = re.compile(r"DSML|<[^>]*(?:tool_calls|invoke|parameter)[^>]*>", re.I)
 _PROVIDER_ERROR = re.compile(r"provider|model id|api[_ -]?key|gateway", re.I)
@@ -54,17 +56,17 @@ def public_content(content: str) -> str:
     return text
 
 
-def public_error(error: Any) -> str:
+def public_error(error: Any, response_language: object = "zh-CN") -> str:
     """Map provider/runtime details to a stable, actionable user message."""
     text = str(error or "").strip()
     if _QUOTA_ERROR.search(text):
-        return "模型服务当前繁忙或配额不足，请稍后重试。"
+        return text_copy("chat.error.quota", response_language)
     if _PROVIDER_ERROR.search(text):
-        return "模型服务配置异常，本次失败不会保存为 AI 回答；请检查 Preview 的模型配置后重试。"
+        return text_copy("chat.error.provider", response_language)
     if _REQUEST_ERROR.search(text):
-        return "模型服务暂时未能处理本轮上下文，本次失败不会保存为 AI 回答；请点击重试。"
+        return text_copy("chat.error.request", response_language)
     if not text or _INTERNAL_ERROR.search(text):
-        return "消息服务暂时异常，本次失败不会保存为 AI 回答，请稍后重试。"
+        return text_copy("chat.error.internal", response_language)
     return text if len(text) <= 180 else f"{text[:180]}…"
 
 
@@ -116,7 +118,10 @@ def checkpoint_recovery_needed(
     return bool(stream_finished) and not emitted_parts
 
 
-def action_fallback_content(actions: list[dict[str, Any]]) -> str:
+def action_fallback_content(
+    actions: list[dict[str, Any]],
+    response_language: object = "zh-CN",
+) -> str:
     """Keep a durable UI action visible when a provider returns no final prose."""
     kinds = {
         str(((item.get("action") if isinstance(item.get("action"), dict) else item) or {}).get("kind") or "")
@@ -124,14 +129,14 @@ def action_fallback_content(actions: list[dict[str, Any]]) -> str:
         if isinstance(item, dict)
     }
     if "meeting_create" in kinds:
-        return "腾讯会议确认卡已准备好，请在卡片中补齐并核对条件后继续。"
+        return text_copy("chat.action.meeting_ready", response_language)
     if "calendar_changes" in kinds:
-        return "日程变更确认卡已准备好，请核对后再确认。"
+        return text_copy("chat.action.calendar_ready", response_language)
     if "map_recommendation" in kinds:
-        return "地点已经过真实地点服务核实。请点击下方按钮显示地点；未核实的地点不会进入地图。"
+        return text_copy("chat.action.map_ready", response_language)
     if "image_generate" in kinds:
-        return "图片任务已准备好，可在下方图片工坊查看结果。"
-    return "操作卡已准备好，请核对下方内容后继续。"
+        return text_copy("chat.action.image_ready", response_language)
+    return text_copy("chat.action.generic_ready", response_language)
 
 
 class PublicStreamFilter:

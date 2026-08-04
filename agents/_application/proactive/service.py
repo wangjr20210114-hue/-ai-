@@ -31,12 +31,18 @@ from ..workspace.service import (
     recover_stale_actions,
     save_user_workspace,
 )
+from ..i18n import text
 
 
 SCHEMA_VERSION = 1
 BEIJING = timezone(timedelta(hours=8))
 STATE_KEY = "state"
 TERMINAL_RUNS = {"succeeded", "skipped", "failed", "cancelled"}
+
+
+def _copy(key: str, **params: Any) -> str:
+    """Resolve persistent proactive copy through the backend catalog."""
+    return text(key, "zh-CN", **params)
 
 
 async def classify_weather_risk(
@@ -54,14 +60,7 @@ async def classify_weather_risk(
         method="function_calling",
         include_raw=True,
     )
-    prompt = (
-        "Assess the supplied provider weather facts in the context of the "
-        "optional schedule. Do not answer the user. actionable=true only when "
-        "the conditions create a practical travel, safety, comfort, or "
-        "preparation issue worth proactively notifying the user. Ordinary "
-        "conditions that need no preparation are false. priority must be "
-        "normal or high."
-    )
+    prompt = text("model.proactive.weather_risk", "zh-CN")
     try:
         response = await asyncio.wait_for(
             gate.ainvoke([
@@ -108,16 +107,7 @@ def default_preferences() -> dict[str, Any]:
         # These are presentation-only fallbacks. They never enter the
         # notification window or compete with a real proactive reminder.
         "fallback_mottos": [
-            "鱼儿水中游，永远不会回首～",
-            "风会记得每一片认真生长的叶子。",
-            "慢一点也没关系，星光总会找到夜路。",
-            "把今天走稳，远方自然会靠近。",
-            "云有云的方向，你也有自己的节奏。",
-            "认真生活的人，总会遇见温柔的回声。",
-            "不必追赶所有风，只选一阵与你同行。",
-            "把小事做好，时间会替你铺成路。",
-            "灯火再远，也从脚下这一程开始。",
-            "留一点从容，给正在发生的好事。",
+            _copy(f"proactive.motto.{index}") for index in range(1, 11)
         ],
         "types": {
             "schedule_conflict": True,
@@ -353,9 +343,15 @@ def collect_schedule_signals(schedules: list[dict[str, Any]], now: int, lookahea
                 "dedup_key": f"schedule_upcoming:{schedule_id}:{start}",
                 "priority": "normal",
                 "subject_ids": [schedule_id],
-                "title": "即将开始",
-                "detail": f"{item.get('title') or '未命名日程'}将在24小时内开始",
-                "action": f"请帮我为即将开始的“{item.get('title') or '日程'}”做准备，检查地点、路线、天气和需要携带的东西",
+                "title": _copy("proactive.schedule.upcoming_title"),
+                "detail": _copy(
+                    "proactive.schedule.upcoming_detail",
+                    title=item.get("title") or _copy("proactive.schedule.unnamed"),
+                ),
+                "action": _copy(
+                    "proactive.schedule.upcoming_action",
+                    title=item.get("title") or _copy("proactive.schedule.event"),
+                ),
                 "evidence": {"schedule": copy.deepcopy(item)},
                 "occurred_at": now,
             })
@@ -371,9 +367,13 @@ def collect_schedule_signals(schedules: list[dict[str, Any]], now: int, lookahea
                 "dedup_key": f"schedule_conflict:{pair}",
                 "priority": "high",
                 "subject_ids": [str(previous.get("id") or ""), schedule_id],
-                "title": "发现日程冲突",
-                "detail": f"“{previous.get('title') or '上一项日程'}”与“{item.get('title') or '下一项日程'}”时间重叠",
-                "action": "请检查我最近的日程冲突，并给出最合适的调整方案",
+                "title": _copy("proactive.schedule.conflict_title"),
+                "detail": _copy(
+                    "proactive.schedule.conflict_detail",
+                    previous=previous.get("title") or _copy("proactive.schedule.previous"),
+                    next=item.get("title") or _copy("proactive.schedule.next"),
+                ),
+                "action": _copy("proactive.schedule.conflict_action"),
                 "evidence": {"previous": copy.deepcopy(previous), "current": copy.deepcopy(item)},
                 "occurred_at": now,
             })
@@ -387,9 +387,13 @@ def collect_schedule_signals(schedules: list[dict[str, Any]], now: int, lookahea
                 "dedup_key": f"tight_transfer:{pair}",
                 "priority": "high",
                 "subject_ids": [str(previous.get("id") or ""), schedule_id],
-                "title": "行程衔接较紧",
-                "detail": f"“{previous.get('title') or '上一项日程'}”后不足30分钟就要前往{item.get('location')}",
-                "action": "请检查我最近两项日程之间的真实路线和通勤时间，必要时建议调整",
+                "title": _copy("proactive.schedule.tight_title"),
+                "detail": _copy(
+                    "proactive.schedule.tight_detail",
+                    previous=previous.get("title") or _copy("proactive.schedule.previous"),
+                    location=item.get("location"),
+                ),
+                "action": _copy("proactive.schedule.tight_action"),
                 "evidence": {"previous": copy.deepcopy(previous), "current": copy.deepcopy(item)},
                 "occurred_at": now,
             })
@@ -466,9 +470,16 @@ async def collect_provider_signals(
                     "dedup_key": f"weather_risk:{schedule_id}:{start}:{condition}",
                     "priority": risk["priority"],
                     "subject_ids": [schedule_id],
-                    "title": "行程天气需要关注",
-                    "detail": f"“{schedule.get('title') or '日程'}”所在地当前天气为{condition}",
-                    "action": f"请结合“{schedule.get('title') or '日程'}”的时间和地点，检查天气风险并给出准备建议",
+                    "title": _copy("proactive.weather.title"),
+                    "detail": _copy(
+                        "proactive.weather.detail",
+                        title=schedule.get("title") or _copy("proactive.schedule.event"),
+                        condition=condition,
+                    ),
+                    "action": _copy(
+                        "proactive.weather.action",
+                        title=schedule.get("title") or _copy("proactive.schedule.event"),
+                    ),
                     "evidence": {"schedule": copy.deepcopy(schedule), "weather": weather},
                     "occurred_at": now,
                 })
@@ -502,9 +513,13 @@ async def collect_provider_signals(
                     "dedup_key": f"route_risk:{pair}",
                     "priority": "high",
                     "subject_ids": [str(previous.get("id") or ""), str(current.get("id") or "")],
-                    "title": "真实通勤时间可能不足",
-                    "detail": f"两项日程之间有{max(0, available // 60)}分钟，当前路线预计需{max(1, int(route.get('duration_seconds') or 0) // 60)}分钟",
-                    "action": "请根据真实路线重新检查这两项日程，并给出调整时间或地点的方案",
+                    "title": _copy("proactive.route.title"),
+                    "detail": _copy(
+                        "proactive.route.detail",
+                        available=max(0, available // 60),
+                        duration=max(1, int(route.get("duration_seconds") or 0) // 60),
+                    ),
+                    "action": _copy("proactive.route.action"),
                     "evidence": {"previous": copy.deepcopy(previous), "current": copy.deepcopy(current), "route": route},
                     "occurred_at": now,
                 })
@@ -519,7 +534,7 @@ def propose_workflow(
     """Create a versioned workflow proposal. Activation always needs confirmation."""
     clean_title = str(title or "").strip()[:120]
     if not clean_title:
-        raise ValueError("工作流标题不能为空")
+        raise ValueError(_copy("proactive.workflow.title_required"))
     clean_steps: list[dict[str, Any]] = []
     for index, item in enumerate(steps[:20]):
         if not isinstance(item, dict):
@@ -553,7 +568,7 @@ def propose_workflow(
             "compensation_emitted_at": None,
         })
     if not clean_steps:
-        raise ValueError("工作流至少需要一个有效步骤")
+        raise ValueError(_copy("proactive.workflow.steps_required"))
     valid_ids = {step["id"] for step in clean_steps}
     for index, step in enumerate(clean_steps):
         normalized: list[str] = []
@@ -590,7 +605,7 @@ def propose_workflow(
     workflow = {
         "id": workflow_id,
         "title": clean_title,
-        "reason": str(reason or "用户希望建立持久工作流")[:500],
+        "reason": str(reason or _copy("proactive.workflow.default_reason"))[:500],
         "status": "awaiting_confirmation",
         "version": 1,
         "steps": clean_steps,
@@ -605,9 +620,9 @@ def propose_workflow(
 def decide_workflow(state: dict[str, Any], workflow_id: str, version: int, accept: bool, now: int) -> dict[str, Any]:
     workflow = state.get("workflows", {}).get(workflow_id)
     if not isinstance(workflow, dict) or workflow.get("status") != "awaiting_confirmation":
-        raise ValueError("工作流提案不存在或已处理")
+        raise ValueError(_copy("proactive.workflow.proposal_missing"))
     if int(workflow.get("version") or 0) != int(version):
-        raise ValueError("工作流版本已变化")
+        raise ValueError(_copy("proactive.workflow.version_changed"))
     workflow["status"] = "active" if accept else "rejected"
     workflow["version"] = int(workflow["version"]) + 1
     workflow["updated_at"] = now
@@ -655,9 +670,12 @@ def collect_workflow_signals(state: dict[str, Any], now: int) -> list[dict[str, 
                     "dedup_key": f"workflow_compensation:{workflow.get('id')}:{step.get('id')}:{step.get('attempt', 0)}",
                     "priority": "high",
                     "subject_ids": [str(workflow.get("id") or ""), str(step.get("id") or "")],
-                    "title": str((compensation or {}).get("title") or f"步骤失败：{step.get('title') or workflow.get('title') or '工作流'}"),
-                    "detail": str((compensation or {}).get("body") or step.get("last_error") or "需要人工决定重试或终止"),
-                    "action": str((compensation or {}).get("action_prompt") or "请帮我核对失败原因并决定下一步"),
+                    "title": str((compensation or {}).get("title") or _copy(
+                        "proactive.workflow.failed_title",
+                        title=step.get("title") or workflow.get("title") or _copy("proactive.workflow.default_name"),
+                    )),
+                    "detail": str((compensation or {}).get("body") or step.get("last_error") or _copy("proactive.workflow.failed_detail")),
+                    "action": str((compensation or {}).get("action_prompt") or _copy("proactive.workflow.failed_action")),
                     "evidence": {
                         "workflow_id": workflow.get("id"), "step_id": step.get("id"),
                         "workflow_phase": "compensation" if compensation else "failure",
@@ -680,9 +698,9 @@ def collect_workflow_signals(state: dict[str, Any], now: int) -> list[dict[str, 
                 ),
                 "priority": "normal",
                 "subject_ids": [str(workflow.get("id") or ""), str(step.get("id") or "")],
-                "title": str(step.get("title") or workflow.get("title") or "工作流提醒"),
-                "detail": str(step.get("body") or workflow.get("reason") or "工作流步骤已到期"),
-                "action": str(step.get("action_prompt") or "请帮我继续处理这个工作流步骤"),
+                "title": str(step.get("title") or workflow.get("title") or _copy("proactive.workflow.reminder_title")),
+                "detail": str(step.get("body") or workflow.get("reason") or _copy("proactive.workflow.due_detail")),
+                "action": str(step.get("action_prompt") or _copy("proactive.workflow.due_action")),
                 "evidence": {"workflow_id": workflow.get("id"), "step_id": step.get("id")},
                 "occurred_at": now,
             })
@@ -700,19 +718,19 @@ def decide_workflow_step(
 ) -> dict[str, Any]:
     workflow = state.get("workflows", {}).get(workflow_id)
     if not isinstance(workflow, dict) or workflow.get("status") != "active":
-        raise ValueError("工作流不存在或当前未运行")
+        raise ValueError(_copy("proactive.workflow.not_running"))
     step = next((item for item in workflow.get("steps") or [] if item.get("id") == step_id), None)
     if not isinstance(step, dict):
-        raise ValueError("工作流步骤不存在或已处理")
+        raise ValueError(_copy("proactive.workflow.step_missing"))
     status = str(step.get("status") or "")
     if operation not in {"complete", "skip", "fail", "retry", "compensate"}:
-        raise ValueError("不支持的工作流步骤操作")
+        raise ValueError(_copy("proactive.workflow.step_action_unsupported"))
     if operation in {"complete", "skip", "fail"} and status not in {"pending", "notified"}:
-        raise ValueError("工作流步骤当前不能处理")
+        raise ValueError(_copy("proactive.workflow.step_unavailable"))
     if operation == "retry" and status not in {"failed", "compensating", "attention_required"}:
-        raise ValueError("只有失败步骤可以重试")
+        raise ValueError(_copy("proactive.workflow.retry_failed_only"))
     if operation == "compensate" and status not in {"failed", "compensating", "attention_required"}:
-        raise ValueError("当前步骤不需要补偿")
+        raise ValueError(_copy("proactive.workflow.compensation_unneeded"))
     if operation == "complete":
         step["status"] = "completed"
         step["resolved_at"] = now
@@ -721,7 +739,7 @@ def decide_workflow_step(
         step["resolved_at"] = now
     elif operation == "fail":
         step["status"] = "failed"
-        step["last_error"] = "用户标记步骤失败"
+        step["last_error"] = _copy("proactive.workflow.user_failed")
         step["resolved_at"] = now
     elif operation == "retry":
         step.update({
@@ -743,9 +761,9 @@ def decide_workflow_step(
 def cancel_workflow(state: dict[str, Any], workflow_id: str, version: int, now: int) -> dict[str, Any]:
     workflow = state.get("workflows", {}).get(workflow_id)
     if not isinstance(workflow, dict) or workflow.get("status") not in {"awaiting_confirmation", "active"}:
-        raise ValueError("工作流不存在或已结束")
+        raise ValueError(_copy("proactive.workflow.ended"))
     if int(workflow.get("version") or 0) != int(version):
-        raise ValueError("工作流版本已变化")
+        raise ValueError(_copy("proactive.workflow.version_changed"))
     workflow.update({"status": "cancelled", "version": int(workflow["version"]) + 1, "updated_at": now})
     _retire_workflow_notifications(state, workflow_id, now)
     return copy.deepcopy(workflow)
@@ -810,7 +828,7 @@ def reconcile_schedule_notifications(
                 if notification.get("dismissed_at"):
                     continue
                 notification.update({
-                    "title": str(signal.get("title") or "主动提醒"),
+                    "title": str(signal.get("title") or _copy("proactive.notification.default_title")),
                     "body": str(signal.get("detail") or ""),
                     "reason": str(signal.get("detail") or ""),
                     "action_prompt": str(signal.get("action") or ""),
@@ -920,7 +938,7 @@ def process_schedule_signals(state: dict[str, Any], signals: list[dict[str, Any]
             "event_id": event_id,
             "run_id": run_id,
             "type": str(signal["type"]),
-            "title": str(signal.get("title") or "主动提醒"),
+            "title": str(signal.get("title") or _copy("proactive.notification.default_title")),
             "body": str(signal.get("detail") or ""),
             "reason": str(signal.get("detail") or ""),
             "action_prompt": str(signal.get("action") or ""),
@@ -965,10 +983,10 @@ def ingest_workspace_signal(
     }
     normalized_type = str(signal_type or "")
     if normalized_type not in allowed:
-        raise ValueError("不支持的工作区信号类型")
+        raise ValueError(_copy("proactive.signal.unsupported"))
     normalized_key = str(dedup_key or "").strip()
     if not normalized_key:
-        raise ValueError("工作区信号缺少去重键")
+        raise ValueError(_copy("proactive.signal.dedup_required"))
     event_id = _stable_id("evt", f"{normalized_type}:{normalized_key}")
     existing = state.setdefault("events", {}).get(event_id)
     if isinstance(existing, dict):
@@ -1171,7 +1189,7 @@ def update_preferences(state: dict[str, Any], changes: dict[str, Any]) -> dict[s
 def mutate_notification(state: dict[str, Any], notification_id: str, operation: str, now: int, until: int = 0) -> dict[str, Any]:
     notification = state.get("notifications", {}).get(notification_id)
     if not isinstance(notification, dict):
-        raise ValueError("提醒不存在")
+        raise ValueError(_copy("proactive.notification.missing"))
     if operation == "mark_read":
         notification["status"] = "read"
         notification["read_at"] = notification.get("read_at") or now
@@ -1181,11 +1199,11 @@ def mutate_notification(state: dict[str, Any], notification_id: str, operation: 
     elif operation == "snooze":
         target = int(until or now + 3600)
         if target <= now:
-            raise ValueError("稍后提醒时间必须晚于当前时间")
+            raise ValueError(_copy("proactive.notification.snooze_future"))
         notification["status"] = "snoozed"
         notification["snoozed_until"] = target
     else:
-        raise ValueError("不支持的提醒操作")
+        raise ValueError(_copy("proactive.notification.action_unsupported"))
     if operation in {"mark_read", "dismiss"}:
         state["reminder_window"] = [
             item_id for item_id in _normalize_reminder_window(state, now)

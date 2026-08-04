@@ -9,18 +9,13 @@ from .._infrastructure.makers.identity import require_user
 from .._infrastructure.http import error
 from .._application.intelligence.service import load_intelligence_state
 from .._application.skills.access import resolve_skill_access
+from .._application.i18n import language_instruction, normalize_language, text as copy_text
 
 
-PROMPTS = {
-    "translate": "把以下学术文本准确翻译成中文。保留公式、术语和引用编号，不添加原文没有的内容。",
-    "summarize": "用中文简洁总结以下学术文本的核心论点、方法和结论。",
-    "explain": "用中文解释以下术语或文本，先给直观解释，再说明它在论文语境中的含义。",
-    "formula": "解释以下公式或数学文本中各符号、关系、用途和直观含义；信息不足时明确说明。",
-    "analyze": "阅读以下论文文本，按研究问题、方法、数据/实验、主要结论、创新点、局限性和可复现线索给出结构化中文助读。引用页码标记若原文包含页码。",
-    "full-translate": "把以下论文文本翻译成中文，保持标题和段落结构，保留公式与引用。文本可能是分块内容，不要省略。",
-    "terms": "提取以下论文最重要的术语，给出英文、中文译名和一句语境解释。",
-    "qa": "仅依据给出的论文文本回答问题。结论必须可由文本支持；找不到时明确说论文片段未提供，并指出还需要哪部分。",
-}
+PROMPTS = frozenset({
+    "translate", "summarize", "explain", "formula", "analyze",
+    "full-translate", "terms", "qa",
+})
 
 
 def _text(content):
@@ -32,6 +27,8 @@ def _text(content):
 
 
 async def handler(ctx):
+    body = ctx.request.body or {}
+    response_language = normalize_language(body.get("response_language"))
     identity = require_user(ctx)
     intelligence = await load_intelligence_state(
         ctx.store.langgraph_store,
@@ -40,37 +37,34 @@ async def handler(ctx):
     access = resolve_skill_access(identity, intelligence.get("skill_preferences"))
     if not access.allows_capability("paper_assistant"):
         if access.reason_for_capability("paper_assistant") == "login_required":
-            return error("请登录后使用论文助读", 403, code="LOGIN_REQUIRED")
-        return error("论文助读 Skill 已关闭，请先到 Skills 广场开启", 403, code="SKILL_DISABLED")
-    body = ctx.request.body or {}
+            return error(copy_text("reader.login_required", response_language), 403, code="LOGIN_REQUIRED")
+        return error(copy_text("reader.skill_disabled", response_language), 403, code="SKILL_DISABLED")
     action = str(body.get("action") or "")
     text = str(body.get("text") or "").strip()
     question = str(body.get("question") or "").strip()
-    response_language = str(body.get("response_language") or "zh-CN")
     if action not in PROMPTS:
-        return error("不支持的助读操作")
+        return error(copy_text("reader.unsupported", response_language))
     if not text:
-        return error("缺少可分析的论文文本")
+        return error(copy_text("reader.text_required", response_language))
     limit = 120000 if action in {"analyze", "full-translate", "terms", "qa"} else 12000
     text = text[:limit]
-    user = f"论文文本：\n{text}"
+    user = copy_text(
+        "model.reader.document", response_language, document=text,
+    )
     if action == "qa":
         if not question:
-            return error("问题不能为空")
-        user += f"\n\n问题：{question[:2000]}"
-    language_hint = {
-        "zh-CN": "请使用简体中文。",
-        "zh-TW": "請使用繁體中文。",
-        "en": "Respond in clear English.",
-        "cat-cute": "请使用简体中文，保持准确，语气像可爱的橘猫，适度加“喵”。",
-        "cat-cold": "请使用简体中文，保持准确，语气像冷静克制的橘猫，偶尔简短加“喵”。",
-    }.get(response_language, "请使用简体中文。")
+            return error(copy_text("reader.question_required", response_language))
+        user += "\n\n" + copy_text(
+            "model.reader.question", response_language,
+            question=question[:2000],
+        )
     messages = [
         {
             "role": "system",
-            "content": (
-                f"{PROMPTS[action]}\n{language_hint}\n"
-                "输出 GitHub Flavored Markdown。直接输出结果，不要描述内部过程。"
+            "content": copy_text(
+                "model.reader.system", response_language,
+                task=copy_text(f"model.reader.{action}", response_language),
+                language_instruction=language_instruction(response_language),
             ),
         },
         {"role": "user", "content": user},
@@ -100,7 +94,7 @@ async def handler(ctx):
             except Exception as exc:
                 await queue.put(ctx.utils.sse({
                     "type": "error_message",
-                    "content": public_error(exc),
+                    "content": public_error(exc, response_language),
                 }))
             finally:
                 await queue.put(done)

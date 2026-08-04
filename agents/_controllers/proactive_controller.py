@@ -39,6 +39,7 @@ from .._infrastructure.providers.tencent_location import get_current_weather
 from .._infrastructure.makers.provider_usage_repository import record_provider_usage
 from .._application.skills.access import resolve_skill_access
 from ..chat._llm import get_model
+from .._application.i18n import normalize_language, text
 
 
 def _fast_model(ctx):
@@ -64,6 +65,7 @@ async def _run_tick_with_memory(
     *,
     memory_only: bool = False,
     force_memory: bool = False,
+    response_language: object = "zh-CN",
 ):
     """Use Makers state as the source of truth for the 5-minute memory scan."""
     now = int(time.time())
@@ -87,6 +89,7 @@ async def _run_tick_with_memory(
             existing_reminders=existing,
             now=now,
             timeout_seconds=float(ctx.env.get("PROACTIVE_MEMORY_TIMEOUT_SECONDS") or 6),
+            response_language=response_language,
         )
         if candidate:
             memory_signals.append(candidate)
@@ -105,6 +108,7 @@ async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
     body = ctx.request.body or {}
+    response_language = normalize_language(body.get("response_language"))
     operation = str(body.get("operation") or "get")
     store = ctx.store.langgraph_store
     try:
@@ -126,17 +130,20 @@ async def handler(ctx):
             state, stats = await _run_tick_with_memory(
                 ctx, store, user_id, intelligence_state,
                 force_memory=operation == "page_open",
+                response_language=response_language,
             )
             return {**public_proactive_state(state), "tick_stats": stats}
 
         if operation == "tick":
             state, stats = await _run_tick_with_memory(
                 ctx, store, user_id, intelligence_state,
+                response_language=response_language,
             )
             return {**public_proactive_state(state), "tick_stats": stats}
         if operation == "memory_refresh":
             state, stats = await _run_tick_with_memory(
                 ctx, store, user_id, intelligence_state, memory_only=True,
+                response_language=response_language,
             )
             return {**public_proactive_state(state), "tick_stats": stats}
 
@@ -147,7 +154,7 @@ async def handler(ctx):
             changes = dict(body.get("preferences") or {})
             if not proactive_skill_enabled:
                 if changes.get("enabled") is True:
-                    raise ValueError("主动式 Agent Skill 已关闭，请先到 Skills 广场开启")
+                    raise ValueError(text("proactive.skill_disabled", response_language))
                 changes["enabled"] = False
             preferences = update_preferences(state, changes)
             state.setdefault("checkpoints", {})["preference_change"] = {
@@ -157,6 +164,7 @@ async def handler(ctx):
             await save_proactive_state(store, state, user_id)
             refreshed, stats = await _run_tick_with_memory(
                 ctx, store, user_id, intelligence_state,
+                response_language=response_language,
             )
             return {
                 **public_proactive_state(refreshed),
@@ -165,7 +173,7 @@ async def handler(ctx):
             }
         if operation == "propose_workflow":
             if not proactive_skill_enabled:
-                raise ValueError("主动式 Agent Skill 已关闭，请先到 Skills 广场开启")
+                raise ValueError(text("proactive.skill_disabled", response_language))
             workflow = propose_workflow(
                 state,
                 title=str(body.get("title") or ""),
@@ -177,7 +185,7 @@ async def handler(ctx):
             return {**public_proactive_state(saved), "workflow": workflow}
         if operation == "ingest_signal":
             if not proactive_skill_enabled:
-                raise ValueError("主动式 Agent Skill 已关闭，请先到 Skills 广场开启")
+                raise ValueError(text("proactive.skill_disabled", response_language))
             signal_type = str(body.get("signal_type") or "")
             dedup_key = str(body.get("dedup_key") or "").strip()
             payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
@@ -227,6 +235,7 @@ async def handler(ctx):
                         _fast_model(ctx),
                         payload,
                         timeout_seconds=float(ctx.env.get("OPPORTUNITY_PLAN_TIMEOUT_SECONDS") or 6),
+                        response_language=response_language,
                     )
                 except Exception:
                     opportunity = None
@@ -256,6 +265,7 @@ async def handler(ctx):
                         _fast_model(ctx),
                         payload,
                         timeout_seconds=float(ctx.env.get("OPPORTUNITY_PLAN_TIMEOUT_SECONDS") or 6),
+                        response_language=response_language,
                     )
                 except Exception:
                     opportunity = None
@@ -274,7 +284,7 @@ async def handler(ctx):
                     latitude = float(payload.get("latitude"))
                     longitude = float(payload.get("longitude"))
                     if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
-                        raise ValueError("定位坐标超出有效范围")
+                        raise ValueError(text("proactive.location_invalid", response_language))
                     key = str(
                         ctx.env.get("TENCENT_MAP_SERVER_KEY")
                         or ctx.env.get("TENCENT_MAP_KEY")
@@ -318,15 +328,18 @@ async def handler(ctx):
                                 str(weather.get("city") or ""),
                                 str(weather.get("district") or ""),
                             ) if part
-                        ) or "当前位置"
+                        ) or text("proactive.current_location", response_language)
                         signal = {
                             "type": "weather_risk",
                             "dedup_key": f"browser_weather_risk:{weather.get('adcode')}:{dedup_key}:{condition}",
                             "priority": risk["priority"],
                             "subject_ids": [],
-                            "title": "当前位置天气需要关注",
-                            "detail": f"{place_name}当前天气为{condition}，出门前可以提前准备",
-                            "action": "请结合当前位置天气和我今天的日程，给出简洁的出行准备建议",
+                            "title": text("proactive.current_weather_title", response_language),
+                            "detail": text(
+                                "proactive.current_weather_detail", response_language,
+                                place=place_name, condition=condition,
+                            ),
+                            "action": text("proactive.current_weather_action", response_language),
                             "evidence": {
                                 "weather": {
                                     key: weather.get(key)
@@ -411,6 +424,6 @@ async def handler(ctx):
             )
             await save_intelligence_state(store, intelligence, user_id)
             return {**public_proactive_state(saved), "notification": notification}
-        raise ValueError("不支持的主动服务操作")
+        raise ValueError(text("proactive.operation_unsupported", response_language))
     except Exception as exc:
         return error(str(exc))

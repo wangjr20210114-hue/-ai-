@@ -14,6 +14,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from ..._application.i18n import normalize_language, text as copy_text
+
 
 @dataclass(frozen=True)
 class VisionProvider:
@@ -250,6 +252,7 @@ async def describe_reference_images(
     user_request: str,
     *,
     timeout: float = 8.0,
+    response_language: object = "zh-CN",
 ) -> tuple[str, dict[str, Any]]:
     """Describe user attachments once so text-only orchestration can reason over them."""
     selected = [
@@ -258,10 +261,10 @@ async def describe_reference_images(
     ][:3]
     if not selected:
         return "", {"provider": "", "attempted": 0}
-    prompt = (
-        "分析这张用户附图，只输出给另一个助手使用的简洁事实描述。说明可见主体、文字、布局、颜色和"
-        "与请求有关的关键细节；不要猜测身份、隐私或未显示的信息。"
-        f"\n用户请求：{str(user_request or '')[:500]}"
+    language = normalize_language(response_language)
+    prompt = copy_text(
+        "model.vision.reference_description", language,
+        user_request=str(user_request or "")[:500],
     )
 
     async def describe(index: int, image: str) -> tuple[int, str, dict[str, Any]]:
@@ -288,7 +291,10 @@ async def describe_reference_images(
     input_tokens = sum(int(item.get("input_tokens") or 0) for _index, _text, item in successful)
     output_tokens = sum(int(item.get("output_tokens") or 0) for _index, _text, item in successful)
     total_tokens = sum(int(item.get("total_tokens") or 0) for _index, _text, item in successful)
-    return "\n".join(f"附图 {index}：{text}" for index, text, _item in successful), {
+    return "\n".join(
+        copy_text("model.vision.reference_item", language, index=index, description=description)
+        for index, description, _item in successful
+    ), {
         "provider": providers[0] if len(set(providers)) == 1 else "mixed",
         "providers": providers,
         "attempted": len(results),

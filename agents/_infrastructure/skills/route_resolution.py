@@ -14,6 +14,7 @@ from typing import Any, Awaitable, Callable
 
 from pydantic import BaseModel
 
+from ..._application.i18n import normalize_language, text
 from ..._application.skills.tool_contracts import ProviderPlaceDecision
 
 
@@ -87,7 +88,8 @@ def _merge_clarification_actions(
     conversation_id: str,
     clarifications: list[str],
     *,
-    title: str = "请一次确认这些地点",
+    title: str = "",
+    response_language: object = "zh-CN",
 ) -> str:
     """Merge independently discovered blockers into one resumable card group.
 
@@ -96,6 +98,7 @@ def _merge_clarification_actions(
     interruption per stop. This adapter keeps every provider-backed field and
     lets the frontend submit the complete answer set in one protocol message.
     """
+    response_language = normalize_language(response_language)
     fields: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     source_titles: list[str] = []
@@ -127,27 +130,30 @@ def _merge_clarification_actions(
         if len(fields) >= 12:
             break
     if not fields:
-        raise ValueError("地点核实未完成，请稍后重试")
+        raise ValueError(text("place.merge.failed", response_language))
     count = len(fields)
     if count == 1:
         return _clarification_action(
             conversation_id,
-            title=source_titles[0] if source_titles else "请确认地点",
+            title=(
+                source_titles[0]
+                if source_titles
+                else text("place.merge.single_title", response_language)
+            ),
             prompt=(
                 source_prompts[0]
                 if source_prompts
-                else "这个地点还需要你确认，提交后我会直接继续规划。"
+                else text("place.merge.single_prompt", response_language)
             ),
             fields=fields,
         )
     evidence = " ".join(source_prompts)[:190]
     return _clarification_action(
         conversation_id,
-        title=title,
-        prompt=(
-            f"有 {count} 个地点还需要你确认。一次填完后我会直接继续规划，"
-            "不会逐项重新思考或重复搜索。"
-            + (f" {evidence}" if evidence else "")
+        title=title or text("place.merge.title", response_language),
+        prompt=text(
+            "place.merge.prompt", response_language,
+            count=count, evidence=f" {evidence}" if evidence else "",
         ),
         fields=fields,
     )
@@ -203,6 +209,7 @@ def _prioritize_clarification_options_for_city(
     clarification: str,
     candidates: dict[str, Any],
     city: str,
+    response_language: object = "zh-CN",
 ) -> str:
     """Reorder provider-backed card options without another model/provider call."""
     clean_city = _normalized_place_name(city)
@@ -218,7 +225,7 @@ def _prioritize_clarification_options_for_city(
         else []
     )
     option_cities = {
-        _place_choice_option(candidate): _provider_city_name(candidate)
+        _place_choice_option(candidate, response_language): _provider_city_name(candidate)
         for candidate in candidates.values()
         if isinstance(candidate, dict)
     }
@@ -367,15 +374,24 @@ def _rank_verified_workspace_matches(
     return [item[2] for item in ranked[:max(1, min(12, int(limit or 6)))]]
 
 
-def _place_choice_field(field_id: str, label: str, places: list[dict[str, Any]]) -> dict[str, Any]:
+def _place_choice_field(
+    field_id: str,
+    label: str,
+    places: list[dict[str, Any]],
+    response_language: object = "zh-CN",
+) -> dict[str, Any]:
+    response_language = normalize_language(response_language)
     options: list[str] = []
     option_values: dict[str, str] = {}
     for place in places[:6]:
-        base_option = _place_choice_option(place)
+        base_option = _place_choice_option(place, response_language)
         option = base_option
         duplicate_index = 2
         while option in option_values:
-            suffix = f"（候选 {duplicate_index}）"
+            suffix = text(
+                "place.choice.duplicate", response_language,
+                index=duplicate_index,
+            )
             option = f"{base_option[:max(1, 240 - len(suffix))]}{suffix}"
             duplicate_index += 1
         options.append(option)
@@ -390,23 +406,32 @@ def _place_choice_field(field_id: str, label: str, places: list[dict[str, Any]])
     }
 
 
-def _place_choice_option(place: dict[str, Any]) -> str:
+def _place_choice_option(
+    place: dict[str, Any],
+    response_language: object = "zh-CN",
+) -> str:
     distance = place.get("distance_to_anchor_meters")
     distance_text = (
-        f" · 距参照地点约 {max(1, round(float(distance)))} 米"
+        text(
+            "place.choice.distance", response_language,
+            meters=max(1, round(float(distance))),
+        )
         if isinstance(distance, (int, float))
         else ""
     )
     return (
-        f"{place.get('name') or '未命名地点'}｜"
-        f"{place.get('address') or '地址未提供'}{distance_text}"
+        f"{place.get('name') or text('place.unnamed', response_language)}｜"
+        f"{place.get('address') or text('place.address_missing', response_language)}{distance_text}"
     )[:240]
 
 
-def _place_option_label(place: dict[str, Any]) -> str:
+def _place_option_label(
+    place: dict[str, Any],
+    response_language: object = "zh-CN",
+) -> str:
     return (
-        f"{place.get('name') or '未命名地点'}｜"
-        f"{place.get('address') or '地址未提供'}"
+        f"{place.get('name') or text('place.unnamed', response_language)}｜"
+        f"{place.get('address') or text('place.address_missing', response_language)}"
     )[:240]
 
 
@@ -462,6 +487,7 @@ async def _place_resolution_with_provider_review(
     context: str = "",
     enabled: bool = True,
     timeout_seconds: float = 8.0,
+    response_language: object = "zh-CN",
 ) -> tuple[str, dict[str, Any] | None, str]:
     """Review only ambiguous Tencent suggestion sets with a fast model.
 
@@ -495,24 +521,7 @@ async def _place_resolution_with_provider_review(
     if len(evidence) < 2:
         return decision, selected, reason
 
-    prompt = (
-        "You review one user-authored place against Tencent Maps candidates. "
-        "Return only the fixed schema; never answer the user and never invent "
-        "or rewrite a place. Set unique_intent=true only when the user's "
-        "practical destination is near-certain and one supplied candidate is "
-        "the clear canonical destination. An evident typo may resolve to a "
-        "main landmark while nearby entrances, transit access points, or minor "
-        "subfeatures remain alternatives. Prefer the main venue for a general "
-        "place request. When the high-ranked results are the same landmark "
-        "complex and differ only by its main area, entrance, internal feature, "
-        "or transit access, treat the practical destination as unique if those "
-        "differences would not materially change the trip; choose the provider's "
-        "highest-ranked canonical venue. Set unique_intent=false whenever candidates represent "
-        "materially different branches, businesses, venues, cities, or trip "
-        "destinations, even if Tencent ranked one first. Uncertainty must become "
-        "a user choice card, so false is the safe result when asking could "
-        "materially change the route."
-    )
+    prompt = text("model.place.provider_review", response_language)
     payload = json.dumps({
         "context": str(context or "place")[:120],
         "user_query": str(query or "")[:160],

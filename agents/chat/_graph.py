@@ -16,16 +16,13 @@ from ._history import (
     compact_tool_results_for_model,
     flatten_completed_tools_for_model,
 )
-from ._protocol import action_fallback_content, dsml_tool_calls, public_content
+from ._protocol import dsml_tool_calls, public_content
 from ._capability_plan import next_required_tool
-from .._application.skills.registry import skill_manifests, tool_skill_map
 from ._llm import _is_quota_error, _is_transient_gateway_error
+from .._application.i18n import text
 
 
-TOOL_FAILURE_MESSAGE = (
-    "工具暂时没有完成。请基于已经获得的信息向用户说明限制，"
-    "不要假装操作成功，也不要重复调用同一工具。"
-)
+TOOL_FAILURE_MESSAGE = text("model.graph.tool_failure", "zh-CN")
 
 # These tools already accept a batch, a composite request, or one complete
 # side-effect proposal. Calling the same capability again in one logical turn
@@ -52,645 +49,17 @@ TURN_SINGLE_USE_TOOLS = {
 # without turning provider/runtime failures into retry loops.
 MAX_REQUIRED_VALIDATION_ATTEMPTS = 3
 
-SKILL_DISPLAY_NAMES = {
-    manifest.id: dict(manifest.names)
-    for manifest in skill_manifests()
-}
-
-TOOL_CAPABILITIES = tool_skill_map()
-
-
-def _capability_names(capability_ids: Iterable[str], response_language: str) -> str:
-    language = response_language if response_language in {"zh-CN", "zh-TW", "en"} else "zh-CN"
-    names = []
-    for capability_id in capability_ids:
-        skill_id = TOOL_CAPABILITIES.get(capability_id, capability_id)
-        localized = SKILL_DISPLAY_NAMES.get(skill_id, {}).get(language)
-        name = localized or SKILL_DISPLAY_NAMES.get(skill_id, {}).get("zh-CN") or "对应"
-        if name not in names:
-            names.append(name)
-    separator = ", " if language == "en" else "、"
-    return separator.join(names) or ("the required" if language == "en" else "对应")
-
-
-def blocked_capability_response(
-    capability_ids: Iterable[str],
-    response_language: str = "zh-CN",
-    *,
-    configured: bool = False,
-) -> str:
-    """Return one truthful terminal response after the LLM planner finds a blocked capability."""
-    names = _capability_names(capability_ids, response_language)
-    if response_language == "en":
-        state = "is not enabled or configured" if configured else "is currently disabled"
-        next_step = (
-            "Enable the relevant Skill or finish connecting its external provider, then try again."
-            if configured
-            else "Enable it in the Skills marketplace, then try again."
-        )
-        return (
-            f"This request requires {names}, but that capability {state}. "
-            "Nothing was executed, and no card, proposal, or result was created. "
-            f"{next_step}"
-        )
-    if response_language == "zh-TW":
-        state = "尚未開啟或完成設定" if configured else "目前處於關閉狀態"
-        next_step = "請到 Skills 廣場開啟相應能力或完成外部連線後再試。" if configured else "請到 Skills 廣場開啟後再試。"
-        return (
-            f"這次請求需要「{names}」能力，但它{state}，所以我沒有執行，"
-            f"也沒有產生任何卡片、提案或結果。{next_step}"
-        )
-    state = "尚未开启或完成配置" if configured else "当前处于关闭状态"
-    next_step = "请到 Skills 广场开启相应能力或完成外部连接后再试。" if configured else "请到 Skills 广场开启后再试。"
-    suffix = "喵。" if response_language == "cat-cute" else "。"
-    return (
-        f"这次请求需要「{names}」能力，但它{state}，所以我没有执行，"
-        f"也没有生成任何卡片、提案或结果。{next_step.rstrip('。')}{suffix}"
-    )
-
-
-def _logical_turn_messages(messages: Iterable) -> list:
-    """Return messages belonging to the current user goal.
-
-    Hidden structured-card answers continue their original goal. A route can
-    legitimately require several successive POI choices, so cross every hidden
-    answer until the first normal user message rather than only one boundary.
-    """
-    logical_turn_messages: list = []
-    for message in reversed(list(messages)):
-        if getattr(message, "type", "") in {"human", "user"}:
-            if _hidden_clarification_answer(message):
-                continue
-            break
-        logical_turn_messages.append(message)
-    return logical_turn_messages
-
-
-def action_completion_fallback(messages: Iterable) -> str:
-    """Return prose only for an Action that was actually created this turn.
-
-    Looking only at the called tool name is unsafe: ToolNode records a
-    ToolMessage even when argument validation or a provider call failed. That
-    previously let a failed calendar proposal claim that a confirmation card
-    was ready although no durable Action existed.
-    """
-    actions: list[dict] = []
-    workflow_ready = False
-    for message in reversed(_logical_turn_messages(messages)):
-        if getattr(message, "type", "") != "tool":
-            continue
-        try:
-            payload = json.loads(str(getattr(message, "content", "") or ""))
-        except (TypeError, json.JSONDecodeError):
-            continue
-        if (
-            isinstance(payload, dict)
-            and payload.get("ui_action") in {
-                "map_action", "calendar_action", "side_effect_action",
-            }
-            and isinstance(payload.get("action"), dict)
-        ):
-            actions.append(payload)
-        workflow_ready = workflow_ready or (
-            isinstance(payload, dict)
-            and isinstance(payload.get("workflow_proposal"), dict)
-        )
-    if actions:
-        return action_fallback_content(actions)
-    if workflow_ready:
-        return "主动工作流提案已加入主动提醒中心，请核对后再决定是否启用。"
-    return ""
-
-
-def tool_failure_fallback(messages: Iterable) -> str:
-    """Expose the real validation failure if both model synthesis passes are empty."""
-    for message in _logical_turn_messages(messages):
-        if getattr(message, "type", "") != "tool":
-            continue
-        content = str(getattr(message, "content", "") or "").strip()
-        try:
-            payload = json.loads(content)
-        except (TypeError, json.JSONDecodeError):
-            continue
-        failure = payload.get("tool_error") if isinstance(payload, dict) else None
-        if not isinstance(failure, dict):
-            continue
-        detail = str(failure.get("detail") or "").strip()
-        if detail:
-            if getattr(message, "name", "") == "rich_search":
-                return (
-                    "实时搜索这次没有完成；我不会把未核验的信息冒充成最新消息。"
-                    "你可以稍后重试。"
-                )
-            if getattr(message, "name", "") == "get_current_location":
-                return f"腾讯地图这次没有完成当前位置的地址解析：{detail}。请稍后重试。"
-            if getattr(message, "name", "") == "recommend_nearby_places_on_map":
-                return f"地点服务这次没有找到可展示的附近地点：{detail}。你可以扩大范围或调整餐厅类别后重试。"
-            if getattr(message, "name", "") == "plan_route_between_places":
-                return f"这次没有完成路线规划：{detail}。请检查地点名称或从候选地点中选择后重试。"
-            return f"这次没有生成确认卡：{detail}。请检查后重试。"
-    return ""
-
-
-def tool_result_fallback(messages: Iterable) -> str:
-    """Build a truthful minimal answer from successful structured tool output.
-
-    This is used only after both the normal synthesis pass and its clean
-    tool-free retry return no public prose. It prevents a completed provider
-    lookup from collapsing into the generic empty-answer error.
-    """
-    logical_turn_messages = _logical_turn_messages(messages)
-
-    for message in logical_turn_messages:
-        if (
-            getattr(message, "type", "") != "tool"
-            or getattr(message, "name", "") != "propose_calendar_changes"
-        ):
-            continue
-        try:
-            payload = json.loads(str(getattr(message, "content", "") or ""))
-        except (TypeError, json.JSONDecodeError):
-            continue
-        if not isinstance(payload, dict) or payload.get("ui_action") != "calendar_change_report":
-            continue
-        skipped = payload.get("skipped_changes")
-        skipped = skipped if isinstance(skipped, list) else []
-        if skipped:
-            lines = [
-                f"- {str(item.get('operation') or '操作')}“{str(item.get('target') or '目标')}”："
-                f"{str(item.get('reason') or '未执行')}"
-                for item in skipped
-                if isinstance(item, dict)
-            ]
-            return (
-                "我已经读取当前日程表，但这次没有可执行的差量修改，"
-                "也没有把失败的更新或删除改成新增：\n\n"
-                + "\n".join(lines)
-            )
-
-    for message in logical_turn_messages:
-        if (
-            getattr(message, "type", "") != "tool"
-            or getattr(message, "name", "") != "get_current_location"
-        ):
-            continue
-        try:
-            payload = json.loads(str(getattr(message, "content", "") or ""))
-        except (TypeError, json.JSONDecodeError):
-            continue
-        if not isinstance(payload, dict):
-            continue
-        if not payload.get("location_available"):
-            return (
-                "我目前没有拿到你的浏览器定位。请先在地图中允许定位并等待定位成功，"
-                "然后再问我“我现在在哪”。"
-            )
-        location = payload.get("location")
-        if not isinstance(location, dict):
-            continue
-        address = str(location.get("address") or "").strip()
-        locality = "".join(
-            str(location.get(key) or "").strip()
-            for key in ("province", "city", "district", "street", "street_number")
-        )
-        landmark = str(location.get("nearby_landmark") or "").strip()
-        readable = address or locality
-        if readable:
-            suffix = f"，附近地标是 {landmark}" if landmark else ""
-            return f"腾讯地图将你当前的位置解析为：{readable}{suffix}。"
-
-    paper_payload = None
-    rich_search_payload = None
-    for message in logical_turn_messages:
-        if getattr(message, "type", "") != "tool":
-            continue
-        try:
-            payload = json.loads(str(getattr(message, "content", "") or ""))
-        except (TypeError, json.JSONDecodeError):
-            continue
-        if not isinstance(payload, dict):
-            continue
-        tool_name = getattr(message, "name", "")
-        if (
-            tool_name == "search_arxiv"
-            and payload.get("ui_action") == "paper_results"
-            and paper_payload is None
-        ):
-            paper_payload = payload
-        elif (
-            tool_name == "rich_search"
-            and payload.get("ui_action") == "rich_search_results"
-            and rich_search_payload is None
-        ):
-            rich_search_payload = payload
-
-    paper_items = (
-        paper_payload.get("papers")
-        if isinstance(paper_payload, dict)
-        and isinstance(paper_payload.get("papers"), list)
-        else []
-    )
-    if paper_items:
-        paper_answer = _paper_result_answer(paper_payload)
-        if paper_answer:
-            return paper_answer
-
-    # A supplementary academic lookup may legitimately return no papers after
-    # a successful web search. Never let that empty secondary source replace
-    # the primary result with an unrelated author/institution failure message.
-    search_metadata = (
-        rich_search_payload.get("search_results")
-        if isinstance(rich_search_payload, dict)
-        and isinstance(rich_search_payload.get("search_results"), dict)
-        else {}
-    )
-    search_results = (
-        search_metadata.get("results")
-        if isinstance(search_metadata.get("results"), list)
-        else []
-    )
-    verified_sources = [
-        {
-            "title": str(item.get("title") or "").strip(),
-            "url": str(item.get("url") or "").strip(),
-        }
-        for item in search_results
-        if isinstance(item, dict)
-        and str(item.get("title") or "").strip()
-        and str(item.get("url") or "").startswith(("https://", "http://"))
-    ][:5]
-    if verified_sources:
-        links = "\n".join(
-            f"- [{item['title']}]({item['url']})"
-            for item in verified_sources
-        )
-        return (
-            "联网检索已经拿到可核验资料，但模型这次没有完成综合整理。"
-            "先保留本轮可靠来源，你可以直接点击查看，或点击重试让我重新组织回答：\n\n"
-            f"{links}"
-        )
-
-    paper_answer = _paper_result_answer(paper_payload)
-    if paper_answer:
-        return paper_answer
-
-    places: list[dict] = []
-    seen: set[str] = set()
-    nearby_failure = False
-    for message in logical_turn_messages:
-        if getattr(message, "type", "") != "tool":
-            continue
-        tool_name = getattr(message, "name", "")
-        if tool_name not in {
-            "search_places",
-            "search_places_batch",
-            "recommend_nearby_places_on_map",
-        }:
-            continue
-        raw_content = str(getattr(message, "content", "") or "")
-        try:
-            payload = json.loads(raw_content)
-        except (TypeError, json.JSONDecodeError):
-            continue
-        if (
-            tool_name == "recommend_nearby_places_on_map"
-            and isinstance(payload, dict)
-            and isinstance(payload.get("tool_error"), dict)
-        ):
-            nearby_failure = True
-            continue
-        candidates = payload.get("places") if isinstance(payload, dict) else []
-        if not isinstance(candidates, list):
-            continue
-        for place in candidates:
-            if not isinstance(place, dict):
-                continue
-            name = str(place.get("name") or "").strip()
-            address = str(place.get("address") or "").strip()
-            if not name:
-                continue
-            identity = str(place.get("place_id") or f"{name}|{address}")
-            if identity in seen:
-                continue
-            seen.add(identity)
-            places.append({"name": name, "address": address})
-        if places:
-            break
-    if not places and nearby_failure:
-        return (
-            "地点服务这次没有核实到符合条件的附近地点，我没有用不相关结果凑数。"
-            "你可以扩大查找范围，或稍后点击重试。"
-        )
-    if not places:
-        return ""
-    visible = places[:5]
-    lines = [
-        f"- **{place['name']}**" + (f" — {place['address']}" if place["address"] else "")
-        for place in visible
-    ]
-    suffix = f"\n\n另有 {len(places) - len(visible)} 个已核实结果。" if len(places) > len(visible) else ""
-    return "我找到了这些经过地点服务核实的结果：\n\n" + "\n".join(lines) + suffix
-
-
-def _paper_result_answer(
-    payload: dict | None,
-    *,
-    cards_enabled: bool = True,
-) -> str:
-    if not isinstance(payload, dict) or payload.get("ui_action") != "paper_results":
-        return ""
-    papers = payload.get("papers")
-    paper_titles = [
-        str(paper.get("title") or "").strip()
-        for paper in (papers if isinstance(papers, list) else [])
-        if isinstance(paper, dict) and str(paper.get("title") or "").strip()
-    ]
-    if not paper_titles:
-        return (
-            "这次在学术索引中没有核实到符合作者、单位和时间范围的论文，"
-            "我没有用同名作者或无关结果凑数。你可以补充作者英文署名、研究方向或更宽的年份范围。"
-        )
-    sources = {
-        str(paper.get("source") or "arXiv")
-        for paper in papers
-        if isinstance(paper, dict)
-    }
-    source_copy = "、".join(sorted(sources))
-    if not cards_enabled:
-        lines = []
-        for index, paper in enumerate(papers[:8], start=1):
-            if not isinstance(paper, dict):
-                continue
-            title = str(paper.get("title") or "").strip()
-            if not title:
-                continue
-            authors = str(paper.get("authors") or "").strip()
-            year = int(paper.get("year") or 0)
-            source_url = str(
-                paper.get("source_url")
-                or paper.get("arxiv_url")
-                or ""
-            ).strip()
-            label = f"{index}. **{title}**"
-            details = " · ".join(
-                value for value in (
-                    str(year) if year else "",
-                    authors,
-                ) if value
-            )
-            if details:
-                label += f"\n   {details}"
-            if source_url.startswith("https://"):
-                label += f"\n   [查看来源]({source_url})"
-            lines.append(label)
-        return (
-            f"已从 {source_copy} 核实到 {len(lines)} 篇符合条件的论文：\n\n"
-            + "\n\n".join(lines)
-            + "\n\n论文检索不依赖论文助读 Skill；开启该 Skill 后会额外显示论文卡片、PDF 保存和助读器。"
-        )
-    return (
-        f"已从 {source_copy} 核实到 {len(paper_titles)} 篇符合条件的论文，论文卡片已经准备好。"
-        "有可下载 PDF 的结果可以直接启动论文助读器，也可以前往来源页查看原文。"
-    )
-
-
-def _route_result_answer(payload: dict | None) -> str:
-    """Render verified route facts without spending another model round."""
-    if not isinstance(payload, dict) or payload.get("ui_action") != "map_action":
-        return ""
-    route = payload.get("route")
-    stops = payload.get("ordered_stops")
-    if not isinstance(route, dict) or not isinstance(stops, list) or len(stops) < 2:
-        return ""
-    valid_stops = [
-        stop for stop in stops
-        if isinstance(stop, dict) and str(stop.get("name") or "").strip()
-    ]
-    if len(valid_stops) < 2:
-        return ""
-    distance = route.get("distance_kilometers")
-    duration = route.get("duration_minutes")
-    if not isinstance(distance, (int, float)) or not isinstance(duration, (int, float)):
-        return ""
-
-    mode = str(route.get("mode") or "").strip().lower()
-    mode_name = {
-        "driving": "驾车",
-        "transit": "公交",
-        "walking": "步行",
-        "bicycling": "骑行",
-    }.get(mode, "出行")
-    corrections = []
-    for stop in valid_stops:
-        correction = stop.get("query_correction")
-        if not isinstance(correction, dict):
-            continue
-        original = str(correction.get("original_query") or "").strip()
-        corrected = str(correction.get("corrected_name") or stop.get("name") or "").strip()
-        if original and corrected and original != corrected:
-            corrections.append(f"“{original}”纠正为“{corrected}”")
-
-    lines = []
-    if corrections:
-        lines.append("已根据腾讯地点候选证据，将" + "、".join(corrections) + "。")
-    stop_names = " → ".join(str(stop.get("name") or "").strip() for stop in valid_stops)
-    lines.append(
-        f"{stop_names}：{mode_name}约 {float(distance):g} 公里，预计 {max(1, round(float(duration)))} 分钟。"
-    )
-
-    if mode == "transit":
-        transit = route.get("transit") if isinstance(route.get("transit"), dict) else {}
-        transit_lines = [
-            str(line).strip() for line in (transit.get("lines") or [])
-            if str(line).strip()
-        ]
-        if transit_lines:
-            lines.append("主要线路：" + "、".join(transit_lines[:6]) + "。")
-        walking_distance = transit.get("walking_distance_meters")
-        if isinstance(walking_distance, (int, float)) and walking_distance > 0:
-            lines.append(f"接驳步行约 {round(float(walking_distance))} 米。")
-        fare = route.get("fare") if isinstance(route.get("fare"), dict) else {}
-        transit_fare = fare.get("transit") if isinstance(fare.get("transit"), dict) else {}
-        estimate = transit_fare.get("estimate")
-        if (
-            transit_fare.get("provider_estimate")
-            and isinstance(estimate, (int, float))
-        ):
-            lines.append(f"腾讯路线返回票价约 {float(estimate):g} 元。")
-
-    lines.append("路线卡片已经准备好，可点击在地图中查看；不会自动写入日程。")
-    return "\n\n".join(lines)
-
-
-def _route_result_with_calendar_degraded(payload: dict | None) -> str:
-    """Preserve a completed route when its independent calendar stage fails."""
-    route_answer = _route_result_answer(payload)
-    if not route_answer:
-        return ""
-    return (
-        f"{route_answer}\n\n"
-        "路线规划已经完成；本轮没有生成日程提案。路线与日程相互独立，"
-        "你仍可先查看路线，之后再让我把它整理成可确认的日程卡。"
-    )
-
-
-def _linked_trip_result_answer(
-    route_payload: dict | None,
-    calendar_payload: dict | None,
-) -> str:
-    """Summarize a verified route and its one editable calendar Action."""
-    if (
-        not isinstance(route_payload, dict)
-        or route_payload.get("ui_action") != "map_action"
-        or not isinstance(calendar_payload, dict)
-        or calendar_payload.get("ui_action") != "calendar_action"
-    ):
-        return ""
-    route = route_payload.get("route")
-    stops = route_payload.get("ordered_stops")
-    calendar_action = calendar_payload.get("action")
-    if (
-        not isinstance(route, dict)
-        or not isinstance(stops, list)
-        or len(stops) < 2
-        or not isinstance(calendar_action, dict)
-    ):
-        return ""
-    action_payload = calendar_action.get("payload")
-    changes = (
-        action_payload.get("changes")
-        if isinstance(action_payload, dict)
-        else None
-    )
-    if not isinstance(changes, list) or not changes:
-        return ""
-    route_id = str(route_payload.get("route_plan_id") or "")
-    source_route_id = (
-        str(action_payload.get("source_route_plan_id") or "")
-        if isinstance(action_payload, dict)
-        else ""
-    )
-    route_link_mismatch = bool(
-        route_id and source_route_id and route_id != source_route_id
-    )
-
-    correction_lines = []
-    for stop in stops:
-        correction = stop.get("query_correction") if isinstance(stop, dict) else None
-        if not isinstance(correction, dict):
-            continue
-        original = str(correction.get("original_query") or "").strip()
-        corrected = str(correction.get("corrected_name") or "").strip()
-        if original and corrected and original != corrected:
-            correction_lines.append(f"“{original}”纠正为“{corrected}”")
-
-    names = [
-        str(stop.get("name") or "").strip()
-        for stop in stops
-        if isinstance(stop, dict) and str(stop.get("name") or "").strip()
-    ]
-    distance = route.get("distance_kilometers")
-    duration = route.get("duration_minutes")
-    mode_name = {
-        "driving": "驾车",
-        "transit": "公交",
-        "walking": "步行",
-        "bicycling": "骑行",
-    }.get(str(route.get("mode") or "").lower(), "出行")
-    lines = []
-    if correction_lines:
-        lines.append(
-            "已根据腾讯地点候选证据，将"
-            + "、".join(correction_lines)
-            + "。"
-        )
-    if (
-        names
-        and isinstance(distance, (int, float))
-        and isinstance(duration, (int, float))
-    ):
-        lines.append(
-            f"已按原顺序核实 {len(names)} 个地点："
-            + " → ".join(names)
-            + f"。腾讯{mode_name}路线约 {float(distance):g} 公里，"
-            f"预计 {max(1, round(float(duration)))} 分钟。"
-        )
-    else:
-        lines.append(f"已按原顺序核实 {len(names)} 个地点并生成腾讯路线。")
-    warning_count = len(
-        action_payload.get("warnings") or []
-    ) if isinstance(action_payload, dict) else 0
-    warning_text = (
-        f"卡片内有 {warning_count} 条时间或通勤提醒，请一并核对。"
-        if warning_count
-        else ""
-    )
-    lines.append(
-        f"已生成一张可编辑的日程确认提案，包含 {len(changes)} 项变更，"
-        f"目前尚未写入日程。{warning_text}"
-    )
-    if route_link_mismatch:
-        lines.append(
-            "本轮路线与日程提案的关联标识不一致；路线数据仍来自本轮腾讯结果，"
-            "日程卡可独立编辑或确认，请在确认前核对其中的出发与到达安排。"
-        )
-    lines.append(
-        "路线卡与日程提案保持独立；你可以查看路线，并单独编辑或确认日程提案。"
-    )
-    return "\n\n".join(lines)
-
-
-def grounded_route_action_answer(actions: list[dict]) -> str:
-    """Render the last verified route, optionally with its real calendar card.
-
-    This pure output-boundary helper is shared by the graph and the SSE
-    adapter. The graph normally finalizes structured route turns itself; the
-    adapter remains the final guard if a runtime still streams a later model
-    answer after the structured Actions have completed.
-    """
-    route_payload = next((
-        item
-        for item in reversed(actions)
-        if isinstance(item, dict)
-        and item.get("ui_action") == "map_action"
-        and isinstance(item.get("route"), dict)
-    ), None)
-    calendar_payload = next((
-        item
-        for item in reversed(actions)
-        if isinstance(item, dict)
-        and item.get("ui_action") == "calendar_action"
-        and isinstance(item.get("action"), dict)
-    ), None)
-    if route_payload is None:
-        return ""
-    if calendar_payload is not None:
-        linked_answer = _linked_trip_result_answer(
-            route_payload,
-            calendar_payload,
-        )
-        if linked_answer:
-            return linked_answer
-    return _route_result_answer(route_payload)
-
-
-def grounded_route_stream_answer(
-    actions: list[dict],
-    *,
-    calendar_required: bool,
-    clarification_emitted: bool,
-    run_error: str,
-) -> str:
-    """Apply the completion rules before replacing buffered route prose."""
-    if clarification_emitted or str(run_error or "").strip():
-        return ""
-    if calendar_required and not any(
-        isinstance(action, dict)
-        and action.get("ui_action") == "calendar_action"
-        for action in actions
-    ):
-        return ""
-    return grounded_route_action_answer(actions)
+from ._fallbacks import (
+    _linked_trip_result_answer,
+    _route_result_answer,
+    _route_result_with_calendar_degraded,
+    action_completion_fallback,
+    blocked_capability_response,
+    grounded_route_action_answer,
+    grounded_route_stream_answer,
+    tool_failure_fallback,
+    tool_result_fallback,
+)
 
 
 def _tool_call_signature(tool_call: dict) -> str:
@@ -708,7 +77,9 @@ def _tagged(model, tag: str):
 def _tool_failure_message(exc: Exception) -> str:
     """Keep safe validation feedback so the model can answer naturally."""
     if isinstance(exc, ValueError):
-        detail = str(exc).strip()[:500] or "输入不符合要求"
+        detail = str(exc).strip()[:500] or text(
+            "chat.fallback.invalid_input", "zh-CN",
+        )
         kind = "validation"
         retry_same_call = True
     else:
@@ -903,7 +274,7 @@ def build_graph(
         )
         if required_tool_failed and not search_only_degraded:
             route_only_answer = _route_result_with_calendar_degraded(
-                route_result_payload
+                route_result_payload, response_language,
             )
             if (
                 route_only_answer
@@ -911,8 +282,8 @@ def build_graph(
             ):
                 return {"messages": [AIMessage(content=route_only_answer)]}
             return {"messages": [AIMessage(content=(
-                tool_failure_fallback(state["messages"])
-                or "这次所需能力没有成功完成，因此我没有生成或猜测结果。请稍后重试。"
+                tool_failure_fallback(state["messages"], response_language)
+                or text("chat.fallback.required_failed", response_language)
             ))]}
         # Current-location lookup has a fixed privacy-preserving presentation.
         # Once Tencent reverse geocoding succeeds (or truthfully reports
@@ -923,7 +294,9 @@ def build_graph(
             and {name for name in used_tool_names if name}
             == {"get_current_location"}
         ):
-            location_answer = tool_result_fallback(state["messages"])
+            location_answer = tool_result_fallback(
+                state["messages"], response_language,
+            )
             if location_answer:
                 return {"messages": [AIMessage(content=location_answer)]}
         # Structured paper, route, and calendar results are evidence and UI
@@ -949,7 +322,7 @@ def build_graph(
         # independent calendar proposal.
         if unavailable_required_tools and not next_available_required:
             route_only_answer = _route_result_with_calendar_degraded(
-                route_result_payload
+                route_result_payload, response_language,
             )
             if (
                 route_only_answer
@@ -984,7 +357,9 @@ def build_graph(
         if required_name == "rich_search" and not rich_search_used:
             return {"messages": [AIMessage(content="", tool_calls=[{
                 "name": "rich_search",
-                "args": {"query": "使用本轮 LLM 规划器已合并的查询"},
+                "args": {"query": text(
+                    "model.graph.planned_search_placeholder", response_language,
+                )},
                 "id": f"planned-rich-search-{uuid.uuid4().hex}",
             }])]}
         # Once the planner-required rich search is complete and no other
@@ -1123,36 +498,28 @@ def build_graph(
             active_system_prompt = final_system_prompt
         messages = [SystemMessage(content=active_system_prompt), *history]
         if force_finalize:
-            messages.append(SystemMessage(content=(
-                "本轮工具阶段已经结束。不要再描述搜索过程，不要再输出或模拟任何工具调用。"
-                "请直接基于已有工具结果回答用户；结果不足时明确说明缺少多少和检索边界。"
+            messages.append(SystemMessage(content=text(
+                "model.graph.force_finalize", response_language,
             )))
         elif planned_sequence_complete:
-            messages.append(SystemMessage(content=(
-                "能力规划选定的工具已经全部完成。现在只基于已有结果输出最终回答，"
-                "不要再次调用、模拟或描述任何工具协议。"
+            messages.append(SystemMessage(content=text(
+                "model.graph.sequence_complete", response_language,
             )))
         elif finalize_after_rich_search:
-            messages.append(SystemMessage(content=(
-                "本轮唯一一次富搜索已经完成，不得再次调用 rich_search。"
-                "若请求仍需地点核验、真实路线、结构化澄清或其他非搜索能力，可以继续调用对应工具；"
-                "否则直接基于已有证据回答。不要描述内部搜索过程。"
+            messages.append(SystemMessage(content=text(
+                "model.graph.search_complete", response_language,
             )))
         if search_only_degraded:
-            messages.append(SystemMessage(content=(
-                "实时搜索在本轮临时不可用。这只是增强能力降级，不是回答终止条件。"
-                "请继续使用自身已有知识，像基础模型一样自然、完整地回答用户；不要复述工具错误，"
-                "不要要求用户安装、开启或重试 Skill。不得伪造实时核验、来源或超出知识边界的最新事实。"
-                "如果问题确实依赖最近或今天的信息，在必要处保持时效边界即可；界面会另用小字提示未实时核验，"
-                "不要把主体回答写成免责声明。"
+            messages.append(SystemMessage(content=text(
+                "model.graph.search_degraded", response_language,
             )))
         response = await active_model.ainvoke(messages)
         if required_name and not getattr(response, "tool_calls", None):
             response = await active_model.ainvoke([
                 *messages,
-                SystemMessage(content=(
-                    f"本轮能力链尚未完成。现在必须调用 {required_name} 或在确有阻塞信息时调用"
-                    " ask_user_clarification；不要提前输出最终回答。"
+                SystemMessage(content=text(
+                    "model.graph.require_tool", response_language,
+                    tool_name=required_name,
                 )),
             ])
         if not tools_closed and not getattr(response, "tool_calls", None):
@@ -1164,7 +531,7 @@ def build_graph(
             # explicit retry. Never expose their premature prose as if the
             # required search, card, route, or side effect had completed.
             route_only_answer = _route_result_with_calendar_degraded(
-                route_result_payload
+                route_result_payload, response_language,
             )
             if (
                 route_only_answer
@@ -1231,24 +598,23 @@ def build_graph(
                 elif required_name and suppressed_out_of_stage:
                     response = await active_model.ainvoke([
                         *messages,
-                        SystemMessage(content=(
-                            f"刚才的工具调用不属于当前能力阶段，已被忽略。"
-                            f"现在只调用 {required_name}"
-                            + (
-                                "；只有确有阻塞信息时才可改用 ask_user_clarification。"
-                                if "ask_user_clarification" in stage_allowed_tool_names
-                                else "。"
-                            )
+                        SystemMessage(content=text(
+                            "model.graph.stage_tool_only", response_language,
+                            tool_name=required_name,
+                            clarification_clause=text(
+                                "model.graph.clarification_clause",
+                                response_language,
+                            ) if "ask_user_clarification" in stage_allowed_tool_names else text(
+                                "model.graph.sentence_end", response_language,
+                            ),
                         )),
                     ])
                 else:
                     response = await public_model.ainvoke([
                         SystemMessage(content=final_system_prompt),
                         *history,
-                        SystemMessage(content=(
-                            "本轮需要的工具已经成功执行；重复调用已被忽略。"
-                            "请直接基于已有结果给出用户可读的最终回答，"
-                            "不要再次调用、模拟或描述任何工具协议。"
+                        SystemMessage(content=text(
+                            "model.graph.duplicate_tool", response_language,
                         )),
                     ])
         if force_finalize and not public_content(getattr(response, "content", "")).strip():
@@ -1258,13 +624,14 @@ def build_graph(
             response = await public_model.ainvoke([
                 SystemMessage(content=final_system_prompt),
                 *history,
-                SystemMessage(content=(
-                    "现在只输出给用户看的最终回答，禁止 XML、DSML、tool_calls、invoke 或参数。"
-                    "若没有满足条件的结果，直接如实说明。"
+                SystemMessage(content=text(
+                    "model.graph.final_only", response_language,
                 )),
             ])
             if not public_content(getattr(response, "content", "")).strip():
-                response = AIMessage(content="没有获得足够且符合条件的可靠信息；我没有用不相关内容凑数。你可以缩小范围或补充约束后再试。")
+                response = AIMessage(content=text(
+                    "chat.fallback.insufficient", response_language,
+                ))
         if (
             used_tool_names
             and "ask_user_clarification" not in used_tool_names
@@ -1280,16 +647,15 @@ def build_graph(
             response = await public_model.ainvoke([
                 SystemMessage(content=final_system_prompt),
                 *history,
-                SystemMessage(content=(
-                    "工具阶段已经完成。现在只输出给用户看的最终回答，禁止调用、模拟或描述工具协议。"
-                    "若工具返回了确认卡，简短提示用户核对卡片；若某项操作失败，如实说明失败原因和可执行的下一步。"
+                SystemMessage(content=text(
+                    "model.graph.final_synthesis", response_language,
                 )),
             ])
         if not getattr(response, "tool_calls", None) and not public_content(getattr(response, "content", "")).strip():
             fallback = (
-                action_completion_fallback(state["messages"])
-                or tool_failure_fallback(state["messages"])
-                or tool_result_fallback(state["messages"])
+                action_completion_fallback(state["messages"], response_language)
+                or tool_failure_fallback(state["messages"], response_language)
+                or tool_result_fallback(state["messages"], response_language)
             )
             if fallback:
                 response = AIMessage(content=fallback)

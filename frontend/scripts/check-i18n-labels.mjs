@@ -29,8 +29,6 @@ const allowedRuntimeLiterals = new Map([
     '新对话',
     '历史对话',
   ]],
-  ['services/reading.ts', ['第 ${pageNumber} 页']],
-  ['features/papers/view/PaperFullReader.tsx', ['第 ${page.pageNum} 页']],
   ['features/chat/view/MessageBubble.tsx', ['生成图片', '绘制', '已识别为论文']],
 ]);
 

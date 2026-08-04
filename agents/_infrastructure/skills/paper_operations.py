@@ -12,6 +12,7 @@ from .paper_candidates import (
     _paper_candidate_ids_from_model,
     _paper_candidates_from_searchpro,
 )
+from ..._application.i18n import text
 
 
 AsyncOperation = Callable[..., Awaitable[Any]]
@@ -28,6 +29,7 @@ def build_paper_search_operation(
     provider_search_arxiv_provider: OperationProvider,
     provider_rich_search_provider: OperationProvider,
     record_provider_usage_provider: OperationProvider,
+    response_language: object = "zh-CN",
 ) -> AsyncOperation:
     """Build scholarly discovery with official-first provider verification."""
 
@@ -68,7 +70,7 @@ def build_paper_search_operation(
                 requested_limit,
             )
         if not clean_topic and not clean_titles and not clean_author:
-            raise ValueError("论文主题、准确标题或作者至少需要一项")
+            raise ValueError(text("paper.query_required", response_language))
         candidate_loader = (
             (
                 lambda: _paper_candidate_ids_from_model(
@@ -80,6 +82,7 @@ def build_paper_search_operation(
                     year_from=clean_year_from,
                     year_to=clean_year_to,
                     limit=limit,
+                    response_language=response_language,
                 )
             )
             if paper_discovery_model is not None and not clean_titles
@@ -157,6 +160,7 @@ def build_paper_search_operation(
                     year_from=clean_year_from,
                     year_to=clean_year_to,
                     limit=limit,
+                    response_language=response_language,
                 )
             except Exception as exc:
                 logging.warning(
@@ -211,13 +215,11 @@ def build_paper_search_operation(
                 if len(papers) >= max(1, min(8, int(limit or 5))):
                     break
             if not papers:
-                provider_error = (
-                    "学术索引与 Makers 原生检索本轮没有返回可核实结果"
-                )
+                provider_error = text("paper.no_verified_results", response_language)
         except Exception as exc:
             logging.warning("academic discovery failed: %s", exc)
             papers = []
-            provider_error = "学术索引本轮没有返回结果"
+            provider_error = text("paper.no_results", response_language)
         return json.dumps({
             "ui_action": "paper_results",
             "papers": papers,

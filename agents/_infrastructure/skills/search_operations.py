@@ -16,6 +16,7 @@ from ..._models.search_evidence import (
     search_evidence_key,
 )
 from .visual_context import TurnVisualContext
+from ..._application.i18n import text
 
 
 AsyncOperation = Callable[..., Awaitable[Any]]
@@ -46,6 +47,7 @@ def build_rich_search_operation(
     evidence_for_model_provider: OperationProvider,
     record_provider_usage_provider: OperationProvider,
     record_vision_diagnostics_provider: OperationProvider,
+    response_language: object = "zh-CN",
 ) -> AsyncOperation:
     """Build one turn-local adapter with one provider decision per search plan."""
 
@@ -101,7 +103,7 @@ def build_rich_search_operation(
                 else ""
             )
             if not clean_query:
-                raise ValueError("富搜索查询不能为空")
+                raise ValueError(text("search.query_required", response_language))
             clean_depth = (
                 depth
                 if depth in {"basic", "standard", "deep"}

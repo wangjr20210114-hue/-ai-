@@ -8,6 +8,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
+from ..._application.i18n import normalize_language, text
 from .map_runtime import MapProviderRuntime
 from .route_resolution import (
     _clarification_action,
@@ -44,6 +45,7 @@ class PlaceOperations:
         route_stop_limit: int,
         parallelism: int,
         search_timeout: float,
+        response_language: object = "zh-CN",
     ) -> None:
         self._runtime_env = runtime_env
         self._conversation_id = conversation_id
@@ -60,6 +62,7 @@ class PlaceOperations:
         self._route_stop_limit = route_stop_limit
         self._parallelism = parallelism
         self._search_timeout = search_timeout
+        self._response_language = normalize_language(response_language)
 
     def _map_key(self) -> str:
         return str(
@@ -74,18 +77,20 @@ class PlaceOperations:
         if self._browser_current_location is None:
             return _clarification_action(
                 self._conversation_id,
-                title="需要你的位置",
-                prompt=(
-                    "浏览器没有提供当前位置。你可以在浏览器设置中允许定位后重试，"
-                    "也可以填写大致位置，我会用它继续附近推荐或路线规划。"
-                ),
+                title=text("place.location_required.title", self._response_language),
+                prompt=text("place.location_required.prompt", self._response_language),
                 fields=[{
                     "id": "manual_location",
-                    "label": "你目前所在的位置或出发地",
+                    "label": text(
+                        "place.location_required.label", self._response_language,
+                    ),
                     "type": "text",
                     "required": True,
                     "options": [],
-                    "placeholder": "例如：北京市海淀区中关村，或吉林大学前卫南区",
+                    "placeholder": text(
+                        "place.location_required.placeholder",
+                        self._response_language,
+                    ),
                 }],
             )
         try:
@@ -98,19 +103,17 @@ class PlaceOperations:
                 "reverse geocode current location failed error=%s",
                 exc,
             )
-            raise ValueError(
-                "腾讯地图暂时无法把当前位置解析为地址，请稍后重试"
-            ) from exc
+            raise ValueError(text(
+                "place.location_reverse_failed", self._response_language,
+            )) from exc
         return json.dumps({
             "location_available": True,
             "location": resolved,
             "accuracy_meters": self._browser_current_location.get(
                 "accuracy_meters"
             ),
-            "response_constraint": (
-                "只说明腾讯逆地址解析返回的地址、行政区和附近地标；"
-                "不得输出经纬度，不得声称定位精度高于浏览器 accuracy_meters，"
-                "也不得把本次位置写入日程或长期记忆。"
+            "response_constraint": text(
+                "model.place.location_constraint", self._response_language,
             ),
         }, ensure_ascii=False)
 
@@ -181,6 +184,7 @@ class PlaceOperations:
                 context="calendar place lookup",
                 enabled=self._provider_place_review_enabled,
                 timeout_seconds=min(8.0, self._search_timeout),
+                response_language=self._response_language,
             )
         )
         if decision == "auto_use" and isinstance(selected, dict):
@@ -196,28 +200,37 @@ class PlaceOperations:
         if decision == "choose":
             return _clarification_action(
                 self._conversation_id,
-                title="请选择日程地点",
-                prompt=(
-                    f"查到多个符合“{query}”的真实地点，候选已按腾讯地图相关度排序。"
-                    "请选择要写入日程的地点，提交后我会继续安排。"
+                title=text("place.calendar_choice.title", self._response_language),
+                prompt=text(
+                    "place.calendar_choice.prompt", self._response_language,
+                    query=query,
                 ),
                 fields=[_place_choice_field(
                     "calendar_place",
-                    "日程安排在哪个地点？",
+                    text("place.calendar_choice.label", self._response_language),
                     places,
+                    self._response_language,
                 )],
             )
         return _clarification_action(
             self._conversation_id,
-            title="请补充日程地点",
-            prompt=f"地点服务没有足够证据确认“{query}”。请填写更完整的名称或城市。",
+            title=text("place.calendar_fill.title", self._response_language),
+            prompt=text(
+                "place.calendar_fill.prompt", self._response_language,
+                query=query,
+            ),
             fields=[{
                 "id": "calendar_place",
-                "label": "日程的正确地点是什么？",
+                "label": text(
+                    "place.calendar_fill.label", self._response_language,
+                ),
                 "type": "text",
                 "required": True,
                 "options": [],
-                "placeholder": f"例如：城市 + {query}",
+                "placeholder": text(
+                    "route.confirm.placeholder", self._response_language,
+                    query=query,
+                ),
             }],
         )
 
@@ -236,10 +249,10 @@ class PlaceOperations:
                 seen_queries.add(query)
                 normalized.append(query)
         if not 1 <= len(normalized) <= self._route_stop_limit:
-            raise ValueError(
-                f"批量地点查询必须包含 1 到 {self._route_stop_limit} 个独立地点名称；"
-                "可在设置的“地图与路线”中调整上限"
-            )
+            raise ValueError(text(
+                "place.error.batch_count", self._response_language,
+                maximum=self._route_stop_limit,
+            ))
 
         groups = []
         all_places = []
@@ -277,10 +290,10 @@ class PlaceOperations:
                 timeout=self._search_timeout,
             )
         except asyncio.TimeoutError as exc:
-            raise TimeoutError(
-                f"批量地点搜索超过 {round(self._search_timeout)} 秒；"
-                "请减少地点数量或在设置中选择快速档"
-            ) from exc
+            raise TimeoutError(text(
+                "place.error.batch_timeout", self._response_language,
+                seconds=round(self._search_timeout),
+            )) from exc
         for group in groups:
             places = group.get("places") or []
             for place in places:
@@ -322,10 +335,10 @@ class PlaceOperations:
             not isinstance(place_ids, list)
             or not 1 <= len(place_ids) <= self._place_result_limit
         ):
-            raise ValueError(
-                f"地图推荐必须包含 1 到 {self._place_result_limit} 个地点 ID；"
-                "可在设置的“地图与路线”中调整候选数量"
-            )
+            raise ValueError(text(
+                "place.error.map_id_count", self._response_language,
+                maximum=self._place_result_limit,
+            ))
         state = await self._load_state()
         candidates = dict(state.get("place_candidates", {}))
         for event in (state.get("schedules") or {}).values():
@@ -351,7 +364,9 @@ class PlaceOperations:
                 seen.add(place_id)
                 places.append(place)
         if not places:
-            raise ValueError("推荐地点均未通过地点服务验证，不能显示到地图")
+            raise ValueError(text(
+                "place.error.none_verified", self._response_language,
+            ))
         expected = max(
             1,
             min(
@@ -362,9 +377,13 @@ class PlaceOperations:
         action = new_action(
             "map_recommendation",
             {
-                "title": str(title or "相关地点")[:120],
+                "title": str(title or text(
+                    "place.map.default_title", self._response_language,
+                ))[:120],
                 "action_text": str(
-                    action_text or "在地图中看看这些地点"
+                    action_text or text(
+                        "place.map.default_action", self._response_language,
+                    )
                 )[:80],
                 "places": places,
             },
@@ -394,10 +413,10 @@ class PlaceOperations:
             if str(item or "").strip()
         ))
         if not 2 <= len(normalized) <= self._place_result_limit:
-            raise ValueError(
-                f"地图推荐需要模型提供 2 到 {self._place_result_limit} 个独立地点名称；"
-                "可在设置的“地图与路线”中调整候选数量"
-            )
+            raise ValueError(text(
+                "place.error.recommend_count", self._response_language,
+                maximum=self._place_result_limit,
+            ))
         selected, all_candidates, missing = (
             await verify_place_queries_parallel(
                 self._map_runtime.search_places,
@@ -413,9 +432,9 @@ class PlaceOperations:
             )
         )
         if not selected:
-            raise ValueError(
-                "所有候选地点都未通过真实地点服务核实，不能生成地图"
-            )
+            raise ValueError(text(
+                "place.error.all_unverified", self._response_language,
+            ))
         state = await self._load_state()
         candidates = state.setdefault("place_candidates", {})
         for place in all_candidates:
@@ -423,9 +442,14 @@ class PlaceOperations:
         action = new_action(
             "map_recommendation",
             {
-                "title": str(title or f"{city}推荐地点")[:120],
+                "title": str(title or text(
+                    "place.map.city_title", self._response_language,
+                    city=city,
+                ))[:120],
                 "action_text": str(
-                    action_text or "在地图中查看这些地点"
+                    action_text or text(
+                        "place.map.city_action", self._response_language,
+                    )
                 )[:80],
                 "places": selected,
             },
@@ -435,14 +459,14 @@ class PlaceOperations:
         await self._save_state(state)
         verified_count = len(selected)
         requested_count = len(normalized)
-        response_constraint = (
-            f"实际核实成功 {verified_count}/{requested_count} 个地点；"
-            f"正文只能声称地图显示了 {verified_count} 个。"
+        response_constraint = text(
+            "model.place.map_constraint", self._response_language,
+            verified=verified_count, requested=requested_count,
+            missing=text(
+                "model.place.map_missing", self._response_language,
+                places="、".join(missing),
+            ) if missing else "",
         )
-        if missing:
-            response_constraint += (
-                f" 未核实且不得放入地图：{'、'.join(missing)}。"
-            )
         return json.dumps({
             "ui_action": "map_action",
             "action": action,

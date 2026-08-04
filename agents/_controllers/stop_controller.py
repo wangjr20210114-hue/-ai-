@@ -3,12 +3,15 @@
 from .._infrastructure.makers.identity import require_user, scoped_conversation_id
 from .._infrastructure.http import error
 from .._infrastructure.makers.conversation_repository import RUNNING_STATES, read_chat_run, write_chat_run
+from .._application.i18n import normalize_language, text
 
 async def handler(ctx):
     identity = require_user(ctx)
-    raw_target = str((ctx.request.body or {}).get("conversation_id") or "")
+    body = ctx.request.body or {}
+    response_language = normalize_language(body.get("response_language"))
+    raw_target = str(body.get("conversation_id") or "")
     if not raw_target:
-        return error("conversation_id is required")
+        return error(text("request.conversation_id_required", response_language))
     target = scoped_conversation_id(ctx, str(identity["user_id"]), raw_target)
     stored = await read_chat_run(ctx.store, target)
     active = isinstance(stored, dict) and stored.get("status") in RUNNING_STATES

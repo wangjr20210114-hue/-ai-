@@ -21,7 +21,7 @@ from ..._infrastructure.makers.provider_usage_repository import (
     record_provider_usage,
     record_vision_diagnostics,
 )
-from ..._infrastructure.providers.rich_search import evidence_for_model
+from ..._application.search.evidence_presenter import evidence_for_model
 from ..._infrastructure.providers.searchpro import SearchProGateway
 from ..._presenters.chat_stream import search_evidence_payload
 
@@ -48,6 +48,7 @@ class PlannedSearchRunner:
         runtime_env: dict,
         run_id: str,
         stage_timings_ms: dict,
+        response_language: str,
     ) -> None:
         self._ctx = ctx
         self._presenter = presenter
@@ -57,6 +58,7 @@ class PlannedSearchRunner:
         self._user_id = user_id
         self._run_id = run_id
         self._stage_timings_ms = stage_timings_ms
+        self._response_language = response_language
         self.background_tasks: list[asyncio.Task] = []
         self.latest_enriched_media: dict | None = None
 
@@ -78,6 +80,7 @@ class PlannedSearchRunner:
             # inside this turn, while chat never reuses an older turn's facts.
             force_refresh=True,
             progressive_media=progressive_media,
+            response_language=response_language,
         )
         self._use_case = (
             SearchUseCase(
@@ -207,6 +210,7 @@ class PlannedSearchRunner:
             "papers": [],
             "evidence": evidence_for_model(
                 metadata,
+                response_language=self._response_language,
                 require_relevant_image=bool(
                     self._capability_plan.get("needs_images")
                 ),

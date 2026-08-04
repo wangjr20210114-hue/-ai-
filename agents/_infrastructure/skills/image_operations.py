@@ -20,6 +20,7 @@ from ..._application.workspace.service import (
 )
 from .route_resolution import _message_text
 from .visual_context import TurnVisualContext
+from ..._application.i18n import text
 
 
 AsyncOperation = Callable[..., Awaitable[Any]]
@@ -41,6 +42,7 @@ def build_image_operations(
     resolve_image_reference_provider: OperationProvider,
     collect_page_images_provider: OperationProvider,
     record_provider_usage_provider: OperationProvider,
+    response_language: object = "zh-CN",
 ) -> dict[str, AsyncOperation]:
     """Build image operations with explicit provider and Maker dependencies."""
 
@@ -52,7 +54,7 @@ def build_image_operations(
         """Generate an image immediately, optionally editing one prior generated version."""
         clean_prompt = str(prompt or "").strip()[:2000]
         if not clean_prompt:
-            raise ValueError("生图提示词不能为空")
+            raise ValueError(text("image.prompt_required", response_language))
         state = await load_state()
         parent = state.get("actions", {}).get(str(parent_action_id or ""))
         references: list[str] = []
@@ -136,10 +138,10 @@ def build_image_operations(
         """Evaluate up to 30 images in small isolated concurrent batches."""
         image_urls = list(dict.fromkeys(str(url) for url in image_urls))[:30]
         if not image_urls:
-            raise ValueError("至少需要一个图片 URL")
+            raise ValueError(text("image.url_required", response_language))
         for url in image_urls:
             if urlparse(url).scheme not in {"http", "https"}:
-                raise ValueError("图片 URL 必须使用 http 或 https")
+                raise ValueError(text("image.url_protocol", response_language))
         semaphore = asyncio.Semaphore(4)
 
         async def inspect(index: int, image_url: str) -> dict[str, Any]:
@@ -149,9 +151,9 @@ def build_image_operations(
                         model.ainvoke([{"role": "user", "content": [
                             {
                                 "type": "text",
-                                "text": (
-                                    f"视觉评估目标：{goal}\n"
-                                    "简洁返回画面内容、相关性和是否建议采用。"
+                                "text": text(
+                                    "model.vision.goal_review", response_language,
+                                    goal=goal,
                                 ),
                             },
                             {

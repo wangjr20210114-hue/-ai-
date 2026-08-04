@@ -81,6 +81,7 @@ def search_request_for_plan(
     parallel_queries: bool,
     force_refresh: bool,
     progressive_media: bool | None = None,
+    response_language: str = "zh-CN",
 ) -> SearchRequest | None:
     if (
         not plan.get("needs_web_search")
@@ -127,4 +128,5 @@ def search_request_for_plan(
         strict_date=bool(plan.get("strict_today_only")),
         force_refresh=force_refresh,
         media_mode=media_mode,
+        response_language=response_language,
     )

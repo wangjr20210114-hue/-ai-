@@ -87,6 +87,11 @@ BOOLEAN_KEYS = tuple(key for key, value in DEFAULT_PLAN.items() if isinstance(va
 KNOWN_SKILLS = known_skill_ids()
 
 
+def _schema(key: str, **params: Any) -> str:
+    """Resolve model-facing structured-output copy through I18N."""
+    return text(f"model.planner.schema.{key}", "zh-CN", **params)
+
+
 class PlannedRouteStop(BaseModel):
     """One user-specified stop preserved verbatim and in user order."""
 
@@ -94,18 +99,11 @@ class PlannedRouteStop(BaseModel):
 
     query: str = Field(
         default="",
-        description=(
-            "The standalone place name exactly as written by the user. If "
-            "route_uses_current_location is true, omit the implicit browser "
-            "origin and list only destinations in their requested order."
-        ),
+        description=_schema("field_01"),
     )
     near_query: str = Field(
         default="",
-        description=(
-            "The separate anchor place only when query is a category or brand "
-            "described as near another place; otherwise empty."
-        ),
+        description=_schema("field_02"),
     )
 
 
@@ -114,16 +112,16 @@ class PlannedClarificationField(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    id: str = Field(description="Stable short ASCII identifier")
-    label: str = Field(description="Natural user-facing question label")
+    id: str = Field(description=_schema("field_03"))
+    label: str = Field(description=_schema("field_04"))
     type: str = Field(
         default="text",
-        description="One of single, multi, boolean, text, date, time, datetime",
+        description=_schema("field_05"),
     )
     required: bool = True
     options: list[str] = Field(
         default_factory=list,
-        description="Finite options for single/multi; empty for other field types",
+        description=_schema("field_06"),
     )
     placeholder: str = ""
 
@@ -135,306 +133,170 @@ class CapabilityPlan(BaseModel):
 
     prompt_topics: list[str] = Field(
         default_factory=list,
-        description=(
-            "Only later execution-policy topics needed for this turn. Choose "
-            "only topic IDs declared by the runtime Skill index in the system prompt."
-        ),
+        description=_schema("field_07"),
     )
     capabilities: list[str] = Field(
-        description=(
-            "Independent semantic checksum of every user-required capability. "
-            "Always return this field, even when empty. Choose only capability "
-            "IDs declared by the runtime Skill index in the system prompt. "
-            "A request to calculate "
-            "or plan real travel always includes route, including when embedded "
-            "inside a schedule request. Asking for an editable calendar proposal "
-            "or card includes calendar_context and calendar_action even when the "
-            "user says not to write it without confirmation, because the action "
-            "creates the proposal rather than committing it. This list and the "
-            "needs_* fields must describe the same complete goal."
-        ),
+        description=_schema("field_08"),
     )
     needs_clarification: bool = False
     needs_web_search: bool = False
     strict_today_only: bool = Field(
         default=False,
-        description=(
-            "True only when the user asks for news, events, announcements, or "
-            "other items that were published or happened on the current Beijing "
-            "calendar date itself, for example 'today's AI news'. False when "
-            "'today', 'current', or 'latest' merely defines the as-of cutoff and "
-            "older still-current sources remain valid. When true, undated or "
-            "other-date sources must be excluded instead of used as substitutes."
-        ),
+        description=_schema("field_09"),
     )
     needs_images: bool = Field(
         default=False,
-        description=(
-            "True when real searched images materially improve comprehension by "
-            "showing a concrete event, person, product, place, or reported subject, "
-            "even if the user did not explicitly request images. False for purely "
-            "abstract reasoning, simple calculations, or decorative-only imagery."
-        ),
+        description=_schema("field_10"),
     )
     needs_places: bool = False
     needs_current_location: bool = Field(
         default=False,
-        description=(
-            "True when the user directly asks where they currently are or asks "
-            "the assistant to identify the fresh browser location."
-        ),
+        description=_schema("field_11"),
     )
     needs_nearby_places: bool = False
     needs_route: bool = Field(
         default=False,
-        description=(
-            "True for every request to calculate or plan real travel between "
-            "places, including a route embedded inside a calendar proposal."
-        ),
+        description=_schema("field_12"),
     )
     needs_travel_itinerary: bool = Field(
         default=False,
-        description=(
-            "True when the user asks for a usable multi-stop or multi-day travel "
-            "itinerary, rather than one point-to-point route or general inspiration."
-        ),
+        description=_schema("field_13"),
     )
     needs_map_action: bool = False
     needs_calendar_action: bool = Field(
         default=False,
-        description=(
-            "True when the user asks to create, edit, delete, or prepare an "
-            "editable calendar proposal/card. A request not to write before "
-            "confirmation still requires this proposal action."
-        ),
+        description=_schema("field_14"),
     )
     needs_calendar_context: bool = Field(
         default=False,
-        description=(
-            "True when answering requires reading the user's current schedules, "
-            "including calendar create, update, delete, conflict, or agenda questions."
-        ),
+        description=_schema("field_15"),
     )
     needs_meeting_action: bool = False
     needs_workflow_action: bool = False
     needs_image_generation: bool = False
     needs_papers: bool = Field(
         default=False,
-        description=(
-            "True only when the user's goal explicitly requests academic papers or "
-            "literature, or when scholarly-index verification is indispensable to "
-            "the requested result. General news, industry updates, and current "
-            "developments do not require papers merely because their subject is technical."
-        ),
+        description=_schema("field_16"),
     )
     needs_deep_reasoning: bool = Field(
         default=False,
-        description=(
-            "True only for genuinely multi-step open-ended reasoning. Fixed JSON, "
-            "tool arguments, routing, acknowledgements, and ordinary chat use Flash."
-        ),
+        description=_schema("field_17"),
     )
     needs_followups: bool = Field(
         default=False,
-        description=(
-            "True for a substantive answer when two or three natural adjacent "
-            "questions would help the user continue. False for clarification, "
-            "errors, pure acknowledgements, greetings, or exhausted tasks."
-        ),
+        description=_schema("field_18"),
     )
     needs_memory_extraction: bool = Field(
         default=False,
-        description=(
-            "True only when the user explicitly states a durable non-sensitive "
-            "preference or fact that may help future turns."
-        ),
+        description=_schema("field_19"),
     )
     needs_opportunity_review: bool = Field(
         default=False,
-        description=(
-            "True only when the completed turn may justify a useful proactive "
-            "next-step notification. Runtime policy decides whether that "
-            "capability is available."
-        ),
+        description=_schema("field_20"),
     )
     use_memory_context: bool = Field(
         default=False,
-        description=(
-            "True only when confirmed long-term memory is directly relevant to "
-            "the current request."
-        ),
+        description=_schema("field_21"),
     )
     search_query: str = ""
     image_query: str = ""
     nearby_query: str = Field(
         default="",
-        description=(
-            "For a nearby-place request, the short provider category to find, "
-            "such as 餐厅、景点、咖啡馆、酒店. Empty otherwise."
-        ),
+        description=_schema("field_22"),
     )
     nearby_anchor_query: str = Field(
         default="",
-        description=(
-            "Explicit real-world anchor for a nearby search. Empty when the "
-            "browser current location is the anchor."
-        ),
+        description=_schema("field_23"),
     )
     nearby_anchor_queries: list[str] = Field(
         default_factory=list,
-        description="Every explicit alternative nearby anchor, in user order",
+        description=_schema("field_24"),
     )
     nearby_uses_current_location: bool = Field(
         default=False,
-        description=(
-            "True when the user semantically means their browser current "
-            "location as the nearby-search anchor, whether or not a fix is available."
-        ),
+        description=_schema("field_25"),
     )
     paper_author: str = Field(
         default="",
-        description=(
-            "Canonical publication signature for the requested person. When "
-            "the user gives a Chinese name, return the most likely Latin "
-            "given-name/family-name signature; do not include institution or dates."
-        ),
+        description=_schema("field_26"),
     )
     paper_institution: str = Field(
         default="",
-        description=(
-            "Canonical English institution name when the user uses affiliation "
-            "to identify an author; empty when no institution was explicitly "
-            "supplied in the current request or established dialogue. Never fill "
-            "this from model knowledge, cached papers, or search popularity."
-        ),
+        description=_schema("field_27"),
     )
     paper_identity_evidence_supplied: bool = Field(
         default=False,
-        description=(
-            "True only when the user explicitly supplied, or the established "
-            "dialogue explicitly contains, identity evidence that distinguishes "
-            "the requested academic author, such as an institution, laboratory, "
-            "research field, profile URL, or publication title. Model knowledge, "
-            "cached papers, and a guessed affiliation do not count."
-        ),
+        description=_schema("field_28"),
     )
     paper_identity_globally_unambiguous: bool = Field(
         default=False,
-        description=(
-            "True only for an academic identity that is effectively unique "
-            "worldwide even without any user-supplied qualifier. Keep false when "
-            "plausible scholarly namesakes may exist; popularity is not uniqueness."
-        ),
+        description=_schema("field_29"),
     )
     paper_topic: str = Field(
         default="",
-        description=(
-            "Only an explicitly requested research subject used to filter paper "
-            "titles. Empty for an author/institution/date/count-only request; "
-            "never copy the whole user request into this field."
-        ),
+        description=_schema("field_30"),
     )
     paper_year: int = 0
     paper_year_from: int = Field(
         default=0,
-        description="Inclusive start year for a range such as recent N years; 0 if absent.",
+        description=_schema("field_31"),
     )
     paper_year_to: int = Field(
         default=0,
-        description="Inclusive end year for a range such as recent N years; 0 if absent.",
+        description=_schema("field_32"),
     )
     paper_limit: int = 0
     route_stops: list[PlannedRouteStop] = Field(
         default_factory=list,
-        description=(
-            "For a route request, every explicitly requested stop in exact order. "
-            "Never omit a user-stated origin, intermediate stop, or destination. "
-            "When route_uses_current_location is true, omit only that implicit "
-            "browser origin. Empty otherwise."
-        ),
+        description=_schema("field_33"),
     )
     route_city: str = Field(
         default="全国",
-        description="Explicit city shared by the route stops, or 全国 when not established",
+        description=_schema("field_34"),
     )
     route_mode: str = Field(
         default="default",
-        description=(
-            "Explicit travel mode: driving, transit, walking, or bicycling. "
-            "Use default when the user did not specify one."
-        ),
+        description=_schema("field_35"),
     )
     route_strategy: str = Field(
         default="default",
-        description=(
-            "Explicit route preference: time_then_cost, least_time, or least_cost. "
-            "Use least_time only when the user explicitly prioritizes the shortest "
-            "duration. Asking for actual travel time or calendar timing is not a "
-            "route preference. Use default when no preference was stated."
-        ),
+        description=_schema("field_36"),
     )
     travel_budget_tier: str = Field(
         default="not_applicable",
-        description=(
-            "Budget posture for an itinerary: economy, standard, premium, "
-            "unconsidered, unknown, or not_applicable. Explicit low/high amounts "
-            "map semantically to economy/premium."
-        ),
+        description=_schema("field_37"),
     )
     route_uses_current_location: bool = Field(
         default=False,
-        description=(
-            "True when the user semantically means their browser current "
-            "location as the implicit route origin, whether or not a fix is available."
-        ),
+        description=_schema("field_38"),
     )
     reuse_latest_route: bool = Field(
         default=False,
-        description=(
-            "True when the current request asks to reuse the most recent "
-            "provider-verified route, such as turning that route into calendar "
-            "items. In that case do not plan a new route or repeat its stops."
-        ),
+        description=_schema("field_39"),
     )
     route_calendar_hint: str = Field(
         default="",
-        description=(
-            "Only the user's explicit date/time window or per-stop duration "
-            "attached to a newly planned route, preserved for a later calendar "
-            "continuation. Empty when the user supplied none."
-        ),
+        description=_schema("field_40"),
     )
     optional_capabilities: list[str] = Field(
         default_factory=list,
-        description=(
-            "Capabilities that are helpful enhancements but not required for "
-            "the user's present goal. Use installed capability IDs only. A "
-            "direct request to create, edit, or delete calendar items is never "
-            "optional; an unsolicited calendar add-on to a route may be."
-        ),
+        description=_schema("field_41"),
     )
     place_resolution_target: str = Field(
         default="none",
-        description=(
-            "Set to calendar when an unverified real-world place belongs to a "
-            "calendar create/update request, even if the place is misspelled, "
-            "ambiguous, or lacks a city. Otherwise none."
-        ),
+        description=_schema("field_42"),
     )
     clarification_title: str = Field(
         default="",
-        description="Compact card title when needs_clarification is true",
+        description=_schema("field_43"),
     )
     clarification_prompt: str = Field(
         default="",
-        description="Why the minimum missing information is required",
+        description=_schema("field_44"),
     )
     clarification_fields: list[PlannedClarificationField] = Field(
         default_factory=list,
-        description=(
-            "Only fields whose absence blocks every safe useful result. "
-            "Empty unless needs_clarification is true."
-        ),
+        description=_schema("field_45"),
     )
 
 
@@ -448,18 +310,22 @@ def _text(content: Any) -> str:
     return str(content or "")
 
 
-def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
+def _decode_capability_plan(
+    content: Any,
+    response_language: object = "zh-CN",
+) -> dict[str, Any] | None:
+    language = normalize_language(response_language)
     if isinstance(content, BaseModel):
         raw = content.model_dump()
     elif isinstance(content, dict):
         raw = content
     else:
-        text = _text(content).strip()
-        fenced = re.search(r"\{[\s\S]*\}", text)
+        serialized = _text(content).strip()
+        fenced = re.search(r"\{[\s\S]*\}", serialized)
         if fenced:
-            text = fenced.group(0)
+            serialized = fenced.group(0)
         try:
-            raw = json.loads(text)
+            raw = json.loads(serialized)
         except (TypeError, json.JSONDecodeError):
             return None
     if not isinstance(raw, dict):
@@ -586,7 +452,10 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
         )[:48].strip("-") or f"field-{index + 1}"
         clarification_fields.append({
             "id": field_id,
-            "label": str(item.get("label") or "请补充").strip()[:80],
+            "label": str(
+                item.get("label")
+                or text("chat.clarification.default_label", language)
+            ).strip()[:80],
             "type": field_type,
             "required": bool(item.get("required", True)),
             "options": options,
@@ -627,14 +496,18 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
             if key.startswith("needs_"):
                 plan[key] = False
         plan["needs_clarification"] = True
-        plan["clarification_title"] = "先确认预算倾向"
-        plan["clarification_prompt"] = "预算会影响交通、住宿和体验安排，请先选一个倾向。"
+        plan["clarification_title"] = text("chat.travel_budget.title", language)
+        plan["clarification_prompt"] = text("chat.travel_budget.prompt", language)
         plan["clarification_fields"] = [{
             "id": "travel-budget-tier",
-            "label": "这次旅行更偏向哪种预算？",
+            "label": text("chat.travel_budget.label", language),
             "type": "single",
             "required": True,
-            "options": ["省钱", "标准", "没考虑"],
+            "options": [
+                text("chat.travel_budget.economy", language),
+                text("chat.travel_budget.standard", language),
+                text("chat.travel_budget.unconsidered", language),
+            ],
             "placeholder": "",
         }]
     if (
@@ -652,23 +525,26 @@ def _decode_capability_plan(content: Any) -> dict[str, Any] | None:
             if key.startswith("needs_"):
                 plan[key] = False
         plan["needs_clarification"] = True
-        plan["clarification_title"] = "请确认论文作者"
-        plan["clarification_prompt"] = (
-            f"“{plan['paper_author']}”可能对应多位研究者，请补充一条身份线索后我再检索。"
+        plan["clarification_title"] = text("chat.paper_author.title", language)
+        plan["clarification_prompt"] = text(
+            "chat.paper_author.prompt", language, author=plan["paper_author"],
         )
         plan["clarification_fields"] = [{
             "id": "paper-author-identity",
-            "label": "作者的单位、研究方向或个人主页",
+            "label": text("chat.paper_author.label", language),
             "type": "text",
             "required": True,
             "options": [],
-            "placeholder": "例如：复旦大学、软件工程，或个人主页链接",
+            "placeholder": text("chat.paper_author.placeholder", language),
         }]
     return plan
 
 
-def parse_capability_plan(content: Any) -> dict[str, Any]:
-    return _decode_capability_plan(content) or dict(DEFAULT_PLAN)
+def parse_capability_plan(
+    content: Any,
+    response_language: object = "zh-CN",
+) -> dict[str, Any]:
+    return _decode_capability_plan(content, response_language) or dict(DEFAULT_PLAN)
 
 
 def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
@@ -802,10 +678,7 @@ class PromptTopicSelection(BaseModel):
 
     topics: list[str] = Field(
         default_factory=list,
-        description=(
-            "Every prompt topic whose operational details may be needed. "
-            f"Choose only from the installed topic IDs: {_PROMPT_TOPIC_IDS}."
-        ),
+        description=_schema("field_47", topic_ids=_PROMPT_TOPIC_IDS),
     )
 
 
@@ -820,30 +693,16 @@ class SemanticPreflight(BaseModel):
     fields: list[PlannedClarificationField] = Field(default_factory=list)
     topics: list[str] = Field(
         default_factory=list,
-        description=(
-            "Every prompt topic whose operational details may be needed. "
-            f"Choose only from the installed topic IDs: {_PROMPT_TOPIC_IDS}."
-        ),
+        description=_schema("field_47", topic_ids=_PROMPT_TOPIC_IDS),
     )
     capabilities: list[str] = Field(
         default_factory=list,
-        description=(
-            "Every user-required capability, independently of prompt topics. "
-            f"Choose only from installed capability IDs: {_CAPABILITY_IDS}. Include "
-            "route for every request to calculate or plan real travel, even when "
-            "it is part of a schedule request. Include calendar_context and "
-            "calendar_action when the user asks for an editable calendar proposal "
-            "or card; 'do not write yet' means propose for confirmation, not omit "
-            "the calendar capability."
-        ),
+        description=_schema("field_48", capability_ids=_CAPABILITY_IDS),
     )
     needs_web_search: bool = False
     strict_today_only: bool = Field(
         default=False,
-        description=(
-            "True only for items published or occurring on today's Beijing "
-            "calendar date; false for latest/current information as of today."
-        ),
+        description=_schema("field_46"),
     )
     search_query: str = ""
     needs_images: bool = False
@@ -927,64 +786,15 @@ async def plan_required_clarification(
         f"- {topic}: {summary}"
         for topic, summary in PROMPT_TOPIC_SUMMARIES.items()
     )
-    prompt = (
-        "You are the product-wide semantic preflight. Do not answer the user. "
-        "In this single pass, both evaluate required-input readiness and select "
-        "the dynamic prompt topics needed by the later capability planner. Also "
-        "return every user-required capability in the fixed capabilities list; "
-        "topics retrieve instructions, while capabilities preserve the complete "
-        "goal if the later argument planner is slow or omits a dependent action. "
-        "Planning or calculating real travel requires route even when combined "
-        "with a schedule. An editable calendar proposal or card requires both "
-        "calendar_context and calendar_action even when the user says not to "
-        "commit it yet; the action is itself the confirmation proposal. "
-        "Build the task's dependency graph from meaning: identify every source "
-        "object, target object, or field the user explicitly makes necessary, "
-        "then determine whether each is actually present in the current message, "
-        "attached image/document context, or clarification supplement. Do not "
-        "mistake the instruction sentence itself for a source object it merely "
-        "refers to. Set needs_clarification=true only when an absent dependency "
-        "blocks every safe useful result, or when a real side-effect target cannot "
-        "be uniquely identified. A dependency must be entailed by the user's goal; "
-        "never invent an account, provider, output format, preference, or other "
-        "implementation choice that the user did not make necessary. If a safe "
-        "default, assumptions, or useful options can satisfy the request, return "
-        "false. Before returning true, adversarially check that every safe useful "
-        "result really is blocked. When true, provide one compact card "
-        "with only the minimum fields: finite choices before free text, and no "
-        "optional preference questions. The request-scoped location context below "
-        "is authoritative: when it says a browser location is available, that "
-        "already satisfies a current-location dependency; never ask for it again. "
-        "A real-world place spelling, alias, same-name branch, or uncertain POI "
-        "is not a missing user dependency before the place provider runs: select "
-        "the maps topic and return needs_clarification=false so the Tencent-backed "
-        "place/route tool can resolve it, auto-use near-certain evidence, offer "
-        "finite provider candidates, or request free text when no evidence exists. "
-        "Do not ask the user to pre-correct or pre-disambiguate a supplied place. "
-        "Academic author identity is different: if a paper request identifies a "
-        "person only by a name or honorific and multiple real researchers could "
-        "plausibly match, selecting one would corrupt every result. In that case "
-        "return one clarification card asking for the minimum identity evidence "
-        "(normally institution or research field). Do not silently choose the "
-        "most prolific namesake. If the conversation already establishes that "
-        "evidence, do not ask again. For current facts, set needs_web_search and "
-        "write one compact search_query. Set strict_today_only only when the "
-        "requested items themselves must be published or occur on today's "
-        "Beijing calendar date; 'latest/current/as of today' alone is a cutoff, "
-        "not a same-day publication constraint. When strict_today_only is true, "
-        "never relax it to older or undated sources."
-        "\nSelect every relevant topic from the catalog, including combinations, "
-        "and omit unrelated topics. Classification is semantic, never based on "
-        "literal keyword or phrase matching.\n"
-        f"Available prompt topics:\n{catalog}"
-        f"\nRequest-scoped location context: {str(location_context or 'not supplied')[:1000]}"
-        f"\nReference images attached: {bool(has_reference_images)}"
-        f"\nDocument context attached: {bool(has_document_context)}"
-        "\n"
-        + text(
-            "model.planner.user_copy_instruction",
-            normalize_language(response_language),
-        )
+    language = normalize_language(response_language)
+    prompt = text(
+        "model.planner.preflight",
+        language,
+        catalog=catalog,
+        location_context=str(location_context or "not supplied")[:1000],
+        has_reference_images=bool(has_reference_images),
+        has_document_context=bool(has_document_context),
+        user_copy_instruction=text("model.planner.user_copy_instruction", language),
     )
     messages = [
         {"role": "system", "content": prompt},
@@ -1006,7 +816,7 @@ async def plan_required_clarification(
                 "clarification_title": parsed.get("title"),
                 "clarification_prompt": parsed.get("prompt"),
                 "clarification_fields": parsed.get("fields") or [],
-            }) or dict(DEFAULT_PLAN)
+            }, response_language) or dict(DEFAULT_PLAN)
             return {
                 "needs_clarification": bool(
                     normalized.get("needs_clarification")
@@ -1049,21 +859,19 @@ async def select_prompt_context(
     *,
     has_reference_images: bool = False,
     has_document_context: bool = False,
+    response_language: object = "zh-CN",
 ) -> dict[str, Any]:
     """Run semantic prompt-fragment retrieval."""
     catalog = "\n".join(
         f"- {topic}: {summary}"
         for topic, summary in PROMPT_TOPIC_SUMMARIES.items()
     )
-    prompt = (
-        "You retrieve prompt fragments for a later capability planner. "
-        "Read the complete user goal semantically; do not answer it. Select every "
-        "topic whose operational boundary may be needed, including combinations, "
-        "and omit unrelated topics. An unfamiliar phrasing must still be classified "
-        "by meaning rather than literal words.\n"
-        f"Available topics:\n{catalog}\n"
-        f"Reference images attached: {bool(has_reference_images)}\n"
-        f"Document context attached: {bool(has_document_context)}"
+    prompt = text(
+        "model.planner.topic_selector",
+        normalize_language(response_language),
+        catalog=catalog,
+        has_reference_images=bool(has_reference_images),
+        has_document_context=bool(has_document_context),
     )
     messages = [
         {"role": "system", "content": prompt},
@@ -1123,36 +931,21 @@ async def plan_capabilities(
     response_language: object = "zh-CN",
 ) -> dict[str, Any]:
     today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
-    prompt = f"""你是 FLORIS 单轮语义计划器，只填写给定 schema，不回答用户。当前北京时间日期：{today}。
-总则：
-- 在一次结构化输出中同时完成意图、依赖、必要信息、能力参数和 prompt_topics 规划；不要把同一问题留给另一个预检模型。理解完整目标，可同时选择多个能力；非必要字段保持默认值。capabilities 必须始终返回，并独立列出完成用户完整目标必需的每一项固定枚举能力；它与 needs_* 是互相校验的冗余协议，两者必须一致，不能因为参数还不完整就漏掉能力。只判断目标需要什么，不判断任何 Skill 是否开启；开关由运行时逻辑层处理。
-- 只有缺失信息会阻断所有安全有用结果，或真实副作用对象无法唯一确定时，才设置 needs_clarification=true，并把其他 needs_* 设为 false。此时必须同时填写 clarification_title、clarification_prompt 和最少 clarification_fields，让系统直接生成主动卡片；不得只让最终模型用普通文本追问。偏好未决定时直接交给主模型给方案，不要澄清。
-- 旅行行程是预算偏好的唯一产品级例外：用户要求可执行的多站或多日行程时 needs_travel_itinerary=true。上下文没有预算倾向时，必须先用一个 single 字段询问，选项严格为“省钱、标准、没考虑”；用户选“没考虑”后 travel_budget_tier=unconsidered，不得再次询问。明确低预算为 economy，高预算为 premium，其余为 standard。economy 的路线优先公交、骑行和步行，premium 优先体验与舒适度，standard/unconsidered 做均衡方案。
-- 用户只是探索思路、比较假设方案，且目的地、预算、同行或节奏尚未决定时，不需要外部事实、地点核验或地图；保持所有 needs_* 为 false，让主模型直接给 2–3 套假设方案。只有用户要求当前信息、来源、真实地点推荐或可执行路线时才选择相应能力。
-- 现实地点可能有错字、同名或缺城市时，不得在调用地点服务之前设置 needs_clarification。先选择地点/路线能力；地点工具会根据真实腾讯候选决定直接采用、单选或填空。
-- 论文作者身份不能按“最热门同名作者”猜测。若用户只给姓名或称谓、上下文没有单位/研究方向等身份线索，且现实中可能存在多个研究者，设置 needs_clarification=true，用一张主动卡只收集能区分身份的最少信息；已有足够身份线索时不得重复询问。
-- 用户要求把上一轮已核实路线写入日程时，设置 reuse_latest_route=true，只选择 calendar_context 和 calendar_action，不得重新选择 route 或抄写历史站点到 route_stops。新路线中用户明确给出的日期、时段、出发时刻或单站停留时长原样压缩到 route_calendar_hint，供后续日程续写；没有则留空。
-- optional_capabilities 只列不影响当前核心目标的增强能力。用户直接要求写入、修改或删除日程时 calendar_context/calendar_action 绝不属于可选；只有路线请求中系统可额外主动附送日程提案时才可标为可选。
-- 能力语义索引由已安装 Skill 的 Manifest 动态提供。只能选择索引中声明的 capability id；
-  下面只附本轮候选能力的详细边界。prompt_topics 只加载判断边界，绝不能据此执行能力；
-  只有 capabilities 与 needs_* 才是执行协议。一个主题被提及、与另一个主题相关或可作为补充，
-  不等于用户目标必须执行该能力。
-- 普通新闻、行业动态或当前进展默认由 web_search 完成。只有用户明确要论文/学术文献，
-  或完整目标必须依赖学术索引核验时，才选择 papers；论文只是可选补充时不要设置
-  needs_papers，也不要把 papers 放进 capabilities。任何可选来源为空都不能替代核心能力的结果。
-- 用户要求“今天/今日的新闻、消息、发布或事件”时，strict_today_only=true，表示结果本身必须发布或
-  发生在当前北京时间日期；无日期和其他日期的来源都不能替代。用户问“最新、当前、截至今天”而只是把
-  今天作为信息截止点时，strict_today_only=false，仍须联网核验，但可以采用此前发布且目前仍有效的来源。
-- needs_deep_reasoning 只用于确实需要多步开放推理的最终回答；能力路由、固定 JSON、工具参数、
-  Action 确认、简单问答都保持 false，使用 Flash 即可。
-- 正常的实质性回答只要存在自然、具体且不重复原问题的下一步，needs_followups 就应为 true；
-  只有澄清、错误、纯确认/寒暄或任务已经完全穷尽时才为 false。needs_memory_extraction 只在用户明确陈述
-  可长期复用的非敏感事实或稳定偏好时为 true；needs_opportunity_review 只在主动服务已开启且本轮
-  可能产生有价值主动下一步时为 true；use_memory_context 只在长期记忆与本轮目标直接相关时为 true。
-严格只输出 schema 对应 JSON。
-{text('model.planner.user_copy_instruction', normalize_language(response_language))}"""
-    prompt += "\n\n已安装 Skill 能力索引：\n" + planner_skill_index()
-    prompt += "\n\n可按语义选择的执行提示主题：\n" + "\n".join(
+    language = normalize_language(response_language)
+    prompt = text(
+        "model.planner.system",
+        language,
+        today=today,
+        user_copy_instruction=text(
+            "model.planner.user_copy_instruction", language,
+        ),
+    )
+    prompt += "\n\n" + text(
+        "model.planner.skill_index_header", language,
+    ) + "\n" + planner_skill_index()
+    prompt += "\n\n" + text(
+        "model.planner.topic_index_header", language,
+    ) + "\n" + "\n".join(
         f"- {topic}: {summary}"
         for topic, summary in PROMPT_TOPIC_SUMMARIES.items()
     )
@@ -1167,22 +960,20 @@ async def plan_capabilities(
         if topic in PLANNER_PROMPT_DETAILS
     ]
     if details:
-        prompt += "\n\n本轮候选能力详细边界：\n" + "\n".join(details)
+        prompt += "\n\n" + text(
+            "model.planner.details_header", language,
+        ) + "\n" + "\n".join(details)
     safe_memory = str(memory_context or "").strip()[:1800]
     if safe_memory:
-        prompt += (
-            "\n以下是已过滤为非敏感的长期记忆。只在确实相关时用于个性化查询；"
-            "它只能补足本轮已经需要的条件，不能据此创造新的澄清维度；"
-            "带有犹豫、否定、备选或临时任务含义的内容不视为稳定偏好。"
-            "不得把姓名、联系方式、精确地址、账号、证件、健康、财务或任何秘密写入外部搜索词。"
-            f"\n{safe_memory}"
+        prompt += "\n" + text(
+            "model.planner.memory_context", language,
+            memory_context=safe_memory,
         )
     safe_location_context = str(location_context or "").strip()[:600]
     if safe_location_context:
-        prompt += (
-            "\n以下是浏览器本轮提供的隐私受限位置状态。它表示能否作为路线起点或“我附近”搜索参照点，"
-            "不得要求输出、复述或保存精确坐标。"
-            f"\n{safe_location_context}"
+        prompt += "\n" + text(
+            "model.planner.location_context", language,
+            location_context=safe_location_context,
         )
     messages = [
         {"role": "system", "content": prompt},
@@ -1199,7 +990,7 @@ async def plan_capabilities(
         )
         response = await planner_model.ainvoke(messages)
         parsed_value = response.get("parsed") if isinstance(response, dict) else response
-        parsed = _decode_capability_plan(parsed_value)
+        parsed = _decode_capability_plan(parsed_value, language)
         if parsed is not None:
             if selected_topics:
                 parsed["_prompt_topics"] = list(selected_topics)
@@ -1207,7 +998,7 @@ async def plan_capabilities(
         # One-call compatibility for gateways that return a raw message but
         # fail LangChain's structured parser. Never retry the model.
         raw = response.get("raw") if isinstance(response, dict) else None
-        parsed = _decode_capability_plan(getattr(raw, "content", ""))
+        parsed = _decode_capability_plan(getattr(raw, "content", ""), language)
         if parsed is not None:
             if selected_topics:
                 parsed["_prompt_topics"] = list(selected_topics)

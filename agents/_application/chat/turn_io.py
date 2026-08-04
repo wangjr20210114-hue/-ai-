@@ -7,6 +7,7 @@ import logging
 
 from ...chat._protocol import public_content
 from ..._application.workspace.service import load_user_workspace, public_action
+from ..._application.i18n import text as copy_text
 
 
 def checkpoint_final_answer(snapshot) -> str:
@@ -60,7 +61,10 @@ def _document_context(body: dict) -> str:
     raw = body.get("document_context")
     if not isinstance(raw, dict):
         return ""
-    filename = str(raw.get("filename") or "已上传文档").strip()[:180] or "已上传文档"
+    fallback_name = copy_text(
+        "chat.uploaded_document", body.get("response_language"),
+    )
+    filename = str(raw.get("filename") or fallback_name).strip()[:180] or fallback_name
     text = str(raw.get("text") or "").replace("\x00", "").strip()[:60_000]
     if not text:
         return ""

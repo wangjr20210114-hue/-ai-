@@ -44,7 +44,7 @@ export async function extractStoredPdfText(fileId: string, maxChars = 60_000): P
       .filter(Boolean)
       .join('\n');
     if (!text) continue;
-    pages.push(`[第 ${pageNumber} 页]\n${text}`);
+    pages.push(`${translate('documentPageMarker', { page: pageNumber })}\n${text}`);
     length += text.length;
   }
   const output = pages.join('\n\n').slice(0, maxChars).trim();

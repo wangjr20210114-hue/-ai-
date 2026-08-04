@@ -14,6 +14,7 @@ import re
 from typing import Any
 
 from ..intelligence.service import safe_non_sensitive_text
+from ..i18n import language_instruction, normalize_language, text
 
 
 OPPORTUNITY_TYPES = {
@@ -90,29 +91,17 @@ async def detect_opportunity(
     recent_questions: list[str] | None = None,
     has_pending_action: bool = False,
     timeout_seconds: float = 6.0,
+    response_language: object = "zh-CN",
 ) -> dict[str, Any] | None:
     """Use semantic judgment to identify one proactive service opportunity."""
     if not str(user_message or "").strip() or not str(answer or "").strip() or has_pending_action:
         return None
-    system = """你是 FLORIS 的主动服务机会识别器。用户当前请求已经回答完毕；你只判断是否存在一个值得在稍后主动提供、且用户没有明确要求的下一步服务。不要回答用户。
-
-返回严格 JSON：should_notify(boolean)、type、title、body、action_prompt、priority、confidence、expires_in_hours、reason。
-type 只能是 search_update、writing_improvement、translation_review、image_iteration、document_next_step、task_next_step。
-
-判断标准：
-- 必须能显著节省用户后续操作，或预防遗漏；没有明确额外价值就 should_notify=false。
-- 搜索：只有信息明显会继续变化、存在待跟进节点或回答暴露了重要未决问题时才建议追踪；不要把普通搜索改写成“继续搜索”。
-- 写作：只在已有草稿存在明确受众、用途或交付节点，可主动做语气、结构、长度或格式适配时建议。
-- 翻译：只在术语一致性、目标受众、本地化或双语交付确有价值时建议，不机械建议“再润色”。
-- 生图：只在本轮已经生成图片且存在明确可执行的构图、尺寸或版本延展价值时建议。
-- 文档：上传或阅读文档后可建议总结、提取行动项、风险或生成回复，但只选最有价值的一项。
-- 任务：用户陈述了目标、截止时间或连续步骤，且下一步清晰时才建议；不能制造焦虑。
-- 简单问答、闲聊、算术、脑筋急转弯、一次性事实、用户明确拒绝后续、已有待确认 Action，全部 should_notify=false。
-- 最多一条；title/body 要陈述用户能理解的事实和价值，action_prompt 必须能直接作为用户下一轮发给模型的自然指令。
-- 可以静默参考“安全长期偏好”和“近期问题”来判断用户是否有持续目标或重复需求，但不要提及这些上下文的来源，也不要把它们复述给用户；如果没有明确价值就不要提醒。
-- 不得包含或推断姓名、联系方式、精确地址、账号、证件、健康、财务、密钥等敏感信息，不得执行副作用，不得提内部模型、扫描、机会识别或数据库。
-- confidence 低于 0.72 必须 should_notify=false；有效期 1–168 小时；一般优化 priority=low，具有明确时限但无安全风险时 priority=normal。
-"""
+    language = normalize_language(response_language)
+    system = text(
+        "model.proactive.opportunity",
+        language,
+        language_instruction=language_instruction(language),
+    )
     payload = {
         "user_message": str(user_message)[:3000],
         "answer": str(answer)[:6000],
@@ -142,6 +131,7 @@ async def detect_generated_image_opportunity(
     payload: dict[str, Any],
     *,
     timeout_seconds: float = 6.0,
+    response_language: object = "zh-CN",
 ) -> dict[str, Any] | None:
     """Judge a completed image action without delaying the image response.
 
@@ -160,10 +150,11 @@ async def detect_generated_image_opportunity(
     }
     opportunity = await detect_opportunity(
         model,
-        user_message=f"用户刚完成图片生成，原始需求：{prompt}",
-        answer="图片已经生成成功，可以根据用途、版式和视觉重点判断是否值得主动提供一个具体迭代版本。",
+        user_message=text("model.proactive.generated_image_request", response_language, prompt=prompt),
+        answer=text("model.proactive.generated_image_answer", response_language),
         capability_plan={"intent": "image", "image_result": context},
         timeout_seconds=timeout_seconds,
+        response_language=response_language,
     )
     if not opportunity or opportunity.get("type") != "image_iteration":
         return None
@@ -175,6 +166,7 @@ async def detect_uploaded_file_opportunity(
     payload: dict[str, Any],
     *,
     timeout_seconds: float = 6.0,
+    response_language: object | None = None,
 ) -> dict[str, Any] | None:
     """Semantically choose the most useful unsolicited next step for a document.
 
@@ -182,29 +174,27 @@ async def detect_uploaded_file_opportunity(
     proactive event; the durable notification keeps only the Blob reference.
     """
     preview = str(payload.get("preview") or "").strip()[:3000]
-    filename = str(payload.get("filename") or "这份文档").strip()[:120] or "这份文档"
+    language = normalize_language(response_language or payload.get("ui_language"))
+    default_name = text("proactive.document.default_name", language)
+    filename = str(payload.get("filename") or default_name).strip()[:120] or default_name
     if not preview:
         return None
     preferred_language = str(payload.get("ui_language") or "zh-CN").strip()[:24]
     return await detect_opportunity(
         model,
-        user_message=f"用户刚上传了“{filename}”，但没有主动要求翻译、总结或分析。",
-        answer=(
-            f"界面语言：{preferred_language}\n"
-            "以下只是用于判断下一步服务机会的文档短预览：\n"
-            f"{preview}"
+        user_message=text("model.proactive.upload_request", language, filename=filename),
+        answer=text(
+            "model.proactive.upload_context", language,
+            preferred_language=preferred_language, preview=preview,
         ),
         capability_plan={
             "event": "file_uploaded",
             "is_paper": bool(payload.get("is_paper")),
             "preferred_response_language": preferred_language,
-            "selection_rule": (
-                "如果正文主要语言与界面语言不同，且翻译能让用户立即阅读，优先选择 "
-                "translation_review，并给出直接翻译该文档的 action_prompt；"
-                "否则只在摘要、行动项或研究提炼确有价值时选择 document_next_step。"
-            ),
+            "selection_rule": text("model.proactive.upload_selection", language),
         },
         timeout_seconds=timeout_seconds,
+        response_language=language,
     )
 
 
@@ -224,7 +214,7 @@ def opportunity_signal(
         "dedup_key": f"semantic_opportunity:{digest}",
         "priority": str(opportunity.get("priority") or "low"),
         "subject_ids": [str(source_id or "")],
-        "title": str(opportunity.get("title") or "下一步建议"),
+        "title": str(opportunity.get("title") or text("proactive.default_title", "zh-CN")),
         "detail": str(opportunity.get("body") or ""),
         "action": str(opportunity.get("action_prompt") or ""),
         "evidence": {
@@ -241,7 +231,9 @@ def opportunity_signal(
 
 def file_opportunity_signal(payload: dict[str, Any], *, dedup_key: str, now: int) -> dict[str, Any]:
     """A successful document upload is already a trusted, explicit signal."""
-    filename = str(payload.get("filename") or "这份文档").strip()[:120] or "这份文档"
+    language = normalize_language(payload.get("ui_language"))
+    default_name = text("proactive.document.default_name", language)
+    filename = str(payload.get("filename") or default_name).strip()[:120] or default_name
     is_paper = bool(payload.get("is_paper"))
     return {
         "type": "opportunity_document_next_step",
@@ -249,12 +241,14 @@ def file_opportunity_signal(payload: dict[str, Any], *, dedup_key: str, now: int
         "dedup_key": f"document_opportunity:{dedup_key}",
         "priority": "normal",
         "subject_ids": [str(payload.get("file_id") or payload.get("storage_key") or "")],
-        "title": "文档已就绪",
-        "detail": f"{filename}已保存，可以继续提炼{('研究结论与局限' if is_paper else '摘要与行动项')}。",
-        "action": (
-            f"请阅读“{filename}”，提炼研究问题、方法、关键结论、局限和下一步研究建议"
-            if is_paper else
-            f"请阅读“{filename}”，先给出简洁摘要，再提取可执行行动项、负责人和时间信息"
+        "title": text("proactive.document.ready", language),
+        "detail": text(
+            f"proactive.document.detail.{'paper' if is_paper else 'general'}",
+            language, filename=filename,
+        ),
+        "action": text(
+            f"proactive.document.action.{'paper' if is_paper else 'general'}",
+            language, filename=filename,
         ),
         "evidence": {
             "opportunity_type": "document_next_step",

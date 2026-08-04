@@ -9,20 +9,22 @@ from .._infrastructure.http import error
 from .._infrastructure.makers.provider_usage_repository import record_provider_usage
 from .._infrastructure.makers.place_repository import load_place_cache, save_place_cache
 from .._application.skills.access import resolve_skill_access
+from .._application.i18n import normalize_language, text
 
 
 async def handler(ctx):
+    body = ctx.request.body or {}
+    response_language = normalize_language(body.get("response_language"))
     identity = require_user(ctx)
     intelligence = await load_intelligence_state(ctx.store.langgraph_store, str(identity["user_id"]))
     access = resolve_skill_access(identity, intelligence.get("skill_preferences"))
     if not access.allows_capability("places"):
         if access.reason_for_capability("places") == "login_required":
-            return error("请登录后使用地点搜索", 403, code="LOGIN_REQUIRED")
-        return error("地图 Skill 已关闭，请先到 Skills 广场开启", 403, code="SKILL_DISABLED")
-    body = ctx.request.body or {}
+            return error(text("map.login_place", response_language), 403, code="LOGIN_REQUIRED")
+        return error(text("map.skill_disabled", response_language), 403, code="SKILL_DISABLED")
     query = str(body.get("query") or "").strip()
     if not query:
-        return error("query is required")
+        return error(text("map.query_required", response_language))
     map_key = str(ctx.env.get("TENCENT_MAP_SERVER_KEY") or ctx.env.get("TENCENT_MAP_KEY") or ctx.env.get("VITE_TENCENT_MAP_KEY") or "")
     preferences = intelligence.get("map_preferences") or {}
     result_limit = max(3, min(12, int(preferences.get("place_result_limit") or 6)))

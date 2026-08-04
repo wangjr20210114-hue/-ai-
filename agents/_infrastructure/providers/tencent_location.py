@@ -12,10 +12,16 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from ..._application.i18n import text as copy_text
+
 
 API_ROOT = "https://apis.map.qq.com/ws"
 _OSM_SEARCH_SEMAPHORE = asyncio.Semaphore(1)
 _osm_last_request_at = 0.0
+
+
+def _copy(key: str, **params: object) -> str:
+    return copy_text(key, "zh-CN", **params)
 
 
 def _fetch_json(url: str, params: dict[str, Any], timeout: int = 8) -> dict[str, Any]:
@@ -28,9 +34,9 @@ def _fetch_json(url: str, params: dict[str, Any], timeout: int = 8) -> dict[str,
         body = response.read(3 * 1024 * 1024)
     data = json.loads(body.decode("utf-8"))
     if not isinstance(data, dict):
-        raise RuntimeError("位置服务返回格式无效")
+        raise RuntimeError(_copy("maps.provider.response_invalid"))
     if int(data.get("status") or 0) != 0:
-        raise RuntimeError(str(data.get("message") or "位置服务请求失败"))
+        raise RuntimeError(str(data.get("message") or _copy("maps.provider.request_failed")))
     return data
 
 
@@ -54,7 +60,7 @@ async def _get(url: str, params: dict[str, Any]) -> dict[str, Any]:
             if attempt:
                 raise
             await asyncio.sleep(0.2)
-    raise RuntimeError("腾讯位置服务请求失败")
+    raise RuntimeError(_copy("maps.provider.tencent_failed"))
 
 
 async def _get_public(url: str, params: dict[str, Any]) -> Any:
@@ -87,10 +93,10 @@ def _place(item: dict[str, Any]) -> dict[str, Any] | None:
 
 async def search_places(key: str, query: str, *, city: str = "全国", limit: int = 10) -> list[dict[str, Any]]:
     if not key:
-        raise RuntimeError("未配置 TENCENT_MAP_KEY")
+        raise RuntimeError(_copy("maps.provider.key_missing"))
     query = str(query or "").strip()
     if not query:
-        raise ValueError("地点搜索词不能为空")
+        raise ValueError(_copy("maps.provider.query_required"))
     boundary = f"region({str(city or '全国').strip()},0)"
     data = await _get(
         f"{API_ROOT}/place/v1/search",
@@ -126,14 +132,14 @@ async def search_place_suggestions(
 async def reverse_geocode(key: str, location: dict[str, Any]) -> dict[str, Any]:
     """Resolve a request-scoped browser fix into user-readable Tencent address data."""
     if not key:
-        raise RuntimeError("未配置 TENCENT_MAP_KEY")
+        raise RuntimeError(_copy("maps.provider.key_missing"))
     try:
         latitude = float(location.get("latitude"))
         longitude = float(location.get("longitude"))
     except (AttributeError, TypeError, ValueError) as exc:
-        raise ValueError("当前位置坐标无效") from exc
+        raise ValueError(_copy("maps.provider.current_location_invalid")) from exc
     if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
-        raise ValueError("当前位置坐标超出有效范围")
+        raise ValueError(_copy("maps.provider.current_location_range"))
     coordinate_type = str(location.get("coordinate_type") or "").lower()
     data = await _get(
         f"{API_ROOT}/geocoder/v1",
@@ -173,7 +179,7 @@ async def reverse_geocode(key: str, location: dict[str, Any]) -> dict[str, Any]:
             )[:240]
             break
     if not address and not any(str(value or "").strip() for value in components.values()):
-        raise RuntimeError("腾讯位置服务未返回可读地址")
+        raise RuntimeError(_copy("maps.provider.address_missing"))
     return {
         "provider": "tencent",
         "address": address,
@@ -407,7 +413,7 @@ async def search_verified_places_bounded(
         )
     remaining = deadline - asyncio.get_running_loop().time()
     if remaining <= 0:
-        raise TimeoutError(f"地点搜索超过 {round(timeout)} 秒，请减少候选数量或使用快速档")
+        raise TimeoutError(_copy("maps.provider.search_timeout", seconds=round(timeout)))
     try:
         fallback = await asyncio.wait_for(
             search_osm_places(query, city=city, limit=limit),
@@ -424,9 +430,9 @@ async def search_verified_places_bounded(
                 timeout=max(0.1, remaining),
             )
     except asyncio.TimeoutError as exc:
-        raise TimeoutError(
-            f"地点搜索超过 {round(timeout)} 秒，请减少候选数量或使用快速档"
-        ) from exc
+        raise TimeoutError(_copy(
+            "maps.provider.search_timeout", seconds=round(timeout),
+        )) from exc
     requested_city = _normalized_lookup_text(city)
     if requested_city and requested_city != _normalized_lookup_text("全国"):
         fallback = [
@@ -465,12 +471,12 @@ async def search_verified_places_nearby(
     """
     query = str(query or "").strip()
     if not query:
-        raise ValueError("周边地点搜索词不能为空")
+        raise ValueError(_copy("maps.provider.nearby_query_required"))
     try:
         latitude = float(anchor["latitude"])
         longitude = float(anchor["longitude"])
     except (KeyError, TypeError, ValueError):
-        raise ValueError("周边搜索锚点缺少已验证坐标") from None
+        raise ValueError(_copy("maps.provider.nearby_anchor_invalid")) from None
     radius = max(200, min(50_000, int(radius_meters or 5_000)))
     bounded_limit = max(1, min(20, int(limit)))
     search_keyword = query
@@ -604,11 +610,11 @@ def _fare(
     if taxi_estimate_yuan > 0:
         taxi_low = taxi_estimate_yuan * 0.9
         taxi_high = taxi_estimate_yuan * 1.15
-        basis = "腾讯真实道路距离与出租车费用估算；区间用于覆盖动态加价和等候差异，不包含停车费"
+        basis = _copy("maps.fare.tencent_taxi_basis")
     else:
         taxi_low = 14.0 + max(0.0, km - 3.0) * 2.3 + max(0.0, hours - 0.15) * 18.0
         taxi_high = taxi_low * 1.25
-        basis = "真实道路距离；出租车为通用城市参数区间，未包含动态加价和停车费"
+        basis = _copy("maps.fare.generic_taxi_basis")
     return {
         "currency": "CNY",
         "basis": basis,
@@ -799,13 +805,13 @@ async def normalize_route_places(
     if not isinstance(translated, list):
         translated = (data.get("result") or {}).get("locations")
     if not isinstance(translated, list) or len(translated) != len(browser_indexes):
-        raise RuntimeError("腾讯坐标转换没有返回完整的当前位置结果")
+        raise RuntimeError(_copy("maps.provider.coordinate_incomplete"))
     for index, location in zip(browser_indexes, translated):
         if not isinstance(location, dict):
-            raise RuntimeError("腾讯坐标转换返回格式无效")
+            raise RuntimeError(_copy("maps.provider.coordinate_invalid"))
         lat, lng = location.get("lat"), location.get("lng")
         if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
-            raise RuntimeError("腾讯坐标转换缺少有效经纬度")
+            raise RuntimeError(_copy("maps.provider.coordinate_missing"))
         original_provider = str(normalized[index].get("provider") or "")
         normalized[index].update({
             "provider": (
@@ -827,7 +833,7 @@ def _non_driving_fare(mode: str, route: dict[str, Any]) -> dict[str, Any]:
         fare_known = bool(route.get("fare_known"))
         return {
             "currency": "CNY",
-            "basis": "票价来自腾讯公交路线结果；实际票价受线路、优惠和支付方式影响",
+            "basis": _copy("maps.fare.transit_basis"),
             "transit": {
                 "estimate": round(max(0.0, float(estimate or 0)), 2),
                 "provider_estimate": fare_known,
@@ -835,7 +841,7 @@ def _non_driving_fare(mode: str, route: dict[str, Any]) -> dict[str, Any]:
         }
     return {
         "currency": "CNY",
-        "basis": "步行或骑行路线不估算交通票价",
+        "basis": _copy("maps.fare.active_basis"),
     }
 
 
@@ -920,7 +926,7 @@ async def _plan_route_leg(
     routes = (data.get("result") or {}).get("routes") or []
     candidates = [item for item in routes if isinstance(item, dict)]
     if not candidates:
-        raise RuntimeError(f"腾讯位置服务没有返回可用的{mode}路线")
+        raise RuntimeError(_copy("maps.provider.route_missing", mode=mode))
     fastest = min(
         candidates,
         key=lambda item: (
@@ -1033,17 +1039,17 @@ async def plan_route(
     near_time_tolerance_minutes: int = 10,
 ) -> dict[str, Any]:
     if not key:
-        raise RuntimeError("未配置 TENCENT_MAP_KEY")
+        raise RuntimeError(_copy("maps.provider.key_missing"))
     if len(places) < 2:
-        raise ValueError("至少需要两个有效地点才能规划路线")
+        raise ValueError(_copy("maps.route.two_places_required"))
     if len(places) > 12:
-        raise ValueError("单条路线最多支持 12 个地点")
+        raise ValueError(_copy("maps.route.too_many_places"))
     mode = str(mode or "driving").strip().lower()
     if mode not in {"driving", "transit", "walking", "bicycling"}:
-        raise ValueError("路线方式必须是 driving、transit、walking 或 bicycling")
+        raise ValueError(_copy("maps.route.mode_invalid"))
     strategy = str(strategy or "time_then_cost").strip().lower()
     if strategy not in {"time_then_cost", "least_time", "least_cost"}:
-        raise ValueError("路线策略必须是 time_then_cost、least_time 或 least_cost")
+        raise ValueError(_copy("maps.route.strategy_invalid"))
     places = await normalize_route_places(key, places)
     if optimize and mode == "driving":
         places = await optimize_place_order(key, places)
@@ -1125,7 +1131,7 @@ async def plan_route(
             "fare": (
                 {
                     "currency": "CNY",
-                    "basis": "票价为各段腾讯公交路线票价之和；实际票价受线路、优惠和支付方式影响",
+                    "basis": _copy("maps.fare.transit_total_basis"),
                     "transit": {
                         "estimate": round(sum(
                             float(((leg.get("fare") or {}).get("transit") or {}).get("estimate") or 0)
@@ -1214,7 +1220,7 @@ async def plan_verified_route(
     provider and semantics.
     """
     if not key:
-        raise RuntimeError("未配置腾讯地图服务密钥，无法计算道路路线")
+        raise RuntimeError(_copy("maps.route.key_missing"))
     timeout = max(5.0, min(25.0, float(timeout_seconds)))
     try:
         return await asyncio.wait_for(
@@ -1239,17 +1245,17 @@ async def plan_verified_route(
             timeout=timeout,
         )
     except asyncio.TimeoutError as exc:
-        raise TimeoutError(f"腾讯地图路线服务超过 {round(timeout)} 秒未响应") from exc
+        raise TimeoutError(_copy("maps.route.timeout", seconds=round(timeout))) from exc
 
 
 async def get_current_weather(key: str, place: dict[str, Any]) -> dict[str, Any]:
     """Resolve a verified place to an adcode and return Tencent realtime weather."""
     if not key:
-        raise RuntimeError("未配置 TENCENT_MAP_KEY，跳过天气 Collector")
+        raise RuntimeError(_copy("maps.weather.key_missing"))
     lat = place.get("latitude")
     lng = place.get("longitude")
     if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
-        raise ValueError("天气地点缺少已验证坐标")
+        raise ValueError(_copy("maps.weather.coordinates_required"))
     geocode = await _get(
         f"{API_ROOT}/geocoder/v1/",
         {"key": key, "location": f"{float(lat)},{float(lng)}", "get_poi": 0},
@@ -1257,11 +1263,11 @@ async def get_current_weather(key: str, place: dict[str, Any]) -> dict[str, Any]
     ad_info = (geocode.get("result") or {}).get("ad_info") or {}
     adcode = str(ad_info.get("adcode") or "")
     if not adcode:
-        raise RuntimeError("位置服务没有返回天气行政区划")
+        raise RuntimeError(_copy("maps.weather.district_missing"))
     weather = await _get(f"{API_ROOT}/weather/v1/", {"key": key, "adcode": adcode})
     realtime = (weather.get("result") or {}).get("realtime") or []
     if not realtime:
-        raise RuntimeError("位置服务没有返回实时天气")
+        raise RuntimeError(_copy("maps.weather.realtime_missing"))
     infos = (realtime[0] or {}).get("infos") or {}
     return {
         "provider": "tencent",

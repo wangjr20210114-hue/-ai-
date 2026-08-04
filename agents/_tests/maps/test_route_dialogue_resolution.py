@@ -1,4 +1,5 @@
 from agents._tests.support.route_dialogue_environment import *  # noqa: F401,F403
+from agents._application.i18n import text
 
 
 class RouteDialogueResolutionTests(unittest.IsolatedAsyncioTestCase):
@@ -45,20 +46,18 @@ class RouteDialogueResolutionTests(unittest.IsolatedAsyncioTestCase):
         ).read_text(encoding="utf-8")
         self.assertIn(
             "不得在调用地点服务之前设置 needs_clarification",
-            source,
+            text("model.planner.system", "zh-CN", today="2099-01-01", user_copy_instruction=""),
         )
         self.assertIn(
-            "地点工具会根据真实腾讯候选决定直接采用、单选或填空",
+            '"model.planner.system"',
             source,
         )
         self.assertIn(
             "不得在规划器中纠错、改名或选择分店",
             planner_topic_instructions()["maps"],
         )
-        self.assertIn(
-            "Do not ask the user to pre-correct or pre-disambiguate a supplied place",
-            source,
-        )
+        self.assertNotIn("不得在调用地点服务之前", source)
+        self.assertNotIn("Do not ask the user to pre-correct", source)
 
     def test_place_resolution_target_overrides_premature_generic_clarification(self):
         plan = parse_capability_plan(json.dumps({

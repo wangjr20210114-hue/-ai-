@@ -9,6 +9,7 @@ from .._infrastructure.makers.data_version import namespace as data_namespace
 from .._infrastructure.http import error
 from .._infrastructure.makers.conversation_repository import public_chat_run, read_chat_run
 from ..chat._protocol import action_fallback_content, public_content
+from .._application.i18n import normalize_language, text
 
 
 def _value(item, key, default=None):
@@ -115,9 +116,11 @@ def _coalesce_action_messages(messages: list[dict]) -> list[dict]:
 async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
+    response_language = normalize_language((ctx.request.body or {}).get("response_language"))
+    default_map_title = text("workspace.map.default_title", response_language)
     raw_conversation_id = ctx.conversation_id
     if not raw_conversation_id:
-        return error("makers-conversation-id header is required")
+        return error(text("request.conversation_header_required", response_language))
     conversation_id = scoped_conversation_id(ctx, user_id, raw_conversation_id)
 
     config = {"configurable": {"thread_id": conversation_id}}
@@ -161,7 +164,7 @@ async def handler(ctx):
     result = []
     schedules_by_id = {}
     latest_map = []
-    latest_map_title = "相关地点"
+    latest_map_title = default_map_title
     latest_map_route_mode = ""
     latest_map_route_strategy = ""
     latest_map_route = {}
@@ -190,7 +193,7 @@ async def handler(ctx):
                 places = action.get("places", [])
                 if isinstance(places, list):
                     latest_map = places
-                    latest_map_title = str(action.get("title") or "相关地点")
+                    latest_map_title = str(action.get("title") or default_map_title)
             elif isinstance(action, dict) and action.get("ui_action") in {
                 "map_action", "calendar_action", "side_effect_action",
             }:
@@ -319,7 +322,7 @@ async def handler(ctx):
         schedules = list(schedules_by_id.values())
     if active_map:
         latest_map = active_map.get("places") or []
-        latest_map_title = str(active_map.get("title") or "相关地点")
+        latest_map_title = str(active_map.get("title") or default_map_title)
         latest_map_route_mode = str(active_map.get("route_mode") or "")
         latest_map_route_strategy = str(active_map.get("route_strategy") or "")
         latest_map_route = active_map.get("route") or {}

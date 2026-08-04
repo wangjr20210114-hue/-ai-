@@ -1079,6 +1079,7 @@ const catalog = {
   yesterdayAt: ['昨天 {time}', '昨天 {time}', 'Yesterday {time}', '昨天 {time} 喵', '昨天 {time}'],
   relatedPlaces: ['相关地点', '相關地點', 'Related places', '相关地点喵', '相关地点'],
   documentReadFailed: ['无法读取这份文档，请确认文件仍在“我的阅读”中', '無法讀取這份文件，請確認檔案仍在「我的閱讀」中', 'Could not read this document. Make sure it is still in My Reading.', '读不到这份文档喵，请确认它还在“我的阅读”里。', '无法读取文档。请确认文件仍在“我的阅读”中'],
+  documentPageMarker: ['【第 {page} 页】', '【第 {page} 頁】', '[Page {page}]', '【第 {page} 页】', '【第 {page} 页】'],
   pdfNoExtractableText: ['这份 PDF 没有可提取的文字，请在阅读器中查看或换一份文本型 PDF', '這份 PDF 沒有可擷取的文字，請在閱讀器中查看或更換文字型 PDF', 'This PDF has no extractable text. View it in the reader or choose a text-based PDF.', '这份 PDF 没有能提取的文字喵，请在阅读器查看或换文本型 PDF。', '该 PDF 没有可提取文字。请在阅读器查看或更换文本型 PDF'],
   sentencePeriod: ['。', '。', '.', '喵。', '。'],
   yourArea: ['你所在地区', '你所在區域', 'your area', '你所在地区', '你所在地区'],

@@ -45,6 +45,7 @@ from .._application.workspace.service import (
     verify_action_snapshot,
 )
 from ..chat._llm import get_model
+from .._application.i18n import normalize_language, text
 
 
 def _semantic_model(env: dict | None):
@@ -72,6 +73,7 @@ def _response(state, action=None, **extra):
 def _require_action_skill(
     action_kind: str,
     access: SkillAccess,
+    response_language: object = "zh-CN",
 ) -> None:
     unavailable = unavailable_skills_for_action(
         action_kind,
@@ -83,16 +85,25 @@ def _require_action_skill(
         access.downgrade_reasons.get(skill_id) == "login_required"
         for skill_id in unavailable
     ):
-        raise ValueError("请登录后使用此功能")
+        raise ValueError(text("workspace.login_required", response_language))
     names = []
     for skill_id in unavailable:
         manifest = skill_manifest(skill_id)
         name = (
-            str((manifest.names if manifest else {}).get("zh-CN") or skill_id)
+            str(
+                (manifest.names if manifest else {}).get(
+                    normalize_language(response_language)
+                )
+                or (manifest.names if manifest else {}).get("zh-CN")
+                or skill_id
+            )
         )
         if name not in names:
             names.append(name)
-    raise ValueError(f"请先到 Skills 广场开启：{'、'.join(names)}")
+    raise ValueError(text(
+        "workspace.skill_required", response_language,
+        skills="、".join(names),
+    ))
 
 
 def _learn_from_activated_route(state: dict, action: dict) -> bool:
@@ -219,6 +230,7 @@ async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
     body = ctx.request.body or {}
+    response_language = normalize_language(body.get("response_language"))
     operation = str(body.get("operation") or "get")
     raw_conversation_id = ctx.conversation_id
     if not raw_conversation_id:
@@ -253,11 +265,11 @@ async def handler(ctx):
         if operation == "save_travel_plan":
             raw = body.get("plan") or {}
             if not isinstance(raw, dict):
-                raise ValueError("旅行计划格式无效")
+                raise ValueError(text("workspace.travel.invalid", response_language))
             title = str(raw.get("title") or "").strip()[:160]
             destination = str(raw.get("destination") or "").strip()[:120]
             if not title or not destination:
-                raise ValueError("旅行计划必须包含标题和目的地")
+                raise ValueError(text("workspace.travel.fields", response_language))
             plans = state.setdefault("travel_plans", {})
             plan_id = str(raw.get("id") or f"travel_{uuid.uuid4().hex}")[:120]
             previous = plans.get(plan_id) if isinstance(plans.get(plan_id), dict) else {}
@@ -285,17 +297,17 @@ async def handler(ctx):
         if operation == "delete_travel_plan":
             plan_id = str(body.get("plan_id") or "")
             if state.setdefault("travel_plans", {}).pop(plan_id, None) is None:
-                raise ValueError("旅行计划不存在")
+                raise ValueError(text("workspace.travel.missing", response_language))
             state = await save_workspace(store, workspace_id, state)
             await _record_route_signal(store, f"travel_plan_deleted:{plan_id}:{int(time.time())}", user_id, ctx.env)
             return _response(state, deleted_plan_id=plan_id, travel_plans=list(state["travel_plans"].values()))
 
         if operation == "activate_map":
-            _require_action_skill("map_recommendation", skill_access)
+            _require_action_skill("map_recommendation", skill_access, response_language)
             action = get_action(state, str(body.get("action_id") or ""))
             check_action_version(action, int(body.get("version") or 0))
             if action.get("kind") != "map_recommendation" or action.get("status") not in {"ready", "active"}:
-                raise ValueError("该操作不是可用的地图推荐")
+                raise ValueError(text("workspace.map.invalid", response_language))
             action["status"] = "active"
             action["updated_at"] = int(time.time())
             state["active_map_action_id"] = action["id"]
@@ -316,10 +328,10 @@ async def handler(ctx):
             return _response(state)
 
         if operation == "direct_calendar_changes":
-            _require_action_skill("calendar_changes", skill_access)
+            _require_action_skill("calendar_changes", skill_access, response_language)
             changes = body.get("changes") or []
             if not isinstance(changes, list) or not changes:
-                raise ValueError("缺少日程变更")
+                raise ValueError(text("workspace.calendar.missing", response_language))
             validate_calendar_change_window(state, changes)
             changed = apply_calendar_changes(state, changes)
             state["active_map_action_id"] = ""
@@ -328,10 +340,10 @@ async def handler(ctx):
             return _response(state, changed=changed)
 
         if operation == "generate_image":
-            _require_action_skill("image_generate", skill_access)
+            _require_action_skill("image_generate", skill_access, response_language)
             prompt = str(body.get("prompt") or "").strip()[:2000]
             if not prompt:
-                raise ValueError("生图提示词不能为空")
+                raise ValueError(text("workspace.image.prompt", response_language))
             parent_id = str(body.get("parent_action_id") or "")
             parent = state.get("actions", {}).get(parent_id)
             references = []
@@ -355,7 +367,10 @@ async def handler(ctx):
             put_action(state, action)
             start_provider_call(state, action, now)
             state = await save_workspace(store, workspace_id, state)
-            result = await generate_image(ctx.env, prompt, references, user_id=user_id)
+            result = await generate_image(
+                ctx.env, prompt, references, user_id=user_id,
+                response_language=response_language,
+            )
             latest = await load_workspace(store, workspace_id)
             action = get_action(latest, action["id"])
             finish_provider_call(latest, action, result, int(time.time()))
@@ -365,11 +380,11 @@ async def handler(ctx):
             return _response(latest, action)
 
         if operation == "update_meeting_action":
-            _require_action_skill("meeting_create", skill_access)
+            _require_action_skill("meeting_create", skill_access, response_language)
             action = get_action(state, str(body.get("action_id") or ""))
             check_action_version(action, int(body.get("version") or 0))
             if action.get("kind") != "meeting_create" or action.get("status") != "awaiting_confirmation":
-                raise ValueError("该操作不是可编辑的腾讯会议提案")
+                raise ValueError(text("workspace.meeting.invalid", response_language))
             verify_action_snapshot(action)
             action["payload"] = meeting_action_payload(
                 state,
@@ -395,16 +410,16 @@ async def handler(ctx):
             return _response(state, action)
 
         if operation != "confirm_action":
-            raise ValueError("不支持的工作区操作")
+            raise ValueError(text("workspace.operation.unsupported", response_language))
 
         action = get_action(state, str(body.get("action_id") or ""))
         check_action_version(action, int(body.get("version") or 0))
         if action.get("status") == "succeeded":
             return _response(state, action)
         if action.get("status") != "awaiting_confirmation":
-            raise ValueError("该操作当前不能确认")
+            raise ValueError(text("workspace.action.unconfirmable", response_language))
         kind = str(action.get("kind") or "")
-        _require_action_skill(kind, skill_access)
+        _require_action_skill(kind, skill_access, response_language)
         payload = action.get("payload") or {}
         verify_action_snapshot(action)
         if kind == "calendar_changes":
@@ -416,7 +431,7 @@ async def handler(ctx):
             action["error"] = (
                 ""
                 if changed
-                else "没有可执行的日程变更；目标可能已不存在或日程已变化"
+                else text("workspace.calendar.no_changes", response_language)
             )
             action["version"] = int(action.get("version") or 1) + 1
             action["updated_at"] = int(time.time())
@@ -430,7 +445,7 @@ async def handler(ctx):
             missing_fields = payload.get("missing_fields") or []
             validation_errors = payload.get("validation_errors") or []
             if missing_fields:
-                raise ValueError("请先在确认卡中补齐会议开始和结束时间")
+                raise ValueError(text("workspace.meeting.fields", response_language))
             if validation_errors:
                 raise ValueError(str(validation_errors[0]))
 
@@ -441,14 +456,20 @@ async def handler(ctx):
         if kind == "meeting_create":
             result = await create_tencent_meeting(
                 runtime_env,
-                str(payload.get("subject") or "腾讯会议"),
+                str(payload.get("subject") or text(
+                    "workspace.meeting.default", response_language,
+                )),
                 str(payload.get("start_time") or ""),
                 str(payload.get("end_time") or ""),
+                response_language,
             )
         elif kind == "image_generate":
-            result = await generate_image(ctx.env, str(payload.get("prompt") or ""), user_id=user_id)
+            result = await generate_image(
+                ctx.env, str(payload.get("prompt") or ""), user_id=user_id,
+                response_language=response_language,
+            )
         else:
-            raise ValueError("该操作没有可执行 Provider")
+            raise ValueError(text("workspace.provider.missing", response_language))
 
         latest = await load_workspace(store, workspace_id)
         action = get_action(latest, action["id"])
@@ -462,11 +483,20 @@ async def handler(ctx):
                 changed = apply_calendar_changes(latest, [{
                     "operation": "create",
                     "event": {
-                        "title": str(result.get("subject") or payload.get("subject") or "腾讯会议"),
+                        "title": str(
+                            result.get("subject")
+                            or payload.get("subject")
+                            or text("workspace.meeting.default", response_language)
+                        ),
                         "start_time": start,
                         "duration_minutes": max(1, (end - start) // 60),
                         "category": "meeting",
-                        "description": "腾讯会议" + (f" · 会议号 {result.get('meeting_code')}" if result.get("meeting_code") else ""),
+                        "description": text(
+                            "workspace.meeting.default", response_language,
+                        ) + (text(
+                            "workspace.meeting.code", response_language,
+                            code=result.get("meeting_code"),
+                        ) if result.get("meeting_code") else ""),
                         "extra": {
                             "source": "tencent-meeting-official-mcp",
                             "meeting_id": str(result.get("meeting_id") or ""),

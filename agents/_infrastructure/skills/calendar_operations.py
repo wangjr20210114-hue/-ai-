@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from ..._application.i18n import normalize_language, text
 from ..._application.workspace.service import (
     apply_calendar_changes,
     calendar_change_warnings,
@@ -48,7 +49,9 @@ def build_calendar_operation(
     store,
     travel_buffer_minutes,
     user_id,
+    response_language: object = "zh-CN",
 ):
+    response_language = normalize_language(response_language)
     async def propose_calendar_changes(
         summary: str,
         changes: list[dict] | None = None,
@@ -151,12 +154,24 @@ def build_calendar_operation(
                 generated_changes.append({
                     "operation": "create",
                     "event": {
-                        "title": f"第{index + 1}站：{str(stop.get('name') or '行程地点')[:100]}",
+                        "title": text(
+                            "calendar.route_event.title", response_language,
+                            index=index + 1,
+                            place=str(
+                                stop.get("name")
+                                or text(
+                                    "calendar.route_event.default_place",
+                                    response_language,
+                                )
+                            )[:100],
+                        ),
                         "start_time": current.isoformat(),
                         "end_time": end.isoformat(),
                         "place_id": str(stop.get("place_id") or ""),
                         "location_kind": "physical",
-                        "description": "由已核实路线自动排入；确认前仍可编辑",
+                        "description": text(
+                            "calendar.route_event.description", response_language,
+                        ),
                     },
                 })
                 current = end
@@ -171,29 +186,50 @@ def build_calendar_operation(
         ):
             return _clarification_action(
                 conversation_id,
-                title="把这条路线排进日程",
-                prompt="请补充出发日期和时间，以及每个地点预计停留多久；我会按已核实的路线顺序生成可编辑日程。",
+                title=text("calendar.route_schedule.title", response_language),
+                prompt=text("calendar.route_schedule.prompt", response_language),
                 fields=[
                     {
                         "id": "route_calendar_start",
-                        "label": "什么时候出发？",
+                        "label": text(
+                            "calendar.route_schedule.departure", response_language,
+                        ),
                         "type": "datetime",
                         "required": True,
                         "options": [],
-                        "placeholder": "例如：2026-08-04 08:00",
+                        "placeholder": text(
+                            "calendar.route_schedule.departure_placeholder",
+                            response_language,
+                        ),
                     },
                     {
                         "id": "route_calendar_stop_minutes",
-                        "label": "每个地点停留多久？",
+                        "label": text(
+                            "calendar.route_schedule.stay", response_language,
+                        ),
                         "type": "single",
                         "required": True,
-                        "options": ["60 分钟", "90 分钟", "120 分钟"],
-                        "option_values": {"60 分钟": "60", "90 分钟": "90", "120 分钟": "120"},
+                        "options": [
+                            text(
+                                "calendar.route_schedule.minutes",
+                                response_language,
+                                minutes=minutes,
+                            )
+                            for minutes in (60, 90, 120)
+                        ],
+                        "option_values": {
+                            text(
+                                "calendar.route_schedule.minutes",
+                                response_language,
+                                minutes=minutes,
+                            ): str(minutes)
+                            for minutes in (60, 90, 120)
+                        },
                     },
                 ],
             )
         if not 1 <= len(changes) <= 24:
-            raise ValueError("日程变更数量必须在 1 到 24 项之间")
+            raise ValueError(text("calendar.error.change_count", response_language))
         if isinstance(linked_route, dict):
             for stop in linked_route.get("ordered_stops") or []:
                 if not isinstance(stop, dict) or stop.get("ephemeral"):
@@ -241,10 +277,14 @@ def build_calendar_operation(
         normalized = []
         for change_index, raw in enumerate(changes, 1):
             if not isinstance(raw, dict):
-                raise ValueError("日程变更格式无效")
+                raise ValueError(text(
+                    "calendar.error.change_format", response_language,
+                ))
             operation = str(raw.get("operation") or "create")
             if operation not in {"create", "update", "delete"}:
-                raise ValueError("日程操作只能是 create、update 或 delete")
+                raise ValueError(text(
+                    "calendar.error.operation", response_language,
+                ))
             change: dict[str, Any] = {"operation": operation}
             previous_event: dict[str, Any] = {}
             if operation in {"update", "delete"}:
@@ -255,12 +295,17 @@ def build_calendar_operation(
                         event.get("title")
                         or raw.get("title")
                         or schedule_id
-                        or f"第 {change_index} 项"
+                        or text(
+                            "calendar.change.default_target", response_language,
+                            index=change_index,
+                        )
                     ).strip()[:120]
                     skipped_changes.append({
                         "operation": operation,
                         "target": label,
-                        "reason": "当前日程表中不存在，已跳过",
+                        "reason": text(
+                            "calendar.change.missing", response_language,
+                        ),
                     })
                     continue
                 change["schedule_id"] = schedule_id
@@ -273,7 +318,9 @@ def build_calendar_operation(
                 title = str(event.get("title") or event.get("name") or "").strip()[:120]
                 start_value = str(event.get("start_time") or event.get("start") or "").strip()
                 if operation == "create" and (not title or not start_value):
-                    raise ValueError("新增日程必须包含标题和开始时间")
+                    raise ValueError(text(
+                        "calendar.error.create_fields", response_language,
+                    ))
                 event_place_id = str(
                     event.get("place_id") or event.get("location_place_id") or ""
                 ).strip()
@@ -287,7 +334,9 @@ def build_calendar_operation(
                         # omissions here avoids a second model round without
                         # inferring anything from titles or place-language rules.
                         event_place_id = expected_place_id
-                        warning = "路线日程地点已按最近核实的站点顺序补齐，可在确认前编辑"
+                        warning = text(
+                            "calendar.warning.route_places", response_language,
+                        )
                         if warning not in normalization_warnings:
                             normalization_warnings.append(warning)
                 normalized_event: dict[str, Any] = {}
@@ -316,17 +365,27 @@ def build_calendar_operation(
                         # verified stop at the minimum calendar granularity.
                         # The proposal remains editable and still needs consent.
                         end = start + timedelta(minutes=1)
-                        normalization_warnings.append(
-                            "路线中的瞬时出发或抵达提醒已按日历最小粒度记为 1 分钟，可在确认前编辑"
-                        )
+                        normalization_warnings.append(text(
+                            "calendar.warning.instant_event", response_language,
+                        ))
                     if end <= start:
-                        raise ValueError(f"日程结束时间必须晚于开始时间：{title}")
+                        raise ValueError(text(
+                            "calendar.error.end_before_start", response_language,
+                            title=title,
+                        ))
                     normalized_event["duration_minutes"] = max(1, int((end - start).total_seconds() // 60))
                 elif end_value and operation == "update":
                     start = datetime.fromtimestamp(int(previous_event.get("start_time") or 0), timezone.utc)
                     end = _parse_datetime(end_value)
                     if end <= start:
-                        raise ValueError(f"日程结束时间必须晚于开始时间：{title or previous_event.get('title') or '该日程'}")
+                        raise ValueError(text(
+                            "calendar.error.end_before_start", response_language,
+                            title=(
+                                title
+                                or previous_event.get("title")
+                                or text("calendar.event.default", response_language)
+                            ),
+                        ))
                     normalized_event["duration_minutes"] = max(1, int((end - start).total_seconds() // 60))
                 elif "duration_minutes" in event:
                     normalized_event["duration_minutes"] = max(1, min(10_080, int(event.get("duration_minutes") or 60)))
@@ -345,7 +404,9 @@ def build_calendar_operation(
                 clear_location = bool(event.get("clear_location", False))
                 location_kind = str(event.get("location_kind") or "").strip().lower()
                 if location_kind not in {"", "physical", "online"}:
-                    raise ValueError("location_kind 只能是 physical 或 online")
+                    raise ValueError(text(
+                        "calendar.error.location_kind", response_language,
+                    ))
                 online_location = bool(location_text and location_kind == "online")
                 if clear_location:
                     place_id = ""
@@ -383,7 +444,10 @@ def build_calendar_operation(
                     if len(matched) == 1:
                         place_id = str(matched[0][0])
                     elif len(matched) > 1:
-                        raise ValueError(f"“{location_text}”对应多个已核实地点，请先选择具体地点")
+                        raise ValueError(text(
+                            "calendar.error.ambiguous_place", response_language,
+                            place=location_text,
+                        ))
                     else:
                         # A semantic planner normally schedules search_places
                         # before this tool. Keep the Action reliable when that
@@ -395,9 +459,10 @@ def build_calendar_operation(
                             or place_skill_id in enabled_skills
                         )
                         if not maps_enabled:
-                            raise ValueError(
-                                f"“{location_text}”需要地图 Skill 核实，请先到 Skills 广场开启地图"
-                            )
+                            raise ValueError(text(
+                                "calendar.error.map_required", response_language,
+                                place=location_text,
+                            ))
                         verified = await _search_places_metered(
                             str(
                                 runtime_env.get("TENCENT_MAP_SERVER_KEY")
@@ -410,7 +475,10 @@ def build_calendar_operation(
                             limit=6,
                         )
                         if not verified:
-                            raise ValueError(f"没有核实到地点“{location_text}”")
+                            raise ValueError(text(
+                                "calendar.error.place_not_found", response_language,
+                                place=location_text,
+                            ))
                         for candidate in verified:
                             candidate_id = str(candidate.get("place_id") or "").strip()
                             if candidate_id:
@@ -423,18 +491,26 @@ def build_calendar_operation(
                                 context="calendar event location",
                                 enabled=provider_place_review_enabled,
                                 timeout_seconds=min(8.0, map_search_timeout),
+                                response_language=response_language,
                             )
                             if decision == "auto_use" and isinstance(selected, dict):
                                 place_id = str(selected.get("place_id") or "")
                             else:
                                 return _clarification_action(
                                     conversation_id,
-                                    title="请选择日程地点",
-                                    prompt="地点服务返回了多个候选。请选择后我会继续生成日程提案。",
+                                    title=text(
+                                        "calendar.place_choice.title",
+                                        response_language,
+                                    ),
+                                    prompt=text(
+                                        "calendar.place_choice.prompt",
+                                        response_language,
+                                    ),
                                     fields=[_place_choice_field(
                                         "calendar_place",
                                         location_text,
                                         verified,
+                                        response_language,
                                     )],
                                 )
                         if not place_id:
@@ -473,16 +549,24 @@ def build_calendar_operation(
                                     context="calendar event location",
                                     enabled=provider_place_review_enabled,
                                     timeout_seconds=min(8.0, map_search_timeout),
+                                    response_language=response_language,
                                 )
                                 if decision == "choose":
                                     return _clarification_action(
                                         conversation_id,
-                                        title="请选择日程地点",
-                                        prompt="地点服务返回了多个候选。请选择后我会继续生成日程提案。",
+                                        title=text(
+                                            "calendar.place_choice.title",
+                                            response_language,
+                                        ),
+                                        prompt=text(
+                                            "calendar.place_choice.prompt",
+                                            response_language,
+                                        ),
                                         fields=[_place_choice_field(
                                             "calendar_place",
                                             location_text,
                                             verified,
+                                            response_language,
                                         )],
                                     )
                                 if isinstance(selected, dict):
@@ -492,7 +576,10 @@ def build_calendar_operation(
                                 place_id = str(verified[0].get("place_id") or "")
                                 place = candidates.get(place_id)
                     if not isinstance(place, dict):
-                        raise ValueError(f"地点 ID 未通过本轮地点搜索验证：{place_id}")
+                        raise ValueError(text(
+                            "calendar.error.place_id", response_language,
+                            place_id=place_id,
+                        ))
                     normalized_event["place"] = place
                     normalized_event["location"] = place.get("address") or place.get("name")
                 change["event"] = normalized_event
@@ -507,9 +594,8 @@ def build_calendar_operation(
                     "revision": int(state.get("revision") or 0),
                     "schedule_count": len(state.get("schedules") or {}),
                 },
-                "response_constraint": (
-                    "本轮已读取当前日程表，但没有可执行的差量变更；"
-                    "请逐项说明未找到的更新或删除目标，不得改为新增日程。"
+                "response_constraint": text(
+                    "model.calendar.no_delta_constraint", response_language,
                 ),
             }, ensure_ascii=False)
         if not route_source_id and isinstance(latest_route, dict):
@@ -535,7 +621,9 @@ def build_calendar_operation(
 
         if route_source_id:
             if not isinstance(linked_route, dict):
-                raise ValueError("引用的路线规划已经变化，请根据最近一次已核实路线重新生成日程提案")
+                raise ValueError(text(
+                    "calendar.error.route_changed", response_language,
+                ))
             route_stops = [
                 item for item in (linked_route.get("ordered_stops") or [])
                 if isinstance(item, dict) and str(item.get("place_id") or "")
@@ -557,7 +645,10 @@ def build_calendar_operation(
                 for change in created
             ]
             missing_names = [
-                str(stop.get("name") or "未命名地点")
+                str(
+                    stop.get("name")
+                    or text("calendar.unnamed_place", response_language)
+                )
                 for stop, place_id in zip(required_stops, required_ids)
                 if place_id not in proposed_ids
             ]
@@ -565,13 +656,18 @@ def build_calendar_operation(
                 place_id for place_id in proposed_ids if place_id in set(required_ids)
             ]
             if len(created) < len(required_ids) or missing_names:
-                raise ValueError(
-                    f"完整路线包含 {len(required_ids)} 个站点，日程提案必须至少创建 "
-                    f"{len(required_ids)} 个按站点拆分的事件；尚未覆盖："
-                    f"{'、'.join(missing_names) or '部分站点'}"
-                )
+                raise ValueError(text(
+                    "calendar.error.route_incomplete", response_language,
+                    count=len(required_ids),
+                    missing=(
+                        "、".join(missing_names)
+                        or text("calendar.partial_stops", response_language)
+                    ),
+                ))
             if proposed_route_order[:len(required_ids)] != required_ids:
-                raise ValueError("日程事件顺序必须与已核实路线的站点顺序完全一致，不能合并或重排")
+                raise ValueError(text(
+                    "calendar.error.route_order", response_language,
+                ))
 
         validate_calendar_change_window(state, normalized)
         warnings = calendar_change_warnings(state, normalized)
@@ -662,16 +758,32 @@ def build_calendar_operation(
                 required_minutes = route_minutes + travel_buffer_minutes
                 available_minutes = max(0, available // 60)
                 if required_minutes > available_minutes:
-                    return (
-                        f"“{previous.get('title') or '前一项日程'}”到"
-                        f"“{current.get('title') or '后一项日程'}”道路路线约 {route_minutes} 分钟，"
-                        f"加 {travel_buffer_minutes} 分钟缓冲共需 {required_minutes} 分钟，"
-                        f"当前只有 {available_minutes} 分钟"
+                    return text(
+                        "calendar.warning.travel_time", response_language,
+                        previous=(
+                            previous.get("title")
+                            or text("calendar.previous_event", response_language)
+                        ),
+                        current=(
+                            current.get("title")
+                            or text("calendar.next_event", response_language)
+                        ),
+                        route_minutes=route_minutes,
+                        buffer=travel_buffer_minutes,
+                        required=required_minutes,
+                        available=available_minutes,
                     )
             except Exception:
-                return (
-                    f"暂未核验“{previous.get('title') or '前一项日程'}”到"
-                    f"“{current.get('title') or '后一项日程'}”的道路通勤时间"
+                return text(
+                    "calendar.warning.travel_unverified", response_language,
+                    previous=(
+                        previous.get("title")
+                        or text("calendar.previous_event", response_language)
+                    ),
+                    current=(
+                        current.get("title")
+                        or text("calendar.next_event", response_language)
+                    ),
                 )
             return ""
 
@@ -685,7 +797,9 @@ def build_calendar_operation(
         action = new_action(
             "calendar_changes",
             {
-                "summary": str(summary or "日程变更")[:300],
+                "summary": str(
+                    summary or text("calendar.summary.default", response_language)
+                )[:300],
                 "changes": normalized,
                 "warnings": warnings,
                 "skipped_changes": skipped_changes,
