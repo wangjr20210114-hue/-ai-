@@ -32,6 +32,22 @@ const allowedRuntimeLiterals = new Map([
   ['features/chat/view/MessageBubble.tsx', ['生成图片', '绘制', '已识别为论文']],
 ]);
 
+// These errors are developer invariants or private control-flow sentinels;
+// callers replace them with localized copy before anything reaches the UI.
+const allowedInternalErrors = new Map([
+  ['store/appState.ts', [
+    'useAppState must be used within AppProvider',
+    'useAppDispatch must be used within AppProvider',
+  ]],
+  ['features/chat/controller/useMessageBubbleController.ts', [
+    'png unavailable',
+    'copy failed',
+  ]],
+  ['shared/auth/avatarCache.ts', [
+    'Avatar could not be decoded',
+  ]],
+]);
+
 function sourceFiles(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const absolute = path.join(directory, entry.name);
@@ -103,10 +119,23 @@ for (const absolute of sourceFiles(sourceRoot)) {
     absolute.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
   const allowed = allowedRuntimeLiterals.get(relative) || [];
+  const allowedErrors = allowedInternalErrors.get(relative) || [];
   const visit = (node) => {
     if (isToastCall(node) && (!node.arguments[0] || !usesTranslation(node.arguments[0]))) {
       const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
       failures.push(`${relative}:${line + 1}:${character + 1} Toast must use t(...) or translate(...)`);
+    }
+    if (
+      ts.isNewExpression(node)
+      && node.expression.getText(sourceFile) === 'Error'
+      && node.arguments?.[0]
+      && !usesTranslation(node.arguments[0])
+    ) {
+      const errorText = literalText(node.arguments[0], sourceFile).trim();
+      if (errorText && !allowedErrors.some((fragment) => errorText.includes(fragment))) {
+        const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+        failures.push(`${relative}:${line + 1}:${character + 1} Error must use t(...) or translate(...)`);
+      }
     }
     const text = literalText(node, sourceFile);
     const trimmed = text.trim();

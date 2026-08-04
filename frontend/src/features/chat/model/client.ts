@@ -137,7 +137,7 @@ export async function bootstrapApp(
       return data;
     }
     if (options.strict) {
-      throw new Error(`Could not load Makers run (${response.status})`);
+      throw new Error(translate('chatRunLoadFailed', { status: response.status }));
     }
   } catch (error) {
     if (options.strict) throw error;

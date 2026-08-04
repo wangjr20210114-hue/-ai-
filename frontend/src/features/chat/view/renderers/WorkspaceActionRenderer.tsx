@@ -5,6 +5,16 @@ import ImageStudioCard from '../../../../components/image/ImageStudioCard';
 import type { WorkspaceAction } from '../../model';
 import { useLanguage } from '../../../../i18n';
 
+function eventTimestamp(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value * 1000;
+  if (typeof value === 'string' && value.trim()) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric * 1000;
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
 
 export type WorkspaceActionOperation =
   | 'activate_map'
@@ -37,7 +47,8 @@ export function WorkspaceActionRenderer({
   onReplace,
   renderMeeting,
 }: Props) {
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
+  const locale = language === 'zh-TW' ? 'zh-TW' : language === 'en' ? 'en' : 'zh-CN';
   return <>{actions.map((action) => {
     const busy = busyKey === action.id;
     if (action.kind === 'map_recommendation') {
@@ -87,10 +98,48 @@ export function WorkspaceActionRenderer({
     const title = action.kind === 'calendar_changes'
       ? action.payload.summary || t('applyCalendarChanges')
       : t('generateImagePrompt', { prompt: String(action.payload.prompt || '') });
+    const calendarRows = action.kind === 'calendar_changes'
+      ? (action.payload.changes || []).map((change, index) => {
+        const event = change && typeof change.event === 'object' && change.event
+          ? change.event as Record<string, unknown>
+          : {};
+        const startAt = eventTimestamp(event.start_time);
+        const duration = Math.max(1, Number(event.duration_minutes || 0));
+        const endAt = startAt && Number.isFinite(duration)
+          ? startAt + duration * 60_000
+          : 0;
+        const formatter = new Intl.DateTimeFormat(locale, {
+          month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+          hour12: false, timeZone: 'Asia/Shanghai',
+        });
+        const endFormatter = new Intl.DateTimeFormat(locale, {
+          hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Shanghai',
+        });
+        const operation = String(change.operation || 'create');
+        return {
+          key: `${operation}-${String(change.schedule_id || '')}-${index}`,
+          title: String(event.title || change.schedule_id || t('calendarProposalItem', { index: index + 1 })),
+          time: startAt
+            ? `${formatter.format(new Date(startAt))}–${endFormatter.format(new Date(endAt))}`
+            : operation === 'delete' ? t('calendarProposalDelete') : '',
+          location: String(event.location || ''),
+        };
+      })
+      : [];
     const result = action.result || {};
     return (
       <div key={action.id} className="workspace-confirm-card streamed-component">
         <div className="workspace-confirm-title">{title}</div>
+        {calendarRows.length > 0 && (
+          <div className="workspace-calendar-preview" aria-label={t('calendarProposalPreview')}>
+            {calendarRows.map((row) => (
+              <div className="workspace-calendar-preview-row" key={row.key}>
+                <time>{row.time}</time>
+                <span><strong>{row.title}</strong>{row.location && <small>{row.location}</small>}</span>
+              </div>
+            ))}
+          </div>
+        )}
         {action.payload.warnings?.map((warning) => (
           <div key={warning} className="workspace-confirm-warning">{t('warningContinue', { warning })}</div>
         ))}

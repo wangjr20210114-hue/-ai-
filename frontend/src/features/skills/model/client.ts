@@ -5,6 +5,7 @@ import type {
   SkillUploadRecord,
   UserSkillRecord,
 } from './types';
+import { translate } from '../../../i18n';
 
 
 export const routes = Object.freeze(['/skill_marketplace', '/skill-uploads']);
@@ -31,7 +32,7 @@ export async function skillMarketplaceOperation(
     'catalog',
   );
   if (!Array.isArray(data.skills) || !data.dependency_graph || !data.component_api) {
-    throw new Error('Could not load Skill marketplace');
+    throw new Error(translate('skillMarketplaceLoadFailed'));
   }
   return data;
 }
@@ -51,7 +52,7 @@ export async function downloadSkillPackage(
       body: JSON.stringify({ operation: 'package', skill_id: skillId }),
     },
   );
-  if (!data.package) throw new Error('Skill package download failed');
+  if (!data.package) throw new Error(translate('skillPackageDownloadFailed'));
   const blob = new Blob([JSON.stringify(data.package, null, 2)], {
     type: 'application/vnd.floris.skill+json',
   });
@@ -67,7 +68,7 @@ export async function listSkillUploads(): Promise<SkillUploadRecord[]> {
   const data = await requestJson<{ uploads?: SkillUploadRecord[] }>(
     '/skill-uploads',
   );
-  if (!Array.isArray(data.uploads)) throw new Error('Skill uploads unavailable');
+  if (!Array.isArray(data.uploads)) throw new Error(translate('skillUploadsUnavailable'));
   return data.uploads;
 }
 
@@ -87,14 +88,14 @@ export async function uploadPrivateSkillPackage(file: File): Promise<SkillUpload
     }),
   });
   if (!intent.upload_id || !intent.storage_key || !intent.url) {
-    throw new Error('Could not create Skill upload');
+    throw new Error(translate('skillUploadCreateFailed'));
   }
   const stored = await requestRaw(intent.url, {
     method: 'PUT',
     headers: { 'Content-Type': file.type || 'application/zip' },
     body: file,
   }, false);
-  if (!stored.ok) throw new Error(`Skill upload failed: HTTP ${stored.status}`);
+  if (!stored.ok) throw new Error(translate('skillUploadHttpFailed', { status: stored.status }));
   const result = await requestJson<{ upload?: SkillUploadRecord }>(
     '/skill-uploads',
     {
@@ -108,7 +109,7 @@ export async function uploadPrivateSkillPackage(file: File): Promise<SkillUpload
       }),
     },
   );
-  if (!result.upload) throw new Error('Could not store private Skill package');
+  if (!result.upload) throw new Error(translate('skillUploadStoreFailed'));
   return result.upload;
 }
 
@@ -121,7 +122,7 @@ export async function requestMarketplaceReview(uploadId: string): Promise<SkillU
       body: JSON.stringify({ operation: 'publish', upload_id: uploadId }),
     },
   );
-  if (!result.upload) throw new Error('Could not request marketplace review');
+  if (!result.upload) throw new Error(translate('skillReviewRequestFailed'));
   return result.upload;
 }
 
@@ -143,6 +144,6 @@ export async function requestUserSkillMarketplaceReview(
       }),
     },
   );
-  if (!result.upload) throw new Error('Could not request marketplace review');
+  if (!result.upload) throw new Error(translate('skillReviewRequestFailed'));
   return result.upload;
 }

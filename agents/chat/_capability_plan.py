@@ -71,6 +71,7 @@ DEFAULT_PLAN = {
     "route_strategy": "default",
     "travel_budget_tier": "not_applicable",
     "route_uses_current_location": False,
+    "route_origin_is_departure": False,
     "reuse_latest_route": False,
     "route_calendar_hint": "",
     "optional_capabilities": [],
@@ -270,6 +271,10 @@ class CapabilityPlan(BaseModel):
         default=False,
         description=_schema("field_38"),
     )
+    route_origin_is_departure: bool = Field(
+        default=False,
+        description=_schema("field_45"),
+    )
     reuse_latest_route: bool = Field(
         default=False,
         description=_schema("field_39"),
@@ -401,6 +406,11 @@ def _decode_capability_plan(
     )
     plan["route_uses_current_location"] = bool(
         plan.get("needs_route") and raw.get("route_uses_current_location")
+    )
+    plan["route_origin_is_departure"] = bool(
+        plan.get("needs_route")
+        and not plan["route_uses_current_location"]
+        and raw.get("route_origin_is_departure")
     )
     plan["reuse_latest_route"] = bool(raw.get("reuse_latest_route"))
     plan["route_calendar_hint"] = str(
@@ -661,11 +671,6 @@ def next_required_tool(
 
 PROMPT_TOPIC_SUMMARIES = planner_topic_summaries()
 PLANNER_PROMPT_DETAILS = planner_topic_instructions()
-for _topic, _summary in PROMPT_TOPIC_SUMMARIES.items():
-    PLANNER_PROMPT_DETAILS.setdefault(
-        _topic,
-        f"【{_topic}】Use only the installed Skill capability boundaries: {_summary}",
-    )
 
 _PROMPT_TOPIC_IDS = ", ".join(PROMPT_TOPIC_SUMMARIES)
 _CAPABILITY_IDS = ", ".join(capability_skill_map())
@@ -782,11 +787,12 @@ async def plan_required_clarification(
     response_language: object = "zh-CN",
 ) -> dict[str, Any]:
     """Jointly decide readiness and retrieve prompt topics without phrase rules."""
+    language = normalize_language(response_language)
+    topic_summaries = planner_topic_summaries(language)
     catalog = "\n".join(
         f"- {topic}: {summary}"
-        for topic, summary in PROMPT_TOPIC_SUMMARIES.items()
+        for topic, summary in topic_summaries.items()
     )
-    language = normalize_language(response_language)
     prompt = text(
         "model.planner.preflight",
         language,
@@ -862,13 +868,15 @@ async def select_prompt_context(
     response_language: object = "zh-CN",
 ) -> dict[str, Any]:
     """Run semantic prompt-fragment retrieval."""
+    language = normalize_language(response_language)
+    topic_summaries = planner_topic_summaries(language)
     catalog = "\n".join(
         f"- {topic}: {summary}"
-        for topic, summary in PROMPT_TOPIC_SUMMARIES.items()
+        for topic, summary in topic_summaries.items()
     )
     prompt = text(
         "model.planner.topic_selector",
-        normalize_language(response_language),
+        language,
         catalog=catalog,
         has_reference_images=bool(has_reference_images),
         has_document_context=bool(has_document_context),
@@ -942,22 +950,24 @@ async def plan_capabilities(
     )
     prompt += "\n\n" + text(
         "model.planner.skill_index_header", language,
-    ) + "\n" + planner_skill_index()
+    ) + "\n" + planner_skill_index(language)
+    topic_summaries = planner_topic_summaries(language)
     prompt += "\n\n" + text(
         "model.planner.topic_index_header", language,
     ) + "\n" + "\n".join(
         f"- {topic}: {summary}"
-        for topic, summary in PROMPT_TOPIC_SUMMARIES.items()
+        for topic, summary in topic_summaries.items()
     )
     selected_topics = (
         _normalize_prompt_topics(prompt_topics)
         if prompt_topics is not None
         else ()
     )
+    prompt_details = planner_topic_instructions(language)
     details = [
-        PLANNER_PROMPT_DETAILS[topic]
+        prompt_details[topic]
         for topic in selected_topics
-        if topic in PLANNER_PROMPT_DETAILS
+        if topic in prompt_details
     ]
     if details:
         prompt += "\n\n" + text(

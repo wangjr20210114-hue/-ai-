@@ -57,6 +57,7 @@ def build_route_operation(
     planned_route_stops,
     planned_route_strategy,
     planned_route_uses_current_location,
+    planned_route_origin_is_departure,
     provider_place_review_enabled,
     route_user_message,
     runtime_env,
@@ -654,6 +655,10 @@ def build_route_operation(
             "created_at": int(time.time()),
             "ordered_stops": persisted_route_stops,
             "implicit_browser_origin": should_use_current_location,
+            "explicit_origin_is_departure": bool(
+                not should_use_current_location
+                and planned_route_origin_is_departure
+            ),
             "query_corrections": query_corrections,
             "distance_meters": round(distance_meters),
             "duration_seconds": round(duration_seconds),

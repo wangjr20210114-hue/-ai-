@@ -291,6 +291,38 @@ def public_action(action: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def merge_public_action_snapshot(
+    checkpoint_action: dict[str, Any],
+    durable_action: dict[str, Any],
+) -> dict[str, Any]:
+    """Prefer current Maker state while retaining frozen card fields.
+
+    Partially migrated workspace rows can contain the current version/status
+    but only part of the original payload. The checkpoint is immutable evidence
+    for the same Action id, so it may fill missing geometry while every
+    overlapping value remains Maker-authoritative.
+    """
+    current = public_action(durable_action)
+    checkpoint_payload = (
+        checkpoint_action.get("payload")
+        if isinstance(checkpoint_action.get("payload"), dict)
+        else {}
+    )
+    current_payload = (
+        current.get("payload")
+        if isinstance(current.get("payload"), dict)
+        else {}
+    )
+    return {
+        **copy.deepcopy(checkpoint_action),
+        **current,
+        "payload": {
+            **copy.deepcopy(checkpoint_payload),
+            **copy.deepcopy(current_payload),
+        },
+    }
+
+
 def put_action(state: dict[str, Any], action: dict[str, Any]) -> None:
     state.setdefault("actions", {})[str(action["id"])] = copy.deepcopy(action)
 

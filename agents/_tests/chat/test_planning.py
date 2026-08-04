@@ -416,6 +416,7 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
     async def test_capability_planner_preserves_every_ordered_route_stop(self):
         model = StructuredPlannerModel({
             "needs_route": True,
+            "route_origin_is_departure": True,
             "route_city": "北京",
             "route_stops": [
                 {"query": "腾讯北京总部"},
@@ -429,6 +430,7 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
             "今晚从腾讯北京总部出发，先去301医院附近的锦江之星，再去王府井那个店，最后回桔子酒店",
         )
         self.assertEqual(plan["route_city"], "北京")
+        self.assertTrue(plan["route_origin_is_departure"])
         self.assertEqual(
             [item["query"] for item in plan["route_stops"]],
             ["腾讯北京总部", "锦江之星", "王府井那个店", "桔子酒店"],

@@ -1,4 +1,5 @@
 import { authorizedFetch } from '../auth/session';
+import { translate } from '../../i18n';
 
 
 /** Parse complete SSE frames while retaining the final partial frame. */
@@ -30,7 +31,7 @@ export async function streamEvents(
   const response = await authorizedFetch(path, { ...init, signal });
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
-    throw new Error(detail || `Stream request failed (${response.status})`);
+    throw new Error(detail || translate('streamRequestFailed', { status: response.status }));
   }
   handlers.onOpen?.(response);
   if (!response.body) return;

@@ -22,6 +22,7 @@ from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 from ..._domain.skills.manifest import SkillManifest, SkillToolBinding
+from ..i18n import text
 SKILL_MANIFEST_SCHEMA_VERSION = 2
 SYSTEM_ADAPTER_PREFIX = "agents._skill_adapters."
 _SKILL_ID = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
@@ -282,7 +283,11 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         prompt_topic=str(planner.get("topic") or "").strip()[:64],
         prompt_instructions=str(
             planner.get("instructions")
-            or raw.get("_skill_instructions")
+            or (
+                raw.get("_skill_instructions")
+                if kind != "system"
+                else ""
+            )
             or ""
         ).strip()[:4000],
         prompt_recovery_tools=recovery_tools,
@@ -619,25 +624,50 @@ def skill_is_configured(
     )
 
 
-def planner_skill_index() -> str:
+def _planner_summary(manifest: SkillManifest, response_language: object) -> str:
+    if manifest.kind == "system":
+        return text(
+            f"model.skill.{manifest.id}.summary",
+            response_language,
+        )
+    return manifest.planner_summary
+
+
+def _planner_instructions(
+    manifest: SkillManifest,
+    response_language: object,
+) -> str:
+    if manifest.kind == "system":
+        return text(
+            f"model.skill.{manifest.id}.instructions",
+            response_language,
+        )
+    return manifest.prompt_instructions
+
+
+def planner_skill_index(response_language: object = "zh-CN") -> str:
     lines = []
     for manifest in skill_manifests():
-        if not manifest.capabilities or not manifest.planner_summary:
+        summary = _planner_summary(manifest, response_language)
+        if not manifest.capabilities or not summary:
             continue
         lines.append(
-            f"- {manifest.id}: {manifest.planner_summary} "
+            f"- {manifest.id}: {summary} "
             f"[capabilities: {', '.join(manifest.capabilities)}]"
         )
     return "\n".join(lines)
 
 
-def planner_topic_summaries() -> dict[str, str]:
+def planner_topic_summaries(
+    response_language: object = "zh-CN",
+) -> dict[str, str]:
     """Return manifest-owned semantic retrieval topics."""
     summaries: dict[str, list[str]] = {}
     for manifest in skill_manifests():
-        if manifest.prompt_topic and manifest.planner_summary:
+        summary = _planner_summary(manifest, response_language)
+        if manifest.prompt_topic and summary:
             summaries.setdefault(manifest.prompt_topic, []).append(
-                manifest.planner_summary
+                summary
             )
     return {
         topic: " ".join(dict.fromkeys(values))
@@ -645,18 +675,32 @@ def planner_topic_summaries() -> dict[str, str]:
     }
 
 
-def planner_topic_instructions() -> dict[str, str]:
+def planner_topic_instructions(
+    response_language: object = "zh-CN",
+) -> dict[str, str]:
     """Return optional plug-in prompt fragments keyed by semantic topic."""
     details: dict[str, list[str]] = {}
     for manifest in skill_manifests():
-        if manifest.prompt_topic and manifest.prompt_instructions:
+        instructions = _planner_instructions(manifest, response_language)
+        if manifest.prompt_topic and instructions:
             details.setdefault(manifest.prompt_topic, []).append(
-                manifest.prompt_instructions
+                instructions
             )
-    return {
+    result = {
         topic: "\n".join(dict.fromkeys(values))
         for topic, values in details.items()
     }
+    for topic, summary in planner_topic_summaries(response_language).items():
+        result.setdefault(
+            topic,
+            text(
+                "model.planner.skill_boundary",
+                response_language,
+                topic=topic,
+                summary=summary,
+            ),
+        )
+    return result
 
 
 def planner_topic_tools() -> dict[str, tuple[str, ...]]:

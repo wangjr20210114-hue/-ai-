@@ -427,16 +427,23 @@ export function useMessageBubbleController({
         ...input,
       });
       if (response.action) replaceWorkspaceAction(response.action);
-      if (operation === 'activate_map' && response.map?.places?.length) {
+      const responseActionPlaces = operation === 'activate_map' && response.action
+        ? usableMapPlaces(response.action)
+        : [];
+      const responseMapPlaces = response.map?.places?.length
+        ? response.map.places
+        : responseActionPlaces;
+      if (operation === 'activate_map' && responseMapPlaces.length) {
+        const responsePayload = response.action?.payload || {};
         dispatch({
           type: 'SET_MAP_PLACES',
           payload: {
-            places: response.map.places,
-            title: response.map.title,
-            routeMode: response.map.route_mode || undefined,
-            routeStrategy: response.map.route_strategy || undefined,
-            route: response.map.route || undefined,
-            showRoute: response.map.show_route,
+            places: responseMapPlaces,
+            title: response.map?.title || responsePayload.title,
+            routeMode: response.map?.route_mode || responsePayload.route_mode || undefined,
+            routeStrategy: response.map?.route_strategy || responsePayload.route_strategy || undefined,
+            route: response.map?.route || responsePayload.route || undefined,
+            showRoute: response.map?.show_route ?? responsePayload.show_route,
             reveal: true,
           },
         });

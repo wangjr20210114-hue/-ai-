@@ -2,6 +2,41 @@ from agents._tests.support.workspace_environment import *  # noqa: F401,F403
 
 
 class MapRouteCoreTests(unittest.IsolatedAsyncioTestCase):
+    def test_calendar_compaction_preserves_frozen_timeline_facts(self):
+        original = ToolMessage(
+            name="propose_calendar_changes",
+            tool_call_id="calendar-1",
+            content=json.dumps({
+                "ui_action": "calendar_action",
+                "action": {
+                    "id": "cal-1",
+                    "kind": "calendar_changes",
+                    "status": "awaiting_confirmation",
+                    "payload": {
+                        "summary": "杭州一日游",
+                        "changes": [{
+                            "operation": "create",
+                            "event": {
+                                "title": "第2站：灵隐寺",
+                                "start_time": 1785882600,
+                                "duration_minutes": 120,
+                                "location": "灵隐路",
+                                "description": "不需要进入模型上下文的长说明",
+                            },
+                        }],
+                    },
+                },
+            }, ensure_ascii=False),
+        )
+
+        compacted = compact_tool_results_for_model([original])[0]
+        payload = json.loads(compacted.content)
+        event = payload["action"]["changes"][0]["event"]
+        self.assertEqual(event["start_time"], 1785882600)
+        self.assertEqual(event["duration_minutes"], 120)
+        self.assertEqual(event["title"], "第2站：灵隐寺")
+        self.assertNotIn("description", event)
+
     def test_route_action_is_compacted_only_for_the_next_model_input(self):
         original = ToolMessage(
             name="plan_route_between_places",
@@ -331,6 +366,7 @@ class MapRouteCoreTests(unittest.IsolatedAsyncioTestCase):
                 env={"TENCENT_MAP_SERVER_KEY": "map-key"},
                 planned_route_stops=planned_stops,
                 planned_route_city="北京",
+                planned_route_origin_is_departure=True,
             )
             route_tool = next(item for item in tools if item.name == "plan_route_between_places")
             result = json.loads(await route_tool.ainvoke({
@@ -352,6 +388,8 @@ class MapRouteCoreTests(unittest.IsolatedAsyncioTestCase):
             [item["place_id"] for item in planner.await_args.args[1]],
             ["tencent", "jinjiang", "restaurant", "orange"],
         )
+        saved = await load_user_workspace(store, user_id=TEST_USER_ID)
+        self.assertTrue(saved["latest_route_plan"]["explicit_origin_is_departure"])
 
     async def test_route_tool_preserves_browser_origin_before_planned_stops(self):
         destinations = {

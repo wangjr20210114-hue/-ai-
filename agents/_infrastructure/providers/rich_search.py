@@ -22,7 +22,6 @@ from datetime import date, datetime
 from html import unescape
 from typing import Any, Awaitable, Callable
 
-from .http_transport import request_json as _transport_request_json
 from .web_media import collect_page_media
 from .vision import vision_completion, vision_providers
 from ..._application.i18n import text
@@ -231,17 +230,20 @@ async def _searchpro_request_json(
     headers: dict,
     timeout: int,
 ) -> dict:
-    """Transport seam kept separate from the vision JSON adapter.
+    """Call SearchPro through its proven direct Tencent transport.
 
-    SearchPro is the high-frequency read-only path, so it uses the shared
-    cancellable keep-alive client.  The seam also makes provider contract tests
-    independent of the concrete HTTP library.
+    The generic shared HTTP client remains useful for public page extraction,
+    but SearchPro's Maker runtime path is not equivalent: the provider's own
+    documented direct HTTPS request succeeds where the shared pool can spend
+    the complete budget establishing a connection.  Keep the blocking socket
+    off the event loop while retaining the cancellable outer deadline.
     """
-    return await _transport_request_json(
+    return await asyncio.to_thread(
+        _json_request,
         url,
         payload,
         headers,
-        timeout=timeout,
+        timeout,
     )
 
 

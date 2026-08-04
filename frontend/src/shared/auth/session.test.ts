@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { translate } from '../../i18n';
+
 function sessionPayload(authType: 'guest' | 'cloudbase') {
   return {
     identity: {
@@ -37,7 +39,7 @@ describe('shared auth session refresh', () => {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     }));
-    await expect(stale).rejects.toThrow('Stale authentication session response');
+    await expect(stale).rejects.toThrow(translate('staleAuthSession'));
     expect(session.currentAuthSession()?.identity.auth_type).toBe('cloudbase');
   });
 });

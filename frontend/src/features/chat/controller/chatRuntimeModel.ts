@@ -21,3 +21,18 @@ export function actionOnlyFallback(actions: WorkspaceAction[] | undefined): stri
   if (kinds.has('image_generate')) return translate('actionImageReady');
   return '';
 }
+
+/**
+ * Message rows belong to the conversation that rendered them.
+ *
+ * React can commit the new conversation id one render before the reducer has
+ * replaced the old rows. Persisting that transient combination copies the old
+ * conversation into a newly-created one. The switch render is therefore only
+ * a hand-off; the following hydrated render may be cached normally.
+ */
+export function shouldPersistRenderedMessages(
+  renderedConversationId: string,
+  activeConversationId: string,
+): boolean {
+  return renderedConversationId === activeConversationId;
+}

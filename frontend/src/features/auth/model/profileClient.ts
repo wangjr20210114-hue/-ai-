@@ -1,6 +1,7 @@
 import { ensureAuthSession, type AuthSession } from '../../../shared/auth/session';
 import { requestJson, requestRaw } from '../../../shared/transport/httpClient';
 import { cacheAvatarBlob } from '../../../shared/auth/avatarCache';
+import { translate } from '../../../i18n';
 
 interface AvatarUpload {
   url: string;
@@ -27,7 +28,7 @@ export async function updateAccountProfile(
       headers: { 'Content-Type': avatar.type },
       body: avatar,
     }, false);
-    if (!stored.ok) throw new Error('Could not upload avatar');
+    if (!stored.ok) throw new Error(translate('avatarUploadFailed'));
     avatarKey = upload.key;
   }
   await requestJson('/profile', {

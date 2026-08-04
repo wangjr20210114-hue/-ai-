@@ -6,7 +6,10 @@ import json
 import logging
 
 from ...chat._protocol import public_content
-from ..._application.workspace.service import load_user_workspace, public_action
+from ..._application.workspace.service import (
+    load_user_workspace,
+    merge_public_action_snapshot,
+)
 from ..._application.i18n import text as copy_text
 
 
@@ -96,7 +99,12 @@ async def hydrate_durable_map_action(store, user_id: str, envelope: dict | None)
         workspace = await load_user_workspace(store, user_id=user_id)
         action = workspace.get("actions", {}).get(action_id)
         if isinstance(action, dict):
-            return {**envelope, "action": public_action(action)}
+            return {
+                **envelope,
+                "action": merge_public_action_snapshot(
+                    envelope["action"], action,
+                ),
+            }
     except Exception:
         logging.exception("durable map action enrichment failed action=%s", action_id)
     return envelope

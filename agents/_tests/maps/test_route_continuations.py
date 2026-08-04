@@ -2,6 +2,74 @@ from agents._tests.support.workspace_environment import *  # noqa: F401,F403
 
 
 class RouteContinuationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_route_continuation_treats_explicit_origin_as_departure(self):
+        store = FakeStore()
+        state = empty_workspace()
+        stops = [
+            {**PLACE, "place_id": place_id, "name": name}
+            for place_id, name in (
+                ("hangzhou-east", "杭州东站"),
+                ("lingyin", "灵隐寺"),
+                ("broken-bridge", "断桥"),
+                ("hefang", "河坊街"),
+            )
+        ]
+        route = {
+            "id": "routeplan-hangzhou-day",
+            "created_at": int(time.time()),
+            "explicit_origin_is_departure": True,
+            "ordered_stops": stops,
+            "legs": [
+                {"duration_seconds": 70 * 60},
+                {"duration_seconds": 55 * 60},
+                {"duration_seconds": 50 * 60},
+            ],
+        }
+        state["place_candidates"] = {
+            stop["place_id"]: stop for stop in stops
+        }
+        state["latest_route_plan"] = route
+        state["route_plans"] = {route["id"]: route}
+        await save_user_workspace(store, state, user_id=TEST_USER_ID)
+        tools = build_system_skill_tools(
+            None,
+            store=store,
+            conversation_id="route-calendar-departure",
+            user_id=TEST_USER_ID,
+            env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+            planned_reuse_latest_route=True,
+        )
+        calendar_tool = next(
+            item for item in tools if item.name == "propose_calendar_changes"
+        )
+        start = datetime.now(timezone(timedelta(hours=8))).replace(
+            hour=8, minute=0, second=0, microsecond=0,
+        ) + timedelta(days=1)
+
+        result = json.loads(await calendar_tool.ainvoke({
+            "summary": "杭州一日游",
+            "source_route_plan_id": route["id"],
+            "route_start_time": start.isoformat(),
+            "route_stop_minutes": 120,
+        }))
+
+        changes = result["action"]["payload"]["changes"]
+        starts = [
+            datetime.fromtimestamp(change["event"]["start_time"], timezone(timedelta(hours=8)))
+            for change in changes
+        ]
+        self.assertEqual(len(changes), 4)
+        self.assertIn("出发", changes[0]["event"]["title"])
+        self.assertEqual(changes[0]["event"]["duration_minutes"], 1)
+        self.assertEqual(
+            [(value.hour, value.minute) for value in starts],
+            [(8, 0), (9, 10), (12, 5), (14, 55)],
+        )
+        self.assertEqual(
+            [change["event"]["duration_minutes"] for change in changes[1:]],
+            [120, 120, 120],
+        )
+
     async def test_route_calendar_proposal_rejects_compressed_stops_and_accepts_complete_order(self):
         store = FakeStore()
         state = empty_workspace()

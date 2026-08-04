@@ -16,6 +16,7 @@ import { SSEChatClient } from './chatTransport';
 import {
   actionOnlyFallback,
   restoredConversationWasInterrupted,
+  shouldPersistRenderedMessages,
 } from './chatRuntimeModel';
 
 export {
@@ -29,6 +30,7 @@ export {
 export {
   actionOnlyFallback,
   restoredConversationWasInterrupted,
+  shouldPersistRenderedMessages,
 } from './chatRuntimeModel';
 export { mergeSearchMeta, resolveSearchStartAt } from '../../search/model/searchRuntime';
 
@@ -63,6 +65,7 @@ export function useChatRuntime() {
   const searchCompletedAtRef = useRef(new Map<string, number>());
   const pendingTurnStartedAtRef = useRef(new Map<string, number>());
   const activeConversationRef = useRef(conversationId);
+  const renderedMessagesOwnerRef = useRef(conversationId);
   const conversationsRef = useRef(conversations);
   const pageOpenProactiveRefreshStartedRef = useRef(false);
   activeConversationRef.current = conversationId;
@@ -455,7 +458,9 @@ export function useChatRuntime() {
   };
 
   useEffect(() => {
-    // Capture user messages and local UI changes before switching away.
+    const renderedOwner = renderedMessagesOwnerRef.current;
+    renderedMessagesOwnerRef.current = conversationId;
+    if (!shouldPersistRenderedMessages(renderedOwner, conversationId)) return;
     const existing = cached(conversationId);
     if (messages.length || !existing.length) publish(conversationId, messages);
     // publish is intentionally bound to the current active-conversation ref.

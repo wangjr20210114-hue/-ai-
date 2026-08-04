@@ -4,6 +4,7 @@ import {
   ensureAuthSession,
   type AuthSession,
 } from '../../../shared/auth/session';
+import { translate } from '../../../i18n';
 
 const environmentId = String(import.meta.env.VITE_CLOUDBASE_ENV_ID || '').trim();
 const region = String(import.meta.env.VITE_CLOUDBASE_REGION || 'ap-shanghai').trim();
@@ -37,7 +38,7 @@ let otpVerifier: OtpVerifier | null = null;
 
 async function requireClient(): Promise<CloudBaseAuth> {
   if (!cloudBaseConfigured) {
-    throw new Error('CloudBase authentication is not configured');
+    throw new Error(translate('authProviderNotConfigured'));
   }
   if (!authClientPromise) {
     authClientPromise = import('@cloudbase/js-sdk').then(({ default: cloudbase }) => (
@@ -64,7 +65,7 @@ function throwResultError(result: CloudBaseResult): void {
   const error = result.error;
   throw new Error(typeof error === 'string'
     ? error
-    : error.message || error.error_description || 'CloudBase authentication failed');
+    : error.message || error.error_description || translate('authProviderFailed'));
 }
 
 function accessTokenFrom(result: CloudBaseResult): string {
@@ -92,7 +93,7 @@ async function currentAccessToken(result?: CloudBaseResult): Promise<string> {
 }
 
 async function exchangeForFlorisSession(accessToken: string): Promise<AuthSession> {
-  if (!accessToken) throw new Error('CloudBase did not return an access token');
+  if (!accessToken) throw new Error(translate('authProviderTokenMissing'));
   const endpoint = currentAuthSession()?.login.cloudbase_session_url
     || '/auth/cloudbase/session';
   const response = await authorizedFetch(endpoint, {
@@ -104,7 +105,7 @@ async function exchangeForFlorisSession(accessToken: string): Promise<AuthSessio
     body: JSON.stringify({ access_token: accessToken }),
   });
   const body = await response.json().catch(() => ({})) as { error?: string };
-  if (!response.ok) throw new Error(body.error || 'Floris could not verify this login');
+  if (!response.ok) throw new Error(body.error || translate('authLoginVerifyFailed'));
   return ensureAuthSession(true);
 }
 
@@ -134,13 +135,13 @@ export async function sendEmailOtp(email: string): Promise<void> {
   throwResultError(result);
   const data = resultData(result);
   if (typeof data.verifyOtp !== 'function') {
-    throw new Error('CloudBase did not return an OTP verifier');
+    throw new Error(translate('authOtpVerifierMissing'));
   }
   otpVerifier = data as unknown as OtpVerifier;
 }
 
 export async function verifyEmailOtp(code: string): Promise<AuthSession> {
-  if (!otpVerifier) throw new Error('Request an email code first');
+  if (!otpVerifier) throw new Error(translate('authRequestCodeFirst'));
   const result = await otpVerifier.verifyOtp({ token: code });
   throwResultError(result);
   otpVerifier = null;

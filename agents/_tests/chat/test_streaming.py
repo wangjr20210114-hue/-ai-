@@ -3,7 +3,13 @@ from agents._tests.support.workspace_environment import *  # noqa: F401,F403
 
 class ChatStreamingTests(unittest.IsolatedAsyncioTestCase):
     async def test_stream_restores_route_geometry_from_durable_map_action(self):
-        compact = {"ui_action": "map_action", "action": {"id": "map-1", "payload": {"places": []}}}
+        compact = {
+            "ui_action": "map_action",
+            "action": {
+                "id": "map-1",
+                "payload": {"places": [{"place_id": "poi-1"}]},
+            },
+        }
         durable = {"id": "map-1", "kind": "map_recommendation", "payload": {"route": {"provider": "tencent", "path": [1, 2]}}}
         maker_store = object()
         loader = AsyncMock(return_value={"actions": {"map-1": durable}})
@@ -14,6 +20,10 @@ class ChatStreamingTests(unittest.IsolatedAsyncioTestCase):
             hydrated = await hydrate_durable_map_action(maker_store, "user-1", compact)
         loader.assert_awaited_once_with(maker_store, user_id="user-1")
         self.assertEqual(hydrated["action"]["payload"]["route"]["path"], [1, 2])
+        self.assertEqual(
+            hydrated["action"]["payload"]["places"],
+            [{"place_id": "poi-1"}],
+        )
 
     async def test_checkpoint_recovers_structured_answers_and_resume_protocol_once(self):
         messages = [

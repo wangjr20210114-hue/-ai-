@@ -1,5 +1,6 @@
 import { requestJson } from '../../../shared/transport/httpClient';
 import { authorizedFetch } from '../../../shared/auth/session';
+import { translate } from '../../../i18n';
 import type {
   MakersIntelligenceState,
   ProactiveState,
@@ -82,7 +83,7 @@ export async function getProviderUsage(
     || !data.metering?.monthly
     || !Array.isArray(data.providers)
   ) {
-    throw new Error('Provider usage response is invalid');
+    throw new Error(translate('providerUsageInvalid'));
   }
   return data;
 }

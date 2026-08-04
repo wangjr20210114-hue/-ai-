@@ -8,6 +8,7 @@ import {
   progressTextForTool,
   resolveSearchStartAt,
   restoredConversationWasInterrupted,
+  shouldPersistRenderedMessages,
   terminalGenerationError,
 } from './useChatController';
 import type { ChatMessage, WorkspaceAction } from '../model';
@@ -100,6 +101,11 @@ describe('terminal generation failure', () => {
 });
 
 describe('chat transport ownership', () => {
+  it('does not cache old rows under a newly selected conversation id', () => {
+    expect(shouldPersistRenderedMessages('conversation-old', 'conversation-new')).toBe(false);
+    expect(shouldPersistRenderedMessages('conversation-new', 'conversation-new')).toBe(true);
+  });
+
   it('allows bounded semantic preflight before the stream idle watchdog', () => {
     expect(CHAT_INITIAL_RESPONSE_TIMEOUT_MS).toBeGreaterThan(20_000);
     expect(CHAT_INITIAL_RESPONSE_TIMEOUT_MS).toBeLessThan(60_000);

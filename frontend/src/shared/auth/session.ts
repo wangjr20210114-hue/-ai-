@@ -1,3 +1,5 @@
+import { translate } from '../../i18n';
+
 const runtimeMode = import.meta.env.VITE_APP_RUNTIME;
 
 export interface SessionIdentity {
@@ -119,10 +121,10 @@ export async function ensureAuthSession(force = false): Promise<AuthSession> {
   }).then(async (response) => {
     const data = await response.json().catch(() => ({})) as Partial<AuthSession> & { error?: string };
     if (!response.ok || !data.identity || !data.entitlements || !data.login) {
-      throw new Error(data.error || 'Secure session could not be established');
+      throw new Error(data.error || translate('secureSessionFailed'));
     }
     if (generation !== authSessionGeneration) {
-      throw new Error('Stale authentication session response');
+      throw new Error(translate('staleAuthSession'));
     }
     cachedAuthSession = data as AuthSession;
     if (typeof window !== 'undefined') {

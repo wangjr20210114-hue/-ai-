@@ -3,7 +3,12 @@
 import json
 import logging
 
-from .._application.workspace.service import active_map_payload, image_versions, load_user_workspace, public_action
+from .._application.workspace.service import (
+    active_map_payload,
+    image_versions,
+    load_user_workspace,
+    merge_public_action_snapshot,
+)
 from .._infrastructure.makers.identity import require_user, scoped_conversation_id
 from .._infrastructure.makers.data_version import namespace as data_namespace
 from .._infrastructure.http import error
@@ -207,7 +212,11 @@ async def handler(ctx):
                     # fallback for legacy or already-cleaned actions.
                     action_id = str(prepared.get("id") or "")
                     current = (workspace.get("actions") or {}).get(action_id)
-                    hydrated = public_action(current) if isinstance(current, dict) else prepared
+                    hydrated = (
+                        merge_public_action_snapshot(prepared, current)
+                        if isinstance(current, dict)
+                        else prepared
+                    )
                     if hydrated.get("kind") == "image_generate":
                         payload = hydrated.get("payload") or {}
                         group_id = str(payload.get("group_id") or hydrated.get("id") or "")

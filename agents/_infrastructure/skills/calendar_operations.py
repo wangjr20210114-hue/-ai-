@@ -146,16 +146,45 @@ def build_calendar_operation(
             stop_minutes = max(15, min(720, int(route_stop_minutes or 90)))
             start = _parse_datetime(route_start_time)
             leg_data = linked_route.get("legs") if isinstance(linked_route, dict) else []
-            leg_offset = 1 if linked_route.get("implicit_browser_origin") else 0
+            implicit_origin = bool(linked_route.get("implicit_browser_origin"))
+            explicit_origin_is_departure = bool(
+                linked_route.get("explicit_origin_is_departure")
+            )
             generated_changes: list[dict[str, Any]] = []
             current = start
+            # A browser location is an implicit route origin and is never a
+            # calendar stop. Account for its first verified travel leg before
+            # scheduling the first visible destination.
+            if implicit_origin and isinstance(leg_data, list) and leg_data:
+                current += timedelta(
+                    seconds=max(
+                        0,
+                        int(float((leg_data[0] or {}).get("duration_seconds") or 0)),
+                    )
+                )
             for index, stop in enumerate(linked_calendar_stops):
-                end = current + timedelta(minutes=stop_minutes)
+                # For an explicit route, the first stop is the departure
+                # point—not a sight to visit for ``route_stop_minutes``. Keep
+                # a one-minute departure marker, then start the first Tencent
+                # travel leg at the user's requested departure time.
+                departure_marker = (
+                    not implicit_origin
+                    and explicit_origin_is_departure
+                    and index == 0
+                )
+                end = current + timedelta(
+                    minutes=1 if departure_marker else stop_minutes
+                )
                 generated_changes.append({
                     "operation": "create",
                     "event": {
                         "title": text(
-                            "calendar.route_event.title", response_language,
+                            (
+                                "calendar.route_event.departure_title"
+                                if departure_marker
+                                else "calendar.route_event.title"
+                            ),
+                            response_language,
                             index=index + 1,
                             place=str(
                                 stop.get("name")
@@ -170,12 +199,17 @@ def build_calendar_operation(
                         "place_id": str(stop.get("place_id") or ""),
                         "location_kind": "physical",
                         "description": text(
-                            "calendar.route_event.description", response_language,
+                            (
+                                "calendar.route_event.departure_description"
+                                if departure_marker
+                                else "calendar.route_event.description"
+                            ),
+                            response_language,
                         ),
                     },
                 })
-                current = end
-                leg_index = index + leg_offset
+                current = current if departure_marker else end
+                leg_index = index + (1 if implicit_origin else 0)
                 if isinstance(leg_data, list) and leg_index < len(leg_data):
                     current += timedelta(
                         seconds=max(0, int(float((leg_data[leg_index] or {}).get("duration_seconds") or 0)))

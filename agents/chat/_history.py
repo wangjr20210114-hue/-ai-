@@ -181,6 +181,37 @@ def compact_tool_results_for_model(messages):
                 action_payload.get("changes")
                 if isinstance(action_payload, dict) else []
             ) or []
+            # The answer model must see the exact frozen times it is about to
+            # describe. Keeping only ``change_count`` made it reconstruct a
+            # timeline from aggregate route duration and invent arrivals that
+            # disagreed with the confirmation card.
+            compact_changes = []
+            for change in changes[:16]:
+                if not isinstance(change, dict):
+                    continue
+                event = (
+                    change.get("event")
+                    if isinstance(change.get("event"), dict)
+                    else {}
+                )
+                compact_event = {
+                    key: event.get(key)
+                    for key in (
+                        "title",
+                        "start_time",
+                        "duration_minutes",
+                        "location",
+                    )
+                    if event.get(key) not in (None, "")
+                }
+                compact_changes.append({
+                    "operation": str(change.get("operation") or "create"),
+                    **(
+                        {"schedule_id": change.get("schedule_id")}
+                        if change.get("schedule_id") else {}
+                    ),
+                    **({"event": compact_event} if compact_event else {}),
+                })
             compact = {
                 "ui_action": payload.get("ui_action"),
                 "action": {
@@ -192,6 +223,7 @@ def compact_tool_results_for_model(messages):
                         if isinstance(action_payload, dict) else ""
                     ),
                     "change_count": len(changes),
+                    "changes": compact_changes,
                     "warnings": (
                         action_payload.get("warnings")
                         if isinstance(action_payload, dict) else []

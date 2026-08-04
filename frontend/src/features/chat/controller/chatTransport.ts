@@ -152,7 +152,7 @@ export class SSEChatClient {
     );
     try {
       const response = await requestStop(stopController.signal);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error(translate('streamRequestFailed', { status: response.status }));
       return 'confirmed';
     } catch {
       // Retry only the cancellation when connectivity returns. This never

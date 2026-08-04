@@ -605,9 +605,8 @@ async def _handle(ctx):
             planned_route_strategy=str(
                 capability_plan.get("route_strategy") or "default"
             ),
-            planned_route_uses_current_location=bool(
-                capability_plan.get("route_uses_current_location")
-            ),
+            planned_route_uses_current_location=bool(capability_plan.get("route_uses_current_location")),
+            planned_route_origin_is_departure=bool(capability_plan.get("route_origin_is_departure")),
             planned_route_calendar_hint=str(
                 capability_plan.get("route_calendar_hint") or ""
             ),
