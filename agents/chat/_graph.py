@@ -166,6 +166,7 @@ def build_graph(
         clarification_ready = False
         crossed_clarification_answer = False
         route_result_payload = None
+        calendar_result_payload = None
         required_tool_failed = False
         failed_required_tools: set[str] = set()
         retryable_required_failures: dict[str, int] = {}
@@ -216,6 +217,12 @@ def build_graph(
                     and isinstance(payload.get("route"), dict)
                 ):
                     route_result_payload = payload
+                if (
+                    isinstance(payload, dict)
+                    and payload.get("ui_action") == "calendar_action"
+                    and isinstance(payload.get("action"), dict)
+                ):
+                    calendar_result_payload = payload
                 if crossed_clarification_answer and (
                     name == "ask_user_clarification" or emitted_clarification
                 ):
@@ -301,8 +308,27 @@ def build_graph(
             )
             if location_answer:
                 return {"messages": [AIMessage(content=location_answer)]}
-        # Structured paper, route, and calendar results are evidence and UI
-        # actions, not canned answers. The public model always receives them
+        # A calendar Action is the frozen, user-confirmable source of truth.
+        # Do not ask a second model pass to restate its event timestamps: that
+        # can contradict the same structured card even though the Adapter
+        # computed every event correctly. This protocol rule applies to every
+        # calendar proposal, including route continuations, without inspecting
+        # user wording, place names, or dates.
+        if calendar_result_payload is not None:
+            grounded_calendar_answer = grounded_route_stream_answer(
+                [
+                    *([route_result_payload] if route_result_payload else []),
+                    calendar_result_payload,
+                ],
+                calendar_required=True,
+                clarification_emitted=False,
+                run_error="",
+                response_language=response_language,
+            )
+            if grounded_calendar_answer:
+                return {"messages": [AIMessage(content=grounded_calendar_answer)]}
+        # Structured paper and route results are evidence and UI actions, not
+        # canned answers. The public model receives them
         # and writes the final response in the current conversational style.
         # Local renderers remain available only as last-resort fallbacks when
         # both normal and clean synthesis passes return no public text.

@@ -173,7 +173,7 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(final, "模型猜测约 45 分钟")
         self.assertEqual(model.calls, 2)
 
-    async def test_linked_route_and_calendar_are_synthesized_by_model(self):
+    async def test_linked_route_and_calendar_keep_action_as_time_source(self):
         model = _LinkedRouteCalendarModel()
         graph = build_graph(
             model,
@@ -193,7 +193,29 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
         })
 
         final = result["messages"][-1].content
-        self.assertEqual(final, "路线和日程提案已准备好。")
+        self.assertIn("包含 2 项变更", final)
+        self.assertIn("尚未写入日程", final)
+        self.assertNotEqual(final, "路线和日程提案已准备好。")
+
+    async def test_calendar_only_graph_does_not_recalculate_card_times(self):
+        model = _LinkedRouteCalendarModel()
+        graph = build_graph(
+            model,
+            [mismatched_linked_calendar_action],
+            "system",
+            required_tools=["propose_calendar_changes"],
+            planned_tool_arguments={
+                "propose_calendar_changes": {"summary": "冻结日程"},
+            },
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="把已核实路线写入日程")],
+        })
+
+        final = result["messages"][-1].content
+        self.assertIn("包含 2 项变更", final)
+        self.assertNotIn("10:25", final)
+        self.assertNotIn("205", final)
 
     async def test_paper_only_result_uses_public_model_synthesis(self):
         model = _RecordingModel()
