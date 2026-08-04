@@ -5,7 +5,6 @@ import copy
 import contextlib
 import json
 import logging
-import re
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -18,14 +17,13 @@ from .turn_io import (
     _usage_values,
     checkpoint_dialogue_context,
     checkpoint_final_answer,
+    hydrate_durable_map_action,
 )
 from .turn_policy import (
     direct_paper_tool_arguments,
     dynamic_system_prompt,
     empty_generation_error,
-    location_clarification_copy,
-    normalize_browser_current_location,
-    normalize_browser_location_request,
+    location_clarification_arguments,
     run_cancelled,
     runtime_datetime_context,
     should_buffer_public_answer,
@@ -34,15 +32,13 @@ from .turn_policy import (
 from .turn_protocol import (
     capability_planning_message,
     checkpoint_clarification_state,
-    clarification_answer_value,
-    clarification_response_answers,
-    clarification_response_id,
     graph_user_message,
     resume_capability_protocol,
-    should_persist_user_message,
 )
 from .turn_search import PlannedSearchRunner
+from .turn_admission import admit_turn
 from .skill_policy import apply_runtime_skill_policy
+from ..i18n import text
 from ...chat._graph import build_graph, grounded_route_stream_answer
 from ...chat._llm import get_model
 from ..._infrastructure.skills import build_system_skill_tools
@@ -80,12 +76,8 @@ from ..._application.intelligence.service import (
     skill_runtime_env,
     user_skill_prompt_context,
 )
-from ..._infrastructure.makers.identity import conversation_index_user_id, require_user, scoped_conversation_id
 from ..._infrastructure.makers.data_version import namespace as data_namespace
 from ..._infrastructure.makers.conversation_repository import (
-    RUNNING_STATES,
-    ensure_conversation_title,
-    is_stale,
     read_chat_run,
     write_chat_run,
 )
@@ -122,116 +114,26 @@ async def _handle(ctx):
     handler_started_at = time.monotonic()
     presenter = ChatStreamPresenter()
     stage_timings_ms: dict[str, int | bool] = {}
-    identity = require_user(ctx)
-    user_id = str(identity["user_id"])
-    raw_conversation_id = str(getattr(ctx, "conversation_id", "") or "")
-    conversation_id = scoped_conversation_id(ctx, user_id, raw_conversation_id)
-    body = ctx.request.body or {}
-    message = body.get("message") or body.get("text") or ""
-    clarification_id = clarification_response_id(body)
-    current_clarification_answers = clarification_response_answers(body)
-    silent_clarification = bool(clarification_id)
-    manual_location_answer = clarification_answer_value(body, "manual_location")
-    direct_public_answer = (
-        f"你刚填写的位置是：{manual_location_answer}。"
-        "这是你手动提供的大致位置，不是浏览器实时定位；"
-        "我可以据此继续做附近推荐、路线规划或日程安排。"
-        if manual_location_answer
-        else ""
-    )
-    response_language = str(body.get("response_language") or "zh-CN")
-    browser_current_location = normalize_browser_current_location(body.get("current_location"))
-    browser_location_request = normalize_browser_location_request(
-        body.get("location_request")
-    )
-    current_location_context = (
-        "已授权且新鲜，可作为路线隐式起点或附近搜索参照（精确坐标仅供地图工具使用）"
-        if browser_current_location
-        else f"不可用（浏览器本轮结果：{browser_location_request}）；不得声称已定位"
-    )
-    language_instructions = {
-        "zh-CN": "使用自然、清晰的简体中文，保留 Markdown 结构与链接。",
-        "zh-TW": "使用自然、清晰的繁體中文，保留 Markdown 結構與連結。",
-        "en": "Respond in clear, natural English unless the user explicitly requests another language.",
-        "cat-cute": "使用简体中文，像亲人的可爱橘猫一样适度加入“喵”，但保持准确清晰，不要过度卖萌。",
-        "cat-cold": "使用简体中文，像冷静克制的橘猫，偶尔使用简短的“喵”，不要撒娇，保持准确直接。",
-    }
-    response_language_instruction = language_instructions.get(response_language, language_instructions["zh-CN"])
-    if not message:
-        return error("'message' is required")
-    previous_run = await read_chat_run(ctx.store, conversation_id)
-    allow_after_stop = bool(body.get("_allow_after_stop"))
-    if is_stale(previous_run):
-        await write_chat_run(
-            ctx.store,
-            conversation_id,
-            run_id=str((previous_run or {}).get("run_id") or ""),
-            status="failed",
-            error="上一次运行已超时，请重新发送",
-        )
-    elif isinstance(previous_run, dict) and previous_run.get("status") in RUNNING_STATES:
-        if previous_run.get("status") == "cancel_requested":
-            # The Stop endpoint has already delegated cancellation to Maker's
-            # abortActiveRun.  Its detached producer may still be flushing
-            # cleanup work, but that must not keep the composer locked.
-            await write_chat_run(
-                ctx.store,
-                conversation_id,
-                run_id=str(previous_run.get("run_id") or ""),
-                status="cancelled",
-            )
-        elif allow_after_stop:
-            # The browser may have lost the first /stop response while the
-            # user was offline. Reuse Maker's cancellation primitive once
-            # more on the next deliberate send, then hand ownership to this
-            # new run instead of returning a misleading 409.
-            raw_target = str(getattr(ctx, "conversation_id", "") or conversation_id)
-            try:
-                ctx.utils.abortActiveRun(raw_target)
-            except Exception:
-                logging.exception("maker abort retry failed conversation=%s", conversation_id)
-            await write_chat_run(
-                ctx.store,
-                conversation_id,
-                run_id=str(previous_run.get("run_id") or ""),
-                status="cancelled",
-            )
-        else:
-            return error("该对话仍在处理中；刷新后会自动恢复，请稍候或先停止当前运行", 409)
-    if should_persist_user_message(body):
-        try:
-            await ctx.store.append_message(
-                conversation_id=conversation_id,
-                role="user",
-                content=message,
-                user_id=conversation_index_user_id(user_id),
-                metadata={
-                    "client_message_id": str(body.get("client_message_id") or ""),
-                    "client_conversation_id": raw_conversation_id,
-                    "source": "yuanbao-chat",
-                    "owner_user_id": user_id,
-                    "tenant_id": str(identity["tenant_id"]),
-                },
-            )
-            await ensure_conversation_title(
-                ctx.store,
-                conversation_id,
-                message,
-                user_id,
-                tenant_id=str(identity["tenant_id"]),
-                client_conversation_id=raw_conversation_id,
-            )
-        except Exception:
-            # LangGraph checkpoints remain authoritative if generic conversation
-            # indexing is temporarily unavailable.
-            logging.exception("native conversation append failed conversation=%s", conversation_id)
-    run_id = str(getattr(ctx, "run_id", "") or f"chat-{int(time.time() * 1000)}")
-    await write_chat_run(
-        ctx.store,
-        conversation_id,
-        run_id=run_id,
-        status="running",
-    )
+    admission, rejection = await admit_turn(ctx)
+    if rejection is not None:
+        return rejection
+    assert admission is not None
+    identity = admission.identity
+    user_id = admission.user_id
+    raw_conversation_id = admission.raw_conversation_id
+    conversation_id = admission.conversation_id
+    body = admission.body
+    message = admission.message
+    clarification_id = admission.clarification_id
+    current_clarification_answers = admission.current_clarification_answers
+    silent_clarification = admission.silent_clarification
+    direct_public_answer = admission.direct_public_answer
+    response_language = admission.response_language
+    response_language_instruction = admission.response_language_instruction
+    browser_current_location = admission.browser_current_location
+    browser_location_request = admission.browser_location_request
+    current_location_context = admission.current_location_context
+    run_id = admission.run_id
 
     async def fail_run(
         message_text: str, diagnostics: dict | None = None,
@@ -241,15 +143,10 @@ async def _handle(ctx):
             conversation_id,
             run_id=run_id,
             status="failed",
-            error=str(message_text or "请求失败"),
+            error=str(message_text or text("chat.request_failed", response_language)),
             diagnostics=diagnostics,
         )
-    reference_images = [
-        str(item) for item in (body.get("reference_images") or [])
-        if isinstance(item, str)
-        and re.match(r"^data:image/(?:jpeg|png|webp);base64,", item, re.I)
-        and len(item) <= 1_800_000
-    ][:3]
+    reference_images = admission.reference_images
 
     current_beijing = datetime.now(timezone(timedelta(hours=8)))
     current_date = current_beijing.date().isoformat()
@@ -295,7 +192,7 @@ async def _handle(ctx):
         str((budget.get("preferences") or {}).get("enforcement") or "soft") == "hard"
         and ((budget.get("alerts") or {}).get("daily") or (budget.get("alerts") or {}).get("monthly"))
     ):
-        message_text = "已达到今日 Token 预算；请在“记忆与学习”中调整预算或切换策略"
+        message_text = text("chat.token_budget_reached", response_language)
         await fail_run(message_text)
         return error(message_text, 429)
     # The planner only needs a bounded recent slice to decide whether memory is
@@ -319,7 +216,7 @@ async def _handle(ctx):
     enabled_capabilities = set(skill_access.enabled_capabilities)
     vision_enabled = "vision_analysis" in enabled_capabilities
     current_calendar_context = "[]"
-    current_route_context = "无"
+    current_route_context = text("model.chat.none", response_language)
     reference_image_context = ""
     if reference_images and vision_enabled:
         reference_image_context, vision_diagnostics = await describe_reference_images(
@@ -340,9 +237,8 @@ async def _handle(ctx):
             source="chat_reference_images",
         )
         if not reference_image_context:
-            reference_image_context = (
-                "附图存在，但视觉 Provider 本轮未返回描述。除非用户要求生成或修改图片，否则不要声称已看见其内容；"
-                "应自然说明暂时无法识别，并请用户重试或用文字补充。"
+            reference_image_context = text(
+                "model.chat.vision_unavailable", response_language,
             )
     document_context = _document_context(body)
     clarification_context: list[str] = []
@@ -376,13 +272,24 @@ async def _handle(ctx):
         clarification_context,
         prior_clarification_answers,
         recent_dialogue,
+        response_language=response_language,
     )
     if reference_images and not vision_enabled:
-        reference_image_context = "用户附带了图片，但视觉理解 Skill 已关闭；不要声称看见图片内容，应建议到 Skills 广场开启视觉理解。"
+        reference_image_context = text(
+            "model.chat.vision_disabled", response_language,
+        )
     if reference_image_context:
-        planning_message += f"\n\n[附图视觉事实，仅用于能力规划]\n{reference_image_context[:1600]}"
+        planning_message += (
+            "\n\n"
+            + text("model.chat.reference_facts_header", response_language)
+            + f"\n{reference_image_context[:1600]}"
+        )
     if document_context:
-        planning_message += f"\n\n[用户已选择的上传文档，仅用于能力规划]\n{document_context[:6000]}"
+        planning_message += (
+            "\n\n"
+            + text("model.chat.document_context_header", response_language)
+            + f"\n{document_context[:6000]}"
+        )
     stage_timings_ms["planning_context"] = round(
         (time.monotonic() - planning_context_started_at) * 1000
     )
@@ -402,6 +309,7 @@ async def _handle(ctx):
             has_document_context=bool(document_context),
             timeout_seconds=planner_timeout,
             timings_ms=stage_timings_ms,
+            response_language=response_language,
         )
     post_plan_started_at = time.monotonic()
     resumed_planned_arguments: dict = {}
@@ -432,11 +340,11 @@ async def _handle(ctx):
         clarification_tool_arguments = {
             "title": str(
                 capability_plan.get("clarification_title")
-                or "请补充必要信息"
+                or text("chat.clarification.required_title", response_language)
             ),
             "prompt": str(
                 capability_plan.get("clarification_prompt")
-                or "缺少以下信息时无法继续处理。"
+                or text("chat.clarification.required_prompt", response_language)
             ),
             "fields": capability_plan.get("clarification_fields") or [],
         }
@@ -507,31 +415,11 @@ async def _handle(ctx):
             if route_needs_browser_location
             else "current"
         )
-        location_title, location_prompt = location_clarification_copy(
-            location_intent, browser_location_request,
+        clarification_tool_arguments = location_clarification_arguments(
+            location_intent,
+            browser_location_request,
+            response_language,
         )
-        field_id = {
-            "nearby": "nearby_anchor",
-            "route": "route_origin",
-            "current": "manual_location",
-        }[location_intent]
-        field_label = {
-            "nearby": "你现在在哪里？",
-            "route": "从哪里出发？",
-            "current": "你目前所在的位置或出发地",
-        }[location_intent]
-        clarification_tool_arguments = {
-            "title": location_title,
-            "prompt": location_prompt,
-            "fields": [{
-                "id": field_id,
-                "label": field_label,
-                "type": "text",
-                "required": True,
-                "options": [],
-                "placeholder": "例如：北京市海淀区中关村，或吉林大学前卫南区",
-            }],
-        }
     resumed_nearby_arguments = resumed_planned_arguments.get(
         "recommend_nearby_places_on_map"
     )
@@ -742,8 +630,6 @@ async def _handle(ctx):
             component_journal=component_journal,
         )
     blocked_skill = str(capability_plan.get("blocked_skill") or "").strip()
-    # Preserve main's graph semantics: rich_search is the first required tool,
-    # and its ToolMessage is the evidence consumed by final synthesis.
     required_tool_names = required_tools_for_plan(capability_plan)
     fallback_tool_names = (
         fallback_tools_for_prompt_topics(
@@ -758,11 +644,6 @@ async def _handle(ctx):
             "runtime skill policy blocked turn before graph model skill=%s",
             blocked_skill,
         )
-    # Structured clarification is a product-wide interaction capability. The
-    # independent planner can require it immediately, while the full-history
-    # model keeps it available in every other Q&A scene to catch a blocking
-    # detail that only becomes visible from dialogue context. Its prompt and
-    # schema—not keyword filters—enforce the non-blocking-preference boundary.
     # Rich search is the single search path. Exposing the platform's plain
     # web_search beside it made semantically identical turns randomly lose the
     # established page-media + vision-review pipeline.
@@ -786,14 +667,15 @@ async def _handle(ctx):
             response_language_instruction=response_language_instruction,
             capability_plan=answer_capability_plan,
             calendar_context=current_calendar_context,
-            reference_image_context=reference_image_context or "无",
-            document_context=document_context or "无",
+            reference_image_context=reference_image_context or text("model.chat.none", response_language),
+            document_context=document_context or text("model.chat.none", response_language),
             current_location_context=current_location_context,
             current_route_context=current_route_context,
             memory_context=memory_context,
             user_skill_context=private_skill_context,
             public_answer=model_only_fallback,
             full_prompt=False,
+            response_language=response_language,
         )
         stage_system_prompts = {
             tool_name: dynamic_system_prompt(
@@ -802,12 +684,13 @@ async def _handle(ctx):
                 response_language_instruction=response_language_instruction,
                 capability_plan=answer_capability_plan,
                 calendar_context=current_calendar_context,
-                reference_image_context=reference_image_context or "无",
-                document_context=document_context or "无",
+                reference_image_context=reference_image_context or text("model.chat.none", response_language),
+                document_context=document_context or text("model.chat.none", response_language),
                 current_location_context=current_location_context,
                 current_route_context=current_route_context,
                 memory_context=memory_context,
                 user_skill_context=private_skill_context,
+                response_language=response_language,
             )
             for tool_name in required_tool_names
         }
@@ -817,13 +700,14 @@ async def _handle(ctx):
             response_language_instruction=response_language_instruction,
             capability_plan=answer_capability_plan,
             calendar_context=current_calendar_context,
-            reference_image_context=reference_image_context or "无",
-            document_context=document_context or "无",
+            reference_image_context=reference_image_context or text("model.chat.none", response_language),
+            document_context=document_context or text("model.chat.none", response_language),
             current_location_context=current_location_context,
             current_route_context=current_route_context,
             memory_context=memory_context,
             user_skill_context=private_skill_context,
             public_answer=True,
+            response_language=response_language,
         )
         # A complete Skill downgrade is deliberately the raw model surface.
         # Do not construct trusted adapters that the entitlement contract or
@@ -1158,6 +1042,9 @@ async def _handle(ctx):
                                     "_runtime_model_fallback_skills"
                                 ] = fallback_skills
                             action = _ui_action(tool_content)
+                            action = await hydrate_durable_map_action(
+                                ctx.store.langgraph_store, user_id, action,
+                            )
                             component_publications = component_journal.drain_public(
                                 str(tool_name or ""),
                             )
@@ -1216,7 +1103,7 @@ async def _handle(ctx):
                                 await queue.put(
                                     presenter.tool_result(
                                         getattr(streamed_message, "name", ""),
-                                        "富搜索来源和媒体已准备",
+                                        text("chat.progress.search_ready", response_language),
                                     )
                                 )
                                 continue
@@ -1230,7 +1117,7 @@ async def _handle(ctx):
                                 await queue.put(
                                     presenter.tool_result(
                                         "search_arxiv",
-                                        "论文结果已准备",
+                                        text("chat.progress.papers_ready", response_language),
                                     ),
                                 )
                                 await queue.put(presenter.tool_progress(
@@ -1375,7 +1262,7 @@ async def _handle(ctx):
                 latest_run = await read_chat_run(ctx.store, conversation_id)
                 cancelled = run_cancelled(latest_run)
                 if not cancelled:
-                    run_error = "运行已中断，请重试"
+                    run_error = text("chat.run_interrupted", response_language)
             finally:
                 final_answer = "".join(final_answer_parts).strip()
                 empty_error = empty_generation_error(
@@ -1384,6 +1271,7 @@ async def _handle(ctx):
                     clarification_emitted=clarification_emitted,
                     run_error=run_error,
                     cancelled=cancelled,
+                    response_language=response_language,
                 )
                 if empty_error:
                     run_error = empty_error

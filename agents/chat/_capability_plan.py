@@ -15,6 +15,7 @@ from typing import Any, Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .._application.i18n import normalize_language, text
 from .._application.skills.registry import (
     capability_skill_map,
     capability_tools_map,
@@ -919,6 +920,7 @@ async def plan_required_clarification(
     location_context: str = "",
     has_reference_images: bool = False,
     has_document_context: bool = False,
+    response_language: object = "zh-CN",
 ) -> dict[str, Any]:
     """Jointly decide readiness and retrieve prompt topics without phrase rules."""
     catalog = "\n".join(
@@ -978,6 +980,11 @@ async def plan_required_clarification(
         f"\nRequest-scoped location context: {str(location_context or 'not supplied')[:1000]}"
         f"\nReference images attached: {bool(has_reference_images)}"
         f"\nDocument context attached: {bool(has_document_context)}"
+        "\n"
+        + text(
+            "model.planner.user_copy_instruction",
+            normalize_language(response_language),
+        )
     )
     messages = [
         {"role": "system", "content": prompt},
@@ -1113,6 +1120,7 @@ async def plan_capabilities(
     memory_context: str = "",
     location_context: str = "",
     prompt_topics: Iterable[Any] | None = None,
+    response_language: object = "zh-CN",
 ) -> dict[str, Any]:
     today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
     prompt = f"""你是 FLORIS 单轮语义计划器，只填写给定 schema，不回答用户。当前北京时间日期：{today}。
@@ -1141,7 +1149,8 @@ async def plan_capabilities(
   只有澄清、错误、纯确认/寒暄或任务已经完全穷尽时才为 false。needs_memory_extraction 只在用户明确陈述
   可长期复用的非敏感事实或稳定偏好时为 true；needs_opportunity_review 只在主动服务已开启且本轮
   可能产生有价值主动下一步时为 true；use_memory_context 只在长期记忆与本轮目标直接相关时为 true。
-严格只输出 schema 对应 JSON。"""
+严格只输出 schema 对应 JSON。
+{text('model.planner.user_copy_instruction', normalize_language(response_language))}"""
     prompt += "\n\n已安装 Skill 能力索引：\n" + planner_skill_index()
     prompt += "\n\n可按语义选择的执行提示主题：\n" + "\n".join(
         f"- {topic}: {summary}"
@@ -1221,6 +1230,7 @@ async def plan_capabilities_bounded(
     has_document_context: bool = False,
     timeout_seconds: float = 6.0,
     timings_ms: dict[str, int | bool] | None = None,
+    response_language: object = "zh-CN",
 ) -> tuple[dict[str, Any], bool]:
     """Run one complete semantic plan without a duplicate preflight round."""
     loop = asyncio.get_running_loop()
@@ -1234,6 +1244,7 @@ async def plan_capabilities_bounded(
                 user_message,
                 memory_context,
                 location_context=location_context,
+                response_language=response_language,
             ),
             timeout=total_timeout,
         )
@@ -1255,6 +1266,7 @@ async def plan_capabilities_bounded(
                         location_context=location_context,
                         has_reference_images=has_reference_images,
                         has_document_context=has_document_context,
+                        response_language=response_language,
                     ),
                     timeout=remaining,
                 )

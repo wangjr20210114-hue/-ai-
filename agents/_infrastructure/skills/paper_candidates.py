@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .contracts import PaperKnowledgeCandidates, PaperSearchEvidenceCandidates
+from ..._application.skills.tool_contracts import PaperKnowledgeCandidates, PaperSearchEvidenceCandidates
 
 
 async def _paper_candidate_ids_from_model(

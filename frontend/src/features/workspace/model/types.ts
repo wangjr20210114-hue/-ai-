@@ -1,6 +1,7 @@
 import type {
   MakersMapPlace,
   MakersRouteMode,
+  MakersRoutePlan,
   MakersRouteStrategy,
 } from '../../maps/model';
 
@@ -20,6 +21,7 @@ export interface WorkspaceAction {
     places?: MakersMapPlace[];
     route_mode?: MakersRouteMode;
     route_strategy?: MakersRouteStrategy;
+    route?: MakersRoutePlan;
     show_route?: boolean;
     route_plan_id?: string;
     calendar_offer?: boolean;

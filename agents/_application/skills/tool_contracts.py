@@ -1,4 +1,4 @@
-"""Validated model-facing contracts for trusted built-in Skill components."""
+"""Application contracts exposed by trusted built-in Skill components."""
 
 from __future__ import annotations
 

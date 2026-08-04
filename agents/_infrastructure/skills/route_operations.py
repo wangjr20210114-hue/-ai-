@@ -633,6 +633,11 @@ def build_route_operation(
                 "route_plan_id": route_plan_id,
                 "route_mode": selected_route_mode,
                 "route_strategy": selected_route_strategy,
+                # Publish the exact Tencent-verified geometry that grounded
+                # this answer. Clients must reuse this component snapshot
+                # instead of paying for and potentially displaying a
+                # different second /routes plan when the card is opened.
+                "route": copy.deepcopy(route),
                 "preference_signal": (
                     {
                         **({"mode": explicit_route_mode} if explicit_route_mode else {}),
@@ -662,9 +667,14 @@ def build_route_operation(
         )
         put_action(state, map_action)
         await _save_state(state)
+        model_action = copy.deepcopy(map_action)
+        model_action.get("payload", {}).pop("route", None)
         return json.dumps({
             "ui_action": "map_action",
-            "action": map_action,
+            # Keep provider geometry out of the model-visible ToolMessage.
+            # The stream layer restores the durable action from Maker state
+            # before publishing it to clients.
+            "action": model_action,
             "route_plan_id": route_plan_id,
             "origin": resolved_stops[0],
             "destination": resolved_stops[-1],

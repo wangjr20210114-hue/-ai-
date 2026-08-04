@@ -12,7 +12,22 @@ import {
 } from '../../../services/browserLocation';
 import { normalizeProgressEvent } from '../../search/model/progressModel';
 
-export type ClientEvent = { type: string; payload: Record<string, unknown> };
+export const CLIENT_EVENT_TYPES = [
+  'optimistic_user', 'clarification_submitted', 'stream_start', 'stream_delta',
+  'stream_reset', 'stream_end', 'answer_complete', 'experience_hint',
+  'stop_requested', 'search_status', 'progress_event', 'search_results',
+  'search_media', 'paper_results', 'follow_ups', 'proactive_update',
+  'map_action', 'calendar_action', 'side_effect_action',
+  'clarification_action', 'error',
+] as const;
+
+export type ClientEventType = typeof CLIENT_EVENT_TYPES[number];
+export type ClientEvent = {
+  [Type in ClientEventType]: {
+    type: Type;
+    payload: Record<string, unknown>;
+  }
+}[ClientEventType];
 
 const STREAM_IDLE_TIMEOUT_MS = 20_000;
 export const CHAT_INITIAL_RESPONSE_TIMEOUT_MS = 55_000;
@@ -331,7 +346,7 @@ export class SSEChatClient {
               case 'calendar_action':
               case 'side_effect_action':
                 this.emit({
-                  type: String(event.type),
+                  type: String(event.type) as 'map_action' | 'calendar_action' | 'side_effect_action',
                   payload: {
                     ...((event.payload && typeof event.payload === 'object') ? event.payload as Record<string, unknown> : {}),
                     id: streamId,

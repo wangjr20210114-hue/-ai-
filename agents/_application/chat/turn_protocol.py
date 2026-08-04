@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import re
 
+from ..i18n import normalize_language, text
+
 
 def _field(value, name: str, default=None):
     if isinstance(value, dict):
@@ -450,8 +452,11 @@ def capability_planning_message(
     recent_user_messages: list[str] | None = None,
     prior_clarification_answers: list[str] | None = None,
     recent_dialogue: list[dict[str, str]] | None = None,
+    *,
+    response_language: object = "zh-CN",
 ) -> str:
     """Attach only the history needed for continuation and reference resolution."""
+    language = normalize_language(response_language)
     current = str(message or "").strip()
     recent = [
         str(item or "").strip()
@@ -459,18 +464,20 @@ def capability_planning_message(
         if str(item or "").strip()
     ]
     dialogue_lines = [
-        f"{'用户' if item.get('role') == 'user' else 'Floris'}：{str(item.get('content') or '')}"
+        f"{text('model.chat.role.user', language) if item.get('role') == 'user' else 'Floris'}: "
+        f"{str(item.get('content') or '')}"
         for item in (recent_dialogue or [])
         if isinstance(item, dict) and str(item.get("content") or "").strip()
     ]
     dialogue_context = ""
     if dialogue_lines:
         dialogue_context = (
-            "[最近对话仅用于解析省略、代词、序号和对上一轮候选的选择。"
-            "当前消息拥有最高优先级；必须把引用解析成候选的真实名称，"
-            "不要把“第几个/那个/它”当作地点名称交给工具。]\n"
+            text("model.chat.recent_dialogue_header", language)
+            + "\n"
             + "\n".join(dialogue_lines)
-            + "\n[当前用户消息]\n"
+            + "\n"
+            + text("model.chat.current_message_header", language)
+            + "\n"
         )
     if not clarification_id or not recent:
         return f"{dialogue_context}{current}"
@@ -481,19 +488,24 @@ def capability_planning_message(
     ][-8:]
     prior_context = (
         "\n".join(
-            f"先前已提交的补充答案 {index}：{answer}"
+            text(
+                "model.chat.prior_answer",
+                language,
+                index=index,
+                answer=answer,
+            )
             for index, answer in enumerate(prior_answers, 1)
         )
         + "\n"
         if prior_answers
         else ""
     )
-    continuation = (
-        "[这是用户对上一轮结构化问题的补充答案，请结合原始目标规划尚未完成的能力；"
-        "所有先前补充答案仍然有效，不要把答案误判为独立新问题或重复询问。]\n"
-        f"上一轮原始目标：{recent[0][:600]}\n"
-        f"{prior_context}"
-        f"本次补充答案：{current}"
+    continuation = text(
+        "model.chat.clarification_continuation",
+        language,
+        goal=recent[0][:600],
+        prior=prior_context,
+        current=current,
     )
     return f"{dialogue_context}{continuation}"
 

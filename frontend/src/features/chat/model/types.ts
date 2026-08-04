@@ -209,6 +209,7 @@ export interface BootstrapData {
   map_title?: string;
   map_route_mode?: MakersRouteMode | '';
   map_route_strategy?: MakersRouteStrategy | '';
+  map_route?: import('../../maps/model').MakersRoutePlan;
   map_show_route?: boolean;
   workspace_revision?: number;
   workspace_actions?: WorkspaceAction[];

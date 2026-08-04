@@ -8,7 +8,7 @@ import {
   presentableSourceBoundMedia,
   remarkSourceBoundMedia,
   stripLegacyMediaMarkers,
-} from '../../features/search/sourceBoundMedia';
+} from '../../features/search/model/sourceBoundMedia';
 import { useMarkdownEnhancements } from './markdownEnhancements';
 
 function RichImage({

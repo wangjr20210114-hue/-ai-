@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import re
+import runpy
 from pathlib import Path
 
 
@@ -10,6 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 AGENTS = ROOT / "agents"
 MAX_TEST_FILE_LINES = 750
 MAX_PRODUCTION_FILE_LINES = 2_500
+CRITICAL_FILE_LIMITS = {
+    "_application/chat/turn_service.py": 1_500,
+    "chat/_graph.py": 1_350,
+    "chat/_capability_plan.py": 1_350,
+}
 FORBIDDEN_DOMAIN_PARTS = {
     "_application",
     "_controllers",
@@ -20,6 +27,13 @@ FORBIDDEN_DOMAIN_PARTS = {
     "requests",
     "urllib",
 }
+LOCALIZED_CHAT_BOUNDARIES = (
+    "_application/chat/turn_admission.py",
+    "_application/chat/turn_protocol.py",
+    "_application/chat/turn_service.py",
+    "chat/_followups.py",
+)
+NON_PRESENTATION_PROVIDER_LITERALS = {"全国"}
 
 
 def imported_modules(path: Path) -> list[str]:
@@ -35,9 +49,39 @@ def imported_modules(path: Path) -> list[str]:
 
 def main() -> None:
     failures: list[str] = []
+    i18n_namespace = runpy.run_path(str(AGENTS / "_application" / "i18n.py"))
+    backend_catalog = i18n_namespace["CATALOG"]
+    supported_languages = i18n_namespace["SUPPORTED_LANGUAGES"]
+    if len(supported_languages) != 5 or len(set(supported_languages)) != 5:
+        failures.append("backend i18n must declare five distinct product languages")
+    for key, entry in backend_catalog.items():
+        if len(entry) != len(supported_languages) or not all(
+            isinstance(value, str) and value.strip() for value in entry
+        ):
+            failures.append(
+                f"backend i18n entry {key!r} must provide every product language"
+            )
+    for relative in LOCALIZED_CHAT_BOUNDARIES:
+        path = AGENTS / relative
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        hardcoded = sorted({
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and re.search(r"[\u3400-\u9fff]", node.value)
+            and node.value not in NON_PRESENTATION_PROVIDER_LITERALS
+        })
+        if hardcoded:
+            failures.append(
+                f"{path.relative_to(ROOT)} contains user/model copy outside "
+                f"agents/_application/i18n.py: {hardcoded[:3]}"
+            )
     shared = AGENTS / "_shared"
     if shared.exists():
         failures.append("agents/_shared must not exist")
+    if (AGENTS / "_domain" / "skills" / "policy.py").exists():
+        failures.append("the duplicate Skill policy must not shadow entitlements policy")
 
     legacy_workspace_suite = AGENTS / "_tests" / "test_workspace.py"
     if legacy_workspace_suite.exists():
@@ -62,6 +106,14 @@ def main() -> None:
         chat_turn_service.read_text(encoding="utf-8"),
         filename=str(chat_turn_service),
     )
+    turn_service_lines = len(chat_turn_service.read_text(encoding="utf-8").splitlines())
+    if turn_service_lines > CRITICAL_FILE_LIMITS["_application/chat/turn_service.py"]:
+        failures.append(
+            "turn_service.py must keep admission and presentation responsibilities "
+            f"split out ({turn_service_lines}/1500)"
+        )
+    if not (AGENTS / "_application" / "chat" / "turn_admission.py").exists():
+        failures.append("chat request/run admission must remain outside turn_service.py")
     if any(
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
@@ -139,6 +191,13 @@ def main() -> None:
             continue
         if "_tests" not in path.parts:
             line_count = len(path.read_text(encoding="utf-8").splitlines())
+            relative = path.relative_to(AGENTS).as_posix()
+            critical_limit = CRITICAL_FILE_LIMITS.get(relative)
+            if critical_limit is not None and line_count > critical_limit:
+                failures.append(
+                    f"{path.relative_to(ROOT)} has {line_count} lines "
+                    f"(critical maximum {critical_limit})"
+                )
             if line_count > MAX_PRODUCTION_FILE_LINES:
                 failures.append(
                     f"{path.relative_to(ROOT)} has {line_count} lines "
@@ -147,6 +206,13 @@ def main() -> None:
         for module in imported_modules(path):
             if "_shared" in module:
                 failures.append(f"{path.relative_to(ROOT)} imports removed {module}")
+
+    for path in (AGENTS / "_skill_adapters").rglob("*.py"):
+        for module in imported_modules(path):
+            if "_infrastructure" in module:
+                failures.append(
+                    f"{path.relative_to(ROOT)} trusted adapter imports infrastructure: {module}"
+                )
 
     for path in (AGENTS / "_domain").rglob("*.py"):
         for module in imported_modules(path):

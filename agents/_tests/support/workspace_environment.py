@@ -46,6 +46,7 @@ from agents.chat._graph import action_completion_fallback, tool_failure_fallback
 from agents._application.chat.turn_io import (
     checkpoint_dialogue_context,
     checkpoint_final_answer,
+    hydrate_durable_map_action,
 )
 from agents._application.chat.turn_policy import (
     SYSTEM_PROMPT,

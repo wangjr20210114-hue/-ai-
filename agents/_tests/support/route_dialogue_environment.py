@@ -12,7 +12,7 @@ from agents.chat._capability_plan import (
     parse_capability_plan,
 )
 from agents._infrastructure.skills.builtin_operations import build_system_skill_tools
-from agents._infrastructure.skills.contracts import RoutePlanInput
+from agents._application.skills.tool_contracts import RoutePlanInput
 from agents._infrastructure.skills.route_resolution import (
     _learned_route_preference,
     _place_resolution,

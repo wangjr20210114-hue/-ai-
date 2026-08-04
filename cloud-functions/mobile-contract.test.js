@@ -78,6 +78,8 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   );
   assert.ok(Array.isArray(events.anyOf));
   assert.equal(events.oneOf, undefined);
+  assert.equal(events.$defs.openEvent, undefined, 'the v1 schema must reject unknown event types');
+  assert.ok(events.anyOf.every((branch) => branch.$ref !== '#/$defs/base'));
   const eventSchema = JSON.stringify(events);
   for (const type of [
     'ai_response', 'ai_response_reset', 'tool_call', 'tool_result',

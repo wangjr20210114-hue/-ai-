@@ -1,45 +1,37 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
-import { ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon } from 'tdesign-icons-react';
+import { ArrowLeftIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../../store/appState';
 import { capabilityEnabled } from '../../../services/skills';
-import type { ScheduleItem } from '../../calendar/model';
+import { calendarDateKey as dateKey, isPastCalendarDate, type ScheduleItem } from '../../calendar/model';
+import { useCalendarWorkspaceController } from '../../calendar/controller';
+import { CalendarMonthView } from '../../calendar/view';
 import type { MakersMapPlace } from '../../maps/model';
 import type { InstalledSkill } from '../../skills/model';
 import { MakersMap, chronologicalSchedulePlaces } from '../../maps/view';
 import { ReadingLibraryPanel } from '../../papers/view';
 import { useLanguage } from '../../../i18n';
-import { useSettingsController } from '../controller/useSettingsController';
-const EMPTY_SCHEDULES: ScheduleItem[] = [];
+import { useWorkspaceController } from '../controller/useWorkspaceController';
 
-function dateKey(date: Date): string {
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0'),
-  ].join('-');
-}
-
-function isPastCalendarDate(date: Date, now = new Date()): boolean {
-  return dateKey(date) < dateKey(now);
-}
-
-export default function EdgeOnePlatformPanel() {
+export default function WorkspacePanel() {
   const { language, t } = useLanguage();
   const locale = language === 'zh-TW' ? 'zh-TW' : language === 'en' ? 'en' : 'zh-CN';
   const dispatch = useAppDispatch();
   const {
-    conversationId, schedules, mapPlaces, mapTitle, mapRouteMode, mapRouteStrategy,
+    conversationId, schedules, mapPlaces, mapTitle, mapRouteMode, mapRouteStrategy, mapRoute,
     mapShowRoute, mapRevision, calendarPulse,
   } = useAppState();
-  const { intelligence, searchPlaces, workspace } = useSettingsController(
+  const { intelligence, searchPlaces, workspace } = useWorkspaceController(
     conversationId,
   );
-  const [currentMonth, setCurrentMonth] = useState(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1);
-  });
-  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const consumeCalendarPulse = useCallback(
+    () => dispatch({ type: 'CLEAR_CALENDAR_PULSE', payload: {} }),
+    [dispatch],
+  );
+  const {
+    calendarDays, currentMonth, dayViewOpen, schedulesByDate, selectedDate,
+    selectedItems, setCurrentMonth, setDayViewOpen, setSelectedDate,
+  } = useCalendarWorkspaceController(schedules, calendarPulse, consumeCalendarPulse);
   const [showRecommendation, setShowRecommendation] = useState(true);
   const [editingId, setEditingId] = useState('');
   const [formOpen, setFormOpen] = useState(false);
@@ -53,7 +45,6 @@ export default function EdgeOnePlatformPanel() {
   const [selectedPlace, setSelectedPlace] = useState<MakersMapPlace | null>(null);
   const [formBusy, setFormBusy] = useState(false);
   const [placeSearchBusy, setPlaceSearchBusy] = useState(false);
-  const [dayViewOpen, setDayViewOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState('');
   const [skillPreferences, setSkillPreferences] = useState<Record<string, boolean>>({});
   const [skillCatalog, setSkillCatalog] = useState<InstalledSkill[]>([]);
@@ -80,39 +71,6 @@ export default function EdgeOnePlatformPanel() {
     return () => { disposed = true; window.removeEventListener('yuanbao:skills-changed', changed); };
   }, [intelligence]);
 
-  useEffect(() => {
-    if (!calendarPulse) return;
-    const target = new Date(`${calendarPulse.date}T00:00:00`);
-    if (Number.isNaN(target.getTime())) return;
-    setCurrentMonth(new Date(target.getFullYear(), target.getMonth(), 1));
-    setSelectedDate(target);
-    setDayViewOpen(true);
-    const timer = window.setTimeout(() => dispatch({ type: 'CLEAR_CALENDAR_PULSE', payload: {} }), 2600);
-    return () => window.clearTimeout(timer);
-  }, [calendarPulse, dispatch]);
-
-  const calendarDays = useMemo(() => {
-    const year = currentMonth.getFullYear();
-    const month = currentMonth.getMonth();
-    const offset = new Date(year, month, 1).getDay();
-    const count = new Date(year, month + 1, 0).getDate();
-    const cells: Array<Date | null> = Array.from({ length: offset }, () => null);
-    for (let day = 1; day <= count; day += 1) cells.push(new Date(year, month, day));
-    while (cells.length < 42) cells.push(null);
-    return cells;
-  }, [currentMonth]);
-
-  const schedulesByDate = useMemo(() => {
-    const result = new Map<string, typeof schedules>();
-    schedules.forEach((item) => {
-      const key = dateKey(new Date(item.start_time * 1000));
-      result.set(key, [...(result.get(key) || []), item]);
-    });
-    result.forEach((items) => items.sort((a, b) => a.start_time - b.start_time));
-    return result;
-  }, [schedules]);
-
-  const selectedItems = schedulesByDate.get(dateKey(selectedDate)) || EMPTY_SCHEDULES;
   const schedulePlaces = useMemo(
     () => chronologicalSchedulePlaces(selectedItems),
     [selectedItems],
@@ -126,11 +84,6 @@ export default function EdgeOnePlatformPanel() {
     : t('daySchedule', { date: selectedDate.toLocaleDateString(locale, { month: 'long', day: 'numeric' }) });
   const showingRecommendation = showRecommendation && mapPlaces.length > 0;
   const showingScheduleRoute = !showingRecommendation && schedulePlaces.length >= 2;
-  const monthLabel = currentMonth.toLocaleDateString(locale, { year: 'numeric', month: 'long' });
-  const weekdays = useMemo(() => Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(2023, 0, 1 + index);
-    return new Intl.DateTimeFormat(locale, { weekday: 'narrow' }).format(date);
-  }), [locale]);
   const selectedDateIsPast = isPastCalendarDate(selectedDate);
   const todayKey = dateKey(new Date());
   const mapsEnabled = capabilityEnabled(
@@ -378,6 +331,7 @@ export default function EdgeOnePlatformPanel() {
             showRoute={showingScheduleRoute || (showingRecommendation && mapShowRoute)}
             routeMode={showingRecommendation ? mapRouteMode : undefined}
             routeStrategy={showingRecommendation ? mapRouteStrategy : undefined}
+            routeSnapshot={showingRecommendation ? mapRoute : undefined}
           />
           : <div className="workspace-skill-disabled"><span>⌖</span><strong>{t('mapSkillDisabled')}</strong><small>{t('mapSkillDisabledDetail')}</small><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('yuanbao:open-skills'))}>{t('enableInSkills')}</button></div>}
       </div>
@@ -389,38 +343,17 @@ export default function EdgeOnePlatformPanel() {
           </div>
         )}
         <div className="calendar-workspace-viewport">
-          <section className="calendar-workspace-pane calendar-month-pane" aria-hidden={dayViewOpen}>
-            <div className="calendar-header">
-              <Button variant="text" size="small" icon={<ChevronLeftIcon />} aria-label={t('previousMonth')} title={t('previousMonth')} onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} />
-              <span className="calendar-month-label">{monthLabel}</span>
-              <Button variant="text" size="small" icon={<ChevronRightIcon />} aria-label={t('nextMonth')} title={t('nextMonth')} onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} />
-            </div>
-            <div className="calendar-weekdays">
-              {weekdays.map((weekday, index) => <div key={`${weekday}-${index}`} className="calendar-weekday">{weekday}</div>)}
-            </div>
-            <div className="calendar-grid">
-              {calendarDays.map((date, index) => {
-                if (!date) return <div key={`empty-${index}`} className="calendar-day empty" />;
-                const key = dateKey(date);
-                const count = schedulesByDate.get(key)?.length || 0;
-                const isPulse = calendarPulse?.date === key;
-                const isToday = dateKey(new Date()) === key;
-                const isSelected = dateKey(selectedDate) === key;
-                return (
-                  <button
-                    key={key}
-                    tabIndex={dayViewOpen ? -1 : 0}
-                    className={`calendar-day ${count ? 'has-events' : ''} ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''} ${isPulse ? 'calendar-day-pulse' : ''}`}
-                    onClick={() => { setSelectedDate(date); setShowRecommendation(false); setDayViewOpen(true); }}
-                    title={count ? t('scheduleItems', { count }) : t('noSchedule')}
-                  >
-                    <span className="calendar-day-num">{date.getDate()}</span>
-                    {count > 0 && <span className="calendar-day-dot" />}
-                  </button>
-                );
-              })}
-            </div>
-          </section>
+          <CalendarMonthView
+            calendarDays={calendarDays}
+            currentMonth={currentMonth}
+            hidden={dayViewOpen}
+            locale={locale}
+            pulseDate={calendarPulse?.date}
+            schedulesByDate={schedulesByDate}
+            selectedDate={selectedDate}
+            onMonthChange={setCurrentMonth}
+            onSelectDate={(date) => { setSelectedDate(date); setShowRecommendation(false); setDayViewOpen(true); }}
+          />
 
           <section className="calendar-workspace-pane calendar-day-pane" aria-hidden={!dayViewOpen}>
             <div className="calendar-day-toolbar">

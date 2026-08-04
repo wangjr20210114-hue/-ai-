@@ -191,7 +191,6 @@ export function SkillReferenceView({
                   <h4>{skillText(action.name, action.id)}</h4>
                   <p><code>{action.id}</code></p>
                   <p>{skillText(action.description_i18n, action.description)}</p>
-                  <p className="component-api-permission"><strong>{t('componentDocsPermission')}</strong><code>{action.permission}</code></p>
                   <table aria-label={t('componentDocsParameters')}>
                     <thead><tr><th>{t('componentDocsParameter')}</th><th>{t('componentDocsType')}</th><th>{t('componentDocsRequired')}</th></tr></thead>
                     <tbody>

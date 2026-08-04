@@ -56,6 +56,7 @@ const requiredFeatureModels = [
   'features/skills/model/types.ts',
   'features/workspace/model/types.ts',
 ].map((name) => resolve(ROOT, name));
+const requiredMvcFeatures = ['chat', 'search', 'calendar', 'maps', 'papers', 'settings'];
 
 async function files(directory) {
   const result = [];
@@ -96,6 +97,23 @@ for (const path of requiredFeatureModels) {
     if (!(await stat(path)).isFile()) failures.push(`feature model is not a file: ${relative(ROOT, path)}`);
   } catch {
     failures.push(`feature model is missing: ${relative(ROOT, path)}`);
+  }
+}
+for (const feature of requiredMvcFeatures) {
+  for (const layer of ['model', 'controller', 'view']) {
+    const directory = resolve(ROOT, 'features', feature, layer);
+    try {
+      const entries = await readdir(directory, { withFileTypes: true });
+      if (!entries.some((entry) => (
+        entry.isFile()
+        && /\.(?:ts|tsx)$/.test(entry.name)
+        && entry.name !== 'index.ts'
+      ))) {
+        failures.push(`${feature} ${layer} has no owned implementation`);
+      }
+    } catch {
+      failures.push(`${feature} ${layer} boundary is missing`);
+    }
   }
 }
 for (const path of await files(ROOT)) {

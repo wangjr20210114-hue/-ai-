@@ -9,7 +9,7 @@ import type {
   MakersRouteStrategy,
 } from '../model';
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from '../model/makersMapLocation';
-import { shouldPlanMakersRoute } from '../model/makersMapRouting';
+import { shouldPlanMakersRoute, shouldRequestMakersRoute } from '../model/makersMapRouting';
 import {
   legModeSequence,
   ROUTE_MODE_COLORS,
@@ -37,6 +37,7 @@ interface Props {
   showRoute?: boolean;
   routeMode?: MakersRouteMode;
   routeStrategy?: MakersRouteStrategy;
+  routeSnapshot?: MakersRoutePlan;
 }
 
 type PermissionState = 'checking' | 'prompt' | 'granted' | 'denied' | 'unavailable';
@@ -93,7 +94,7 @@ function hoursMinutes(seconds: number): string {
 }
 
 export default function MakersMap({
-  conversationId, title, places, revision, showRoute = false, routeMode, routeStrategy,
+  conversationId, title, places, revision, showRoute = false, routeMode, routeStrategy, routeSnapshot,
 }: Props) {
   const { t } = useLanguage();
   const dispatch = useAppDispatch();
@@ -279,6 +280,11 @@ export default function MakersMap({
       setRouteError('');
       return;
     }
+    if (!shouldRequestMakersRoute(showRoute, places.length, routeSnapshot) && routeSnapshot?.places?.length) {
+      setRoute(routeSnapshot);
+      setRouteError('');
+      return;
+    }
     let disposed = false;
     setRoute(null);
     setRouteError('');
@@ -286,7 +292,7 @@ export default function MakersMap({
       .then((next) => { if (!disposed) setRoute(next); })
       .catch((error) => { if (!disposed) setRouteError(error instanceof Error ? error.message : t('routePlanningFailed')); });
     return () => { disposed = true; };
-  }, [planVerifiedRoute, revision, places, routeMode, routeStrategy, showRoute, t]);
+  }, [planVerifiedRoute, revision, places, routeMode, routeStrategy, routeSnapshot, showRoute, t]);
 
   useEffect(() => {
     if (!displayPlaces.length) return;

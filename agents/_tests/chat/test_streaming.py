@@ -2,6 +2,19 @@ from agents._tests.support.workspace_environment import *  # noqa: F401,F403
 
 
 class ChatStreamingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stream_restores_route_geometry_from_durable_map_action(self):
+        compact = {"ui_action": "map_action", "action": {"id": "map-1", "payload": {"places": []}}}
+        durable = {"id": "map-1", "kind": "map_recommendation", "payload": {"route": {"provider": "tencent", "path": [1, 2]}}}
+        maker_store = object()
+        loader = AsyncMock(return_value={"actions": {"map-1": durable}})
+        with patch(
+            "agents._application.chat.turn_io.load_user_workspace",
+            new=loader,
+        ):
+            hydrated = await hydrate_durable_map_action(maker_store, "user-1", compact)
+        loader.assert_awaited_once_with(maker_store, user_id="user-1")
+        self.assertEqual(hydrated["action"]["payload"]["route"]["path"], [1, 2])
+
     async def test_checkpoint_recovers_structured_answers_and_resume_protocol_once(self):
         messages = [
             HumanMessage(content="规划六站路线并写入日程"),

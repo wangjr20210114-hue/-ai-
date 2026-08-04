@@ -200,7 +200,7 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.doesNotMatch(clarificationCard, /SET_DRAFT/);
   assert.doesNotMatch(capabilityPlan, /def clarification_tool_available/);
   assert.doesNotMatch(chatAgent, /if not clarification_tool_available/);
-  assert.match(chatAgent, /product-wide interaction capability/);
+  assert.match(capabilityPlan, /product-wide semantic preflight/);
   assert.match(chatGraph, /required_or_question_tools/);
   assert.match(styles, /themeDiagonalReveal 280ms/);
   assert.match(chatClient, /operation: 'touch_pointer'/);

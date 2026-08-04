@@ -7,6 +7,8 @@ import math
 import time
 from datetime import datetime
 
+from ..i18n import normalize_language, text
+
 
 WEEKDAY_LABELS = (
     ("Monday", "周一"),
@@ -28,7 +30,12 @@ def runtime_datetime_context(value: datetime) -> str:
     )
 
 
-def normalize_browser_current_location(value: object, *, now_ms: int | None = None) -> dict | None:
+def normalize_browser_current_location(
+    value: object,
+    *,
+    now_ms: int | None = None,
+    response_language: object = "zh-CN",
+) -> dict | None:
     """Accept a fresh browser GPS fix without persisting or exposing it to the model."""
     if not isinstance(value, dict) or value.get("coordinate_type") != "wgs84":
         return None
@@ -55,8 +62,8 @@ def normalize_browser_current_location(value: object, *, now_ms: int | None = No
         "schema_version": 1,
         "place_id": "browser-current-location",
         "provider": "browser-wgs84",
-        "name": "当前位置",
-        "address": "本次请求的浏览器定位（不写入长期记忆）",
+        "name": text("chat.location.name", response_language),
+        "address": text("chat.location.ephemeral_address", response_language),
         "latitude": latitude,
         "longitude": longitude,
         "coordinate_type": "wgs84",
@@ -76,43 +83,93 @@ def normalize_browser_location_request(value: object) -> str:
     } else "not_attempted"
 
 
-def location_clarification_copy(intent: str, request_state: str) -> tuple[str, str]:
+def location_clarification_copy(
+    intent: str,
+    request_state: str,
+    response_language: object = "zh-CN",
+) -> tuple[str, str]:
+    language = normalize_language(response_language)
     nearby = intent == "nearby"
     route = intent == "route"
     if request_state == "denied":
         return (
-            "定位权限未开启",
-            "浏览器已拒绝本网站读取位置。你可以在当前网站的权限设置中改为允许后重试，"
-            "也可以直接填写你所在的区域或附近地标，提交后我会继续处理。",
+            text("chat.location.denied.title", language),
+            text("chat.location.denied.prompt", language),
         )
     if request_state == "timed_out":
         return (
-            "定位暂时超时",
-            "设备在 12 秒内没有返回位置，手机或平板上可确认系统定位服务已开启。"
-            "你可以重新尝试，也可以直接填写"
-            + ("附近搜索的起点。" if nearby else "大致位置或出发地。"),
+            text("chat.location.timeout.title", language),
+            text(
+                "chat.location.timeout.prompt",
+                language,
+                target=text(
+                    "chat.location.target.nearby" if nearby else "chat.location.target.origin",
+                    language,
+                ),
+            ),
         )
     if request_state == "unavailable":
         return (
-            "设备暂时无法定位",
-            "当前浏览器或设备没有提供可用位置。你可以换用支持定位的安全浏览器，"
-            "也可以直接填写"
-            + ("附近搜索的起点。" if nearby else "大致位置或出发地。"),
+            text("chat.location.unavailable.title", language),
+            text(
+                "chat.location.unavailable.prompt",
+                language,
+                target=text(
+                    "chat.location.target.nearby" if nearby else "chat.location.target.origin",
+                    language,
+                ),
+            ),
         )
     return (
-        "需要附近搜索的起点"
-        if nearby
-        else "需要路线起点"
-        if route
-        else "需要你的位置",
-        "浏览器没有提供当前位置。请填写你所在的区域或附近地标，"
-        "提交后我会自动继续查找，不需要重新描述需求。"
-        if nearby
-        else "浏览器没有提供当前位置。请填写路线起点，提交后我会自动继续规划。"
-        if route
-        else "浏览器没有提供当前位置。你可以填写大致位置，"
-        "我会用它继续附近推荐、路线规划或日程安排。",
+        text(
+            "chat.location.missing.nearby.title"
+            if nearby
+            else "chat.location.missing.route.title"
+            if route
+            else "chat.location.missing.current.title",
+            language,
+        ),
+        text(
+            "chat.location.missing.nearby.prompt"
+            if nearby
+            else "chat.location.missing.route.prompt"
+            if route
+            else "chat.location.missing.current.prompt",
+            language,
+        ),
     )
+
+
+def location_clarification_arguments(
+    intent: str,
+    request_state: str,
+    response_language: object = "zh-CN",
+) -> dict:
+    """Build the localized location card without leaking copy into orchestration."""
+    language = normalize_language(response_language)
+    title, prompt = location_clarification_copy(intent, request_state, language)
+    field_id = {
+        "nearby": "nearby_anchor",
+        "route": "route_origin",
+        "current": "manual_location",
+    }[intent]
+    label_key = {
+        "nearby": "chat.location.field.nearby",
+        "route": "chat.location.field.route",
+        "current": "chat.location.field.current",
+    }[intent]
+    return {
+        "title": title,
+        "prompt": prompt,
+        "fields": [{
+            "id": field_id,
+            "label": text(label_key, language),
+            "type": "text",
+            "required": True,
+            "options": [],
+            "placeholder": text("chat.location.placeholder", language),
+        }],
+    }
 
 
 def run_cancelled(value: object) -> bool:
@@ -130,6 +187,7 @@ def empty_generation_error(
     clarification_emitted: bool,
     run_error: str,
     cancelled: bool,
+    response_language: object = "zh-CN",
 ) -> str:
     """Return a terminal error when a run produced no user-visible result."""
     if (
@@ -139,7 +197,7 @@ def empty_generation_error(
         and not run_error
         and not cancelled
     ):
-        return "模型未返回有效回答，请重试。"
+        return text("chat.empty_generation", response_language)
     return ""
 
 
@@ -371,8 +429,10 @@ def dynamic_system_prompt(
     user_skill_context: str = "",
     public_answer: bool = False,
     full_prompt: bool = False,
+    response_language: object = "zh-CN",
 ) -> str:
     """Render only the policy paragraphs and runtime state needed now."""
+    language = normalize_language(response_language)
     if full_prompt:
         selected_sections = set(SYSTEM_PROMPT_SECTIONS)
     elif public_answer:
@@ -452,9 +512,10 @@ def dynamic_system_prompt(
         selected_sections.update({"image_no_markdown", "image_no_strategy"})
     if uses_papers:
         selected_sections.add("paper_search")
-    if reference_image_context and reference_image_context != "无":
+    localized_none = text("model.chat.none", language)
+    if reference_image_context and reference_image_context != localized_none:
         selected_sections.add("reference_image_context")
-    if document_context and document_context != "无":
+    if document_context and document_context != localized_none:
         selected_sections.update({"document_context", "document_safety"})
 
     if public_answer:
@@ -483,9 +544,13 @@ def dynamic_system_prompt(
         if uses_images:
             selected_sections.update({"image_no_markdown", "image_no_strategy"})
 
+    localized_sections = dict(SYSTEM_PROMPT_SECTIONS)
+    localized_sections["identity"] = text(
+        "model.chat.system.identity", language,
+    )
     template = "\n".join(
         paragraph
-        for section, paragraph in SYSTEM_PROMPT_SECTIONS.items()
+        for section, paragraph in localized_sections.items()
         if section in selected_sections
     )
     rendered = template.format(
@@ -498,8 +563,8 @@ def dynamic_system_prompt(
             and not key.startswith("_runtime_")
         }, ensure_ascii=False),
         calendar_context=calendar_context,
-        reference_image_context=reference_image_context or "无",
-        document_context=document_context or "无",
+        reference_image_context=reference_image_context or localized_none,
+        document_context=document_context or localized_none,
     )
     # This short truth signal is always present: direct questions such as
     # “我现在在哪” may legitimately have no map tool selected, but must never
@@ -583,6 +648,7 @@ __all__ = (
     "direct_paper_tool_arguments",
     "dynamic_system_prompt",
     "empty_generation_error",
+    "location_clarification_arguments",
     "location_clarification_copy",
     "normalize_browser_current_location",
     "normalize_browser_location_request",

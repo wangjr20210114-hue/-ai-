@@ -1,8 +1,16 @@
 import type { ScheduleItem } from '../../calendar/model';
-import type { MakersMapPlace } from './types';
+import type { MakersMapPlace, MakersRoutePlan } from './types';
 
 export function shouldPlanMakersRoute(showRoute: boolean, placesCount: number): boolean {
   return showRoute && placesCount >= 2;
+}
+
+export function shouldRequestMakersRoute(
+  showRoute: boolean,
+  placesCount: number,
+  snapshot?: MakersRoutePlan,
+): boolean {
+  return shouldPlanMakersRoute(showRoute, placesCount) && !snapshot?.places?.length;
 }
 
 /** A schedule's time order is authoritative; route distance must never reorder it. */

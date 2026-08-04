@@ -11,11 +11,10 @@ import {
   initialPlanningProgress,
   mergeProgressStep,
 } from '../../search/model/progressModel';
+import { mergeSearchMeta, resolveSearchStartAt } from '../../search/model/searchRuntime';
 import { SSEChatClient } from './chatTransport';
 import {
   actionOnlyFallback,
-  mergeSearchMeta,
-  resolveSearchStartAt,
   restoredConversationWasInterrupted,
 } from './chatRuntimeModel';
 
@@ -29,10 +28,9 @@ export {
 } from './chatTransport';
 export {
   actionOnlyFallback,
-  mergeSearchMeta,
-  resolveSearchStartAt,
   restoredConversationWasInterrupted,
 } from './chatRuntimeModel';
+export { mergeSearchMeta, resolveSearchStartAt } from '../../search/model/searchRuntime';
 
 const MESSAGE_CACHE_PREFIX = 'yuanbao.messages.';
 
@@ -545,6 +543,7 @@ export function useChatRuntime() {
             mapTitle: data.map_title,
             mapRouteMode: data.map_route_mode || undefined,
             mapRouteStrategy: data.map_route_strategy || undefined,
+            mapRoute: data.map_route,
             mapShowRoute: data.map_show_route,
           },
         });

@@ -557,5 +557,6 @@ def active_map_payload(state: dict[str, Any]) -> dict[str, Any] | None:
         "places": copy.deepcopy(payload.get("places") or []),
         "route_mode": str(payload.get("route_mode") or ""),
         "route_strategy": str(payload.get("route_strategy") or ""),
+        "route": copy.deepcopy(payload.get("route") or {}),
         "show_route": bool(payload.get("show_route")),
     }

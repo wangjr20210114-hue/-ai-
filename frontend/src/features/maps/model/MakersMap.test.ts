@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
-import { chronologicalSchedulePlaces, shouldPlanMakersRoute } from './makersMapRouting';
+import { chronologicalSchedulePlaces, shouldPlanMakersRoute, shouldRequestMakersRoute } from './makersMapRouting';
 import { legModeSequence, routeLegs, routeZoomLevel } from './routePresentation';
 import type { ScheduleItem } from '../../calendar/model';
 import type { MakersMapPlace, MakersRoutePlan } from './types';
@@ -63,6 +63,12 @@ describe('MakersMap geolocation recovery', () => {
 
     expect(chronologicalSchedulePlaces(items).map((item) => item.name))
       .toEqual(['早餐店', '北京站', '锦江之星']);
+  });
+
+  it('reuses a verified action route instead of requesting the provider again', () => {
+    const snapshot = { places: [{ place_id: 'a' }, { place_id: 'b' }] } as MakersRoutePlan;
+    expect(shouldRequestMakersRoute(true, 2, snapshot)).toBe(false);
+    expect(shouldRequestMakersRoute(true, 2)).toBe(true);
   });
 
   it('changes route detail naturally with map zoom', () => {

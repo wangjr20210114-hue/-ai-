@@ -14,7 +14,7 @@ from typing import Any, Awaitable, Callable
 
 from pydantic import BaseModel
 
-from .contracts import ProviderPlaceDecision
+from ..._application.skills.tool_contracts import ProviderPlaceDecision
 
 
 def preserve_planned_route_stops(

@@ -12,7 +12,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel
 
 from .calendar_operations import build_calendar_operation
-from .contracts import ClarificationFieldInput
+from ..._application.skills.tool_contracts import ClarificationFieldInput
 
 from ..._infrastructure.providers.tencent_location import (
     plan_verified_route as provider_plan_route,

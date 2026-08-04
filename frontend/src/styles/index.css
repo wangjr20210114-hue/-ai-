@@ -11,6 +11,7 @@
 @import "../features/chat/composer.css";
 @import "../features/settings/styles.css";
 @import "../features/calendar/styles.css";
+@import "../features/workspace/styles.css";
 @import "../features/maps/styles.css";
 @import "../shared/ui/workspace-actions.css";
 @import "../features/calendar/meeting.css";

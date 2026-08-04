@@ -6,6 +6,8 @@ import json
 import re
 from typing import Any
 
+from .._application.i18n import normalize_language, text
+
 
 _FOLLOWUP_RESULT_CAPABILITIES = (
     "needs_web_search",
@@ -83,28 +85,25 @@ async def generate_followups(
     grounding = answer.strip() or plan_context.strip()
     if len(user_message.strip()) + len(grounding) < 20:
         return []
-    language_instruction = {
-        "zh-CN": "问题必须使用自然、简洁的简体中文。",
-        "zh-TW": "問題必須使用自然、簡潔的繁體中文。",
-        "en": "Write every question in clear, concise English.",
-        "cat-cute": "使用简体中文和亲人的可爱猫咪语气，适度加入“喵”，不要影响清晰度。",
-        "cat-cold": "使用简体中文和冷静克制的猫咪语气，表达直接，偶尔可以用简短的“喵”。",
-    }.get(response_language, "问题必须使用自然、简洁的简体中文。")
+    language = normalize_language(response_language)
+    language_copy = text("model.followups.language", language)
     response = await model.ainvoke([
         {
             "role": "system",
-            "content": (
-                "你只生成对话界面的‘猜你想问’，不续写或编排回答。结合用户原问题和回答，"
-                "给出2到3个自然、有信息增量、用户可能真的会点的简短问题。"
-                "不要重复原问题，不要写‘还有什么可以帮你’。如果不适合追问，返回[]。"
-                f"{language_instruction}只返回JSON字符串数组。"
+            "content": text(
+                "model.followups.system",
+                language,
+                language_instruction=language_copy,
             ),
         },
         {
             "role": "user",
-            "content": (
-                f"原问题：{user_message[:1200]}\n\n"
-                + (f"回答：{answer[:6000]}" if answer.strip() else f"已识别的任务方向：{plan_context[:2400]}")
+            "content": text(
+                "model.followups.user_with_answer" if answer.strip() else "model.followups.user_with_plan",
+                language,
+                question=user_message[:1200],
+                answer=answer[:6000],
+                plan=plan_context[:2400],
             ),
         },
     ])

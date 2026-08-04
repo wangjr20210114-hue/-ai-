@@ -24,8 +24,7 @@
     { "$ref": "#/$defs/imageProgress" },
     { "$ref": "#/$defs/imageAction" },
     { "$ref": "#/$defs/ping" },
-    { "$ref": "#/$defs/error" },
-    { "$ref": "#/$defs/openEvent" }
+    { "$ref": "#/$defs/error" }
   ],
   "$defs": {
     "base": {
@@ -243,10 +242,6 @@
     },
     "error": {
       "allOf": [{ "$ref": "#/$defs/base" }, { "properties": { "type": { "const": "error_message" }, "code": { "type": "string" }, "content": { "type": "string" } }, "required": ["code", "content"] }]
-    },
-    "openEvent": {
-      "description": "Forward-compatible event. v1 clients ignore unknown type values.",
-      "$ref": "#/$defs/base"
     }
   }
 }

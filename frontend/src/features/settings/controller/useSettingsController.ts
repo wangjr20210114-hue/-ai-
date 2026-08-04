@@ -7,8 +7,6 @@ import {
   proactiveOperation,
   resetApplicationData,
 } from '../model/client';
-import { workspaceOperation } from '../../calendar/model/client';
-import { searchMakersPlaces } from '../../maps/model/client';
 import {
   getReadingSettings,
   updateReadingSettings,
@@ -60,20 +58,6 @@ export function useSettingsController(conversationId: string) {
     ),
     [conversationId],
   );
-  const workspace = useCallback(
-    (operation: string, input: Record<string, unknown> = {}) => (
-      workspaceOperation(conversationId, operation, input)
-    ),
-    [conversationId],
-  );
-  const searchPlaces = useCallback(
-    (query: string, city = '全国') => searchMakersPlaces(
-      conversationId,
-      query,
-      city,
-    ),
-    [conversationId],
-  );
   return {
     session,
     usage,
@@ -87,8 +71,6 @@ export function useSettingsController(conversationId: string) {
     proactive,
     providerUsage,
     resetApplication,
-    workspace,
-    searchPlaces,
     getReadingSettings,
     updateReadingSettings,
     paymentAvailable: false,

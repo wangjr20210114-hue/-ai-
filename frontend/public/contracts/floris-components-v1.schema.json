@@ -161,6 +161,7 @@
             "places": { "type": "array", "items": { "$ref": "#/$defs/place" } },
             "route_mode": { "enum": ["driving", "transit", "walking", "bicycling"] },
             "route_strategy": { "enum": ["time_then_cost", "least_time", "least_cost"] },
+            "route": { "$ref": "#/$defs/routePlan" },
             "show_route": { "type": "boolean" },
             "route_plan_id": { "type": "string" },
             "calendar_offer": { "type": "boolean" },

@@ -263,8 +263,13 @@ class MapRouteCoreTests(unittest.IsolatedAsyncioTestCase):
             ["tencent", "jinjiang", "restaurant", "orange"],
         )
         self.assertFalse(planner.await_args.kwargs["optimize"])
+        self.assertNotIn("route", result["action"]["payload"])
         self.assertIn("绝不能重新排序", result["response_constraint"])
         saved = await load_user_workspace(store, user_id=TEST_USER_ID)
+        self.assertEqual(
+            saved["actions"][result["action"]["id"]]["payload"]["route"],
+            route,
+        )
         self.assertEqual(saved["latest_route_plan"]["id"], result["route_plan_id"])
         self.assertEqual(
             saved["route_plans"][result["route_plan_id"]]["id"],

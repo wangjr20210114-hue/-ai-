@@ -9,6 +9,7 @@ from agents._application.intelligence.service import normalize_map_preferences
 from agents._infrastructure.providers.tencent_location import plan_verified_route
 from agents._application.workspace.service import (
     WorkspaceConflictError,
+    active_map_payload,
     apply_calendar_changes,
     apply_calendar_changes_best_effort,
     empty_workspace,
@@ -56,6 +57,17 @@ class FakeStore:
 
 
 class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
+    def test_active_map_restores_the_exact_verified_route_snapshot(self):
+        route = {"schema_version": 4, "provider": "tencent", "path": [{"latitude": 1, "longitude": 2}]}
+        state = empty_workspace()
+        state["active_map_action_id"] = "map-1"
+        state["actions"]["map-1"] = {
+            "id": "map-1",
+            "kind": "map_recommendation",
+            "payload": {"title": "A → B", "places": [PLACE_A, PLACE_B], "route": route, "show_route": True},
+        }
+        self.assertEqual(active_map_payload(state)["route"], route)
+
     async def test_route_calendar_continuation_collects_timing_then_reuses_verified_stops(self):
         store = FakeStore()
         state = empty_workspace()

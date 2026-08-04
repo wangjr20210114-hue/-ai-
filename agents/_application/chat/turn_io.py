@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from ...chat._protocol import public_content
+from ..._application.workspace.service import load_user_workspace, public_action
 
 
 def checkpoint_final_answer(snapshot) -> str:
@@ -73,6 +75,27 @@ def _ui_action(content: str) -> dict | None:
     if not isinstance(value, dict) or not str(value.get("ui_action", "")):
         return None
     return value
+
+
+async def hydrate_durable_map_action(store, user_id: str, envelope: dict | None):
+    """Restore provider geometry without exposing it to the answer model."""
+    if (
+        not envelope
+        or envelope.get("ui_action") != "map_action"
+        or not isinstance(envelope.get("action"), dict)
+    ):
+        return envelope
+    action_id = str(envelope["action"].get("id") or "")
+    if not action_id:
+        return envelope
+    try:
+        workspace = await load_user_workspace(store, user_id=user_id)
+        action = workspace.get("actions", {}).get(action_id)
+        if isinstance(action, dict):
+            return {**envelope, "action": public_action(action)}
+    except Exception:
+        logging.exception("durable map action enrichment failed action=%s", action_id)
+    return envelope
 
 
 def _field(value, name: str, default=None):
@@ -184,6 +207,7 @@ __all__ = (
     "_recent_user_questions",
     "_text_content",
     "_ui_action",
+    "hydrate_durable_map_action",
     "_usage_values",
     "checkpoint_dialogue_context",
     "checkpoint_final_answer",

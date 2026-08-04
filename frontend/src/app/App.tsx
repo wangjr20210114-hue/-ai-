@@ -20,8 +20,8 @@ import { OPEN_RIGHT_WORKSPACE_EVENT } from '../services/workspaceEvents';
 import FlorisOnboarding from '../components/onboarding/FlorisOnboarding';
 import AuthDialog from '../features/auth/view/AuthDialog';
 
-const EdgeOnePlatformPanel = lazy(
-  () => import('../features/settings/view/EdgeOnePlatformPanel'),
+const WorkspacePanel = lazy(
+  () => import('../features/workspace/view/WorkspacePanel'),
 );
 
 const LEFT_PANE_MIN = 190;
@@ -205,7 +205,7 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
                 <span className="skeleton skeleton-block" />
               </div>
             )}>
-              <EdgeOnePlatformPanel />
+              <WorkspacePanel />
             </Suspense>
           )}
         </div>

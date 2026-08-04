@@ -1,7 +1,7 @@
 """Infrastructure implementations supplied through system Skill service ports."""
 
 from .builtin_operations import build_system_skill_tools
-from .contracts import (
+from ..._application.skills.tool_contracts import (
     ClarificationFieldInput,
     RoutePlanInput,
 )
