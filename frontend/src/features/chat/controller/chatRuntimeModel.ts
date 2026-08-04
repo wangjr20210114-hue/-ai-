@@ -36,3 +36,16 @@ export function shouldPersistRenderedMessages(
 ): boolean {
   return renderedConversationId === activeConversationId;
 }
+
+/**
+ * Only the live edge can own an active generation.
+ *
+ * Older releases could persist an interrupted row with `streaming=true`.
+ * Treating any historical row as active permanently disabled every Action and
+ * clarification card restored after it. The transport already serializes one
+ * turn per conversation, so a streaming row that is not the final row is
+ * necessarily stale presentation state.
+ */
+export function isConversationGenerationActive(messages: ChatMessage[]): boolean {
+  return messages[messages.length - 1]?.streaming === true;
+}

@@ -27,6 +27,27 @@
   font-weight: 700;
 }
 
+.conversation-create-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--td-brand-color);
+  border-radius: 8px;
+  color: #fff;
+  background: var(--td-brand-color);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: transform 160ms var(--motion-ease-out), box-shadow 180ms ease, filter 180ms ease;
+}
+.conversation-create-button:hover { filter: brightness(1.04); box-shadow: 0 5px 14px color-mix(in srgb, var(--td-brand-color) 22%, transparent); transform: translateY(-1px); }
+.conversation-create-button:active { transform: translateY(0) scale(.985); }
+.conversation-create-button:disabled { opacity: .68; cursor: wait; transform: none; }
+
 .conversation-sidebar-close,
 .conversation-sidebar-backdrop {
   display: none;

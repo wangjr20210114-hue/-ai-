@@ -313,7 +313,6 @@ _PROMOTIONAL_TEXT_MARKERS = (
     "包车",
 )
 
-
 def _query_match_terms(query: str) -> set[str]:
     """Build lightweight relevance terms without assuming one topic or locale."""
     normalized = re.sub(r"\s+", "", str(query or "").lower())
@@ -329,7 +328,45 @@ def _query_match_terms(query: str) -> set[str]:
     return terms
 
 
-def _source_quality_score(item: dict[str, Any], query: str) -> int:
+def _source_recency_score(
+    item: dict[str, Any], target_date: str, prefer_recent: bool,
+) -> tuple[int, str]:
+    """Prefer verifiably recent evidence only for a recent-information query."""
+    if not target_date or not prefer_recent:
+        return 0, ""
+    try:
+        target = date.fromisoformat(target_date)
+    except ValueError:
+        return 0, ""
+    published = _date_from_text(str(item.get("date") or ""), target.year)
+    if not published:
+        published = _date_from_text(
+            f"{item.get('title') or ''} {item.get('snippet') or ''}",
+            target.year,
+        )
+    if not published:
+        return -14, ""
+    try:
+        age_days = (target - date.fromisoformat(published)).days
+    except ValueError:
+        return -14, ""
+    if age_days < 0:
+        return -30, published
+    if age_days <= 7:
+        return 34, published
+    if age_days <= 30:
+        return 22, published
+    if age_days <= 120:
+        return 7, published
+    if age_days <= 365:
+        return 0, published
+    return -24, published
+
+
+def _source_quality_score(
+    item: dict[str, Any], query: str, target_date: str = "",
+    prefer_recent: bool = False,
+) -> int:
     """Prefer relevant primary/official pages and demote promotional results."""
     title = str(item.get("title") or "")
     snippet = str(item.get("snippet") or "")
@@ -346,11 +383,16 @@ def _source_quality_score(item: dict[str, Any], query: str) -> int:
         score -= 5
     terms = _query_match_terms(query)
     score += min(12, sum(term in searchable for term in terms))
+    recency_score, _ = _source_recency_score(
+        item, target_date, prefer_recent
+    )
+    score += recency_score
     return score
 
 
 def _rank_source_results(
-    results: list[dict[str, Any]], query: str,
+    results: list[dict[str, Any]], query: str, target_date: str = "",
+    prefer_recent: bool = False,
 ) -> list[dict[str, Any]]:
     """Stable quality ordering with bounded registrable-domain diversity.
 
@@ -361,7 +403,11 @@ def _rank_source_results(
     """
     ranked = sorted(
         enumerate(results),
-        key=lambda pair: (-_source_quality_score(pair[1], query), pair[0]),
+        key=lambda pair: (
+            -_source_quality_score(
+                pair[1], query, target_date, prefer_recent
+            ), pair[0]
+        ),
     )
     if len(ranked) < 2:
         return [item for _, item in ranked]
@@ -385,7 +431,13 @@ def _rank_source_results(
             domains.add(domain(pair[1]))
             break
     chosen.extend(pair for pair in ranked if pair not in chosen)
-    return [item for _, item in chosen]
+    output: list[dict[str, Any]] = []
+    for _, item in chosen:
+        _, published = _source_recency_score(
+            item, target_date, prefer_recent
+        )
+        output.append({**item, **({"date": published} if published else {})})
+    return output
 
 
 def _date_from_text(value: str, target_year: int | None = None) -> str:
@@ -780,6 +832,7 @@ async def rich_search(
     image_limit: int = 8,
     target_date: str = "",
     strict_date: bool = False,
+    prefer_recent: bool = False,
     media_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     background_tasks: list[asyncio.Task] | None = None,
     include_media: bool = True,
@@ -840,7 +893,9 @@ async def rich_search(
         # Images are evidence-bearing search output too. Do not review or
         # expose media from an older/undated article after its source has been
         # removed by the same-day truth boundary.
-    results = _rank_source_results(candidate_results, query)[:limit]
+    results = _rank_source_results(
+        candidate_results, query, target_date, prefer_recent
+    )[:limit]
     visual_results = results
     date_filter["kept"] = len(results)
     source_domains: list[str] = []
@@ -895,6 +950,7 @@ async def rich_search(
                 else "blocking"
             ),
             "provider_request_count": provider_request_count,
+            "prefer_recent": prefer_recent,
             "visual_query_merged": distinct_visual_query,
             "provider_timeout_seconds": provider_timeout,
             "source_domain_count": len(source_domains),

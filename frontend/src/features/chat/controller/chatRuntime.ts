@@ -29,6 +29,7 @@ export {
 } from './chatTransport';
 export {
   actionOnlyFallback,
+  isConversationGenerationActive,
   restoredConversationWasInterrupted,
   shouldPersistRenderedMessages,
 } from './chatRuntimeModel';
@@ -352,7 +353,13 @@ export function useChatRuntime() {
           break;
         }
         case 'search_media': {
-          const current = streams.get(streamId); if (!current) break;
+          // Media review is intentionally progressive and can finish just
+          // after the text stream closes. Hydrate the completed durable row
+          // as well as a live stream so reviewed images are never dropped at
+          // that boundary.
+          const live = streams.get(streamId);
+          const current = live || cached(id).find((item) => item.id === streamId);
+          if (!current) break;
           const searchResults = mergeSearchMeta(current.searchResults, {
             query: String(event.payload.query || ''),
             media: Array.isArray(event.payload.media) ? event.payload.media : [],
@@ -363,17 +370,14 @@ export function useChatRuntime() {
           } as Partial<SearchMeta>);
           const searchStartedAt = rememberSearchStart(streamId, current, true);
           const searchCompletedAt = rememberedSearchCompletion(streamId, current);
-          streams.set(streamId, {
+          const next = {
             ...current,
             searchResults,
             ...(searchStartedAt ? { searchStartedAt } : {}),
             ...(searchCompletedAt ? { searchCompletedAt } : {}),
-          });
-          patch(id, streamId, {
-            searchResults,
-            ...(searchStartedAt ? { searchStartedAt } : {}),
-            ...(searchCompletedAt ? { searchCompletedAt } : {}),
-          });
+          };
+          if (live) streams.set(streamId, next);
+          publish(id, cached(id).map((item) => item.id === streamId ? next : item));
           break;
         }
         case 'paper_results': {

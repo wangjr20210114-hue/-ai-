@@ -7,6 +7,7 @@ import { useLanguage, type TranslationKey } from '../../i18n';
 import { assistantChainPositions } from './assistantMessageChain';
 import { useAuthSession } from '../../shared/auth/useAuthSession';
 import { useAvatarUrl } from '../../shared/auth/useAvatarUrl';
+import { isConversationGenerationActive } from '../../features/chat/controller/chatRuntimeModel';
 
 const STARTERS: TranslationKey[] = [
   'starterAiNews',
@@ -32,7 +33,7 @@ export default function MessageList({ client }: Props) {
     thinking ? [...messages, { role: 'ai' as const }] : messages,
   );
   const thinkingChainPosition = thinking ? chainPositions[messages.length] : 'single';
-  const generationActive = messages.some((item) => item.streaming);
+  const generationActive = isConversationGenerationActive(messages);
   const { t } = useLanguage();
   const authSession = useAuthSession();
   const userAvatarUrl = useAvatarUrl(authSession?.identity);

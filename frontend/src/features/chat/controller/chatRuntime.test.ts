@@ -8,6 +8,7 @@ import {
   progressTextForTool,
   resolveSearchStartAt,
   restoredConversationWasInterrupted,
+  isConversationGenerationActive,
   shouldPersistRenderedMessages,
   terminalGenerationError,
 } from './useChatController';
@@ -104,6 +105,17 @@ describe('chat transport ownership', () => {
   it('does not cache old rows under a newly selected conversation id', () => {
     expect(shouldPersistRenderedMessages('conversation-old', 'conversation-new')).toBe(false);
     expect(shouldPersistRenderedMessages('conversation-new', 'conversation-new')).toBe(true);
+  });
+
+  it('does not let a stale historical stream lock restored action cards', () => {
+    expect(isConversationGenerationActive([
+      { id: 'stale', role: 'ai', content: '旧回答', ts: 1, streaming: true },
+      { id: 'restored', role: 'ai', content: '可操作的新回答', ts: 2, streaming: false },
+    ])).toBe(false);
+    expect(isConversationGenerationActive([
+      { id: 'user', role: 'user', content: '新问题', ts: 1 },
+      { id: 'live', role: 'ai', content: '', ts: 2, streaming: true },
+    ])).toBe(true);
   });
 
   it('allows bounded semantic preflight before the stream idle watchdog', () => {

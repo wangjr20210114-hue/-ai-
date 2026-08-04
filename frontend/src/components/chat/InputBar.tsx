@@ -12,6 +12,7 @@ import {
 import { proactiveOperation } from '../../features/settings/model/client';
 import { registerReadingItem } from '../../features/papers/model/api';
 import { getStoredLanguage, translate, useLanguage } from '../../i18n';
+import { isConversationGenerationActive } from '../../features/chat/controller/chatRuntimeModel';
 
 interface Props {
   client: React.RefObject<ChatClient | null>;
@@ -51,7 +52,7 @@ export default function InputBar({ client }: Props) {
   const sendLockRef = useRef(false);
   const [stopping, setStopping] = useState(false);
   const [referenceImage, setReferenceImage] = useState<{ name: string; dataUrl: string } | null>(null);
-  const activeStreaming = messages.some((message) => message.streaming);
+  const activeStreaming = isConversationGenerationActive(messages);
 
   // 点击空态引导词 → 回填输入框
   useEffect(() => {

@@ -71,14 +71,24 @@ def evidence_for_model(
         ),
         language,
     )
-    temporal_instruction = (
-        text(
-            "model.search.temporal", language,
-            target_date=metadata.get("target_date"),
-        )
-        if metadata.get("strict_date") and metadata.get("target_date")
-        else ""
+    target_date = str(metadata.get("target_date") or "")
+    search_config = metadata.get("search_config")
+    prefer_recent = bool(
+        isinstance(search_config, dict)
+        and search_config.get("prefer_recent")
     )
+    if metadata.get("strict_date") and target_date:
+        temporal_instruction = text(
+            "model.search.temporal", language,
+            target_date=target_date,
+        )
+    elif target_date and prefer_recent:
+        temporal_instruction = text(
+            "model.search.recency", language,
+            target_date=target_date,
+        )
+    else:
+        temporal_instruction = ""
     return text(
         "model.search.evidence", language,
         temporal=temporal_instruction,

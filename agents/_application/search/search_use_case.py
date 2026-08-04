@@ -16,7 +16,7 @@ from .ports import EvidenceRepository, MediaCallback, SearchPort
 
 MediaMode = Literal["disabled", "progressive", "blocking"]
 _CURRENT_MARKERS = re.compile(
-    r"(今天|今日|现在|当前|最新|刚刚|近期|本周|today|current|latest|breaking|recent)",
+    r"(今天|今日|现在|当前|最新|刚刚|近期|最近|本周|近况|today|current|latest|breaking|recent|this\s+week)",
     re.IGNORECASE,
 )
 
@@ -59,6 +59,10 @@ class SearchRequest:
             ensure_ascii=False,
             separators=(",", ":"),
         )
+
+    @property
+    def prefers_recent_results(self) -> bool:
+        return bool(_CURRENT_MARKERS.search(self.query))
 
     @property
     def cache_key(self) -> str:

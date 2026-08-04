@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { Button, MessagePlugin } from 'tdesign-react';
+import { MessagePlugin } from 'tdesign-react';
 import {
   createNewConversation,
   listConversations,
@@ -138,9 +138,17 @@ export default function ConversationSidebar({ open, onClose }: Props) {
           <button type="button" className="conversation-sidebar-close" onClick={onClose} aria-label={t('close')} title={t('close')}>×</button>
         </div>
 
-        <Button data-onboarding="new-conversation" block theme="primary" loading={creating} onClick={() => { void create(); }}>
-          ＋ {t('newConversation')}
-        </Button>
+        <button
+          type="button"
+          className="conversation-create-button"
+          data-onboarding="new-conversation"
+          disabled={creating}
+          aria-busy={creating}
+          onClick={() => { void create(); }}
+        >
+          <span aria-hidden="true">＋</span>
+          {creating ? t('loading') : t('newConversation')}
+        </button>
 
         <div className="conversation-history-label">{t('history')}</div>
         <div className="conversation-list" data-onboarding="conversation-history">

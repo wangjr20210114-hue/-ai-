@@ -101,15 +101,17 @@ export function ClarificationCard({
         <legend>{field.label}{field.required ? t('requiredSingle') : ''}</legend>
         <div className="clarification-option-list">{options.map((option) => {
           const optionValue = clarificationOptionValue(field, option);
-          return <label key={option} className="clarification-option">
-            <input
-              type="radio"
-              name={`${clarification.id}-${field.id}`}
-              checked={value === optionValue}
-              onChange={() => chooseAndAdvance(field.id, optionValue)}
-            />
+          const selected = value === optionValue;
+          return <button
+            key={option}
+            type="button"
+            className={`clarification-option${selected ? ' is-selected' : ''}`}
+            aria-pressed={selected}
+            disabled={submitting || generationActive}
+            onClick={() => chooseAndAdvance(field.id, optionValue)}
+          >
             {option}
-          </label>;
+          </button>;
         })}</div>
       </fieldset>;
     }

@@ -81,6 +81,12 @@ def request(*, force_refresh: bool = False) -> SearchRequest:
 
 
 class SearchUseCaseTests(unittest.IsolatedAsyncioTestCase):
+    def test_recent_intent_is_normalized_once_on_the_request_contract(self):
+        recent = replace(request(), query="最近 AI 有什么新进展")
+        ordinary = replace(request(), query="解释 Transformer 架构")
+        self.assertTrue(recent.prefers_recent_results)
+        self.assertFalse(ordinary.prefers_recent_results)
+
     async def test_execute_calls_provider_once_and_never_caches_answer(self):
         provider = FakeSearchPort()
         repository = InMemoryEvidenceRepository()

@@ -140,6 +140,21 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
         }], "北京故宫有哪些值得玩的地方")
         self.assertEqual(ranked[0]["url"], "https://www.dpm.org.cn/visit.html")
 
+    def test_recent_source_ranking_prefers_verified_fresh_dates(self):
+        ranked = _rank_source_results([{
+            "url": "https://example.com/old",
+            "title": "AI 重要进展",
+            "snippet": "人工智能行业消息",
+            "date": "2024-05-06",
+        }, {
+            "url": "https://example.org/fresh",
+            "title": "AI 最新进展",
+            "snippet": "人工智能行业消息",
+            "date": "2026-08-03",
+        }], "最近 AI 有什么新进展", "2026-08-04", True)
+        self.assertEqual(ranked[0]["url"], "https://example.org/fresh")
+        self.assertEqual(ranked[0]["date"], "2026-08-03")
+
     def test_rich_search_handoff_keeps_media_out_of_model_authored_markdown(self):
         metadata = {
             "results": [{
@@ -238,8 +253,8 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
         prompt = evidence_for_model({
             "results": [], "media": [], "media_pending": True,
         })
-        self.assertIn("图片正在后台审核", prompt)
-        self.assertIn("不要声称正在生成图片", prompt)
+        self.assertIn("界面在审核完成后自动放到同源段落", prompt)
+        self.assertIn("不要向用户描述审核、生成或稍后补充图片", prompt)
         self.assertIn("不要输出任何媒体占位符", prompt)
         self.assertNotIn("[[YUANBAO_MEDIA]]", prompt)
 
@@ -252,9 +267,23 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             }],
             "media_pending": True,
         }, require_relevant_image=True)
-        self.assertIn("图片正在后台审核", prompt)
+        self.assertIn("界面在审核完成后自动放到同源段落", prompt)
         self.assertIn("不要输出任何媒体占位符", prompt)
         self.assertNotIn("[[YUANBAO_MEDIA", prompt)
+
+    def test_recent_search_evidence_does_not_turn_recent_into_today(self):
+        prompt = evidence_for_model({
+            "query": "最近 AI 有什么新进展",
+            "target_date": "2026-08-04",
+            "strict_date": False,
+            "search_config": {"prefer_recent": True},
+            "results": [],
+            "media": [],
+            "media_pending": False,
+        })
+        self.assertIn("不是只问当天", prompt)
+        self.assertIn("不要把“最近”改写成“今天”", prompt)
+        self.assertIn("不要为了凑数量混入旧闻", prompt)
 
     def test_reviewed_search_media_is_bound_to_a_source_for_frontend_placement(self):
         prompt = evidence_for_model({
