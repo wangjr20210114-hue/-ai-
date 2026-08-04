@@ -1,4 +1,5 @@
 from agents._tests.support.workspace_environment import *  # noqa: F401,F403
+from agents._infrastructure.providers.rich_search import _filter_preferred_recent
 
 
 class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
@@ -154,6 +155,31 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
         }], "最近 AI 有什么新进展", "2026-08-04", True)
         self.assertEqual(ranked[0]["url"], "https://example.org/fresh")
         self.assertEqual(ranked[0]["date"], "2026-08-03")
+
+    def test_recent_source_filter_does_not_pad_with_stale_results(self):
+        filtered, diagnostics = _filter_preferred_recent([{
+            "url": "https://example.com/old",
+            "title": "2024 年 AI 进展",
+            "snippet": "旧消息",
+            "date": "2024-05-06",
+        }, {
+            "url": "https://example.org/fresh",
+            "title": "AI 最新进展",
+            "snippet": "近期消息",
+            "date": "2026-08-03",
+        }, {
+            "url": "https://example.net/undated",
+            "title": "AI 观察",
+            "snippet": "没有可核验日期",
+            "date": "",
+        }], "2026-08-04")
+
+        self.assertEqual(
+            [item["url"] for item in filtered],
+            ["https://example.org/fresh"],
+        )
+        self.assertTrue(diagnostics["applied"])
+        self.assertEqual(diagnostics["stale_or_undated"], 2)
 
     def test_rich_search_handoff_keeps_media_out_of_model_authored_markdown(self):
         metadata = {

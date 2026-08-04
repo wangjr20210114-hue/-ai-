@@ -1,4 +1,6 @@
 from agents._tests.support.workspace_environment import *  # noqa: F401,F403
+from agents._application.i18n import text
+from agents.chat._graph import TOOL_FAILURE_MESSAGE
 
 
 class CalendarWorkspaceTests(unittest.IsolatedAsyncioTestCase):
@@ -468,6 +470,20 @@ class CalendarWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(action_completion_fallback([failed]), "")
         self.assertIn("没有生成确认卡", tool_failure_fallback([failed]))
+
+        runtime_failed = ToolMessage(
+            content=json.dumps({"tool_error": {
+                "kind": "runtime",
+                "detail": TOOL_FAILURE_MESSAGE,
+                "retry_same_call": False,
+            }}, ensure_ascii=False),
+            name="propose_calendar_changes",
+            tool_call_id="calendar-runtime-failed",
+        )
+        public_copy = tool_failure_fallback([runtime_failed])
+        self.assertEqual(public_copy, text("chat.fallback.required_failed", "zh-CN"))
+        self.assertNotIn("不要重复调用", public_copy)
+        self.assertNotIn("请基于", public_copy)
 
     def test_optional_meeting_tool_is_hidden_until_personal_token_exists(self):
         hidden = build_system_skill_tools(

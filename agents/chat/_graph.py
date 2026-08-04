@@ -22,7 +22,9 @@ from ._llm import _is_quota_error, _is_transient_gateway_error
 from .._application.i18n import text
 
 
-TOOL_FAILURE_MESSAGE = text("model.graph.tool_failure", "zh-CN")
+# Tool payloads may be rendered directly when both synthesis passes fail, so a
+# runtime detail must always be safe user copy rather than a model instruction.
+TOOL_FAILURE_MESSAGE = text("chat.fallback.required_failed", "zh-CN")
 
 # These tools already accept a batch, a composite request, or one complete
 # side-effect proposal. Calling the same capability again in one logical turn

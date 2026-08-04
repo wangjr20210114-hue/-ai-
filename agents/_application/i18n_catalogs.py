@@ -112,6 +112,7 @@ MODEL_FIXED_COPY: Final[dict[str, str]] = {
     "model.planner.schema.field_45": 'True only when the first explicit route stop is a departure-only origin rather than a place to visit, for example “depart from Hangzhou East Station and visit Lingyin Temple”. False when every explicit stop is an itinerary destination.',
     "model.planner.schema.field_45": 'Only fields whose absence blocks every safe useful result. Empty unless needs_clarification is true.',
     "model.planner.schema.field_46": "True only for items published or occurring on today's Beijing calendar date; false for latest/current information as of today.",
+    "model.planner.schema.field_49": "True when the user semantically asks for recent, latest, current, breaking, or newly released information and stale sources must not be used to pad the requested result count. False for timeless or historical research. This is an intent decision, never literal keyword matching.",
     "model.planner.schema.field_47": "Every prompt topic whose operational details may be needed. Choose only from the installed topic IDs: {topic_ids}.",
     "model.planner.schema.field_48": "Every user-required capability, independently of prompt topics. Choose only from installed capability IDs: {capability_ids}. Include route for every request to calculate or plan real travel, even when it is part of a schedule request. Include calendar_context and calendar_action when the user asks for an editable calendar proposal or card; 'do not write yet' means propose for confirmation, not omit the calendar capability.",
     "model.tool_schema.field_01": "Stable semantic field id derived from the unresolved part of the user's request",
@@ -188,7 +189,6 @@ Available topics:
 {catalog}
 Reference images attached: {has_reference_images}
 Document context attached: {has_document_context}""",
-    "model.graph.tool_failure": "工具暂时没有完成。请基于已经获得的信息向用户说明限制，不要假装操作成功，也不要重复调用同一工具。",
     "model.graph.planned_search_placeholder": "使用本轮 LLM 规划器已合并的查询",
     "model.graph.force_finalize": "本轮工具阶段已经结束。不要再描述搜索过程，不要再输出或模拟任何工具调用。请直接基于已有工具结果回答用户；结果不足时明确说明缺少多少和检索边界。",
     "model.graph.sequence_complete": "能力规划选定的工具已经全部完成。现在只基于已有结果输出最终回答，不要再次调用、模拟或描述任何工具协议。",

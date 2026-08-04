@@ -34,6 +34,7 @@ class SearchRequest:
     parallel_queries: bool = True
     target_date: str = ""
     strict_date: bool = False
+    prefer_recent_results: bool = False
     force_refresh: bool = False
     media_mode: MediaMode = "progressive"
     response_language: str = "zh-CN"
@@ -61,10 +62,6 @@ class SearchRequest:
         )
 
     @property
-    def prefers_recent_results(self) -> bool:
-        return bool(_CURRENT_MARKERS.search(self.query))
-
-    @property
     def cache_key(self) -> str:
         value = {
             "query": " ".join(self.query.casefold().split())[:500],
@@ -75,6 +72,7 @@ class SearchRequest:
             "parallel_queries": self.parallel_queries,
             "target_date": self.target_date,
             "strict_date": self.strict_date,
+            "prefer_recent_results": self.prefer_recent_results,
             "include_media": self.media_mode != "disabled",
             "provider_version": "searchpro-v1",
             "response_language": self.response_language,

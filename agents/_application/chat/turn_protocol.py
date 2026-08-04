@@ -167,6 +167,65 @@ def should_persist_user_message(body: dict) -> bool:
     )
 
 
+def explicit_activity_capability_protocol(
+    body: dict,
+    message: str,
+) -> tuple[dict, dict]:
+    """Translate trusted UI activities into a fixed Adapter invocation.
+
+    Activities are versioned client protocol, not natural-language intent. A
+    route card already carries the exact persisted route-plan identity, so
+    asking the model to choose tools and rebuild calendar arguments here adds
+    a second, lossy decision after the user has made an explicit choice.
+    """
+    if str(body.get("activity") or "").strip() != "route_calendar_offer_accepted":
+        return {}, {}
+    summary = " ".join(str(message or "").split())[:500]
+    return (
+        {
+            "needs_calendar_context": True,
+            "needs_calendar_action": True,
+            "reuse_latest_route": True,
+        },
+        {
+            "propose_calendar_changes": {
+                "summary": summary,
+                "changes": [],
+            },
+        },
+    )
+
+
+def has_resumable_capability_protocol(resume: object) -> bool:
+    """Return whether a checkpoint contains our fixed clarification protocol."""
+    return (
+        isinstance(resume, dict)
+        and str(resume.get("version") or "") == "1"
+        and isinstance(resume.get("required_tools"), list)
+        and bool(resume.get("required_tools"))
+    )
+
+
+def deterministic_capability_protocol(
+    default_plan: dict,
+    body: dict,
+    message: str,
+    *,
+    direct_public_answer: bool,
+    silent_clarification: bool,
+    resume: object,
+) -> tuple[dict | None, dict]:
+    """Select a machine protocol before semantic planning, when available."""
+    if direct_public_answer:
+        return dict(default_plan), {}
+    patch, arguments = explicit_activity_capability_protocol(body, message)
+    if patch:
+        return {**default_plan, **patch}, arguments
+    if silent_clarification and has_resumable_capability_protocol(resume):
+        return dict(default_plan), {}
+    return None, {}
+
+
 def graph_user_message(
     content: str,
     clarification_id: str = "",

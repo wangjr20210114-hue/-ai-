@@ -53,13 +53,14 @@ class ReviewedMedia:
     source_url: str
     vision_reviewed: bool
     caption: str = ""
+    source_bound_fallback: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _required(self.id, "media id"))
         object.__setattr__(self, "url", _required(self.url, "media url"))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        value = {
             "id": self.id,
             "url": self.url,
             "source_id": self.source_id,
@@ -67,6 +68,14 @@ class ReviewedMedia:
             "vision_reviewed": self.vision_reviewed,
             "caption": self.caption,
         }
+        if self.source_bound_fallback:
+            value["source_bound_fallback"] = True
+        return value
+
+    @property
+    def trusted_for_display(self) -> bool:
+        """Allow pixel-reviewed media or an exact provider source hero."""
+        return self.vision_reviewed or self.source_bound_fallback
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "ReviewedMedia":
@@ -77,6 +86,7 @@ class ReviewedMedia:
             source_url=str(value.get("source_url") or ""),
             vision_reviewed=value.get("vision_reviewed") is True,
             caption=str(value.get("caption") or value.get("alt") or ""),
+            source_bound_fallback=value.get("source_bound_fallback") is True,
         )
 
 

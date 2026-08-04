@@ -153,6 +153,8 @@ def tool_failure_fallback(
                     "chat.fallback.route_failed", response_language,
                     detail=detail,
                 )
+            if failure.get("kind") == "runtime":
+                return text("chat.fallback.required_failed", response_language)
             return text(
                 "chat.fallback.action_failed", response_language,
                 detail=detail,
@@ -714,4 +716,3 @@ def grounded_route_stream_answer(
     ):
         return ""
     return grounded_route_action_answer(actions, response_language)
-

@@ -55,7 +55,7 @@ class SearchProGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(execution.evidence.sources[0].id, "source-1")
         self.assertEqual(execution.metadata["results"][0]["id"], "source-1")
 
-    async def test_unreviewed_provider_fallback_is_not_domain_media(self):
+    async def test_only_reviewed_or_exact_source_bound_media_reaches_domain(self):
         provider_result = {
             "query": "AI 进展",
             "results": [
@@ -81,6 +81,14 @@ class SearchProGatewayTests(unittest.IsolatedAsyncioTestCase):
                     "source_url": "https://example.test/news",
                     "vision_reviewed": True,
                 },
+                {
+                    "id": "media-source-bound",
+                    "url": "https://img.test/source-bound.jpg",
+                    "source_id": "source-1",
+                    "source_url": "https://example.test/news",
+                    "vision_reviewed": False,
+                    "source_bound_fallback": True,
+                },
             ],
             "total": 1,
             "media_pending": False,
@@ -98,8 +106,9 @@ class SearchProGatewayTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             [item.id for item in execution.evidence.media],
-            ["media-reviewed"],
+            ["media-reviewed", "media-source-bound"],
         )
+        self.assertTrue(execution.evidence.media[1].source_bound_fallback)
 
     async def test_provider_attempt_count_is_preserved(self):
         provider_result = {

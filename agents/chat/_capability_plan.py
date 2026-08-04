@@ -31,6 +31,7 @@ DEFAULT_PLAN = {
     "needs_clarification": False,
     "needs_web_search": False,
     "strict_today_only": False,
+    "prefer_recent_results": False,
     "needs_images": False,
     "needs_places": False,
     "needs_current_location": False,
@@ -144,6 +145,10 @@ class CapabilityPlan(BaseModel):
     strict_today_only: bool = Field(
         default=False,
         description=_schema("field_09"),
+    )
+    prefer_recent_results: bool = Field(
+        default=False,
+        description=_schema("field_49"),
     )
     needs_images: bool = Field(
         default=False,
@@ -709,6 +714,10 @@ class SemanticPreflight(BaseModel):
         default=False,
         description=_schema("field_46"),
     )
+    prefer_recent_results: bool = Field(
+        default=False,
+        description=_schema("field_49"),
+    )
     search_query: str = ""
     needs_images: bool = False
     image_query: str = ""
@@ -841,6 +850,9 @@ async def plan_required_clarification(
                 ),
                 "needs_web_search": bool(parsed.get("needs_web_search")),
                 "strict_today_only": bool(parsed.get("strict_today_only")),
+                "prefer_recent_results": bool(
+                    parsed.get("prefer_recent_results")
+                ),
                 "search_query": str(parsed.get("search_query") or "").strip()[:160],
                 "needs_images": bool(parsed.get("needs_images")),
                 "image_query": str(parsed.get("image_query") or "").strip()[:160],
@@ -1080,6 +1092,7 @@ async def plan_capabilities_bounded(
                         "clarification_fields",
                         "needs_web_search",
                         "strict_today_only",
+                        "prefer_recent_results",
                         "search_query",
                         "needs_images",
                         "image_query",

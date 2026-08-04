@@ -190,9 +190,10 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.match(chatError, /failed to fetch/i);
   assert.match(chatTools, /initial_visual_references/);
   assert.match(chatGraph, /handle_tool_errors=_tool_failure_message/);
-  assert.match(chatGraph, /text\("model\.graph\.tool_failure", "zh-CN"\)/);
-  assert.match(i18nCatalog, /"model\.graph\.tool_failure": "工具暂时没有完成/);
+  assert.match(chatGraph, /text\("chat\.fallback\.required_failed", "zh-CN"\)/);
+  assert.match(i18nCatalog, /"chat\.fallback\.required_failed": _user_copy/);
   assert.doesNotMatch(chatGraph, /工具暂时没有完成/);
+  assert.doesNotMatch(chatGraph + i18nCatalog, /不要重复调用同一工具/);
   assert.match(chatGraph, /isinstance\(exc, ValueError\)/);
   assert.match(workspace, /collect_schedule_signals/);
   const clarificationCard = messageBubble;

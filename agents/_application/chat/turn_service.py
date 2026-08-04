@@ -7,7 +7,7 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from .turn_context import experience_hints_for_plan
+from .turn_context import experience_hints_for_plan, state_requirements_for_plan
 from .turn_io import (
     _document_context,
     _recent_user_questions,
@@ -31,6 +31,7 @@ from .turn_policy import (
 from .turn_protocol import (
     capability_planning_message,
     checkpoint_clarification_state,
+    deterministic_capability_protocol,
     graph_user_message,
     resume_capability_protocol,
 )
@@ -291,11 +292,17 @@ async def _handle(ctx):
     stage_timings_ms["planning_context"] = round(
         (time.monotonic() - planning_context_started_at) * 1000
     )
-    planner_timeout = max(12.0, min(25.0, float(
-        ctx.env.get("CAPABILITY_PLAN_TIMEOUT_SECONDS") or 18
-    )))
-    if direct_public_answer:
-        capability_plan = dict(DEFAULT_PLAN)
+    planner_timeout = max(12.0, min(25.0, float(ctx.env.get(
+        "CAPABILITY_PLAN_TIMEOUT_SECONDS"
+    ) or 18)))
+    protocol_plan, resumed_planned_arguments = deterministic_capability_protocol(
+        DEFAULT_PLAN, body, message,
+        direct_public_answer=bool(direct_public_answer),
+        silent_clarification=silent_clarification,
+        resume=checkpoint_clarification.get("resume"),
+    )
+    if protocol_plan is not None:
+        capability_plan = protocol_plan
         planner_timed_out = False
     else:
         capability_plan, planner_timed_out = await plan_capabilities_bounded(
@@ -310,9 +317,8 @@ async def _handle(ctx):
             response_language=response_language,
         )
     post_plan_started_at = time.monotonic()
-    resumed_planned_arguments: dict = {}
     if silent_clarification:
-        capability_plan, resumed_planned_arguments = resume_capability_protocol(
+        capability_plan, checkpoint_planned_arguments = resume_capability_protocol(
             capability_plan,
             checkpoint_clarification.get("resume"),
             [
@@ -320,6 +326,7 @@ async def _handle(ctx):
                 *current_clarification_answers,
             ],
         )
+        resumed_planned_arguments.update(checkpoint_planned_arguments)
     capability_plan = apply_runtime_skill_policy(
         capability_plan,
         disabled_skills,
@@ -469,19 +476,8 @@ async def _handle(ctx):
         if planner_timed_out
         else ()
     )
-    needs_workspace_state = bool(
-        capability_plan.get("needs_calendar_context")
-        or capability_plan.get("needs_calendar_action")
-        or capability_plan.get("needs_route")
-        or {
-            "propose_calendar_changes",
-            "plan_route_between_places",
-        } & set(timeout_fallback_names)
-    )
-    needs_proactive_state = bool(
-        capability_plan.get("needs_workflow_action")
-        or capability_plan.get("needs_opportunity_review")
-        or "propose_workflow" in timeout_fallback_names
+    needs_workspace_state, needs_proactive_state = state_requirements_for_plan(
+        capability_plan, timeout_fallback_names,
     )
     state_jobs = []
     if needs_workspace_state:

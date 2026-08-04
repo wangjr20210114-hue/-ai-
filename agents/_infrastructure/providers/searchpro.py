@@ -25,7 +25,10 @@ def _to_evidence(metadata: Mapping[str, Any]) -> SearchEvidence:
         ReviewedMedia.from_dict(item)
         for item in (metadata.get("media") or ())
         if isinstance(item, Mapping)
-        and item.get("vision_reviewed") is True
+        and (
+            item.get("vision_reviewed") is True
+            or item.get("source_bound_fallback") is True
+        )
         and str(item.get("source_id") or "") in source_urls
         and str(item.get("source_url") or "")
         == source_urls[str(item.get("source_id") or "")]
@@ -73,7 +76,7 @@ class SearchProGateway:
             image_limit=request.image_limit,
             target_date=request.target_date,
             strict_date=request.strict_date,
-            prefer_recent=request.prefers_recent_results,
+            prefer_recent=request.prefer_recent_results,
             parallel_queries=request.parallel_queries,
             media_callback=publish if progressive else None,
             background_tasks=background_tasks if progressive else None,

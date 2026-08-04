@@ -69,6 +69,26 @@ def experience_hints_for_plan(
     return hints
 
 
+def state_requirements_for_plan(
+    plan: Mapping[str, Any],
+    fallback_tool_names: tuple[str, ...] = (),
+) -> tuple[bool, bool]:
+    """Return whether the selected chain needs workspace or proactive state."""
+    fallback = set(fallback_tool_names)
+    workspace = bool(
+        plan.get("needs_calendar_context")
+        or plan.get("needs_calendar_action")
+        or plan.get("needs_route")
+        or {"propose_calendar_changes", "plan_route_between_places"} & fallback
+    )
+    proactive = bool(
+        plan.get("needs_workflow_action")
+        or plan.get("needs_opportunity_review")
+        or "propose_workflow" in fallback
+    )
+    return workspace, proactive
+
+
 def search_request_for_plan(
     plan: Mapping[str, Any],
     identity: Mapping[str, Any],
@@ -126,6 +146,7 @@ def search_request_for_plan(
         parallel_queries=parallel_queries,
         target_date=current_date,
         strict_date=bool(plan.get("strict_today_only")),
+        prefer_recent_results=bool(plan.get("prefer_recent_results")),
         force_refresh=force_refresh,
         media_mode=media_mode,
         response_language=response_language,

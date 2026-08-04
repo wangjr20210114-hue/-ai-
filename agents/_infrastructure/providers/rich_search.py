@@ -363,6 +363,44 @@ def _source_recency_score(
     return -24, published
 
 
+def _filter_preferred_recent(
+    results: list[dict[str, Any]],
+    target_date: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Avoid padding a recent-news answer with stale or undated evidence.
+
+    Once at least one source reaches the shared positive recency tier, only
+    that pool is eligible. If none exists, provider results are retained so
+    search still degrades safely instead of becoming an empty response.
+    """
+    diagnostics: dict[str, Any] = {
+        "applied": False,
+        "fresh": 0,
+        "stale_or_undated": 0,
+    }
+    try:
+        date.fromisoformat(target_date)
+    except (TypeError, ValueError):
+        return results, diagnostics
+    fresh: list[dict[str, Any]] = []
+    for item in results:
+        recency_score, published = _source_recency_score(
+            item, target_date, True
+        )
+        if not published:
+            diagnostics["stale_or_undated"] += 1
+            continue
+        if recency_score > 0:
+            fresh.append({**item, "date": published})
+        else:
+            diagnostics["stale_or_undated"] += 1
+    diagnostics["fresh"] = len(fresh)
+    if not fresh:
+        return results, diagnostics
+    diagnostics["applied"] = True
+    return fresh, diagnostics
+
+
 def _source_quality_score(
     item: dict[str, Any], query: str, target_date: str = "",
     prefer_recent: bool = False,
@@ -893,6 +931,12 @@ async def rich_search(
         # Images are evidence-bearing search output too. Do not review or
         # expose media from an older/undated article after its source has been
         # removed by the same-day truth boundary.
+    if prefer_recent and target_date and not strict_date:
+        candidate_results, recent_filter = _filter_preferred_recent(
+            candidate_results,
+            target_date,
+        )
+        date_filter["recent"] = recent_filter
     results = _rank_source_results(
         candidate_results, query, target_date, prefer_recent
     )[:limit]

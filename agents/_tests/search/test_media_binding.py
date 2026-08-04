@@ -25,6 +25,7 @@ def media(
     source_id: str = "source-1",
     source_url: str = "https://a.test/1",
     reviewed: bool = True,
+    source_bound_fallback: bool = False,
 ) -> ReviewedMedia:
     return ReviewedMedia(
         id=media_id,
@@ -32,6 +33,7 @@ def media(
         source_id=source_id,
         source_url=source_url,
         vision_reviewed=reviewed,
+        source_bound_fallback=source_bound_fallback,
     )
 
 
@@ -76,6 +78,34 @@ class MediaBindingTests(unittest.TestCase):
         self.assertEqual(bindings[0].source.id, "source-1")
         self.assertEqual(bindings[0].media.id, "media-1")
         self.assertEqual(bindings[0].source_id, "source-1")
+
+    def test_exact_source_bound_fallback_binds_without_vision_review(self):
+        evidence = SearchEvidence(
+            query="深圳天气",
+            sources=(source(),),
+            media=(media(
+                reviewed=False,
+                source_bound_fallback=True,
+            ),),
+        )
+
+        bindings = bind_reviewed_media(evidence)
+
+        self.assertEqual(len(bindings), 1)
+        self.assertTrue(bindings[0].media.source_bound_fallback)
+
+    def test_source_bound_fallback_still_requires_exact_source_url(self):
+        evidence = SearchEvidence(
+            query="深圳天气",
+            sources=(source(),),
+            media=(media(
+                reviewed=False,
+                source_bound_fallback=True,
+                source_url="https://a.test/other",
+            ),),
+        )
+
+        self.assertEqual(bind_reviewed_media(evidence), ())
 
     def test_binding_order_is_media_order(self):
         evidence = SearchEvidence(

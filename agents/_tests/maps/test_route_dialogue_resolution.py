@@ -1,8 +1,41 @@
 from agents._tests.support.route_dialogue_environment import *  # noqa: F401,F403
 from agents._application.i18n import text
+from agents._application.chat.turn_protocol import (
+    explicit_activity_capability_protocol,
+    has_resumable_capability_protocol,
+)
 
 
 class RouteDialogueResolutionTests(unittest.IsolatedAsyncioTestCase):
+    def test_route_calendar_activity_uses_fixed_adapter_protocol(self):
+        plan, arguments = explicit_activity_capability_protocol(
+            {
+                "activity": "route_calendar_offer_accepted",
+                "route_plan_id": "routeplan-hangzhou",
+            },
+            "把刚规划好的路线添加到日程",
+        )
+        self.assertTrue(plan["needs_calendar_context"])
+        self.assertTrue(plan["needs_calendar_action"])
+        self.assertTrue(plan["reuse_latest_route"])
+        self.assertEqual(
+            arguments["propose_calendar_changes"],
+            {
+                "summary": "把刚规划好的路线添加到日程",
+                "changes": [],
+            },
+        )
+
+    def test_only_versioned_checkpoint_skips_duplicate_semantic_planning(self):
+        self.assertTrue(has_resumable_capability_protocol({
+            "version": 1,
+            "required_tools": ["propose_calendar_changes"],
+        }))
+        self.assertFalse(has_resumable_capability_protocol({
+            "version": 2,
+            "required_tools": ["propose_calendar_changes"],
+        }))
+
     def test_route_calendar_clarification_resumes_with_structured_timing(self):
         plan, arguments = resume_capability_protocol(
             {},
