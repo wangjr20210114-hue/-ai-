@@ -18,7 +18,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
-from datetime import date, datetime
 from html import unescape
 from typing import Any, Awaitable, Callable
 
@@ -26,6 +25,13 @@ from .web_media import collect_page_media
 from .vision import vision_completion, vision_providers
 from ..._application.i18n import text
 from ..._application.search.evidence_presenter import evidence_for_model
+from ..._domain.search.source_policy import (
+    filter_preferred_recent_sources,
+    filter_sources_for_target_date,
+    query_match_terms,
+    rank_source_results,
+    source_domain,
+)
 
 
 def _vision_review_timeout(env: dict[str, Any]) -> float:
@@ -284,256 +290,51 @@ def _parse_pages(data: dict[str, Any], limit: int) -> list[dict[str, Any]]:
     return results
 
 
-_AUTHORITATIVE_HOST_SUFFIXES = (
-    ".gov.cn",
-    ".edu.cn",
-    ".ac.cn",
-)
-_AUTHORITATIVE_TEXT_MARKERS = (
-    "官方网站",
-    "官网",
-    "博物院",
-    "博物馆",
-    "管理处",
-    "人民政府",
-    "公告",
-)
-_PROMOTIONAL_TEXT_MARKERS = (
-    "旅行社",
-    "导游",
-    "旅游景点联盟",
-    "攻略分享",
-    "性价比",
-    "跟团",
-    "报名",
-    "低价",
-    "优惠",
-    "私家团",
-    "定制游",
-    "包车",
-)
+def _bounded_provider_query(
+    query: str, qualifiers: list[str], limit: int = 500,
+) -> str:
+    """Compose one bounded SearchPro query without dropping whole constraints.
 
-def _query_match_terms(query: str) -> set[str]:
-    """Build lightweight relevance terms without assuming one topic or locale."""
-    normalized = str(query or "").lower()
-    terms = {
-        token
-        for token in re.findall(r"[a-z0-9][a-z0-9._-]+", normalized)
-        if len(token) >= 2
-    }
-    for sequence in re.findall(r"[\u4e00-\u9fff]+", normalized):
-        if len(sequence) <= 6:
-            terms.add(sequence)
-        terms.update(sequence[index:index + 2] for index in range(len(sequence) - 1))
-    return terms
-
-
-def _source_recency_score(
-    item: dict[str, Any], target_date: str, prefer_recent: bool,
-) -> tuple[int, str]:
-    """Prefer verifiably recent evidence only for a recent-information query."""
-    if not target_date or not prefer_recent:
-        return 0, ""
-    try:
-        target = date.fromisoformat(target_date)
-    except ValueError:
-        return 0, ""
-    published = _date_from_text(str(item.get("date") or ""), target.year)
-    if not published:
-        published = _date_from_text(
-            f"{item.get('title') or ''} {item.get('snippet') or ''}",
-            target.year,
-        )
-    if not published:
-        return -14, ""
-    try:
-        age_days = (target - date.fromisoformat(published)).days
-    except ValueError:
-        return -14, ""
-    if age_days < 0:
-        return -30, published
-    if age_days <= 7:
-        return 34, published
-    if age_days <= 30:
-        return 22, published
-    if age_days <= 120:
-        return 7, published
-    if age_days <= 365:
-        return 0, published
-    return -24, published
-
-
-def _filter_preferred_recent(
-    results: list[dict[str, Any]],
-    target_date: str,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Avoid padding a recent-news answer with stale or undated evidence.
-
-    Once at least one source reaches the shared positive recency tier, only
-    that pool is eligible. If none exists, provider results are retained so
-    search still degrades safely instead of becoming an empty response.
+    The factual user query receives three times the weight of each optional
+    qualifier. Unused space is redistributed deterministically, so short date
+    or quality constraints leave more room for the original query.
     """
-    diagnostics: dict[str, Any] = {
-        "applied": False,
-        "fresh": 0,
-        "stale_or_undated": 0,
-    }
-    try:
-        date.fromisoformat(target_date)
-    except (TypeError, ValueError):
-        return results, diagnostics
-    fresh: list[dict[str, Any]] = []
-    for item in results:
-        recency_score, published = _source_recency_score(
-            item, target_date, True
-        )
-        if not published:
-            diagnostics["stale_or_undated"] += 1
-            continue
-        if recency_score > 0:
-            fresh.append({**item, "date": published})
-        else:
-            diagnostics["stale_or_undated"] += 1
-    diagnostics["fresh"] = len(fresh)
-    if not fresh:
-        return results, diagnostics
-    diagnostics["applied"] = True
-    return fresh, diagnostics
-
-
-def _source_quality_score(
-    item: dict[str, Any], query: str, target_date: str = "",
-    prefer_recent: bool = False,
-) -> int:
-    """Prefer relevant primary/official pages and demote promotional results."""
-    title = str(item.get("title") or "")
-    snippet = str(item.get("snippet") or "")
-    searchable = f"{title}\n{snippet}".lower()
-    host = (urllib.parse.urlparse(str(item.get("url") or "")).hostname or "").lower()
-    score = 0
-    if any(host.endswith(suffix) for suffix in _AUTHORITATIVE_HOST_SUFFIXES):
-        score += 18
-    if host.endswith(".org.cn"):
-        score += 4
-    score += 5 * sum(marker in searchable for marker in _AUTHORITATIVE_TEXT_MARKERS)
-    score -= 12 * sum(marker in searchable for marker in _PROMOTIONAL_TEXT_MARKERS)
-    if "*" in title or "【" in title and "联盟" in title:
-        score -= 5
-    terms = _query_match_terms(query)
-    score += min(12, sum(term in searchable for term in terms))
-    recency_score, _ = _source_recency_score(
-        item, target_date, prefer_recent
-    )
-    score += recency_score
-    return score
-
-
-def _rank_source_results(
-    results: list[dict[str, Any]], query: str, target_date: str = "",
-    prefer_recent: bool = False,
-) -> list[dict[str, Any]]:
-    """Stable quality ordering with bounded registrable-domain diversity.
-
-    The provider's first page is still the tie breaker, but a single publisher
-    should not consume every evidence slot when another relevant domain is
-    available.  This is a deterministic presentation rule, not a new search
-    provider or a second model decision.
-    """
-    ranked = sorted(
-        enumerate(results),
-        key=lambda pair: (
-            -_source_quality_score(
-                pair[1], query, target_date, prefer_recent
-            ), pair[0]
-        ),
-    )
-    if len(ranked) < 2:
-        return [item for _, item in ranked]
-
-    def domain(item: dict[str, Any]) -> str:
-        host = (urllib.parse.urlparse(str(item.get("url") or "")).hostname or "").lower().strip(".")
-        labels = [part for part in host.split(".") if part]
-        if len(labels) <= 2:
-            return host
-        # Common public suffix pairs in the WSA result set.  Unknown suffixes
-        # conservatively use the final two labels rather than inventing a PSL.
-        if len(labels) >= 3 and ".".join(labels[-2:]) in {"com.cn", "net.cn", "org.cn", "gov.cn", "co.uk", "com.au"}:
-            return ".".join(labels[-3:])
-        return ".".join(labels[-2:])
-
-    chosen: list[tuple[int, dict[str, Any]]] = [ranked[0]]
-    domains = {domain(ranked[0][1])}
-    for pair in ranked[1:]:
-        if domain(pair[1]) and domain(pair[1]) not in domains:
-            chosen.append(pair)
-            domains.add(domain(pair[1]))
-            break
-    chosen.extend(pair for pair in ranked if pair not in chosen)
-    output: list[dict[str, Any]] = []
-    for _, item in chosen:
-        _, published = _source_recency_score(
-            item, target_date, prefer_recent
-        )
-        output.append({**item, **({"date": published} if published else {})})
-    return output
-
-
-def _date_from_text(value: str, target_year: int | None = None) -> str:
-    """Return a canonical publication date found in provider metadata/text."""
-    text = str(value or "").strip()
-    if not text:
+    sections = [
+        value.strip()
+        for value in [str(query or ""), *qualifiers]
+        if value and value.strip()
+    ]
+    if not sections or limit <= 0:
         return ""
-    if text.isdigit() and len(text) in {10, 13}:
-        try:
-            stamp = int(text) / (1000 if len(text) == 13 else 1)
-            return datetime.fromtimestamp(stamp).date().isoformat()
-        except (OverflowError, OSError, ValueError):
-            pass
-    full = re.search(r"(?<!\d)(20\d{2})[年./-](\d{1,2})[月./-](\d{1,2})日?", text)
-    if full:
-        try:
-            return date(int(full.group(1)), int(full.group(2)), int(full.group(3))).isoformat()
-        except ValueError:
-            return ""
-    if target_year:
-        short = re.search(r"(?<!\d)(\d{1,2})[月./-](\d{1,2})日?(?!\d)", text)
-        if short:
-            try:
-                return date(target_year, int(short.group(1)), int(short.group(2))).isoformat()
-            except ValueError:
-                return ""
-    return ""
-
-
-def _filter_for_target_date(
-    results: list[dict[str, Any]], target_date: str,
-) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Strictly retain sources whose publication date can be verified."""
-    try:
-        target = date.fromisoformat(target_date)
-    except ValueError:
-        return results, {"received": len(results), "kept": len(results), "undated": 0, "mismatched": 0}
-    kept: list[dict[str, Any]] = []
-    undated = 0
-    mismatched = 0
-    for item in results:
-        raw_date = str(item.get("date") or "")
-        published = _date_from_text(raw_date, target.year)
-        if not published:
-            published = _date_from_text(
-                f"{item.get('title') or ''} {item.get('snippet') or ''}", target.year,
-            )
-        if not published:
-            undated += 1
-            continue
-        if published != target.isoformat():
-            mismatched += 1
-            continue
-        kept.append({**item, "date": published})
-    return kept, {
-        "received": len(results), "kept": len(kept),
-        "undated": undated, "mismatched": mismatched,
-    }
+    joined = "\n".join(sections)
+    if len(joined) <= limit:
+        return joined
+    available = max(0, limit - (len(sections) - 1))
+    weights = [3, *([1] * (len(sections) - 1))]
+    total_weight = sum(weights)
+    allocations = [available * weight // total_weight for weight in weights]
+    for index in range(available - sum(allocations)):
+        allocations[index % len(allocations)] += 1
+    unused = available - sum(
+        min(len(value), allocations[index])
+        for index, value in enumerate(sections)
+    )
+    while unused:
+        expandable = [
+            index for index, value in enumerate(sections)
+            if allocations[index] < len(value)
+        ]
+        if not expandable:
+            break
+        for index in expandable:
+            if not unused:
+                break
+            allocations[index] += 1
+            unused -= 1
+    return "\n".join(
+        value[:allocations[index]]
+        for index, value in enumerate(sections)
+    )[:limit]
 
 
 async def _extract_candidates(
@@ -693,7 +494,7 @@ def _source_bound_fallback_candidates(
     limit = max(0, min(8, int(output_limit)))
     if limit == 0:
         return []
-    terms = _query_match_terms(query)
+    terms = query_match_terms(query)
     ranked: list[tuple[int, tuple[int, int, int], int, dict[str, str]]] = []
     seen_urls: set[str] = set()
     for index, candidate in enumerate(candidates[:30]):
@@ -944,16 +745,18 @@ async def rich_search(
     }.get(depth, 12)
     image_limit = max(0, min(8, int(image_limit)))
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json; charset=utf-8"}
-    provider_query = query
+    provider_qualifiers = [
+        text("model.search.provider_quality", response_language),
+    ]
     if target_date:
-        provider_query += "\n" + text(
+        provider_qualifiers.append(text(
             "model.search.provider_date", response_language,
             target_date=target_date,
             constraint=text(
                 "model.search.provider_date_strict" if strict_date else "model.search.provider_date_asof",
                 response_language, target_date=target_date,
             ),
-        )
+        ))
     provider_timeout = max(4, min(20, int(env.get("RICH_SEARCH_PROVIDER_TIMEOUT_SECONDS") or 10)))
     distinct_visual_query = bool(image_query and image_query.strip() != query.strip())
     # SearchPro already returns article passages and provider-supplied images.
@@ -961,16 +764,17 @@ async def rich_search(
     # paying for a second near-duplicate search. Page extraction remains
     # concurrent and pixel review still happens below.
     if distinct_visual_query:
-        provider_query += "\n" + text(
+        provider_qualifiers.append(text(
             "model.search.provider_visual", response_language,
             image_query=image_query[:180],
-        )
+        ))
+    provider_query = _bounded_provider_query(query, provider_qualifiers)
     data, provider_request_count = await _searchpro_json_request(
         f"{base_url}/SearchPro",
         # Keep the request compatible with every WSA tier.  ``Cnt`` is a
         # premium-only API parameter even though lower tiers can return a
         # provider-selected result count.  Main has always sent Query only.
-        {"Query": provider_query[:500]},
+        {"Query": provider_query},
         headers,
         provider_timeout,
     )
@@ -985,31 +789,28 @@ async def rich_search(
         "mismatched": 0,
     }
     if strict_date and target_date:
-        candidate_results, date_filter = _filter_for_target_date(candidate_results, target_date)
+        candidate_results, date_filter = filter_sources_for_target_date(
+            candidate_results, target_date
+        )
         # Images are evidence-bearing search output too. Do not review or
         # expose media from an older/undated article after its source has been
         # removed by the same-day truth boundary.
     if prefer_recent and target_date and not strict_date:
-        candidate_results, recent_filter = _filter_preferred_recent(
+        candidate_results, recent_filter = filter_preferred_recent_sources(
             candidate_results,
             target_date,
         )
         date_filter["recent"] = recent_filter
-    results = _rank_source_results(
+    results = rank_source_results(
         candidate_results, query, target_date, prefer_recent
     )[:limit]
     visual_results = results
     date_filter["kept"] = len(results)
     source_domains: list[str] = []
     for item in results:
-        host = (urllib.parse.urlparse(str(item.get("url") or "")).hostname or "").lower().strip(".")
-        labels = [part for part in host.split(".") if part]
-        if len(labels) >= 3 and ".".join(labels[-2:]) in {"com.cn", "net.cn", "org.cn", "gov.cn", "co.uk", "com.au"}:
-            host = ".".join(labels[-3:])
-        elif len(labels) > 2:
-            host = ".".join(labels[-2:])
-        if host and host not in source_domains:
-            source_domains.append(host)
+        domain = source_domain(item.get("url"))
+        if domain and domain not in source_domains:
+            source_domains.append(domain)
     sources = [{
         "id": f"source-{index}", "source": item["source"], "title": item["title"],
         "snippet": item["snippet"][:240], "url": item["url"], "date": item["date"],

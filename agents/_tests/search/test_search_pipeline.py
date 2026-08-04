@@ -1,4 +1,5 @@
 from agents._tests.support.workspace_environment import *  # noqa: F401,F403
+from agents._application.i18n import text
 from agents.chat._graph import TOOL_FAILURE_MESSAGE
 from agents._infrastructure.providers.rich_search import _json_request
 
@@ -249,7 +250,7 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
             {"title": "旧闻", "snippet": "", "date": "2026-07-15", "url": "https://example.com/2"},
             {"title": "无日期", "snippet": "内容", "date": "", "url": "https://example.com/3"},
         ]
-        kept, stats = _filter_for_target_date(results, "2026-07-16")
+        kept, stats = filter_sources_for_target_date(results, "2026-07-16")
         self.assertEqual([item["url"] for item in kept], ["https://example.com/1"])
         self.assertEqual(stats, {"received": 3, "kept": 1, "undated": 1, "mismatched": 1})
 
@@ -266,10 +267,34 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(provider.call_count, 1)
         payload = provider.call_args.args[1]
         self.assertIn("visual query", payload["Query"])
+        self.assertIn(
+            text("model.search.provider_quality", "zh-CN"),
+            payload["Query"],
+        )
         self.assertEqual(set(payload), {"Query"})
         self.assertEqual(result["search_config"]["provider_request_count"], 1)
         self.assertTrue(result["search_config"]["visual_query_merged"])
         self.assertTrue(result["search_config"]["parallel_image_search"])
+
+    async def test_searchpro_query_keeps_generic_constraints_within_provider_limit(self):
+        with patch(
+            "agents._infrastructure.providers.rich_search._searchpro_request_json",
+            new=AsyncMock(return_value={"Pages": []}),
+        ) as provider:
+            await run_rich_search(
+                {"WSA_API_KEY": "test"},
+                "original-user-query-" * 40,
+                "visual-intent-" * 30,
+                "basic",
+                target_date="2026-08-04",
+                prefer_recent=True,
+            )
+        provider_query = provider.call_args.args[1]["Query"]
+        self.assertLessEqual(len(provider_query), 500)
+        self.assertTrue(provider_query.startswith("original-user-query-"))
+        self.assertIn("优先检索可直接访问", provider_query)
+        self.assertIn("当前日期：2026-08-04", provider_query)
+        self.assertIn("同时优先返回", provider_query)
 
     async def test_rich_search_retries_one_transient_transport_failure(self):
         with patch(

@@ -68,7 +68,7 @@ class ChatTurnBoundaryTests(unittest.TestCase):
             if isinstance(node, ast.ImportFrom)
         }
 
-        self.assertLessEqual(len(source.splitlines()), 1_800)
+        self.assertLessEqual(len(source.splitlines()), 1_300)
         self.assertTrue(delegated.isdisjoint(local_functions))
         self.assertIn("turn_io", imports)
         self.assertIn("turn_policy", imports)

@@ -1,5 +1,8 @@
 from agents._tests.support.workspace_environment import *  # noqa: F401,F403
-from agents._infrastructure.providers.rich_search import _filter_preferred_recent
+from agents._domain.search.source_policy import (
+    filter_preferred_recent_sources,
+    source_domain,
+)
 
 
 class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
@@ -109,7 +112,11 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pages[1]["image"], "https://qqpublic.qpic.cn/embedded.jpg")
 
     def test_source_ranking_keeps_a_second_domain_when_relevant(self):
-        ranked = _rank_source_results([
+        self.assertEqual(
+            source_domain("https://portal.example.co.uk?view=latest"),
+            "example.co.uk",
+        )
+        ranked = rank_source_results([
             {
                 "url": "https://news.a.gov.cn/news/1",
                 "title": "AI 进展",
@@ -130,19 +137,21 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             [item["url"] for item in ranked[:2]],
             ["https://news.a.gov.cn/news/1", "https://news.example.com/news/3"],
         )
-        ranked = _rank_source_results([{
-            "url": "https://travel.example/guide",
-            "title": "北京故宫旅游攻略，性价比高的导游与预算",
-            "snippet": "旅行社报名优惠",
+        ranked = rank_source_results([{
+            "url": "https://feed.example/entry",
+            "title": "System release notes",
+            "snippet": "System release details",
         }, {
-            "url": "https://www.dpm.org.cn/visit.html",
-            "title": "故宫博物院参观信息",
-            "snippet": "开放时间、票务与参观路线公告",
-        }], "北京故宫有哪些值得玩的地方")
-        self.assertEqual(ranked[0]["url"], "https://www.dpm.org.cn/visit.html")
+            "url": "https://research.example.edu/release",
+            "title": "System release notes",
+            "snippet": "System release details",
+        }], "system release details")
+        self.assertEqual(
+            ranked[0]["url"], "https://research.example.edu/release"
+        )
 
     def test_recent_source_ranking_prefers_verified_fresh_dates(self):
-        ranked = _rank_source_results([{
+        ranked = rank_source_results([{
             "url": "https://example.com/old",
             "title": "AI 重要进展",
             "snippet": "人工智能行业消息",
@@ -157,7 +166,7 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ranked[0]["date"], "2026-08-03")
 
     def test_recent_source_filter_does_not_pad_with_stale_results(self):
-        filtered, diagnostics = _filter_preferred_recent([{
+        filtered, diagnostics = filter_preferred_recent_sources([{
             "url": "https://example.com/old",
             "title": "2024 年 AI 进展",
             "snippet": "旧消息",

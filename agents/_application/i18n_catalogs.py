@@ -252,6 +252,7 @@ type 只能是 search_update、writing_improvement、translation_review、image_
     "model.search.provider_date_strict": "只返回发布日期可核验为 {target_date} 的当日内容，每条结果必须带发布日期。",
     "model.search.provider_date_asof": "检索和排序必须以该日期为时间基准，不要混用旧年份信息。",
     "model.search.provider_visual": "同时优先返回包含这些可视对象的结果：{image_query}",
+    "model.search.provider_quality": "优先检索可直接访问且与问题直接相关的原始发布页、官方或机构来源。需要多条来源时优先彼此独立的发布者，不要用重复转载或聚合页反复支持同一事实。",
     "model.search.source_line": "- {id} | 类型={source_type} | [{title}]({url}) | 发布日期={date} | 摘要={snippet} | 有可用图片={has_image}",
     "model.search.media_line": "- {id} | source_id={source_id} | 图片说明={caption} | 图片URL={url} | 来源={source}{fallback}",
     "model.search.media_fallback": " | 视觉审核暂不可用，仅作文章主图降级",

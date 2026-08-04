@@ -96,14 +96,16 @@ from agents._infrastructure.providers.vision import (
 from agents._infrastructure.makers.identity import require_user, scoped_conversation_id
 from agents._infrastructure.makers.data_version import CONVERSATION_PREFIX
 from agents._infrastructure.providers.rich_search import (
-    _filter_for_target_date,
     _parse_pages,
-    _rank_source_results,
     _review_image,
     _vision_filter,
     _vision_review_timeout,
     evidence_for_model,
     rich_search as run_rich_search,
+)
+from agents._domain.search.source_policy import (
+    filter_sources_for_target_date,
+    rank_source_results,
 )
 from agents._infrastructure.providers.arxiv import (
     _best_title_match,

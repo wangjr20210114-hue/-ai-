@@ -191,6 +191,21 @@ test('every literal frontend backend call is covered by the public client contra
   }
 });
 
+test('feature and component code cannot bypass the shared client transport', async () => {
+  const files = [
+    ...await sourceFiles('frontend/src/features/'),
+    ...await sourceFiles('frontend/src/components/'),
+  ];
+  for (const file of files) {
+    const source = await text(file);
+    assert.doesNotMatch(
+      source,
+      /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource)\s*\(/,
+      `${file} must call its feature model and the shared transport`,
+    );
+  }
+});
+
 test('Node and Python authoritative identity adapters both accept Bearer transport', async () => {
   const [nodeIdentity, pythonIdentity, mobileController] = await Promise.all([
     readFile(new URL('auth/session.js', ROOT), 'utf8'),
