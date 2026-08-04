@@ -167,13 +167,14 @@ test('static acceptance site covers every release capability with executable det
 });
 
 test('reported acceptance regressions keep explicit implementation guards', async () => {
-  const [files, library, readerClient, chatError, chatTools, chatGraph, workspace, messageBubble, clarificationSubmission, capabilityPlan, chatAgent, styles, chatClient, chatTransport] = await Promise.all([
+  const [files, library, readerClient, chatError, chatTools, chatGraph, i18nCatalog, workspace, messageBubble, clarificationSubmission, capabilityPlan, chatAgent, styles, chatClient, chatTransport] = await Promise.all([
     read('cloud-functions/files/index.js'),
     read('cloud-functions/library/index.js'),
     read('frontend/src/features/papers/model/api.ts'),
     read('frontend/src/services/chatError.ts'),
     read('agents/_infrastructure/skills/builtin_operations.py'),
     read('agents/chat/_graph.py'),
+    read('agents/_application/i18n_catalogs.py'),
     read('agents/_controllers/workspace_controller.py'),
     read('frontend/src/features/chat/view/renderers/ClarificationCard.tsx'),
     read('frontend/src/components/chat/clarificationSubmission.ts'),
@@ -189,7 +190,9 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.match(chatError, /failed to fetch/i);
   assert.match(chatTools, /initial_visual_references/);
   assert.match(chatGraph, /handle_tool_errors=_tool_failure_message/);
-  assert.match(chatGraph, /工具暂时没有完成/);
+  assert.match(chatGraph, /text\("model\.graph\.tool_failure", "zh-CN"\)/);
+  assert.match(i18nCatalog, /"model\.graph\.tool_failure": "工具暂时没有完成/);
+  assert.doesNotMatch(chatGraph, /工具暂时没有完成/);
   assert.match(chatGraph, /isinstance\(exc, ValueError\)/);
   assert.match(workspace, /collect_schedule_signals/);
   const clarificationCard = messageBubble;
@@ -200,7 +203,7 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.doesNotMatch(clarificationCard, /SET_DRAFT/);
   assert.doesNotMatch(capabilityPlan, /def clarification_tool_available/);
   assert.doesNotMatch(chatAgent, /if not clarification_tool_available/);
-  assert.match(capabilityPlan, /product-wide semantic preflight/);
+  assert.match(capabilityPlan, /one complete semantic plan without a duplicate preflight round/);
   assert.match(chatGraph, /required_or_question_tools/);
   assert.match(styles, /themeDiagonalReveal 280ms/);
   assert.match(chatClient, /operation: 'touch_pointer'/);
