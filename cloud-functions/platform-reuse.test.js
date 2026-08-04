@@ -75,14 +75,19 @@ test('runtime is pure multi-user with signed sessions and tenant-scoped storage'
   );
 });
 
-test('release gates execute the Makers production chain', async () => {
-  const [workflow, requirements] = await Promise.all([
+test('release gates execute the Makers production chain and browser acceptance', async () => {
+  const [workflow, requirements, rootManifest, frontendManifest] = await Promise.all([
     read('.github/workflows/ci.yml'),
     read('requirements.txt'),
+    read('package.json'),
+    read('frontend/package.json'),
   ]);
   assert.match(workflow, /unittest discover -s agents\/_tests/);
   assert.match(workflow, /npm test/);
+  assert.match(workflow, /npm run test:e2e:product/);
   assert.match(workflow, /--mode edgeone/);
+  assert.match(rootManifest, /frontend run test:e2e:product/);
+  assert.match(frontendManifest, /playwright test e2e\/product-acceptance\.spec\.ts/);
   assert.doesNotMatch(workflow, /working-directory: backend|import main/);
   assert.doesNotMatch(requirements, />=|~=/);
 });

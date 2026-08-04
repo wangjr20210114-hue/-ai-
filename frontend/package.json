@@ -11,6 +11,8 @@
     "check:i18n": "node scripts/check-i18n-labels.mjs",
     "lint": "eslint .",
     "test:e2e": "playwright test",
+    "test:e2e:product": "playwright test e2e/product-acceptance.spec.ts",
+    "test:e2e:visual": "playwright test e2e/visual-baseline.spec.ts",
     "test": "npm run check:i18n && vitest run --exclude \"e2e/**\"",
     "preview": "vite preview"
   },

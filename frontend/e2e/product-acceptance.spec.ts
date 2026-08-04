@@ -85,7 +85,7 @@ test('one planned search streams an answer and binds reviewed media to its exact
   expect(chatRequest?.body).not.toHaveProperty('membership');
 });
 
-test('trusted Skills expose their component actions through the marketplace boundary', async ({ page }) => {
+test('trusted Skills expose component actions without leaking internal permission keys', async ({ page }) => {
   let marketplaceRequests = 0;
   await installMockMakerApi(page, {
     onSkillMarketplaceRequest: () => { marketplaceRequests += 1; },
@@ -99,7 +99,7 @@ test('trusted Skills expose their component actions through the marketplace boun
   await expect(page.locator('.skills-page-brand')).toBeVisible();
   await expect(page.locator('.skills-page-account')).toBeVisible();
   await expect(page.locator('.component-api-list')).toContainText('calendar.change.propose');
-  await expect(page.locator('.component-api-list')).toContainText('components.calendar');
+  await expect(page.locator('.component-api-list')).not.toContainText('components.calendar');
   await expect(page.locator('.component-docs-toc-groups')).toContainText('日程');
   await expect(page.locator('.component-api-example')).toContainText('changes');
   const docs = page.locator('.component-docs');
@@ -109,10 +109,11 @@ test('trusted Skills expose their component actions through the marketplace boun
   await expect.poll(() => page.locator('.component-docs-toc').evaluate(
     (element) => element.getBoundingClientRect().width,
   )).toBeLessThanOrEqual(170);
-  await page.locator('.component-docs-toc-toggle').click();
   await expect(docs).toHaveClass(/is-toc-collapsed/);
   await page.locator('.component-docs-toc-toggle').click();
   await expect(docs).not.toHaveClass(/is-toc-collapsed/);
+  await page.locator('.component-docs-toc-toggle').click();
+  await expect(docs).toHaveClass(/is-toc-collapsed/);
   await page.evaluate(() => {
     document.documentElement.dataset.skillClosingObserved = '0';
     const marketplace = document.querySelector('.skills-page');

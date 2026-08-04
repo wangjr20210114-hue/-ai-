@@ -11,7 +11,7 @@
     "check:deploy-target": "node tools/assert-makers-deploy-target.mjs",
     "check:release": "npm run check:deploy-target && node tools/assert-dev-release-state.mjs",
     "benchmark:search:live": "python tools/benchmark-live-search.py",
-    "check:all": "npm run check:entitlements && npm run check:architecture && npm run check:skills && npm test && npm --prefix frontend run check:boundaries && npm --prefix frontend run lint && npm --prefix frontend test && npm --prefix frontend run build -- --mode edgeone",
+    "check:all": "npm run check:entitlements && npm run check:architecture && npm run check:skills && npm test && npm --prefix frontend run check:boundaries && npm --prefix frontend run lint && npm --prefix frontend test && npm --prefix frontend run test:e2e:product && npm --prefix frontend run build -- --mode edgeone",
     "test:edgeone-build-routes": "node tools/assert-edgeone-build-routes.mjs",
     "test:dialogue:production": "node tools/dialogue-boundary-smoke.mjs",
     "test:linkage:production": "node tools/route-calendar-linkage-smoke.mjs",
