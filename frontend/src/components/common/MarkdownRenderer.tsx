@@ -156,8 +156,12 @@ function MarkdownRenderer({
     return linkedContent;
   }, [content, sources]);
   const sourceBoundMediaPlugin = useMemo(
-    () => remarkSourceBoundMedia({ sources, media: visibleMedia }),
-    [sources, visibleMedia],
+    () => remarkSourceBoundMedia({
+      sources,
+      media: visibleMedia,
+      placeUncited: !streaming,
+    }),
+    [sources, streaming, visibleMedia],
   );
   const providerCalls = searchMeta?.search_config?.turn_provider_calls;
   const toolInvocations = searchMeta?.search_config?.turn_tool_invocations;

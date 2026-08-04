@@ -313,6 +313,31 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('vision_diagnostics');
   });
 
+  it('shows completed query-relevant media even when its source was not cited inline', () => {
+    const sourceBound = {
+      ...searchMeta.media[0],
+      source_id: 'source-1',
+      source_url: 'https://news.example/ai',
+      vision_reviewed: true,
+    };
+    const completed = renderToStaticMarkup(
+      <MarkdownRenderer
+        content="Completed verified summary without an inline link."
+        searchMeta={{ ...searchMeta, media: [sourceBound] }}
+      />,
+    );
+    const streaming = renderToStaticMarkup(
+      <MarkdownRenderer
+        streaming
+        content="Still streaming and may add an inline link."
+        searchMeta={{ ...searchMeta, media: [sourceBound] }}
+      />,
+    );
+    expect(completed).toContain('data-source-bound-media="one"');
+    expect(completed).toContain('href="https://news.example/ai"');
+    expect(streaming).not.toContain('data-source-bound-media="one"');
+  });
+
   it('does not repeat source-bound reviewed images with the same caption', () => {
     const sourceBound = {
       ...searchMeta.media[0],

@@ -113,6 +113,42 @@ describe('remarkSourceBoundMedia', () => {
     expect(insertedImages(transform([reviewed], duplicateSources))).toHaveLength(0);
   });
 
+  it('places an uncited reviewed image near the opening only after completion', () => {
+    const tree: MarkdownAstNode = {
+      type: 'root',
+      children: [{
+        type: 'paragraph',
+        children: [{ type: 'text', value: 'Query-level verified summary' }],
+      }],
+    };
+    remarkSourceBoundMedia({
+      sources,
+      media: [reviewed],
+      placeUncited: true,
+    })()(tree);
+
+    expect(tree.children?.map((node) => node.type)).toEqual([
+      'paragraph',
+      'image',
+    ]);
+    expect(insertedImages(tree)[0].data?.hProperties).toEqual({
+      'data-source-bound-media': 'media-1',
+      'data-source-id': 'source-1',
+    });
+  });
+
+  it('does not move uncited media while the answer can still add a citation', () => {
+    const tree: MarkdownAstNode = {
+      type: 'root',
+      children: [{
+        type: 'paragraph',
+        children: [{ type: 'text', value: 'Streaming summary' }],
+      }],
+    };
+    remarkSourceBoundMedia({ sources, media: [reviewed] })()(tree);
+    expect(insertedImages(tree)).toHaveLength(0);
+  });
+
   it('strips complete, indexed, and partial legacy markers without placing media', () => {
     expect(stripLegacyMediaMarkers(
       '第一段\n\n[[YUANBAO_MEDIA]]\n\n[[YUANBAO_MEDIA:2]]\n\n结尾[[YUANBAO_MED',

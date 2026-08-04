@@ -14,6 +14,7 @@ export interface MarkdownAstNode {
 interface SourceBoundMediaOptions {
   sources: SearchResultItem[];
   media: RichMediaAsset[];
+  placeUncited?: boolean;
 }
 
 export function presentableSourceBoundMedia(item: RichMediaAsset): boolean {
@@ -115,5 +116,28 @@ export function remarkSourceBoundMedia(
       children.splice(index + 1, 0, ...insertions);
       index += insertions.length;
     }
+    if (!options.placeUncited) return;
+    const remaining = eligible
+      .filter((item) => !placed.has(item.id))
+      .map((item): MarkdownAstNode => ({
+        type: 'image',
+        url: item.url,
+        alt: item.alt || item.caption || '',
+        data: {
+          hProperties: {
+            'data-source-bound-media': item.id,
+            'data-source-id': String(item.source_id),
+          },
+        },
+      }));
+    if (!remaining.length) return;
+    // Progressive media may finish for a source that the answer model did not
+    // cite inline. Once the text stream is complete, keep those query-relevant
+    // assets near the opening paragraph; RichImage still labels and links the
+    // exact bound source. Never append a detached source directory at the end.
+    let anchor = children.findIndex((child) => child.type === 'paragraph');
+    if (anchor < 0) return;
+    while (children[anchor + 1]?.type === 'image') anchor += 1;
+    children.splice(anchor + 1, 0, ...remaining);
   };
 }
