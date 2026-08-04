@@ -14,7 +14,10 @@ from agents._infrastructure.makers.conversation_repository import (
 from agents._infrastructure.http import error
 from agents._application.proactive.service import collect_provider_signals
 from agents._application.proactive.service import empty_proactive_state, process_schedule_signals
-from agents._infrastructure.providers.tencent_location import plan_driving_route
+from agents._infrastructure.providers.tencent_location import (
+    normalize_route_contract,
+    plan_driving_route,
+)
 from agents.proactive.index import handler as proactive_handler
 from agents.stop.index import handler as stop_handler
 from agents._controllers.system_controller import _expected_tick_after
@@ -255,6 +258,15 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(route["duration_seconds"], 24 * 60)
         self.assertEqual(route["schema_version"], 4)
         self.assertEqual(route["legs"][0]["scope"], "intercity")
+        cached = normalize_route_contract({
+            "provider": "tencent",
+            "mode": "transit",
+            "places": places,
+            "legs": [{"from": places[0], "to": places[1], "mode": "transit"}],
+            "transit": {},
+        })
+        self.assertEqual(cached["legs"][0]["scope"], "intercity")
+        self.assertEqual(cached["transit"]["coverage"], "bus_metro")
 
     async def test_tencent_taxi_fare_is_not_misreported_as_a_road_toll(self):
         places = [

@@ -16,6 +16,7 @@ from ..._application.skills.tool_contracts import ClarificationFieldInput
 from ..._application.i18n import normalize_language, text
 
 from ..._infrastructure.providers.tencent_location import (
+    normalize_route_contract as provider_normalize_route_contract,
     plan_verified_route as provider_plan_route,
     reverse_geocode as provider_reverse_geocode,
     search_verified_places_bounded as provider_search_places,
@@ -204,6 +205,7 @@ def build_system_skill_tools(
 
     plan_route_between_places = build_route_operation(
         _load_state=_load_state,
+        _normalize_route_contract=provider_normalize_route_contract,
         _plan_route_metered=_plan_route_metered,
         _save_state=_save_state,
         _search_places_metered=_search_places_metered,

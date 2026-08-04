@@ -698,6 +698,47 @@ def _route_leg_scope(
     return "local" if origin_city == destination_city else "intercity"
 
 
+def normalize_route_contract(route: dict[str, Any]) -> dict[str, Any]:
+    """Upgrade cached Tencent routes to the current cross-client contract.
+
+    Makers may return a route persisted by an earlier release. Contract
+    enrichment belongs in this provider adapter so every caller and client
+    receives the same semantics without re-planning or duplicating logic.
+    """
+    normalized = copy.deepcopy(route)
+    places = [
+        place for place in (normalized.get("places") or [])
+        if isinstance(place, dict)
+    ]
+    legs = [
+        leg for leg in (normalized.get("legs") or [])
+        if isinstance(leg, dict)
+    ]
+    for index, leg in enumerate(legs):
+        origin = leg.get("from") if isinstance(leg.get("from"), dict) else {}
+        destination = (
+            leg.get("to") if isinstance(leg.get("to"), dict) else {}
+        )
+        if not origin and index < len(places):
+            origin = places[index]
+        if not destination and index + 1 < len(places):
+            destination = places[index + 1]
+        if str(leg.get("scope") or "") not in {
+            "intercity", "local", "unknown",
+        }:
+            leg["scope"] = _route_leg_scope(origin, destination)
+        if str(leg.get("mode") or normalized.get("mode") or "") == "transit":
+            leg_transit = leg.setdefault("transit", {})
+            if isinstance(leg_transit, dict):
+                leg_transit.setdefault("coverage", "bus_metro")
+    normalized["legs"] = legs
+    if str(normalized.get("mode") or "") == "transit":
+        transit = normalized.setdefault("transit", {})
+        if isinstance(transit, dict):
+            transit.setdefault("coverage", "bus_metro")
+    return normalized
+
+
 def _route_sections(route: dict[str, Any], mode: str) -> list[dict[str, Any]]:
     """Preserve Tencent's selected walking/vehicle geometry for map layers."""
     sections: list[dict[str, Any]] = []
@@ -1194,13 +1235,13 @@ async def plan_route(
                 "leg_selections": [leg.get("selection") or {} for leg in legs],
             },
         }
-    return {
+    return normalize_route_contract({
         "schema_version": 4,
         "provider": "tencent",
         "mode": mode,
         "places": places,
         **combined,
-    }
+    })
 
 
 async def plan_driving_route(

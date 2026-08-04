@@ -35,6 +35,7 @@ from .route_resolution import (
 def build_route_operation(
     *,
     _load_state,
+    _normalize_route_contract,
     _plan_route_metered,
     _save_state,
     _search_places_metered,
@@ -592,6 +593,7 @@ def build_route_operation(
                 strategy=selected_route_strategy,
                 near_time_tolerance_minutes=map_near_time_tolerance,
             )
+        route = _normalize_route_contract(route)
         provider_places = route.get("places")
         if isinstance(provider_places, list) and len(provider_places) == len(resolved_stops):
             current_resolution = list(resolved_stops)

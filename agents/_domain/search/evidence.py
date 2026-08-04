@@ -30,12 +30,16 @@ class SearchSource:
     snippet: str
     published_at: str = ""
     publisher: str = ""
+    publisher_domain: str = ""
     relevance_score: float = 0.0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _required(self.id, "source id"))
         object.__setattr__(self, "url", _required(self.url, "source url"))
         object.__setattr__(self, "publisher", str(self.publisher or "").strip())
+        object.__setattr__(
+            self, "publisher_domain", str(self.publisher_domain or "").strip(),
+        )
         object.__setattr__(
             self, "relevance_score", _relevance_score(self.relevance_score),
         )
@@ -48,6 +52,7 @@ class SearchSource:
             "snippet": self.snippet,
             "published_at": self.published_at,
             "publisher": self.publisher,
+            "publisher_domain": self.publisher_domain,
             "relevance_score": self.relevance_score,
         }
 
@@ -60,6 +65,7 @@ class SearchSource:
             snippet=str(value.get("snippet") or ""),
             published_at=str(value.get("published_at") or value.get("date") or ""),
             publisher=str(value.get("publisher") or value.get("site") or ""),
+            publisher_domain=str(value.get("publisher_domain") or ""),
             relevance_score=_relevance_score(
                 value.get("relevance_score") or value.get("score") or 0
             ),

@@ -11,6 +11,7 @@ export interface SearchResultItem {
   image?: string;
   date?: string;
   publisher?: string;
+  publisher_domain?: string;
   relevance_score?: number;
 }
 

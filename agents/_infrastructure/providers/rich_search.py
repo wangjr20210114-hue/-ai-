@@ -867,6 +867,7 @@ async def rich_search(
         # it here made visually rich provider results look text-only.
         "image": item.get("image", ""),
         "publisher": item.get("publisher", ""),
+        "publisher_domain": source_domain(item.get("url")),
         "relevance_score": item.get("relevance_score", 0.0),
     } for index, item in enumerate(results, 1)]
     # Keep SearchPro's own article hero images as explicitly provisional

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from agents._domain.search.evidence import SearchEvidence
+from agents._domain.search.source_policy import source_domain
 
 from ..i18n import normalize_language, text
 
@@ -28,6 +29,10 @@ def evidence_for_model(
             title=item["title"], url=item["url"],
             date=item.get("date") or "N/A", snippet=item["snippet"],
             publisher=item.get("publisher") or "N/A",
+            publisher_domain=(
+                item.get("publisher_domain") or source_domain(item.get("url"))
+                or "N/A"
+            ),
             relevance=item.get("relevance_score") or "N/A",
             has_image=(
                 "true"

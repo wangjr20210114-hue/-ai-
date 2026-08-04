@@ -227,6 +227,7 @@
         "url": { "type": "string" },
         "date": { "type": "string" },
         "publisher": { "type": "string" },
+        "publisher_domain": { "type": "string" },
         "relevance_score": { "type": "number", "minimum": 0, "maximum": 1 }
       },
       "additionalProperties": true

@@ -41,6 +41,7 @@ class SearchEvidenceTests(unittest.TestCase):
         self.assertIn("[架构资料](https://example.test/architecture)", model_evidence)
         self.assertIn("source-1", model_evidence)
         self.assertIn("source_id=source-1", model_evidence)
+        self.assertIn("发布者域=example.test", model_evidence)
         self.assertNotIn("最终回答", model_evidence)
         self.assertNotIn("![", model_evidence)
         self.assertNotIn("MEDIA_SLOT", model_evidence)
@@ -82,6 +83,7 @@ class SearchEvidenceTests(unittest.TestCase):
                     snippet="晴",
                     published_at="2026-07-31",
                     publisher="Example Publisher",
+                    publisher_domain="a.test",
                     relevance_score=0.91,
                 ),
             ),
@@ -105,6 +107,7 @@ class SearchEvidenceTests(unittest.TestCase):
         self.assertIsInstance(restored.sources, tuple)
         self.assertIsInstance(restored.media, tuple)
         self.assertEqual(restored.sources[0].publisher, "Example Publisher")
+        self.assertEqual(restored.sources[0].publisher_domain, "a.test")
         self.assertEqual(restored.sources[0].relevance_score, 0.91)
 
 
