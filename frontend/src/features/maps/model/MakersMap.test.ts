@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
 import { chronologicalSchedulePlaces, shouldPlanMakersRoute, shouldRequestMakersRoute } from './makersMapRouting';
-import { legModeSequence, routeHasIntercityLeg, routeLegScope, routeLegs, routeZoomLevel } from './routePresentation';
+import {
+  closestRouteSectionIndex,
+  legModeSequence,
+  routeHasIntercityLeg,
+  routeLegScope,
+  routeLegs,
+  routeSectionPath,
+  routeSectionSteps,
+  routeZoomLevel,
+} from './routePresentation';
 import type { ScheduleItem } from '../../calendar/model';
 import type { MakersMapPlace, MakersRoutePlan } from './types';
 
@@ -119,5 +128,61 @@ describe('MakersMap geolocation recovery', () => {
     };
     expect(routeLegScope(leg)).toBe('intercity');
     expect(routeHasIntercityLeg(route)).toBe(true);
+  });
+
+  it('follows the map attention point through mixed provider route sections', () => {
+    const place = (name: string, latitude: number, longitude: number): MakersMapPlace => ({
+      place_id: name, name, address: name, latitude, longitude,
+    });
+    const origin = place('Origin', 31.2, 121.4);
+    const destination = place('Destination', 30.3, 120.2);
+    const route: MakersRoutePlan = {
+      schema_version: 4,
+      provider: 'tencent',
+      mode: 'transit',
+      places: [origin, destination],
+      path: [origin, destination],
+      distance_meters: 180000,
+      duration_seconds: 7200,
+      fare: { currency: 'CNY', basis: '' },
+      legs: [{
+        from: origin,
+        to: destination,
+        mode: 'transit',
+        path: [origin, destination],
+        distance_meters: 180000,
+        duration_seconds: 7200,
+        sections: [
+          {
+            mode: 'bus', line: 'Local A', distance_meters: 8000, duration_seconds: 1200,
+            path: [{ latitude: 31.2, longitude: 121.4 }, { latitude: 31.1, longitude: 121.3 }],
+          },
+          {
+            mode: 'rail', line: 'Rail B', distance_meters: 172000, duration_seconds: 6000,
+            path: [{ latitude: 31.1, longitude: 121.3 }, { latitude: 30.3, longitude: 120.2 }],
+          },
+        ],
+      }],
+    };
+
+    expect(routeSectionSteps(route).map(({ section }) => section.line)).toEqual(['Local A', 'Rail B']);
+    expect(closestRouteSectionIndex(route, { latitude: 31.19, longitude: 121.39 })).toBe(0);
+    expect(closestRouteSectionIndex(route, { latitude: 30.5, longitude: 120.4 })).toBe(1);
+
+    const leg = route.legs?.[0];
+    if (!leg) throw new Error('fixture leg missing');
+    leg.path = [
+      { latitude: 31.2, longitude: 121.4 },
+      { latitude: 31.1, longitude: 121.3 },
+      { latitude: 30.3, longitude: 120.2 },
+    ];
+    leg.sections.forEach((section) => {
+      section.path = [];
+      section.distance_meters = 90000;
+    });
+    const fallbackSteps = routeSectionSteps(route);
+    expect(routeSectionPath(fallbackSteps[0])).toHaveLength(2);
+    expect(routeSectionPath(fallbackSteps[1])).toHaveLength(2);
+    expect(closestRouteSectionIndex(route, { latitude: 30.4, longitude: 120.3 })).toBe(1);
   });
 });

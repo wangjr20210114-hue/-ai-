@@ -11,12 +11,13 @@ import type {
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from '../model/makersMapLocation';
 import { shouldPlanMakersRoute, shouldRequestMakersRoute } from '../model/makersMapRouting';
 import {
+  closestRouteSectionIndex,
   legModeSequence,
   ROUTE_MODE_COLORS,
   routeCities,
-  routeHasIntercityLeg,
-  routeLegScope,
   routeLegs,
+  routeSectionPath,
+  routeSectionSteps,
   routeZoomLevel,
   type RouteZoomLevel,
   visibleRouteSections,
@@ -29,6 +30,7 @@ import {
   publishBrowserLocation,
 } from '../../../services/browserLocation';
 import { useMapsController } from '../controller/useMapsController';
+import RouteJourneyCard from './RouteJourneyCard';
 
 interface Props {
   conversationId: string;
@@ -89,10 +91,13 @@ function loadTencentMap(key: string): Promise<TencentMapNamespace> {
   return sdkPromise;
 }
 
-function hoursMinutes(seconds: number): string {
-  const minutes = Math.max(1, Math.round(seconds / 60));
-  if (minutes < 60) return translate('minutes', { count: minutes });
-  return translate('hoursMinutes', { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
+function mapCenterPoint(center: TencentMapCoordinate | undefined) {
+  if (!center) return null;
+  const latitude = center.getLat?.() ?? center.lat;
+  const longitude = center.getLng?.() ?? center.lng;
+  return Number.isFinite(latitude) && Number.isFinite(longitude)
+    ? { latitude: Number(latitude), longitude: Number(longitude) }
+    : null;
 }
 
 export default function MakersMap({
@@ -102,11 +107,14 @@ export default function MakersMap({
   const dispatch = useAppDispatch();
   const { ingestSignal, planVerifiedRoute } = useMapsController(conversationId);
   const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<TencentMapInstance | null>(null);
+  const mapNamespaceRef = useRef<TencentMapNamespace | null>(null);
   const [animating, setAnimating] = useState(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
   const [mapLoading, setMapLoading] = useState(false);
   const [route, setRoute] = useState<MakersRoutePlan | null>(null);
   const [visibleRouteLevel, setVisibleRouteLevel] = useState<RouteZoomLevel>('legs');
+  const [activeRouteStep, setActiveRouteStep] = useState(0);
   const [routeError, setRouteError] = useState('');
   const [permission, setPermission] = useState<PermissionState>('checking');
   const [userLocation, setUserLocation] = useState<MakersMapPlace | null>(() => {
@@ -128,6 +136,25 @@ export default function MakersMap({
     () => places.length ? places : userLocation ? [userLocation] : [],
     [places, userLocation],
   );
+
+  useEffect(() => {
+    const stepCount = route ? routeSectionSteps(route).length : 0;
+    setActiveRouteStep((current) => Math.max(0, Math.min(current, Math.max(0, stepCount - 1))));
+  }, [route]);
+
+  const focusRouteStep = useCallback((index: number) => {
+    if (!route) return;
+    const steps = routeSectionSteps(route);
+    const nextIndex = Math.max(0, Math.min(index, Math.max(0, steps.length - 1)));
+    setActiveRouteStep(nextIndex);
+    const map = mapRef.current;
+    const TMap = mapNamespaceRef.current;
+    const path = steps[nextIndex] ? routeSectionPath(steps[nextIndex]) : [];
+    if (!map || !TMap?.LatLngBounds || !map.fitBounds || path.length < 2) return;
+    const bounds = new TMap.LatLngBounds();
+    path.forEach((point) => bounds.extend(new TMap.LatLng(point.latitude, point.longitude)));
+    map.fitBounds(bounds, { padding: 72 });
+  }, [route]);
 
   const readCurrentLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -317,6 +344,8 @@ export default function MakersMap({
     let resizeTimer: number | null = null;
     let resizeObserver: ResizeObserver | null = null;
     let zoomListener: (() => void) | null = null;
+    let centerListener: (() => void) | null = null;
+    let attentionTimer: number | null = null;
     setMapLoading(true);
     void loadTencentMap(key).then((TMap) => {
       if (cancelled || !containerRef.current) return;
@@ -328,6 +357,8 @@ export default function MakersMap({
         center: new TMap.LatLng(first.latitude, first.longitude),
         zoom: renderedPlaces.length === 1 ? 16 : 12,
       });
+      mapRef.current = map;
+      mapNamespaceRef.current = TMap;
       const resizeMap = () => map?.resize?.();
       if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver(resizeMap);
@@ -390,41 +421,46 @@ export default function MakersMap({
           })],
         ),
       );
-      const overviewPolyline = route?.path?.length ? new TMap.MultiPolyline({
+      const overviewGeometry = route?.path && route.path.length > 1 ? [{
+        id: 'makers-route-overview',
+        styleId: 'overview',
+        paths: route.path.map((point) => new TMap.LatLng(point.latitude, point.longitude)),
+      }] : [];
+      const overviewPolyline = overviewGeometry.length ? new TMap.MultiPolyline({
         map,
         styles: {
           overview: new TMap.PolylineStyle({
             color: '#64748b', width: 5, borderWidth: 2, borderColor: '#ffffff',
           }),
         },
-        geometries: [{
-          id: 'makers-route-overview',
-          styleId: 'overview',
-          paths: route.path.map((point) => new TMap.LatLng(point.latitude, point.longitude)),
-        }],
+        geometries: overviewGeometry,
       }) : null;
-      const legPolyline = route ? new TMap.MultiPolyline({
-        map: null,
-        styles: routeStyles,
-        geometries: routeLegs(route).filter((leg) => leg.path.length > 1).map((leg, index) => {
+      const legGeometries = route ? routeLegs(route)
+        .filter((leg) => leg.path.length > 1)
+        .map((leg, index) => {
           const mode = legModeSequence(leg).find((item) => item !== 'walking') || leg.mode;
           return {
             id: `makers-route-leg-${index}`,
             styleId: mode,
             paths: leg.path.map((point) => new TMap.LatLng(point.latitude, point.longitude)),
           };
-        }),
-      }) : null;
-      const sectionPolyline = route ? new TMap.MultiPolyline({
+        }) : [];
+      const legPolyline = legGeometries.length ? new TMap.MultiPolyline({
         map: null,
         styles: routeStyles,
-        geometries: visibleRouteSections(route)
-          .filter((section) => section.path.length > 1)
-          .map((section, index) => ({
-            id: `makers-route-section-${index}`,
-            styleId: section.mode,
-            paths: section.path.map((point) => new TMap.LatLng(point.latitude, point.longitude)),
-          })),
+        geometries: legGeometries,
+      }) : null;
+      const sectionGeometries = route ? visibleRouteSections(route)
+        .filter((section) => section.path.length > 1)
+        .map((section, index) => ({
+          id: `makers-route-section-${index}`,
+          styleId: section.mode,
+          paths: section.path.map((point) => new TMap.LatLng(point.latitude, point.longitude)),
+        })) : [];
+      const sectionPolyline = sectionGeometries.length ? new TMap.MultiPolyline({
+        map: null,
+        styles: routeStyles,
+        geometries: sectionGeometries,
       }) : null;
       const updateRouteLayers = () => {
         if (!map || !route) return;
@@ -438,9 +474,19 @@ export default function MakersMap({
         cityLabels?.setMap?.(cityOverview ? map : null);
         placeMarkers.setMap?.(cityOverview ? null : map);
         placeLabels.setMap?.(cityOverview ? null : map);
+        const center = mapCenterPoint(map.getCenter?.());
+        if (center) {
+          const focused = closestRouteSectionIndex(route, center);
+          if (focused >= 0) setActiveRouteStep((current) => current === focused ? current : focused);
+        }
       };
       zoomListener = updateRouteLayers;
+      centerListener = () => {
+        if (attentionTimer !== null) window.clearTimeout(attentionTimer);
+        attentionTimer = window.setTimeout(updateRouteLayers, 80);
+      };
       map.on?.('zoom_changed', updateRouteLayers);
+      map.on?.('center_changed', centerListener);
       updateRouteLayers();
       if (renderedPlaces.length > 1 && TMap.LatLngBounds && map.fitBounds) {
         const bounds = new TMap.LatLngBounds();
@@ -457,20 +503,17 @@ export default function MakersMap({
       cancelled = true;
       if (fitBoundsTimer !== null) window.clearTimeout(fitBoundsTimer);
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
+      if (attentionTimer !== null) window.clearTimeout(attentionTimer);
       resizeObserver?.disconnect();
       if (zoomListener) map?.off?.('zoom_changed', zoomListener);
+      if (centerListener) map?.off?.('center_changed', centerListener);
+      if (mapRef.current === map) {
+        mapRef.current = null;
+        mapNamespaceRef.current = null;
+      }
       map?.destroy?.();
     };
   }, [displayPlaces, places.length, route, routeError, revision, renderAttempt, t]);
-
-  const routeModeName = (mode: MakersRouteSectionMode) => t(
-    mode === 'driving' ? 'routeModeDriving'
-      : mode === 'walking' ? 'routeModeWalking'
-        : mode === 'bicycling' ? 'routeModeBicycling'
-          : mode === 'rail' ? 'routeModeRail'
-            : mode === 'bus' ? 'routeModeBus'
-              : 'routeModeTransit',
-  );
 
   if (!displayPlaces.length) {
     return (
@@ -515,49 +558,14 @@ export default function MakersMap({
       )}
       {showRoute && routeError && <div className="makers-route-error">{t('realRouteFailed', { error: routeError })}</div>}
       {shouldPlanMakersRoute(showRoute, places.length) && !route && !routeError && <div className="makers-route-loading">{t('calculatingRoute')}</div>}
-      {showRoute && route && (
-        <><div className="makers-route-summary">
-          <span>{t(
-            route.mode === 'transit' && routeHasIntercityLeg(route)
-              ? 'routeModeTransitIntercity'
-              : route.mode === 'transit' ? 'routeModeTransit'
-              : route.mode === 'walking' ? 'routeModeWalking'
-                : route.mode === 'bicycling' ? 'routeModeBicycling'
-                  : 'routeModeDriving',
-          )}</span>
-          <span>{t('kilometers', { count: (route.distance_meters / 1000).toFixed(1) })}</span>
-          <span>{hoursMinutes(route.duration_seconds)}</span>
-          {route.fare.self_driving && <span>{t('drivingEstimate', { amount: route.fare.self_driving.estimate.toFixed(0) })}</span>}
-          {route.fare.taxi && <span>{t('taxiEstimate', { low: route.fare.taxi.low.toFixed(0), high: route.fare.taxi.high.toFixed(0) })}</span>}
-          {route.fare.transit?.provider_estimate && <span>{t('transitFareEstimate', { amount: route.fare.transit.estimate.toFixed(0) })}</span>}
-          {route.transit?.lines?.length ? <span>{t('transitLines', { lines: route.transit.lines.join(' → ') })}</span> : null}
-          {route.transit?.walking_distance_meters !== undefined && <span>{t('transitWalkingDistance', { count: route.transit.walking_distance_meters })}</span>}
-          <small>{route.fare.basis}</small>
-          <small>{route.cache?.hit ? t('routeCacheHit') : t('routeCacheSaved')}</small>
-        </div>
-        <div className="makers-route-leg-list">
-          {routeLegs(route).map((leg, legIndex) => <div className="makers-route-leg" key={`${leg.from.place_id}-${leg.to.place_id}-${legIndex}`}>
-            <div className="makers-route-leg-heading">
-              <strong>{legIndex + 1}. {leg.from.name} → {leg.to.name}</strong>
-              {routeLegScope(leg) !== 'unknown' && <em>{t(
-                routeLegScope(leg) === 'intercity' ? 'routeScopeIntercity' : 'routeScopeLocal',
-              )}</em>}
-              <span>{t('kilometers', { count: (leg.distance_meters / 1000).toFixed(1) })} · {hoursMinutes(leg.duration_seconds)}</span>
-            </div>
-            <div className="makers-route-mode-sequence" aria-label={t('routeLegTransport')}>
-              {(leg.sections?.length ? leg.sections : [{ mode: leg.mode }]).map((section, sectionIndex) => <span className="makers-route-mode-step" key={`${section.mode}-${sectionIndex}`}>
-                {sectionIndex > 0 && <i aria-hidden="true">→</i>}
-                <b style={{ '--route-mode-color': ROUTE_MODE_COLORS[section.mode] } as React.CSSProperties}>
-                  {('line' in section && section.line) || routeModeName(section.mode)}
-                </b>
-              </span>)}
-            </div>
-          </div>)}
-        </div></>
-      )}
-      <div className="makers-place-chips">
+      {showRoute && route && <RouteJourneyCard
+        route={route}
+        activeStep={activeRouteStep}
+        onSelectStep={focusRouteStep}
+      />}
+      {(!showRoute || !route) && <div className="makers-place-chips">
         {(route?.places?.length ? route.places : displayPlaces).map((place, index) => <span key={`${place.place_id}-${index}`}>{place.name === t('currentLocation') ? '📍' : index + 1} {place.name}</span>)}
-      </div>
+      </div>}
     </div>
   );
 }

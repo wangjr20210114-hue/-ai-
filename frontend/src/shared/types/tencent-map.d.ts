@@ -3,8 +3,16 @@ interface TencentMapInstance {
   fitBounds?: (bounds: unknown, options?: Record<string, unknown>) => void;
   resize?: () => void;
   getZoom?: () => number;
+  getCenter?: () => TencentMapCoordinate;
   on?: (event: string, listener: () => void) => void;
   off?: (event: string, listener: () => void) => void;
+}
+
+interface TencentMapCoordinate {
+  lat?: number;
+  lng?: number;
+  getLat?: () => number;
+  getLng?: () => number;
 }
 
 interface TencentMapOverlay {
