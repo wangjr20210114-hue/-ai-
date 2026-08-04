@@ -9,6 +9,7 @@ from agents._application.search.search_use_case import (
     SearchExecution,
     SearchRequest,
     SearchUseCase,
+    _ttl_seconds,
 )
 from agents._domain.search.evidence import SearchEvidence, SearchSource
 
@@ -86,6 +87,13 @@ class SearchUseCaseTests(unittest.IsolatedAsyncioTestCase):
         ordinary = request()
         self.assertTrue(recent.prefer_recent_results)
         self.assertFalse(ordinary.prefer_recent_results)
+        self.assertEqual(_ttl_seconds(recent), 120)
+        self.assertEqual(_ttl_seconds(ordinary), 600)
+
+    def test_ttl_does_not_infer_recent_intent_from_query_words(self):
+        ordinary = replace(request(), query="latest recent current")
+        self.assertFalse(ordinary.prefer_recent_results)
+        self.assertEqual(_ttl_seconds(ordinary), 600)
 
     async def test_execute_calls_provider_once_and_never_caches_answer(self):
         provider = FakeSearchPort()

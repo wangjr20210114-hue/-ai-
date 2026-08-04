@@ -315,7 +315,7 @@ _PROMOTIONAL_TEXT_MARKERS = (
 
 def _query_match_terms(query: str) -> set[str]:
     """Build lightweight relevance terms without assuming one topic or locale."""
-    normalized = re.sub(r"\s+", "", str(query or "").lower())
+    normalized = str(query or "").lower()
     terms = {
         token
         for token in re.findall(r"[a-z0-9][a-z0-9._-]+", normalized)
@@ -675,6 +675,64 @@ def _candidate_prefilter_reason(candidate: dict[str, str]) -> str:
     return ""
 
 
+def _source_bound_fallback_candidates(
+    candidates: list[dict[str, str]],
+    query: str,
+    source_urls: set[str],
+    output_limit: int,
+    *,
+    require_semantic_overlap: bool = True,
+) -> list[dict[str, str]]:
+    """Select traceable page media only when vision made no decision.
+
+    This fallback is capability-level rather than topic-level: candidates must
+    belong to an exact retained source, pass the shared asset prefilter, and
+    overlap the planner's visual intent. One image per source is preferred so
+    a single page cannot monopolize the answer.
+    """
+    limit = max(0, min(8, int(output_limit)))
+    if limit == 0:
+        return []
+    terms = _query_match_terms(query)
+    ranked: list[tuple[int, tuple[int, int, int], int, dict[str, str]]] = []
+    seen_urls: set[str] = set()
+    for index, candidate in enumerate(candidates[:30]):
+        image_url = str(candidate.get("url") or "").strip()
+        source_url = str(candidate.get("source_url") or "").strip()
+        if (
+            not image_url
+            or image_url in seen_urls
+            or source_url not in source_urls
+            or _candidate_prefilter_reason(candidate)
+        ):
+            continue
+        context = " ".join(str(candidate.get(field) or "") for field in (
+            "source_title", "context", "alt",
+        )).casefold()
+        overlap = sum(1 for term in terms if term in context)
+        if require_semantic_overlap and terms and overlap == 0:
+            continue
+        seen_urls.add(image_url)
+        ranked.append((
+            overlap,
+            _candidate_visual_priority(candidate, query),
+            -index,
+            candidate,
+        ))
+    ranked.sort(key=lambda item: item[:3], reverse=True)
+    preferred: list[dict[str, str]] = []
+    remaining: list[dict[str, str]] = []
+    seen_sources: set[str] = set()
+    for _, _, _, candidate in ranked:
+        source_url = str(candidate.get("source_url") or "")
+        if source_url not in seen_sources:
+            preferred.append(candidate)
+            seen_sources.add(source_url)
+        else:
+            remaining.append(candidate)
+    return (preferred + remaining)[:limit]
+
+
 def _vision_endpoint(env: dict[str, Any]) -> str:
     base = str(
         env.get("HUNYUAN_VISION_BASE_URL")
@@ -1030,32 +1088,56 @@ async def rich_search(
             )
         except asyncio.TimeoutError:
             reviewed, diagnostics = [], {"timeout": 1, "candidates": len(visual_candidates), "reviewed": 0}
-        # A vision outage should not turn a news answer into a permanently
-        # text-only response. SearchPro's own article hero image is traceable
-        # to a source URL, so retain it as an explicitly unreviewed fallback
-        # when the vision chain produced no relevance decision. If vision
-        # actively rejected candidates, keep the list empty instead.
+        # A vision outage should not turn a sourced answer into a permanently
+        # text-only response. Retain a deterministically relevant, traceable
+        # page image only when the vision chain made no relevance decision. If
+        # vision actively rejected candidates, keep the list empty instead.
         explicit_rejection = bool(
             diagnostics.get("approved", 0)
             or diagnostics.get("irrelevant", 0)
+            or diagnostics.get("promotional", 0)
         )
         if not reviewed and not explicit_rejection:
-            fallback_candidates = _provider_image_candidates(results, response_language)[:image_limit]
+            provider_fallbacks = _source_bound_fallback_candidates(
+                _provider_image_candidates(results, response_language),
+                review_goal,
+                set(source_by_url),
+                image_limit,
+                require_semantic_overlap=False,
+            )
+            page_fallbacks = _source_bound_fallback_candidates(
+                visual_candidates,
+                review_goal,
+                set(source_by_url),
+                image_limit,
+            )
+            fallback_candidates = []
+            fallback_urls: set[str] = set()
+            for candidate in provider_fallbacks + page_fallbacks:
+                if candidate["url"] in fallback_urls:
+                    continue
+                fallback_urls.add(candidate["url"])
+                fallback_candidates.append(candidate)
+                if len(fallback_candidates) >= image_limit:
+                    break
             if fallback_candidates:
                 reviewed = [{
                     **candidate,
-                    "description": str(candidate.get("source_title") or text("search.article_hero", response_language))[:240],
+                    "description": str(
+                        candidate.get("context")
+                        or candidate.get("alt")
+                        or candidate.get("source_title")
+                        or text("search.article_hero", response_language)
+                    )[:240],
                     "vision_reviewed": False,
                     "vision_fallback": True,
-                    # SearchPro supplied this hero image on the exact source
-                    # record. It is safe for presentation only when the
-                    # frontend also verifies source_id + source_url; it never
-                    # becomes vision-reviewed model evidence.
+                    # Exact source binding is checked again by the domain and
+                    # frontend. This never becomes vision-reviewed evidence.
                     "source_bound_fallback": True,
                 } for candidate in fallback_candidates]
                 diagnostics = {
                     **diagnostics,
-                    "provider_fallback": len(reviewed),
+                    "source_bound_fallback": len(reviewed),
                 }
         reviewed_at = time.perf_counter()
         media = []

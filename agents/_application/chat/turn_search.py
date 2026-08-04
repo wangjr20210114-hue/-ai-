@@ -91,6 +91,24 @@ class PlannedSearchRunner:
             else None
         )
 
+    async def finish_media(self, timeout: float = 90) -> None:
+        """Drain progressive media before the public stream is marked done."""
+        if not self.background_tasks:
+            return
+        try:
+            outcomes = await asyncio.wait_for(
+                asyncio.gather(*self.background_tasks, return_exceptions=True),
+                timeout=timeout,
+            )
+            for outcome in outcomes:
+                if isinstance(outcome, Exception):
+                    logging.warning("rich search media task failed: %s", outcome)
+        except asyncio.TimeoutError:
+            logging.warning("rich search media task timed out")
+            for task in self.background_tasks:
+                if not task.done():
+                    task.cancel()
+
     async def execute(
         self,
         query: str,

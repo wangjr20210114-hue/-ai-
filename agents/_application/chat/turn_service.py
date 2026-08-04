@@ -1276,6 +1276,15 @@ async def _handle(ctx):
                     await queue.put(
                         presenter.error("empty_generation", run_error)
                     )
+                await search_runner.finish_media()
+                # Media is a complete user-visible result. Persist it before
+                # the terminal event so refresh and every client consume the
+                # same ordered protocol.
+                if final_answer and search_runner.latest_enriched_media:
+                    try:
+                        await persist_answer_extras()
+                    except Exception as exc:
+                        logging.warning("answer media persistence failed: %s", exc)
                 follow_ups: list[str] = []
                 if final_answer:
                     # Stop the visible cursor immediately when answer tokens
@@ -1324,31 +1333,6 @@ async def _handle(ctx):
                     for task in (follow_up_task, memory_task, recent_questions_task):
                         if task is not None and not task.done():
                             task.cancel()
-                if search_runner.background_tasks:
-                    try:
-                        outcomes = await asyncio.wait_for(
-                            asyncio.gather(
-                                *search_runner.background_tasks,
-                                return_exceptions=True,
-                            ),
-                            timeout=90,
-                        )
-                        for outcome in outcomes:
-                            if isinstance(outcome, Exception):
-                                logging.warning("rich search media task failed: %s", outcome)
-                    except asyncio.TimeoutError:
-                        logging.warning("rich search media task timed out")
-                        for task in search_runner.background_tasks:
-                            if not task.done():
-                                task.cancel()
-                # Reviewed media is already a complete user-visible result.
-                # Save it before slower optional post-processing so navigation
-                # cannot make the image disappear when one of those jobs fails.
-                if final_answer and search_runner.latest_enriched_media:
-                    try:
-                        await persist_answer_extras()
-                    except Exception as exc:
-                        logging.warning("answer media persistence failed: %s", exc)
                 if final_answer and (memory_task is not None or opportunity_enabled):
                     try:
                         recent_questions = []

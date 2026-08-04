@@ -150,7 +150,9 @@ class _ProgressiveSearchUseCase:
         )
 
         async def publish_media() -> SearchEvidence:
-            await asyncio.sleep(0)
+            # Finish after the graph's short answer so terminal ordering is
+            # exercised instead of passing only because this task won a race.
+            await asyncio.sleep(0.05)
             if on_media is not None:
                 await on_media(enriched)
             return enriched

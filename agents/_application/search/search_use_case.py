@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import re
 from dataclasses import dataclass, replace
 from typing import Any, Awaitable, Literal, Mapping
 
@@ -15,10 +14,6 @@ from .ports import EvidenceRepository, MediaCallback, SearchPort
 
 
 MediaMode = Literal["disabled", "progressive", "blocking"]
-_CURRENT_MARKERS = re.compile(
-    r"(今天|今日|现在|当前|最新|刚刚|近期|最近|本周|近况|today|current|latest|breaking|recent|this\s+week)",
-    re.IGNORECASE,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,7 +99,7 @@ def _ttl_seconds(request: SearchRequest) -> int:
     if (
         request.strict_date
         or request.target_date
-        or _CURRENT_MARKERS.search(request.query)
+        or request.prefer_recent_results
     ):
         return 2 * 60
     return 15 * 60 if request.depth == "deep" else 10 * 60

@@ -612,10 +612,70 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["media"][0]["vision_fallback"])
         self.assertTrue(result["media"][0]["source_bound_fallback"])
         self.assertEqual(result["vision_diagnostics"]["missing_api_key"], 1)
-        self.assertEqual(result["vision_diagnostics"]["provider_fallback"], 1)
+        self.assertEqual(result["vision_diagnostics"]["source_bound_fallback"], 1)
         provider_payload = search_request.call_args.args[1]
         self.assertIn("AI 新闻", provider_payload["Query"])
         self.assertEqual(set(provider_payload), {"Query"})
+
+    async def test_rich_search_falls_back_to_traceable_page_media_when_vision_is_unavailable(self):
+        page = {
+            "url": "https://example.com/forbidden-city",
+            "title": "Forbidden City architecture guide",
+            "passage": "Verified architecture guide.",
+        }
+        candidate = {
+            "url": "https://img.example.com/hall.jpg?w=1200&h=800",
+            "context": "Forbidden City architecture and ceremonial hall",
+            "alt": "Forbidden City ceremonial hall",
+        }
+        with (
+            patch("agents._infrastructure.providers.rich_search._searchpro_request_json", return_value={"Pages": [page]}),
+            patch("agents._infrastructure.providers.rich_search.collect_page_media", new=AsyncMock(return_value=[candidate])),
+        ):
+            result = await run_rich_search(
+                {"WSA_API_KEY": "test"},
+                "Forbidden City architecture",
+                "Forbidden City ceremonial hall",
+                "basic",
+                image_limit=2,
+            )
+        self.assertEqual(result["images"], [candidate["url"]])
+        self.assertFalse(result["media"][0]["vision_reviewed"])
+        self.assertTrue(result["media"][0]["source_bound_fallback"])
+        self.assertEqual(result["media"][0]["source_url"], page["url"])
+        self.assertEqual(result["vision_diagnostics"]["source_bound_fallback"], 1)
+
+    async def test_explicit_vision_rejection_never_uses_source_bound_fallback(self):
+        page = {
+            "url": "https://example.com/architecture",
+            "title": "Architecture guide",
+            "passage": "Verified architecture guide.",
+        }
+        candidate = {
+            "url": "https://img.example.com/unrelated.jpg?w=1200&h=800",
+            "context": "Architecture guide illustration",
+            "alt": "Architecture illustration",
+        }
+        rejection = json.dumps({
+            "description": "Unrelated image",
+            "relevant": False,
+            "promotional": False,
+        })
+        with (
+            patch("agents._infrastructure.providers.rich_search._searchpro_request_json", return_value={"Pages": [page]}),
+            patch("agents._infrastructure.providers.rich_search.collect_page_media", new=AsyncMock(return_value=[candidate])),
+            patch("agents._infrastructure.providers.rich_search.vision_completion", new=AsyncMock(return_value=(rejection, {"provider": "vision-test"}))),
+        ):
+            result = await run_rich_search(
+                {"WSA_API_KEY": "test", "HUNYUAN_IMAGE_API_KEY": "vision-key"},
+                "Architecture guide",
+                "Architecture illustration",
+                "basic",
+                image_limit=2,
+            )
+        self.assertEqual(result["media"], [])
+        self.assertEqual(result["vision_diagnostics"]["irrelevant"], 1)
+        self.assertNotIn("source_bound_fallback", result["vision_diagnostics"])
 
     async def test_strict_today_filter_also_excludes_old_article_media(self):
         pages = [{
