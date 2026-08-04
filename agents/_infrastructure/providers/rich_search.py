@@ -203,6 +203,7 @@ async def _searchpro_json_request(
     payload: dict,
     headers: dict,
     timeout: int,
+    request_id: str = "",
 ) -> tuple[dict, int]:
     """Use the shared SearchPro adapter with one bounded transport recovery."""
     deadline = asyncio.get_running_loop().time() + max(1.0, float(timeout))
@@ -222,7 +223,8 @@ async def _searchpro_json_request(
             if attempt >= 2 or not _retryable_searchpro_error(error):
                 raise
             logging.warning(
-                "SearchPro transport retry attempt=%s error_type=%s",
+                "SearchPro transport retry request_id=%s attempt=%s error_type=%s",
+                request_id,
                 attempt,
                 type(error).__name__,
             )
@@ -776,6 +778,7 @@ async def rich_search(
     background_tasks: list[asyncio.Task] | None = None,
     include_media: bool = True,
     response_language: object = "zh-CN",
+    request_id: str = "",
 ) -> dict[str, Any]:
     started = time.perf_counter()
     api_key = str(env.get("WSA_API_KEY") or "").strip()
@@ -825,6 +828,13 @@ async def rich_search(
         provider_payload,
         headers,
         provider_timeout,
+        request_id,
+    )
+    logging.info(
+        "SearchPro completed request_id=%s attempts=%s elapsed_ms=%s",
+        request_id,
+        provider_request_count,
+        round((time.perf_counter() - started) * 1000),
     )
     visual_data = data
     searched_at = time.perf_counter()

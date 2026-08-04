@@ -484,7 +484,9 @@ sequenceDiagram
 
 运营侧后续：
 
-1. 为每轮生成稳定 `request_id`，贯穿前端、Agent、Provider 和存储日志。
+1. `dev` 已将 Makers 原生 `ctx.run_id` 作为每轮唯一可信 `request_id`，贯穿
+   Agent、Makers Tracing、Provider 日志、Component Adapter 和现有运行记录；
+   浏览器及模型不能自报或覆盖它，本地兼容运行时才生成一次随机回退值。
 2. 基于 Makers Tracing 建立仪表盘和告警：
    - 普通问答 TTFT p95 < 5 秒；
    - 搜索问答 TTFT p95 < 10 秒；

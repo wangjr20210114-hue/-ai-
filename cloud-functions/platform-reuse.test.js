@@ -340,12 +340,13 @@ test('new multi-user and Skill surfaces follow the layered MVC boundary', async 
 });
 
 test('runtime reuses Makers tracing and does not reimplement queue or cron services', async () => {
-  const [system, tick, proactive, skillRuntime, turnTelemetry, adapters] = await Promise.all([
+  const [system, tick, proactive, skillRuntime, turnTelemetry, requestContext, adapters] = await Promise.all([
     read('agents/_controllers/system_controller.py'),
     read('cloud-functions/proactive-tick/index.js'),
     read('agents/_application/proactive/service.py'),
     read('agents/_application/skills/runtime_ports.py'),
     read('agents/_application/chat/turn_telemetry.py'),
+    read('agents/_infrastructure/makers/request_context.py'),
     Promise.all([
       'core',
       'proactive_agent',
@@ -370,8 +371,10 @@ test('runtime reuses Makers tracing and does not reimplement queue or cron servi
   assert.match(turnTelemetry, /getattr\(tracer, "event", None\)/);
   assert.match(turnTelemetry, /chat\.answer_first_token/);
   assert.match(turnTelemetry, /chat\.request_settled/);
+  assert.match(requestContext, /getattr\(ctx, "run_id", ""\)/);
+  assert.doesNotMatch(requestContext, /request\.body|request\.headers|x-request/i);
   assert.doesNotMatch(
-    system + tick + skillRuntime + turnTelemetry + adapters,
+    system + tick + skillRuntime + turnTelemetry + requestContext + adapters,
     /OPS_ALERT_WEBHOOK|PROACTIVE_OPS_WEBHOOK|Sentry|OpenTelemetry|Redis|BullMQ|Celery|APScheduler|node-cron|sqlite|boto3|new WebSocket/i,
   );
   assert.doesNotMatch(adapters, /pages_blob|get_store|langgraph_checkpointer|langgraph_store/);

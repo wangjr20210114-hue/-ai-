@@ -17,11 +17,19 @@ class TurnTelemetry:
         timings_ms: dict[str, int | bool],
         *,
         started_at: float | None = None,
+        request_id: str = "",
     ) -> None:
         self.timings_ms = timings_ms
         self._started_at = time.monotonic() if started_at is None else started_at
         self._event = getattr(tracer, "event", None)
+        self._request_id = str(request_id or "").strip()
         self._emitted_events: set[str] = set()
+
+    def bind_request_id(self, request_id: str) -> None:
+        """Bind the server-trusted Makers id once admission has completed."""
+        clean = str(request_id or "").strip()
+        if clean and not self._request_id:
+            self._request_id = clean
 
     def elapsed_ms(self) -> int:
         return max(0, round((time.monotonic() - self._started_at) * 1000))
@@ -54,6 +62,8 @@ class TurnTelemetry:
             for key, value in self.timings_ms.items()
             if isinstance(value, (bool, int))
         }
+        if self._request_id:
+            payload["chat.request_id"] = self._request_id
         payload.update(dict(attributes or {}))
         try:
             self._event(event_name, payload)

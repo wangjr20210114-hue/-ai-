@@ -22,6 +22,7 @@ class SearchRequest:
     user_id: str
     conversation_id: str
     query: str
+    request_id: str = ""
     image_query: str = ""
     depth: str = "standard"
     result_limit: int = 8

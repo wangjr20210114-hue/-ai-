@@ -82,6 +82,7 @@ class SearchProGateway:
             background_tasks=background_tasks if progressive else None,
             include_media=request.media_mode != "disabled",
             response_language=request.response_language,
+            request_id=request.request_id,
         )
         evidence = _to_evidence(metadata)
         search_config = metadata.get("search_config")

@@ -132,12 +132,14 @@ class _FailingSearchUseCase:
 
 class _ProgressiveSearchUseCase:
     execute_count = 0
+    last_request_id = ""
 
     def __init__(self, **_values) -> None:
         pass
 
     async def execute(self, request, *, on_media=None) -> SearchExecution:
         type(self).execute_count += 1
+        type(self).last_request_id = request.request_id
         source = SearchSource(
             id="source-runtime-1",
             title="Runtime source",
@@ -459,6 +461,10 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(_ProgressiveSearchUseCase.execute_count, 1)
+        self.assertEqual(
+            _ProgressiveSearchUseCase.last_request_id,
+            "run-cloudbase-progressive-search",
+        )
         self.assertEqual(wire.count('"type":"search_results"'), 1)
         self.assertEqual(wire.count('"type":"search_media"'), 1)
         self.assertIn('"source_id":"source-runtime-1"', wire)
@@ -500,6 +506,15 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         )
         settled = dict(tracer.events)["chat.request_settled"]
         self.assertEqual(settled["chat.outcome"], "completed")
+        self.assertEqual(
+            settled["chat.request_id"],
+            "run-cloudbase-progressive-search",
+        )
+        for _, attributes in tracer.events:
+            self.assertEqual(
+                attributes["chat.request_id"],
+                "run-cloudbase-progressive-search",
+            )
         for metric in (
             "answer_first_token",
             "answer_completed",

@@ -82,6 +82,11 @@ class PlannedSearchRunner:
             progressive_media=progressive_media,
             response_language=response_language,
         )
+        if self.planned_request is not None:
+            self.planned_request = replace(
+                self.planned_request,
+                request_id=self._run_id,
+            )
         self._use_case = (
             SearchUseCase(
                 provider=SearchProGateway(runtime_env),
@@ -158,7 +163,8 @@ class PlannedSearchRunner:
                 (time.monotonic() - search_started_at) * 1000
             )
             logging.warning(
-                "rich_search failed conversation=%s error_type=%s elapsed_ms=%s",
+                "rich_search failed request_id=%s conversation=%s error_type=%s elapsed_ms=%s",
+                self._run_id,
                 self._conversation_id,
                 type(exc).__name__,
                 self._stage_timings_ms["search"],

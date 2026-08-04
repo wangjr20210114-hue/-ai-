@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -37,6 +36,7 @@ from ..._infrastructure.makers.identity import (
     require_user,
     scoped_conversation_id,
 )
+from ..._infrastructure.makers.request_context import request_id_for_turn
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,7 +162,7 @@ async def admit_turn(ctx) -> tuple[AdmittedTurn | None, Any | None]:
                 "native conversation append failed conversation=%s", conversation_id
             )
 
-    run_id = str(getattr(ctx, "run_id", "") or f"chat-{int(time.time() * 1000)}")
+    run_id = request_id_for_turn(ctx)
     await write_chat_run(
         ctx.store,
         conversation_id,

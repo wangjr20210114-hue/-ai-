@@ -39,6 +39,7 @@ from .turn_search import PlannedSearchRunner
 from .turn_admission import admit_turn
 from .skill_policy import apply_runtime_skill_policy
 from .turn_telemetry import TurnTelemetry
+from ..._infrastructure.makers.request_context import maker_request_id
 from ..i18n import text
 from ...chat._graph import build_graph, grounded_route_stream_answer
 from ...chat._llm import get_model
@@ -105,6 +106,7 @@ async def _handle(ctx):
     telemetry = TurnTelemetry(
         getattr(ctx, "tracer", None), stage_timings_ms,
         started_at=handler_started_at,
+        request_id=maker_request_id(ctx),
     )
     telemetry.request_received()
     admission, rejection = await admit_turn(ctx)
@@ -129,6 +131,7 @@ async def _handle(ctx):
     browser_location_request = admission.browser_location_request
     current_location_context = admission.current_location_context
     run_id = admission.run_id
+    telemetry.bind_request_id(run_id)
 
     async def fail_run(
         message_text: str, diagnostics: dict | None = None,

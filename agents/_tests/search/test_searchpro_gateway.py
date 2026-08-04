@@ -12,6 +12,7 @@ def request(*, image_limit: int = 0, media_mode: str = "disabled") -> SearchRequ
         tenant_id="tenant-a",
         user_id="user-a",
         conversation_id="conversation-a",
+        request_id="maker-run-search-1",
         query="AI 进展",
         image_query="AI 芯片实物",
         depth="standard",
@@ -128,6 +129,27 @@ class SearchProGatewayTests(unittest.IsolatedAsyncioTestCase):
             execution = await gateway.search(request())
 
         self.assertEqual(execution.provider_request_count, 2)
+
+    async def test_makers_request_id_reaches_provider_adapter_only(self):
+        provider = AsyncMock(return_value={
+            "query": "AI progress",
+            "results": [],
+            "media": [],
+            "total": 0,
+            "media_pending": False,
+            "search_config": {"provider_request_count": 1},
+        })
+        gateway = SearchProGateway({"WSA_API_KEY": "test-key"})
+
+        with patch(
+            "agents._infrastructure.providers.searchpro.provider_rich_search",
+            new=provider,
+        ):
+            execution = await gateway.search(request())
+
+        self.assertEqual(execution.provider_request_count, 1)
+        self.assertEqual(provider.await_args.kwargs["request_id"], "maker-run-search-1")
+        self.assertNotIn("request_id", execution.metadata)
 
 
 if __name__ == "__main__":
