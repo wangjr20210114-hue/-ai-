@@ -382,7 +382,10 @@ def _provider_time_window(
 
 
 async def _extract_candidates(
-    results: list[dict[str, Any]], page_limit: int = 6, parallel: bool = True,
+    results: list[dict[str, Any]],
+    page_limit: int = 6,
+    parallel: bool = True,
+    timeout_seconds: float | None = None,
 ) -> list[dict[str, str]]:
     candidates = _provider_image_candidates(results)
 
@@ -401,10 +404,57 @@ async def _extract_candidates(
         return normalized
 
     selected_results = results[:max(1, min(6, page_limit))]
+    if not selected_results:
+        return candidates
     if parallel:
-        batches = await asyncio.gather(*(page(result) for result in selected_results))
+        # Keep every source page that completes inside the shared media budget.
+        # Waiting on one combined gather used to discard fast pages whenever
+        # any other publisher crossed the deadline.
+        tasks = [asyncio.create_task(page(result)) for result in selected_results]
+        try:
+            done, pending = await asyncio.wait(
+                tasks,
+                timeout=(
+                    max(0.1, float(timeout_seconds))
+                    if timeout_seconds is not None
+                    else None
+                ),
+            )
+        except asyncio.CancelledError:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        batches = []
+        for task in tasks:
+            if task not in done:
+                continue
+            try:
+                batches.append(task.result())
+            except Exception:
+                batches.append([])
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
     else:
-        batches = [await page(result) for result in selected_results]
+        batches = []
+        deadline = (
+            asyncio.get_running_loop().time() + max(0.1, float(timeout_seconds))
+            if timeout_seconds is not None
+            else None
+        )
+        for result in selected_results:
+            if deadline is None:
+                batches.append(await page(result))
+                continue
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                batches.append(await asyncio.wait_for(page(result), remaining))
+            except asyncio.TimeoutError:
+                break
     for batch in batches:
         candidates.extend(batch)
     output: list[dict[str, str]] = []
@@ -932,15 +982,12 @@ async def rich_search(
     async def enrich_media() -> dict[str, Any]:
         page_fetch_limit = min(6, max(4, image_limit * 2))
         media_timeout = max(2, min(10, int(env.get("RICH_SEARCH_MEDIA_TIMEOUT_SECONDS") or 5)))
-        try:
-            visual_candidates = await asyncio.wait_for(
-                _extract_candidates(visual_results, page_fetch_limit, parallel=parallel_queries),
-                timeout=media_timeout,
-            )
-        except asyncio.TimeoutError:
-            # Do not discard fast provider-supplied article images merely
-            # because one source page was slow to parse.
-            visual_candidates = _provider_image_candidates(visual_results, response_language)
+        visual_candidates = await _extract_candidates(
+            visual_results,
+            page_fetch_limit,
+            parallel=parallel_queries,
+            timeout_seconds=media_timeout,
+        )
         extracted_at = time.perf_counter()
         review_goal = image_query.strip() or query
         vision_timeout = _vision_review_timeout(env)

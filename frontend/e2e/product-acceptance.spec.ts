@@ -213,6 +213,17 @@ test('sending a question rejoins the live edge and scrolls to the bottom', async
 test('a new conversation owns the next request without inheriting old rows', async ({ page }) => {
   let chatRequest: { body: Record<string, unknown>; headers: Record<string, string> } | undefined;
   await installMockMakerApi(page, {
+    identity: {
+      id: 'signed-reader',
+      subject_id: 'signed-reader',
+      tenant_id: 'tenant-signed',
+      username: 'signed-reader@example.test',
+      display_name: 'Signed Reader',
+      auth_type: 'cloudbase',
+      auth_providers: ['email'],
+      membership: 'free',
+      roles: ['user'],
+    },
     chatEvents: [
       { type: 'ai_response', content: 'Fresh conversation answer' },
       { type: 'answer_complete', payload: { turn_id: 'fresh-turn' } },
@@ -221,6 +232,7 @@ test('a new conversation owns the next request without inheriting old rows', asy
   });
   await waitForApp(page);
 
+  await expect(page.getByRole('button', { name: 'Signed Reader', exact: true })).toBeVisible();
   await expect(page.locator('.msg-row')).toHaveCount(2);
   const create = page.locator('[data-onboarding="new-conversation"]');
   await expect(create).toBeVisible();

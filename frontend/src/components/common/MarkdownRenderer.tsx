@@ -161,6 +161,7 @@ function MarkdownRenderer({
   );
   const providerCalls = searchMeta?.search_config?.turn_provider_calls;
   const toolInvocations = searchMeta?.search_config?.turn_tool_invocations;
+  const visionDiagnostics = searchMeta?.vision_diagnostics;
   const hasSearchMeta = Boolean(searchMeta);
   // Keep the renderer component identities stable. Completed answers still
   // re-render when header/proactive state changes; recreating these functions
@@ -250,6 +251,11 @@ function MarkdownRenderer({
       className={`markdown-body${streaming ? ' is-streaming' : ''}`}
       data-search-provider-calls={typeof providerCalls === 'number' ? providerCalls : undefined}
       data-search-tool-invocations={typeof toolInvocations === 'number' ? toolInvocations : undefined}
+      data-search-media-count={searchMeta ? visibleMedia.length : undefined}
+      data-search-vision-candidates={visionDiagnostics?.candidates}
+      data-search-vision-reviewed={visionDiagnostics?.reviewed}
+      data-search-vision-approved={visionDiagnostics?.approved}
+      data-search-source-bound-fallback={visionDiagnostics?.source_bound_fallback}
     >
       <ReactMarkdown
         remarkPlugins={enhancements

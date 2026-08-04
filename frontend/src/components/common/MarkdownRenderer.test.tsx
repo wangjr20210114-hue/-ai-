@@ -290,6 +290,29 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('图片核实中');
   });
 
+  it('exposes safe media diagnostics without rendering technical copy', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer
+        content="Verified answer"
+        searchMeta={{
+          ...searchMeta,
+          media: [],
+          images: [],
+          vision_diagnostics: {
+            candidates: 4,
+            reviewed: 2,
+            approved: 0,
+            source_bound_fallback: 0,
+          },
+        }}
+      />,
+    );
+    expect(html).toContain('data-search-media-count="0"');
+    expect(html).toContain('data-search-vision-candidates="4"');
+    expect(html).toContain('data-search-vision-reviewed="2"');
+    expect(html).not.toContain('vision_diagnostics');
+  });
+
   it('does not repeat source-bound reviewed images with the same caption', () => {
     const sourceBound = {
       ...searchMeta.media[0],
