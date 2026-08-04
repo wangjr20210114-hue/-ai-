@@ -13,6 +13,12 @@ import urllib.request
 from typing import Any
 
 from ..._application.i18n import text as copy_text
+from .tencent_route_contract import (
+    append_unique as _append_unique,
+    normalize_route_contract,
+    route_leg_scope as _route_leg_scope,
+    route_section_mode as _route_section_mode,
+)
 
 
 API_ROOT = "https://apis.map.qq.com/ws"
@@ -670,75 +676,6 @@ def _decoded_polyline(value: Any) -> list[dict[str, float]]:
         return []
 
 
-def _route_section_mode(value: str, fallback: str) -> str:
-    normalized = str(value or "").strip().upper()
-    if normalized == "WALKING":
-        return "walking"
-    if normalized in {"BICYCLING", "BICYCLE", "BIKE"}:
-        return "bicycling"
-    if normalized in {"RAIL", "SUBWAY", "METRO", "TRAIN"}:
-        return "rail"
-    if normalized in {"BUS", "COACH"}:
-        return "bus"
-    if normalized in {"DRIVING", "CAR", "TAXI"}:
-        return "driving"
-    if normalized in {"TRANSIT", "PUBLIC_TRANSPORT"}:
-        return "transit"
-    return fallback
-
-
-def _route_leg_scope(
-    origin: dict[str, Any], destination: dict[str, Any],
-) -> str:
-    """Classify a provider leg without city- or product-specific rules."""
-    origin_city = str(origin.get("city") or "").strip().casefold()
-    destination_city = str(destination.get("city") or "").strip().casefold()
-    if not origin_city or not destination_city:
-        return "unknown"
-    return "local" if origin_city == destination_city else "intercity"
-
-
-def normalize_route_contract(route: dict[str, Any]) -> dict[str, Any]:
-    """Upgrade cached Tencent routes to the current cross-client contract.
-
-    Makers may return a route persisted by an earlier release. Contract
-    enrichment belongs in this provider adapter so every caller and client
-    receives the same semantics without re-planning or duplicating logic.
-    """
-    normalized = copy.deepcopy(route)
-    places = [
-        place for place in (normalized.get("places") or [])
-        if isinstance(place, dict)
-    ]
-    legs = [
-        leg for leg in (normalized.get("legs") or [])
-        if isinstance(leg, dict)
-    ]
-    for index, leg in enumerate(legs):
-        origin = leg.get("from") if isinstance(leg.get("from"), dict) else {}
-        destination = (
-            leg.get("to") if isinstance(leg.get("to"), dict) else {}
-        )
-        if not origin and index < len(places):
-            origin = places[index]
-        if not destination and index + 1 < len(places):
-            destination = places[index + 1]
-        if str(leg.get("scope") or "") not in {
-            "intercity", "local", "unknown",
-        }:
-            leg["scope"] = _route_leg_scope(origin, destination)
-        if str(leg.get("mode") or normalized.get("mode") or "") == "transit":
-            leg_transit = leg.setdefault("transit", {})
-            if isinstance(leg_transit, dict):
-                leg_transit.setdefault("coverage", "bus_metro")
-    normalized["legs"] = legs
-    if str(normalized.get("mode") or "") == "transit":
-        transit = normalized.setdefault("transit", {})
-        if isinstance(transit, dict):
-            transit.setdefault("coverage", "bus_metro")
-    return normalized
-
-
 def _route_sections(route: dict[str, Any], mode: str) -> list[dict[str, Any]]:
     """Preserve Tencent's selected walking/vehicle geometry for map layers."""
     sections: list[dict[str, Any]] = []
@@ -903,11 +840,13 @@ def _transit_summary(route: dict[str, Any]) -> dict[str, Any]:
     fare_known = False
     lines: list[str] = []
     segments: list[dict[str, Any]] = []
+    modes: list[str] = []
     for step in route.get("steps") or []:
         if not isinstance(step, dict):
             continue
         if str(step.get("mode") or "").upper() == "WALKING":
             walking_distance += float(step.get("distance") or 0)
+            _append_unique(modes, "walking")
             continue
         available_lines = [line for line in (step.get("lines") or []) if isinstance(line, dict)]
         if not available_lines:
@@ -920,6 +859,7 @@ def _transit_summary(route: dict[str, Any]) -> dict[str, Any]:
             lines.append(name[:120])
         price = line.get("price")
         vehicle = str(line.get("vehicle") or "").upper()
+        _append_unique(modes, _route_section_mode(vehicle, "transit"))
         if isinstance(price, (int, float)) and price >= 0:
             fare_yuan += float(price) if vehicle == "RAIL" else float(price) / 100
             fare_known = True
@@ -933,7 +873,7 @@ def _transit_summary(route: dict[str, Any]) -> dict[str, Any]:
             "station_count": max(0, int(line.get("station_count") or 0)),
         })
     return {
-        "coverage": "bus_metro",
+        "modes": modes,
         "walking_distance_meters": round(float(walking_distance or 0)),
         "lines": lines[:12],
         "transfer_count": max(0, len(segments) - 1),
@@ -1207,7 +1147,11 @@ async def plan_route(
             ),
             **(
                 {"transit": {
-                    "coverage": "bus_metro",
+                    "modes": list(dict.fromkeys(
+                        mode
+                        for leg in legs
+                        for mode in (leg.get("transit") or {}).get("modes") or []
+                    )),
                     "walking_distance_meters": round(sum(
                         float((leg.get("transit") or {}).get("walking_distance_meters") or 0)
                         for leg in legs

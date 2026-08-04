@@ -219,7 +219,7 @@ const catalog = {
   learnRoutePreferences: ['根据明确选择学习出行习惯', '根據明確選擇學習出行習慣', 'Learn from explicit travel choices', '记住明确出行习惯喵', '根据明确选择学习出行习惯'],
   routeModeDriving: ['驾车', '駕車', 'Driving', '驾车喵', '驾车'],
   routeModeTransit: ['公交 / 地铁', '公車 / 地鐵', 'Transit', '公交地铁喵', '公交 / 地铁'],
-  routeModeTransitIntercity: ['公交 / 地铁（不含跨城铁路）', '公車 / 地鐵（不含跨城鐵路）', 'Bus / metro (intercity rail excluded)', '公交地铁（不含跨城铁路）喵', '公交 / 地铁（不含跨城铁路）'],
+  routeModeTransitIntercity: ['跨城公共交通', '跨城公共交通', 'Intercity transit', '跨城公共交通喵', '跨城公共交通'],
   routeScopeIntercity: ['跨城段', '跨城段', 'Between cities', '跨城这段喵', '跨城段'],
   routeScopeLocal: ['城内段', '城市內部', 'Within a city', '城内这段喵', '城内段'],
   routeModeWalking: ['步行', '步行', 'Walking', '步行喵', '步行'],

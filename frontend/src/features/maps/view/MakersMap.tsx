@@ -519,7 +519,7 @@ export default function MakersMap({
         <><div className="makers-route-summary">
           <span>{t(
             route.mode === 'transit' && routeHasIntercityLeg(route)
-              && route.transit?.coverage === 'bus_metro' ? 'routeModeTransitIntercity'
+              ? 'routeModeTransitIntercity'
               : route.mode === 'transit' ? 'routeModeTransit'
               : route.mode === 'walking' ? 'routeModeWalking'
                 : route.mode === 'bicycling' ? 'routeModeBicycling'

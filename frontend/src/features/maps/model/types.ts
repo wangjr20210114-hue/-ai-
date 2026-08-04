@@ -56,7 +56,7 @@ export interface MakersRoutePlan {
     transit?: { estimate: number; provider_estimate?: boolean };
   };
   transit?: {
-    coverage?: 'bus_metro';
+    modes?: MakersRouteSectionMode[];
     walking_distance_meters?: number;
     lines?: string[];
     transfer_count?: number;

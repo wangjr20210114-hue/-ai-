@@ -304,7 +304,7 @@ class MapRouteCoreTests(unittest.IsolatedAsyncioTestCase):
         saved = await load_user_workspace(store, user_id=TEST_USER_ID)
         self.assertEqual(
             saved["actions"][result["action"]["id"]]["payload"]["route"],
-            normalize_route_contract(route),
+            normalize_route_contract(route, planned_places),
         )
         self.assertEqual(saved["latest_route_plan"]["id"], result["route_plan_id"])
         self.assertEqual(

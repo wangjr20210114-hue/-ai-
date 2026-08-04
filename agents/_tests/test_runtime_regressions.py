@@ -258,15 +258,28 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(route["duration_seconds"], 24 * 60)
         self.assertEqual(route["schema_version"], 4)
         self.assertEqual(route["legs"][0]["scope"], "intercity")
+        cached_places = [
+            {key: value for key, value in place.items() if key != "city"}
+            for place in places
+        ]
         cached = normalize_route_contract({
             "provider": "tencent",
             "mode": "transit",
-            "places": places,
-            "legs": [{"from": places[0], "to": places[1], "mode": "transit"}],
-            "transit": {},
-        })
+            "places": cached_places,
+            "legs": [{
+                "from": cached_places[0],
+                "to": cached_places[1],
+                "mode": "transit",
+                "sections": [
+                    {"mode": "walking"},
+                    {"mode": "rail", "vehicle": "RAIL"},
+                ],
+            }],
+            "transit": {"segments": [{"vehicle": "RAIL"}]},
+        }, places)
         self.assertEqual(cached["legs"][0]["scope"], "intercity")
-        self.assertEqual(cached["transit"]["coverage"], "bus_metro")
+        self.assertEqual(cached["places"][0]["city"], places[0]["city"])
+        self.assertEqual(cached["transit"]["modes"], ["rail", "walking"])
 
     async def test_tencent_taxi_fare_is_not_misreported_as_a_road_toll(self):
         places = [

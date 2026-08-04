@@ -121,7 +121,12 @@
         "fare": { "type": "object", "additionalProperties": true },
         "transit": {
           "type": "object",
-          "properties": { "coverage": { "enum": ["bus_metro"] } },
+          "properties": {
+            "modes": {
+              "type": "array",
+              "items": { "enum": ["driving", "transit", "walking", "bicycling", "bus", "rail"] }
+            }
+          },
           "additionalProperties": true
         },
         "cache": { "type": "object", "additionalProperties": true }
