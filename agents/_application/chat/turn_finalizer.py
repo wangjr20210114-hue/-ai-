@@ -124,6 +124,7 @@ class TurnFinalizer:
         *,
         clarification_emitted: bool,
         run_error: str,
+        followups_task: asyncio.Task | None,
     ) -> list[str]:
         for stage in ("synthesis", "finalizing", "complete"):
             await self._queue.put(self._presenter.progress(stage, "completed"))
@@ -134,16 +135,17 @@ class TurnFinalizer:
         await self._queue.put(self._presenter.done(self._run_id))
 
         follow_ups: list[str] = []
-        if self._followups_enabled and not clarification_emitted and not run_error:
+        if followups_task is not None:
             try:
+                try:
+                    followup_timeout = float(
+                        self._ctx.env.get("FOLLOWUP_TIMEOUT_SECONDS") or 8
+                    )
+                except (TypeError, ValueError):
+                    followup_timeout = 8.0
                 follow_ups = await asyncio.wait_for(
-                    generate_followups(
-                        self._fast_model,
-                        self._message,
-                        answer=answer,
-                        response_language=self._response_language,
-                    ),
-                    timeout=3,
+                    followups_task,
+                    timeout=max(3.0, min(12.0, followup_timeout)),
                 )
             except Exception as exc:
                 logging.warning("grounded follow-up generation failed: %s", exc)
@@ -322,7 +324,21 @@ class TurnFinalizer:
         terminal_outcome = (
             "cancelled" if cancelled else "failed" if run_error else "completed"
         )
+        followups_task: asyncio.Task | None = None
         try:
+            followups_task = (
+                asyncio.create_task(generate_followups(
+                    self._fast_model,
+                    self._message,
+                    answer=answer,
+                    response_language=self._response_language,
+                ))
+                if answer
+                and self._followups_enabled
+                and not clarification_emitted
+                and not run_error
+                else None
+            )
             empty_error = empty_generation_error(
                 answer,
                 has_actions=bool(self._pending_actions),
@@ -355,6 +371,7 @@ class TurnFinalizer:
                     answer,
                     clarification_emitted=clarification_emitted,
                     run_error=run_error,
+                    followups_task=followups_task,
                 )
             else:
                 for task in (self._memory_task, self._recent_questions_task):
@@ -380,6 +397,8 @@ class TurnFinalizer:
             terminal_outcome = "failed"
             raise
         finally:
+            if followups_task is not None and not followups_task.done():
+                followups_task.cancel()
             self._telemetry.settle(terminal_outcome)
             if bool(self._body.get("_diagnostics")):
                 await self._queue.put(

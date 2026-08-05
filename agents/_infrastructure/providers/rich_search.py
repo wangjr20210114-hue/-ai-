@@ -31,7 +31,6 @@ from ..._domain.search.source_policy import (
     RECENT_SOURCE_WINDOW_DAYS,
     filter_preferred_recent_sources,
     filter_sources_for_target_date,
-    query_match_terms,
     rank_source_results,
     source_domain,
 )
@@ -570,64 +569,6 @@ def _candidate_prefilter_reason(candidate: dict[str, str]) -> str:
     return ""
 
 
-def _source_bound_fallback_candidates(
-    candidates: list[dict[str, str]],
-    query: str,
-    source_urls: set[str],
-    output_limit: int,
-    *,
-    require_semantic_overlap: bool = True,
-) -> list[dict[str, str]]:
-    """Select traceable page media only when vision made no decision.
-
-    This fallback is capability-level rather than topic-level: candidates must
-    belong to an exact retained source, pass the shared asset prefilter, and
-    overlap the planner's visual intent. One image per source is preferred so
-    a single page cannot monopolize the answer.
-    """
-    limit = max(0, min(8, int(output_limit)))
-    if limit == 0:
-        return []
-    terms = query_match_terms(query)
-    ranked: list[tuple[int, tuple[int, int, int], int, dict[str, str]]] = []
-    seen_urls: set[str] = set()
-    for index, candidate in enumerate(candidates[:30]):
-        image_url = str(candidate.get("url") or "").strip()
-        source_url = str(candidate.get("source_url") or "").strip()
-        if (
-            not image_url
-            or image_url in seen_urls
-            or source_url not in source_urls
-            or _candidate_prefilter_reason(candidate)
-        ):
-            continue
-        context = " ".join(str(candidate.get(field) or "") for field in (
-            "source_title", "context", "alt",
-        )).casefold()
-        overlap = sum(1 for term in terms if term in context)
-        if require_semantic_overlap and terms and overlap == 0:
-            continue
-        seen_urls.add(image_url)
-        ranked.append((
-            overlap,
-            _candidate_visual_priority(candidate, query),
-            -index,
-            candidate,
-        ))
-    ranked.sort(key=lambda item: item[:3], reverse=True)
-    preferred: list[dict[str, str]] = []
-    remaining: list[dict[str, str]] = []
-    seen_sources: set[str] = set()
-    for _, _, _, candidate in ranked:
-        source_url = str(candidate.get("source_url") or "")
-        if source_url not in seen_sources:
-            preferred.append(candidate)
-            seen_sources.add(source_url)
-        else:
-            remaining.append(candidate)
-    return (preferred + remaining)[:limit]
-
-
 def _vision_endpoint(env: dict[str, Any]) -> str:
     base = str(
         env.get("HUNYUAN_VISION_BASE_URL")
@@ -780,11 +721,30 @@ async def _vision_filter(
         except Exception as exc:
             return None, {"error": f"review_{type(exc).__name__}"}
 
-    reviews = await asyncio.gather(*(review(candidate) for candidate in selected))
+    review_tasks = [asyncio.create_task(review(candidate)) for candidate in selected]
+    done, pending = await asyncio.wait(review_tasks, timeout=timeout + 0.5)
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+    completed_reviews: list[
+        tuple[dict[str, str], tuple[dict[str, Any] | None, dict[str, Any]]]
+    ] = []
+    for candidate, task in zip(selected, review_tasks):
+        if task not in done or task.cancelled():
+            continue
+        try:
+            completed_reviews.append((candidate, task.result()))
+        except Exception as exc:
+            completed_reviews.append((candidate, (None, {
+                "error": f"review_{type(exc).__name__}",
+            })))
     output: list[dict[str, str]] = []
     diagnostics: Counter[str] = Counter()
     diagnostics.update(prefilter_diagnostics)
-    for candidate, (item, provider_diagnostics) in zip(selected, reviews):
+    if pending:
+        diagnostics["timeout"] = len(pending)
+    for candidate, (item, provider_diagnostics) in completed_reviews:
         provider_name = str(provider_diagnostics.get("provider") or "")
         if provider_name:
             diagnostics[f"provider_{provider_name}"] += 1
@@ -808,7 +768,7 @@ async def _vision_filter(
             diagnostics["irrelevant"] += 1
     diagnostics["candidates"] = len(candidates)
     diagnostics["eligible_candidates"] = len(eligible_candidates)
-    diagnostics["reviewed"] = len(selected)
+    diagnostics["reviewed"] = len(completed_reviews)
     return output[:output_limit], dict(diagnostics)
 
 
@@ -990,65 +950,12 @@ async def rich_search(
         )
         extracted_at = time.perf_counter()
         review_goal = image_query.strip() or query
-        vision_timeout = _vision_review_timeout(env)
-        try:
-            reviewed, diagnostics = await asyncio.wait_for(
-                _vision_filter(env, review_goal, visual_candidates, image_limit),
-                timeout=vision_timeout + 0.5,
-            )
-        except asyncio.TimeoutError:
-            reviewed, diagnostics = [], {"timeout": 1, "candidates": len(visual_candidates), "reviewed": 0}
-        # A vision outage should not turn a sourced answer into a permanently
-        # text-only response. Retain a deterministically relevant, traceable
-        # page image only when the vision chain made no relevance decision. If
-        # vision actively rejected candidates, keep the list empty instead.
-        explicit_rejection = bool(
-            diagnostics.get("approved", 0)
-            or diagnostics.get("irrelevant", 0)
-            or diagnostics.get("promotional", 0)
+        reviewed, diagnostics = await _vision_filter(
+            env, review_goal, visual_candidates, image_limit,
         )
-        if not reviewed and not explicit_rejection:
-            provider_fallbacks = _source_bound_fallback_candidates(
-                _provider_image_candidates(results, response_language),
-                review_goal,
-                set(source_by_url),
-                image_limit,
-                require_semantic_overlap=False,
-            )
-            page_fallbacks = _source_bound_fallback_candidates(
-                visual_candidates,
-                review_goal,
-                set(source_by_url),
-                image_limit,
-            )
-            fallback_candidates = []
-            fallback_urls: set[str] = set()
-            for candidate in provider_fallbacks + page_fallbacks:
-                if candidate["url"] in fallback_urls:
-                    continue
-                fallback_urls.add(candidate["url"])
-                fallback_candidates.append(candidate)
-                if len(fallback_candidates) >= image_limit:
-                    break
-            if fallback_candidates:
-                reviewed = [{
-                    **candidate,
-                    "description": str(
-                        candidate.get("context")
-                        or candidate.get("alt")
-                        or candidate.get("source_title")
-                        or text("search.article_hero", response_language)
-                    )[:240],
-                    "vision_reviewed": False,
-                    "vision_fallback": True,
-                    # Exact source binding is checked again by the domain and
-                    # frontend. This never becomes vision-reviewed evidence.
-                    "source_bound_fallback": True,
-                } for candidate in fallback_candidates]
-                diagnostics = {
-                    **diagnostics,
-                    "source_bound_fallback": len(reviewed),
-                }
+        # Search media is fail-closed. Provider hero images and page candidates
+        # are never published when visual review is unavailable, times out, or
+        # rejects them. A source-bound URL proves provenance, not relevance.
         reviewed_at = time.perf_counter()
         media = []
         for index, candidate in enumerate(reviewed, 1):
@@ -1059,9 +966,7 @@ async def rich_search(
                 "source_id": source.get("id", ""), "source_url": candidate["source_url"],
                 "source_title": candidate["source_title"], "alt": caption, "caption": caption,
                 "attribution": candidate["source_title"], "generated": False,
-                "vision_reviewed": candidate.get("vision_reviewed", True),
-                **({"vision_fallback": True} if candidate.get("vision_fallback") else {}),
-                **({"source_bound_fallback": True} if candidate.get("source_bound_fallback") else {}),
+                "vision_reviewed": True,
             })
         enriched = {
             **base_metadata, "media": media, "images": [item["url"] for item in media],

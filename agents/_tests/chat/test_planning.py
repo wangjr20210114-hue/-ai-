@@ -672,7 +672,7 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(parse_followups("不是 JSON"), [])
 
-    def test_follow_up_generation_uses_semantic_result_state(self):
+    def test_follow_up_generation_is_available_for_every_completed_answer(self):
         self.assertTrue(should_generate_followups({
             "needs_nearby_places": True,
             "needs_followups": False,
@@ -688,7 +688,7 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
             {"needs_nearby_places": True},
             blocked_skill="maps",
         ))
-        self.assertFalse(should_generate_followups({}))
+        self.assertTrue(should_generate_followups({}))
 
     async def test_follow_up_generator_uses_the_selected_output_language(self):
         model = SimpleNamespace(ainvoke=AsyncMock(

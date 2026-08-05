@@ -11,11 +11,14 @@ import {
 /** 下载论文 PDF；后端会解析 arXiv、公开 PDF、DOI 或学术来源页。 */
 export async function downloadPaper(arxivId: string, title: string, pdfUrl = '', sourceUrl = ''): Promise<{
   file_id: string;
+  storage_key: string;
   filename: string;
   title: string;
   arxiv_id: string;
   total_chars: number;
   preview: string;
+  page_count?: number;
+  folder_id?: string;
   file_size?: number;
   part_size?: number;
   reused?: boolean;
@@ -68,7 +71,7 @@ export interface SavedPaper {
 
 export interface PaperAssistantResult {
   id: string;
-  action: 'translate' | 'summarize' | 'analyze';
+  action: 'translate' | 'summarize' | 'explain' | 'formula' | 'analyze' | 'full-translate' | 'terms' | 'qa';
   title: string;
   source_text: string;
   content: string;
@@ -221,8 +224,17 @@ async function downloadPaperFile(
   if (!Number.isFinite(size) || size <= 0 || !Number.isFinite(partSize) || partSize <= 0) {
     const head = await authorizedFetch(url, { method: 'HEAD' });
     if (!head.ok) throw new Error(translate('pdfLoadStatusFailed', { status: head.status }));
-    size = Number(head.headers.get('x-yuanbao-file-size') || head.headers.get('content-length') || 0);
-    partSize = Number(head.headers.get('x-yuanbao-part-size') || 0);
+    size = Number(
+      head.headers.get('x-floris-file-size')
+      || head.headers.get('x-yuanbao-file-size')
+      || head.headers.get('content-length')
+      || 0,
+    );
+    partSize = Number(
+      head.headers.get('x-floris-part-size')
+      || head.headers.get('x-yuanbao-part-size')
+      || 0,
+    );
     contentType = head.headers.get('content-type') || contentType;
   }
   if (!Number.isFinite(size) || size <= 0 || !Number.isFinite(partSize) || partSize <= 0 || size <= partSize) {
@@ -379,11 +391,11 @@ export function summarizeParagraph(text: string, onDelta: (t: string) => void, o
 }
 
 /** 全文分析 */
-export function analyzePaper(fileId: string, onDelta: (t: string) => void, onDone: (f: string, e?: string) => void, text = '') {
-  return streamPaper('analyze', { file_id: fileId, text }, onDelta, onDone);
+export function analyzePaper(fileId: string, onDelta: (t: string) => void, onDone: (f: string, e?: string) => void) {
+  return streamPaper('analyze', { file_id: fileId }, onDelta, onDone);
 }
 
 /** 论文问答 */
-export function paperQA(fileId: string, question: string, onDelta: (t: string) => void, onDone: (f: string, e?: string) => void, text = '') {
-  return streamPaper('qa', { file_id: fileId, question, text }, onDelta, onDone);
+export function paperQA(fileId: string, question: string, onDelta: (t: string) => void, onDone: (f: string, e?: string) => void) {
+  return streamPaper('qa', { file_id: fileId, question }, onDelta, onDone);
 }

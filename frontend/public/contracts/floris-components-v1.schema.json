@@ -252,11 +252,21 @@
         "attribution": { "type": "string" },
         "generated": { "type": "boolean" },
         "preview": { "type": "boolean" },
-        "vision_reviewed": { "type": "boolean" },
-        "source_bound_fallback": { "type": "boolean" },
-        "vision_fallback": { "type": "boolean" }
+        "vision_reviewed": { "type": "boolean" }
       },
       "additionalProperties": true
+    },
+    "reviewedSearchMedia": {
+      "allOf": [
+        { "$ref": "#/$defs/media" },
+        {
+          "type": "object",
+          "required": ["source_id", "source_url", "vision_reviewed"],
+          "properties": {
+            "vision_reviewed": { "const": true }
+          }
+        }
+      ]
     },
     "searchMeta": {
       "type": "object",
@@ -266,7 +276,7 @@
         "query": { "type": "string" },
         "results": { "type": "array", "items": { "$ref": "#/$defs/searchSource" } },
         "images": { "type": "array", "items": { "type": "string" } },
-        "media": { "type": "array", "items": { "$ref": "#/$defs/media" } },
+        "media": { "type": "array", "items": { "$ref": "#/$defs/reviewedSearchMedia" } },
         "sources_used": { "type": "array", "items": { "type": "string" } },
         "total": { "type": "integer", "minimum": 0 },
         "target_date": { "type": "string" },

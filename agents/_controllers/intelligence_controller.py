@@ -21,14 +21,10 @@ from .._application.intelligence.service import (
 )
 from .._application.proactive.service import load_proactive_state, save_proactive_state, update_preferences
 from .._infrastructure.makers.identity import require_user
-from .._domain.entitlements.policy import (
-    allowed_skill_ids,
-    effective_skill_preferences,
-    public_entitlements,
-)
+from .._domain.entitlements.policy import public_entitlements
 from .._infrastructure.http import error
-from .._application.skills.registry import skill_manifest
 from .._application.skills.runtime import run_preference_hooks
+from .._application.intelligence.skill_preferences import apply_skill_preference_batch
 from .._views.intelligence import public_intelligence_view
 from .._application.i18n import normalize_language, text
 
@@ -40,6 +36,7 @@ async def handler(ctx):
     response_language = normalize_language(body.get("response_language"))
     operation = str(body.get("operation") or "get")
     store = ctx.store.langgraph_store
+    operation_metadata = {}
     try:
         state = await load_intelligence_state(store, user_id)
         if operation == "get" or operation == "export":
@@ -105,65 +102,13 @@ async def handler(ctx):
             previous = dict(
                 state.get("skill_preferences") or DEFAULT_SKILL_PREFERENCES
             )
-            current = dict(previous)
-            for skill_id in DEFAULT_SKILL_PREFERENCES:
-                manifest = skill_manifest(skill_id)
-                if manifest and manifest.locked:
-                    current[skill_id] = True
-                elif skill_id in requested:
-                    eligible = skill_id in allowed_skill_ids(
-                        identity,
-                        [skill_id],
-                        required_plans={
-                            skill_id: (
-                                manifest.required_plan
-                                if manifest is not None
-                                else "free"
-                            ),
-                        },
-                    )
-                    if bool(requested[skill_id]) and not eligible:
-                        raise ValueError(text("settings.skill_ineligible", response_language))
-                    current[skill_id] = bool(requested[skill_id])
-            # Enabling a Skill is atomic with all hard dependencies declared by
-            # its manifest. Disabling a dependency does not destroy a user's
-            # preference for dependants; runtime resolution simply withholds
-            # those tools until the requirement is enabled again.
-            pending = [
-                skill_id
-                for skill_id, enabled in requested.items()
-                if bool(enabled)
-            ]
-            while pending:
-                skill_id = pending.pop()
-                manifest = skill_manifest(skill_id)
-                if manifest is None:
-                    continue
-                for dependency in manifest.requires:
-                    if not current.get(dependency, False):
-                        dependency_manifest = skill_manifest(dependency)
-                        dependency_required_plan = (
-                            dependency_manifest.required_plan
-                            if dependency_manifest is not None
-                            else "free"
-                        )
-                        if dependency not in allowed_skill_ids(
-                            identity,
-                            [dependency],
-                            required_plans={
-                                dependency: dependency_required_plan,
-                            },
-                        ):
-                            raise ValueError(text(
-                                "settings.skill_dependency_ineligible", response_language,
-                            ))
-                        current[dependency] = True
-                        pending.append(dependency)
-            current = effective_skill_preferences(identity, current)
-            for skill_id in DEFAULT_SKILL_PREFERENCES:
-                manifest = skill_manifest(skill_id)
-                if manifest and manifest.locked:
-                    current[skill_id] = True
+            current, preference_results = apply_skill_preference_batch(
+                identity,
+                previous,
+                DEFAULT_SKILL_PREFERENCES,
+                requested,
+            )
+            operation_metadata["skill_preference_results"] = preference_results
             state["skill_preferences"] = current
             await run_preference_hooks(
                 {
@@ -227,10 +172,11 @@ async def handler(ctx):
         else:
             raise ValueError(text("settings.operation_unsupported", response_language))
         saved = await save_intelligence_state(store, state, user_id)
-        return public_intelligence_view(
+        public = public_intelligence_view(
             saved,
             getattr(ctx, "env", {}) or {},
             identity,
         )
+        return {**public, **operation_metadata}
     except Exception as exc:
         return error(str(exc))

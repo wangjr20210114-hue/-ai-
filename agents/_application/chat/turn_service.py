@@ -150,10 +150,10 @@ async def _handle(ctx):
     current_date = current_beijing.date().isoformat()
     try:
         model = get_model(ctx.env)
-        # Capability routing, fixed tool JSON, validated Action summaries and
-        # optional post-turn judgments share a non-thinking Flash sibling.
-        # The reasoning profile remains available only when the semantic plan
-        # marks the user-visible answer as genuinely open-ended.
+        # Capability routing, fixed tool JSON and optional post-turn judgments
+        # share a non-thinking Flash sibling. Every user-visible answer remains
+        # on the primary model so the optimization layer cannot shorten or
+        # flatten otherwise useful prose.
         fast_model = get_model(
             ctx.env,
             thinking_mode="disabled",
@@ -735,11 +735,7 @@ async def _handle(ctx):
             # not invent service hours or alternatives. Keep Flash for routing and
             # every fixed tool schema, but use the main reasoning profile only for
             # this user-visible synthesis.
-            public_answer_model=(
-                model
-                if model_only_fallback or capability_plan.get("needs_route")
-                else fast_model
-            ),
+            public_answer_model=model,
             fast_tool_model=fast_model,
             # Tool arguments are an intermediate fixed schema, including calendar
             # proposals. Use Flash without thinking here; the calendar adapter

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Floris Client API",
-    "version": "1.2.0",
+    "version": "1.4.0",
     "description": "The complete, platform-neutral client boundary shared by Web, Android, HarmonyOS and iOS. Every server-owned value displayed by a Floris client is delivered through an operation below or through the versioned SSE/component contracts. Authentication, tenant scoping, orchestration, provider calls and persistence remain server responsibilities."
   },
   "servers": [
@@ -464,7 +464,7 @@
         "parameters": [{ "$ref": "#/components/parameters/FileKey" }],
         "responses": {
           "200": {
-            "description": "Metadata in Content-Length, X-Yuanbao-File-Size and X-Yuanbao-Part-Size"
+            "description": "Metadata in Content-Length, X-Floris-File-Size, X-Floris-Part-Size, X-Floris-Part-Count and X-Floris-Part-Protocol. This query-part protocol is not HTTP Range."
           }
         }
       },
@@ -494,7 +494,10 @@
           "content": {
             "application/json": {
               "schema": { "$ref": "#/components/schemas/OperationRequest" },
-              "example": { "operation": "get" }
+              "examples": {
+                "get": { "value": { "operation": "get" } },
+                "confirmAction": { "value": { "operation": "confirm_action", "action_id": "action-id", "version": 1 } }
+              }
             }
           }
         },
@@ -521,8 +524,13 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/OperationRequest" },
-              "example": { "operation": "get" }
+              "schema": { "$ref": "#/components/schemas/IntelligenceOperationRequest" },
+              "examples": {
+                "get": { "value": { "operation": "get" } },
+                "searchPreferences": { "value": { "operation": "update_search_preferences", "preferences": { "result_limit": 12, "image_limit": 4, "parallel_image_search": true } } },
+                "mapPreferences": { "value": { "operation": "update_map_preferences", "preferences": { "service_mode": "balanced", "place_result_limit": 6, "route_stop_limit": 8, "search_timeout_seconds": 30, "preferred_route_mode": "transit", "route_strategy": "time_then_cost", "near_time_tolerance_minutes": 10, "learn_route_preferences": true } } },
+                "skills": { "value": { "operation": "update_skill_preferences", "preferences": { "web-search": true, "vision": false } } }
+              }
             }
           }
         },
@@ -548,8 +556,11 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/OperationRequest" },
-              "example": { "operation": "get" }
+              "schema": { "$ref": "#/components/schemas/ProactiveOperationRequest" },
+              "examples": {
+                "get": { "value": { "operation": "get" } },
+                "snooze": { "value": { "operation": "snooze", "notification_id": "notification-id", "until": 1785945600 } }
+              }
             }
           }
         },
@@ -815,7 +826,8 @@
                 "schema": { "$ref": "#/components/schemas/PaperSearchProjection" }
               }
             }
-          }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" }
         }
       },
       "post": {
@@ -843,7 +855,8 @@
                 "schema": { "$ref": "#/components/schemas/SavedPaper" }
               }
             }
-          }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" }
         }
       }
     },
@@ -868,7 +881,8 @@
                 "schema": { "$ref": "#/components/schemas/ReadingLibrary" }
               }
             }
-          }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" }
         }
       },
       "post": {
@@ -895,7 +909,8 @@
                 "schema": { "type": "object", "additionalProperties": true }
               }
             }
-          }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" }
         }
       },
       "delete": {
@@ -916,7 +931,8 @@
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } }
             }
-          }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" }
         }
       }
     },
@@ -932,8 +948,8 @@
             "application/json": {
               "schema": { "$ref": "#/components/schemas/ReaderRequest" },
               "example": {
-                "action": "summarize",
-                "text": "Attention mechanisms improve contextual representation.",
+                "action": "analyze",
+                "file_id": "server-issued-storage-key",
                 "response_language": "zh-CN"
               }
             }
@@ -941,13 +957,37 @@
         },
         "responses": {
           "200": {
-            "description": "paper_delta, paper_done, ping and error_message events, then data: [DONE]",
+            "description": "paper_source (for file_id), paper_delta, paper_done, ping and error_message events, then data: [DONE]",
             "content": {
               "text/event-stream": { "schema": { "type": "string" } }
             },
             "x-floris-event-schema": "/contracts/chat-events-v1.schema.json",
             "x-floris-event-types": ["paper"]
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "422": { "description": "The owned PDF could not provide selectable text", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/document-text": {
+      "post": {
+        "operationId": "extractOwnedDocumentText",
+        "tags": ["Papers"],
+        "summary": "Extract text from an owned PDF stored in Makers Blob",
+        "description": "Normally consumed by /reader. Native clients do not need a local PDF parser.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/DocumentTextRequest" },
+              "example": { "file_id": "server-issued-storage-key" }
+            }
           }
+        },
+        "responses": {
+          "200": { "description": "Bounded extracted text and metadata", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentTextProjection" } } } },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "422": { "description": "Unsupported, scanned or unreadable PDF", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
     },
@@ -1073,6 +1113,12 @@
     "responses": {
       "Unauthorized": {
         "description": "Missing, invalid or expired session",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+        }
+      },
+      "Forbidden": {
+        "description": "Login, membership or an enabled capability is required",
         "content": {
           "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
         }
@@ -1480,6 +1526,45 @@
         },
         "additionalProperties": true
       },
+      "SearchPreferences": {
+        "type": "object",
+        "required": ["result_limit", "image_limit", "parallel_image_search"],
+        "properties": {
+          "result_limit": { "type": "integer", "minimum": 4, "maximum": 18 },
+          "image_limit": { "type": "integer", "minimum": 0, "maximum": 8 },
+          "parallel_image_search": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
+      "MapPreferences": {
+        "type": "object",
+        "required": ["service_mode", "place_result_limit", "route_stop_limit", "search_timeout_seconds", "preferred_route_mode", "route_strategy", "near_time_tolerance_minutes", "learn_route_preferences"],
+        "properties": {
+          "service_mode": { "type": "string", "enum": ["fast", "balanced", "complete"] },
+          "place_result_limit": { "type": "integer", "minimum": 3, "maximum": 12 },
+          "route_stop_limit": { "type": "integer", "minimum": 2, "maximum": 12 },
+          "search_timeout_seconds": { "type": "integer", "minimum": 10, "maximum": 55 },
+          "preferred_route_mode": { "type": "string", "enum": ["driving", "transit", "walking", "bicycling"] },
+          "route_strategy": { "type": "string", "enum": ["time_then_cost", "least_time", "least_cost"] },
+          "near_time_tolerance_minutes": { "type": "integer", "minimum": 0, "maximum": 30 },
+          "learn_route_preferences": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
+      "IntelligenceOperationRequest": {
+        "type": "object",
+        "required": ["operation"],
+        "properties": {
+          "operation": { "type": "string", "enum": ["get", "export", "confirm_memory", "reject_memory", "delete_memory", "rollback_memory", "confirm_rule", "reject_rule", "update_usage_preferences", "update_memory_preferences", "update_search_preferences", "update_map_preferences", "update_skill_preferences", "configure_skill_connection", "disconnect_skill_connection", "install_user_skill", "remove_user_skill", "set_user_skill_enabled", "clear_memories"] },
+          "preferences": { "anyOf": [
+            { "$ref": "#/components/schemas/SearchPreferences" },
+            { "$ref": "#/components/schemas/MapPreferences" },
+            { "type": "object", "additionalProperties": true }
+          ] },
+          "response_language": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
       "IntelligenceProjection": {
         "type": "object",
         "required": ["schema_version", "revision"],
@@ -1489,14 +1574,65 @@
           "memory_proposals": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
           "memories": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
           "memory_preferences": { "type": "object", "additionalProperties": true },
-          "search_preferences": { "type": "object", "additionalProperties": true },
-          "map_preferences": { "type": "object", "additionalProperties": true },
+          "search_preferences": { "$ref": "#/components/schemas/SearchPreferences" },
+          "map_preferences": { "$ref": "#/components/schemas/MapPreferences" },
           "skill_preferences": { "type": "object", "additionalProperties": { "type": "boolean" } },
+          "skill_preference_results": { "type": "array", "items": { "$ref": "#/components/schemas/SkillPreferenceResult" } },
           "skill_catalog": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
           "skill_connections": { "type": "object", "additionalProperties": true },
           "user_skills": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
           "rule_proposals": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
           "usage": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "SkillPreferenceResult": {
+        "type": "object",
+        "required": ["skill_id", "requested_enabled", "effective_enabled", "applied", "code"],
+        "properties": {
+          "skill_id": { "type": "string" },
+          "requested_enabled": { "type": "boolean" },
+          "effective_enabled": { "type": "boolean" },
+          "applied": { "type": "boolean" },
+          "code": { "type": "string", "enum": ["", "UNKNOWN_SKILL", "SKILL_LOCKED", "LOGIN_REQUIRED", "MEMBERSHIP_REQUIRED", "DEPENDENCY_REQUIRED", "POLICY_REJECTED"] }
+        },
+        "additionalProperties": false
+      },
+      "ProactiveNotification": {
+        "type": "object",
+        "required": ["id", "event_id", "run_id", "type", "title", "body", "reason", "action_prompt", "priority", "evidence", "status", "version", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "event_id": { "type": "string" },
+          "run_id": { "type": "string" },
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "body": { "type": "string" },
+          "reason": { "type": "string" },
+          "action_prompt": { "type": "string", "description": "Prompt sent by the Help me handle action. Wire name stays snake_case." },
+          "priority": { "type": "string", "enum": ["high", "normal", "low"] },
+          "evidence": { "type": "object", "additionalProperties": true },
+          "status": { "type": "string", "enum": ["unread", "read", "snoozed", "dismissed"] },
+          "version": { "type": "integer" },
+          "snoozed_until": { "type": ["integer", "null"], "description": "Unix timestamp. Wire name stays snake_case." },
+          "read_at": { "type": ["integer", "null"] },
+          "dismissed_at": { "type": ["integer", "null"] },
+          "expires_at": { "type": ["integer", "null"] },
+          "created_at": { "type": "integer" },
+          "updated_at": { "type": "integer" },
+          "window_origin": { "type": "string", "enum": ["memory", "operation"] }
+        },
+        "additionalProperties": true
+      },
+      "ProactiveOperationRequest": {
+        "type": "object",
+        "required": ["operation"],
+        "properties": {
+          "operation": { "type": "string", "enum": ["get", "refresh", "page_open", "tick", "memory_refresh", "update_preferences", "propose_workflow", "ingest_signal", "confirm_workflow", "reject_workflow", "cancel_workflow", "complete_workflow_step", "skip_workflow_step", "fail_workflow_step", "retry_workflow_step", "compensate_workflow_step", "mark_read", "dismiss", "snooze"] },
+          "notification_id": { "type": "string" },
+          "until": { "type": "integer", "description": "Unix timestamp used by snooze." },
+          "preferences": { "type": "object", "additionalProperties": true },
+          "response_language": { "type": "string" }
         },
         "additionalProperties": true
       },
@@ -1507,7 +1643,7 @@
           "schema_version": { "type": "integer" },
           "revision": { "type": "integer" },
           "preferences": { "type": "object", "additionalProperties": true },
-          "notifications": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "notifications": { "type": "array", "items": { "$ref": "#/components/schemas/ProactiveNotification" } },
           "runs": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
           "workflows": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
           "checkpoints": { "type": "object", "additionalProperties": true },
@@ -1620,7 +1756,7 @@
       },
       "SavedPaper": {
         "type": "object",
-        "required": ["file_id", "filename", "title"],
+        "required": ["file_id", "storage_key", "filename", "title"],
         "properties": {
           "id": { "type": "string" },
           "file_id": { "type": "string" },
@@ -1650,12 +1786,44 @@
       },
       "ReaderRequest": {
         "type": "object",
-        "required": ["action", "text"],
+        "required": ["action"],
+        "anyOf": [
+          { "required": ["text"] },
+          { "required": ["file_id"] },
+          { "required": ["storage_key"] }
+        ],
         "properties": {
           "action": { "enum": ["translate", "summarize", "explain", "formula", "analyze", "full-translate", "terms", "qa"] },
           "text": { "type": "string", "minLength": 1 },
+          "file_id": { "type": "string", "minLength": 1 },
+          "storage_key": { "type": "string", "minLength": 1, "description": "Alias of file_id for compatibility." },
           "question": { "type": "string" },
           "response_language": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "DocumentTextRequest": {
+        "type": "object",
+        "anyOf": [
+          { "required": ["file_id"] },
+          { "required": ["storage_key"] }
+        ],
+        "properties": {
+          "file_id": { "type": "string", "minLength": 1 },
+          "storage_key": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      },
+      "DocumentTextProjection": {
+        "type": "object",
+        "required": ["file_id", "storage_key", "text", "preview", "page_count", "truncated"],
+        "properties": {
+          "file_id": { "type": "string" },
+          "storage_key": { "type": "string" },
+          "text": { "type": "string", "maxLength": 120000 },
+          "preview": { "type": "string", "maxLength": 1200 },
+          "page_count": { "type": "integer", "minimum": 0 },
+          "truncated": { "type": "boolean" }
         },
         "additionalProperties": false
       },
@@ -1736,6 +1904,8 @@
     "additive_fields": "allowed",
     "breaking_changes": "new_major_contract",
     "source_media_binding": "source_id",
+    "search_media_policy": "vision_reviewed_and_exact_inline_source_or_omit",
+    "json_wire_naming": "snake_case",
     "conversation_scope": "signed_identity_plus_makers-conversation-id"
   }
 }

@@ -314,11 +314,10 @@ export default function PaperFullReader({ fileId, title, fileSize, partSize, ass
         });
       }
     };
-    const documentText = pages.map((page) => `${t('documentPageMarker', { page: page.pageNum })}\n${page.paragraphs.map((paragraph) => paragraph.text).join('\n')}`).join('\n\n');
     switch (action) {
       case 'translate': streamRef.current = translateParagraph(text, onDelta, onDone); break;
       case 'summarize': streamRef.current = summarizeParagraph(text, onDelta, onDone); break;
-      case 'analyze': streamRef.current = analyzePaper(fileId, onDelta, onDone, documentText); break;
+      case 'analyze': streamRef.current = analyzePaper(fileId, onDelta, onDone); break;
     }
   };
 
@@ -336,8 +335,7 @@ export default function PaperFullReader({ fileId, title, fileSize, partSize, ass
       setQaHistory(prev => [{ q, a: error ? `❌ ${error}` : full }, ...prev]);
       setAiResult(null);
     };
-    const documentText = pages.map((page) => `${t('documentPageMarker', { page: page.pageNum })}\n${page.paragraphs.map((paragraph) => paragraph.text).join('\n')}`).join('\n\n');
-    streamRef.current = paperQA(fileId, q, onDelta, onDone, documentText);
+    streamRef.current = paperQA(fileId, q, onDelta, onDone);
   };
 
   const closeMenu = () => { setCtxMenu(null); };

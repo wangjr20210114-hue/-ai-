@@ -84,14 +84,14 @@ describe('remarkSourceBoundMedia', () => {
     expect(insertedImages(transform([media]))).toHaveLength(0);
   });
 
-  it('accepts only the explicit SearchPro source-bound fallback shape', () => {
+  it('rejects source-bound candidates that did not pass visual review', () => {
     const fallback = {
       ...reviewed,
       vision_reviewed: false,
       vision_fallback: true,
       source_bound_fallback: true,
     };
-    expect(insertedImages(transform([fallback]))).toHaveLength(1);
+    expect(insertedImages(transform([fallback]))).toHaveLength(0);
     expect(insertedImages(transform([{ ...fallback, source_url: 'https://news.example/other' }]))).toHaveLength(0);
   });
 
@@ -113,7 +113,7 @@ describe('remarkSourceBoundMedia', () => {
     expect(insertedImages(transform([reviewed], duplicateSources))).toHaveLength(0);
   });
 
-  it('places an uncited reviewed image near the opening only after completion', () => {
+  it('never moves uncited reviewed images to the opening', () => {
     const tree: MarkdownAstNode = {
       type: 'root',
       children: [{
@@ -124,36 +124,6 @@ describe('remarkSourceBoundMedia', () => {
     remarkSourceBoundMedia({
       sources,
       media: [reviewed],
-      placeUncited: true,
-    })()(tree);
-
-    expect(tree.children?.map((node) => node.type)).toEqual([
-      'paragraph',
-      'image',
-    ]);
-    expect(insertedImages(tree)[0].data?.hProperties).toEqual({
-      'data-source-bound-media': 'media-1',
-      'data-source-id': 'source-1',
-    });
-  });
-
-  it('does not place an uncited source fallback that was not visually reviewed', () => {
-    const tree: MarkdownAstNode = {
-      type: 'root',
-      children: [{
-        type: 'paragraph',
-        children: [{ type: 'text', value: 'Query-level verified summary' }],
-      }],
-    };
-    remarkSourceBoundMedia({
-      sources,
-      media: [{
-        ...reviewed,
-        vision_reviewed: false,
-        vision_fallback: true,
-        source_bound_fallback: true,
-      }],
-      placeUncited: true,
     })()(tree);
 
     expect(insertedImages(tree)).toHaveLength(0);

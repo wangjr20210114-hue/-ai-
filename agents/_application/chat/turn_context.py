@@ -112,7 +112,7 @@ def search_request_for_plan(
     # Real article media belongs to the web-search component contract. Turning
     # off the standalone Vision Skill must not silently make every rich-search
     # answer text-only; the provider adapter still applies its configured
-    # review chain and source-bound fallback policy.
+    # review chain; media that does not complete visual review fails closed.
     media_enabled = bool(
         image_limit > 0
         and (plan.get("needs_web_search") or plan.get("needs_images"))

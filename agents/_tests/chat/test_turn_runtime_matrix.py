@@ -220,12 +220,9 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             media_observability({
                 "media": [{"source_id": "source-1"}],
-                "vision_diagnostics": {
-                    "candidates": 2,
-                    "source_bound_fallback": 1,
-                },
+                "vision_diagnostics": {"candidates": 2, "approved": 1},
             })["reason"],
-            "source_bound_fallback",
+            "published",
         )
 
     async def _run(

@@ -1,6 +1,6 @@
 # Floris 跨端客户端 API v1
 
-这份文档是 Web、Android、HarmonyOS 和 iOS 的统一接入说明，对应 OpenAPI `1.2.0`。客户端只负责界面、系统权限、通知、文件选择和本地缓存；聊天编排、搜索、Skills、地图、日程、论文、权益、身份隔离和持久化均由 Floris 后端提供。
+这份文档是 Web、Android、HarmonyOS 和 iOS 的统一接入说明，对应 OpenAPI `1.4.0`。客户端只负责界面、系统权限、通知、文件选择和本地缓存；聊天编排、搜索、Skills、地图、日程、论文、权益、身份隔离和持久化均由 Floris 后端提供。
 
 ## 1. 契约文件
 
@@ -45,7 +45,7 @@ Web 使用 `HttpOnly + Secure + SameSite=Lax` Cookie，不读取 Cookie 内容�
 | --- | --- |
 | 登录与账号 | `GET /auth/session`、`POST /auth/cloudbase/session`、`POST /auth/mobile/session`、`POST /auth/logout`、`GET/HEAD/POST /profile` |
 | 聊天与会话 | `POST /chat`、`POST /messages`、`POST /conversation`、`GET/POST /conversations`、`POST /stop` |
-| 文件 | `POST/GET/HEAD/DELETE /files` |
+| 文件 | `POST/GET/HEAD/DELETE /files`、`POST /document-text`（通常由 `/reader` 内部使用） |
 | 日程与地图状态 | `POST /workspace`、`POST /image` |
 | 个性化 | `POST /intelligence`、`POST /proactive`、`GET /provider_usage` |
 | Skills | `POST /skill_marketplace`、`GET/POST /skill-uploads` |
@@ -186,7 +186,9 @@ answer_complete
 data: [DONE]
 ```
 
-`ai_response.content` 是增量文本。图片审核不阻塞正文首字，`search_media` 可以与多条 `ai_response` 交错到达；`search_results` 和 `search_media` 也可能多次到达或先后互换。客户端必须按 `source_id` 合并，不能先放一个最终占位卡再删除，也不能因为媒体稍后到达而重置正文或计时。
+`ai_response.content` 是增量文本。图片审核不阻塞正文首字，`search_media` 可以与多条 `ai_response` 交错到达；`search_results` 和 `search_media` 也可能多次到达或先后互换。客户端必须按 `source_id` 合并，不能先放一个最终占位卡再删除，也不能因为媒体稍后到达而重置正文或计时。`search_media.media` 只包含 `vision_reviewed=true` 的图片；视觉审核达到本轮截止时间时保留已经完成且通过的部分结果，未完成、失败或未通过的候选一律不显示。
+
+图片位置由回答中的自然来源引用决定：客户端只把审核图片插入其 `source_id/source_url` 对应的精确链接段落之后。回答没有引用该来源时不显示图片，禁止把未引用图片集中放在开头或结尾，也没有“文章主图”兜底。
 
 需要渲染结构化组件的事件可能额外携带 `payload.component_api`。其中每项只有 `version`、`action` 和业务 `payload`；`tenant_id`、`user_id`、`request_id` 等身份范围只在服务端可信 Adapter 内存在，不会交给模型或客户端。客户端按 `action` 选择组件，遇到未知 action 时保留正文并忽略该项。
 
@@ -268,6 +270,8 @@ curl -X POST "$BASE/files" \
 
 响应中的 `url` 仅用于上传；`content_url` 用于登录后的读取。客户端不能自行拼接存储 key。
 
+上传意图按内容能力校验：PDF 使用论文助读权益，图片使用视觉理解或图片工坊权益。读取、HEAD 与删除只校验登录身份和 Makers Blob 的租户前缀，不会因为用户后来关闭某个 Skill 而让既有私有文件失联。
+
 ### HEAD /files
 
 读取文件大小与分片大小。
@@ -276,6 +280,8 @@ curl -X POST "$BASE/files" \
 curl -I "$BASE/files?key=<server-issued-key>" \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+以 `X-Floris-File-Size`、`X-Floris-Part-Size`、`X-Floris-Part-Count` 和 `X-Floris-Part-Protocol: makers-parts-v1` 为准。旧网页兼容期内仍可能看到 `X-Yuanbao-*` 别名。
 
 ### GET /files
 
@@ -286,6 +292,8 @@ curl "$BASE/files?key=<server-issued-key>&part=0" \
   -H "Authorization: Bearer $TOKEN" \
   --output part-0.bin
 ```
+
+这不是 HTTP Range：服务端不会返回 `Accept-Ranges: bytes`，客户端也不要发送 `Range`。每个 `part=N` 都是状态码 200 的 Floris 查询分片，边界来自 `X-Floris-Part-Start` 与 `X-Floris-Part-End`。
 
 ### DELETE /files
 
@@ -360,6 +368,10 @@ curl -X POST "$BASE/intelligence" \
   -d '{"operation":"update_search_preferences","preferences":{"result_limit":8,"image_limit":3,"parallel_image_search":true}}'
 ```
 
+这三个值必须发送到 `/intelligence` 并采用服务端返回的新投影。它们不是客户端本地显示设置：`result_limit` 控制后端候选来源上限，`image_limit` 控制视觉审核上限，`parallel_image_search` 控制后端候选抓取并发。仅写入 DataStore、UserDefaults、Preferences 或 LocalStorage 不会改变检索行为。
+
+地图偏好的八个字段为：`service_mode`、`place_result_limit`、`route_stop_limit`、`search_timeout_seconds`、`preferred_route_mode`、`route_strategy`、`near_time_tolerance_minutes`、`learn_route_preferences`。更新时同样调用 `update_map_preferences`，不要只在客户端改变选择器。
+
 ### POST /proactive
 
 读取提醒、工作流与主动服务设置。
@@ -371,6 +383,8 @@ curl -X POST "$BASE/proactive" \
   -H "Content-Type: application/json" \
   -d '{"operation":"get"}'
 ```
+
+提醒对象的网络字段统一使用 snake_case，尤其是 `action_prompt` 和 `snoozed_until`。Kotlin/Swift/ArkTS 若在模型层使用 `actionPrompt`、`snoozedUntil`，必须通过序列化注解映射，不能依赖成员名自动推断。例如 Kotlinx Serialization 使用 `@SerialName("action_prompt")` 和 `@SerialName("snoozed_until")`。“帮我处理”直接把 `action_prompt` 作为下一轮用户请求；推迟提醒显示 `snoozed_until` 的 Unix 时间。
 
 ### GET /provider_usage
 
@@ -748,6 +762,7 @@ ping/usage            update liveness/diagnostics; do not render as answer
 - `ai_response.content` 是增量，不是累计全文。
 - `search_results`、`search_media` 与正文可以交错到达，也可能多次到达。
 - `answer_complete` 不等于连接立即结束；图片审查可能稍晚，但不得改写正文或计时起点。
+- `follow_ups` 通常在 `answer_complete` 之后、`[DONE]` 之前到达；客户端不能在正文完成时提前销毁当前消息 Reducer。
 - 同一 `action.id` 只渲染一张卡；后到的版本覆盖旧版本。
 - 收到未知事件时忽略该事件并继续读流。
 - 网络裸 EOF 且没有 `[DONE]` 视为异常终止，不自动重新生成。
@@ -787,9 +802,9 @@ OpenAPI 描述 HTTP 方法和基础 Schema；以下表描述具有 `operation` �
 | `confirm_rule` / `reject_rule` | `rule_id`, `version` | 处理自动规则提案 |
 | `update_usage_preferences` | `preferences` | 设置用量提醒与执行方式 |
 | `update_memory_preferences` | `preferences.enabled` | 开关长期记忆 |
-| `update_search_preferences` | `result_limit`, `image_limit`, `parallel_image_search` | 修改富搜索偏好 |
-| `update_map_preferences` | `preferences` | 修改路线模式、结果数量和预算策略 |
-| `update_skill_preferences` | `preferences: {skill_id: boolean}` | 启用或禁用系统 Skill；依赖由服务端原子处理 |
+| `update_search_preferences` | `preferences.{result_limit,image_limit,parallel_image_search}` | 修改并持久化后端富搜索行为；不能只存客户端本地 |
+| `update_map_preferences` | `preferences` 中八个 `MapPreferences` 字段 | 修改路线模式、结果数量、超时、策略和学习开关 |
+| `update_skill_preferences` | `preferences: {skill_id: boolean}` | 启用或禁用系统 Skill；依赖由服务端原子处理，每项结果见 `skill_preference_results[]` |
 | `configure_skill_connection` | `skill_id`, `token` | 保存用户连接的外部 Skill 凭据 |
 | `disconnect_skill_connection` | `skill_id` | 断开外部 Skill |
 | `install_user_skill` | `skill: SkillDraft` | 安装声明式私有 Skill，不接受可执行 Adapter |
@@ -808,7 +823,7 @@ OpenAPI 描述 HTTP 方法和基础 Schema；以下表描述具有 `operation` �
 | `confirm_workflow` / `reject_workflow` | `workflow_id`, `version` | 决定工作流 |
 | `cancel_workflow` | `workflow_id`, `version` | 取消工作流 |
 | `complete_workflow_step`、`skip_workflow_step`、`fail_workflow_step`、`retry_workflow_step`、`compensate_workflow_step` | `workflow_id`, `step_id` | 推进工作流步骤 |
-| `mark_read` / `dismiss` / `snooze` | `notification_id`, `until?` | 处理提醒 |
+| `mark_read` / `dismiss` / `snooze` | `notification_id`, `until?` | 处理提醒；提醒响应字段为 `action_prompt`、`snoozed_until` |
 | `ingest_signal` | `signal_type`, `dedup_key`, `payload` | 上报客户端真实系统事件，例如获准定位后的城市级天气、文件上传或图片完成 |
 
 `tick` 只用于 Makers Schedule，不是客户端接口。
@@ -837,9 +852,31 @@ OpenAPI 描述 HTTP 方法和基础 Schema；以下表描述具有 `operation` �
 | `rename_folder` | `folder_id`, `name` | 重命名文件夹 |
 | `move_item` | `item_id`, `folder_id` | 移动阅读项目 |
 | `touch` | `id` | 更新最近打开时间 |
-| `save_assistant_result` | `storage_key`, `action`, `content` | 保存翻译、总结或分析结果 |
+| `save_assistant_result` | `storage_key`, `action`, `content` | 保存任一种受支持的助读结果 |
 
 删除条目或文件夹使用 `DELETE /library?id=...` 或 `DELETE /library?folder_id=...`。
+
+`/papers`、`/library`、`/reader` 和 `/document-text` 属于论文助读能力。游客只有核心能力与主动服务，因此这些接口返回 403 是预期权限边界；客户端应显示登录/开启能力入口，而不是把它解释为网络故障。已经登录且有 free 权益的账号可以读取资料；关闭论文助读后，既有 Makers Blob 文件不会被删除。
+
+`POST /papers` 成功响应同时返回 `file_id` 与 `storage_key`，两者当前是同一个不透明服务端 key；新客户端以 `storage_key` 为持久化字段，并保留 `file_id` 兼容。新论文在写入时就通过共享的阅读库领域服务分配 `folder_id`；`/library` 的读取时整理只保留给历史数据迁移。
+
+### 19.6 `/reader` 与服务端 PDF 提取
+
+段落级操作仍可直接传 `text`。全文分析、问答以及原生客户端上传后的助读可以只传 `file_id`：
+
+```bash
+curl -N -X POST "$BASE/reader" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "makers-conversation-id: $CID" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"qa","file_id":"<server-issued-key>","question":"论文的主要局限是什么？","response_language":"zh-CN"}'
+```
+
+后端会通过 Makers Blob 读取当前租户的 PDF，再由服务端 PDF.js Adapter 提取最多 120,000 字；客户端无需集成 PDF 文本提取库。流首先可能给出 `paper_source`（`preview/page_count/truncated`），随后是 `paper_delta`、`paper_done` 与 `[DONE]`。扫描件没有可选择文本时返回 422，不会让模型猜测正文。`POST /document-text` 暴露同一底层 Adapter，主要用于诊断或只需要文本预览的客户端。
+
+`save_assistant_result.action` 与 `/reader` 一致，支持 `translate`、`summarize`、`explain`、`formula`、`analyze`、`full-translate`、`terms`、`qa`，不再要求客户端维护较窄白名单。
+
+批量更新系统 Skill 时，HTTP 200 表示请求已完成，不代表每项都被接受。客户端读取每个 `skill_preference_results[]` 的 `applied/code/effective_enabled`；一个 `LOGIN_REQUIRED`、`MEMBERSHIP_REQUIRED`、`SKILL_LOCKED` 或 `DEPENDENCY_REQUIRED` 不会回滚其他合法修改，也不需要逐项重试。
 
 ## 20. 文件、地图和系统 Adapter
 
@@ -888,7 +925,10 @@ OpenAPI 描述 HTTP 方法和基础 Schema；以下表描述具有 `operation` �
 - [ ] CloudBase 登录可以恢复，Bearer 过期只刷新一次，退出后不会串账号缓存。
 - [ ] 会话列表、消息、搜索来源、图片和卡片刷新后可以从服务端恢复。
 - [ ] SSE 正文、来源、媒体和组件可交错流式渲染，计时不会重置。
-- [ ] 图片只在 `source_id/source_url` 一致时插入对应来源附近。
+- [ ] 图片必须同时满足 `vision_reviewed=true` 且 `source_id/source_url` 一致，只插入回答实际引用的对应来源段落；没有审核通过的图片就不显示。
+- [ ] 搜索与地图偏好修改后重新读取服务端投影，并能实际改变下一轮后端请求。
+- [ ] 主动提醒从真实 JSON 的 `action_prompt`、`snoozed_until` 反序列化，“帮我处理”和推迟时间无需手工 JSON 映射即可工作。
+- [ ] 清空数据只接受大写 `DELETE`；个人资料和头像不在清空范围内。
 - [ ] 澄清卡、地图卡、日程卡、会议卡和图片卡按 `action.id/version/status` 更新。
 - [ ] 日程编辑、确认、取消和冲突处理全部走 `/workspace`。
 - [ ] 地图使用 `/places` 与 `/routes`，能展示跨城、城市内和多交通方式 Section。

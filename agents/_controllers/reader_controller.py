@@ -10,6 +10,7 @@ from .._infrastructure.http import error
 from .._application.intelligence.service import load_intelligence_state
 from .._application.skills.access import resolve_skill_access
 from .._application.i18n import language_instruction, normalize_language, text as copy_text
+from .._infrastructure.providers.document_text import DocumentTextError, load_document_text
 
 
 PROMPTS = frozenset({
@@ -26,6 +27,17 @@ def _text(content):
     return str(content or "")
 
 
+async def _resolve_reader_source(ctx, body: dict) -> tuple[str, dict]:
+    supplied = str(body.get("text") or "").strip()
+    if supplied:
+        return supplied, {}
+    file_id = str(body.get("file_id") or body.get("storage_key") or "").strip()
+    if not file_id:
+        return "", {}
+    source = await load_document_text(ctx, file_id)
+    return str(source.get("text") or "").strip(), source
+
+
 async def handler(ctx):
     body = ctx.request.body or {}
     response_language = normalize_language(body.get("response_language"))
@@ -40,10 +52,17 @@ async def handler(ctx):
             return error(copy_text("reader.login_required", response_language), 403, code="LOGIN_REQUIRED")
         return error(copy_text("reader.skill_disabled", response_language), 403, code="SKILL_DISABLED")
     action = str(body.get("action") or "")
-    text = str(body.get("text") or "").strip()
     question = str(body.get("question") or "").strip()
     if action not in PROMPTS:
         return error(copy_text("reader.unsupported", response_language))
+    try:
+        text, document_source = await _resolve_reader_source(ctx, body)
+    except DocumentTextError as exc:
+        return error(
+            copy_text("reader.file_load_failed", response_language),
+            422,
+            code=exc.code,
+        )
     if not text:
         return error(copy_text("reader.text_required", response_language))
     limit = 120000 if action in {"analyze", "full-translate", "terms", "qa"} else 12000
@@ -83,6 +102,15 @@ async def handler(ctx):
         async def produce():
             normalizer = StreamDeltaNormalizer()
             try:
+                if document_source:
+                    await queue.put(ctx.utils.sse({
+                        "type": "paper_source",
+                        "file_id": document_source.get("file_id"),
+                        "storage_key": document_source.get("storage_key"),
+                        "preview": document_source.get("preview"),
+                        "page_count": document_source.get("page_count"),
+                        "truncated": document_source.get("truncated"),
+                    }))
                 async for chunk in reader_model.astream(messages):
                     delta = normalizer.push(_text(getattr(chunk, "content", "")))
                     if delta:

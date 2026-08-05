@@ -152,6 +152,30 @@ class SkillPreferenceEndpointTests(unittest.IsolatedAsyncioTestCase):
             for value in proactive_values
         ))
 
+    async def test_skill_preference_batch_reports_each_rejection_without_rolling_back(self):
+        store = FakeStore()
+        ctx = authenticated_context(SimpleNamespace(
+            request=SimpleNamespace(body={
+                "operation": "update_skill_preferences",
+                "preferences": {
+                    "maps": False,
+                    "web-search": True,
+                    "proactive-agent": False,
+                },
+            }, headers={}),
+            store=SimpleNamespace(langgraph_store=store),
+        ), auth_type="guest", membership="guest")
+        response = await intelligence_handler(ctx)
+        results = {
+            item["skill_id"]: item
+            for item in response["skill_preference_results"]
+        }
+        self.assertTrue(results["maps"]["applied"])
+        self.assertEqual(results["web-search"]["code"], "LOGIN_REQUIRED")
+        self.assertEqual(results["proactive-agent"]["code"], "SKILL_LOCKED")
+        self.assertFalse(response["skill_preferences"]["maps"])
+        self.assertTrue(response["skill_preferences"]["proactive-agent"])
+
     async def test_builtin_skills_reject_obsolete_install_and_uninstall_aliases(self):
         for operation in ("install_skill", "uninstall_skill"):
             with self.subTest(operation=operation):

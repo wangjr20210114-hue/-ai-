@@ -28,8 +28,6 @@ export interface RichMediaAsset {
   generated: boolean;
   preview?: boolean;
   vision_reviewed?: boolean;
-  source_bound_fallback?: boolean;
-  vision_fallback?: boolean;
 }
 
 export interface ComponentPublication {

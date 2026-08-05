@@ -2,7 +2,12 @@ import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
 import { requireSkillAccess } from '../../auth/entitlements.js';
 import { DOWNLOAD_PART_BYTES, MAX_FILE_BYTES as MAX_PDF_BYTES } from '../files/config.js';
-const DATA_GENERATION = 'v7_20260724_clear';
+import {
+  LIBRARY_DATA_GENERATION,
+  libraryKeys,
+  loadLibraryState,
+  persistLibraryItem,
+} from '../library/state.js';
 const RESOLUTION_TIMEOUT_MS = 15_000;
 const DOWNLOAD_TIMEOUT_MS = 105_000;
 const REQUEST_HEADERS = {
@@ -12,12 +17,6 @@ const decodeXml = (value) => String(value || '').replace(/&lt;/g, '<').replace(/
 const textOf = (xml, tag) => decodeXml((xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i')) || [])[1] || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 
 function json(data, status = 200) { return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } }); }
-async function loadIndex(store, indexKey) {
-  const raw = await store.get(indexKey, { type: 'arrayBuffer' });
-  if (!raw) return [];
-  try { const value = JSON.parse(new TextDecoder().decode(raw)); return Array.isArray(value) ? value : []; } catch { return []; }
-}
-
 function isSyntheticPaperId(value) {
   return /^web(?:pdf|paper)-/i.test(String(value || ''));
 }
@@ -84,7 +83,7 @@ function findReusablePaper(items, { arxivId, sourceUrl, directPdf }) {
   ));
 }
 
-function storedPaperResponse(item, metadata) {
+function storedPaperResponse(item, metadata, reused = true) {
   const fileSize = Number(
     item.file_size
     || metadata?.size
@@ -94,14 +93,17 @@ function storedPaperResponse(item, metadata) {
   );
   return {
     file_id: item.file_id || item.storage_key,
+    storage_key: item.storage_key || item.file_id,
     filename: item.filename,
     title: item.title,
     arxiv_id: item.arxiv_id || '',
     total_chars: 0,
     preview: item.preview || '',
+    page_count: Math.max(0, Number(item.page_count || 0)),
+    folder_id: String(item.folder_id || ''),
     content_url: item.content_url || `/files?key=${encodeURIComponent(item.file_id || item.storage_key)}`,
     ...(fileSize > 0 ? { file_size: fileSize, part_size: DOWNLOAD_PART_BYTES } : {}),
-    reused: true,
+    reused,
   };
 }
 
@@ -325,7 +327,7 @@ export async function onRequest(context) {
     return json({ error: error.message, code: error.code }, error.status || 403);
   }
   const prefix = tenantPrefix(user, env);
-  const indexKey = `${prefix}library/${DATA_GENERATION}/index.json`;
+  const keys = libraryKeys(prefix);
   if (request.method === 'GET') {
     const topic = new URL(request.url).searchParams.get('topic')?.trim() || '';
     if (!topic) return json({ error: '论文主题不能为空' }, 400);
@@ -341,7 +343,8 @@ export async function onRequest(context) {
   if (isArxiv && (!/^[A-Za-z0-9./-]{3,80}$/.test(arxivId) || arxivId.includes('..'))) return json({ error: '无效 arXiv ID' }, 400);
   try {
     const store = getStore({ name: 'yuanbao-files', consistency: 'strong' });
-    const items = await loadIndex(store, indexKey);
+    const state = await loadLibraryState(store, keys);
+    const { items } = state;
     const reusable = findReusablePaper(items, { arxivId, sourceUrl, directPdf });
     if (reusable) {
       const key = reusable.file_id || reusable.storage_key;
@@ -374,7 +377,7 @@ export async function onRequest(context) {
     const resolvedArxivId = candidate.arxivId || (isArxiv ? arxivId : '');
     const stableId = resolvedArxivId || arxivId || 'resolved-paper';
     const safeId = stableId.replace(/[^A-Za-z0-9.-]+/g, '-');
-    const key = `${prefix}uploads/yuanbao_${DATA_GENERATION}_papers/${crypto.randomUUID()}-${safeId}.pdf`;
+    const key = `${prefix}uploads/yuanbao_${LIBRARY_DATA_GENERATION}_papers/${crypto.randomUUID()}-${safeId}.pdf`;
     await store.set(key, data);
     const now = Date.now();
     const savedTitle = title || `arXiv ${resolvedArxivId || arxivId}`;
@@ -384,8 +387,11 @@ export async function onRequest(context) {
         : (sourceUrl || directPdf || candidate.url)
     );
     const item = { id: crypto.randomUUID(), storage_key: key, file_id: key, filename: `${safeId}.pdf`, title: savedTitle, mime_type: 'application/pdf', kind: 'paper', is_paper: true, arxiv_id: resolvedArxivId, source_url: canonicalSource, page_count: 0, preview: '', content_url: `/files?key=${encodeURIComponent(key)}`, file_size: data.byteLength, part_size: DOWNLOAD_PART_BYTES, created_at: now, last_opened_at: now };
-    await store.set(indexKey, JSON.stringify([item, ...items.filter((saved) => resolvedArxivId ? saved.arxiv_id !== resolvedArxivId : saved.source_url !== canonicalSource)].slice(0, 500)));
-    return json({ file_id: key, filename: item.filename, title: savedTitle, arxiv_id: resolvedArxivId, total_chars: 0, preview: '', content_url: item.content_url, file_size: data.byteLength, part_size: DOWNLOAD_PART_BYTES, reused: false });
+    state.items = items.filter((saved) => (
+      resolvedArxivId ? saved.arxiv_id !== resolvedArxivId : saved.source_url !== canonicalSource
+    ));
+    await persistLibraryItem(store, keys, item, state);
+    return json(storedPaperResponse(item, { size: data.byteLength }, false));
   } catch (error) {
     const timeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
     return json({

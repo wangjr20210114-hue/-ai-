@@ -47,9 +47,8 @@ def media_observability(metadata: dict | None) -> dict[str, int | str]:
     reviewed = number("reviewed")
     approved = number("approved")
     rejected = number("irrelevant") + number("promotional")
-    fallback = number("source_bound_fallback")
     if count:
-        reason = "source_bound_fallback" if fallback else "published"
+        reason = "published"
     elif number("timeout"):
         reason = "timeout"
     elif candidates == 0:
@@ -71,7 +70,6 @@ def media_observability(metadata: dict | None) -> dict[str, int | str]:
         "reviewed": reviewed,
         "approved": approved,
         "rejected": rejected,
-        "fallback": fallback,
     }
 
 
@@ -117,7 +115,6 @@ class PlannedSearchRunner:
             "reviewed": 0,
             "approved": 0,
             "rejected": 0,
-            "fallback": 0,
         }
 
         time_sensitive = bool(capability_plan.get("needs_web_search"))

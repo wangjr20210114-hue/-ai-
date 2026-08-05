@@ -6,7 +6,10 @@ from unittest.mock import AsyncMock, patch
 
 from agents._controllers.image_controller import handler as image_handler
 from agents._controllers.places_controller import handler as places_handler
-from agents._controllers.reader_controller import handler as reader_handler
+from agents._controllers.reader_controller import (
+    _resolve_reader_source,
+    handler as reader_handler,
+)
 from agents._controllers.routes_controller import handler as routes_handler
 from agents._tests.auth_helpers import auth_env, auth_headers
 from agents._tests.support.fakes import FakeStore
@@ -72,6 +75,22 @@ class SkillAccessEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["status_code"], 403)
         self.assertEqual(response["body"]["code"], "LOGIN_REQUIRED")
         model.assert_not_called()
+
+    async def test_reader_can_resolve_an_owned_file_without_client_pdf_parsing(self) -> None:
+        ctx = guest_context({"file_id": "tenant-file"})
+        source = {
+            "file_id": "tenant-file", "storage_key": "tenant-file",
+            "text": "server extracted text", "preview": "server extracted text",
+            "page_count": 2, "truncated": False,
+        }
+        with patch(
+            "agents._controllers.reader_controller.load_document_text",
+            AsyncMock(return_value=source),
+        ) as loader:
+            content, metadata = await _resolve_reader_source(ctx, ctx.request.body)
+        loader.assert_awaited_once_with(ctx, "tenant-file")
+        self.assertEqual(content, "server extracted text")
+        self.assertEqual(metadata["page_count"], 2)
 
 
 if __name__ == "__main__":

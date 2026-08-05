@@ -605,7 +605,7 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             user_id=TEST_USER_ID,
         )
 
-    async def test_rich_search_falls_back_to_traceable_provider_image_when_vision_is_unavailable(self):
+    async def test_rich_search_does_not_publish_provider_image_without_visual_review(self):
         page = {
             "url": "https://example.com/news",
             "title": "AI 发布会",
@@ -618,21 +618,17 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             result = await run_rich_search(
                 {"WSA_API_KEY": "test"}, "AI 新闻", "AI 发布会现场", "basic", image_limit=2,
             )
-        self.assertEqual(result["images"], ["https://img.example.com/hero.jpg"])
+        self.assertEqual(result["images"], [])
         self.assertEqual(result["results"][0]["image"], "https://img.example.com/hero.jpg")
         self.assertEqual(result["preview_media"][0]["url"], "https://img.example.com/hero.jpg")
         self.assertTrue(result["preview_media"][0]["preview"])
-        self.assertEqual(result["media"][0]["url"], "https://img.example.com/hero.jpg")
-        self.assertFalse(result["media"][0]["vision_reviewed"])
-        self.assertTrue(result["media"][0]["vision_fallback"])
-        self.assertTrue(result["media"][0]["source_bound_fallback"])
+        self.assertEqual(result["media"], [])
         self.assertEqual(result["vision_diagnostics"]["missing_api_key"], 1)
-        self.assertEqual(result["vision_diagnostics"]["source_bound_fallback"], 1)
         provider_payload = search_request.call_args.args[1]
         self.assertIn("AI 新闻", provider_payload["Query"])
         self.assertEqual(set(provider_payload), {"Query"})
 
-    async def test_rich_search_falls_back_to_traceable_page_media_when_vision_is_unavailable(self):
+    async def test_rich_search_does_not_publish_page_media_without_visual_review(self):
         page = {
             "url": "https://example.com/forbidden-city",
             "title": "Forbidden City architecture guide",
@@ -654,11 +650,34 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
                 "basic",
                 image_limit=2,
             )
-        self.assertEqual(result["images"], [candidate["url"]])
-        self.assertFalse(result["media"][0]["vision_reviewed"])
-        self.assertTrue(result["media"][0]["source_bound_fallback"])
-        self.assertEqual(result["media"][0]["source_url"], page["url"])
-        self.assertEqual(result["vision_diagnostics"]["source_bound_fallback"], 1)
+        self.assertEqual(result["images"], [])
+        self.assertEqual(result["media"], [])
+        self.assertEqual(result["vision_diagnostics"]["missing_api_key"], 1)
+
+    async def test_vision_deadline_keeps_completed_approved_images_only(self):
+        candidates = [
+            {"url": "https://img.example.com/approved.jpg?w=1200&h=800", "source_url": "https://example.com/approved", "source_title": "Approved source", "context": "AI launch event"},
+            {"url": "https://img.example.com/pending.jpg?w=1200&h=800", "source_url": "https://example.com/pending", "source_title": "Pending source", "context": "AI launch event"},
+        ]
+
+        async def partial_review(_env, content, **_kwargs):
+            url = content[0]["image_url"]["url"]
+            if "pending" in url:
+                await asyncio.sleep(2)
+            return json.dumps({"description": "Verified launch photo", "relevant": True, "promotional": False}), {"provider": "vision-test"}
+
+        with (
+            patch("agents._infrastructure.providers.rich_search._vision_review_timeout", return_value=0.01),
+            patch("agents._infrastructure.providers.rich_search.vision_completion", new=partial_review),
+        ):
+            reviewed, diagnostics = await _vision_filter(
+                {"HUNYUAN_VISION_API_KEY": "test"}, "AI launch event", candidates, 2,
+            )
+
+        self.assertEqual([item["url"] for item in reviewed], [candidates[0]["url"]])
+        self.assertEqual(diagnostics["approved"], 1)
+        self.assertEqual(diagnostics["reviewed"], 1)
+        self.assertEqual(diagnostics["timeout"], 1)
 
     async def test_explicit_vision_rejection_never_uses_source_bound_fallback(self):
         page = {
@@ -723,5 +742,9 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             [item["url"] for item in result["results"]],
             ["https://example.com/today"],
         )
-        self.assertEqual(result["images"], ["https://img.example.com/today.jpg"])
+        self.assertEqual(result["images"], [])
+        self.assertEqual(
+            [item["url"] for item in result["preview_media"]],
+            ["https://img.example.com/today.jpg"],
+        )
         self.assertNotIn("https://img.example.com/old.jpg", json.dumps(result))

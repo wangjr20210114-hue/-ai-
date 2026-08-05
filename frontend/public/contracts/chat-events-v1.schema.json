@@ -19,6 +19,7 @@
     { "$ref": "#/$defs/followUps" },
     { "$ref": "#/$defs/proactiveUpdate" },
     { "$ref": "#/$defs/usage" },
+    { "$ref": "#/$defs/paperSource" },
     { "$ref": "#/$defs/paperDelta" },
     { "$ref": "#/$defs/paperDone" },
     { "$ref": "#/$defs/imageProgress" },
@@ -201,6 +202,22 @@
             "content": { "type": "string" }
           },
           "required": ["content"]
+        }
+      ]
+    },
+    "paperSource": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "properties": {
+            "type": { "const": "paper_source" },
+            "file_id": { "type": "string" },
+            "storage_key": { "type": "string" },
+            "preview": { "type": "string", "maxLength": 1200 },
+            "page_count": { "type": "integer", "minimum": 0 },
+            "truncated": { "type": "boolean" }
+          },
+          "required": ["file_id", "storage_key", "preview", "page_count", "truncated"]
         }
       ]
     },

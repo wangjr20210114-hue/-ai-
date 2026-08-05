@@ -205,7 +205,7 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('one.jpg');
   });
 
-  it('renders an explicit SearchPro fallback only through exact source binding', () => {
+  it('never renders a source-bound image that did not pass visual review', () => {
     const fallback = {
       ...searchMeta.media[0],
       source_id: 'source-1',
@@ -221,8 +221,7 @@ describe('MarkdownRenderer', () => {
         searchMeta={{ ...searchMeta, media: [fallback], images: [fallback.url] }}
       />,
     );
-    expect(html).toContain('one.jpg');
-    expect(html).toContain('data-source-id="source-1"');
+    expect(html).not.toContain('one.jpg');
   });
 
   it('rejects a model-authored searched image even when its URL was reviewed', () => {
@@ -302,7 +301,6 @@ describe('MarkdownRenderer', () => {
             candidates: 4,
             reviewed: 2,
             approved: 0,
-            source_bound_fallback: 0,
           },
         }}
       />,
@@ -310,10 +308,11 @@ describe('MarkdownRenderer', () => {
     expect(html).toContain('data-search-media-count="0"');
     expect(html).toContain('data-search-vision-candidates="4"');
     expect(html).toContain('data-search-vision-reviewed="2"');
+    expect(html).not.toContain('data-search-source-bound-fallback');
     expect(html).not.toContain('vision_diagnostics');
   });
 
-  it('shows completed query-relevant media even when its source was not cited inline', () => {
+  it('does not place reviewed media when its source was not cited inline', () => {
     const sourceBound = {
       ...searchMeta.media[0],
       source_id: 'source-1',
@@ -333,8 +332,7 @@ describe('MarkdownRenderer', () => {
         searchMeta={{ ...searchMeta, media: [sourceBound] }}
       />,
     );
-    expect(completed).toContain('data-source-bound-media="one"');
-    expect(completed).toContain('href="https://news.example/ai"');
+    expect(completed).not.toContain('data-source-bound-media="one"');
     expect(streaming).not.toContain('data-source-bound-media="one"');
   });
 

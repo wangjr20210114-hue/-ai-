@@ -53,12 +53,6 @@ def evidence_for_model(
                 or item.get("source_url")
                 or "unknown"
             ),
-            fallback=(
-                text("model.search.media_fallback", language)
-                if item.get("vision_fallback")
-                or item.get("vision_reviewed") is False
-                else ""
-            ),
         )
         for item in metadata.get("media", [])
     )

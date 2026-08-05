@@ -159,9 +159,8 @@ function MarkdownRenderer({
     () => remarkSourceBoundMedia({
       sources,
       media: visibleMedia,
-      placeUncited: !streaming,
     }),
-    [sources, streaming, visibleMedia],
+    [sources, visibleMedia],
   );
   const providerCalls = searchMeta?.search_config?.turn_provider_calls;
   const toolInvocations = searchMeta?.search_config?.turn_tool_invocations;
@@ -259,7 +258,6 @@ function MarkdownRenderer({
       data-search-vision-candidates={visionDiagnostics?.candidates}
       data-search-vision-reviewed={visionDiagnostics?.reviewed}
       data-search-vision-approved={visionDiagnostics?.approved}
-      data-search-source-bound-fallback={visionDiagnostics?.source_bound_fallback}
     >
       <ReactMarkdown
         remarkPlugins={enhancements

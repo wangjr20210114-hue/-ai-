@@ -62,7 +62,7 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
     text('frontend/public/contracts/mobile-client-v1.md'),
   ]);
   assert.equal(api.openapi, '3.1.0');
-  assert.equal(api.info.version, '1.2.0');
+  assert.equal(api.info.version, '1.4.0');
   assert.ok(api.paths['/auth/mobile/session']);
   assert.ok(api.paths['/chat'].post.responses['200']['x-floris-event-schema']);
   assert.ok(api.paths['/reader'].post.responses['200']['x-floris-event-schema']);
@@ -72,6 +72,11 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   assert.equal(api['x-floris-compatibility'].unknown_sse_events, 'ignore');
   assert.equal(api['x-floris-compatibility'].component_schema, '/contracts/floris-components-v1.schema.json');
   assert.equal(api['x-floris-compatibility'].source_media_binding, 'source_id');
+  assert.equal(
+    api['x-floris-compatibility'].search_media_policy,
+    'vision_reviewed_and_exact_inline_source_or_omit',
+  );
+  assert.equal(api['x-floris-compatibility'].json_wire_naming, 'snake_case');
   assert.deepEqual(
     Object.keys(api['x-floris-client-surfaces']).sort(),
     ['chat', 'files', 'maintenance', 'maps', 'papers', 'personalization', 'profile', 'session', 'skills', 'workspace'],
@@ -95,7 +100,7 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
     'calendar_action', 'map_action', 'side_effect_action',
     'clarification_action', 'browser_location_request', 'experience_hint',
     'answer_complete', 'follow_ups', 'proactive_update', 'usage', 'ping',
-    'paper_delta', 'paper_done', 'image_progress', 'image_action',
+    'paper_source', 'paper_delta', 'paper_done', 'image_progress', 'image_action',
     'error_message',
   ]) {
     assert.match(eventSchema, new RegExp(type));
@@ -105,6 +110,36 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
     ['map_recommendation', 'calendar_changes', 'meeting_create', 'image_generate'],
   );
   assert.ok(components.$defs.media.properties.source_id);
+  assert.equal(
+    components.$defs.reviewedSearchMedia.allOf[1].properties.vision_reviewed.const,
+    true,
+  );
+  assert.equal(
+    components.$defs.searchMeta.properties.media.items.$ref,
+    '#/$defs/reviewedSearchMedia',
+  );
+  assert.equal(api.components.schemas.SearchPreferences.additionalProperties, false);
+  assert.equal(
+    api.components.schemas.MapPreferences.required.length,
+    8,
+  );
+  assert.ok(api.components.schemas.ProactiveNotification.properties.action_prompt);
+  assert.ok(api.components.schemas.ProactiveNotification.properties.snoozed_until);
+  assert.equal(api.components.schemas.ProactiveNotification.properties.actionPrompt, undefined);
+  assert.equal(api.components.schemas.ProactiveNotification.properties.snoozedUntil, undefined);
+  assert.ok(api.paths['/document-text']);
+  assert.ok(api.components.schemas.ReaderRequest.anyOf);
+  assert.ok(api.components.schemas.ReaderRequest.properties.file_id);
+  assert.ok(api.components.schemas.SkillPreferenceResult);
+  assert.ok(api.components.schemas.SavedPaper.required.includes('storage_key'));
+  assert.equal(
+    api.paths['/intelligence'].post.requestBody.content['application/json'].schema.$ref,
+    '#/components/schemas/IntelligenceOperationRequest',
+  );
+  assert.equal(
+    api.paths['/proactive'].post.requestBody.content['application/json'].schema.$ref,
+    '#/components/schemas/ProactiveOperationRequest',
+  );
   assert.ok(components.$defs.routePlan.properties.legs);
   assert.ok(components.$defs.routeLeg.properties.sections);
   assert.ok(components.$defs.componentPublicationBatch);
@@ -117,6 +152,8 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   assert.match(guide, /Android.*HarmonyOS.*iOS/s);
   assert.match(guide, /source_id/);
   assert.match(guide, /search_media.*可以与.*ai_response.*交错到达/s);
+  assert.match(guide, /未完成、失败或未通过的候选一律不显示/);
+  assert.match(guide, /action_prompt.*snoozed_until/s);
   assert.doesNotMatch(guide, /GitHub\s*(?:登录|登入|OAuth|login)/i);
   for (const path of Object.keys(api.paths)) {
     assert.match(guide, new RegExp(path.replaceAll('/', '\\/')));
@@ -139,6 +176,42 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
     assert.equal(file, 'floris-components-v1.schema.json');
     assert.ok(pointerValue(components, `#${pointer}`), `unresolved event component ref ${reference}`);
   }
+});
+
+test('personalization wire fields and answer quality stay backend-authoritative', async () => {
+  const [
+    settingsView,
+    intelligenceController,
+    turnService,
+    richSearch,
+    mediaPresenter,
+    documentText,
+    readerController,
+    files,
+  ] = await Promise.all([
+    text('frontend/src/features/settings/view/AppSettingsButton.tsx'),
+    text('agents/_controllers/intelligence_controller.py'),
+    text('agents/_application/chat/turn_service.py'),
+    text('agents/_infrastructure/providers/rich_search.py'),
+    text('frontend/src/features/search/model/sourceBoundMedia.ts'),
+    text('cloud-functions/document-text/index.js'),
+    text('agents/_controllers/reader_controller.py'),
+    text('cloud-functions/files/index.js'),
+  ]);
+  assert.match(settingsView, /intelligence\('update_search_preferences'/);
+  assert.match(settingsView, /intelligence\('update_map_preferences'/);
+  assert.match(intelligenceController, /operation == "update_search_preferences"/);
+  assert.match(turnService, /search_preferences\.get\("result_limit"\)/);
+  assert.match(turnService, /search_preferences\.get\("image_limit"\)/);
+  assert.match(turnService, /public_answer_model=model/);
+  assert.doesNotMatch(richSearch, /_source_bound_fallback_candidates/);
+  assert.doesNotMatch(mediaPresenter, /placeUncited/);
+  assert.match(mediaPresenter, /item\.vision_reviewed === true/);
+  assert.match(documentText, /@edgeone\/pages-blob/);
+  assert.match(documentText, /pdfjs-dist\/legacy\/build\/pdf\.mjs/);
+  assert.match(readerController, /body\.get\("file_id"\)/);
+  assert.doesNotMatch(files, /Accept-Ranges/);
+  assert.match(files, /X-Floris-Part-Protocol/);
 });
 
 test('every client-owned display route is published in the v1 OpenAPI', async () => {

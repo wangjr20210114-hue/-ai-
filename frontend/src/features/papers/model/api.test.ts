@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchPaperFile, streamPaper } from './api';
+import { analyzePaper, fetchPaperFile, streamPaper } from './api';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -101,6 +101,22 @@ describe('fetchPaperFile', () => {
 });
 
 describe('streamPaper', () => {
+  it('delegates full-document extraction to the backend by file id', async () => {
+    const fetchMock = authenticatedFetch(() => new Response(
+      'data: {"type":"paper_done"}\n\ndata: [DONE]\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    await new Promise<void>((resolve) => {
+      analyzePaper('owned-file', () => undefined, () => resolve());
+    });
+    const [, init] = applicationCalls(fetchMock)[0];
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      action: 'analyze', file_id: 'owned-file',
+    });
+    expect(JSON.parse(String(init?.body))).not.toHaveProperty('text');
+  });
+
   it('emits incremental Markdown deltas from the Makers SSE reader', async () => {
     const encoder = new TextEncoder();
     const response = new Response(new ReadableStream({

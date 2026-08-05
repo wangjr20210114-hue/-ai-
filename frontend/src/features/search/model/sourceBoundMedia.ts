@@ -14,15 +14,10 @@ export interface MarkdownAstNode {
 interface SourceBoundMediaOptions {
   sources: SearchResultItem[];
   media: RichMediaAsset[];
-  placeUncited?: boolean;
 }
 
 export function presentableSourceBoundMedia(item: RichMediaAsset): boolean {
-  return item.vision_reviewed === true || (
-    item.vision_reviewed === false
-    && item.vision_fallback === true
-    && item.source_bound_fallback === true
-  );
+  return item.vision_reviewed === true;
 }
 
 type MarkdownTransformer = (tree: MarkdownAstNode) => void;
@@ -116,29 +111,5 @@ export function remarkSourceBoundMedia(
       children.splice(index + 1, 0, ...insertions);
       index += insertions.length;
     }
-    if (!options.placeUncited) return;
-    const remaining = eligible
-      .filter((item) => !placed.has(item.id))
-      .filter((item) => item.vision_reviewed === true)
-      .map((item): MarkdownAstNode => ({
-        type: 'image',
-        url: item.url,
-        alt: item.alt || item.caption || '',
-        data: {
-          hProperties: {
-            'data-source-bound-media': item.id,
-            'data-source-id': String(item.source_id),
-          },
-        },
-      }));
-    if (!remaining.length) return;
-    // A visually reviewed asset may finish for a source that the answer model
-    // did not cite inline. Once the text stream is complete, keep that reviewed
-    // asset near the opening paragraph; unreviewed source fallbacks still need
-    // an exact inline citation. Never append a detached source directory.
-    let anchor = children.findIndex((child) => child.type === 'paragraph');
-    if (anchor < 0) return;
-    while (children[anchor + 1]?.type === 'image') anchor += 1;
-    children.splice(anchor + 1, 0, ...remaining);
   };
 }
