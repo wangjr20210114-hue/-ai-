@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Floris Client API",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "The complete, platform-neutral client boundary shared by Web, Android, HarmonyOS and iOS. Every server-owned value displayed by a Floris client is delivered through an operation below or through the versioned SSE/component contracts. Authentication, tenant scoping, orchestration, provider calls and persistence remain server responsibilities."
   },
   "servers": [
@@ -645,13 +645,19 @@
       "post": {
         "operationId": "mutateSkillUpload",
         "tags": ["Skills"],
-        "summary": "Create, complete or submit a private Skill for review",
+        "summary": "Resolve a repository Skill, create or complete an upload, or submit a private Skill for review",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/OperationRequest" },
+              "schema": { "$ref": "#/components/schemas/SkillUploadMutationRequest" },
               "examples": {
+                "resolveRepository": {
+                  "value": {
+                    "operation": "resolve_url",
+                    "source_url": "https://github.com/example/floris-skill"
+                  }
+                },
                 "createZip": {
                   "value": {
                     "operation": "create",
@@ -681,6 +687,7 @@
                 "schema": {
                   "oneOf": [
                     { "$ref": "#/components/schemas/UploadIntent" },
+                    { "$ref": "#/components/schemas/SkillDraftResult" },
                     {
                       "type": "object",
                       "required": ["upload"],
@@ -1373,6 +1380,86 @@
         },
         "additionalProperties": true
       },
+      "SkillDraft": {
+        "type": "object",
+        "required": ["name", "description", "instructions", "source_type", "source_url"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "description": { "type": "string", "maxLength": 280 },
+          "instructions": { "type": "string", "minLength": 1, "maxLength": 12000 },
+          "source_type": { "enum": ["file", "folder", "package", "paste", "url"] },
+          "source_url": { "type": "string", "maxLength": 1000 }
+        },
+        "additionalProperties": false
+      },
+      "SkillDraftResult": {
+        "type": "object",
+        "required": ["skill"],
+        "properties": { "skill": { "$ref": "#/components/schemas/SkillDraft" } },
+        "additionalProperties": false
+      },
+      "ResolveSkillUrlRequest": {
+        "type": "object",
+        "required": ["operation", "source_url"],
+        "properties": {
+          "operation": { "const": "resolve_url" },
+          "source_url": { "type": "string", "format": "uri", "maxLength": 1000 }
+        },
+        "additionalProperties": false
+      },
+      "CreateSkillUploadRequest": {
+        "type": "object",
+        "required": ["operation", "name", "content_type", "size"],
+        "properties": {
+          "operation": { "const": "create" },
+          "name": { "type": "string", "maxLength": 120 },
+          "content_type": { "enum": ["application/zip", "application/x-zip-compressed"] },
+          "size": { "type": "integer", "minimum": 1, "maximum": 2097152 }
+        },
+        "additionalProperties": false
+      },
+      "CompleteSkillUploadRequest": {
+        "type": "object",
+        "required": ["operation", "upload_id", "storage_key", "name"],
+        "properties": {
+          "operation": { "const": "complete" },
+          "upload_id": { "type": "string", "format": "uuid" },
+          "storage_key": { "type": "string" },
+          "name": { "type": "string", "maxLength": 120 }
+        },
+        "additionalProperties": false
+      },
+      "PublishSkillUploadRequest": {
+        "type": "object",
+        "required": ["operation", "upload_id"],
+        "properties": {
+          "operation": { "const": "publish" },
+          "upload_id": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "PublishDeclarativeSkillRequest": {
+        "type": "object",
+        "required": ["operation", "source_skill_id", "name", "instructions"],
+        "properties": {
+          "operation": { "const": "publish_declarative" },
+          "source_skill_id": { "type": "string" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "description": { "type": "string", "maxLength": 280 },
+          "instructions": { "type": "string", "minLength": 1, "maxLength": 12000 },
+          "installed_at": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "SkillUploadMutationRequest": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/ResolveSkillUrlRequest" },
+          { "$ref": "#/components/schemas/CreateSkillUploadRequest" },
+          { "$ref": "#/components/schemas/CompleteSkillUploadRequest" },
+          { "$ref": "#/components/schemas/PublishSkillUploadRequest" },
+          { "$ref": "#/components/schemas/PublishDeclarativeSkillRequest" }
+        ]
+      },
       "OperationRequest": {
         "type": "object",
         "required": ["operation"],
@@ -1633,6 +1720,13 @@
     "maps": ["searchPlaces", "planRoute"],
     "papers": ["searchPapers", "savePaper", "getReadingLibrary", "mutateReadingLibrary", "deleteReadingItem", "streamPaperReader"],
     "maintenance": ["resetFileOperation", "resetApplicationState"]
+  },
+  "x-floris-platform-adapters": {
+    "identity_provider": "Use the official CloudBase SDK only for provider login and refresh; exchange the provider access token through /auth/mobile/session or /auth/cloudbase/session before calling Floris business APIs.",
+    "system_location": "Obtain a consented, short-lived OS location and pass it to /chat or /routes; the server remains authoritative for place resolution and route planning.",
+    "map_renderer": "Render server-issued place and route geometry with the platform map SDK; do not ask the map SDK to replace /places or /routes.",
+    "local_files": "File picking, PDF rendering/text extraction, ZIP construction and cache storage are replaceable client adapters; persistence and model operations still use Floris APIs.",
+    "presigned_upload": "PUT is allowed only to the short-lived URL returned by /files, /profile or /skill-uploads; clients never construct storage keys or upload origins."
   },
   "x-floris-compatibility": {
     "component_schema": "/contracts/floris-components-v1.schema.json",

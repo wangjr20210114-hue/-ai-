@@ -160,3 +160,51 @@ test('declarative Skill enters review only after an explicit marketplace request
   assert.equal(record.review_status, 'pending_review');
   assert.equal(record.source_skill_id, 'user-writer-1234567890');
 });
+
+test('repository Skill import is resolved by the authenticated backend boundary', async () => {
+  let requestedUrl = '';
+  const response = await onRequest({
+    request: await post({
+      operation: 'resolve_url',
+      source_url: 'https://github.com/acme/research-skill',
+    }),
+    env: TEST_AUTH_ENV,
+    __store: new FakeStore(),
+    __fetch: async (url) => {
+      requestedUrl = String(url);
+      return new Response(
+        '---\nname: Research helper\ndescription: Use primary papers\n---\nPrefer primary sources.',
+        { headers: { 'Content-Type': 'text/markdown' } },
+      );
+    },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(
+    requestedUrl,
+    'https://raw.githubusercontent.com/acme/research-skill/HEAD/SKILL.md',
+  );
+  const skill = (await response.json()).skill;
+  assert.equal(skill.name, 'Research helper');
+  assert.equal(skill.description, 'Use primary papers');
+  assert.equal(skill.source_type, 'url');
+  assert.equal(skill.source_url, 'https://github.com/acme/research-skill');
+});
+
+test('repository Skill import rejects non-allowlisted network targets before fetch', async () => {
+  let fetched = false;
+  const response = await onRequest({
+    request: await post({
+      operation: 'resolve_url',
+      source_url: 'https://internal.example.test/SKILL.md',
+    }),
+    env: TEST_AUTH_ENV,
+    __store: new FakeStore(),
+    __fetch: async () => {
+      fetched = true;
+      return new Response('unexpected');
+    },
+  });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, 'SKILL_SOURCE_INVALID');
+  assert.equal(fetched, false);
+});

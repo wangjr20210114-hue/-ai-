@@ -7,13 +7,13 @@ import { intelligenceOperation } from '../../settings/model/client';
 import {
   requestMarketplaceReview,
   requestUserSkillMarketplaceReview,
+  resolveUserSkillUrl,
   uploadPrivateSkillPackage,
 } from '../model/client';
 import {
   parseUserSkillText,
   readUserSkillFile,
   readUserSkillFolder,
-  readUserSkillUrl,
   type UserSkillDraft,
 } from '../model/userSkillImport';
 
@@ -64,7 +64,7 @@ export function usePrivateSkillsController(conversationId: string) {
   const importText = (value: string) => importResolved(
     () => Promise.resolve(parseUserSkillText(value)),
   );
-  const importUrl = (value: string) => importResolved(() => readUserSkillUrl(value));
+  const importUrl = (value: string) => importResolved(() => resolveUserSkillUrl(value));
 
   const uploadArchive = async (file?: File) => {
     if (!file) return;

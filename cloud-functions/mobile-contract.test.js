@@ -62,7 +62,7 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
     text('frontend/public/contracts/mobile-client-v1.md'),
   ]);
   assert.equal(api.openapi, '3.1.0');
-  assert.equal(api.info.version, '1.1.0');
+  assert.equal(api.info.version, '1.2.0');
   assert.ok(api.paths['/auth/mobile/session']);
   assert.ok(api.paths['/chat'].post.responses['200']['x-floris-event-schema']);
   assert.ok(api.paths['/reader'].post.responses['200']['x-floris-event-schema']);
@@ -75,6 +75,14 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   assert.deepEqual(
     Object.keys(api['x-floris-client-surfaces']).sort(),
     ['chat', 'files', 'maintenance', 'maps', 'papers', 'personalization', 'profile', 'session', 'skills', 'workspace'],
+  );
+  assert.deepEqual(
+    Object.keys(api['x-floris-platform-adapters']).sort(),
+    ['identity_provider', 'local_files', 'map_renderer', 'presigned_upload', 'system_location'],
+  );
+  assert.equal(
+    api.paths['/skill-uploads'].post.requestBody.content['application/json'].schema.$ref,
+    '#/components/schemas/SkillUploadMutationRequest',
   );
   assert.ok(Array.isArray(events.anyOf));
   assert.equal(events.oneOf, undefined);
@@ -109,7 +117,7 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   assert.match(guide, /Android.*HarmonyOS.*iOS/s);
   assert.match(guide, /source_id/);
   assert.match(guide, /search_media.*可以与.*ai_response.*交错到达/s);
-  assert.doesNotMatch(guide, /GitHub/);
+  assert.doesNotMatch(guide, /GitHub\s*(?:登录|登入|OAuth|login)/i);
   for (const path of Object.keys(api.paths)) {
     assert.match(guide, new RegExp(path.replaceAll('/', '\\/')));
   }
@@ -204,6 +212,28 @@ test('feature and component code cannot bypass the shared client transport', asy
       `${file} must call its feature model and the shared transport`,
     );
   }
+});
+
+test('off-origin writes are limited to server-issued upload URLs', async () => {
+  const files = await sourceFiles('frontend/src/');
+  const directRawWrites = [];
+  for (const file of files) {
+    const source = await text(file);
+    if (/requestRaw\([\s\S]{0,600}?\},\s*false\s*\)/.test(source)) {
+      directRawWrites.push(file);
+    }
+  }
+  assert.deepEqual(directRawWrites.sort(), [
+    'frontend/src/features/auth/model/profileClient.ts',
+    'frontend/src/features/chat/model/client.ts',
+    'frontend/src/features/skills/model/client.ts',
+  ]);
+  const skillImport = await text('frontend/src/features/skills/model/userSkillImport.ts');
+  const skillClient = await text('frontend/src/features/skills/model/client.ts');
+  const skillBackend = await text('cloud-functions/skill-uploads/index.js');
+  assert.doesNotMatch(skillImport, /shared\/transport|raw\.githubusercontent|gitlab\.com/);
+  assert.match(skillClient, /operation:\s*'resolve_url'/);
+  assert.match(skillBackend, /operation === 'resolve_url'/);
 });
 
 test('Node and Python authoritative identity adapters both accept Bearer transport', async () => {

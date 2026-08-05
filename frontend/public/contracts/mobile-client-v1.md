@@ -1,6 +1,6 @@
 # Floris 跨端客户端 API v1
 
-这份文档是 Web、Android、HarmonyOS 和 iOS 的统一接入说明。客户端只负责界面、系统权限、通知、文件选择和本地缓存；聊天编排、搜索、Skills、地图、日程、论文、权益、身份隔离和持久化均由 Floris 后端提供。
+这份文档是 Web、Android、HarmonyOS 和 iOS 的统一接入说明，对应 OpenAPI `1.2.0`。客户端只负责界面、系统权限、通知、文件选择和本地缓存；聊天编排、搜索、Skills、地图、日程、论文、权益、身份隔离和持久化均由 Floris 后端提供。
 
 ## 1. 契约文件
 
@@ -407,6 +407,25 @@ curl "$BASE/skill-uploads" \
 
 ### POST /skill-uploads
 
+解析公开仓库中的 `SKILL.md`。仓库白名单、URL 归一化、下载大小和文本格式均由服务端校验；客户端不能直接抓取 GitHub 或 GitLab：
+
+```bash
+curl -X POST "$BASE/skill-uploads" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"operation":"resolve_url","source_url":"https://github.com/example/floris-skill"}'
+```
+
+响应中的 `skill` 是标准 `SkillDraft`。将它原样作为 `skill` 调用 `/intelligence` 的 `install_user_skill`，才会保存到当前账号：
+
+```bash
+curl -X POST "$BASE/intelligence" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "makers-conversation-id: $CID" \
+  -H "Content-Type: application/json" \
+  -d '{"operation":"install_user_skill","skill":{"name":"Research helper","description":"","instructions":"Prefer primary sources.","source_type":"url","source_url":"https://github.com/example/floris-skill"}}'
+```
+
 创建 ZIP 上传：
 
 ```bash
@@ -634,3 +653,250 @@ makers-conversation-id。
 type 流式渲染；未知事件忽略，未知组件保留正文。搜索图片必须使用 source_id
 与来源确定性绑定；未经服务端确认的操作不能显示为成功。
 ```
+
+## 15. 网页端边界审计结论
+
+当前网页端与其他客户端共用同一个业务边界：所有需要展示的服务端状态都来自本 OpenAPI、SSE 事件 Contract 或组件 Contract。网页端没有直接读取 Makers Store、LangGraph Checkpoint、Makers Blob 索引、CloudBase 数据库，也没有直接调用大模型、搜索、地图路线或论文 Provider。
+
+网页端的调用分为以下三类：
+
+| 类型 | 是否属于 Floris 业务 API | 规则 |
+| --- | --- | --- |
+| `/chat`、`/messages`、`/workspace` 等同源请求 | 是 | 必须在 OpenAPI 中发布，并经统一 Session Transport 调用 |
+| 服务端返回的短期上传 URL | 是，上传数据面 | 只允许 `PUT` 到 `/files`、`/profile` 或 `/skill-uploads` 返回的 URL；客户端不能拼接 Blob key 或上传域名 |
+| CloudBase、系统定位、地图绘制、PDF 渲染、文件选择、通知、剪贴板 | 否，属于客户端平台 Adapter | 可以使用对应系统官方 SDK，但不能替代 Floris 的鉴权交换、地点核验、路线规划、持久化或权益判断 |
+
+以下自动化门禁持续保证这个结论：
+
+- 每个网页端业务路径都必须存在于 `floris-client-v1.openapi.json`。
+- Feature 和 Component 不能直接使用 `fetch`、`XMLHttpRequest`、`WebSocket` 或 `EventSource` 绕过共享 Transport。
+- 跨域写入只允许三个服务端签发上传 URL 的客户端：头像、聊天文件和 Skill ZIP。
+- 仓库 Skill 由 `/skill-uploads` 的 `resolve_url` 解析，网页端不再直接抓取 GitHub/GitLab。
+- 浏览器地图 SDK 只画服务端返回的地点和路线几何；真实地点与路线仍由 `/places`、`/routes` 或 `/chat` 决定。
+
+本结论不表示客户端完全没有本地逻辑。动画、布局、Markdown、PDF 页面渲染、地图缩放层级、草稿、主题、最近会话缓存属于表现层，可以按系统重写；它们不能产生服务端成功状态。
+
+## 16. 状态所有权
+
+| 状态 | 权威所有者 | 客户端可做什么 |
+| --- | --- | --- |
+| 身份、会员、权益 | `/auth/session` 或移动 Bearer | 缓存只用于启动占位，最终必须服从服务端 |
+| 会话列表 | `/conversations` | 本地保存最近列表用于瞬时启动，联网后合并并以服务端为准 |
+| 消息、来源、图片、卡片 | `/messages` 与 `/chat` SSE | 保留未完成的流式临时行；恢复后按服务端消息和 Action ID 合并 |
+| 搜索来源与媒体 | `search_results`、`search_media` | 只能按 `source_id` 合并；不能猜测、重排来源绑定 |
+| 日程、地图、路线、图片版本 | `/workspace` | 可以做视图排序和动画；不能自行把待确认 Action 标成成功 |
+| 个人资料与头像 | `/profile` | 可保存头像的本地二进制缓存，资料更新以服务端响应为准 |
+| Skill 状态与依赖 | `/skill_marketplace`、`/intelligence`、`/skill-uploads` | 可以筛选分类；启用、禁用、安装和审核状态由服务端决定 |
+| 记忆、偏好、主动提醒 | `/intelligence`、`/proactive` | 可以做本地表单草稿；保存后以返回的 `revision`/投影为准 |
+| 论文与阅读库 | `/papers`、`/library`、`/reader` | PDF 显示和文字选区可本地实现；目录、文件和助读结果持久化走服务端 |
+
+客户端本地数据全部应视为缓存。换账号时必须清理上一身份的会话 ID、消息缓存、头像缓存索引和临时操作状态，不能把一个账号的本地缓存合并给另一个账号。
+
+## 17. 客户端启动与登录生命周期
+
+### 17.1 App 启动
+
+1. 从安全存储读取 CloudBase Provider Session；不要读取或复制其 refresh token。
+2. 若 Provider 能恢复会话，取得当前 CloudBase access token，调用 `POST /auth/mobile/session`。
+3. 将 Floris Bearer 保存到系统 Keychain/Keystore；它只有短期有效期。
+4. 调用 `GET /auth/session`，取得当前 `identity`、`entitlements` 和登录配置。
+5. 创建或恢复一个客户端自己的不透明会话 ID，调用 `POST /messages`。
+6. 并行加载 `/conversations`；按当前产品页面按需加载 `/workspace`、`/intelligence`、`/proactive`、`/library`，不要启动时无条件读取所有页面。
+7. 第一屏可先显示本地缓存，但收到服务端投影后必须完成一次确定性合并。
+
+### 17.2 Bearer 过期
+
+- 业务请求返回 `401` 时，最多执行一次 CloudBase Session 恢复和 `/auth/mobile/session` 交换，然后重放安全的读取请求。
+- 不要自动重放 `/chat`、`confirm_action`、文件完成、审核提交等可能产生副作用的请求；先通过 `/messages` 或对应读取接口核对状态。
+- CloudBase 无法恢复时清除 Floris Bearer，进入游客模式或显示登录入口。
+
+### 17.3 退出
+
+Web 调用 `/auth/logout` 清理 HttpOnly Cookie。原生客户端清除本地 Floris Bearer，并按产品选择退出 CloudBase Provider Session。退出不删除服务端个人资料、会话和文件；数据删除只能走第 12 节的确认流程。
+
+## 18. 聊天 SSE 状态机
+
+每次用户发送消息只建立一次 `POST /chat` 流。它不是需要永久保持的 WebSocket。客户端应在用户点击发送时开始总计时，在 `[DONE]`、明确错误或用户停止时结束，不能因规划、搜索或媒体事件重置计时。
+
+推荐的客户端 Reducer：
+
+```text
+send(message, client_message_id)
+  -> append optimistic user row
+  -> append one streaming assistant row
+  -> POST /chat
+
+ai_response           append content to the same assistant row
+ai_response_reset     clear only that assistant row's generated text
+progress_event        upsert progress step; never replace answer text
+search_results        merge source records by source_id
+search_media          accept media only when its source_id exists and source_url matches
+paper_results         upsert paper cards
+clarification_action  attach clarification card to the current assistant row
+map/calendar/side_effect_action
+                      upsert WorkspaceAction by action.id
+experience_hint       attach a small optional capability hint
+follow_ups            replace follow-up suggestions for this answer
+answer_complete       mark answer text complete; continue accepting late media
+error_message         mark stream failed without inventing a successful action
+ping/usage            update liveness/diagnostics; do not render as answer
+[DONE]                settle the transport and persist the final local cache
+```
+
+必须遵守：
+
+- `ai_response.content` 是增量，不是累计全文。
+- `search_results`、`search_media` 与正文可以交错到达，也可能多次到达。
+- `answer_complete` 不等于连接立即结束；图片审查可能稍晚，但不得改写正文或计时起点。
+- 同一 `action.id` 只渲染一张卡；后到的版本覆盖旧版本。
+- 收到未知事件时忽略该事件并继续读流。
+- 网络裸 EOF 且没有 `[DONE]` 视为异常终止，不自动重新生成。
+- 用户点击停止时先中断本地读取，再调用 `/stop`；页面刷新只断开页面，不应自动取消服务端任务。
+
+## 19. 公开操作表
+
+OpenAPI 描述 HTTP 方法和基础 Schema；以下表描述具有 `operation` 的多态接口。未列出的操作视为服务端内部能力，客户端不能调用。
+
+### 19.1 `/workspace`
+
+所有请求携带 `makers-conversation-id`。返回值始终是最新 `WorkspaceProjection`，可能额外包含 `action`、`changed`、`travel_plan` 等本轮结果。
+
+| operation | 主要输入 | 用途 |
+| --- | --- | --- |
+| `get` | 无 | 读取日程、活动地图、路线、旅行计划和可继续 Action |
+| `save_travel_plan` | `plan` | 保存旅行计划正文与预算、目的地等结构化字段 |
+| `delete_travel_plan` | `plan_id` | 删除旅行计划 |
+| `activate_map` | `action_id`, `version` | 激活经过服务端核验的地图 Action |
+| `deactivate_map` | 无 | 关闭当前活动地图 |
+| `direct_calendar_changes` | `changes[]` | 直接提交用户在日历界面编辑的变更 |
+| `update_meeting_action` | `action_id`, `version`, 时间与主题 | 编辑仍待确认的会议 Action |
+| `confirm_action` | `action_id`, `version` | 确认日程、会议或其他待确认副作用 |
+| `cancel_action` | `action_id`, `version` | 取消未结束 Action |
+| `generate_image` | `prompt`, `parent_action_id?` | 创建新的图片版本；新客户端优先使用流式 `/image` |
+
+`version` 是乐观并发控制字段。收到 `409` 或版本错误时重新调用 `get`，不能覆盖服务端的新版本。
+
+### 19.2 `/intelligence`
+
+| operation | 主要输入 | 用途 |
+| --- | --- | --- |
+| `get` / `export` | 无 | 读取公开个性化投影 |
+| `confirm_memory` / `reject_memory` | `proposal_id`, `version` | 处理记忆提案 |
+| `delete_memory` | `memory_id` | 删除一条记忆 |
+| `rollback_memory` | `memory_id`, `target_version` | 回滚记忆版本 |
+| `confirm_rule` / `reject_rule` | `rule_id`, `version` | 处理自动规则提案 |
+| `update_usage_preferences` | `preferences` | 设置用量提醒与执行方式 |
+| `update_memory_preferences` | `preferences.enabled` | 开关长期记忆 |
+| `update_search_preferences` | `result_limit`, `image_limit`, `parallel_image_search` | 修改富搜索偏好 |
+| `update_map_preferences` | `preferences` | 修改路线模式、结果数量和预算策略 |
+| `update_skill_preferences` | `preferences: {skill_id: boolean}` | 启用或禁用系统 Skill；依赖由服务端原子处理 |
+| `configure_skill_connection` | `skill_id`, `token` | 保存用户连接的外部 Skill 凭据 |
+| `disconnect_skill_connection` | `skill_id` | 断开外部 Skill |
+| `install_user_skill` | `skill: SkillDraft` | 安装声明式私有 Skill，不接受可执行 Adapter |
+| `set_user_skill_enabled` | `skill_id`, `enabled` | 禁用或重新启用私有 Skill |
+| `remove_user_skill` | `skill_id` | 删除私有 Skill |
+| `clear_memories` | 无 | 清空记忆；不清理资料、会话或 Skills |
+
+### 19.3 `/proactive`
+
+| operation | 主要输入 | 用途 |
+| --- | --- | --- |
+| `get` | 无 | 读取提醒、工作流、偏好和检查点 |
+| `page_open` / `refresh` / `memory_refresh` | 无 | 页面进入、一般刷新或只刷新记忆提醒 |
+| `update_preferences` | `preferences` | 修改主动服务与安静时段等设置 |
+| `propose_workflow` | `title`, `reason`, `steps[]` | 创建待确认工作流 |
+| `confirm_workflow` / `reject_workflow` | `workflow_id`, `version` | 决定工作流 |
+| `cancel_workflow` | `workflow_id`, `version` | 取消工作流 |
+| `complete_workflow_step`、`skip_workflow_step`、`fail_workflow_step`、`retry_workflow_step`、`compensate_workflow_step` | `workflow_id`, `step_id` | 推进工作流步骤 |
+| `mark_read` / `dismiss` / `snooze` | `notification_id`, `until?` | 处理提醒 |
+| `ingest_signal` | `signal_type`, `dedup_key`, `payload` | 上报客户端真实系统事件，例如获准定位后的城市级天气、文件上传或图片完成 |
+
+`tick` 只用于 Makers Schedule，不是客户端接口。
+
+### 19.4 `/skill_marketplace` 与 `/skill-uploads`
+
+| 接口/operation | 用途 |
+| --- | --- |
+| `/skill_marketplace` `catalog`/默认 | 获取分类、说明、依赖、冲突、当前状态和组件 API |
+| `/skill_marketplace` `package` | 下载已安装系统 Skill 的可移植声明包 |
+| `/skill-uploads` `resolve_url` | 由服务端安全读取 GitHub/GitLab `SKILL.md` 并返回 `SkillDraft` |
+| `/skill-uploads` `create` | 创建私有 ZIP 的短期上传意图 |
+| `/skill-uploads` `complete` | 上传完成后登记 Blob 元数据 |
+| `/skill-uploads` `publish` | 将私有 ZIP 显式提交广场审核 |
+| `/skill-uploads` `publish_declarative` | 将已安装声明式 Skill 显式提交广场审核 |
+
+安装、启用与审核是三个独立状态。`resolve_url` 只解析，`install_user_skill` 才安装，`publish*` 才进入审核。
+
+### 19.5 `/library`
+
+| operation | 主要输入 | 用途 |
+| --- | --- | --- |
+| `register`/默认 | 文件信息、`storage_key` | 把已上传 PDF 登记到“我的阅读” |
+| `settings` | `auto_organize` | 修改自动整理 |
+| `create_folder` | `name` | 创建文件夹 |
+| `rename_folder` | `folder_id`, `name` | 重命名文件夹 |
+| `move_item` | `item_id`, `folder_id` | 移动阅读项目 |
+| `touch` | `id` | 更新最近打开时间 |
+| `save_assistant_result` | `storage_key`, `action`, `content` | 保存翻译、总结或分析结果 |
+
+删除条目或文件夹使用 `DELETE /library?id=...` 或 `DELETE /library?folder_id=...`。
+
+## 20. 文件、地图和系统 Adapter
+
+### 20.1 文件上传
+
+标准流程统一为：
+
+1. 向 Floris 请求上传意图。
+2. 只向返回的短期 URL 执行一次 `PUT`。
+3. 对需要登记的资源调用完成或注册接口。
+4. 后续读取只使用服务端返回的 `content_url` 或 `/files?key=...`，不保存可推导的租户前缀。
+
+原生客户端可用系统上传 API，但不得给预签名请求附加 Floris Bearer、CloudBase token 或 Cookie。
+
+### 20.2 PDF
+
+网页端使用 PDF.js 在本地完成页面绘制、文字提取、段落选区和高亮；Android、HarmonyOS、iOS 应使用各自成熟的 PDF 组件实现同一个 `LocalDocumentAdapter`。把选中或提取的文本发送给 `/reader`，把需要持久化的文件与结果交给 `/files` 和 `/library`。PDF 解析结果不是账号权威数据，无需复制到另一套后端。
+
+### 20.3 地图与定位
+
+系统定位必须由用户授权，建议只保存在内存并设置短有效期。客户端可以把新鲜坐标作为 `/chat` 的 `current_location` 或路线起点；服务端负责地点歧义、真实路线、费用与交通方式。地图 SDK 只负责底图、Marker、Polyline、缩放和视口动画。
+
+路线展示应读取 `route.legs[].sections[]`：城市概览、推荐地点之间的路段和每段交通方式均来自服务端。客户端可以随缩放级别切换总览、路段和细分 Section，但不能重新计算一条与服务端不同的路线后冒充 Floris 结果。
+
+## 21. 错误、重试与幂等
+
+| 状态 | 客户端处理 |
+| --- | --- |
+| `400` | 请求字段错误；保留用户输入并显示可理解提示 |
+| `401` | 尝试一次 Provider Session 恢复和 Bearer 交换 |
+| `403 LOGIN_REQUIRED` | 打开登录入口；不要把它显示成 Skill 安装错误 |
+| `403 SKILL_DISABLED` / 权益错误 | 保留基础回答或当前页面，提示可选能力状态 |
+| `404` | 刷新对应列表；不要继续使用本地旧对象 |
+| `409` | 重新读取 Workspace/文件状态，不盲目重放副作用 |
+| `413` | 在客户端压缩或选择更小文件；服务端限制不能绕过 |
+| `429` | 尊重 `Retry-After`，采用指数退避 |
+| `5xx` / 网络异常 | 读取请求可退避重试；生成和写入请求先核对服务端状态 |
+
+客户端为每次用户发送生成稳定 `client_message_id`。同一 UI 动作在网络不确定时不要换 ID 自动重发。Action 使用服务端 `action.id + version`；信号使用稳定 `dedup_key`；上传使用一次性 `upload_id/storage_key`。这些标识都不包含用户 ID、租户 ID或密钥。
+
+## 22. 跨端功能对齐验收清单
+
+一个新客户端只有通过以下项目，才可以声称与网页端功能对齐：
+
+- [ ] 游客可以聊天；不可用 Skill 自动降级且正文不被技术提示替代。
+- [ ] CloudBase 登录可以恢复，Bearer 过期只刷新一次，退出后不会串账号缓存。
+- [ ] 会话列表、消息、搜索来源、图片和卡片刷新后可以从服务端恢复。
+- [ ] SSE 正文、来源、媒体和组件可交错流式渲染，计时不会重置。
+- [ ] 图片只在 `source_id/source_url` 一致时插入对应来源附近。
+- [ ] 澄清卡、地图卡、日程卡、会议卡和图片卡按 `action.id/version/status` 更新。
+- [ ] 日程编辑、确认、取消和冲突处理全部走 `/workspace`。
+- [ ] 地图使用 `/places` 与 `/routes`，能展示跨城、城市内和多交通方式 Section。
+- [ ] 论文搜索、保存、分片下载、阅读、助读和结果保存全部可用。
+- [ ] Skills 能分类展示、启禁用、配置依赖、导入文本/文件/仓库、保存私有状态和显式提交审核。
+- [ ] 头像上传、头像本地缓存和个人资料更新不会泄露预签名 URL 或跨账号显示。
+- [ ] 主动提醒、记忆、搜索/地图偏好和使用量可以读取与修改。
+- [ ] 清理应用数据时保留个人资料和头像，并在执行前显示明确范围。
+- [ ] 未知 SSE 事件和新增可选字段不会导致崩溃；未知组件保留正文降级。
+
+推荐把这份清单做成每个平台的自动化 Contract Test，并让测试读取同一份 OpenAPI 与 JSON Schema，而不是复制一份平台私有 DTO 规范。

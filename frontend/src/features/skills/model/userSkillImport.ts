@@ -1,5 +1,4 @@
 import type { UserSkillRecord } from './types';
-import { requestRaw } from '../../../shared/transport/httpClient';
 import { translate } from '../../../i18n';
 
 export type UserSkillDraft = Pick<
@@ -8,12 +7,6 @@ export type UserSkillDraft = Pick<
 >;
 
 const MAX_INSTRUCTIONS = 12_000;
-const PUBLIC_SKILL_HOSTS = new Set([
-  'github.com',
-  'gitlab.com',
-  'raw.githubusercontent.com',
-]);
-
 function textMetadata(text: string): Record<string, string> {
   const match = text.match(/^---\s*\n([\s\S]*?)\n---(?:\s*\n|$)/);
   if (!match) return {};
@@ -97,45 +90,5 @@ export async function readUserSkillFolder(files: FileList): Promise<UserSkillDra
   return parseUserSkillText(await skillFile.text(), {
     fallbackName: rootName,
     sourceType: 'folder',
-  });
-}
-
-export function publicSkillMarkdownUrl(value: string): string {
-  const url = new URL(String(value || '').trim());
-  if (url.protocol !== 'https:' || !PUBLIC_SKILL_HOSTS.has(url.hostname)) {
-    throw new Error(translate('skillRepositoryUrlInvalid'));
-  }
-  if (url.hostname === 'raw.githubusercontent.com') return url.toString();
-  const parts = url.pathname.split('/').filter(Boolean);
-  if (url.hostname === 'github.com') {
-    if (parts.length < 2) throw new Error(translate('skillGitHubUrlInvalid'));
-    const [owner, repo] = parts;
-    if (parts[2] === 'blob' && parts.length >= 5) {
-      return `https://raw.githubusercontent.com/${owner}/${repo}/${parts[3]}/${parts.slice(4).join('/')}`;
-    }
-    if (parts[2] === 'tree' && parts.length >= 4) {
-      return `https://raw.githubusercontent.com/${owner}/${repo}/${parts[3]}/${parts.slice(4).concat('SKILL.md').join('/')}`;
-    }
-    return `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/SKILL.md`;
-  }
-  const marker = parts.indexOf('-');
-  if (marker >= 2 && parts[marker + 1] === 'raw') return url.toString();
-  if (parts.length < 2) throw new Error(translate('skillGitLabUrlInvalid'));
-  return `https://gitlab.com/${parts[0]}/${parts[1]}/-/raw/HEAD/SKILL.md`;
-}
-
-export async function readUserSkillUrl(value: string): Promise<UserSkillDraft> {
-  const markdownUrl = publicSkillMarkdownUrl(value);
-  const response = await requestRaw(markdownUrl, {
-    credentials: 'omit',
-    headers: { Accept: 'text/markdown,text/plain;q=0.9' },
-    redirect: 'follow',
-  }, false);
-  if (!response.ok) throw new Error(translate('skillManifestReadFailed', { status: response.status }));
-  const text = await response.text();
-  return parseUserSkillText(text, {
-    fallbackName: fallbackName(new URL(value).pathname),
-    sourceType: 'url',
-    sourceUrl: value,
   });
 }

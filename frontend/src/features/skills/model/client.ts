@@ -1,4 +1,4 @@
-import { requestJson } from '../../../shared/transport/httpClient';
+import { HttpClientError, requestJson } from '../../../shared/transport/httpClient';
 import { requestRaw } from '../../../shared/transport/httpClient';
 import type {
   SkillMarketplaceState,
@@ -6,6 +6,7 @@ import type {
   UserSkillRecord,
 } from './types';
 import { translate } from '../../../i18n';
+import type { UserSkillDraft } from './userSkillImport';
 
 
 export const routes = Object.freeze(['/skill_marketplace', '/skill-uploads']);
@@ -70,6 +71,36 @@ export async function listSkillUploads(): Promise<SkillUploadRecord[]> {
   );
   if (!Array.isArray(data.uploads)) throw new Error(translate('skillUploadsUnavailable'));
   return data.uploads;
+}
+
+export async function resolveUserSkillUrl(sourceUrl: string): Promise<UserSkillDraft> {
+  try {
+    const data = await requestJson<{ skill?: UserSkillDraft }>(
+      '/skill-uploads',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operation: 'resolve_url', source_url: sourceUrl }),
+      },
+    );
+    if (!data.skill) throw new Error(translate('skillManifestReadFailed', { status: 502 }));
+    return data.skill;
+  } catch (error) {
+    if (error instanceof HttpClientError) {
+      const code = String((error.body as { code?: unknown } | null)?.code || '');
+      if (code === 'SKILL_SOURCE_INVALID') {
+        throw new Error(translate('skillRepositoryUrlInvalid'));
+      }
+      if (code === 'SKILL_SOURCE_EMPTY') {
+        throw new Error(translate('skillInstructionsEmpty'));
+      }
+      if (code === 'SKILL_SOURCE_TOO_LARGE') {
+        throw new Error(translate('skillInstructionsTooLong', { count: 12_000 }));
+      }
+      throw new Error(translate('skillManifestReadFailed', { status: error.status }));
+    }
+    throw error;
+  }
 }
 
 export async function uploadPrivateSkillPackage(file: File): Promise<SkillUploadRecord> {
