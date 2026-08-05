@@ -16,7 +16,7 @@ enum class StringKey {
     PaintingUnderstand, PaintingCompose, PaintingDetail, PaintingReveal, PaintingWait,
     // 主动提醒
     Reminders, NoReminders, RefreshReminders, HandleSuggestion, Later, Ignore,
-    RemindLaterAt, ReminderOperationFailed,
+    RemindLaterAt, ReminderOperationFailed, NotificationChannelName, NotificationChannelDescription,
     // 游客与退出
     LoginAsGuest, GuestBadge, GuestUpgradeHint, ExitConfirmToast,
     LoginOr, GuestSignInCta, GuestProfileNotice,
@@ -254,6 +254,8 @@ object Strings {
             "操作失败，请稍后重试", "操作失敗，請稍後重試", "Action failed. Please try again",
             "没成功呢，再试一次喵", "操作失败，请稍后重试",
         )
+        put(StringKey.NotificationChannelName, "Floris 主动提醒", "Floris 主動提醒", "Floris reminders", "Floris 小提醒", "Floris 提醒")
+        put(StringKey.NotificationChannelDescription, "日程、任务和出行提醒", "日程、任務和出行提醒", "Schedule, task and travel reminders", "日程、任务和出门提醒喵", "日程、任务和出行提醒")
 
         // ---- 游客与退出 ----
         put(StringKey.LoginAsGuest, "先以游客身份体验", "先以訪客身分體驗", "Continue as guest", "先当游客逛逛喵", "以游客身份体验")

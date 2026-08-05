@@ -39,7 +39,14 @@ fun AppContainer.profileViewModelFactory() = factory {
         authManager = authManager,
         strings = strings,
         // 主动提醒同时推到系统通知栏——移动端相对网页端的优势。
-        notifier = { items -> ProactiveNotifier.notifyAll(appContext, items) },
+        notifier = { items ->
+            ProactiveNotifier.notifyAll(
+                appContext,
+                items,
+                strings.get(com.floris.android.ui.prefs.StringKey.NotificationChannelName),
+                strings.get(com.floris.android.ui.prefs.StringKey.NotificationChannelDescription),
+            )
+        },
     )
 }
 fun AppContainer.settingsViewModelFactory() =

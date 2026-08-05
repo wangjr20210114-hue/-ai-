@@ -28,15 +28,15 @@ object ProactiveNotifier {
     /** Stable private range avoids collisions with unrelated notification channels. */
     private const val ID_BASE = 41_000
 
-    fun ensureChannel(context: Context) {
+    fun ensureChannel(context: Context, name: String, descriptionText: String) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Floris reminders",
+            name,
             NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
-            description = "Schedule, task and travel reminders from Floris"
+            description = descriptionText
             setShowBadge(true)
         }
         manager.createNotificationChannel(channel)
@@ -51,9 +51,14 @@ object ProactiveNotifier {
     }
 
     /** Returns the number actually shown so callers can reconcile backend delivery state. */
-    fun notifyAll(context: Context, items: List<ProactiveNotification>): Int {
+    fun notifyAll(
+        context: Context,
+        items: List<ProactiveNotification>,
+        channelName: String,
+        channelDescription: String,
+    ): Int {
         if (items.isEmpty() || !hasPermission(context)) return 0
-        ensureChannel(context)
+        ensureChannel(context, channelName, channelDescription)
         val manager = NotificationManagerCompat.from(context)
         var pushed = 0
         items.forEachIndexed { index, item ->

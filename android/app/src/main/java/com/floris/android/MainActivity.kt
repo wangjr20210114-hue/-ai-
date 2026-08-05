@@ -46,7 +46,11 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { app.container.authManager.restore() }
 
         // 主动提醒要走系统通知栏，先建好渠道并按需申请权限。
-        ProactiveNotifier.ensureChannel(this)
+        ProactiveNotifier.ensureChannel(
+            this,
+            app.container.strings.get(StringKey.NotificationChannelName),
+            app.container.strings.get(StringKey.NotificationChannelDescription),
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             !ProactiveNotifier.hasPermission(this)
         ) {

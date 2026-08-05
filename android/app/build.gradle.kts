@@ -7,13 +7,26 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-fun localProperty(key: String): String {
-    val file = rootProject.file("local.properties")
-    if (!file.exists()) return ""
-    val props = Properties()
-    file.inputStream().use { props.load(it) }
-    return props.getProperty(key, "")
+fun propertyFile(file: File): Properties = Properties().apply {
+    if (file.exists()) file.inputStream().use(::load)
 }
+
+val localProperties = propertyFile(rootProject.file("local.properties"))
+val repositoryEnvironment = propertyFile(rootProject.file("../.env"))
+val frontendEnvironment = propertyFile(rootProject.file("../frontend/.env.edgeone"))
+
+/** Local override -> CI environment -> existing Maker/Web environment files. */
+fun configuredValue(localKey: String, vararg environmentKeys: String): String {
+    localProperties.getProperty(localKey)?.trim()?.takeIf(String::isNotEmpty)?.let { return it }
+    environmentKeys.forEach { key ->
+        System.getenv(key)?.trim()?.takeIf(String::isNotEmpty)?.let { return it }
+        repositoryEnvironment.getProperty(key)?.trim()?.takeIf(String::isNotEmpty)?.let { return it }
+        frontendEnvironment.getProperty(key)?.trim()?.takeIf(String::isNotEmpty)?.let { return it }
+    }
+    return ""
+}
+
+fun String.asBuildConfigString(): String = replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
     namespace = "com.floris.android"
@@ -38,9 +51,13 @@ android {
         buildConfigField(
             "String",
             "CLOUDBASE_PUBLISHABLE_KEY",
-            "\"${localProperty("cloudbasePublishableKey")}\"",
+            "\"${configuredValue("cloudbasePublishableKey", "CLOUDBASE_PUBLISHABLE_KEY", "VITE_CLOUDBASE_PUBLISHABLE_KEY").asBuildConfigString()}\"",
         )
-        buildConfigField("String", "TENCENT_MAP_KEY", "\"${localProperty("tencentMapKey")}\"")
+        buildConfigField(
+            "String",
+            "TENCENT_MAP_KEY",
+            "\"${configuredValue("tencentMapKey", "TENCENT_MAP_KEY", "VITE_TENCENT_MAP_KEY").asBuildConfigString()}\"",
+        )
     }
 
     buildTypes {

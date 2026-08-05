@@ -14,11 +14,11 @@ echo 'sdk.dir=<你的 Android SDK 路径>' > local.properties
 ./gradlew :app:assembleDebug
 ```
 
-可选配置（写入 `local.properties`）：
+配置优先级为 `local.properties` → CI 环境变量 → 仓库已有的本地 Maker/Web 环境文件（均不提交密钥）：
 
 | 键 | 用途 |
 |---|---|
-| `cloudbasePublishableKey` | CloudBase Auth Publishable Key（邮箱登录必需，见仓库根 `.env.edgeone` 的 `VITE_CLOUDBASE_PUBLISHABLE_KEY`） |
+| `cloudbasePublishableKey` | CloudBase Auth Publishable Key（邮箱登录必需；也读取 `CLOUDBASE_PUBLISHABLE_KEY` / `VITE_CLOUDBASE_PUBLISHABLE_KEY`） |
 | `tencentMapKey` | 腾讯地图 GL JS Key（开启地图页 WebView 渲染，可选） |
 
 ## 测试
