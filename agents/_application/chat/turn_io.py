@@ -11,6 +11,7 @@ from ..._application.workspace.service import (
     merge_public_action_snapshot,
 )
 from ..._application.i18n import text as copy_text
+from .turn_control import committed_checkpoint_messages, turn_projection
 
 
 def checkpoint_final_answer(snapshot) -> str:
@@ -116,7 +117,12 @@ def _field(value, name: str, default=None):
     return getattr(value, name, default)
 
 
-async def _recent_user_questions(store, conversation_id: str, current_message: str) -> list[str]:
+async def _recent_user_questions(
+    store,
+    conversation_id: str,
+    current_message: str,
+    run: dict | None = None,
+) -> list[str]:
     """Read a small, non-sensitive recent-question window off the answer path.
 
     This is only context for semantic proactive judgment. It is intentionally
@@ -142,6 +148,14 @@ async def _recent_user_questions(store, conversation_id: str, current_message: s
         role = str(_field(item, "role", "") or "").lower()
         if role not in {"user", "human"}:
             continue
+        metadata = _field(item, "metadata", {}) or {}
+        client_id = (
+            str(metadata.get("client_message_id") or "")
+            if isinstance(metadata, dict)
+            else ""
+        )
+        if turn_projection(run, client_id) in {"pending", "discarded"}:
+            continue
         content = _text_content(_field(item, "content", "")).replace("\x00", "").strip()
         if not content or content == current:
             continue
@@ -161,6 +175,7 @@ async def checkpoint_dialogue_context(
     current_message: str = "",
     *,
     limit: int = 8,
+    run: dict | None = None,
 ) -> list[dict[str, str]]:
     """Read a small visible dialogue slice for reference resolution.
 
@@ -184,7 +199,8 @@ async def checkpoint_dialogue_context(
     current = " ".join(str(current_message or "").split())
     output: list[dict[str, str]] = []
     total_chars = 0
-    for item in reversed(list(messages or [])):
+    committed_messages = committed_checkpoint_messages(messages or [], run)
+    for item in reversed(committed_messages):
         role = str(_field(item, "type", _field(item, "role", "")) or "").lower()
         if role not in {"human", "user", "ai", "assistant"}:
             continue

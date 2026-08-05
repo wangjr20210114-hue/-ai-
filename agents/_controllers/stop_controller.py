@@ -4,6 +4,51 @@ from .._infrastructure.makers.identity import require_user, scoped_conversation_
 from .._infrastructure.http import error
 from .._infrastructure.makers.conversation_repository import discard_chat_turn
 from .._application.i18n import normalize_language, text
+from .._application.intelligence.service import (
+    discard_turn_intelligence,
+    load_intelligence_state,
+    save_intelligence_state,
+)
+from .._infrastructure.makers.data_version import namespace as data_namespace
+from .._application.proactive.service import (
+    discard_proactive_source,
+    load_proactive_state,
+    save_proactive_state,
+)
+
+
+async def _discard_turn_derived_state(ctx, user_id: str, conversation_id: str, client_id: str) -> None:
+    """Remove optional state that may have raced an explicit stop request."""
+    store = getattr(ctx.store, "langgraph_store", None)
+    if store is None or not client_id:
+        return
+    try:
+        intelligence = await load_intelligence_state(store, user_id)
+        if discard_turn_intelligence(intelligence, client_id):
+            await save_intelligence_state(store, intelligence, user_id)
+        proactive = await load_proactive_state(store, user_id)
+        if discard_proactive_source(proactive, client_id):
+            await save_proactive_state(store, proactive, user_id)
+        namespace = data_namespace("message_meta", conversation_id)
+        item = await store.aget(namespace, "latest_extras")
+        value = (
+            item.get("value")
+            if isinstance(item, dict)
+            else getattr(item, "value", None)
+        )
+        if (
+            isinstance(value, dict)
+            and str(value.get("client_message_id") or "") == client_id
+        ):
+            if hasattr(store, "adelete"):
+                await store.adelete(namespace, "latest_extras")
+            else:
+                await store.aput(namespace, "latest_extras", {})
+    except Exception:
+        # Cancellation itself must remain available when an optional cleanup
+        # is temporarily unavailable on an older Maker store.
+        pass
+
 
 async def handler(ctx):
     identity = require_user(ctx)
@@ -19,6 +64,9 @@ async def handler(ctx):
         target,
         client_message_id=requested_client_id,
     )
+    resolved_client_id = str(
+        requested_client_id or stored.get("client_message_id") or ""
+    )
     # Active Makers runs are keyed by the incoming public conversation id.
     # Only abort when the requested client turn still owns that run; a delayed
     # offline cancellation must never kill the next queued turn.
@@ -26,6 +74,12 @@ async def handler(ctx):
         ctx.utils.abortActiveRun(raw_target)
         if active
         else None
+    )
+    await _discard_turn_derived_state(
+        ctx,
+        str(identity["user_id"]),
+        target,
+        resolved_client_id,
     )
     return {
         "status": (
@@ -37,5 +91,5 @@ async def handler(ctx):
         ),
         "conversation_id": raw_target,
         "run_id": getattr(result, "run_id", None) or stored.get("run_id") or None,
-        "client_message_id": requested_client_id or stored.get("client_message_id") or None,
+        "client_message_id": resolved_client_id or None,
     }

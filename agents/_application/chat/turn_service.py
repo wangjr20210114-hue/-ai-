@@ -145,6 +145,7 @@ async def _handle(ctx):
             diagnostics=diagnostics,
         )
     reference_images = admission.reference_images
+    admitted_run_state = admission.run_state
 
     current_beijing = datetime.now(timezone(timedelta(hours=8)))
     current_date = current_beijing.date().isoformat()
@@ -254,13 +255,17 @@ async def _handle(ctx):
         getattr(ctx.store, "langgraph_checkpointer", None),
         conversation_id,
         message,
+        run=admitted_run_state,
     )
     if silent_clarification:
         clarification_context, checkpoint_clarification, recent_dialogue = await asyncio.gather(
-            _recent_user_questions(ctx.store, conversation_id, message),
+            _recent_user_questions(
+                ctx.store, conversation_id, message, admitted_run_state,
+            ),
             checkpoint_clarification_state(
                 getattr(ctx.store, "langgraph_checkpointer", None),
                 conversation_id,
+                admitted_run_state,
             ),
             recent_dialogue_task,
         )
@@ -770,6 +775,9 @@ async def _handle(ctx):
                 **direct_paper_tool_arguments(capability_plan),
             },
             direct_answer=direct_public_answer,
+            discarded_client_message_ids=(
+                admitted_run_state.get("discarded_client_message_ids") or []
+            ),
         )
         return (
             graph,
@@ -862,7 +870,9 @@ async def _handle(ctx):
             )
             recent_questions_task = (
                 asyncio.create_task(
-                    _recent_user_questions(ctx.store, conversation_id, message)
+                    _recent_user_questions(
+                        ctx.store, conversation_id, message, admitted_run_state,
+                    )
                 )
                 if opportunity_enabled
                 else None

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Floris Client API",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "description": "The complete, platform-neutral client boundary shared by Web, Android, HarmonyOS and iOS. Every server-owned value displayed by a Floris client is delivered through an operation below or through the versioned SSE/component contracts. Authentication, tenant scoping, orchestration, provider calls and persistence remain server responsibilities."
   },
   "servers": [
@@ -15,6 +15,14 @@
     { "florisBearer": [] },
     { "browserSession": [] }
   ],
+  "x-floris-turn-control": {
+    "queue": "per_conversation_fifo",
+    "runtime_buffer": "maker_checkpoint_private_until_completed",
+    "commit_boundary": "run.status=completed",
+    "stop": "POST /stop with exact client_message_id",
+    "recovery": "POST /messages polls the same run and never creates a duplicate generation",
+    "cancelled_projection": "discard answer, sources, media, cards and derived memory"
+  },
   "tags": [
     { "name": "Session", "description": "Identity, login continuity and public account state" },
     { "name": "Profile", "description": "User-visible profile and avatar" },
@@ -373,7 +381,7 @@
       "post": {
         "operationId": "stopConversationRun",
         "tags": ["Chat"],
-        "summary": "Cancel the active Maker run",
+        "summary": "Cancel and permanently discard one exact Maker turn",
         "requestBody": {
           "required": true,
           "content": {

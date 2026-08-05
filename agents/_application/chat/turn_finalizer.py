@@ -12,6 +12,7 @@ from .turn_policy import empty_generation_error, run_cancelled
 from ...chat._followups import generate_followups
 from ..._application.intelligence.service import (
     apply_automatic_memory_candidates,
+    discard_turn_intelligence,
     load_intelligence_state,
     record_usage,
     save_intelligence_state,
@@ -21,6 +22,7 @@ from ..._application.proactive.opportunities import (
     opportunity_signal,
 )
 from ..._application.proactive.service import (
+    discard_proactive_source,
     load_proactive_state,
     process_schedule_signals,
     public_proactive_state,
@@ -105,6 +107,31 @@ class TurnFinalizer:
             if task is not None and not task.done():
                 task.cancel()
 
+    async def _discard_cancelled_derived_state(self) -> None:
+        source_id = str(self._body.get("client_message_id") or "")
+        if not source_id or self._ctx.store.langgraph_store is None:
+            return
+        intelligence = await load_intelligence_state(
+            self._ctx.store.langgraph_store,
+            self._user_id,
+        )
+        if discard_turn_intelligence(intelligence, source_id):
+            await save_intelligence_state(
+                self._ctx.store.langgraph_store,
+                intelligence,
+                self._user_id,
+            )
+        proactive = await load_proactive_state(
+            self._ctx.store.langgraph_store,
+            self._user_id,
+        )
+        if discard_proactive_source(proactive, source_id):
+            await save_proactive_state(
+                self._ctx.store.langgraph_store,
+                proactive,
+                self._user_id,
+            )
+
     async def _persist_answer_extras(
         self,
         answer: str,
@@ -136,22 +163,13 @@ class TurnFinalizer:
             },
         )
 
-    async def _publish_answer_completion(
+    async def _prepare_answer_completion(
         self,
         answer: str,
         *,
-        clarification_emitted: bool,
-        run_error: str,
         followups_task: asyncio.Task | None,
     ) -> list[str]:
-        for stage in ("synthesis", "finalizing", "complete"):
-            await self._queue.put(self._presenter.progress(stage, "completed"))
-        hints = self._experience_hints()
-        if hints:
-            await self._queue.put(self._presenter.experience_hints(hints))
-        # End the visible answer cursor before optional chips are generated.
-        await self._queue.put(self._presenter.done(self._run_id))
-
+        """Finish durable answer extras before exposing the commit marker."""
         follow_ups: list[str] = []
         if followups_task is not None:
             try:
@@ -167,13 +185,26 @@ class TurnFinalizer:
                 )
             except Exception as exc:
                 logging.warning("grounded follow-up generation failed: %s", exc)
-        if follow_ups:
-            await self._queue.put(self._presenter.follow_ups(follow_ups))
         try:
             await self._persist_answer_extras(answer, follow_ups)
         except Exception as exc:
             logging.warning("answer follow-up persistence failed: %s", exc)
         return follow_ups
+
+    async def _publish_answer_completion(
+        self,
+        *,
+        follow_ups: list[str],
+    ) -> None:
+        """Publish terminal UI events after the exact turn is committed."""
+        for stage in ("synthesis", "finalizing", "complete"):
+            await self._queue.put(self._presenter.progress(stage, "completed"))
+        hints = self._experience_hints()
+        if hints:
+            await self._queue.put(self._presenter.experience_hints(hints))
+        await self._queue.put(self._presenter.done(self._run_id))
+        if follow_ups:
+            await self._queue.put(self._presenter.follow_ups(follow_ups))
 
     async def _apply_optional_intelligence(self, answer: str) -> None:
         recent_questions: list[str] = []
@@ -229,6 +260,8 @@ class TurnFinalizer:
             opportunity = optional_results[result_index]
 
         if memory_candidates:
+            if await self._cancelled_now():
+                return
             intelligence = await load_intelligence_state(
                 self._ctx.store.langgraph_store,
                 self._user_id,
@@ -243,6 +276,9 @@ class TurnFinalizer:
                     intelligence,
                     self._user_id,
                 )
+                if await self._cancelled_now():
+                    await self._discard_cancelled_derived_state()
+                    return
         if opportunity and self._ctx.store.langgraph_store is not None:
             now = int(time.time())
             proactive_state = await load_proactive_state(
@@ -279,7 +315,7 @@ class TurnFinalizer:
         run_error: str,
         cancelled: bool,
         run_diagnostics: dict[str, Any],
-    ) -> None:
+    ) -> bool:
         latest_run = await read_chat_run(self._ctx.store, self._conversation_id)
         owns_run = not (
             isinstance(latest_run, dict)
@@ -302,6 +338,7 @@ class TurnFinalizer:
                 error=run_error,
                 diagnostics=run_diagnostics,
             )
+        return cancelled
 
     async def _persist_usage(self, usage: list[int]) -> None:
         if not any(usage):
@@ -344,11 +381,22 @@ class TurnFinalizer:
             "cancelled" if cancelled else "failed" if run_error else "completed"
         )
         followups_task: asyncio.Task | None = None
+        prepared_follow_ups: list[str] = []
+
+        async def discard_cancelled_turn() -> None:
+            nonlocal terminal_outcome
+            terminal_outcome = "cancelled"
+            self._cancel_optional_work()
+            try:
+                await self._discard_cancelled_derived_state()
+            except Exception as exc:
+                logging.warning("cancelled turn memory cleanup failed: %s", exc)
+            await self._finish_run("", True, {})
+            await self._persist_usage(usage)
+
         try:
             if cancelled:
-                self._cancel_optional_work()
-                await self._finish_run("", True, {})
-                await self._persist_usage(usage)
+                await discard_cancelled_turn()
                 return
             followups_task = (
                 asyncio.create_task(generate_followups(
@@ -386,43 +434,56 @@ class TurnFinalizer:
                 )
             cancelled = await self._cancelled_now()
             if cancelled:
-                terminal_outcome = "cancelled"
-                self._cancel_optional_work()
-                await self._finish_run("", True, {})
-                await self._persist_usage(usage)
+                await discard_cancelled_turn()
                 return
-            if answer and self._search_runner.latest_enriched_media:
-                try:
-                    await self._persist_answer_extras(answer)
-                except Exception as exc:
-                    logging.warning("answer media persistence failed: %s", exc)
-
-            if answer:
-                await self._publish_answer_completion(
-                    answer,
-                    clarification_emitted=clarification_emitted,
-                    run_error=run_error,
-                    followups_task=followups_task,
-                )
-            else:
+            if not answer:
                 for task in (self._memory_task, self._recent_questions_task):
                     if task is not None and not task.done():
                         task.cancel()
 
-            if answer and (
+            # Optional memory/opportunity work remains provisional until the
+            # exact turn is committed.  Stop is checked on both sides so a
+            # concurrent cancellation either prevents the write or rolls it
+            # back before the public completion boundary.
+            if answer and not run_error and (
                 self._memory_task is not None or self._opportunity_enabled
             ):
                 try:
                     await self._apply_optional_intelligence(answer)
                 except Exception as exc:
                     logging.warning("answer extras generation failed: %s", exc)
+            cancelled = await self._cancelled_now()
+            if cancelled:
+                await discard_cancelled_turn()
+                return
+            if answer and not run_error:
+                prepared_follow_ups = await self._prepare_answer_completion(
+                    answer,
+                    followups_task=followups_task,
+                )
+            cancelled = await self._cancelled_now()
+            if cancelled:
+                await discard_cancelled_turn()
+                return
             if pending_search_results is not None:
                 await self._queue.put(
                     self._presenter.sources(pending_search_results)
                 )
             if pending_papers is not None:
                 await self._queue.put(self._presenter.papers(pending_papers))
-            await self._finish_run(run_error, cancelled, run_diagnostics)
+            cancelled = await self._finish_run(
+                run_error, cancelled, run_diagnostics,
+            )
+            if cancelled:
+                await discard_cancelled_turn()
+                return
+            # ``completed`` is the atomic public commit marker.  The graph
+            # checkpoint may have buffered the full answer earlier, but no
+            # switch/reload/API client can see it before this point.
+            if answer:
+                await self._publish_answer_completion(
+                    follow_ups=prepared_follow_ups,
+                )
             await self._persist_usage(usage)
         except Exception:
             terminal_outcome = "failed"

@@ -9,6 +9,7 @@ import {
   resolveSearchStartAt,
   restoredConversationWasInterrupted,
   isConversationGenerationActive,
+  messagesForDurableCache,
   shouldPersistRenderedMessages,
   terminalGenerationError,
 } from './useChatController';
@@ -103,6 +104,16 @@ describe('chat transport ownership', () => {
   it('does not cache old rows under a newly selected conversation id', () => {
     expect(shouldPersistRenderedMessages('conversation-old', 'conversation-new')).toBe(false);
     expect(shouldPersistRenderedMessages('conversation-new', 'conversation-new')).toBe(true);
+  });
+
+  it('keeps streaming answer fragments out of the durable conversation cache', () => {
+    const rows: ChatMessage[] = [
+      { id: 'user', role: 'user', content: 'question', ts: 1 },
+      { id: 'partial', role: 'ai', content: 'must disappear', ts: 2, streaming: true },
+      { id: 'complete', role: 'ai', content: 'committed', ts: 3, streaming: false },
+    ];
+    expect(messagesForDurableCache(rows).map((item) => item.id))
+      .toEqual(['user', 'complete']);
   });
 
   it('does not let a stale historical stream lock restored action cards', () => {

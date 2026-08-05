@@ -59,6 +59,7 @@ class AdmittedTurn:
     current_location_context: str
     run_id: str
     reference_images: list[str]
+    run_state: dict[str, Any]
 
 
 async def admit_turn(ctx) -> tuple[AdmittedTurn | None, Any | None]:
@@ -201,4 +202,5 @@ async def admit_turn(ctx) -> tuple[AdmittedTurn | None, Any | None]:
         current_location_context=current_location_context,
         run_id=run_id,
         reference_images=reference_images,
+        run_state=admitted_run,
     ), None

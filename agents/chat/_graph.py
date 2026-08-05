@@ -20,6 +20,7 @@ from ._protocol import dsml_tool_calls, public_content
 from ._capability_plan import next_required_tool
 from ._llm import _is_quota_error, _is_transient_gateway_error
 from .._application.i18n import text
+from .._application.chat.turn_control import committed_checkpoint_messages
 
 
 # Tool payloads may be rendered directly when both synthesis passes fail, so a
@@ -132,6 +133,7 @@ def build_graph(
     public_system_prompt: str | None = None,
     planned_tool_arguments: dict[str, dict] | None = None,
     direct_answer: str = "",
+    discarded_client_message_ids: Iterable[str] | None = None,
 ):
     public_model = _tagged(
         public_answer_model or model,
@@ -148,8 +150,17 @@ def build_graph(
     tool_stage_prompts = dict(stage_system_prompts or {})
     final_system_prompt = public_system_prompt or system_prompt
     direct_tool_arguments = dict(planned_tool_arguments or {})
+    discarded_turns = {
+        str(value) for value in (discarded_client_message_ids or ()) if str(value)
+    }
+    history_run = {
+        "discarded_client_message_ids": list(discarded_turns),
+    }
 
     async def agent_node(state: MessagesState):
+        runtime_messages = committed_checkpoint_messages(
+            state["messages"], history_run,
+        )
         if direct_answer:
             return {"messages": [AIMessage(content=direct_answer)]}
         # The semantic LLM planner—not a keyword rule—decides that a disabled
@@ -170,7 +181,7 @@ def build_graph(
         required_tool_failed = False
         failed_required_tools: set[str] = set()
         retryable_required_failures: dict[str, int] = {}
-        for message in reversed(state["messages"]):
+        for message in reversed(runtime_messages):
             if getattr(message, "type", "") in {"human", "user"}:
                 # A structured-card answer is a continuation of the original
                 # logical turn, not a brand-new task. Reuse completed route,
@@ -291,7 +302,7 @@ def build_graph(
             ):
                 return {"messages": [AIMessage(content=route_only_answer)]}
             return {"messages": [AIMessage(content=(
-                tool_failure_fallback(state["messages"], response_language)
+                tool_failure_fallback(runtime_messages, response_language)
                 or text("chat.fallback.required_failed", response_language)
             ))]}
         # Current-location lookup has a fixed privacy-preserving presentation.
@@ -304,7 +315,7 @@ def build_graph(
             == {"get_current_location"}
         ):
             location_answer = tool_result_fallback(
-                state["messages"], response_language,
+                runtime_messages, response_language,
             )
             if location_answer:
                 return {"messages": [AIMessage(content=location_answer)]}
@@ -516,7 +527,7 @@ def build_graph(
             )
         history = flatten_completed_tools_for_model(
             compact_tool_results_for_model(
-                bounded_history(state["messages"]),
+                bounded_history(runtime_messages),
             ),
         )
         active_system_prompt = tool_stage_prompts.get(
@@ -681,9 +692,9 @@ def build_graph(
             ])
         if not getattr(response, "tool_calls", None) and not public_content(getattr(response, "content", "")).strip():
             fallback = (
-                action_completion_fallback(state["messages"], response_language)
-                or tool_failure_fallback(state["messages"], response_language)
-                or tool_result_fallback(state["messages"], response_language)
+                action_completion_fallback(runtime_messages, response_language)
+                or tool_failure_fallback(runtime_messages, response_language)
+                or tool_result_fallback(runtime_messages, response_language)
             )
             if fallback:
                 response = AIMessage(content=fallback)

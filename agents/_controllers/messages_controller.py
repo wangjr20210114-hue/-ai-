@@ -15,6 +15,7 @@ from .._infrastructure.http import error
 from .._infrastructure.makers.conversation_repository import public_chat_run, read_chat_run
 from ..chat._protocol import action_fallback_content, public_content
 from .._application.i18n import normalize_language, text
+from .._application.chat.turn_control import turn_projection
 
 
 def _value(item, key, default=None):
@@ -185,30 +186,22 @@ async def handler(ctx):
     pending_search_meta = None
     pending_papers = None
     pending_clarification = None
-    discarded_client_ids = {
-        str(value)
-        for value in (
-            run.get("discarded_client_message_ids", [])
-            if isinstance(run, dict)
-            else []
-        )
-        if str(value)
-    }
-    if (
-        isinstance(latest_extras, dict)
-        and str(latest_extras.get("client_message_id") or "")
-        in discarded_client_ids
-    ):
+    if isinstance(latest_extras, dict) and turn_projection(
+        run,
+        str(latest_extras.get("client_message_id") or ""),
+    ) in {"pending", "discarded"}:
         latest_extras = None
     suppress_turn_output = False
+    current_turn_projection = "legacy"
     for index, message in enumerate(stored_messages):
         message_type = str(_value(message, "type", _value(message, "role", "")))
         content = _text(_value(message, "content", ""))
         if message_type in {"human", "user"}:
             client_message_id = _client_message_id(message)
-            suppress_turn_output = bool(
-                client_message_id and client_message_id in discarded_client_ids
-            )
+            current_turn_projection = turn_projection(run, client_message_id)
+            suppress_turn_output = current_turn_projection in {
+                "pending", "discarded",
+            }
             if suppress_turn_output:
                 pending_actions = []
                 pending_search_meta = None
@@ -325,7 +318,7 @@ async def handler(ctx):
                 "content": content,
                 "ts": index,
             }
-        if role == "user" and suppress_turn_output:
+        if role == "user" and current_turn_projection == "discarded":
             restored["stopped"] = True
         if role == "user" and client_message_id:
             restored["client_message_id"] = client_message_id

@@ -37,6 +37,17 @@ export function shouldPersistRenderedMessages(
   return renderedConversationId === activeConversationId;
 }
 
+/** Select only rows that have crossed the server completion boundary. */
+export function messagesForDurableCache(messages: ChatMessage[]): ChatMessage[] {
+  return messages.filter((message) => (
+    !message.failed
+    && (
+      message.role === 'user'
+      || (hasDurableAssistantPayload(message) && message.streaming !== true)
+    )
+  ));
+}
+
 /**
  * Only the live edge can own an active generation.
  *

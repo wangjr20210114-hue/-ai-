@@ -1,7 +1,5 @@
 import {
-  bootstrapApp,
   openChatTurn,
-  requestConversationStop,
   touchConversationIndex,
 } from '../model/client';
 import type { MakersChatRun } from '../model';
@@ -13,6 +11,10 @@ import {
   requestBrowserLocationForChat,
 } from '../../../services/browserLocation';
 import { normalizeProgressEvent } from '../../search/model/progressModel';
+import {
+  TurnControlClient,
+  turnControlDelay,
+} from './turnControl';
 
 export const CLIENT_EVENT_TYPES = [
   'optimistic_user', 'clarification_submitted', 'stream_start', 'stream_delta',
@@ -34,10 +36,7 @@ export type ClientEvent = {
 
 const STREAM_IDLE_TIMEOUT_MS = 20_000;
 export const CHAT_INITIAL_RESPONSE_TIMEOUT_MS = 55_000;
-const STOP_TIMEOUT_MS = 4_000;
-const MANUAL_STOP_PREFIX = 'floris:manual-stop:';
 const TURN_QUEUE_PREFIX = 'floris:turn-queue:';
-const RECOVERY_POLL_MS = 2_000;
 
 type TurnMessage = { type?: string; payload?: Record<string, unknown> };
 
@@ -63,20 +62,6 @@ function readTurnQueue(conversationId: string): TurnMessage[] {
   }
 }
 
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal?.aborted) {
-      resolve();
-      return;
-    }
-    const timer = window.setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
-      window.clearTimeout(timer);
-      resolve();
-    }, { once: true });
-  });
-}
-
 function recoverableTransportError(error: unknown, watchdogTriggered: boolean): boolean {
   const value = error as { name?: unknown; message?: unknown };
   return watchdogTriggered
@@ -99,45 +84,6 @@ export function locationRetryMessage(
   };
   delete payload.client_message;
   return { type: message.type, payload };
-}
-
-function manualStopKey(conversationId: string): string {
-  return `${MANUAL_STOP_PREFIX}${conversationId}`;
-}
-
-export function readManualStopIntent(conversationId: string): boolean {
-  try {
-    return Boolean(window.sessionStorage.getItem(manualStopKey(conversationId)));
-  } catch {
-    return false;
-  }
-}
-
-export function readManualStopClientMessageId(conversationId: string): string {
-  try {
-    const value = window.sessionStorage.getItem(manualStopKey(conversationId)) || '';
-    return value === '1' ? '' : value;
-  } catch {
-    return '';
-  }
-}
-
-function writeManualStopIntent(
-  conversationId: string,
-  stopped: boolean,
-  clientMessageId = '',
-): void {
-  try {
-    if (stopped) {
-      window.sessionStorage.setItem(
-        manualStopKey(conversationId),
-        clientMessageId || '1',
-      );
-    }
-    else window.sessionStorage.removeItem(manualStopKey(conversationId));
-  } catch {
-    // In-memory state below still protects this tab when storage is disabled.
-  }
 }
 
 export function terminalGenerationError(error: unknown, timedOut = false): string {
@@ -186,21 +132,17 @@ function responseError(data: unknown, fallback: string): string {
 export class SSEChatClient {
   private controller: AbortController | null = null;
   private listeners = new Set<(message: ClientEvent) => void>();
-  private manualStopIntent: boolean;
-  private manualStopClientMessageId: string;
+  private readonly turnControl: TurnControlClient;
   private pending: TurnMessage[];
   private ready = false;
   private closed = false;
   private draining = false;
-  private cancellationRetryTimer: number | undefined;
-  private cancellationOnlineListener: (() => void) | undefined;
   private explicitlyStoppedTurns = new Set<string>();
   private activeClientMessageId = '';
   private activeStreamId = '';
 
   constructor(private readonly conversationId: string) {
-    this.manualStopIntent = readManualStopIntent(conversationId);
-    this.manualStopClientMessageId = readManualStopClientMessageId(conversationId);
+    this.turnControl = new TurnControlClient(conversationId);
     this.pending = readTurnQueue(conversationId);
   }
 
@@ -224,12 +166,6 @@ export class SSEChatClient {
     }
   }
 
-  private setManualStopIntent(stopped: boolean, clientMessageId = '') {
-    this.manualStopIntent = stopped;
-    this.manualStopClientMessageId = stopped ? clientMessageId : '';
-    writeManualStopIntent(this.conversationId, stopped, clientMessageId);
-  }
-
   private emit(message: ClientEvent) {
     for (const listener of this.listeners) listener(message);
   }
@@ -242,9 +178,9 @@ export class SSEChatClient {
   connect(run?: MakersChatRun | null, restoredStreamId = '') {
     this.closed = false;
     this.ready = true;
-    if (this.manualStopIntent && (this.manualStopClientMessageId || run)) {
+    if (this.turnControl.hasStopIntent && (this.turnControl.stopClientMessageId || run)) {
       const stoppedClientMessageId = (
-        this.manualStopClientMessageId || String(run?.client_message_id || '')
+        this.turnControl.stopClientMessageId || String(run?.client_message_id || '')
       );
       this.activeClientMessageId = stoppedClientMessageId;
       this.activeStreamId = restoredStreamId || `ai-recover-${run?.run_id || Date.now()}`;
@@ -291,83 +227,31 @@ export class SSEChatClient {
     return Boolean(this.controller);
   }
 
-  private clearCancellationRetry() {
-    if (this.cancellationRetryTimer) {
-      window.clearTimeout(this.cancellationRetryTimer);
-      this.cancellationRetryTimer = undefined;
+  private cancellationConfirmed(clientId: string, onConfirmed?: () => void) {
+    if (this.activeClientMessageId === clientId) {
+      this.activeClientMessageId = '';
+      this.activeStreamId = '';
     }
-    if (this.cancellationOnlineListener) {
-      window.removeEventListener('online', this.cancellationOnlineListener);
-      this.cancellationOnlineListener = undefined;
-    }
-  }
-
-  private async attemptMakerCancellation(clientId: string): Promise<boolean> {
-    const stopController = new AbortController();
-    const stopTimer = window.setTimeout(() => stopController.abort(), STOP_TIMEOUT_MS);
-    try {
-      const response = await requestConversationStop(
-        this.conversationId,
-        clientId,
-        stopController.signal,
-      );
-      return response.ok;
-    } catch {
-      return false;
-    } finally {
-      window.clearTimeout(stopTimer);
-    }
-  }
-
-  private cancellationConfirmed(onConfirmed?: () => void) {
-    this.clearCancellationRetry();
-    this.setManualStopIntent(false);
-    this.activeClientMessageId = '';
-    this.activeStreamId = '';
     if (onConfirmed) onConfirmed();
     else void this.drain();
-  }
-
-  private scheduleCancellationRetry(clientId: string, onConfirmed?: () => void) {
-    this.clearCancellationRetry();
-    const retry = () => {
-      if (this.closed) return;
-      void this.attemptMakerCancellation(clientId).then((confirmed) => {
-        if (confirmed) {
-          this.cancellationConfirmed(onConfirmed);
-          return;
-        }
-        this.scheduleCancellationRetry(clientId, onConfirmed);
-      });
-    };
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      this.cancellationOnlineListener = retry;
-      window.addEventListener('online', retry, { once: true });
-    } else {
-      this.cancellationRetryTimer = window.setTimeout(retry, RECOVERY_POLL_MS);
-    }
   }
 
   private async cancelMakerRun(
     clientId: string,
     onConfirmed?: () => void,
   ): Promise<'confirmed' | 'local'> {
-    if (await this.attemptMakerCancellation(clientId)) {
-      this.cancellationConfirmed(onConfirmed);
-      return 'confirmed';
-    }
-    // Retry only the cancellation when connectivity returns. Later queued
-    // turns remain safe because the server targets this exact client id.
-    this.scheduleCancellationRetry(clientId, onConfirmed);
-    void this.drain();
-    return 'local';
+    const outcome = await this.turnControl.stop(
+      clientId,
+      () => this.cancellationConfirmed(clientId, onConfirmed),
+    );
+    return outcome;
   }
 
   async stop(): Promise<'confirmed' | 'local'> {
     // Record intent before aborting the transport. The durable local marker is
     // cleared only after the server confirms its cancellation tombstone.
     this.explicitlyStoppedTurns.add(this.activeClientMessageId);
-    this.setManualStopIntent(true, this.activeClientMessageId);
+    this.turnControl.markStopped(this.activeClientMessageId);
     this.controller?.abort();
     this.emit({
       type: 'stop_requested',
@@ -403,6 +287,9 @@ export class SSEChatClient {
     this.draining = true;
     try {
       while (this.ready && this.pending.length) {
+        // Messages remain accepted into the FIFO, but no successor reaches
+        // the server until the exact prior stop tombstone is confirmed.
+        if (this.turnControl.hasStopIntent) break;
         const message = this.pending.shift();
         this.persistQueue();
         if (message) await this.runTurn(message);
@@ -422,68 +309,32 @@ export class SSEChatClient {
       type: 'transport_recovering',
       payload: { id: streamId },
     });
-    let absentChecks = 0;
-    while (!this.closed && !recoveryController.signal.aborted && !this.manualStopIntent) {
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        await delay(RECOVERY_POLL_MS, recoveryController.signal);
-        continue;
-      }
-      try {
-        const data = await bootstrapApp(this.conversationId, {
-          strict: true,
-          timeoutMs: 8_000,
-          signal: recoveryController.signal,
-        });
-        const run = data.run;
-        const sameTurn = Boolean(
-          run
-          && (
-            !expectedClientMessageId
-            || run.client_message_id === expectedClientMessageId
-          )
-        );
-        if (sameTurn && (run?.status === 'running' || run?.status === 'cancel_requested')) {
-          absentChecks = 0;
-          await delay(RECOVERY_POLL_MS, recoveryController.signal);
-          continue;
-        }
-        if (sameTurn && run?.status === 'completed') {
-          this.emit({
-            type: 'recovery_snapshot',
-            payload: { id: streamId, data },
-          });
-          return 'completed';
-        }
-        if (sameTurn && run?.status === 'cancelled') {
-          this.emit({
-            type: 'stop_requested',
-            payload: { id: streamId, client_message_id: expectedClientMessageId },
-          });
-          return 'cancelled';
-        }
-        if (sameTurn && run?.status === 'failed') {
-          this.emit({
-            type: 'error',
-            payload: {
-              id: streamId,
-              message: String(run.error || translate('generationFailedRetry')),
-            },
-          });
-          return 'failed';
-        }
-        if (run?.status === 'running' || run?.status === 'cancel_requested') {
-          await delay(RECOVERY_POLL_MS, recoveryController.signal);
-          continue;
-        }
-        absentChecks += 1;
-        if (absentChecks >= 2) return 'not_admitted';
-      } catch {
-        // Connectivity recovery reads the existing Maker checkpoint. It never
-        // creates another model run, and quietly waits while still offline.
-      }
-      await delay(RECOVERY_POLL_MS, recoveryController.signal);
+    const recovery = await this.turnControl.recover(
+      expectedClientMessageId,
+      recoveryController.signal,
+    );
+    if (recovery.outcome === 'completed' && recovery.data) {
+      this.emit({
+        type: 'recovery_snapshot',
+        payload: { id: streamId, data: recovery.data },
+      });
+    } else if (recovery.outcome === 'cancelled') {
+      this.emit({
+        type: 'stop_requested',
+        payload: { id: streamId, client_message_id: expectedClientMessageId },
+      });
+    } else if (recovery.outcome === 'failed') {
+      this.emit({
+        type: 'error',
+        payload: {
+          id: streamId,
+          message: String(
+            recovery.run?.error || translate('generationFailedRetry')
+          ),
+        },
+      });
     }
-    return 'cancelled';
+    return recovery.outcome;
   }
 
   private async recoverExistingRun(clientId: string, streamId: string) {
@@ -499,14 +350,9 @@ export class SSEChatClient {
   }
 
   private async runTurn(message: TurnMessage) {
-
-    // The FIFO normally resumes only after cancellation is confirmed. Keep the
-    // legacy allow marker for older run metadata, then clear it for this turn.
-    const allowAfterStop = this.manualStopIntent;
-    this.setManualStopIntent(false);
+    const currentClientMessageId = clientMessageId(message);
     this.controller = new AbortController();
     const signal = this.controller.signal;
-    const currentClientMessageId = clientMessageId(message);
     const streamId = `ai-stream-${Date.now()}-${currentClientMessageId || 'turn'}`;
     this.activeClientMessageId = currentClientMessageId;
     this.activeStreamId = streamId;
@@ -567,7 +413,6 @@ export class SSEChatClient {
           ...(message.payload || {}),
           ...(browserLocation ? { current_location: browserLocation } : {}),
           location_request: locationRequest,
-          ...(allowAfterStop ? { _allow_after_stop: true } : {}),
         },
         signal,
       );
@@ -576,7 +421,7 @@ export class SSEChatClient {
       // has already produced an HTTP response, deliberate cancellation stays
       // silent and must never be interpreted as a retryable busy response.
       if (
-        this.manualStopIntent
+        this.turnControl.isStopped(currentClientMessageId)
         || this.explicitlyStoppedTurns.has(currentClientMessageId)
       ) {
         finish();
@@ -594,7 +439,7 @@ export class SSEChatClient {
             });
           }
           finish();
-          await delay(RECOVERY_POLL_MS, signal);
+          await turnControlDelay(2_000, signal);
           return;
         }
         let detail = `HTTP ${response.status}`;
@@ -830,7 +675,10 @@ export class SSEChatClient {
       this.explicitlyStoppedTurns.delete(currentClientMessageId);
       this.activeClientMessageId = '';
       this.activeStreamId = '';
-      if (locationRetryRequested && !this.manualStopIntent) {
+      if (
+        locationRetryRequested
+        && !this.turnControl.isStopped(currentClientMessageId)
+      ) {
         void this.send(locationRetryMessage(message));
       }
     }
@@ -843,6 +691,6 @@ export class SSEChatClient {
     this.controller = null;
     this.ready = false;
     this.closed = true;
-    this.clearCancellationRetry();
+    this.turnControl.close();
   }
 }

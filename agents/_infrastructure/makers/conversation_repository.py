@@ -17,7 +17,10 @@ RUN_METADATA_KEY = "yuanbao_chat_run_v1"
 RUNNING_STATES = {"running", "cancel_requested"}
 TERMINAL_STATES = {"completed", "failed", "cancelled"}
 STALE_AFTER_SECONDS = 35 * 60
-DISCARDED_TURN_LIMIT = 40
+# `/messages` restores at most the product's bounded recent transcript.  Keep
+# more tombstones than that window so a stopped turn cannot reappear after many
+# later cancellations, while remaining comfortably inside Maker metadata.
+DISCARDED_TURN_LIMIT = 120
 
 
 def conversation_title(content: str, response_language: object = "zh-CN") -> str:

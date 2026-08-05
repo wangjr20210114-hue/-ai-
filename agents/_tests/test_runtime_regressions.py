@@ -28,6 +28,12 @@ from agents.stop.index import handler as stop_handler
 from agents._controllers.system_controller import _expected_tick_after
 from agents._application.chat.turn_policy import run_cancelled
 from agents._application.chat.turn_finalizer import TurnFinalizer
+from agents._application.intelligence.service import (
+    apply_automatic_memory_candidates,
+    empty_intelligence_state,
+    load_intelligence_state,
+    save_intelligence_state,
+)
 from agents._infrastructure.makers.identity import scoped_conversation_id
 from agents._tests.auth_helpers import TEST_USER_ID, authenticated_context
 from agents._tests.auth_helpers import authenticated_namespace
@@ -240,6 +246,45 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["status"], "aborted")
         self.assertEqual((await read_chat_run(store, physical_id))["status"], "cancelled")
 
+    async def test_stop_removes_memory_that_raced_terminal_generation(self):
+        store = FakeConversationStore()
+        store.langgraph_store = FakeStore()
+        physical_id = scoped_conversation_id(
+            SimpleNamespace(), TEST_USER_ID, "conversation-memory-stop",
+        )
+        await write_chat_run(
+            store,
+            physical_id,
+            run_id="run-memory",
+            status="running",
+            client_message_id="client-memory",
+        )
+        intelligence = empty_intelligence_state()
+        apply_automatic_memory_candidates(intelligence, [{
+            "key": "preference.travel",
+            "value": "night clubs",
+            "confidence": 0.95,
+            "ttl_days": 180,
+        }], source_message_id="client-memory")
+        await save_intelligence_state(
+            store.langgraph_store, intelligence, TEST_USER_ID,
+        )
+        ctx = authenticated_context(SimpleNamespace(
+            env={},
+            store=store,
+            request=SimpleNamespace(body={
+                "conversation_id": "conversation-memory-stop",
+                "client_message_id": "client-memory",
+            }, headers={}),
+            utils=SimpleNamespace(abortActiveRun=lambda _target: None),
+        ))
+        response = await stop_handler(ctx)
+        restored = await load_intelligence_state(
+            store.langgraph_store, TEST_USER_ID,
+        )
+        self.assertEqual(response["status"], "aborted")
+        self.assertEqual(restored["memories"], {})
+
     async def test_delayed_stop_tombstone_never_cancels_the_next_turn(self):
         store = FakeConversationStore()
         await write_chat_run(
@@ -336,6 +381,40 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(restored[0]["stopped"])
         self.assertNotIn("clarification", restored[0])
+
+    async def test_running_checkpoint_answer_is_only_a_private_turn_buffer(self):
+        client_id = "client-running"
+        messages = [
+            HumanMessage(
+                content="question",
+                additional_kwargs={"floris_client_message_id": client_id},
+                id="u-running",
+            ),
+            AIMessage(content="buffered answer must stay private", id="a-running"),
+        ]
+
+        class Store:
+            def __init__(self):
+                self.langgraph_checkpointer = FakeCheckpointer(messages)
+                self.langgraph_store = WorkspaceFakeStore()
+
+            async def get_conversation(self, **_values):
+                return {"metadata": {"yuanbao_chat_run_v1": {
+                    "run_id": "run-active",
+                    "client_message_id": client_id,
+                    "status": "running",
+                    "discarded_client_message_ids": [],
+                }}}
+
+        response = await messages_handler(authenticated_namespace(
+            conversation_id="restore-running", store=Store(),
+        ))
+        self.assertEqual(
+            [(item["role"], item["content"]) for item in response["messages"]],
+            [("user", "question")],
+        )
+        self.assertNotIn("stopped", response["messages"][0])
+        self.assertEqual(response["run"]["status"], "running")
 
     def test_chat_producer_honors_both_makers_stop_states(self):
         self.assertTrue(run_cancelled({"status": "cancel_requested"}))

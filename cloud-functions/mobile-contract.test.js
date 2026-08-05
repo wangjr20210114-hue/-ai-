@@ -62,7 +62,9 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
     text('frontend/public/contracts/mobile-client-v1.md'),
   ]);
   assert.equal(api.openapi, '3.1.0');
-  assert.equal(api.info.version, '1.5.0');
+  assert.equal(api.info.version, '1.6.0');
+  assert.equal(api['x-floris-turn-control'].commit_boundary, 'run.status=completed');
+  assert.match(api['x-floris-turn-control'].runtime_buffer, /private_until_completed/);
   assert.ok(api.paths['/auth/mobile/session']);
   assert.ok(api.paths['/chat'].post.responses['200']['x-floris-event-schema']);
   assert.ok(api.paths['/reader'].post.responses['200']['x-floris-event-schema']);

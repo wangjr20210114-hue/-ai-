@@ -12,9 +12,11 @@ import {
   mergeProgressStep,
 } from '../../search/model/progressModel';
 import { mergeSearchMeta, resolveSearchStartAt } from '../../search/model/searchRuntime';
-import { readManualStopClientMessageId, readManualStopIntent, SSEChatClient } from './chatTransport';
+import { SSEChatClient } from './chatTransport';
+import { readManualStopClientMessageId, readManualStopIntent } from './turnControl';
 import {
   actionOnlyFallback,
+  messagesForDurableCache,
   shouldPersistRenderedMessages,
 } from './chatRuntimeModel';
 
@@ -23,13 +25,13 @@ export {
   canStartChatTransport,
   locationRetryMessage,
   progressTextForTool,
-  readManualStopClientMessageId,
-  readManualStopIntent,
   terminalGenerationError,
 } from './chatTransport';
+export { readManualStopClientMessageId, readManualStopIntent } from './turnControl';
 export {
   actionOnlyFallback,
   isConversationGenerationActive,
+  messagesForDurableCache,
   shouldPersistRenderedMessages,
 } from './chatRuntimeModel';
 export { restoredConversationWasInterrupted } from './chatRuntimeModel';
@@ -47,7 +49,10 @@ function readMessageCache(conversationId: string): ChatMessage[] {
 }
 
 function writeMessageCache(conversationId: string, messages: ChatMessage[]) {
-  const durable = messages.filter(isDurableChatMessage);
+  // Live assistant deltas are a presentation buffer.  Persist only after the
+  // server emits the terminal completion boundary, otherwise a conversation
+  // switch can resurrect text that the user deliberately stopped.
+  const durable = messagesForDurableCache(messages);
   try { localStorage.setItem(`${MESSAGE_CACHE_PREFIX}${conversationId}`, JSON.stringify(durable.slice(-60))); }
   catch { /* Remote checkpoints remain the durable fallback. */ }
 }

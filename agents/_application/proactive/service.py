@@ -303,6 +303,78 @@ async def save_proactive_state(
     return saved
 
 
+def discard_proactive_source(state: dict[str, Any], source_id: str) -> int:
+    """Remove semantic opportunity state derived from one stopped chat turn."""
+    source = str(source_id or "").strip()
+    if not source:
+        return 0
+    events = state.setdefault("events", {})
+    event_ids = {
+        str(event_id)
+        for event_id, event in events.items()
+        if isinstance(event, dict)
+        and str(event.get("source") or "") == "semantic_opportunity"
+        and (
+            source in {str(value) for value in (event.get("subject_ids") or [])}
+            or str(
+                ((event.get("payload") or {}).get("evidence") or {}).get(
+                    "source_id"
+                )
+                if isinstance(event.get("payload"), dict)
+                else ""
+            ) == source
+        )
+    }
+    if not event_ids:
+        checkpoint = state.setdefault("checkpoints", {}).get(
+            "semantic_opportunity"
+        )
+        if (
+            isinstance(checkpoint, dict)
+            and str(checkpoint.get("source_id") or "") == source
+        ):
+            state["checkpoints"].pop("semantic_opportunity", None)
+            return 1
+        return 0
+    run_ids = {
+        str(run_id)
+        for run_id, run in state.setdefault("runs", {}).items()
+        if isinstance(run, dict) and str(run.get("event_id") or "") in event_ids
+    }
+    notification_ids = {
+        str(notification_id)
+        for notification_id, notification in state.setdefault(
+            "notifications", {}
+        ).items()
+        if isinstance(notification, dict)
+        and str(notification.get("event_id") or "") in event_ids
+    }
+    for event_id in event_ids:
+        events.pop(event_id, None)
+    for run_id in run_ids:
+        state["runs"].pop(run_id, None)
+    for notification_id in notification_ids:
+        state["notifications"].pop(notification_id, None)
+    state["reminder_window"] = [
+        value for value in (state.get("reminder_window") or [])
+        if str(value) not in notification_ids
+    ]
+    state["observations"] = [
+        item for item in (state.get("observations") or [])
+        if not isinstance(item, dict)
+        or str(item.get("run_id") or "") not in run_ids
+    ]
+    checkpoint = state.setdefault("checkpoints", {}).get(
+        "semantic_opportunity"
+    )
+    if (
+        isinstance(checkpoint, dict)
+        and str(checkpoint.get("source_id") or "") == source
+    ):
+        state["checkpoints"].pop("semantic_opportunity", None)
+    return len(event_ids) + len(run_ids) + len(notification_ids)
+
+
 def _observation(state: dict[str, Any], run_id: str, status: str, step: str, now: int, **payload: Any) -> None:
     state.setdefault("observations", []).append({
         "id": f"obs_{uuid.uuid4().hex}",

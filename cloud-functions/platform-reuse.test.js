@@ -433,21 +433,22 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
   assert.match(active, /useChatController/);
   assert.doesNotMatch(active, /useSSEChat/);
   assert.doesNotMatch(active, /AuthGate|loginAppSession|registerAppSession/);
-  const [chatClient, chatModel] = await Promise.all([
+  const [chatClient, chatModel, turnControl] = await Promise.all([
     read('frontend/src/features/chat/controller/chatTransport.ts'),
     read('frontend/src/features/chat/model/client.ts'),
+    read('frontend/src/features/chat/controller/turnControl.ts'),
   ]);
   assert.match(
-    chatClient,
-    /requestConversationStop\(\s*this\.conversationId,\s*clientId/,
+    turnControl,
+    /requestConversationStop\(\s*this\.conversationId,\s*clientMessageId/,
   );
   const stopRequest = chatModel.match(
     /export function requestConversationStop[\s\S]*?authorizedFetch\('\/stop'[\s\S]*?body: JSON\.stringify/,
   );
   assert.ok(stopRequest);
   assert.doesNotMatch(stopRequest[0], /makersConversationHeaders/);
-  const recovery = chatClient.match(
-    /private async recoverActiveRun[\s\S]*?private async recoverExistingRun/,
+  const recovery = turnControl.match(
+    /async recover\([\s\S]*?\n  close\(\)/,
   );
   assert.ok(recovery, 'network recovery must reattach to the Maker checkpoint');
   assert.match(recovery[0], /bootstrapApp\(this\.conversationId/);

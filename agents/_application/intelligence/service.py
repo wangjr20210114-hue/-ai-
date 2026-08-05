@@ -732,14 +732,25 @@ def apply_automatic_memory_candidates(
         encoded_old = json.dumps((current or {}).get("value"), ensure_ascii=False, sort_keys=True, default=str)
         if isinstance(current, dict):
             history = list(current.get("history") or [])
-            if encoded_new != encoded_old:
+            source_changed = bool(
+                source_message_id
+                and str(current.get("source_message_id") or "")
+                != str(source_message_id)
+            )
+            if encoded_new != encoded_old or source_changed:
                 history.append({
                     "version": int(current.get("version") or 1),
                     "value": copy.deepcopy(current.get("value")),
                     "sensitivity": "normal",
+                    "source": current.get("source") or "automatic",
                     "source_message_id": current.get("source_message_id") or "",
                     "updated_at": int(current.get("updated_at") or timestamp),
+                    "confidence": float(current.get("confidence") or 0),
+                    "use_count": int(current.get("use_count") or 0),
+                    "last_used_at": int(current.get("last_used_at") or 0),
+                    "expires_at": int(current.get("expires_at") or 0),
                 })
+            if encoded_new != encoded_old:
                 current["value"] = copy.deepcopy(value)
                 current["version"] = int(current.get("version") or 1) + 1
             current.update({
@@ -773,6 +784,75 @@ def apply_automatic_memory_candidates(
             }
         changed += 1
     prune_automatic_memories(state, timestamp)
+    return changed
+
+
+def discard_turn_intelligence(
+    state: dict[str, Any], source_message_id: str,
+) -> int:
+    """Rollback automatic memory written by an explicitly stopped turn.
+
+    Stop can race terminal optional work.  Every automatic upsert therefore
+    retains the previous snapshot, allowing the stop endpoint and finalizer to
+    converge on the same clean state without deleting an older user memory.
+    """
+    source_id = str(source_message_id or "").strip()
+    if not source_id:
+        return 0
+    changed = 0
+    proposals = state.setdefault("memory_proposals", {})
+    for proposal_id, proposal in list(proposals.items()):
+        if (
+            isinstance(proposal, dict)
+            and str(proposal.get("source_message_id") or "") == source_id
+        ):
+            proposals.pop(proposal_id, None)
+            changed += 1
+    memories = state.setdefault("memories", {})
+    for memory_id, memory in list(memories.items()):
+        if not isinstance(memory, dict):
+            continue
+        history = [
+            copy.deepcopy(item)
+            for item in (memory.get("history") or [])
+            if isinstance(item, dict)
+        ]
+        if str(memory.get("source_message_id") or "") == source_id:
+            previous = next((
+                item for item in reversed(history)
+                if str(item.get("source_message_id") or "") != source_id
+            ), None)
+            if previous is None:
+                memories.pop(memory_id, None)
+            else:
+                memory.update({
+                    "value": copy.deepcopy(previous.get("value")),
+                    "sensitivity": previous.get("sensitivity") or "normal",
+                    "source": previous.get("source") or "automatic",
+                    "source_message_id": str(
+                        previous.get("source_message_id") or ""
+                    ),
+                    "version": int(previous.get("version") or 1),
+                    "confidence": float(previous.get("confidence") or 0),
+                    "use_count": int(previous.get("use_count") or 0),
+                    "last_used_at": int(previous.get("last_used_at") or 0),
+                    "expires_at": int(previous.get("expires_at") or 0),
+                    "updated_at": int(previous.get("updated_at") or 0),
+                    "history": [
+                        item for item in history
+                        if item is not previous
+                        and str(item.get("source_message_id") or "") != source_id
+                    ][-20:],
+                })
+            changed += 1
+            continue
+        filtered_history = [
+            item for item in history
+            if str(item.get("source_message_id") or "") != source_id
+        ]
+        if len(filtered_history) != len(history):
+            memory["history"] = filtered_history[-20:]
+            changed += 1
     return changed
 
 

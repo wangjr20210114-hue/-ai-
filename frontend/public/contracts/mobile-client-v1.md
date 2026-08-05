@@ -258,6 +258,8 @@ curl -X POST "$BASE/conversations" \
 
 取消并彻底丢弃当前生成。`client_message_id` 用于防止断网后延迟到达的停止请求误伤下一轮。
 
+`POST /stop` 与网络恢复是两个不同操作：停止会永久丢弃该轮的正文、来源、图片、卡片和派生记忆，不创建提示卡，也不得被恢复逻辑重新拉起；网络恢复只通过 `POST /messages` 查询同一个 Maker run，不新建第二次生成。
+
 ```bash
 curl -X POST "$BASE/stop" \
   -H "Authorization: Bearer $TOKEN" \
@@ -706,7 +708,7 @@ type 流式渲染；未知事件忽略，未知组件保留正文。搜索图片
 | --- | --- | --- |
 | 身份、会员、权益 | `/auth/session` 或移动 Bearer | 缓存只用于启动占位，最终必须服从服务端 |
 | 会话列表 | `/conversations` | 本地保存最近列表用于瞬时启动，联网后合并并以服务端为准 |
-| 消息、来源、图片、卡片 | `/messages` 与 `/chat` SSE | 保留未完成的流式临时行；恢复后按服务端消息和 Action ID 合并 |
+| 消息、来源、图片、卡片 | `/messages` 与 `/chat` SSE | 未完成流式行只保存在运行内存，不写本地持久缓存；恢复后按服务端消息和 Action ID 合并 |
 | 搜索来源与媒体 | `search_results`、`search_media` | 只能按 `source_id` 合并；不能猜测、重排来源绑定 |
 | 日程、地图、路线、图片版本 | `/workspace` | 可以做视图排序和动画；不能自行把待确认 Action 标成成功 |
 | 个人资料与头像 | `/profile` | 可保存头像的本地二进制缓存，资料更新以服务端响应为准 |
@@ -775,8 +777,10 @@ ping/usage            update liveness/diagnostics; do not render as answer
 - `follow_ups` 通常在 `answer_complete` 之后、`[DONE]` 之前到达；客户端不能在正文完成时提前销毁当前消息 Reducer。
 - 同一 `action.id` 只渲染一张卡；后到的版本覆盖旧版本。
 - 收到未知事件时忽略该事件并继续读流。
-- 网络裸 EOF 且没有 `[DONE]` 视为异常终止，不自动重新生成。
+- 网络裸 EOF 且没有 `[DONE]` 时自动查询并恢复同一个 Maker run，但不自动新建或重复生成。
 - 用户点击停止时先中断本地读取，再调用 `/stop`；页面刷新只断开页面，不应自动取消服务端任务。
+
+服务端把 LangGraph 检查点视为运行态暂存。只有 `run.status=completed` 后，当前回答才会一次性进入 `/messages` 的正式投影和后续模型上下文；`running`、`cancel_requested`、`failed` 或 `cancelled` 的回答片段都不能跨会话切换、刷新或客户端同步边界。客户端可以实时渲染 SSE，但必须在内存中维护临时行，收到停止后直接删除。
 
 ## 19. 公开操作表
 

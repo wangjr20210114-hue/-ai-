@@ -6,6 +6,7 @@ import copy
 import re
 
 from ..i18n import normalize_language, text
+from .turn_control import committed_checkpoint_messages
 
 
 def _field(value, name: str, default=None):
@@ -62,6 +63,7 @@ def clarification_response_answers(body: dict) -> list[dict]:
 async def checkpoint_clarification_state(
     checkpointer,
     conversation_id: str,
+    run: dict | None = None,
 ) -> dict:
     """Recover answers and unfinished machine protocol in one checkpoint read."""
     empty = {"answer_texts": [], "answers": [], "resume": {}}
@@ -87,7 +89,7 @@ async def checkpoint_clarification_state(
     answer_texts: list[str] = []
     structured_answer_groups: list[list[dict]] = []
     resume: dict = {}
-    for item in reversed(list(messages or [])):
+    for item in reversed(committed_checkpoint_messages(messages or [], run)):
         try:
             role = str(
                 _field(item, "type", _field(item, "role", "")) or ""

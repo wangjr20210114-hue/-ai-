@@ -2,7 +2,7 @@
   "schema_version": 1,
   "source": "agents/_tests/test_workspace.py",
   "source_sha256": "55a2e1cad82c63e578ff4089138d03b313fd073aa481f25af1f2ef4e16fb9011",
-  "test_count": 266,
+  "test_count": 270,
   "tests": [
     "test_calendar_compaction_preserves_frozen_timeline_facts",
     "test_route_continuation_treats_explicit_origin_as_departure",
@@ -270,7 +270,10 @@
     "test_cloudflare_flux_uses_official_image_schema",
     "test_cloudflare_img2img_uses_official_byte_array_reference",
     "test_cloudflare_img2img_retries_base64_for_legacy_rest_gateway",
-    "test_cloudflare_img2img_retries_when_schema_error_uses_http_200_envelope"
+    "test_cloudflare_img2img_retries_when_schema_error_uses_http_200_envelope",
+    "test_stopped_turn_rolls_back_automatic_memory_without_deleting_prior_value",
+    "test_stopped_turn_removes_a_new_automatic_memory",
+    "test_stopped_turn_removes_its_semantic_opportunity_projection"
   ],
   "routing": {
     "test_calendar_compaction_preserves_frozen_timeline_facts": "maps/routes/core",
@@ -539,6 +542,9 @@
     "test_cloudflare_flux_uses_official_image_schema": "search/media",
     "test_cloudflare_img2img_uses_official_byte_array_reference": "search/media",
     "test_cloudflare_img2img_retries_base64_for_legacy_rest_gateway": "search/media",
-    "test_cloudflare_img2img_retries_when_schema_error_uses_http_200_envelope": "search/media"
+    "test_cloudflare_img2img_retries_when_schema_error_uses_http_200_envelope": "search/media",
+    "test_stopped_turn_rolls_back_automatic_memory_without_deleting_prior_value": "proactive/memory",
+    "test_stopped_turn_removes_a_new_automatic_memory": "proactive/memory",
+    "test_stopped_turn_removes_its_semantic_opportunity_projection": "proactive/memory"
   }
 }
