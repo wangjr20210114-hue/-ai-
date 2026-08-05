@@ -37,7 +37,7 @@ Android 只做按账号隔离的系统通知投递和本地去重。
 
 ```
 core/
-  auth/        CloudBaseAuthApi（GoTrue 兼容 OTP/refresh）、AuthManager、TokenStore(DataStore)
+  auth/        CloudBaseAuthApi（GoTrue 兼容 OTP/refresh）、AuthManager、TokenStore（Keystore 凭据 + DataStore 元数据）
   network/     FlorisApi(Retrofit)、FlorisClient(OkHttp SSE)、sse/(SseParser、ChatEventDispatcher)
   data/        FlorisRepository（纯转发，零业务逻辑）
   chat/        SSE → UI reducer、活动请求/等待队列持久化、严格来源图片绑定
@@ -52,6 +52,7 @@ ui/
 - 所有业务请求携带 `Authorization: Bearer <floris token>` 与稳定的 `makers-conversation-id`。
 - 所有 JSON 指令由网络 Adapter 统一补充当前 `response_language`。
 - Floris Bearer 1 小时有效；401 时由 OkHttp Authenticator 自动刷新 CloudBase 并重新交换（仅重试一次）。
+- CloudBase refresh token 与 Floris Bearer 使用 Android Keystore 的 AES-GCM 密钥加密；旧版 DataStore 明文会一次性迁移并删除，应用私有数据不参与系统备份或跨设备迁移。
 - `POST /chat` 按空行切分 SSE 帧，按 `type` 分发；未知事件忽略，未知组件降级为文本。
 - 刷新或切回对话通过 `/messages` + `/run` 恢复同一个 Maker run，不重新请求普通模型。
 - 富搜索来源与媒体按 ID 增量合并；图片只按审核后的确定性 `source_id` 绑定显示，没有兜底图。

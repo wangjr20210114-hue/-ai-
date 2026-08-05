@@ -33,6 +33,8 @@ class TokenStore(
     private val context: Context,
     private val json: Json,
 ) : TokenStorage {
+    private val credentials = SecureCredentialStore(context)
+
     private object Keys {
         val CB_ACCESS = stringPreferencesKey("cloudbase_access_token")
         val CB_REFRESH = stringPreferencesKey("cloudbase_refresh_token")
@@ -63,18 +65,22 @@ class TokenStore(
 
     override suspend fun load(): Snapshot {
         val prefs = context.authDataStore.data.first()
+        migrateLegacyCredentials(prefs)
         val identity = prefs[Keys.IDENTITY]?.let {
             runCatching { json.decodeFromString(Identity.serializer(), it) }.getOrNull()
         }
+        val cloudBaseAccess = credentials.read(SecureCredentialStore.CLOUD_BASE_ACCESS)
+        val cloudBaseRefresh = credentials.read(SecureCredentialStore.CLOUD_BASE_REFRESH)
+        val florisToken = credentials.read(SecureCredentialStore.FLORIS_BEARER)
         cacheMutex.withLock {
-            cachedFlorisToken = prefs[Keys.FLORIS_TOKEN]
+            cachedFlorisToken = florisToken
             cachedFlorisExpiry = prefs[Keys.FLORIS_EXPIRES_AT] ?: 0
         }
         return Snapshot(
-            cloudBaseAccessToken = prefs[Keys.CB_ACCESS],
-            cloudBaseRefreshToken = prefs[Keys.CB_REFRESH],
+            cloudBaseAccessToken = cloudBaseAccess,
+            cloudBaseRefreshToken = cloudBaseRefresh,
             cloudBaseExpiresAt = prefs[Keys.CB_EXPIRES_AT] ?: 0,
-            florisToken = prefs[Keys.FLORIS_TOKEN],
+            florisToken = florisToken,
             florisExpiresAt = prefs[Keys.FLORIS_EXPIRES_AT] ?: 0,
             identity = identity,
             isGuest = prefs[Keys.IS_GUEST] == "1",
@@ -82,10 +88,13 @@ class TokenStore(
     }
 
     override suspend fun saveCloudBaseSession(accessToken: String, refreshToken: String, expiresAt: Long) {
+        credentials.write(SecureCredentialStore.CLOUD_BASE_ACCESS, accessToken)
+        if (refreshToken.isNotEmpty()) {
+            credentials.write(SecureCredentialStore.CLOUD_BASE_REFRESH, refreshToken)
+        }
         context.authDataStore.edit {
-            it[Keys.CB_ACCESS] = accessToken
-            if (refreshToken.isNotEmpty()) it[Keys.CB_REFRESH] = refreshToken
             it[Keys.CB_EXPIRES_AT] = expiresAt
+            removeLegacyCredentials(it)
         }
     }
 
@@ -95,11 +104,12 @@ class TokenStore(
             cachedFlorisToken = token
             cachedFlorisExpiry = expiresAt
         }
+        credentials.write(SecureCredentialStore.FLORIS_BEARER, token)
         context.authDataStore.edit {
-            it[Keys.FLORIS_TOKEN] = token
             it[Keys.FLORIS_EXPIRES_AT] = expiresAt
             it[Keys.IS_GUEST] = "0"
             identity?.let { id -> it[Keys.IDENTITY] = json.encodeToString(Identity.serializer(), id) }
+            removeLegacyCredentials(it)
         }
     }
 
@@ -112,14 +122,15 @@ class TokenStore(
             cachedFlorisToken = token
             cachedFlorisExpiry = expiresAt
         }
+        credentials.write(SecureCredentialStore.FLORIS_BEARER, token)
+        credentials.remove(SecureCredentialStore.CLOUD_BASE_ACCESS)
+        credentials.remove(SecureCredentialStore.CLOUD_BASE_REFRESH)
         context.authDataStore.edit {
-            it[Keys.FLORIS_TOKEN] = token
             it[Keys.FLORIS_EXPIRES_AT] = expiresAt
             it[Keys.IS_GUEST] = "1"
-            it.remove(Keys.CB_ACCESS)
-            it.remove(Keys.CB_REFRESH)
             it.remove(Keys.CB_EXPIRES_AT)
             identity?.let { id -> it[Keys.IDENTITY] = json.encodeToString(Identity.serializer(), id) }
+            removeLegacyCredentials(it)
         }
     }
 
@@ -168,7 +179,35 @@ class TokenStore(
             cachedFlorisToken = null
             cachedFlorisExpiry = 0
         }
+        credentials.clear()
         context.authDataStore.edit { it.clear() }
+    }
+
+    /** One-time, lossless migration from pre-Keystore Android builds. */
+    private suspend fun migrateLegacyCredentials(
+        prefs: androidx.datastore.preferences.core.Preferences,
+    ) {
+        val legacy = listOf(
+            Triple(Keys.CB_ACCESS, SecureCredentialStore.CLOUD_BASE_ACCESS, prefs[Keys.CB_ACCESS]),
+            Triple(Keys.CB_REFRESH, SecureCredentialStore.CLOUD_BASE_REFRESH, prefs[Keys.CB_REFRESH]),
+            Triple(Keys.FLORIS_TOKEN, SecureCredentialStore.FLORIS_BEARER, prefs[Keys.FLORIS_TOKEN]),
+        )
+        legacy.forEach { (_, secureKey, value) ->
+            if (!value.isNullOrEmpty() && credentials.read(secureKey).isNullOrEmpty()) {
+                credentials.write(secureKey, value)
+            }
+        }
+        if (legacy.any { (_, _, value) -> value != null }) {
+            context.authDataStore.edit(::removeLegacyCredentials)
+        }
+    }
+
+    private fun removeLegacyCredentials(
+        prefs: androidx.datastore.preferences.core.MutablePreferences,
+    ) {
+        prefs.remove(Keys.CB_ACCESS)
+        prefs.remove(Keys.CB_REFRESH)
+        prefs.remove(Keys.FLORIS_TOKEN)
     }
 
     companion object {
