@@ -32,7 +32,12 @@ import retrofit2.Retrofit
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class ApiException(val status: Int, message: String) : IOException(message)
+class ApiException(
+    val status: Int,
+    val code: String? = null,
+    val serverMessage: String? = null,
+    val requestPath: String? = null,
+) : IOException("Floris request failed: ${requestPath ?: "unknown"} ($status${code?.let { ", $it" }.orEmpty()})")
 
 /**
  * Single entry point for everything that talks to the Floris Maker backend.
@@ -138,20 +143,20 @@ class FlorisClient(
     suspend fun obtainGuestSession(): GuestSession {
         val response = api.guestSession()
         if (!response.isSuccessful) {
-            throw ApiException(response.code(), "游客会话获取失败 (${response.code()})")
+            throw ApiException(status = response.code(), requestPath = "auth/session")
         }
         val cookies = response.headers().values("Set-Cookie")
         val raw = cookies.firstNotNullOfOrNull { header ->
             header.split(';').firstOrNull()?.trim()?.takeIf { it.startsWith("$SESSION_COOKIE=") }
                 ?.substringAfter('=')
-        } ?: throw ApiException(response.code(), "游客会话未返回凭证")
+        } ?: throw ApiException(status = response.code(), code = "MISSING_SESSION_TOKEN", requestPath = "auth/session")
         val token = runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
         val maxAgeSeconds = cookies.firstNotNullOfOrNull { header ->
             Regex("Max-Age=(\\d+)", RegexOption.IGNORE_CASE).find(header)?.groupValues?.get(1)?.toLongOrNull()
         } ?: GUEST_FALLBACK_TTL_SECONDS
         val identity = response.body()?.get("identity")?.let { element ->
             runCatching { json.decodeFromJsonElement(Identity.serializer(), element) }.getOrNull()
-        } ?: Identity(auth_type = "guest", membership = "guest", display_name = "游客")
+        } ?: Identity(auth_type = "guest", membership = "guest")
         return GuestSession(
             token = token,
             expiresAt = System.currentTimeMillis() + maxAgeSeconds * 1000,
@@ -178,7 +183,7 @@ class FlorisClient(
             .build()
         blobClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw ApiException(response.code, "Blob upload failed (${response.code})")
+                throw ApiException(status = response.code, requestPath = "files/blob")
             }
         }
     }
@@ -197,8 +202,7 @@ class FlorisClient(
                     (obj["content"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty(),
                 )
                 "error_message" -> ReaderChunk.Error(
-                    (obj["content"] as? kotlinx.serialization.json.JsonPrimitive)?.content
-                        ?: "阅读失败",
+                    (obj["content"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty(),
                 )
                 else -> {
                     // Non-SSE JSON fallback: {"content": "..."}
@@ -226,12 +230,12 @@ class FlorisClient(
                 val detail = runCatching { response.body?.string().orEmpty() }.getOrDefault("")
                 val status = response.code
                 response.close()
-                close(ApiException(status, friendlyMessage(status, detail, path)))
+                close(parseApiException(status, detail, path))
                 return@callbackFlow
             }
             val source = response.body?.source() ?: run {
                 response.close()
-                close(ApiException(response.code, "Empty $path stream"))
+                close(ApiException(status = response.code, code = "EMPTY_STREAM", requestPath = path))
                 return@callbackFlow
             }
             var buffer = ""
@@ -267,31 +271,19 @@ class FlorisClient(
 
     private fun String.ensureTrailingSlash(): String = if (endsWith("/")) this else "$this/"
 
-    /**
-     * 把后端错误翻译成用户看得懂的话。后端对游客越权会返回 403 +
-     * `{"error":"...","code":"LOGIN_REQUIRED"}`，不能一律显示成"网络错误"。
-     */
-    private fun friendlyMessage(status: Int, detail: String, path: String): String {
-        val serverMessage = runCatching {
-            (json.parseToJsonElement(detail) as? JsonObject)?.let { obj ->
-                (obj["error"] ?: obj["message"])
-                    ?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
-            }
-        }.getOrNull()
-        val code = runCatching {
-            (json.parseToJsonElement(detail) as? JsonObject)
-                ?.get("code")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
-        }.getOrNull()
-        return when {
-            code == "LOGIN_REQUIRED" -> serverMessage ?: "请先登录后再使用此功能"
-            code == "MEMBERSHIP_REQUIRED" -> serverMessage ?: "当前会员等级无法使用此功能"
-            status == 401 -> "登录状态已失效，请重新登录"
-            status == 403 -> serverMessage ?: "该功能需要登录后使用"
-            status == 429 -> serverMessage ?: "请求过于频繁，请稍后再试"
-            status >= 500 -> "服务暂时不可用，请稍后重试"
-            !serverMessage.isNullOrBlank() -> serverMessage
-            else -> "$path 请求失败（$status）"
-        }
+    /** Preserve machine-readable server context; UI adapters localize it. */
+    private fun parseApiException(status: Int, detail: String, path: String): ApiException {
+        val payload = runCatching { json.parseToJsonElement(detail) as? JsonObject }.getOrNull()
+        val code = payload?.get("code")
+            ?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+        val serverMessage = (payload?.get("error") ?: payload?.get("message"))
+            ?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+        return ApiException(
+            status = status,
+            code = code,
+            serverMessage = serverMessage,
+            requestPath = path,
+        )
     }
 
     private companion object {

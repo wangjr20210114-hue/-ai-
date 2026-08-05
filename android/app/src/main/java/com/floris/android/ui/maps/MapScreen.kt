@@ -5,6 +5,8 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -342,13 +345,32 @@ private fun RouteCard(route: RoutePlan, planning: Boolean) {
                         )
                     }
                 }
-                val modes = leg.sections.map { it.mode }.ifEmpty { listOfNotNull(leg.mode) }
+                val sections = leg.sections
                 Row(
-                    Modifier.padding(start = 30.dp, top = 5.dp),
+                    Modifier.padding(start = 30.dp, top = 7.dp)
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    modes.distinct().forEach { mode ->
-                        StatusChip(routeModeLabel(mode), routeModeColor(mode))
+                    if (sections.isEmpty()) {
+                        leg.mode?.let { mode ->
+                            StatusChip(routeModeLabel(mode), routeModeColor(mode))
+                        }
+                    } else sections.forEachIndexed { sectionIndex, section ->
+                        StatusChip(
+                            section.line?.takeIf { it.isNotBlank() }
+                                ?: section.vehicle?.takeIf { it.isNotBlank() }
+                                ?: routeModeLabel(section.mode),
+                            routeModeColor(section.mode),
+                        )
+                        if (sectionIndex < sections.lastIndex) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                modifier = Modifier.size(13.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -358,8 +380,8 @@ private fun RouteCard(route: RoutePlan, planning: Boolean) {
 
 @Composable
 private fun routeModeColor(mode: String): Color = when (mode) {
-    "rail" -> MaterialTheme.colorScheme.secondary
-    "bus", "transit" -> MaterialTheme.colorScheme.tertiary
+    "rail", "train" -> MaterialTheme.colorScheme.secondary
+    "bus", "transit", "subway", "metro" -> MaterialTheme.colorScheme.tertiary
     "bicycling" -> Color(0xFF2F8B68)
     "walking" -> MaterialTheme.colorScheme.onSurfaceVariant
     else -> MaterialTheme.colorScheme.primary

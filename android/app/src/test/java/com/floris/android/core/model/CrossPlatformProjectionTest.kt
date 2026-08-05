@@ -66,4 +66,28 @@ class CrossPlatformProjectionTest {
 
         assertEquals(listOf("walking", "bus", "bicycling"), route.legs.single().sections.map { it.mode })
     }
+
+    @Test
+    fun `skill marketplace consumes the Maker component API instead of a client copy`() {
+        val state = json.decodeFromString(
+            SkillMarketplaceState.serializer(),
+            """
+            {"skills":[],"component_api":{"version":"2026-08-04","actions":[{
+              "id":"calendar.change.propose","category":"calendar",
+              "name":{"zh-CN":"提交日程变更","en":"Propose calendar changes"},
+              "description":"Create a calendar proposal",
+              "description_i18n":{"zh-CN":"提交日程变更提案"},
+              "permission":"components.calendar",
+              "input":{"changes":"calendar-change[]","warnings":"string[]"},
+              "required":["changes"]
+            }]},"future_marketplace_field":true}
+            """.trimIndent(),
+        )
+
+        val action = state.component_api!!.actions.single()
+        assertEquals("2026-08-04", state.component_api.version)
+        assertEquals("calendar.change.propose", action.id)
+        assertEquals(listOf("changes"), action.required)
+        assertEquals("calendar-change[]", action.input["changes"])
+    }
 }

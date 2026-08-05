@@ -42,7 +42,8 @@ enum class StringKey {
     TimeHoursAgo, TimeDaysAgo, ChatAddImage, ChatVoiceStart, ChatVoiceStop, ChatVoiceUnavailable,
     ImageEditHint, ImageEditAction, ImageOriginal, ImageUpdated, ImagePrompt,
     ChatRestoreFailed, ChatConnectionInterrupted, ChatGenerationFailed,
-    ChatImageFailed, OperationFailed,
+    ChatImageFailed, OperationFailed, NetworkUnavailable, SessionExpired,
+    LoginRequired, MembershipRequired, TooManyRequests, ServiceUnavailable,
     // 新手介绍
     OnboardingWelcomeTitle, OnboardingOwners, OnboardingGithubWelcome, OnboardingIntroOffer,
     OnboardingStart, OnboardingSkip, OnboardingNewConversation, OnboardingHistory,
@@ -63,7 +64,8 @@ enum class StringKey {
     SkillsConnection, SkillsConnectionToken, SkillsConnect, SkillsConnected, SkillsDisconnect,
     SkillsMarketFailed, SkillsEmptyTitle, SkillsEmptyBody, SkillsOperationFailed,
     SkillsImportFailed, SkillsSubmitFailed, SkillsConnectFailed, SkillsDisconnectFailed,
-    SkillsOfficial,
+    SkillsOfficial, SkillsComponentApiHint, SkillsComponentApiVersion,
+    SkillsComponentApiParameters, SkillsComponentApiExample,
     // 日程
     CalendarTitle, CalendarToday, CalendarDayEmpty, CalendarEmptyTitle, CalendarEmptyBody,
     CalendarAdd, CalendarEdit, CalendarDelete, CalendarEventTitle, CalendarLocation,
@@ -79,7 +81,7 @@ enum class StringKey {
     ReadingFolderDelete, ReadingAll, ReadingPaper, ReadingOpen, ReadingOpening,
     ReadingMove, ReadingAnalyze, ReadingAsk, ReadingAskHint, ReadingSaveResult,
     ReadingSearchFailed, ReadingSaveFailed, ReadingDeleteFailed, ReadingOperationFailed,
-    ReadingOpenFailed, ReadingRunFailed,
+    ReadingOpenFailed, ReadingRunFailed, ReadingUntitledDocument, ReadingUntitledFolder,
     // 地图
     MapTitle, MapSearchHint, MapPlaces, MapRoute, MapEmptyTitle, MapEmptyBody, MapShowOnMap,
     MapNamedRoute, DurationHoursMinutes, DurationMinutes, MapSearchFailed,
@@ -103,7 +105,7 @@ enum class StringKey {
     SettingsMapFast, SettingsMapBalanced, SettingsMapComplete, SettingsMapPlaceCount,
     SettingsMapRouteStops, SettingsMapTimeout, SettingsPreferredRoute,
     SettingsRouteStrategy, SettingsNearTolerance, SettingsLearnRoute,
-    RouteDriving, RouteTransit, RouteWalking, RouteBicycling,
+    RouteDriving, RouteTransit, RouteWalking, RouteBicycling, RouteBus, RouteSubway, RouteRail,
     StrategyTimeCost, StrategyLeastTime, StrategyLeastCost,
     SettingsPersonalization, SettingsPersonalizationDesc, PersonalizationTitle,
     MemorySection, MemoryEnabled, MemoryEnabledDesc, MemoryPending, MemorySaved,
@@ -435,6 +437,12 @@ object Strings {
         put(StringKey.ChatGenerationFailed, "生成失败，请重试", "生成失敗，請重試", "Generation failed. Try again.", "这次没写完，再试一次喵", "生成失败，请重试")
         put(StringKey.ChatImageFailed, "图片处理失败，请重试", "圖片處理失敗，請重試", "Image edit failed. Try again.", "图片没改好，再试一次喵", "图片处理失败，请重试")
         put(StringKey.OperationFailed, "操作失败，请稍后重试", "操作失敗，請稍後重試", "Something went wrong. Try again.", "这次没办好，稍后再试喵", "操作失败，请重试")
+        put(StringKey.NetworkUnavailable, "网络暂时不可用，请稍后重试", "網路暫時無法使用，請稍後重試", "You're offline. Try again when connected.", "网络开小差了，稍后再试喵", "网络不可用，请稍后重试")
+        put(StringKey.SessionExpired, "登录已过期，请重新登录", "登入已過期，請重新登入", "Your session expired. Sign in again.", "登录过期了，再登录一次喵", "登录已过期，请重新登录")
+        put(StringKey.LoginRequired, "登录后即可使用此功能", "登入後即可使用此功能", "Sign in to use this feature.", "登录后就能用啦喵", "请先登录")
+        put(StringKey.MembershipRequired, "当前方案暂不支持此功能", "目前方案暫不支援此功能", "This feature isn't included in your current plan.", "当前方案还用不了这个功能喵", "当前方案不支持此功能")
+        put(StringKey.TooManyRequests, "操作有点频繁，请稍后再试", "操作有點頻繁，請稍後再試", "Too many requests. Try again shortly.", "操作太快啦，稍后再试喵", "请求频繁，请稍后重试")
+        put(StringKey.ServiceUnavailable, "服务暂时不可用，请稍后重试", "服務暫時無法使用，請稍後重試", "The service is temporarily unavailable. Try again later.", "服务在休息一下，稍后再试喵", "服务暂不可用，请稍后重试")
 
         // ---- 新手介绍（与网页端逐字一致）----
         put(
@@ -602,6 +610,10 @@ object Strings {
         put(StringKey.SkillsRequires, "需要先启用：{0}", "需要先啟用：{0}", "Requires: {0}", "得先打开：{0}", "需要先启用：{0}")
         put(StringKey.SkillsDependencies, "依赖", "依賴", "Dependencies", "牵着的手", "依赖")
         put(StringKey.SkillsComponentApi, "组件 API", "元件 API", "Component API", "组件 API", "组件 API")
+        put(StringKey.SkillsComponentApiHint, "用这些接口把 Skill 的结果安全展示在 Floris 中。底层能力由平台自动处理。", "用這些介面把 Skill 的結果安全顯示在 Floris 中。底層能力由平台自動處理。", "Use these actions to render Skill results in Floris. The platform handles the underlying services.", "用这些接口把 Skill 结果展示出来，底层交给 Floris 喵。", "用于展示 Skill 结果；底层能力由平台处理。")
+        put(StringKey.SkillsComponentApiVersion, "版本 {0} · {1} 个接口", "版本 {0} · {1} 個介面", "Version {0} · {1} actions", "版本 {0} · {1} 个接口喵", "版本 {0} · {1} 个接口")
+        put(StringKey.SkillsComponentApiParameters, "参数", "參數", "Parameters", "参数", "参数")
+        put(StringKey.SkillsComponentApiExample, "调用示例", "呼叫範例", "Example", "调用例子", "调用示例")
         put(
             StringKey.SkillsLoginRequired,
             "需登录", "需登入", "Sign in required", "要登录喵", "需登录",
@@ -756,6 +768,8 @@ object Strings {
         put(StringKey.ReadingOperationFailed, "操作失败，请重试", "操作失敗，請重試", "Couldn't complete that. Try again.", "这次没办好喵", "操作失败，请重试")
         put(StringKey.ReadingOpenFailed, "文件打开失败", "檔案開啟失敗", "Couldn't open the file", "文件没打开喵", "文件打开失败")
         put(StringKey.ReadingRunFailed, "阅读失败，请重试", "閱讀失敗，請重試", "Reading failed. Try again.", "这次没读好喵", "阅读失败，请重试")
+        put(StringKey.ReadingUntitledDocument, "未命名文档", "未命名文件", "Untitled document", "还没起名的文档", "未命名文档")
+        put(StringKey.ReadingUntitledFolder, "未命名文件夹", "未命名資料夾", "Untitled folder", "还没起名的文件夹", "未命名文件夹")
 
         // ---- 地图 ----
         put(StringKey.MapTitle, "地图", "地圖", "Map", "地图", "地图")
@@ -861,6 +875,9 @@ object Strings {
         put(StringKey.RouteTransit, "公交", "大眾運輸", "Transit", "公共交通", "公交")
         put(StringKey.RouteWalking, "步行", "步行", "Walk", "走路", "步行")
         put(StringKey.RouteBicycling, "骑行", "騎行", "Bike", "骑车", "骑行")
+        put(StringKey.RouteBus, "公交", "公車", "Bus", "坐公交", "公交")
+        put(StringKey.RouteSubway, "地铁", "捷運", "Metro", "坐地铁", "地铁")
+        put(StringKey.RouteRail, "火车", "火車", "Rail", "坐火车", "火车")
         put(StringKey.StrategyTimeCost, "时间兼顾费用", "時間兼顧費用", "Time, then cost", "先省时间再省钱", "时间兼顾费用")
         put(StringKey.StrategyLeastTime, "最快", "最快", "Fastest", "最快到达", "最快")
         put(StringKey.StrategyLeastCost, "最省", "最省", "Lowest cost", "最省钱", "最省")

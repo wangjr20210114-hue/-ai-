@@ -12,6 +12,7 @@ class ApiSurfaceContractTest {
     fun `native client exposes the complete v1 backend surface`() {
         val expected = mapOf(
             "exchangeMobileSession" to "POST auth/mobile/session",
+            "logout" to "POST auth/logout",
             "guestSession" to "GET auth/session",
             "bootstrap" to "POST messages",
             "chatRun" to "POST run",
@@ -19,6 +20,7 @@ class ApiSurfaceContractTest {
             "touchConversation" to "POST conversations",
             "deleteConversation" to "DELETE conversations",
             "stop" to "POST stop",
+            "appendMessage" to "POST conversation",
             "createFileUpload" to "POST files",
             "downloadFile" to "GET files",
             "inspectFile" to "HEAD files",
@@ -55,5 +57,20 @@ class ApiSurfaceContractTest {
         }.toMap()
 
         expected.forEach { (method, route) -> assertEquals(route, actual[method]) }
+    }
+
+    @Test
+    fun `idempotent reconciliation backoff grows and caps`() {
+        val backoff = ExponentialBackoff(
+            initialDelayMillis = 850,
+            maximumDelayMillis = 30_000,
+        )
+
+        assertEquals(
+            listOf(850L, 1_700L, 3_400L, 6_800L, 13_600L, 27_200L, 30_000L, 30_000L),
+            List(8) { backoff.nextDelayMillis() },
+        )
+        backoff.reset()
+        assertEquals(850L, backoff.nextDelayMillis())
     }
 }

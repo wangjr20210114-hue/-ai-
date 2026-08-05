@@ -21,9 +21,11 @@ import com.floris.android.core.model.ProgressComponent
 import com.floris.android.core.model.RunPresentation
 import com.floris.android.core.model.SearchMeta
 import com.floris.android.core.model.WorkspaceAction
+import com.floris.android.core.network.ExponentialBackoff
 import com.floris.android.core.network.sse.ChatEvent
 import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.StringResolver
+import com.floris.android.ui.prefs.userFacingError
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,6 +73,7 @@ class ChatViewModel(
     private var lastUserMessage: String? = null
     private var lastClientMessageId: String? = null
     private var activeTurn: PendingChatTurn? = null
+    private val stopConfirmationJobs = mutableMapOf<String, Job>()
     private var lastPresentationRevision = -1L
     private var restored = false
     private var activeConversationPending = true
@@ -538,8 +541,10 @@ class ChatViewModel(
                     it.copy(
                         streaming = false,
                         failed = true,
-                        error = streamError?.message
-                            ?: strings.get(StringKey.ChatConnectionInterrupted),
+                        error = strings.userFacingError(
+                            streamError ?: IllegalStateException(),
+                            StringKey.ChatConnectionInterrupted,
+                        ),
                     )
                 }
             }
@@ -718,30 +723,41 @@ class ChatViewModel(
     }
 
     private fun confirmStop(conversationId: String, clientMessageId: String, knownRun: ChatRun?) {
-        viewModelScope.launch {
+        val confirmationKey = "$conversationId:$clientMessageId"
+        if (stopConfirmationJobs[confirmationKey]?.isActive == true) return
+        val job = viewModelScope.launch {
             var run = knownRun
-            while (runtimeStore.stoppedClientMessageId(conversationId) == clientMessageId) {
-                val acknowledged = runCatching {
-                    repository.stop(conversationId, clientMessageId)
-                }.getOrNull()?.str("client_message_id") == clientMessageId
-                if (acknowledged) {
-                    runtimeStore.clearStopIntent(conversationId, clientMessageId)
-                    runtimeStore.clearActiveTurn(conversationId, clientMessageId)
-                    break
+            val backoff = ExponentialBackoff(RECOVERY_POLL_MS, STOP_RETRY_MAX_MS)
+            try {
+                while (runtimeStore.stoppedClientMessageId(conversationId) == clientMessageId) {
+                    val acknowledged = runCatching {
+                        repository.stop(conversationId, clientMessageId)
+                    }.getOrNull()?.str("client_message_id") == clientMessageId
+                    if (acknowledged) {
+                        runtimeStore.clearStopIntent(conversationId, clientMessageId)
+                        runtimeStore.clearActiveTurn(conversationId, clientMessageId)
+                        break
+                    }
+                    run = runCatching { repository.chatRun(conversationId).run }.getOrNull()
+                    if (
+                        run?.client_message_id == clientMessageId &&
+                        run?.status == "cancelled"
+                    ) {
+                        runtimeStore.clearStopIntent(conversationId, clientMessageId)
+                        runtimeStore.clearActiveTurn(conversationId, clientMessageId)
+                        break
+                    }
+                    delay(backoff.nextDelayMillis())
                 }
-                run = runCatching { repository.chatRun(conversationId).run }.getOrNull()
+            } finally {
+                stopConfirmationJobs.remove(confirmationKey)
                 if (
-                    run?.client_message_id == clientMessageId &&
-                    run?.status == "cancelled"
-                ) {
-                    runtimeStore.clearStopIntent(conversationId, clientMessageId)
-                    runtimeStore.clearActiveTurn(conversationId, clientMessageId)
-                    break
-                }
-                delay(RECOVERY_POLL_MS)
+                    _state.value.conversationId == conversationId &&
+                    runtimeStore.stoppedClientMessageId(conversationId).isBlank()
+                ) drainQueue()
             }
-            if (_state.value.conversationId == conversationId) drainQueue()
         }
+        stopConfirmationJobs[confirmationKey] = job
     }
 
     fun retryLast() {
@@ -884,7 +900,7 @@ class ChatViewModel(
             }.onFailure { failure ->
                 _state.update {
                     it.copy(
-                        transientError = failure.message ?: strings.get(StringKey.ChatImageFailed),
+                        transientError = strings.userFacingError(failure, StringKey.ChatImageFailed),
                     )
                 }
             }
@@ -935,6 +951,7 @@ class ChatViewModel(
 
     private companion object {
         const val RECOVERY_POLL_MS = 850L
+        const val STOP_RETRY_MAX_MS = 30_000L
         const val RECOVERY_ABSENT_GRACE_CHECKS = 8
     }
 }

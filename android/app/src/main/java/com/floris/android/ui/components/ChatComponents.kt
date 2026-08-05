@@ -402,6 +402,9 @@ fun routeModeLabel(mode: String) = when (mode) {
     "transit" -> t(StringKey.RouteTransit)
     "walking" -> t(StringKey.RouteWalking)
     "bicycling" -> t(StringKey.RouteBicycling)
+    "bus" -> t(StringKey.RouteBus)
+    "subway", "metro" -> t(StringKey.RouteSubway)
+    "rail", "train" -> t(StringKey.RouteRail)
     else -> mode
 }
 

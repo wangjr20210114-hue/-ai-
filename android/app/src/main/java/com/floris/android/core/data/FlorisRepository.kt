@@ -192,7 +192,7 @@ class FlorisRepository(
             val manuallyRenamed = metadata?.str("title_source") == "manual"
             ConversationSummary(
                 id = id,
-                title = metadata?.str("title") ?: obj.str("title") ?: "新对话",
+                title = metadata?.str("title") ?: obj.str("title").orEmpty(),
                 createdAt = obj.num("createdAt") ?: obj.num("created_at") ?: 0,
                 updatedAt = obj.num("lastMessageAt") ?: obj.num("updatedAt")
                     ?: obj.num("updated_at") ?: obj.num("createdAt") ?: 0,
@@ -541,7 +541,7 @@ class FlorisRepository(
                     ?: obj.str("id") ?: return@mapNotNull null,
                 fileId = obj.str("file_id") ?: obj.str("storage_key")
                     ?: obj.str("id") ?: return@mapNotNull null,
-                title = obj.str("title") ?: obj.str("filename") ?: "未命名文档",
+                title = obj.str("title") ?: obj.str("filename").orEmpty(),
                 folderId = obj.str("folder_id"),
                 isPaper = obj.bool("is_paper") ?: false,
                 preview = obj.str("preview"),
@@ -551,7 +551,7 @@ class FlorisRepository(
             val obj = element as? JsonObject ?: return@mapNotNull null
             LibraryFolder(
                 id = obj.str("id") ?: return@mapNotNull null,
-                name = obj.str("name") ?: "未命名文件夹",
+                name = obj.str("name").orEmpty(),
                 automatic = obj.bool("automatic") ?: false,
             )
         }

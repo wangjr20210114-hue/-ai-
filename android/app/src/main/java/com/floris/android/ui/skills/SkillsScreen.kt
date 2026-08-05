@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -22,9 +23,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
@@ -51,6 +54,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,6 +75,8 @@ import com.floris.android.core.data.obj
 import com.floris.android.core.model.Skill
 import com.floris.android.core.model.SkillUploadRecord
 import com.floris.android.core.model.SkillConnectionState
+import com.floris.android.core.model.SkillComponentAction
+import com.floris.android.core.model.SkillComponentApi
 import com.floris.android.core.model.UserSkill
 import com.floris.android.ui.components.AnimateIn
 import com.floris.android.ui.components.EmptyState
@@ -83,6 +91,9 @@ import com.floris.android.ui.components.StatusChip
 import com.floris.android.ui.papers.SearchField
 import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.StringResolver
+import com.floris.android.ui.prefs.Language
+import com.floris.android.ui.prefs.LocalLanguage
+import com.floris.android.ui.prefs.userFacingError
 import com.floris.android.ui.prefs.t
 import com.floris.android.ui.skillsViewModelFactory
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -90,8 +101,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -112,6 +126,7 @@ class SkillsViewModel(
         val uploads: List<SkillUploadRecord> = emptyList(),
         val userSkills: List<UserSkill> = emptyList(),
         val connections: Map<String, SkillConnectionState> = emptyMap(),
+        val componentApi: SkillComponentApi? = null,
         val importing: Boolean = false,
     )
 
@@ -176,6 +191,7 @@ class SkillsViewModel(
                     uploads = uploadObjects,
                     userSkills = catalog.user_skills,
                     connections = catalog.connections,
+                    componentApi = catalog.component_api,
                 )
             }.onFailure {
                 _state.value = _state.value.copy(
@@ -206,8 +222,7 @@ class SkillsViewModel(
             }.onFailure { error ->
                 _state.value = _state.value.copy(
                     busyId = null,
-                    error = error.message?.takeIf { it.isNotBlank() }
-                        ?: strings.get(StringKey.SkillsOperationFailed),
+                    error = strings.userFacingError(error, StringKey.SkillsOperationFailed),
                 )
             }
         }
@@ -240,7 +255,7 @@ class SkillsViewModel(
                     _state.update {
                         it.copy(
                             importing = false,
-                            error = error.message ?: strings.get(StringKey.SkillsImportFailed),
+                            error = strings.userFacingError(error, StringKey.SkillsImportFailed),
                         )
                     }
                 }
@@ -253,7 +268,7 @@ class SkillsViewModel(
                 .onSuccess { refresh(force = true) }
                 .onFailure { error ->
                     _state.update {
-                        it.copy(error = error.message ?: strings.get(StringKey.SkillsOperationFailed))
+                        it.copy(error = strings.userFacingError(error, StringKey.SkillsOperationFailed))
                     }
                 }
         }
@@ -265,7 +280,7 @@ class SkillsViewModel(
                 .onSuccess { refresh(force = true) }
                 .onFailure { error ->
                     _state.update {
-                        it.copy(error = error.message ?: strings.get(StringKey.SkillsOperationFailed))
+                        it.copy(error = strings.userFacingError(error, StringKey.SkillsOperationFailed))
                     }
                 }
         }
@@ -281,7 +296,7 @@ class SkillsViewModel(
                     _state.update {
                         it.copy(
                             busyId = null,
-                            error = error.message ?: strings.get(StringKey.SkillsSubmitFailed),
+                            error = strings.userFacingError(error, StringKey.SkillsSubmitFailed),
                         )
                     }
                 }
@@ -305,7 +320,7 @@ class SkillsViewModel(
                     _state.update {
                         it.copy(
                             busyId = null,
-                            error = error.message ?: strings.get(StringKey.SkillsSubmitFailed),
+                            error = strings.userFacingError(error, StringKey.SkillsSubmitFailed),
                         )
                     }
                 }
@@ -325,7 +340,7 @@ class SkillsViewModel(
                     _state.update {
                         it.copy(
                             busyId = null,
-                            error = error.message ?: strings.get(StringKey.SkillsConnectFailed),
+                            error = strings.userFacingError(error, StringKey.SkillsConnectFailed),
                         )
                     }
                 }
@@ -343,7 +358,7 @@ class SkillsViewModel(
                     _state.update {
                         it.copy(
                             busyId = null,
-                            error = error.message ?: strings.get(StringKey.SkillsDisconnectFailed),
+                            error = strings.userFacingError(error, StringKey.SkillsDisconnectFailed),
                         )
                     }
                 }
@@ -386,8 +401,10 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
     )
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+    val language = LocalLanguage.current
     var query by remember { mutableStateOf("") }
     var showImport by remember { mutableStateOf(false) }
+    var showComponentApi by remember { mutableStateOf(false) }
     val pickSkill = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -421,6 +438,16 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
                     style = MaterialTheme.typography.headlineMedium,
                     modifier = Modifier.weight(1f),
                 )
+                state.componentApi?.takeIf { it.actions.isNotEmpty() }?.let {
+                    PillButton(
+                        text = t(StringKey.SkillsComponentApi),
+                        leadingIcon = Icons.Default.Code,
+                        compact = true,
+                        style = PillStyle.Ghost,
+                        onClick = { showComponentApi = true },
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
                 if (!state.isGuest) {
                     PillButton(
                         text = t(StringKey.SkillsAdd),
@@ -467,8 +494,8 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
                 else -> {
                     val filtered = state.skills.filter { skill ->
                         query.isBlank() ||
-                            skill.localizedName().contains(query, true) ||
-                            skill.localizedDescription().contains(query, true)
+                            skill.localizedName(language).contains(query, true) ||
+                            skill.localizedDescription(language).contains(query, true)
                     }
                     val grouped = filtered.groupBy { it.category ?: "other" }
                         .toList()
@@ -518,6 +545,7 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
                                         missing = skill.requires.filter { it !in state.enabledIds },
                                         needsLogin = state.isGuest && !skill.availableToGuest,
                                         connection = state.connections[skill.id],
+                                        language = language,
                                         onToggle = { enabled -> viewModel.toggle(skill, enabled) },
                                         onConnect = { token -> viewModel.connect(skill, token) },
                                         onDisconnect = { viewModel.disconnect(skill) },
@@ -549,6 +577,142 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
             },
         )
     }
+    if (showComponentApi) {
+        state.componentApi?.let { api ->
+            ComponentApiDialog(api = api, onDismiss = { showComponentApi = false })
+        }
+    }
+}
+
+@Composable
+private fun ComponentApiDialog(api: SkillComponentApi, onDismiss: () -> Unit) {
+    val language = LocalLanguage.current
+    val clipboard = LocalClipboardManager.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(t(StringKey.SkillsComponentApi)) },
+        text = {
+            LazyColumn(
+                Modifier.fillMaxWidth().heightIn(max = 560.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item {
+                    Text(
+                        t(StringKey.SkillsComponentApiHint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        t(StringKey.SkillsComponentApiVersion, api.version, api.actions.size),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                items(api.actions, key = { "component-${it.id}" }) { action ->
+                    val example = actionExample(action)
+                    FlorisCard {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(
+                                action.name.localized(language).ifBlank { action.id },
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                action.id,
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontFamily = FontFamily.Monospace,
+                                ),
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                action.description_i18n.localized(language)
+                                    .ifBlank { action.description },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (action.input.isNotEmpty()) {
+                                Spacer(Modifier.height(10.dp))
+                                Text(
+                                    t(StringKey.SkillsComponentApiParameters),
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                                action.input.forEach { (name, type) ->
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(top = 5.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Text(
+                                            name,
+                                            modifier = Modifier.weight(1f),
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontFamily = FontFamily.Monospace,
+                                            ),
+                                        )
+                                        Text(type, style = MaterialTheme.typography.labelMedium)
+                                        Text(
+                                            if (name in action.required) t(StringKey.Yes) else t(StringKey.No),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = if (name in action.required) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    t(StringKey.SkillsComponentApiExample),
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                                TextButton(
+                                    onClick = { clipboard.setText(AnnotatedString(example)) },
+                                ) { Text(t(StringKey.CopyPlainText)) }
+                            }
+                            SelectionContainer {
+                                Text(
+                                    example,
+                                    modifier = Modifier.fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                        )
+                                        .padding(10.dp),
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontFamily = FontFamily.Monospace,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(t(StringKey.Close)) } },
+    )
+}
+
+private val prettyJson = Json { prettyPrint = true }
+
+private fun actionExample(action: SkillComponentAction): String {
+    val payload = JsonObject(action.input.mapValues { (_, type) -> exampleValue(type) })
+    return prettyJson.encodeToString(
+        JsonObject.serializer(),
+        buildJsonObject {
+            put("action", action.id)
+            put("payload", payload)
+        },
+    )
+}
+
+private fun exampleValue(type: String): JsonElement = when {
+    type.endsWith("[]") -> JsonArray(emptyList())
+    type.contains("object") || type.contains("clarification") -> JsonObject(emptyMap())
+    type.contains("integer") || type.contains("number") -> JsonPrimitive(0)
+    type.contains("boolean") -> JsonPrimitive(false)
+    else -> JsonPrimitive("<$type>")
 }
 
 @Composable
@@ -752,6 +916,7 @@ private fun SkillCard(
     missing: List<String>,
     needsLogin: Boolean,
     connection: SkillConnectionState?,
+    language: Language,
     onToggle: (Boolean) -> Unit,
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
@@ -778,7 +943,7 @@ private fun SkillCard(
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        skill.localizedName(),
+                        skill.localizedName(language),
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -802,7 +967,7 @@ private fun SkillCard(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    skill.localizedDescription(),
+                    skill.localizedDescription(language),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -876,10 +1041,7 @@ private fun SkillCard(
                     )
                 }
             } else {
-                val instructions = skill.credential.instructions["zh-CN"]
-                    ?: skill.credential.instructions["zh"]
-                    ?: skill.credential.instructions["en"]
-                    ?: skill.credential.instructions.values.firstOrNull().orEmpty()
+                val instructions = skill.credential.instructions.localized(language)
                 if (instructions.isNotBlank()) {
                     Text(
                         instructions,
@@ -930,9 +1092,17 @@ private fun SkillCard(
     }
 }
 
-private fun Skill.localizedName(): String =
-    name["zh-CN"] ?: name["zh"] ?: name["en"] ?: name.values.firstOrNull() ?: id
+private fun Map<String, String>.localized(language: Language): String =
+    this[language.tag]
+        ?: (if (language in setOf(Language.CAT_CUTE, Language.CAT_COLD)) this["zh-CN"] else null)
+        ?: this[if (language == Language.ZH_TW) "zh-TW" else language.tag]
+        ?: this["en"]
+        ?: this["zh-CN"]
+        ?: this["zh"]
+        ?: values.firstOrNull().orEmpty()
 
-private fun Skill.localizedDescription(): String =
-    description["zh-CN"] ?: description["zh"] ?: description["en"]
-        ?: description.values.firstOrNull() ?: ""
+private fun Skill.localizedName(language: Language): String =
+    name.localized(language).ifBlank { id }
+
+private fun Skill.localizedDescription(language: Language): String =
+    description.localized(language)

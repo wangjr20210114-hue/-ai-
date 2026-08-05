@@ -403,6 +403,23 @@ data class SkillUploadRecord(
 )
 
 @Serializable
+data class SkillComponentAction(
+    val id: String = "",
+    val category: String = "",
+    val name: Map<String, String> = emptyMap(),
+    val description: String = "",
+    val description_i18n: Map<String, String> = emptyMap(),
+    val input: Map<String, String> = emptyMap(),
+    val required: List<String> = emptyList(),
+)
+
+@Serializable
+data class SkillComponentApi(
+    val version: String = "",
+    val actions: List<SkillComponentAction> = emptyList(),
+)
+
+@Serializable
 data class SkillMarketplaceState(
     val skills: List<Skill> = emptyList(),
     val preferences: Map<String, Boolean> = emptyMap(),
@@ -411,7 +428,7 @@ data class SkillMarketplaceState(
     val entitlements: JsonObject? = null,
     val identity: Identity? = null,
     val dependency_graph: JsonObject? = null,
-    val component_api: JsonObject? = null,
+    val component_api: SkillComponentApi? = null,
     val enabled: List<String> = emptyList(),
 )
 

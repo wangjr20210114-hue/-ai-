@@ -309,7 +309,7 @@ class ReadingViewModel(
                         is ReaderChunk.Error -> _state.update { state ->
                             state.copy(reader = state.reader?.copy(
                                 streaming = false,
-                                error = chunk.message,
+                                error = chunk.message.ifBlank { strings.get(StringKey.ReadingRunFailed) },
                             ))
                         }
                         ReaderChunk.Done, ReaderChunk.Ignored -> Unit
@@ -373,7 +373,10 @@ class ReadingViewModel(
                             s.copy(reader = s.reader?.copy(content = s.reader.content + chunk.text))
                         }
                         is ReaderChunk.Error -> _state.update { s ->
-                            s.copy(reader = s.reader?.copy(streaming = false, error = chunk.message))
+                            s.copy(reader = s.reader?.copy(
+                                streaming = false,
+                                error = chunk.message.ifBlank { strings.get(StringKey.ReadingRunFailed) },
+                            ))
                         }
                         ReaderChunk.Done, ReaderChunk.Ignored -> Unit
                     }
@@ -498,7 +501,7 @@ fun ReadingScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
                         movingItem = null
                     }
                     state.library.folders.forEach { folder ->
-                        FolderChoice(folder.name) {
+                        FolderChoice(folder.name.ifBlank { t(StringKey.ReadingUntitledFolder) }) {
                             viewModel.moveItem(item.id, folder.id)
                             movingItem = null
                         }
@@ -668,7 +671,7 @@ fun ReadingScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
                             }
                             items(library.folders, key = { it.id }) { folder ->
                                 FolderChip(
-                                    name = folder.name,
+                                    name = folder.name.ifBlank { t(StringKey.ReadingUntitledFolder) },
                                     selected = selectedFolder == folder.id,
                                     onClick = { selectedFolder = folder.id },
                                 )
@@ -722,7 +725,7 @@ fun ReadingScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
                                 Spacer(Modifier.width(10.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(
-                                        item.title,
+                                        item.title.ifBlank { t(StringKey.ReadingUntitledDocument) },
                                         style = MaterialTheme.typography.titleMedium,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
