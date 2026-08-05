@@ -39,6 +39,7 @@ export const CHAT_INITIAL_RESPONSE_TIMEOUT_MS = 55_000;
 const TURN_QUEUE_PREFIX = 'floris:turn-queue:';
 
 type TurnMessage = { type?: string; payload?: Record<string, unknown> };
+type TurnQueueDisposition = 'consume' | 'retry' | 'retain';
 
 function clientMessageId(message: TurnMessage): string {
   const direct = String(message.payload?.client_message_id || '');
@@ -166,6 +167,18 @@ export class SSEChatClient {
     }
   }
 
+  private consumeQueuedTurn(clientId: string): boolean {
+    const normalized = String(clientId || '');
+    if (!normalized) return false;
+    const index = this.pending.findIndex(
+      (message) => clientMessageId(message) === normalized,
+    );
+    if (index < 0) return false;
+    this.pending.splice(index, 1);
+    this.persistQueue();
+    return true;
+  }
+
   private emit(message: ClientEvent) {
     for (const listener of this.listeners) listener(message);
   }
@@ -212,6 +225,12 @@ export class SSEChatClient {
       return;
     }
     if (
+      run?.client_message_id
+      && ['completed', 'cancelled', 'failed'].includes(String(run.status || ''))
+    ) {
+      this.consumeQueuedTurn(String(run.client_message_id));
+    }
+    if (
       !this.controller
       && (run?.status === 'running' || run?.status === 'cancel_requested')
     ) {
@@ -228,6 +247,7 @@ export class SSEChatClient {
   }
 
   private cancellationConfirmed(clientId: string, onConfirmed?: () => void) {
+    this.consumeQueuedTurn(clientId);
     if (this.activeClientMessageId === clientId) {
       this.activeClientMessageId = '';
       this.activeStreamId = '';
@@ -290,9 +310,14 @@ export class SSEChatClient {
         // Messages remain accepted into the FIFO, but no successor reaches
         // the server until the exact prior stop tombstone is confirmed.
         if (this.turnControl.hasStopIntent) break;
-        const message = this.pending.shift();
-        this.persistQueue();
-        if (message) await this.runTurn(message);
+        const message = this.pending[0];
+        if (!message) break;
+        const disposition = await this.runTurn(message);
+        if (disposition === 'consume' && this.pending[0] === message) {
+          this.pending.shift();
+          this.persistQueue();
+        }
+        if (disposition === 'retain') break;
       }
     } finally {
       this.draining = false;
@@ -339,7 +364,8 @@ export class SSEChatClient {
 
   private async recoverExistingRun(clientId: string, streamId: string) {
     try {
-      await this.recoverActiveRun(clientId, streamId);
+      const outcome = await this.recoverActiveRun(clientId, streamId);
+      if (outcome !== 'not_admitted') this.consumeQueuedTurn(clientId);
     } finally {
       this.emit({ type: 'stream_end', payload: { id: streamId } });
       this.controller = null;
@@ -349,7 +375,7 @@ export class SSEChatClient {
     }
   }
 
-  private async runTurn(message: TurnMessage) {
+  private async runTurn(message: TurnMessage): Promise<TurnQueueDisposition> {
     const currentClientMessageId = clientMessageId(message);
     this.controller = new AbortController();
     const signal = this.controller.signal;
@@ -425,13 +451,11 @@ export class SSEChatClient {
         || this.explicitlyStoppedTurns.has(currentClientMessageId)
       ) {
         finish();
-        return;
+        return 'consume';
       }
 
       if (!response.ok) {
         if (response.status === 409) {
-          this.pending.unshift(message);
-          this.persistQueue();
           if (clientMessage && typeof clientMessage === 'object') {
             this.emit({
               type: 'optimistic_user',
@@ -440,7 +464,7 @@ export class SSEChatClient {
           }
           finish();
           await turnControlDelay(2_000, signal);
-          return;
+          return 'retry';
         }
         let detail = `HTTP ${response.status}`;
         try {
@@ -470,7 +494,7 @@ export class SSEChatClient {
             protocolDone = true;
             void touchConversationIndex(this.conversationId, clientMessageTitle, 2).catch(() => {});
             finish();
-            return;
+            return 'consume';
           }
           try {
             const event = JSON.parse(frame) as Record<string, unknown>;
@@ -649,18 +673,23 @@ export class SSEChatClient {
       }
       finish();
     } catch (error) {
+      let disposition: TurnQueueDisposition = 'consume';
       const explicitlyStopped = this.explicitlyStoppedTurns.has(currentClientMessageId);
-      if (!this.closed && !explicitlyStopped && recoverableTransportError(error, watchdogTriggered)) {
+      if (this.closed && !explicitlyStopped) {
+        // A route change or refresh only detaches the browser transport. Keep
+        // the exact FIFO head until bootstrap reports the Maker run terminal.
+        disposition = 'retain';
+      } else if (!explicitlyStopped && recoverableTransportError(error, watchdogTriggered)) {
         const outcome = await this.recoverActiveRun(currentClientMessageId, streamId);
         if (outcome === 'not_admitted') {
-          this.pending.unshift(message);
-          this.persistQueue();
           if (clientMessage && typeof clientMessage === 'object') {
             this.emit({
               type: 'optimistic_user',
               payload: { message: { ...clientMessage, queued: true } },
             });
           }
+          disposition = 'retry';
+          await turnControlDelay(2_000, signal);
         }
       } else if (!this.closed && !explicitlyStopped) {
         this.emit({
@@ -669,6 +698,7 @@ export class SSEChatClient {
         });
       }
       finish();
+      return disposition;
     } finally {
       if (idleWatchdog) window.clearTimeout(idleWatchdog);
       this.controller = null;
@@ -682,6 +712,7 @@ export class SSEChatClient {
         void this.send(locationRetryMessage(message));
       }
     }
+    return 'consume';
   }
 
   close() {

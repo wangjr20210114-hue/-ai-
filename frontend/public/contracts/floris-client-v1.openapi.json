@@ -17,6 +17,7 @@
   ],
   "x-floris-turn-control": {
     "queue": "per_conversation_fifo",
+    "queue_dequeue_boundary": "same client_message_id reaches a Maker terminal state or exact stop acknowledgement",
     "runtime_buffer": "maker_checkpoint_private_until_completed",
     "commit_boundary": "run.status=completed",
     "stop": "POST /stop with exact client_message_id",
