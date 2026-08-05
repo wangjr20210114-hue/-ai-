@@ -13,6 +13,7 @@ from .._infrastructure.makers.identity import require_user, scoped_conversation_
 from .._infrastructure.makers.data_version import namespace as data_namespace
 from .._infrastructure.http import error
 from .._infrastructure.makers.conversation_repository import public_chat_run, read_chat_run
+from .._infrastructure.makers.presentation_repository import load_presentation_snapshot
 from ..chat._protocol import action_fallback_content, public_content
 from .._application.i18n import normalize_language, text
 from .._application.chat.turn_control import turn_projection
@@ -143,6 +144,19 @@ async def handler(ctx):
         user_id=user_id,
     )
     run = await read_chat_run(ctx.store, conversation_id)
+    presentation = None
+    if isinstance(run, dict) and run.get("status") in {"running", "cancel_requested"}:
+        presentation = await load_presentation_snapshot(
+            getattr(ctx.store, "langgraph_store", None),
+            conversation_id,
+            str(run.get("run_id") or ""),
+        )
+        if (
+            isinstance(presentation, dict)
+            and str(presentation.get("client_message_id") or "")
+            != str(run.get("client_message_id") or "")
+        ):
+            presentation = None
     latest_extras = None
     if ctx.store.langgraph_store is not None:
         item = await ctx.store.langgraph_store.aget(
@@ -423,4 +437,5 @@ async def handler(ctx):
         "map_show_route": latest_map_show_route,
         "workspace_revision": int(workspace.get("revision") or 0),
         "run": public_chat_run(run),
+        "presentation": presentation,
     }

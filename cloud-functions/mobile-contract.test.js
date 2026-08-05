@@ -62,7 +62,7 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
     text('frontend/public/contracts/mobile-client-v1.md'),
   ]);
   assert.equal(api.openapi, '3.1.0');
-  assert.equal(api.info.version, '1.7.0');
+  assert.equal(api.info.version, '1.8.0');
   assert.equal(api['x-floris-turn-control'].commit_boundary, 'run.status=completed');
   assert.match(api['x-floris-turn-control'].runtime_buffer, /private_until_completed/);
   assert.match(api['x-floris-turn-control'].queue_dequeue_boundary, /terminal state|stop acknowledgement/);
@@ -71,6 +71,10 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   assert.equal(api['x-floris-turn-control'].queued_visibility, 'composer_drawer_only_until_turn_started');
   assert.match(api['x-floris-turn-control'].answer_ownership, /client_message_id/);
   assert.ok(api.paths['/auth/mobile/session']);
+  assert.ok(api.paths['/run']);
+  assert.ok(api.components.schemas.RunPresentation);
+  assert.equal(api.components.schemas.RunPresentation.properties.messages, undefined);
+  assert.match(guide, /POST \/run/);
   assert.ok(api.paths['/chat'].post.responses['200']['x-floris-event-schema']);
   assert.ok(api.paths['/reader'].post.responses['200']['x-floris-event-schema']);
   assert.ok(api.paths['/image'].post.responses['200']['x-floris-event-schema']);

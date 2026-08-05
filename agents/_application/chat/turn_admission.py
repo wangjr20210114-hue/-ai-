@@ -38,6 +38,9 @@ from ..._infrastructure.makers.identity import (
     scoped_conversation_id,
 )
 from ..._infrastructure.makers.request_context import request_id_for_turn
+from ..._infrastructure.makers.presentation_repository import (
+    delete_presentation_snapshot,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +138,15 @@ async def admit_turn(ctx) -> tuple[AdmittedTurn | None, Any | None]:
                 text("chat.conversation_busy", response_language),
                 409,
             )
+
+    if isinstance(previous_run, dict) and previous_run.get("run_id"):
+        # Keep at most one completed recovery projection per conversation.
+        # The committed LangGraph checkpoint remains the durable history.
+        await delete_presentation_snapshot(
+            getattr(ctx.store, "langgraph_store", None),
+            conversation_id,
+            str(previous_run.get("run_id") or ""),
+        )
 
     if should_persist_user_message(body):
         try:

@@ -212,6 +212,29 @@ export interface MakersChatRun {
   completed_at?: number | null;
 }
 
+export interface RunPresentationSnapshot {
+  schema_version: 1;
+  run_id: string;
+  client_message_id: string;
+  revision: number;
+  updated_at: number;
+  content: string;
+  progress?: Record<string, unknown>[];
+  search_results?: Partial<SearchMeta>;
+  search_media?: Partial<SearchMeta>;
+  workspace_actions?: WorkspaceAction[];
+  clarification?: ClarificationPrompt;
+  papers?: { papers?: PaperInfo[] };
+  follow_ups?: string[];
+  experience_hints?: ExperienceHint[];
+  error?: string;
+}
+
+export interface ChatRunState {
+  run?: MakersChatRun | null;
+  presentation?: RunPresentationSnapshot | null;
+}
+
 export interface BootstrapData {
   messages: ChatMessage[];
   schedules?: ScheduleItem[];
@@ -224,6 +247,7 @@ export interface BootstrapData {
   workspace_revision?: number;
   workspace_actions?: WorkspaceAction[];
   run?: MakersChatRun | null;
+  presentation?: RunPresentationSnapshot | null;
 }
 
 export interface BootstrapOptions {

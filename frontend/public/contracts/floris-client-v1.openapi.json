@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Floris Client API",
-    "version": "1.7.0",
+    "version": "1.8.0",
     "description": "The complete, platform-neutral client boundary shared by Web, Android, HarmonyOS and iOS. Every server-owned value displayed by a Floris client is delivered through an operation below or through the versioned SSE/component contracts. Authentication, tenant scoping, orchestration, provider calls and persistence remain server responsibilities."
   },
   "servers": [
@@ -26,8 +26,9 @@
     "commit_boundary": "run.status=completed",
     "stop": "POST /stop with exact client_message_id",
     "stop_acknowledgement": "a 2xx response confirms only the matching client_message_id returned in its body",
-    "stop_confirmation": "after a stop transport timeout, POST /messages confirms the same client_message_id before any retry",
-    "recovery": "POST /messages polls the same run and never creates a duplicate generation",
+    "stop_confirmation": "after a stop transport timeout, POST /run confirms the same client_message_id before any retry",
+    "recovery": "POST /run replays a Maker-backed public presentation snapshot by revision and never creates a duplicate generation",
+    "local_recovery": "clients may render their latest short-lived presentation cache immediately, then reconcile with /run",
     "cancelled_projection": "discard answer, sources, media, cards and derived memory"
   },
   "tags": [
@@ -294,6 +295,37 @@
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ConversationBootstrap" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/run": {
+      "post": {
+        "operationId": "getChatRunState",
+        "tags": ["Chat"],
+        "summary": "Read lightweight run and reconnectable presentation state",
+        "description": "Poll only while a known run is active. revision increases when public text, progress, sources, reviewed media or component Actions change. This endpoint never starts model work.",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "conversation_id": { "type": "string" } },
+                "additionalProperties": false
+              },
+              "example": { "conversation_id": "yb7_example" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current run marker and public presentation snapshot",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ChatRunState" }
               }
             }
           }
@@ -1352,6 +1384,36 @@
         },
         "additionalProperties": true
       },
+      "RunPresentation": {
+        "type": ["object", "null"],
+        "description": "Bounded public UI projection for restoring an active turn. It contains no private reasoning or model/tool decision transcript.",
+        "properties": {
+          "schema_version": { "const": 1 },
+          "run_id": { "type": "string" },
+          "client_message_id": { "type": "string" },
+          "revision": { "type": "integer", "minimum": 0 },
+          "updated_at": { "type": "integer" },
+          "content": { "type": "string" },
+          "progress": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "search_results": { "type": "object", "additionalProperties": true },
+          "search_media": { "type": "object", "additionalProperties": true },
+          "workspace_actions": { "type": "array", "items": { "$ref": "./floris-components-v1.schema.json#/$defs/workspaceAction" } },
+          "clarification": { "type": "object", "additionalProperties": true },
+          "papers": { "type": "object", "additionalProperties": true },
+          "follow_ups": { "type": "array", "items": { "type": "string" } },
+          "experience_hints": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        },
+        "additionalProperties": false
+      },
+      "ChatRunState": {
+        "type": "object",
+        "required": ["run", "presentation"],
+        "properties": {
+          "run": { "$ref": "#/components/schemas/ChatRun" },
+          "presentation": { "$ref": "#/components/schemas/RunPresentation" }
+        },
+        "additionalProperties": false
+      },
       "ConversationBootstrap": {
         "type": "object",
         "required": ["messages", "schedules", "map_places", "map_title", "map_route_mode", "map_route_strategy", "map_show_route", "workspace_revision", "run"],
@@ -1364,7 +1426,8 @@
           "map_route_strategy": { "type": "string" },
           "map_show_route": { "type": "boolean" },
           "workspace_revision": { "type": "integer" },
-          "run": { "$ref": "#/components/schemas/ChatRun" }
+          "run": { "$ref": "#/components/schemas/ChatRun" },
+          "presentation": { "$ref": "#/components/schemas/RunPresentation" }
         },
         "additionalProperties": true
       },
@@ -1926,7 +1989,7 @@
   "x-floris-client-surfaces": {
     "session": ["getSession", "exchangeBrowserCloudBaseSession", "exchangeMobileCloudBaseSession", "logoutBrowserSession"],
     "profile": ["getProfileOrAvatar", "inspectAvatar", "updateProfile"],
-    "chat": ["streamChatTurn", "getConversationBootstrap", "appendConversationMessage", "listConversations", "touchConversationPointer", "stopConversationRun"],
+    "chat": ["streamChatTurn", "getConversationBootstrap", "getChatRunState", "appendConversationMessage", "listConversations", "touchConversationPointer", "stopConversationRun"],
     "files": ["createFileUpload", "downloadFile", "inspectFile", "deleteFile"],
     "workspace": ["workspaceOperation", "streamImageEdit"],
     "personalization": ["intelligenceOperation", "proactiveOperation", "getProviderUsage"],

@@ -362,8 +362,9 @@ export function mergeMessages(
   const preserveStreaming = Boolean(options.preserveStreaming);
   remote = remote.filter(isDurableChatMessage);
   local = local.filter((message) => (
-    isDurableChatMessage(message)
-    || (!message.failed && preserveStreaming && Boolean(message.streaming))
+    message.streaming
+      ? (!message.failed && preserveStreaming)
+      : isDurableChatMessage(message)
   ));
   const localByFingerprint = new Map<string, number[]>();
   local.forEach((message, index) => {

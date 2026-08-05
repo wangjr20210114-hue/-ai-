@@ -127,7 +127,9 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         conversationId: action.payload,
-        connected: false,
+        // App readiness is session-scoped, not conversation-scoped. History
+        // hydration continues silently after an immediate local switch.
+        connected: state.connected,
         thinking: false,
         draft: '',
         documentContext: null,

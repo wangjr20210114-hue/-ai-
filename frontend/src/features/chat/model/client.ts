@@ -15,6 +15,7 @@ import type {
 import type {
   BootstrapData,
   BootstrapOptions,
+  ChatRunState,
   MakersChatRun,
 } from './types';
 
@@ -25,6 +26,7 @@ export const routes = Object.freeze([
   '/conversations',
   '/files',
   '/messages',
+  '/run',
   '/stop',
 ]);
 
@@ -110,6 +112,21 @@ export async function bootstrapApp(
     options.signal?.removeEventListener('abort', abortFromCaller);
   }
   return { messages: [] };
+}
+
+export function readChatRun(
+  conversationId: string,
+  signal?: AbortSignal,
+): Promise<ChatRunState> {
+  return requestJson<ChatRunState>('/run', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...makersConversationHeaders(conversationId),
+    },
+    body: JSON.stringify({ conversation_id: conversationId }),
+    signal,
+  });
 }
 
 function normalizeConversation(

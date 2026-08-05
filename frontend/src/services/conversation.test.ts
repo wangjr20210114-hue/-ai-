@@ -194,6 +194,18 @@ describe('mergeMessages', () => {
       .toEqual(['checkpoint-user', 'live-ai']);
   });
 
+  it('drops a stale live draft after the Maker run is no longer active', () => {
+    const remote: ChatMessage[] = [
+      { id: 'checkpoint-user', role: 'user', content: '问题', ts: 1 },
+    ];
+    const local: ChatMessage[] = [
+      { id: 'local-user', role: 'user', content: '问题', ts: 10 },
+      { id: 'stale-draft', role: 'ai', content: '未完成内容', ts: 11, streaming: true },
+    ];
+    expect(mergeMessages(remote, local).map((item) => item.id))
+      .toEqual(['checkpoint-user']);
+  });
+
   it('migrates legacy queued chat rows back into the composer-only queue boundary', () => {
     const remote: ChatMessage[] = [
       { id: 'checkpoint-user', role: 'user', content: '第一个问题', ts: 1 },

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const clientMocks = vi.hoisted(() => ({
   bootstrapApp: vi.fn(),
   openChatTurn: vi.fn(),
+  readChatRun: vi.fn(),
   requestConversationStop: vi.fn(),
   touchConversationIndex: vi.fn(),
 }));
@@ -71,6 +72,7 @@ describe('chat transport FIFO durability', () => {
   beforeEach(() => {
     clientMocks.bootstrapApp.mockReset();
     clientMocks.openChatTurn.mockReset();
+    clientMocks.readChatRun.mockReset();
     clientMocks.requestConversationStop.mockReset();
     clientMocks.touchConversationIndex.mockReset().mockResolvedValue(undefined);
     const localStorage = new MemoryStorage();
@@ -214,8 +216,7 @@ describe('chat transport FIFO durability', () => {
     clientMocks.requestConversationStop.mockRejectedValue(
       Object.assign(new Error('deadline'), { name: 'AbortError' }),
     );
-    clientMocks.bootstrapApp.mockResolvedValue({
-      messages: [],
+    clientMocks.readChatRun.mockResolvedValue({
       run: {
         run_id: 'run-stopped',
         client_message_id: 'client-slow-stop',
@@ -236,9 +237,9 @@ describe('chat transport FIFO durability', () => {
     expect(await client.stop()).toBe('confirmed');
 
     await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 2);
-    expect(clientMocks.bootstrapApp).toHaveBeenCalledWith(
+    expect(clientMocks.readChatRun).toHaveBeenCalledWith(
       'conversation-slow-stop',
-      expect.objectContaining({ strict: true }),
+      expect.any(AbortSignal),
     );
     expect(clientMocks.requestConversationStop).toHaveBeenCalledTimes(1);
     expect(clientMocks.openChatTurn.mock.calls[1][1].client_message_id)

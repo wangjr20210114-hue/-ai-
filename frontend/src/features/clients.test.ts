@@ -17,6 +17,7 @@ describe('feature route ownership', () => {
       '/conversations',
       '/files',
       '/messages',
+      '/run',
       '/stop',
     ]);
     expect(paperRoutes.every(

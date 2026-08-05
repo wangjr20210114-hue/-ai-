@@ -1,12 +1,12 @@
-import { bootstrapApp, requestConversationStop } from '../model/client';
-import type { BootstrapData, MakersChatRun } from '../model';
+import { bootstrapApp, readChatRun, requestConversationStop } from '../model/client';
+import type { BootstrapData, ChatRunState, MakersChatRun } from '../model';
 
 // Maker cancellation first reads and updates the native conversation before
 // batching derived-state cleanup.  Keep the transport alive long enough for
 // that authoritative acknowledgement instead of aborting the write early.
 const STOP_TIMEOUT_MS = 12_000;
 const STOP_CONFIRM_TIMEOUT_MS = 8_000;
-const RECOVERY_POLL_MS = 2_000;
+const RECOVERY_POLL_MS = 850;
 const MANUAL_STOP_PREFIX = 'floris:manual-stop:';
 
 function stopStorageKey(conversationId: string): string {
@@ -141,11 +141,13 @@ export class TurnControlClient {
     } finally {
       window.clearTimeout(timer);
     }
+    const confirmController = new AbortController();
+    const confirmTimer = window.setTimeout(
+      () => confirmController.abort(),
+      STOP_CONFIRM_TIMEOUT_MS,
+    );
     try {
-      const data = await bootstrapApp(this.conversationId, {
-        strict: true,
-        timeoutMs: STOP_CONFIRM_TIMEOUT_MS,
-      });
+      const data = await readChatRun(this.conversationId, confirmController.signal);
       return Boolean(
         data.run
         && data.run.client_message_id === clientMessageId
@@ -153,6 +155,8 @@ export class TurnControlClient {
       );
     } catch {
       return false;
+    } finally {
+      window.clearTimeout(confirmTimer);
     }
   }
 
@@ -192,6 +196,7 @@ export class TurnControlClient {
   async recover(
     expectedClientMessageId: string,
     signal: AbortSignal,
+    onProgress?: (state: ChatRunState) => void,
   ): Promise<TurnRecovery> {
     let absentChecks = 0;
     while (
@@ -204,30 +209,34 @@ export class TurnControlClient {
         continue;
       }
       try {
-        const data = await bootstrapApp(this.conversationId, {
-          strict: true,
-          timeoutMs: 8_000,
-          signal,
-        });
-        const run = data.run;
+        const state = await readChatRun(this.conversationId, signal);
+        const run = state.run;
         const sameTurn = Boolean(
           run
           && (!expectedClientMessageId || run.client_message_id === expectedClientMessageId),
         );
         if (sameTurn && (run?.status === 'running' || run?.status === 'cancel_requested')) {
           absentChecks = 0;
+          onProgress?.(state);
           await turnControlDelay(RECOVERY_POLL_MS, signal);
           continue;
         }
-        if (sameTurn && run?.status === 'completed') return { outcome: 'completed', data, run };
-        if (sameTurn && run?.status === 'cancelled') return { outcome: 'cancelled', data, run };
-        if (sameTurn && run?.status === 'failed') return { outcome: 'failed', data, run };
+        if (sameTurn && run?.status === 'completed') {
+          const data = await bootstrapApp(this.conversationId, {
+            strict: true,
+            timeoutMs: 8_000,
+            signal,
+          });
+          return { outcome: 'completed', data, run };
+        }
+        if (sameTurn && run?.status === 'cancelled') return { outcome: 'cancelled', run };
+        if (sameTurn && run?.status === 'failed') return { outcome: 'failed', run };
         if (run?.status === 'running' || run?.status === 'cancel_requested') {
           await turnControlDelay(RECOVERY_POLL_MS, signal);
           continue;
         }
         absentChecks += 1;
-        if (absentChecks >= 2) return { outcome: 'not_admitted', data, run };
+        if (absentChecks >= 2) return { outcome: 'not_admitted', run };
       } catch {
         // A network recovery reads the existing Maker checkpoint only.
       }

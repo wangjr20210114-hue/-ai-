@@ -3,13 +3,14 @@ import { MessagePlugin } from 'tdesign-react';
 import { bootstrapApp } from '../model/client';
 import { proactiveOperation } from '../../settings/model/client';
 import { presentableChatError } from '../../../services/chatError';
-import { discardStreamingAnswer, discardTurnAnswer, durableMessageCount, isDurableChatMessage, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../../../services/conversation';
+import { discardTurnAnswer, durableMessageCount, isDurableChatMessage, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../../../services/conversation';
 import { useAppDispatch, useAppState } from '../../../store/appState';
-import type { BootstrapData, ChatMessage, ChatQueueItem, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, StructuredProgressStep, WorkspaceAction } from '../model';
+import type { BootstrapData, ChatMessage, ChatQueueItem, ClarificationPrompt, PaperInfo, ProactiveState, RunPresentationSnapshot, ScheduleItem, SearchMeta, StructuredProgressStep, WorkspaceAction } from '../model';
 import { translate } from '../../../i18n';
 import {
   initialPlanningProgress,
   mergeProgressStep,
+  normalizeProgressEvent,
 } from '../../search/model/progressModel';
 import { mergeSearchMeta, resolveSearchStartAt } from '../../search/model/searchRuntime';
 import { SSEChatClient } from './chatTransport';
@@ -38,13 +39,27 @@ export { restoredConversationWasInterrupted } from './chatRuntimeModel';
 export { mergeSearchMeta, resolveSearchStartAt } from '../../search/model/searchRuntime';
 
 const MESSAGE_CACHE_PREFIX = 'yuanbao.messages.';
+const LIVE_MESSAGE_CACHE_PREFIX = 'yuanbao.live-messages.';
+const LIVE_MESSAGE_CACHE_TTL_MS = 45 * 60 * 1000;
+const liveCacheWrittenAt = new Map<string, number>();
 
 function readMessageCache(conversationId: string): ChatMessage[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(`${MESSAGE_CACHE_PREFIX}${conversationId}`) || '[]') as ChatMessage[];
-    return Array.isArray(parsed)
+    const durable = Array.isArray(parsed)
       ? parsed.filter(isDurableChatMessage).map((item) => ({ ...item, streaming: false }))
       : [];
+    if (readManualStopIntent(conversationId)) return durable;
+    const live = JSON.parse(
+      localStorage.getItem(`${LIVE_MESSAGE_CACHE_PREFIX}${conversationId}`) || 'null',
+    ) as { updatedAt?: number; messages?: ChatMessage[] } | null;
+    if (
+      live
+      && Date.now() - Number(live.updatedAt || 0) <= LIVE_MESSAGE_CACHE_TTL_MS
+      && Array.isArray(live.messages)
+      && live.messages.some((item) => item.role === 'ai' && item.streaming)
+    ) return normalizeMessages(live.messages.filter((item) => !item.failed && !item.queued));
+    return durable;
   } catch { return []; }
 }
 
@@ -53,7 +68,27 @@ function writeMessageCache(conversationId: string, messages: ChatMessage[]) {
   // server emits the terminal completion boundary, otherwise a conversation
   // switch can resurrect text that the user deliberately stopped.
   const durable = messagesForDurableCache(messages);
-  try { localStorage.setItem(`${MESSAGE_CACHE_PREFIX}${conversationId}`, JSON.stringify(durable.slice(-60))); }
+  try {
+    const durableKey = `${MESSAGE_CACHE_PREFIX}${conversationId}`;
+    const serialized = JSON.stringify(durable.slice(-60));
+    if (localStorage.getItem(durableKey) !== serialized) {
+      localStorage.setItem(durableKey, serialized);
+    }
+    const liveKey = `${LIVE_MESSAGE_CACHE_PREFIX}${conversationId}`;
+    if (messages.some((item) => item.role === 'ai' && item.streaming)) {
+      const now = Date.now();
+      if (now - Number(liveCacheWrittenAt.get(conversationId) || 0) >= 140) {
+        localStorage.setItem(liveKey, JSON.stringify({
+          updatedAt: now,
+          messages: messages.filter((item) => !item.failed && !item.queued).slice(-60),
+        }));
+        liveCacheWrittenAt.set(conversationId, now);
+      }
+    } else {
+      localStorage.removeItem(liveKey);
+      liveCacheWrittenAt.delete(conversationId);
+    }
+  }
   catch { /* Remote checkpoints remain the durable fallback. */ }
 }
 
@@ -353,6 +388,50 @@ export function useChatRuntime() {
           patch(id, streamId, { skill });
           break;
         }
+        case 'stream_snapshot': {
+          const current = streams.get(streamId);
+          const snapshot = event.payload.snapshot as RunPresentationSnapshot | undefined;
+          if (!current || !snapshot) break;
+          let searchResults = current.searchResults;
+          if (snapshot.search_results) {
+            searchResults = mergeSearchMeta(searchResults, snapshot.search_results);
+          }
+          if (snapshot.search_media) {
+            searchResults = mergeSearchMeta(searchResults, {
+              ...snapshot.search_media,
+              media_pending: false,
+            });
+          }
+          const progress = Array.isArray(snapshot.progress) && snapshot.progress.length
+            ? snapshot.progress as unknown as StructuredProgressStep[]
+            : current.progress;
+          const searchActive = (progress || []).some((step) => (
+            step.activity === 'web_search'
+            || step.activity === 'paper_search'
+            || step.activity === 'place_search'
+          ));
+          const searchStartedAt = rememberSearchStart(streamId, current, searchActive);
+          const next: ChatMessage = {
+            ...current,
+            content: String(snapshot.content ?? current.content),
+            streaming: true,
+            progress,
+            ...(searchResults ? { searchResults } : {}),
+            ...(snapshot.workspace_actions?.length
+              ? { workspaceActions: snapshot.workspace_actions }
+              : {}),
+            ...(snapshot.clarification ? { clarification: snapshot.clarification } : {}),
+            ...(snapshot.papers?.papers?.length ? { papers: snapshot.papers.papers } : {}),
+            ...(snapshot.follow_ups?.length ? { followUps: snapshot.follow_ups } : {}),
+            ...(snapshot.experience_hints?.length
+              ? { experienceHints: snapshot.experience_hints }
+              : {}),
+            ...(searchStartedAt ? { searchStartedAt } : {}),
+          };
+          streams.set(streamId, next);
+          publish(id, cached(id).map((item) => item.id === streamId ? next : item));
+          break;
+        }
         case 'recovery_snapshot': {
           const data = event.payload.data as BootstrapData | undefined;
           if (!data) break;
@@ -636,8 +715,56 @@ export function useChatRuntime() {
             ...visibleMessages.slice(boundary),
           ];
         }
+        const presentation = data.presentation;
+        if (restoredStreamId && presentation) {
+          visibleMessages = visibleMessages.map((item) => {
+            if (item.id !== restoredStreamId) return item;
+            let searchResults = item.searchResults;
+            if (presentation.search_results) {
+              searchResults = mergeSearchMeta(searchResults, presentation.search_results);
+            }
+            if (presentation.search_media) {
+              searchResults = mergeSearchMeta(searchResults, {
+                ...presentation.search_media,
+                media_pending: false,
+              });
+            }
+            const progress = (presentation.progress || [])
+              .map((step) => normalizeProgressEvent(step))
+              .filter((step): step is StructuredProgressStep => Boolean(step));
+            return {
+              ...item,
+              content: String(presentation.content ?? item.content),
+              streaming: true,
+              ...(progress.length ? { progress } : {}),
+              ...(searchResults ? { searchResults } : {}),
+              ...(presentation.workspace_actions?.length
+                ? { workspaceActions: presentation.workspace_actions }
+                : {}),
+              ...(presentation.clarification
+                ? { clarification: presentation.clarification }
+                : {}),
+              ...(presentation.papers?.papers?.length
+                ? { papers: presentation.papers.papers }
+                : {}),
+              ...(presentation.follow_ups?.length
+                ? { followUps: presentation.follow_ups }
+                : {}),
+              ...(presentation.experience_hints?.length
+                ? { experienceHints: presentation.experience_hints }
+                : {}),
+            };
+          });
+        }
+        const restoredStream = visibleMessages.find((item) => item.id === restoredStreamId);
+        if (restoredStreamId && restoredStream) {
+          streamsRef.current.get(conversationId)?.set(restoredStreamId, restoredStream);
+        }
       } else if (data.run?.status === 'cancelled') {
-        visibleMessages = discardStreamingAnswer(visibleMessages);
+        visibleMessages = discardTurnAnswer(
+          visibleMessages,
+          String(data.run.client_message_id || ''),
+        );
       }
       publish(conversationId, visibleMessages);
       const summary = conversationsRef.current.find((item) => item.id === conversationId);

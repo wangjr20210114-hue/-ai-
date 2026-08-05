@@ -2,7 +2,7 @@ import {
   openChatTurn,
   touchConversationIndex,
 } from '../model/client';
-import type { MakersChatRun } from '../model';
+import type { MakersChatRun, RunPresentationSnapshot } from '../model';
 import type { ChatQueueItem } from '../model';
 import type { ChatSendResult } from '../../../services/chatClient';
 import { splitSseFrames } from '../../../shared/transport/sseClient';
@@ -22,6 +22,7 @@ export const CLIENT_EVENT_TYPES = [
   'optimistic_user', 'clarification_submitted', 'stream_start', 'stream_delta',
   'stream_reset', 'stream_end', 'answer_complete', 'experience_hint',
   'turn_started', 'stop_requested', 'transport_recovering', 'recovery_snapshot',
+  'stream_snapshot',
   'queue_changed',
   'search_status', 'progress_event', 'search_results',
   'search_media', 'paper_results', 'follow_ups', 'proactive_update',
@@ -416,9 +417,32 @@ export class SSEChatClient {
       type: 'transport_recovering',
       payload: { id: streamId },
     });
+    let recoveredRevision = -1;
     const recovery = await this.turnControl.recover(
       expectedClientMessageId,
       recoveryController.signal,
+      (state) => {
+        const snapshot = state.presentation as RunPresentationSnapshot | null | undefined;
+        const revision = Number(snapshot?.revision || 0);
+        if (
+          !snapshot
+          || snapshot.client_message_id !== expectedClientMessageId
+          || revision <= recoveredRevision
+        ) return;
+        recoveredRevision = revision;
+        this.emit({
+          type: 'stream_snapshot',
+          payload: {
+            id: streamId,
+            snapshot: {
+              ...snapshot,
+              progress: (snapshot.progress || [])
+                .map((item) => normalizeProgressEvent(item))
+                .filter(Boolean),
+            },
+          },
+        });
+      },
     );
     if (recovery.outcome === 'completed' && recovery.data) {
       this.emit({

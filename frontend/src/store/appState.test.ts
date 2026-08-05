@@ -55,7 +55,7 @@ describe('app state reducer', () => {
     const next = reducer(previous, { type: 'SET_CONVERSATION_ID', payload: 'conv-fresh' });
 
     expect(next.conversationId).toBe('conv-fresh');
-    expect(next.connected).toBe(false);
+    expect(next.connected).toBe(true);
     expect(next.thinking).toBe(false);
     expect(next.draft).toBe('');
     expect(next.messages).toEqual([]);

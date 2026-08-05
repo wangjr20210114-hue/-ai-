@@ -237,6 +237,8 @@ test('a new conversation owns the next request without inheriting old rows', asy
   const create = page.locator('[data-onboarding="new-conversation"]');
   await expect(create).toBeVisible();
   await create.click();
+  expect(await page.locator('.connection-operation-lock').count()).toBe(0);
+  await expect(page.locator('.app-shell')).toHaveAttribute('aria-busy', 'false');
   await expect(page.locator('.msg-row')).toHaveCount(0);
 
   await page.locator('.input-box textarea').fill('Start a genuinely fresh turn');

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { MessagePlugin } from 'tdesign-react';
 import {
   createNewConversation,
@@ -41,7 +41,7 @@ export default function ConversationSidebar({ open, onClose }: Props) {
   const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
+  const creatingRef = useRef(false);
   const [loadError, setLoadError] = useState('');
   const [toolsLoaded, setToolsLoaded] = useState(
     () => !window.matchMedia(COMPACT_SIDEBAR_QUERY).matches,
@@ -98,7 +98,7 @@ export default function ConversationSidebar({ open, onClose }: Props) {
     };
   }, [load]);
 
-  const activate = async (id: string) => {
+  const activate = (id: string) => {
     if (id === conversationId) {
       onClose();
       return;
@@ -108,20 +108,22 @@ export default function ConversationSidebar({ open, onClose }: Props) {
     onClose();
   };
 
-  const create = async () => {
-    if (creating) return;
-    setCreating(true);
+  const create = () => {
+    if (creatingRef.current) return;
+    creatingRef.current = true;
     try {
       // Running conversations remain active in the background. The active
       // transport ref is switched without cancelling their request.
-      const conversation = await createNewConversation();
+      const conversation = createNewConversation();
       dispatch({ type: 'UPSERT_CONVERSATION', payload: conversation });
       setActiveConversationId(conversation.id);
       dispatch({ type: 'SET_CONVERSATION_ID', payload: conversation.id });
       onClose();
     } catch {
       MessagePlugin.error(t('createConversationFailed'));
-    } finally { setCreating(false); }
+    } finally {
+      window.setTimeout(() => { creatingRef.current = false; }, 0);
+    }
   };
 
   return (
@@ -142,12 +144,10 @@ export default function ConversationSidebar({ open, onClose }: Props) {
           type="button"
           className="conversation-create-button"
           data-onboarding="new-conversation"
-          disabled={creating}
-          aria-busy={creating}
-          onClick={() => { void create(); }}
+          onClick={create}
         >
           <span aria-hidden="true">＋</span>
-          {creating ? t('loading') : t('newConversation')}
+          {t('newConversation')}
         </button>
 
         <div className="conversation-history-label">{t('history')}</div>
@@ -175,7 +175,7 @@ export default function ConversationSidebar({ open, onClose }: Props) {
               type="button"
               key={conversation.id}
               className={`conversation-item ${conversation.id === conversationId ? 'is-active' : ''}`}
-              onClick={() => { void activate(conversation.id); }}
+              onClick={() => { activate(conversation.id); }}
               title={conversation.title}
             >
               <span className={`conversation-item-icon status-${conversation.activityStatus || 'idle'}`} aria-label={conversation.activityStatus === 'running' ? t('generating') : conversation.activityStatus === 'failed' ? t('generationFailedShort') : t('idle')}>

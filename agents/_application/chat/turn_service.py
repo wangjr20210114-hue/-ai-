@@ -87,6 +87,7 @@ from ..._infrastructure.makers.provider_usage_repository import (
 )
 from ..._application.proactive.service import load_proactive_state
 from ..._presenters.chat_stream import ChatStreamPresenter
+from .presentation_journal import PresentationJournalQueue
 HEARTBEAT_SECONDS = 5
 MAX_GRAPH_RECURSION = 24
 
@@ -523,7 +524,12 @@ async def _handle(ctx):
     # Publication-date strictness is a semantic planner decision.  Keyword
     # matching incorrectly treated “截至今天的最新能力” as “published today”
     # and discarded the latest verifiable release from earlier dates.
-    queue: asyncio.Queue = asyncio.Queue()
+    queue = PresentationJournalQueue(
+        store=getattr(ctx.store, "langgraph_store", None),
+        conversation_id=conversation_id,
+        run_id=run_id,
+        client_message_id=str(body.get("client_message_id") or ""),
+    )
     component_journal = ComponentPublicationJournal()
     search_runner = PlannedSearchRunner(
         ctx=ctx,

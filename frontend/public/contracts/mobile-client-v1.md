@@ -26,7 +26,7 @@
 1. 使用 CloudBase SDK 完成当前已启用的登录方式，并由 CloudBase 刷新自己的凭据。
 2. 原生 App 调用 `POST /auth/mobile/session`，换取有效期一小时的 Floris Bearer。
 3. 为每个会话生成稳定、不透明的 `makers-conversation-id`。
-4. 调用 `POST /messages` 恢复界面，再调用 `POST /chat` 发送问题。
+4. 调用 `POST /messages` 恢复界面；若存在运行中的回答，再通过 `POST /run` 按 revision 静默续接，发送问题仍只调用 `POST /chat`。
 5. 按 SSE `type` 逐条渲染正文、来源、图片和卡片。
 6. 所有确认、取消或状态变更都调用 `/workspace`，不要在客户端伪造成功状态。
 
@@ -44,7 +44,7 @@ Web 使用 `HttpOnly + Secure + SameSite=Lax` Cookie，不读取 Cookie 内容�
 | 范围 | 接口 |
 | --- | --- |
 | 登录与账号 | `GET /auth/session`、`POST /auth/cloudbase/session`、`POST /auth/mobile/session`、`POST /auth/logout`、`GET/HEAD/POST /profile` |
-| 聊天与会话 | `POST /chat`、`POST /messages`、`POST /conversation`、`GET/POST /conversations`、`POST /stop` |
+| 聊天与会话 | `POST /chat`、`POST /messages`、`POST /run`、`POST /conversation`、`GET/POST /conversations`、`POST /stop` |
 | 文件 | `POST/GET/HEAD/DELETE /files`、`POST /document-text`（通常由 `/reader` 内部使用） |
 | 日程与地图状态 | `POST /workspace`、`POST /image` |
 | 个性化 | `POST /intelligence`、`POST /proactive`、`GET /provider_usage` |
@@ -211,16 +211,47 @@ data: [DONE]
 }
 ```
 
+### POST /run
+
+这是运行中的轻量恢复接口，不会启动模型或重新执行工具。仅在已知会话处于生成状态时轮询；相同 `revision` 不重复渲染。
+
+```bash
+curl -X POST "$BASE/run" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "makers-conversation-id: $CID" \
+  -H "Content-Type: application/json" \
+  -d "{\"conversation_id\":\"$CID\"}"
+```
+
+```json
+{
+  "run": {
+    "run_id": "run_01",
+    "client_message_id": "msg_01",
+    "status": "running"
+  },
+  "presentation": {
+    "schema_version": 1,
+    "revision": 12,
+    "content": "已经恢复的公开回答内容",
+    "progress": [],
+    "search_results": {}
+  }
+}
+```
+
+`presentation` 只包含可以直接呈现给用户的内容，不包含思维链、内部提示词或工具决策。状态变为 `completed` 后停止轮询，并调用 `/messages` 获取正式结果。
+
 #### 每会话发送队列与网络恢复
 
 客户端为每个会话维护独立 FIFO，可以在当前回答生成时继续接收用户消息。队列属于客户交互状态；服务端通过 Makers 会话运行状态保证同一会话同时只准入一轮，不要自建 Redis/Celery 队列。
 
-1. 为每次发送生成稳定 `client_message_id`，立即显示用户消息并加入该会话队列。
+1. 为每次发送生成稳定 `client_message_id`。队首真正开始时才显示为用户消息；等待项只进入输入框上方的队列抽屉。
 2. 只有队首调用 `POST /chat`；收到 `[DONE]` 或可核验终态后再处理下一条。
-3. 连接中断时调用 `POST /messages`读取同一 `client_message_id` 的 Maker run。`running` 时继续等待，`completed` 时恢复检查点结果；只有确认请求未被准入时才使用原 ID 重发。
+3. 连接中断时调用 `POST /run` 读取同一 `client_message_id` 的 Maker run。`running` 时按递增 `presentation.revision` 原子替换公开流快照，`completed` 时再调用 `/messages` 恢复正式检查点；只有确认请求未被准入时才使用原 ID 重发。
 4. 显式停止必须调用 `POST /stop` 并携带队首 `client_message_id`。立即删除当前 AI 回答，不保留部分文本、来源或卡片，也不新增“已停止”提示消息。
-5. 断网或停止请求超时时暂停后续队列，先用 `POST /messages` 核对同一 `client_message_id`；若 Maker run 已为 `cancelled` 就直接确认，只有尚未取消时才重试同一停止请求。过期停止不得中止新队首。
-6. 队首在 Maker 终态或精确停止确认前必须继续保存在本地 FIFO；切换会话或刷新只分离传输。重新进入时先用 `POST /messages` 对账同一 `client_message_id`，确认终态后才出队，不能在发起 `POST /chat` 时提前删除。
+5. 断网或停止请求超时时暂停后续队列，先用 `POST /run` 核对同一 `client_message_id`；若 Maker run 已为 `cancelled` 就直接确认，只有尚未取消时才重试同一停止请求。过期停止不得中止新队首。
+6. 队首在 Maker 终态或精确停止确认前必须继续保存在本地 FIFO；切换会话或刷新只分离传输。重新进入时先用 `/run` 对账，确认终态后才出队，不能在发起 `POST /chat` 时提前删除。
 
 `POST /stop` 返回 2xx 时仍须核对响应体的 `client_message_id` 与当前队首一致，匹配后才可放行下一条；客户端应给 Maker 原生会话状态留出合理的读写时间，不要用激进的短超时提前中断取消写入。
 
@@ -261,7 +292,7 @@ curl -X POST "$BASE/conversations" \
 
 取消并彻底丢弃当前生成。`client_message_id` 用于防止断网后延迟到达的停止请求误伤下一轮。
 
-`POST /stop` 与网络恢复是两个不同操作：停止会永久丢弃该轮的正文、来源、图片、卡片和派生记忆，不创建提示卡，也不得被恢复逻辑重新拉起；网络恢复只通过 `POST /messages` 查询同一个 Maker run，不新建第二次生成。
+`POST /stop` 与网络恢复是两个不同操作：停止会永久丢弃该轮的正文、来源、图片、卡片和派生记忆，不创建提示卡，也不得被恢复逻辑重新拉起；网络恢复通过 `POST /run` 续接同一个 Maker run，不新建第二次生成。
 
 ```bash
 curl -X POST "$BASE/stop" \
@@ -712,7 +743,7 @@ type 流式渲染；未知事件忽略，未知组件保留正文。搜索图片
 | --- | --- | --- |
 | 身份、会员、权益 | `/auth/session` 或移动 Bearer | 缓存只用于启动占位，最终必须服从服务端 |
 | 会话列表 | `/conversations` | 本地保存最近列表用于瞬时启动，联网后合并并以服务端为准 |
-| 消息、来源、图片、卡片 | `/messages` 与 `/chat` SSE | 未完成流式行只保存在运行内存，不写本地持久缓存；恢复后按服务端消息和 Action ID 合并 |
+| 消息、来源、图片、卡片 | `/messages`、`/run` 与 `/chat` SSE | 可短期缓存当前公开流快照以便首帧恢复；随后必须按 `/run` 的 run、revision、client_message_id 和 Action ID 原子对账 |
 | 搜索来源与媒体 | `search_results`、`search_media` | 只能按 `source_id` 合并；不能猜测、重排来源绑定 |
 | 日程、地图、路线、图片版本 | `/workspace` | 可以做视图排序和动画；不能自行把待确认 Action 标成成功 |
 | 个人资料与头像 | `/profile` | 可保存头像的本地二进制缓存，资料更新以服务端响应为准 |
@@ -781,10 +812,10 @@ ping/usage            update liveness/diagnostics; do not render as answer
 - `follow_ups` 通常在 `answer_complete` 之后、`[DONE]` 之前到达；客户端不能在正文完成时提前销毁当前消息 Reducer。
 - 同一 `action.id` 只渲染一张卡；后到的版本覆盖旧版本。
 - 收到未知事件时忽略该事件并继续读流。
-- 网络裸 EOF 且没有 `[DONE]` 时自动查询并恢复同一个 Maker run，但不自动新建或重复生成。
+- 网络裸 EOF 且没有 `[DONE]` 时自动通过 `/run` 查询并恢复同一个 Maker run；revision 未变化时不重复渲染，也不自动新建或重复生成。
 - 用户点击停止时先中断本地读取，再调用 `/stop`；页面刷新只断开页面，不应自动取消服务端任务。
 
-服务端把 LangGraph 检查点视为运行态暂存。只有 `run.status=completed` 后，当前回答才会一次性进入 `/messages` 的正式投影和后续模型上下文；`running`、`cancel_requested`、`failed` 或 `cancelled` 的回答片段都不能跨会话切换、刷新或客户端同步边界。客户端可以实时渲染 SSE，但必须在内存中维护临时行，收到停止后直接删除。
+服务端把 LangGraph 检查点视为运行态暂存。只有 `run.status=completed` 后，当前回答才会一次性进入 `/messages` 的正式投影和后续模型上下文。运行期间，Maker Store 只保存可公开展示的正文、进度、来源、审核图片和组件快照供 `/run` 恢复，不保存私有推理或工具决策；客户端可短期保存同一快照来避免刷新白屏。`failed`、`cancelled` 或用户停止后的快照不得继续渲染。
 
 ## 19. 公开操作表
 

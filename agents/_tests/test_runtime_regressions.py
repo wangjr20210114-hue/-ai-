@@ -28,6 +28,12 @@ from agents.stop.index import handler as stop_handler
 from agents._controllers.system_controller import _expected_tick_after
 from agents._application.chat.turn_policy import run_cancelled
 from agents._application.chat.turn_finalizer import TurnFinalizer
+from agents._application.chat.presentation_journal import PresentationJournalQueue
+from agents._infrastructure.makers.presentation_repository import (
+    load_presentation_snapshot,
+    save_presentation_snapshot,
+)
+from agents._presenters.chat_stream import ChatStreamPresenter
 from agents._application.intelligence.service import (
     apply_automatic_memory_candidates,
     empty_intelligence_state,
@@ -42,6 +48,7 @@ from agents._tests.support.fakes import (
     FakeStore as WorkspaceFakeStore,
 )
 from agents.messages.index import handler as messages_handler
+from agents.run.index import handler as run_handler
 
 
 class FakeStore:
@@ -73,6 +80,79 @@ class FakeProactiveStores:
 
 
 class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_public_stream_snapshot_recovers_without_private_reasoning(self):
+        store = FakeStore()
+        presenter = ChatStreamPresenter("zh-CN")
+        queue = PresentationJournalQueue(
+            store=store,
+            conversation_id="conversation-recovery",
+            run_id="run-recovery",
+            client_message_id="client-recovery",
+        )
+        await queue.put(presenter.progress("planning", "completed"))
+        await queue.put(presenter.token("正在恢复"))
+        await queue.put(presenter.token("中的回答"))
+        await queue.put(presenter.sources({
+            "query": "AI",
+            "results": [{"title": "source", "url": "https://example.com"}],
+        }))
+        await queue.put(object())
+
+        snapshot = await load_presentation_snapshot(
+            store,
+            "conversation-recovery",
+            "run-recovery",
+        )
+        self.assertEqual(snapshot["content"], "正在恢复中的回答")
+        self.assertEqual(snapshot["client_message_id"], "client-recovery")
+        self.assertEqual(snapshot["search_results"]["query"], "AI")
+        self.assertGreaterEqual(snapshot["revision"], 4)
+        self.assertNotIn("messages", snapshot)
+        self.assertNotIn("tool_calls", snapshot)
+
+    async def test_run_endpoint_returns_only_the_current_maker_projection(self):
+        client_id = "client-run-state"
+
+        class Store:
+            def __init__(self):
+                self.langgraph_store = FakeStore()
+
+            async def get_conversation(self, **_values):
+                return {"metadata": {"yuanbao_chat_run_v1": {
+                    "run_id": "run-state",
+                    "client_message_id": client_id,
+                    "status": "running",
+                    "discarded_client_message_ids": [],
+                }}}
+
+        store = Store()
+        ctx = authenticated_namespace(
+            conversation_id="run-state-conversation",
+            store=store,
+        )
+        physical_id = scoped_conversation_id(
+            ctx,
+            TEST_USER_ID,
+            "run-state-conversation",
+        )
+        await save_presentation_snapshot(
+            store.langgraph_store,
+            physical_id,
+            "run-state",
+            {
+                "schema_version": 1,
+                "run_id": "run-state",
+                "client_message_id": client_id,
+                "revision": 2,
+                "updated_at": 2,
+                "content": "可恢复内容",
+            },
+        )
+        response = await run_handler(ctx)
+        self.assertEqual(response["run"]["status"], "running")
+        self.assertEqual(response["presentation"]["content"], "可恢复内容")
+        self.assertEqual(response["presentation"]["revision"], 2)
+
     async def test_proactive_preference_change_triggers_one_refresh(self):
         stores = FakeProactiveStores()
         refreshed = empty_proactive_state()
