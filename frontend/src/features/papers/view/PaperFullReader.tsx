@@ -16,7 +16,7 @@ import { usePapersController } from '../controller/usePapersController';
 import type { PaperAssistantResult } from '../model/types';
 import { translationsInTimeOrder } from '../model/paperHistory';
 
-interface Props {
+export interface PaperFullReaderProps {
   fileId: string;
   title: string;
   arxivId?: string;
@@ -43,7 +43,7 @@ interface PageData {
   rendered: boolean;
 }
 
-export default function PaperFullReader({ fileId, title, fileSize, partSize, assistantEnabled = true, onClose }: Props) {
+export default function PaperFullReader({ fileId, title, fileSize, partSize, assistantEnabled = true, onClose }: PaperFullReaderProps) {
   const { t, language } = useLanguage();
   const { api } = usePapersController();
   const {
@@ -314,11 +314,10 @@ export default function PaperFullReader({ fileId, title, fileSize, partSize, ass
         });
       }
     };
-    const documentText = pages.map((page) => `【第 ${page.pageNum} 页】\n${page.paragraphs.map((paragraph) => paragraph.text).join('\n')}`).join('\n\n');
     switch (action) {
       case 'translate': streamRef.current = translateParagraph(text, onDelta, onDone); break;
       case 'summarize': streamRef.current = summarizeParagraph(text, onDelta, onDone); break;
-      case 'analyze': streamRef.current = analyzePaper(fileId, onDelta, onDone, documentText); break;
+      case 'analyze': streamRef.current = analyzePaper(fileId, onDelta, onDone); break;
     }
   };
 
@@ -336,8 +335,7 @@ export default function PaperFullReader({ fileId, title, fileSize, partSize, ass
       setQaHistory(prev => [{ q, a: error ? `❌ ${error}` : full }, ...prev]);
       setAiResult(null);
     };
-    const documentText = pages.map((page) => `【第 ${page.pageNum} 页】\n${page.paragraphs.map((paragraph) => paragraph.text).join('\n')}`).join('\n\n');
-    streamRef.current = paperQA(fileId, q, onDelta, onDone, documentText);
+    streamRef.current = paperQA(fileId, q, onDelta, onDone);
   };
 
   const closeMenu = () => { setCtxMenu(null); };

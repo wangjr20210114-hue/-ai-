@@ -1,6 +1,6 @@
 import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
-import { requireSkillAccess } from '../../auth/entitlements.js';
+import { requireSkillAccess, skillAccess } from '../../auth/entitlements.js';
 import { DOWNLOAD_PART_BYTES, MAX_FILE_BYTES } from './config.js';
 const SUPPORTED_TYPES = new Map([
   ['application/pdf', ['.pdf']],
@@ -31,13 +31,21 @@ function contentDisposition(key, fallback) {
   return `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
+function requireUploadAccess(user, contentType) {
+  if (contentType === 'application/pdf') {
+    requireSkillAccess(user, 'paper-reading');
+    return;
+  }
+  const allowed = ['vision', 'image-studio'].some(
+    (skillId) => skillAccess(user, skillId).allowed,
+  );
+  if (!allowed) requireSkillAccess(user, 'vision');
+}
+
 export async function onRequest(context) {
   const { request, env } = context;
   let user;
   try { user = await currentUser(request, env); } catch { return json({ error: 'Unauthorized' }, 401); }
-  try { requireSkillAccess(user, 'paper-reading'); } catch (error) {
-    return json({ error: error.message, code: error.code }, error.status || 403);
-  }
   const prefix = tenantPrefix(user, env);
   const store = context.__store || getStore({ name: 'yuanbao-files', consistency: 'strong' });
 
@@ -46,6 +54,9 @@ export async function onRequest(context) {
     const name = String(body.name || 'document.pdf');
     const contentType = String(body.content_type || 'application/pdf');
     const size = Number(body.size || 0);
+    try { requireUploadAccess(user, contentType); } catch (error) {
+      return json({ error: error.message, code: error.code }, error.status || 403);
+    }
     const extensions = SUPPORTED_TYPES.get(contentType);
     if (!extensions || !extensions.some((extension) => name.toLowerCase().endsWith(extension))) {
       return json({ error: '仅支持 PDF、PNG、JPG/JPEG 和 WebP 文件' }, 400);
@@ -78,9 +89,12 @@ export async function onRequest(context) {
       // filenames through RFC 5987 instead of inserting raw CJK characters.
       'Content-Disposition': contentDisposition(key, key.startsWith(`${prefix}generated/`) ? 'image.png' : 'document.pdf'),
       'Cache-Control': 'private, max-age=60',
-      'Accept-Ranges': 'makers-parts',
+      'X-Floris-Part-Protocol': 'makers-parts-v1',
+      'X-Floris-Part-Size': String(DOWNLOAD_PART_BYTES),
       'X-Yuanbao-Part-Size': String(DOWNLOAD_PART_BYTES),
+      ...(contentLength > 0 ? { 'X-Floris-File-Size': String(contentLength) } : {}),
       ...(contentLength > 0 ? { 'X-Yuanbao-File-Size': String(contentLength) } : {}),
+      ...(contentLength > 0 ? { 'X-Floris-Part-Count': String(Math.ceil(contentLength / DOWNLOAD_PART_BYTES)) } : {}),
       ...(contentLength > 0 ? { 'Content-Length': String(contentLength) } : {}),
     };
     if (request.method === 'HEAD') return new Response(null, { headers: commonHeaders });
@@ -98,7 +112,9 @@ export async function onRequest(context) {
         headers: {
           ...commonHeaders,
           'Content-Length': String(end - start),
-          'Content-Range': `bytes ${start}-${end - 1}/${body.byteLength}`,
+          'X-Floris-Part-Index': String(part),
+          'X-Floris-Part-Start': String(start),
+          'X-Floris-Part-End': String(end),
           'X-Yuanbao-Part-Index': String(part),
         },
       });
@@ -118,4 +134,4 @@ export async function onRequest(context) {
   return json({ error: 'Method not allowed' }, 405);
 }
 
-export const __test = { DOWNLOAD_PART_BYTES, contentDisposition };
+export const __test = { DOWNLOAD_PART_BYTES, contentDisposition, requireUploadAccess };

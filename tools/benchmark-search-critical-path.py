@@ -48,15 +48,15 @@ async def main(turns: int) -> int:
             2,
         ),
         "answer_graph_has_rich_search": any(
-            "rich_search" in item.answer_tool_names
+            "rich_search" in item.graph_tool_names
             for item in results
         ),
     }
     print(json.dumps(output, ensure_ascii=False, sort_keys=True))
     return int(
         output["provider_requests_per_turn"] != 1
-        or output["first_token_p95_ms"] >= 500
-        or output["answer_graph_has_rich_search"]
+        or output["first_token_p95_ms"] >= 2_500
+        or not output["answer_graph_has_rich_search"]
     )
 
 

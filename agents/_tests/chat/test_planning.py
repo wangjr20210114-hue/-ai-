@@ -416,6 +416,7 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
     async def test_capability_planner_preserves_every_ordered_route_stop(self):
         model = StructuredPlannerModel({
             "needs_route": True,
+            "route_origin_is_departure": True,
             "route_city": "北京",
             "route_stops": [
                 {"query": "腾讯北京总部"},
@@ -429,6 +430,7 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
             "今晚从腾讯北京总部出发，先去301医院附近的锦江之星，再去王府井那个店，最后回桔子酒店",
         )
         self.assertEqual(plan["route_city"], "北京")
+        self.assertTrue(plan["route_origin_is_departure"])
         self.assertEqual(
             [item["query"] for item in plan["route_stops"]],
             ["腾讯北京总部", "锦江之星", "王府井那个店", "桔子酒店"],
@@ -604,10 +606,11 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_capability_plan_parser_is_bounded_to_known_booleans(self):
-        plan = parse_capability_plan('```json\n{"needs_places": true, "needs_map_action": 1, "strict_today_only": true, "search_query": "北京旅行", "image_query": "故宫建筑", "unknown": true}\n```')
+        plan = parse_capability_plan('```json\n{"needs_places": true, "needs_map_action": 1, "strict_today_only": true, "prefer_recent_results": true, "search_query": "北京旅行", "image_query": "故宫建筑", "unknown": true}\n```')
         self.assertTrue(plan["needs_places"])
         self.assertTrue(plan["needs_map_action"])
         self.assertTrue(plan["strict_today_only"])
+        self.assertTrue(plan["prefer_recent_results"])
         self.assertEqual(plan["search_query"], "北京旅行")
         self.assertEqual(plan["image_query"], "故宫建筑")
         self.assertNotIn("unknown", plan)
@@ -642,7 +645,7 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
 
     def test_semantic_plan_builds_short_native_action_chain(self):
         plan = {
-            "needs_web_search": True,
+            "needs_web_search": True, "web_search_is_independent": True,
             "needs_places": True,
             "needs_map_action": True,
             "needs_calendar_action": True,
@@ -669,7 +672,7 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(parse_followups("不是 JSON"), [])
 
-    def test_follow_up_generation_uses_semantic_result_state(self):
+    def test_follow_up_generation_is_available_for_every_completed_answer(self):
         self.assertTrue(should_generate_followups({
             "needs_nearby_places": True,
             "needs_followups": False,
@@ -685,7 +688,7 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
             {"needs_nearby_places": True},
             blocked_skill="maps",
         ))
-        self.assertFalse(should_generate_followups({}))
+        self.assertTrue(should_generate_followups({}))
 
     async def test_follow_up_generator_uses_the_selected_output_language(self):
         model = SimpleNamespace(ainvoke=AsyncMock(
@@ -694,12 +697,22 @@ class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
         result = await generate_followups(
             model,
             "What is new in artificial intelligence this week?",
-            plan_context='{"needs_web_search": true}',
+            answer="Only one development was supported by a verifiable source.",
             response_language="en",
         )
         self.assertEqual(result, ["What changed most?"])
-        system_prompt = model.ainvoke.await_args.args[0][0]["content"]
+        messages = model.ainvoke.await_args.args[0]
+        system_prompt = messages[0]["content"]
         self.assertIn("Write every question in clear, concise English.", system_prompt)
+        self.assertIn("only completed facts", system_prompt)
+        self.assertIn("Only one development", messages[1]["content"])
+        model.ainvoke.reset_mock()
+        self.assertEqual(await generate_followups(
+            model,
+            "This question is deliberately long enough to cross the old threshold.",
+            response_language="en",
+        ), [])
+        model.ainvoke.assert_not_awaited()
 
     async def test_clarification_tool_converts_finite_text_options_to_single_choice(self):
         tools = build_system_skill_tools(

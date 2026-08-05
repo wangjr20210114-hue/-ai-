@@ -69,6 +69,74 @@
   box-sizing: border-box;
   padding: 0 24px 18px;
 }
+.turn-queue-drawer {
+  margin: 0 10px -1px;
+  overflow: hidden;
+  border: 1px solid var(--app-border-strong);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  background: color-mix(in srgb, var(--app-panel) 94%, transparent);
+  box-shadow: 0 -8px 24px color-mix(in srgb, var(--app-text) 7%, transparent);
+  transform-origin: bottom center;
+  animation: turn-queue-reveal var(--motion-reveal) var(--motion-ease-out);
+}
+.turn-queue-toggle {
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 12px;
+  border: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--app-text-2);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.turn-queue-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows var(--motion-reveal) var(--motion-ease-out), opacity var(--motion-fast) ease;
+}
+.turn-queue-drawer.is-open .turn-queue-content { grid-template-rows: 1fr; opacity: 1; }
+.turn-queue-list { min-height: 0; overflow: hidden; padding: 0 8px 8px; }
+.turn-queue-item {
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 5px;
+  border-top: 1px solid var(--app-border);
+}
+.turn-queue-order {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  color: var(--app-text-3);
+  background: var(--app-panel-2);
+  font-size: 11px;
+}
+.turn-queue-text { overflow: hidden; color: var(--app-text); font-size: 13.5px; text-overflow: ellipsis; white-space: nowrap; }
+.turn-queue-actions { display: flex; opacity: .58; transition: opacity var(--motion-fast) ease; }
+.turn-queue-item:hover .turn-queue-actions, .turn-queue-item:focus-within .turn-queue-actions { opacity: 1; }
+.turn-queue-editor { min-width: 0; }
+.input-voice-button.is-listening {
+  color: #fff;
+  background: var(--td-error-color);
+  animation: voice-listening-pulse 1.25s ease-in-out infinite;
+}
+@keyframes turn-queue-reveal { from { opacity: 0; transform: translateY(10px) scale(.985); } }
+@keyframes voice-listening-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--td-error-color) 18%, transparent); } }
+@media (prefers-reduced-motion: reduce) {
+  .turn-queue-drawer, .input-voice-button.is-listening { animation: none; }
+}
 .input-box {
   background: color-mix(in srgb, var(--app-panel) 88%, transparent);
   border: 1px solid var(--app-border-strong);

@@ -27,6 +27,27 @@
   font-weight: 700;
 }
 
+.conversation-create-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--td-brand-color);
+  border-radius: 8px;
+  color: #fff;
+  background: var(--td-brand-color);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: transform 160ms var(--motion-ease-out), box-shadow 180ms ease, filter 180ms ease;
+}
+.conversation-create-button:hover { filter: brightness(1.04); box-shadow: 0 5px 14px color-mix(in srgb, var(--td-brand-color) 22%, transparent); transform: translateY(-1px); }
+.conversation-create-button:active { transform: translateY(0) scale(.985); }
+.conversation-create-button:disabled { opacity: .68; cursor: wait; transform: none; }
+
 .conversation-sidebar-close,
 .conversation-sidebar-backdrop {
   display: none;
@@ -51,6 +72,16 @@
 .conversation-sidebar-tools { flex: 0 0 auto; margin-top: 10px; border-top: 1px solid var(--app-border); padding-top: 8px; }
 .conversation-sidebar-tools .my-panel-card { padding: 8px 4px; border: 0; }
 .conversation-sidebar-tools .section-title { font-size: 12px; }
+.sidebar-tools-loading {
+  display: grid;
+  gap: 10px;
+  padding: 10px 8px;
+}
+.sidebar-tools-loading .skeleton-line {
+  width: 100%;
+  height: 34px;
+  border-radius: 10px;
+}
 .sidebar-reminders { flex: 0 0 auto; max-height: 40%; margin-top: 9px; padding-top: 9px; overflow: auto; border-top: 1px solid var(--app-border); }
 .sidebar-reminders-heading { display: flex; align-items: center; gap: 6px; padding: 0 5px 6px; color: var(--app-text-2); font-size: 12px; font-weight: 650; }
 .sidebar-reminders-heading > span { display: inline-flex; align-items: center; gap: 5px; }

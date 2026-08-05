@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Awaitable, Callable
 
+from ..._application.i18n import text
+
 
 def _ssl_context() -> ssl.SSLContext:
     """Use certifi in managed Python images while retaining the system fallback."""
@@ -712,8 +714,9 @@ def _search_openalex_sync(
             "year": int(work.get("publication_year") or 0),
             "abstract_zh": "",
             "key_contribution": "",
-            "citations": (
-                f"OpenAlex · 被引 {int(work.get('cited_by_count') or 0)} 次"
+            "citations": text(
+                "paper.cited_count", source="OpenAlex",
+                count=int(work.get("cited_by_count") or 0),
             ),
             "source": "OpenAlex",
             "source_url": source_url,
@@ -842,8 +845,9 @@ def _search_crossref_sync(
             "year": paper_year,
             "abstract_zh": abstract,
             "key_contribution": abstract[:240],
-            "citations": (
-                f"Crossref · 被引 {int(item.get('is-referenced-by-count') or 0)} 次"
+            "citations": text(
+                "paper.cited_count", source="Crossref",
+                count=int(item.get("is-referenced-by-count") or 0),
             ),
             "source": "Crossref",
             "source_url": source_url,
@@ -1094,5 +1098,5 @@ async def search_arxiv(
         if len(deduped) >= requested_limit:
             break
     if provider_failures >= 3 and not deduped:
-        raise RuntimeError("arXiv、DBLP 与 Crossref 本轮均未响应")
+        raise RuntimeError(text("paper.providers_unavailable"))
     return deduped

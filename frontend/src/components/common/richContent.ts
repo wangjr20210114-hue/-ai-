@@ -1,4 +1,4 @@
-import type { SearchResultItem } from '../../shared/types';
+import type { SearchResultItem } from '../../features/search/model';
 import { translate } from '../../i18n';
 
 export function isSafeRemoteUrl(value: string): boolean {

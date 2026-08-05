@@ -137,12 +137,16 @@ sequenceDiagram
 
 ### 4.4 P1：网络层缺少复用和真正的取消
 
+**本轮已完成网络栈收口：** SearchPro 与网页媒体抓取现在共用按事件循环复用的 `httpx.AsyncClient`，采用统一请求 deadline、可传播取消和受限连接池；供应商重试共享同一 deadline，避免重试重新获得完整预算。视觉审核仍使用独立的多模态 provider 预算，避免把图片审核预算混入事实搜索。
+
 - 搜索与网页抓取使用 `urllib` + `asyncio.to_thread`。
 - 没有共享异步连接池。
 - `asyncio.wait_for` 超时后不能真正停止底层阻塞线程。
 - 单页最多读取 5 MB，慢源可能继续占用线程和连接。
 
 ### 4.5 P1：搜索质量与缓存策略不足
+
+**本轮已完成来源质量的确定性第一步：** SearchPro 结果保持质量分排序和 provider 顺序作为 tie-breaker；有相关候选时至少保留第二个注册域名，并在 `search_config` 记录来源域名集合，便于后续回归审计。证据 Presenter 会把实际独立发布者域数量交给回答模型；多个事实有跨域直接证据时必须采用至少两个发布者域，只有单一发布者时必须披露边界，不能把系列文章包装成独立核验。缓存仍由 SearchUseCase 按租户、用户和短 TTL 证据 key 管理。
 
 - 相同或近似问题跨轮次会再次访问 Provider。
 - 当前线上样本的来源域名集中，缺少第一方来源优先和域名多样性约束。
@@ -469,19 +473,27 @@ sequenceDiagram
 - 生图参考链路仍只使用审核后的 HTTPS 图片。
 - 媒体失败不影响文字回答。
 
-### P0-B：建立性能可观测性和预算
+### P0-B：建立性能可观测性和预算（代码侧已实施）
 
-建议下一步：
+`dev` 已通过独立 `TurnTelemetry` 把 `request_received`、`pre_graph`、
+`answer_first_token`、`answer_completed`、`media_completed` 和
+`request_settled` 接入 Makers Tracing。计时使用同一单调时钟，Tracing
+故障不会改变回答、持久化或 SSE；完整计时只在显式诊断请求中进入
+`stage_timing`，不会向普通用户展示技术字段。没有为此自建日志服务、
+队列或监控存储。
 
-1. 为每轮生成稳定 `request_id`，贯穿前端、Agent、Provider 和存储日志。
-2. 把现有 `stage_timings_ms` 扩展到首字、回答完成和媒体完成。
-3. 建立仪表盘和告警：
+运营侧后续：
+
+1. `dev` 已将 Makers 原生 `ctx.run_id` 作为每轮唯一可信 `request_id`，贯穿
+   Agent、Makers Tracing、Provider 日志、Component Adapter 和现有运行记录；
+   浏览器及模型不能自报或覆盖它，本地兼容运行时才生成一次随机回退值。
+2. 基于 Makers Tracing 建立仪表盘和告警：
    - 普通问答 TTFT p95 < 5 秒；
    - 搜索问答 TTFT p95 < 10 秒；
    - 搜索回答完成 p95 < 20 秒；
    - 媒体完成 p95 < 15 秒；
    - 搜索成功率 > 99%。
-4. 在 CI 加入模拟慢 Provider 的关键路径测试。
+3. 在 CI 加入模拟慢 Provider 的关键路径测试。
 
 ### P0-C：建立纯多用户安全边界（`dev` 已实施）
 
@@ -609,7 +621,7 @@ EdgeOne 的 `agents/skills/` 是保留目录，Skill 广场路由固定使用
 6. **已完成：完整 Skill 广场第一版。** 从弹窗升级为全页覆盖层，支持返回聊天、安装管理、依赖图、组件 API 文档、下载和待审核上传。
 7. **已完成：确定性搜索用例与流式边界。** ChatTurnController 只委托 ChatTurnService；SearchUseCase 在回答图之前执行唯一一次已规划搜索，回答图不再获得重复搜索决策；ChatStreamPresenter 独占公开 SSE Contract，并保持审核媒体的精确 `source_id` 绑定。
 8. **已完成：共享层、前端 MVC 与回归套件拆分。** 删除 `_shared`，统一 Node/Python 权益 Contract；聊天、搜索、日程、地图、论文、设置按 feature model/controller/view 划分；全局 CSS 与 6495 行 Workspace 测试单体已拆分，并有体量、归属、视觉和产品级 E2E 门禁。
-9. **后续性能专项：搜索网络栈。** 在不绕开 Makers 能力的前提下继续评估共享连接池、真正取消、统一 deadline、Provider 熔断与来源多样性；这不改变本轮已完成的确定性搜索编排边界。
+9. **后续性能专项：搜索网络栈。** 共享连接池、真正取消、统一 deadline 与来源多样性已在本轮落地；后续只需在真实 provider 样本上继续评估熔断阈值，不改变本轮已完成的确定性搜索编排边界。
 
 所有阶段都必须：
 

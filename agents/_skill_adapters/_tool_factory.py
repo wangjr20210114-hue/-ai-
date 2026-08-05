@@ -6,6 +6,8 @@ from typing import Any, Mapping
 
 from langchain_core.tools import StructuredTool
 
+from ._component_output import bind_component_publications
+
 
 def build_service_tools(
     context,
@@ -16,9 +18,24 @@ def build_service_tools(
 ):
     service = context.service(service_name)
     schema_by_name = schemas or {}
+
+    def operation_for(name: str):
+        operation = service.operation(name)
+        publications = context.component_actions_for_tool(name)
+        return (
+            bind_component_publications(
+                context,
+                operation,
+                publications,
+                publication_key=name,
+            )
+            if publications
+            else operation
+        )
+
     return tuple(
         StructuredTool.from_function(
-            coroutine=service.operation(name),
+            coroutine=operation_for(name),
             name=name,
             description=description,
             **(
@@ -29,4 +46,3 @@ def build_service_tools(
         )
         for name, description in descriptions.items()
     )
-

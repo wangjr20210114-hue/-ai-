@@ -6,9 +6,29 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(fileURLToPath(new URL('../src', import.meta.url)));
 const removed = [
   resolve(ROOT, 'app/apiComposition.ts'),
+  resolve(ROOT, 'App.tsx'),
+  resolve(ROOT, 'components/chat/MessageBubble.tsx'),
+  resolve(ROOT, 'features/skills/useSkillMarketplaceController.ts'),
+  resolve(ROOT, 'services/sse.ts'),
+  resolve(ROOT, 'services/sse.test.ts'),
+  resolve(ROOT, 'shared/types/index.ts'),
+  resolve(ROOT, 'shared/ui/progressLabel.ts'),
   resolve(ROOT, 'services/api.ts'),
   resolve(ROOT, 'types/index.ts'),
   resolve(ROOT, 'hooks/useSSEChat.ts'),
+  resolve(ROOT, 'features/maps/view/MapRenderer.tsx'),
+  resolve(ROOT, 'features/maps/view/RouteMap.tsx'),
+  resolve(ROOT, 'features/maps/view/TravelPlanCard.tsx'),
+  resolve(ROOT, 'features/calendar/view/CalendarRenderer.tsx'),
+  resolve(ROOT, 'features/calendar/controller/useCalendarController.ts'),
+  resolve(ROOT, 'features/chat/controller/useChatTransport.ts'),
+  resolve(ROOT, 'features/chat/controller/useConversationLifecycle.ts'),
+  resolve(ROOT, 'features/chat/model/events.ts'),
+  resolve(ROOT, 'features/chat/model/state.ts'),
+  resolve(ROOT, 'features/search/controller/useSearchProgress.ts'),
+  resolve(ROOT, 'features/search/model/client.ts'),
+  resolve(ROOT, 'features/search/model/progress.ts'),
+  resolve(ROOT, 'features/search/view/SearchEvidenceRenderer.tsx'),
 ];
 const removedDirectories = [
   resolve(ROOT, 'components/paper'),
@@ -26,6 +46,17 @@ const requiredChatRenderers = [
   'TextRenderer.tsx',
   'WorkspaceActionRenderer.tsx',
 ].map((name) => resolve(ROOT, 'features/chat/view/renderers', name));
+const requiredFeatureModels = [
+  'features/chat/model/types.ts',
+  'features/search/model/types.ts',
+  'features/maps/model/types.ts',
+  'features/calendar/model/types.ts',
+  'features/papers/model/types.ts',
+  'features/settings/model/types.ts',
+  'features/skills/model/types.ts',
+  'features/workspace/model/types.ts',
+].map((name) => resolve(ROOT, name));
+const requiredMvcFeatures = ['chat', 'search', 'calendar', 'maps', 'papers', 'settings'];
 
 async function files(directory) {
   const result = [];
@@ -61,10 +92,34 @@ for (const path of requiredChatRenderers) {
     failures.push(`chat renderer is missing: ${relative(ROOT, path)}`);
   }
 }
+for (const path of requiredFeatureModels) {
+  try {
+    if (!(await stat(path)).isFile()) failures.push(`feature model is not a file: ${relative(ROOT, path)}`);
+  } catch {
+    failures.push(`feature model is missing: ${relative(ROOT, path)}`);
+  }
+}
+for (const feature of requiredMvcFeatures) {
+  for (const layer of ['model', 'controller', 'view']) {
+    const directory = resolve(ROOT, 'features', feature, layer);
+    try {
+      const entries = await readdir(directory, { withFileTypes: true });
+      if (!entries.some((entry) => (
+        entry.isFile()
+        && /\.(?:ts|tsx)$/.test(entry.name)
+        && entry.name !== 'index.ts'
+      ))) {
+        failures.push(`${feature} ${layer} has no owned implementation`);
+      }
+    } catch {
+      failures.push(`${feature} ${layer} boundary is missing`);
+    }
+  }
+}
 for (const path of await files(ROOT)) {
   const source = await readFile(path, 'utf8');
   const sourceName = relative(ROOT, path).replaceAll('\\', '/');
-  if (/services\/api|types\/index|hooks\/useSSEChat/.test(source)) {
+  if (/services\/api|shared\/types|types\/index|hooks\/useSSEChat/.test(source)) {
     failures.push(`legacy import in ${relative(ROOT, path)}`);
   }
   if (!relative(ROOT, path).replaceAll('\\', '/').startsWith('shared/')) {

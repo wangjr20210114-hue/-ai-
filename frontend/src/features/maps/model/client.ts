@@ -4,7 +4,8 @@ import type {
   MakersRouteMode,
   MakersRoutePlan,
   MakersRouteStrategy,
-} from '../../../shared/types';
+} from './types';
+import { translate } from '../../../i18n';
 
 
 export const routes = Object.freeze(['/places', '/routes']);
@@ -61,6 +62,6 @@ export async function planMakersRoute(
     ...(strategy ? { strategy } : {}),
     optimize: false,
   });
-  if (!data.route) throw new Error('Route provider returned no route');
+  if (!data.route) throw new Error(translate('routeResultMissing'));
   return data.route;
 }

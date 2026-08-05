@@ -14,10 +14,10 @@
     {"name": "get_current_location", "capability": "current_location"},
     {"name": "search_places", "capability": "places"},
     {"name": "search_places_batch", "capability": "places", "required": false},
-    {"name": "recommend_nearby_places_on_map", "capability": "nearby_places"},
-    {"name": "recommend_places_on_map", "capability": "map_action"},
-    {"name": "prepare_map_recommendation", "capability": "map_action", "required": false},
-    {"name": "plan_route_between_places", "capability": "route"}
+    {"name": "recommend_nearby_places_on_map", "capability": "nearby_places", "publishes": ["maps.place.select"]},
+    {"name": "recommend_places_on_map", "capability": "map_action", "publishes": ["maps.place.select"]},
+    {"name": "prepare_map_recommendation", "capability": "map_action", "required": false, "publishes": ["maps.place.select"]},
+    {"name": "plan_route_between_places", "capability": "route", "publishes": ["maps.place.select"]}
   ],
   "adapter": "agents._skill_adapters.maps.adapter:build_tools",
   "action_kinds": ["map_recommendation"],

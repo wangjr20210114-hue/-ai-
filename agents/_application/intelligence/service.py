@@ -13,6 +13,7 @@ from typing import Any
 
 from ..._infrastructure.makers.data_version import namespace
 from ..._infrastructure.makers.identity import required_user_id
+from ..i18n import text as copy_text
 from ..skills.registry import default_skill_preferences, locked_skill_ids
 
 
@@ -175,10 +176,11 @@ def install_user_skill(
     *,
     limit: int,
     now_ms: int | None = None,
+    response_language: object = "zh-CN",
 ) -> dict[str, Any]:
     """Install a model-only user Skill without accepting executable adapters."""
     if not isinstance(payload, dict):
-        raise ValueError("User Skill payload must be an object")
+        raise ValueError(copy_text("user_skill.payload_invalid", response_language))
     timestamp = int(now_ms if now_ms is not None else time.time() * 1000)
     record = _normalize_user_skill_record({
         **payload,
@@ -187,10 +189,10 @@ def install_user_skill(
         "enabled": True,
     })
     if record is None:
-        raise ValueError("User Skill needs a name and non-empty instructions")
+        raise ValueError(copy_text("user_skill.content_required", response_language))
     skills = normalize_user_skills(state.get("user_skills"))
     if record["id"] not in skills and len(skills) >= max(0, int(limit)):
-        raise ValueError("User Skill limit reached for the current plan")
+        raise ValueError(copy_text("user_skill.limit_reached", response_language))
     previous = skills.get(record["id"])
     if previous:
         record["installed_at"] = int(previous.get("installed_at") or timestamp)
@@ -203,22 +205,26 @@ def set_user_skill_enabled(
     state: dict[str, Any],
     skill_id: str,
     enabled: bool,
+    *, response_language: object = "zh-CN",
 ) -> dict[str, Any]:
     skills = normalize_user_skills(state.get("user_skills"))
     clean_id = str(skill_id or "").strip()
     if clean_id not in skills:
-        raise ValueError("User Skill does not exist")
+        raise ValueError(copy_text("user_skill.missing", response_language))
     skills[clean_id]["enabled"] = bool(enabled)
     skills[clean_id]["updated_at"] = int(time.time() * 1000)
     state["user_skills"] = skills
     return copy.deepcopy(skills[clean_id])
 
 
-def remove_user_skill(state: dict[str, Any], skill_id: str) -> None:
+def remove_user_skill(
+    state: dict[str, Any], skill_id: str, *,
+    response_language: object = "zh-CN",
+) -> None:
     skills = normalize_user_skills(state.get("user_skills"))
     clean_id = str(skill_id or "").strip()
     if clean_id not in skills:
-        raise ValueError("User Skill does not exist")
+        raise ValueError(copy_text("user_skill.missing", response_language))
     del skills[clean_id]
     state["user_skills"] = skills
 
@@ -334,6 +340,7 @@ def configure_skill_connection(
     token: str,
     *,
     now: int | None = None,
+    response_language: object = "zh-CN",
 ) -> dict[str, int]:
     """Store one manifest-declared personal token without exposing it publicly."""
     from ..skills.registry import skill_manifest
@@ -341,10 +348,10 @@ def configure_skill_connection(
     manifest = skill_manifest(str(skill_id or "").strip())
     credential = dict(manifest.credential) if manifest else {}
     if credential.get("kind") != "token":
-        raise ValueError("该 Skill 不支持在应用内配置 Token")
+        raise ValueError(copy_text("intelligence.skill_connection.unsupported", response_language))
     clean_token = str(token or "").strip()
     if not 16 <= len(clean_token) <= 4096:
-        raise ValueError("Token 格式无效，请从官方 Skill 专区重新复制")
+        raise ValueError(copy_text("intelligence.skill_connection.invalid_token", response_language))
     timestamp = int(time.time() if now is None else now)
     ttl = int(credential.get("ttl_seconds") or 0)
     connection = {
@@ -437,11 +444,11 @@ async def save_intelligence_state(
 
 
 def propose_memory(
-    state: dict[str, Any], key: str, value: Any, reason: str, *, sensitivity: str = "normal", source_message_id: str = "",
+    state: dict[str, Any], key: str, value: Any, reason: str, *, sensitivity: str = "normal", source_message_id: str = "", response_language: object = "zh-CN",
 ) -> dict[str, Any]:
     memory_key = str(key or "").strip()[:120]
     if not memory_key:
-        raise ValueError("记忆键不能为空")
+        raise ValueError(copy_text("intelligence.memory.key_required", response_language))
     sensitivity = sensitivity if sensitivity in {"normal", "sensitive"} else "normal"
     encoded = json.dumps({"key": memory_key, "value": value}, ensure_ascii=False, sort_keys=True, default=str)
     proposal_id = f"memprop_{hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:24]}"
@@ -454,7 +461,7 @@ def propose_memory(
         "id": proposal_id,
         "memory_key": memory_key,
         "value": copy.deepcopy(value),
-        "reason": str(reason or "用户希望长期保留此信息")[:500],
+        "reason": str(reason or copy_text("intelligence.memory.default_reason", response_language))[:500],
         "sensitivity": sensitivity,
         "source_message_id": str(source_message_id or ""),
         "expected_memory_version": int(current.get("version") or 0) if isinstance(current, dict) else 0,
@@ -467,17 +474,17 @@ def propose_memory(
     return copy.deepcopy(proposal)
 
 
-def confirm_memory(state: dict[str, Any], proposal_id: str, version: int) -> tuple[dict[str, Any], dict[str, Any]]:
+def confirm_memory(state: dict[str, Any], proposal_id: str, version: int, *, response_language: object = "zh-CN") -> tuple[dict[str, Any], dict[str, Any]]:
     proposal = state.get("memory_proposals", {}).get(proposal_id)
     if not isinstance(proposal, dict) or proposal.get("status") != "pending":
-        raise ValueError("记忆提案不存在或已处理")
+        raise ValueError(copy_text("intelligence.memory.proposal_missing", response_language))
     if int(proposal.get("version") or 0) != int(version):
-        raise ValueError("记忆提案版本已变化")
+        raise ValueError(copy_text("intelligence.memory.proposal_version_changed", response_language))
     memory_key = str(proposal["memory_key"])
     current = next((item for item in state.get("memories", {}).values() if item.get("memory_key") == memory_key), None)
     actual_version = int(current.get("version") or 0) if isinstance(current, dict) else 0
     if actual_version != int(proposal.get("expected_memory_version") or 0):
-        raise ValueError("记忆内容已变化，请重新确认")
+        raise ValueError(copy_text("intelligence.memory.content_changed", response_language))
     now = int(time.time())
     memory_id = str(current.get("id")) if isinstance(current, dict) else f"memory_{uuid.uuid4().hex}"
     history = copy.deepcopy(current.get("history") or []) if isinstance(current, dict) else []
@@ -506,29 +513,29 @@ def confirm_memory(state: dict[str, Any], proposal_id: str, version: int) -> tup
     return copy.deepcopy(proposal), copy.deepcopy(memory)
 
 
-def reject_memory(state: dict[str, Any], proposal_id: str, version: int) -> dict[str, Any]:
+def reject_memory(state: dict[str, Any], proposal_id: str, version: int, *, response_language: object = "zh-CN") -> dict[str, Any]:
     proposal = state.get("memory_proposals", {}).get(proposal_id)
     if not isinstance(proposal, dict) or proposal.get("status") != "pending":
-        raise ValueError("记忆提案不存在或已处理")
+        raise ValueError(copy_text("intelligence.memory.proposal_missing", response_language))
     if int(proposal.get("version") or 0) != int(version):
-        raise ValueError("记忆提案版本已变化")
+        raise ValueError(copy_text("intelligence.memory.proposal_version_changed", response_language))
     proposal.update({"status": "rejected", "version": int(proposal["version"]) + 1, "updated_at": int(time.time())})
     return copy.deepcopy(proposal)
 
 
-def delete_memory(state: dict[str, Any], memory_id: str) -> None:
+def delete_memory(state: dict[str, Any], memory_id: str, *, response_language: object = "zh-CN") -> None:
     if state.get("memories", {}).pop(memory_id, None) is None:
-        raise ValueError("记忆不存在")
+        raise ValueError(copy_text("intelligence.memory.missing", response_language))
 
 
-def rollback_memory(state: dict[str, Any], memory_id: str, target_version: int) -> dict[str, Any]:
+def rollback_memory(state: dict[str, Any], memory_id: str, target_version: int, *, response_language: object = "zh-CN") -> dict[str, Any]:
     memory = state.get("memories", {}).get(memory_id)
     if not isinstance(memory, dict):
-        raise ValueError("记忆不存在")
+        raise ValueError(copy_text("intelligence.memory.missing", response_language))
     history = list(memory.get("history") or [])
     target = next((item for item in history if int(item.get("version") or 0) == int(target_version)), None)
     if not isinstance(target, dict):
-        raise ValueError("找不到目标记忆版本")
+        raise ValueError(copy_text("intelligence.memory.version_missing", response_language))
     now = int(time.time())
     history.append({
         "version": int(memory.get("version") or 0),
@@ -549,7 +556,7 @@ def rollback_memory(state: dict[str, Any], memory_id: str, target_version: int) 
 
 
 def record_feedback(
-    state: dict[str, Any], *, target_type: str, target_id: str, outcome: str, metadata: dict[str, Any] | None = None,
+    state: dict[str, Any], *, target_type: str, target_id: str, outcome: str, metadata: dict[str, Any] | None = None, response_language: object = "zh-CN",
 ) -> dict[str, Any]:
     now = int(time.time())
     item = {
@@ -576,7 +583,7 @@ def record_feedback(
                     "id": rule_id,
                     "kind": "disable_notification_type",
                     "target": notification_type,
-                    "reason": f"你已连续忽略 {len(similar)} 条同类提醒",
+                    "reason": copy_text("intelligence.rule.ignored_reason", response_language, count=len(similar)),
                     "status": "pending",
                     "version": 1,
                     "created_at": now,
@@ -585,12 +592,12 @@ def record_feedback(
     return copy.deepcopy(item)
 
 
-def decide_rule(state: dict[str, Any], rule_id: str, version: int, accept: bool) -> dict[str, Any]:
+def decide_rule(state: dict[str, Any], rule_id: str, version: int, accept: bool, *, response_language: object = "zh-CN") -> dict[str, Any]:
     rule = state.get("rule_proposals", {}).get(rule_id)
     if not isinstance(rule, dict) or rule.get("status") != "pending":
-        raise ValueError("规则提案不存在或已处理")
+        raise ValueError(copy_text("intelligence.rule.proposal_missing", response_language))
     if int(rule.get("version") or 0) != int(version):
-        raise ValueError("规则提案版本已变化")
+        raise ValueError(copy_text("intelligence.rule.version_changed", response_language))
     rule.update({"status": "confirmed" if accept else "rejected", "version": int(rule["version"]) + 1, "updated_at": int(time.time())})
     return copy.deepcopy(rule)
 
@@ -725,14 +732,25 @@ def apply_automatic_memory_candidates(
         encoded_old = json.dumps((current or {}).get("value"), ensure_ascii=False, sort_keys=True, default=str)
         if isinstance(current, dict):
             history = list(current.get("history") or [])
-            if encoded_new != encoded_old:
+            source_changed = bool(
+                source_message_id
+                and str(current.get("source_message_id") or "")
+                != str(source_message_id)
+            )
+            if encoded_new != encoded_old or source_changed:
                 history.append({
                     "version": int(current.get("version") or 1),
                     "value": copy.deepcopy(current.get("value")),
                     "sensitivity": "normal",
+                    "source": current.get("source") or "automatic",
                     "source_message_id": current.get("source_message_id") or "",
                     "updated_at": int(current.get("updated_at") or timestamp),
+                    "confidence": float(current.get("confidence") or 0),
+                    "use_count": int(current.get("use_count") or 0),
+                    "last_used_at": int(current.get("last_used_at") or 0),
+                    "expires_at": int(current.get("expires_at") or 0),
                 })
+            if encoded_new != encoded_old:
                 current["value"] = copy.deepcopy(value)
                 current["version"] = int(current.get("version") or 1) + 1
             current.update({
@@ -769,6 +787,75 @@ def apply_automatic_memory_candidates(
     return changed
 
 
+def discard_turn_intelligence(
+    state: dict[str, Any], source_message_id: str,
+) -> int:
+    """Rollback automatic memory written by an explicitly stopped turn.
+
+    Stop can race terminal optional work.  Every automatic upsert therefore
+    retains the previous snapshot, allowing the stop endpoint and finalizer to
+    converge on the same clean state without deleting an older user memory.
+    """
+    source_id = str(source_message_id or "").strip()
+    if not source_id:
+        return 0
+    changed = 0
+    proposals = state.setdefault("memory_proposals", {})
+    for proposal_id, proposal in list(proposals.items()):
+        if (
+            isinstance(proposal, dict)
+            and str(proposal.get("source_message_id") or "") == source_id
+        ):
+            proposals.pop(proposal_id, None)
+            changed += 1
+    memories = state.setdefault("memories", {})
+    for memory_id, memory in list(memories.items()):
+        if not isinstance(memory, dict):
+            continue
+        history = [
+            copy.deepcopy(item)
+            for item in (memory.get("history") or [])
+            if isinstance(item, dict)
+        ]
+        if str(memory.get("source_message_id") or "") == source_id:
+            previous = next((
+                item for item in reversed(history)
+                if str(item.get("source_message_id") or "") != source_id
+            ), None)
+            if previous is None:
+                memories.pop(memory_id, None)
+            else:
+                memory.update({
+                    "value": copy.deepcopy(previous.get("value")),
+                    "sensitivity": previous.get("sensitivity") or "normal",
+                    "source": previous.get("source") or "automatic",
+                    "source_message_id": str(
+                        previous.get("source_message_id") or ""
+                    ),
+                    "version": int(previous.get("version") or 1),
+                    "confidence": float(previous.get("confidence") or 0),
+                    "use_count": int(previous.get("use_count") or 0),
+                    "last_used_at": int(previous.get("last_used_at") or 0),
+                    "expires_at": int(previous.get("expires_at") or 0),
+                    "updated_at": int(previous.get("updated_at") or 0),
+                    "history": [
+                        item for item in history
+                        if item is not previous
+                        and str(item.get("source_message_id") or "") != source_id
+                    ][-20:],
+                })
+            changed += 1
+            continue
+        filtered_history = [
+            item for item in history
+            if str(item.get("source_message_id") or "") != source_id
+        ]
+        if len(filtered_history) != len(history):
+            memory["history"] = filtered_history[-20:]
+            changed += 1
+    return changed
+
+
 def _memory_candidates(content: Any) -> list[dict[str, Any]]:
     text = content if isinstance(content, str) else str(content or "")
     match = re.search(r"\{[\s\S]*\}", text)
@@ -782,12 +869,9 @@ def _memory_candidates(content: Any) -> list[dict[str, Any]]:
     return values if isinstance(values, list) else []
 
 
-async def extract_automatic_memory_candidates(model: Any, user_message: str) -> list[dict[str, Any]]:
+async def extract_automatic_memory_candidates(model: Any, user_message: str, *, response_language: object = "zh-CN") -> list[dict[str, Any]]:
     """Use semantic extraction; deterministic filters remain the final privacy boundary."""
-    prompt = """你是后台记忆筛选器，只从用户自己的话提取值得跨会话保留的非敏感稳定信息，不回答用户。
-可保留：长期偏好、长期目标、反复习惯、稳定项目背景、用户明确陈述且非敏感的事实。
-必须丢弃：一次性任务参数、临时时间地点、尚未决定的事项、否定或犹豫表达、仅供本轮选择的备选项、寒暄、普通问题、搜索词、模型推断、第三方信息，以及密码/令牌/密钥/账号/联系方式/证件/精确地址/财务/健康医疗等敏感信息。
-如果没有合格内容返回 {"memories":[]}。否则最多 3 项，每项为 {"key":"稳定的语义键","value":"简洁事实","confidence":0到1,"ttl_days":30到365}。只有置信度至少 0.7 的内容才输出。只输出 JSON。"""
+    prompt = copy_text("model.memory.extract", response_language)
     try:
         response = await model.ainvoke([
             {"role": "system", "content": prompt},

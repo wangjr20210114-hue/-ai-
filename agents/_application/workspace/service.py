@@ -13,18 +13,36 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from ..._domain.workspace.models import WorkspaceConflictError
+from ..._domain.workspace.models import WorkspaceConflictError, WorkspaceSnapshotError
 from ..._domain.workspace.policy import (
     action_snapshot_hash,
     seal_action_snapshot,
-    verify_action_snapshot,
+    verify_action_snapshot as verify_action_snapshot_integrity,
 )
 from ..._infrastructure.makers.data_version import namespace
 from ..._infrastructure.makers.identity import required_user_id
+from ..i18n import text
 
 
 SCHEMA_VERSION = 1
 _workspace_write_locks: dict[str, asyncio.Lock] = {}
+
+
+def _copy(key: str, **params: object) -> str:
+    """Resolve persistent workspace copy through the shared product catalog."""
+    return text(key, "zh-CN", **params)
+
+
+def verify_action_snapshot(
+    action: dict[str, Any], *, response_language: object = "zh-CN",
+) -> None:
+    """Translate the pure domain integrity error at the application boundary."""
+    try:
+        verify_action_snapshot_integrity(action)
+    except WorkspaceSnapshotError as exc:
+        raise ValueError(
+            text("workspace.action.snapshot_invalid", response_language)
+        ) from exc
 
 
 def _workspace_write_lock(conversation_id: str) -> asyncio.Lock:
@@ -96,7 +114,7 @@ async def save_workspace(store: Any, conversation_id: str, state: dict[str, Any]
             current_revision = int((current or {}).get("revision") or 0)
             if current_revision != expected_revision:
                 raise WorkspaceConflictError(
-                    "日程或地图状态已在另一个窗口发生变化，请刷新后重试"
+                    _copy("workspace.conflict")
                 )
         saved = copy.deepcopy(state)
         saved["schema_version"] = SCHEMA_VERSION
@@ -110,14 +128,14 @@ async def save_workspace(store: Any, conversation_id: str, state: dict[str, Any]
 
 
 async def load_user_workspace(
-    store: Any, _legacy_conversation_id: str = "", user_id: str = "",
+    store: Any, *, user_id: str,
 ) -> dict[str, Any]:
     """Load only the explicit user namespace; old conversation state is never inherited."""
     return await load_workspace(store, required_user_id(user_id))
 
 
 async def save_user_workspace(
-    store: Any, state: dict[str, Any], user_id: str = "",
+    store: Any, state: dict[str, Any], *, user_id: str,
 ) -> dict[str, Any]:
     return await save_workspace(store, required_user_id(user_id), state)
 
@@ -159,15 +177,15 @@ def begin_action_execution(action: dict[str, Any], *, owner: str, now: int, leas
         return
     if action.get("status") == "executing":
         if int(action.get("lease_until") or 0) > now:
-            raise ValueError("操作正在执行，请勿重复提交")
+            raise ValueError(_copy("workspace.action.executing"))
         action["status"] = "reconciliation_required"
         action["reconciliation_required"] = True
-        action["error"] = "执行租约已过期，外部结果未知；为避免重复副作用，已停止自动重试"
+        action["error"] = _copy("workspace.action.lease_expired")
         action["version"] = int(action.get("version") or 1) + 1
         action["updated_at"] = now
         raise ValueError(action["error"])
     if action.get("status") not in {"awaiting_confirmation", "ready"}:
-        raise ValueError("该操作当前不能执行")
+        raise ValueError(_copy("workspace.action.unavailable"))
     action["status"] = "executing"
     action["attempt"] = int(action.get("attempt") or 0) + 1
     action["lease_owner"] = str(owner)
@@ -183,7 +201,7 @@ def start_provider_call(state: dict[str, Any], action: dict[str, Any], now: int)
     if isinstance(existing, dict):
         if existing.get("status") == "succeeded":
             return existing
-        raise ValueError("同一操作已有未核对的 Provider 调用，已阻止重复执行")
+        raise ValueError(_copy("workspace.action.provider_pending"))
     request_id = f"provider_{uuid.uuid4().hex}"
     call = {
         "id": request_id,
@@ -204,12 +222,12 @@ def finish_provider_call(state: dict[str, Any], action: dict[str, Any], result: 
     key = str(action.get("idempotency_key") or "")
     call = state.setdefault("provider_calls", {}).get(key)
     if not isinstance(call, dict):
-        raise ValueError("Provider 调用账本缺失")
+        raise ValueError(_copy("workspace.action.provider_ledger_missing"))
     unknown = bool(result.get("reconciliation_required"))
     call.update({
         "status": "succeeded" if result.get("ok") else "unknown" if unknown else "failed",
         "result": copy.deepcopy(result),
-        "error": "" if result.get("ok") else str(result.get("error") or "执行失败"),
+        "error": "" if result.get("ok") else str(result.get("error") or _copy("workspace.action.failed")),
         "updated_at": now,
     })
     action["result"] = copy.deepcopy(result)
@@ -232,7 +250,7 @@ def recover_stale_actions(state: dict[str, Any], now: int) -> list[dict[str, Any
             continue
         action["status"] = "reconciliation_required"
         action["reconciliation_required"] = True
-        action["error"] = "执行中断且外部结果未知；已阻止自动重试，请人工核对"
+        action["error"] = _copy("workspace.action.interrupted")
         action["lease_owner"] = ""
         action["lease_until"] = 0
         action["version"] = int(action.get("version") or 1) + 1
@@ -273,6 +291,38 @@ def public_action(action: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def merge_public_action_snapshot(
+    checkpoint_action: dict[str, Any],
+    durable_action: dict[str, Any],
+) -> dict[str, Any]:
+    """Prefer current Maker state while retaining frozen card fields.
+
+    Partially migrated workspace rows can contain the current version/status
+    but only part of the original payload. The checkpoint is immutable evidence
+    for the same Action id, so it may fill missing geometry while every
+    overlapping value remains Maker-authoritative.
+    """
+    current = public_action(durable_action)
+    checkpoint_payload = (
+        checkpoint_action.get("payload")
+        if isinstance(checkpoint_action.get("payload"), dict)
+        else {}
+    )
+    current_payload = (
+        current.get("payload")
+        if isinstance(current.get("payload"), dict)
+        else {}
+    )
+    return {
+        **copy.deepcopy(checkpoint_action),
+        **current,
+        "payload": {
+            **copy.deepcopy(checkpoint_payload),
+            **copy.deepcopy(current_payload),
+        },
+    }
+
+
 def put_action(state: dict[str, Any], action: dict[str, Any]) -> None:
     state.setdefault("actions", {})[str(action["id"])] = copy.deepcopy(action)
 
@@ -280,13 +330,13 @@ def put_action(state: dict[str, Any], action: dict[str, Any]) -> None:
 def get_action(state: dict[str, Any], action_id: str) -> dict[str, Any]:
     action = state.get("actions", {}).get(action_id)
     if not isinstance(action, dict):
-        raise ValueError("操作不存在或已经过期")
+        raise ValueError(_copy("workspace.action.missing"))
     return action
 
 
 def check_action_version(action: dict[str, Any], version: int) -> None:
     if int(action.get("version") or 0) != int(version):
-        raise ValueError("操作版本已变化，请刷新后重试")
+        raise ValueError(_copy("workspace.action.version_changed"))
 
 
 def normalize_schedule(event: dict[str, Any], *, existing_id: str = "") -> dict[str, Any]:
@@ -295,7 +345,7 @@ def normalize_schedule(event: dict[str, Any], *, existing_id: str = "") -> dict[
     start_time = int(event.get("start_time") or 0)
     duration = max(1, int(event.get("duration_minutes") or 60))
     if not title or start_time <= 0:
-        raise ValueError("日程必须包含标题和有效开始时间")
+        raise ValueError(_copy("workspace.schedule.invalid"))
     place = event.get("place")
     if place is not None and not (
         isinstance(place, dict)
@@ -303,7 +353,7 @@ def normalize_schedule(event: dict[str, Any], *, existing_id: str = "") -> dict[
         and isinstance(place.get("latitude"), (int, float))
         and isinstance(place.get("longitude"), (int, float))
     ):
-        raise ValueError("日程地点必须来自地点搜索候选")
+        raise ValueError(_copy("workspace.schedule.unverified_place"))
     category = str(event.get("category") or "travel")
     if category not in {"travel", "meeting", "dining", "remind", "task", "other"}:
         category = "other"
@@ -350,12 +400,12 @@ def validate_calendar_change_window(
         previous = schedules.get(str(change.get("schedule_id") or ""))
         if operation in {"update", "delete"} and isinstance(previous, dict):
             if int(previous.get("start_time") or 0) < floor:
-                raise ValueError("今天之前的日程只供查看，不能修改或删除")
+                raise ValueError(_copy("workspace.schedule.past_read_only"))
         if operation != "delete":
             event = change.get("event") if isinstance(change.get("event"), dict) else {}
             start = int(event.get("start_time") or (previous or {}).get("start_time") or 0)
             if start and start < floor:
-                raise ValueError("不能新增或移动到今天之前的日程")
+                raise ValueError(_copy("workspace.schedule.past_create"))
 
 
 def calendar_change_warnings(state: dict[str, Any], changes: list[dict[str, Any]]) -> list[str]:
@@ -377,7 +427,11 @@ def calendar_change_warnings(state: dict[str, Any], changes: list[dict[str, Any]
                 break
             if str(left.get("id") or "") not in changed_ids and str(right.get("id") or "") not in changed_ids:
                 continue
-            warnings.append(f"“{left.get('title') or '日程'}”与“{right.get('title') or '日程'}”时间重叠")
+            warnings.append(_copy(
+                "workspace.schedule.overlap",
+                left=left.get("title") or _copy("workspace.schedule.default_title"),
+                right=right.get("title") or _copy("workspace.schedule.default_title"),
+            ))
     return list(dict.fromkeys(warnings))[:6]
 
 
@@ -388,7 +442,7 @@ def meeting_action_payload(
     end_time: Any,
 ) -> dict[str, Any]:
     """Build an editable meeting proposal without inventing missing details."""
-    clean_subject = str(subject or "").strip()[:120] or "腾讯会议"
+    clean_subject = str(subject or "").strip()[:120] or _copy("workspace.meeting.default_title")
     raw_start = str(start_time or "").strip()
     raw_end = str(end_time or "").strip()
     missing_fields: list[str] = []
@@ -401,7 +455,9 @@ def meeting_action_payload(
         try:
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
-            validation_errors.append("开始时间格式无效" if field == "start_time" else "结束时间格式无效")
+            validation_errors.append(_copy(
+                "workspace.meeting.start_invalid" if field == "start_time" else "workspace.meeting.end_invalid"
+            ))
             return None
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone(timedelta(hours=8)))
@@ -412,7 +468,7 @@ def meeting_action_payload(
     warnings: list[str] = []
     if start is not None and end is not None:
         if end <= start:
-            validation_errors.append("会议结束时间必须晚于开始时间")
+            validation_errors.append(_copy("workspace.meeting.end_before_start"))
         else:
             meeting_change = [{"operation": "create", "event": {
                 "title": clean_subject,
@@ -465,7 +521,7 @@ def apply_calendar_changes(state: dict[str, Any], changes: list[dict[str, Any]])
             target_id = str(change.get("schedule_id") or "")
             previous = schedules.get(target_id)
             if not isinstance(previous, dict):
-                raise ValueError(f"找不到要更新的日程：{target_id}")
+                raise ValueError(_copy("workspace.schedule.update_missing", target_id=target_id))
             merged = copy.deepcopy(previous)
             merged.update(change.get("event") or {})
             event = normalize_schedule(merged, existing_id=target_id)
@@ -474,11 +530,11 @@ def apply_calendar_changes(state: dict[str, Any], changes: list[dict[str, Any]])
         elif operation == "delete":
             target_id = str(change.get("schedule_id") or "")
             if target_id not in schedules:
-                raise ValueError(f"找不到要删除的日程：{target_id}")
+                raise ValueError(_copy("workspace.schedule.delete_missing", target_id=target_id))
             removed = schedules.pop(target_id)
             changed.append({**removed, "deleted": True})
         else:
-            raise ValueError(f"不支持的日程操作：{operation}")
+            raise ValueError(_copy("workspace.schedule.operation_unsupported", operation=operation))
     # Repair exact legacy duplicates on the next confirmed mutation. Keep the
     # oldest stable id so references and proactive reminders remain valid.
     seen: set[tuple] = set()
@@ -515,8 +571,8 @@ def apply_calendar_changes_best_effort(
         if not isinstance(change, dict):
             skipped.append({
                 "operation": "unknown",
-                "target": f"第 {index} 项",
-                "reason": "变更格式无效",
+                "target": _copy("workspace.change.item", index=index),
+                "reason": _copy("workspace.change.invalid"),
             })
             continue
         operation = str(change.get("operation") or "create")
@@ -524,7 +580,7 @@ def apply_calendar_changes_best_effort(
         target = str(
             event.get("title")
             or change.get("schedule_id")
-            or f"第 {index} 项"
+            or _copy("workspace.change.item", index=index)
         ).strip()[:120]
         try:
             validate_calendar_change_window(state, [change], now=now)
@@ -534,13 +590,13 @@ def apply_calendar_changes_best_effort(
                 skipped.append({
                     "operation": operation,
                     "target": target,
-                    "reason": "与现有日程完全相同，未重复添加",
+                    "reason": _copy("workspace.change.duplicate"),
                 })
         except ValueError as exc:
             skipped.append({
                 "operation": operation,
                 "target": target,
-                "reason": str(exc)[:240] or "未执行",
+                "reason": str(exc)[:240] or _copy("workspace.change.not_applied"),
             })
     return changed, skipped
 
@@ -553,9 +609,10 @@ def active_map_payload(state: dict[str, Any]) -> dict[str, Any] | None:
     payload = action.get("payload") or {}
     return {
         "action_id": action_id,
-        "title": str(payload.get("title") or "相关地点"),
+        "title": str(payload.get("title") or _copy("workspace.map.default_title")),
         "places": copy.deepcopy(payload.get("places") or []),
         "route_mode": str(payload.get("route_mode") or ""),
         "route_strategy": str(payload.get("route_strategy") or ""),
+        "route": copy.deepcopy(payload.get("route") or {}),
         "show_route": bool(payload.get("show_route")),
     }

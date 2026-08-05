@@ -6,6 +6,8 @@ import hashlib
 import json
 from typing import Any
 
+from .models import WorkspaceSnapshotError
+
 
 def action_snapshot_hash(kind: str, payload: dict[str, Any]) -> str:
     canonical = json.dumps(
@@ -33,7 +35,7 @@ def verify_action_snapshot(action: dict[str, Any]) -> None:
         action.get("payload") or {},
     )
     if expected and expected != actual:
-        raise ValueError("操作参数快照校验失败，已拒绝执行")
+        raise WorkspaceSnapshotError
     if not expected:
         action["snapshot_hash"] = actual
         action["idempotency_key"] = str(

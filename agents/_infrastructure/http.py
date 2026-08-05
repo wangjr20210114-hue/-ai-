@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .._application.i18n import text
+
 
 def response(body: Any, status: int = 200, headers: dict[str, str] | None = None) -> dict[str, Any]:
     """Return the runtime's documented response envelope.
@@ -19,7 +21,7 @@ def response(body: Any, status: int = 200, headers: dict[str, str] | None = None
 
 
 def error(message: str, status: int = 400, *, code: str = "") -> dict[str, Any]:
-    body = {"error": str(message or "请求失败")}
+    body = {"error": str(message or text("chat.request_failed"))}
     if code:
         body["code"] = str(code)
     return response(body, status)

@@ -88,7 +88,7 @@ window.CASE_PROCEDURES = {
   'SEARCH-04': [
     S('目标网页', '先在 Skills 广场确认“实时搜索”开启；开始录屏，发送“介绍故宫太和殿并配一张有帮助的真实图片”。从第一段文字出现开始持续观察，不要等回答完成。', '回答包含流式正文、来源和图片区域；搜索服务有文章主图时，图片随正文流式阶段出现并先标记“图片核实中”，不是文字全部结束后才显示。'),
     S('回答排版', '观察图片所在段落、图片卡片左右边缘和回答气泡；在页面 Ctrl/⌘+F 分别搜索“YUANBAO_MEDIA”和“MEDIA_SLOT”。', '图片由确定性 source_id 绑定放在含精确来源链接的相关段落附近，不固定堆在结尾；页面不泄露任何新旧媒体占位符，模型自行输出的图片 Markdown 不显示。'),
-    S('图片卡片与段落行内“来源”', '逐张核对图片中的主体是否为故宫/太和殿；核对该段落精确来源 URL，再点击图片说明中的“来源”。', '每张可见图都满足 vision_reviewed=true，source_id 与 source_url 同时精确匹配所在段落来源；重定向式、尾斜杠近似或重复 source_id 均不绑定。'),
+    S('图片卡片与段落行内“来源”', '逐张核对图片中的主体是否为故宫/太和殿；核对该段落精确来源 URL，再点击图片说明中的“来源”。', '视觉审核通过的图片可见；视觉服务临时不可用时只允许 SearchPro 原始文章主图降级。两者都必须让 source_id 与 source_url 精确匹配所在段落来源；重定向式、尾斜杠近似或重复 source_id 均不绑定。'),
     S('开发者工具 Network', '筛选 image 或 media，查看图片请求状态。', '图片请求为 2xx；单张失败不会让整条回答消失。'),
   ],
   'SEARCH-05': [
@@ -408,7 +408,7 @@ window.CASE_PROCEDURES = {
     S('Skills 依赖联动', '先关闭“真实地点与地图”，保持“日程管理”开启；查看两张卡片和右侧日程新增表单。', '日程显示“地点能力受限”的建议；仍能保存无地点日程；地点输入改为“去开启”入口，不会编造地点。'),
     S('日程新增表单', '点击“去开启”，在自动打开的 Skills 广场重新开启地图；刷新页面。', '地图设置持久化；地点搜索恢复。关闭能力期间 AI 请求地点时会自然建议开启，而不是假装已调用地图。'),
     S('腾讯会议卡片', '点击“连接腾讯会议个人 Skill”，确认新标签打开腾讯会议官方 AI Skill 页面；不要在网页、聊天或验收备注粘贴 Token。', '只打开 meeting.tencent.com 官方页面；授权凭据不会出现在当前网页 Network、Console 或 localStorage。'),
-    S('目标网页', '新建对话，发送“明天下午 3 点帮我创建一个 30 分钟的腾讯会议，主题 TEST-MEETING”。', '未安装时不出现可确认的会议 Action；自然说明 Skill 尚未连接，并可建议普通日程。'),
+    S('目标网页', '新建对话，发送“明天下午 3 点帮我创建一个 30 分钟的腾讯会议，主题 TEST-MEETING”。', '未连接时不出现可确认的会议 Action；自然说明 Skill 尚未连接，并可建议普通日程。'),
   ],
   'MEET-02': [
     S('Makers 专用 Preview', '只在 Preview 环境变量保存从官方 AI Skill 页面取得的 TENCENT_MEETING_TOKEN，重新部署；回到左栏 Skills 广场点击“刷新状态”。', '腾讯会议卡片显示“已连接”；Token 不出现在构建日志、网页源码、Network 响应或截图。', '没有个人 Token 时标“不适用/阻塞”，不要用生产账号试错。'),
@@ -429,7 +429,7 @@ window.CASE_PROCEDURES = {
     S('浏览器', '刷新应用后再次打开 /system。', '只读刷新不创建重复 Action；有未读风险时 Header 显示自然提醒，无真实提醒时仅显示用户设置的诗意短句，不向对话注入消息。'),
   ],
   'OPS-02': [
-    S('Makers 控制台', 'EdgeOne → Makers → ai-active-agent → 构建部署 → 点击本轮 Deployment ID；确认状态“成功”、环境“预览”、提交哈希正确。', '构建四阶段均完成，没有 Failed；提交对应本轮代码。'),
+    S('Makers 控制台', 'EdgeOne → Makers → floris-dev → 构建部署 → 点击本轮 Deployment ID；确认状态“成功”、环境“预览”、提交哈希正确。', '构建四阶段均完成，没有 Failed；提交对应本轮代码。'),
     S('Deployment → 函数', '点击“函数”，数 cloudFunctionsRoutes 中 routePath 的条目并截图。', '当前基线应为 7 条 Node Cloud Functions；每条 runtime=Node。'),
     S('Deployment → Agents', '点击“Agents”，数 agentRoutes 中 routePath 的条目并截图。', '当前基线应为 12 条 Python Agents，包含 /chat、/messages、/routes、/stop、/workspace。'),
     S('Deployment → Schedules/构建产物', '检查 proactive-daily-scan，Cron“0 8 * * *”、Asia/Shanghai。', '存在 1 条每日 Schedule；routes.json 生成成功。'),

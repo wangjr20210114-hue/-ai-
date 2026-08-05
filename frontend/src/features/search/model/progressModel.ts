@@ -2,8 +2,7 @@ import type {
   StructuredProgressActivity,
   StructuredProgressStage,
   StructuredProgressStep,
-} from '../../../shared/types';
-export { progressTranslationKey } from '../../../shared/ui/progressLabel';
+} from '../../chat/model';
 
 const STAGES = new Set<StructuredProgressStage>([
   'planning',
@@ -64,7 +63,9 @@ export function normalizeProgressEvent(
     status,
     activity,
     source: 'controller',
-    updated_at: now,
+    updated_at: Number.isFinite(Number(raw.updated_at)) && Number(raw.updated_at) > 0
+      ? Number(raw.updated_at)
+      : now,
   };
 }
 

@@ -1,4 +1,6 @@
 from agents._tests.support.workspace_environment import *  # noqa: F401,F403
+from agents._application.i18n import text
+from agents.chat._graph import TOOL_FAILURE_MESSAGE
 
 
 class CalendarWorkspaceTests(unittest.IsolatedAsyncioTestCase):
@@ -90,6 +92,57 @@ class CalendarWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(response["schedules"]), 1)
         proactive = public_proactive_state(await load_proactive_state(store, TEST_USER_ID))
         self.assertTrue(any(item["type"] == "schedule_upcoming" for item in proactive["notifications"]))
+
+    async def test_calendar_changes_preserve_the_active_verified_map(self):
+        store = FakeStore()
+        state = empty_workspace()
+        map_action = new_action(
+            "map_recommendation",
+            {
+                "title": "已核实公共交通路线",
+                "places": [PLACE],
+                "route": {"provider": "tencent", "mode": "transit"},
+                "show_route": True,
+            },
+            requires_confirmation=False,
+        )
+        put_action(state, map_action)
+        state["active_map_action_id"] = map_action["id"]
+        await save_workspace(store, TEST_USER_ID, state)
+
+        start = int(time.time()) + 7200
+        direct = await handler(FakeContext(store, {
+            "operation": "direct_calendar_changes",
+            "changes": [{"operation": "create", "event": {
+                "title": "直接新增",
+                "start_time": start,
+                "duration_minutes": 30,
+                "place": PLACE,
+            }}],
+        }))
+        self.assertEqual(direct["map"]["route"]["mode"], "transit")
+
+        restored = await load_user_workspace(store, user_id=TEST_USER_ID)
+        calendar_action = new_action(
+            "calendar_changes",
+            {"changes": [{"operation": "create", "event": {
+                "title": "确认新增",
+                "start_time": start + 7200,
+                "duration_minutes": 30,
+                "place": PLACE,
+            }}]},
+            requires_confirmation=True,
+        )
+        put_action(restored, calendar_action)
+        await save_workspace(store, TEST_USER_ID, restored)
+        confirmed = await handler(FakeContext(store, {
+            "operation": "confirm_action",
+            "action_id": calendar_action["id"],
+            "version": calendar_action["version"],
+        }))
+        self.assertEqual(confirmed["map"]["route"]["mode"], "transit")
+        final = await load_user_workspace(store, user_id=TEST_USER_ID)
+        self.assertEqual(final["active_map_action_id"], map_action["id"])
 
     def test_schedule_location_must_be_verified(self):
         with self.assertRaises(ValueError):
@@ -467,7 +520,21 @@ class CalendarWorkspaceTests(unittest.IsolatedAsyncioTestCase):
             tool_call_id="calendar-failed",
         )
         self.assertEqual(action_completion_fallback([failed]), "")
-        self.assertIn("没有生成确认卡", tool_failure_fallback([failed]))
+        self.assertIn("确认卡没有生成成功", tool_failure_fallback([failed]))
+
+        runtime_failed = ToolMessage(
+            content=json.dumps({"tool_error": {
+                "kind": "runtime",
+                "detail": TOOL_FAILURE_MESSAGE,
+                "retry_same_call": False,
+            }}, ensure_ascii=False),
+            name="propose_calendar_changes",
+            tool_call_id="calendar-runtime-failed",
+        )
+        public_copy = tool_failure_fallback([runtime_failed])
+        self.assertEqual(public_copy, text("chat.fallback.required_failed", "zh-CN"))
+        self.assertNotIn("不要重复调用", public_copy)
+        self.assertNotIn("请基于", public_copy)
 
     def test_optional_meeting_tool_is_hidden_until_personal_token_exists(self):
         hidden = build_system_skill_tools(

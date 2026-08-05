@@ -1,4 +1,4 @@
-import type { ChatMessage, ConversationSummary } from '../shared/types';
+import type { ChatMessage, ConversationSummary } from '../features/chat/model';
 import { CONVERSATION_PREFIX } from './dataVersion';
 
 const CONVERSATION_KEY = 'yuanbao.v6.conversationId';
@@ -55,6 +55,18 @@ export function makersConversationHeaders(conversationId: string): Record<string
   return { 'makers-conversation-id': conversationId };
 }
 
+/** Identify a reusable draft by lifecycle state, never by its display title. */
+export function isPristinePendingConversation(
+  conversation: ConversationSummary | undefined,
+  messages: ChatMessage[],
+): boolean {
+  return Boolean(
+    conversation?.pending
+    && Number(conversation.messageCount || 0) === 0
+    && messages.length === 0,
+  );
+}
+
 /**
  * Return true when an assistant row has durable, user-visible state.
  *
@@ -75,7 +87,7 @@ export function hasDurableAssistantPayload(message?: ChatMessage): boolean {
 }
 
 export function isDurableChatMessage(message: ChatMessage): boolean {
-  return !message.failed && (
+  return !message.failed && !message.queued && (
     message.role === 'user' || hasDurableAssistantPayload(message)
   );
 }
@@ -92,6 +104,45 @@ export function settleStoppedMessages(messages: ChatMessage[]): ChatMessage[] {
       || hasDurableAssistantPayload(message)
     ))
     .map((message) => message.streaming ? { ...message, streaming: false } : message);
+}
+
+/** Remove a deliberately stopped answer instead of turning it into content. */
+export function discardStreamingAnswer(
+  messages: ChatMessage[],
+  streamId = '',
+): ChatMessage[] {
+  return messages.filter((message) => !(
+    message.role === 'ai'
+    && (message.streaming || (streamId && message.id === streamId))
+  ));
+}
+
+/** Remove every assistant projection owned by one deliberately stopped turn. */
+export function discardTurnAnswer(
+  messages: ChatMessage[],
+  clientMessageId: string,
+  streamId = '',
+): ChatMessage[] {
+  if (!clientMessageId) return discardStreamingAnswer(messages, streamId);
+  const userIndex = messages.findIndex((message) => (
+    message.role === 'user'
+    && (
+      message.id === clientMessageId
+      || message.client_message_id === clientMessageId
+    )
+  ));
+  if (userIndex < 0) return discardStreamingAnswer(messages, streamId);
+  const nextUserOffset = messages.slice(userIndex + 1).findIndex((message) => (
+    message.role === 'user'
+  ));
+  const turnEnd = nextUserOffset < 0
+    ? messages.length
+    : userIndex + 1 + nextUserOffset;
+  return messages.filter((message, index) => !(
+    message.role === 'ai'
+    && index > userIndex
+    && index < turnEnd
+  ));
 }
 
 function workspaceActionIds(message: ChatMessage): Set<string> {
@@ -296,6 +347,9 @@ export function reconcileConversationSummary(
 }
 
 function messageFingerprint(message: ChatMessage): string {
+  if (message.client_message_id) {
+    return `${message.role}\u0000turn:${message.client_message_id}`;
+  }
   if (message.role === 'ai' && message.clarification?.id) {
     return `${message.role}\u0000clarification:${message.clarification.id}`;
   }
@@ -320,8 +374,9 @@ export function mergeMessages(
   const preserveStreaming = Boolean(options.preserveStreaming);
   remote = remote.filter(isDurableChatMessage);
   local = local.filter((message) => (
-    isDurableChatMessage(message)
-    || (!message.failed && preserveStreaming && Boolean(message.streaming))
+    message.streaming
+      ? (!message.failed && preserveStreaming)
+      : isDurableChatMessage(message)
   ));
   const localByFingerprint = new Map<string, number[]>();
   local.forEach((message, index) => {
@@ -360,7 +415,10 @@ export function mergeMessages(
     const isLiveTail = preserveStreaming && Boolean(message.streaming) && index > lastRemoteMatch;
     if (!consumed.has(index)
       && index > lastRemoteMatch
-      && (index <= lastRemoteMatch + 1 + lastCompletedLocalOffset || isLiveTail)) {
+      && (
+        index <= lastRemoteMatch + 1 + lastCompletedLocalOffset
+        || isLiveTail
+      )) {
       output.push({ ...message, streaming: isLiveTail });
     }
   });

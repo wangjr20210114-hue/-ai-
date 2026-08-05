@@ -4,7 +4,7 @@ import {
   getProviderUsage,
   resetApplicationData,
 } from './settings/model/client';
-import type { MakersMapPlace, MakersRoutePlan } from '../shared/types';
+import type { MakersMapPlace, MakersRoutePlan } from './maps/model';
 
 afterEach(() => vi.unstubAllGlobals());
 

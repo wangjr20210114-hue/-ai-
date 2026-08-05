@@ -5,6 +5,10 @@ from types import SimpleNamespace
 
 from agents._domain.identity import TenantIdentity
 from agents._infrastructure.makers.identity import AuthError, MakerIdentityResolver, conversation_index_user_id
+from agents._infrastructure.makers.request_context import (
+    maker_request_id,
+    request_id_for_turn,
+)
 from agents._tests.auth_helpers import authenticated_context, auth_env, session_token
 
 
@@ -13,6 +17,23 @@ def signed_context(**identity):
 
 
 class MakerIdentityResolverTests(unittest.TestCase):
+    def test_request_correlation_uses_only_the_makers_run_id(self) -> None:
+        ctx = SimpleNamespace(
+            run_id="maker-run-1",
+            request=SimpleNamespace(
+                body={"request_id": "browser-forged"},
+                headers={"x-request-id": "header-forged"},
+            ),
+        )
+        self.assertEqual(maker_request_id(ctx), "maker-run-1")
+        self.assertEqual(request_id_for_turn(ctx), "maker-run-1")
+
+    def test_local_runtime_gets_a_unique_compatibility_request_id(self) -> None:
+        first = request_id_for_turn(SimpleNamespace())
+        second = request_id_for_turn(SimpleNamespace())
+        self.assertRegex(first, r"^chat-[0-9a-f]{32}$")
+        self.assertNotEqual(first, second)
+
     def test_request_body_cannot_override_signed_identity(self) -> None:
         ctx = signed_context(
             tenant_id="tenant-a",

@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from langchain_core.messages import AIMessageChunk
+from langchain_core.messages import AIMessageChunk, ToolMessage
 
 from agents._application.chat.turn_service import ChatTurnService
+from agents._application.chat.turn_search import media_observability
+from agents._application.skills.access import (
+    resolve_skill_access as resolve_test_skill_access,
+)
 from agents._application.search.search_use_case import SearchExecution
-from agents._domain.search.evidence import SearchEvidence, SearchSource
+from agents._domain.search.evidence import (
+    ReviewedMedia,
+    SearchEvidence,
+    SearchSource,
+)
 from agents._tests.auth_helpers import auth_env, auth_headers
 from agents._tests.support.fakes import FakeCheckpointer, FakeStore
 from agents.chat._capability_plan import DEFAULT_PLAN
@@ -44,8 +53,43 @@ class _Utils:
         return None
 
 
+class _Tracer:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict]] = []
+
+    def event(self, name: str, attributes: dict) -> None:
+        self.events.append((name, copy.deepcopy(attributes)))
+
+
 class _AnswerGraph:
+    last_tool_names: tuple[str, ...] = ()
+
+    def __init__(self, tools=()) -> None:
+        self.tools = list(tools)
+        type(self).last_tool_names = tuple(
+            str(getattr(tool, "name", "") or "")
+            for tool in self.tools
+        )
+
     async def astream(self, *_args, **_kwargs):
+        rich_search = next(
+            (
+                tool
+                for tool in self.tools
+                if getattr(tool, "name", "") == "rich_search"
+            ),
+            None,
+        )
+        if rich_search is not None:
+            try:
+                content = await rich_search.ainvoke({"query": "planned query"})
+            except Exception as exc:
+                content = str(exc)
+            yield ToolMessage(
+                content=content,
+                name="rich_search",
+                tool_call_id="runtime-rich-search",
+            ), {}
         yield AIMessageChunk(
             content="Production-like runtime matrix answer completed.",
         ), {}
@@ -87,11 +131,100 @@ class _FailingSearchUseCase:
         raise TimeoutError("search provider timed out")
 
 
+class _ProgressiveSearchUseCase:
+    execute_count = 0
+    last_request_id = ""
+
+    def __init__(self, **_values) -> None:
+        pass
+
+    async def execute(self, request, *, on_media=None) -> SearchExecution:
+        type(self).execute_count += 1
+        type(self).last_request_id = request.request_id
+        source = SearchSource(
+            id="source-runtime-1",
+            title="Runtime source",
+            url="https://example.com/runtime",
+            snippet="Verified runtime evidence.",
+        )
+        enriched = SearchEvidence(
+            query=request.query,
+            sources=(source,),
+            media=(ReviewedMedia(
+                id="media-runtime-1",
+                url="https://img.example.com/runtime.jpg",
+                source_id=source.id,
+                source_url=source.url,
+                vision_reviewed=True,
+            ),),
+            total=1,
+        )
+
+        async def publish_media() -> SearchEvidence:
+            # Finish after the graph's short answer so terminal ordering is
+            # exercised instead of passing only because this task won a race.
+            await asyncio.sleep(0.05)
+            if on_media is not None:
+                await on_media(enriched)
+            return enriched
+
+        return SearchExecution(
+            evidence=SearchEvidence(
+                query=request.query,
+                sources=(source,),
+                total=1,
+                media_pending=True,
+            ),
+            media_tasks=(asyncio.create_task(publish_media()),),
+            provider_request_count=1,
+        )
+
+
 def _plan(**updates) -> dict:
     return {**copy.deepcopy(DEFAULT_PLAN), **updates}
 
 
 class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
+    def test_media_observability_classifies_safe_empty_results(self):
+        self.assertEqual(
+            media_observability({
+                "media": [],
+                "vision_diagnostics": {"candidates": 0, "reviewed": 0},
+            })["reason"],
+            "no_candidates",
+        )
+        self.assertEqual(
+            media_observability({
+                "media": [],
+                "vision_diagnostics": {
+                    "candidates": 3,
+                    "reviewed": 3,
+                    "irrelevant": 2,
+                    "promotional": 1,
+                },
+            })["reason"],
+            "rejected",
+        )
+        self.assertEqual(
+            media_observability({
+                "media": [],
+                "vision_diagnostics": {
+                    "candidates": 2,
+                    "eligible_candidates": 2,
+                    "reviewed": 2,
+                    "providers_failed": 2,
+                },
+            })["reason"],
+            "provider_failed",
+        )
+        self.assertEqual(
+            media_observability({
+                "media": [{"source_id": "source-1"}],
+                "vision_diagnostics": {"candidates": 2, "approved": 1},
+            })["reason"],
+            "published",
+        )
+
     async def _run(
         self,
         name: str,
@@ -104,6 +237,10 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         enabled_preferences: dict[str, bool] | None = None,
         identity: dict | None = None,
         search_use_case_type=_SearchUseCase,
+        followups_enabled: bool = False,
+        followup_generator=None,
+        graph_type=_AnswerGraph,
+        tracer=None,
     ) -> tuple[str, _ConversationStore]:
         store = store or _ConversationStore()
         ctx = SimpleNamespace(
@@ -119,7 +256,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             ),
             env=auth_env(),
             utils=_Utils(),
-            tracer=None,
+            tracer=tracer,
         )
         enabled = {
             "core": True,
@@ -132,6 +269,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             "workflow-action": True,
             "meeting-action": True,
         }
+        followup_impl = followup_generator or AsyncMock(return_value=[])
 
         with (
             patch(
@@ -143,8 +281,11 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=(plan, planner_timed_out)),
             ),
             patch(
-                "agents._application.chat.turn_service.effective_skill_preferences",
-                return_value=enabled_preferences or enabled,
+                "agents._application.chat.turn_service.resolve_skill_access",
+                side_effect=lambda identity, _preferences: resolve_test_skill_access(
+                    identity,
+                    enabled_preferences or enabled,
+                ),
             ),
             patch(
                 "agents._application.chat.turn_service.load_user_workspace",
@@ -155,16 +296,26 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value={}),
             ),
             patch(
-                "agents._application.chat.turn_service.SearchUseCase",
+                "agents._application.chat.turn_search.SearchUseCase",
                 new=search_use_case_type,
             ),
             patch(
                 "agents._application.chat.turn_service.build_graph",
-                return_value=_AnswerGraph(),
+                side_effect=(
+                    lambda _model, tools, *_args, **_kwargs: graph_type(tools)
+                ),
             ),
             patch(
-                "agents._application.chat.turn_service.should_generate_followups",
-                return_value=False,
+                "agents._application.chat.turn_background.should_generate_followups",
+                return_value=followups_enabled,
+            ),
+            patch(
+                "agents._application.chat.turn_finalizer.generate_followups",
+                new=followup_impl,
+            ),
+            patch(
+                "agents._application.chat.turn_background.generate_followups",
+                new=followup_impl,
             ),
         ):
             stream = await ChatTurnService(ctx).handle()
@@ -179,6 +330,29 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             name,
         )
         return wire, store
+
+    async def test_followups_begin_during_a_grounded_answer_stream(self):
+        followup_started = asyncio.Event()
+
+        class LongAnswerGraph(_AnswerGraph):
+            async def astream(self, *_args, **_kwargs):
+                yield AIMessageChunk(content="这是已经形成的公开回答内容。" * 24), {}
+                await asyncio.wait_for(followup_started.wait(), timeout=1.0)
+                yield AIMessageChunk(content="这是回答的最后一段。"), {}
+
+        async def followups(_model, _user_message, answer="", **_kwargs):
+            self.assertGreaterEqual(len(answer), 180)
+            followup_started.set()
+            return ["接下来还可以了解什么？"]
+
+        wire, _ = await self._run(
+            "parallel-followups",
+            _plan(),
+            followups_enabled=True,
+            followup_generator=followups,
+            graph_type=LongAnswerGraph,
+        )
+        self.assertIn('"type":"follow_ups"', wire)
 
     async def test_guest_search_plan_falls_back_to_model_without_install_prompt(self):
         _SearchUseCase.execute_count = 0
@@ -203,7 +377,102 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("安装", wire)
         self.assertEqual(_SearchUseCase.execute_count, 0)
 
-    async def test_runtime_search_failure_falls_back_to_plain_model_answer(self):
+    async def test_guest_search_discards_planner_clarification_card(self):
+        _SearchUseCase.execute_count = 0
+        enabled = {
+            "core": True,
+            "web-search": False,
+            "proactive-agent": True,
+        }
+        wire, _ = await self._run(
+            "guest-search-clarification-fallback",
+            _plan(
+                needs_clarification=True,
+                clarification_title="AI progress scope",
+                clarification_prompt="Choose one category first.",
+                clarification_fields=[{
+                    "id": "scope",
+                    "label": "Category",
+                    "type": "single",
+                    "required": True,
+                    "options": ["language models", "images", "coding"],
+                }],
+                needs_web_search=True,
+                search_query="recent AI progress",
+                _capabilities=["web_search"],
+            ),
+            enabled_preferences=enabled,
+            identity={"auth_type": "guest", "membership": "guest"},
+            body_updates={"message": "What is new in AI?"},
+        )
+
+        self.assertIn("Production-like runtime matrix answer completed.", wire)
+        self.assertNotIn("clarification_action", wire)
+        self.assertNotIn("ask_user_clarification", wire)
+        self.assertNotIn("AI progress scope", wire)
+        self.assertIn('"kind":"freshness"', wire)
+        self.assertIn('"login_required":true', wire)
+        self.assertEqual(_SearchUseCase.execute_count, 0)
+        self.assertEqual(_AnswerGraph.last_tool_names, ())
+
+    async def test_user_disabled_search_degrades_without_login_prompt(self):
+        _SearchUseCase.execute_count = 0
+        enabled = {
+            "core": True,
+            "web-search": False,
+            "proactive-agent": True,
+        }
+        wire, _ = await self._run(
+            "user-disabled-search",
+            _plan(
+                needs_clarification=True,
+                clarification_title="Search scope",
+                clarification_prompt="Choose a scope.",
+                clarification_fields=[{
+                    "id": "scope",
+                    "label": "Scope",
+                    "type": "single",
+                    "required": True,
+                    "options": ["A", "B"],
+                }],
+                needs_web_search=True,
+                search_query="recent AI progress",
+                _capabilities=["web_search"],
+            ),
+            enabled_preferences=enabled,
+            identity={"auth_type": "cloudbase", "membership": "free"},
+        )
+
+        self.assertIn("Production-like runtime matrix answer completed.", wire)
+        self.assertNotIn("clarification_action", wire)
+        self.assertIn('"kind":"freshness"', wire)
+        self.assertIn('"login_required":false', wire)
+        self.assertEqual(_SearchUseCase.execute_count, 0)
+        self.assertEqual(_AnswerGraph.last_tool_names, ())
+
+    async def test_authenticated_clarification_tool_remains_available(self):
+        await self._run(
+            "authenticated-clarification",
+            _plan(
+                needs_clarification=True,
+                clarification_title="Required side-effect target",
+                clarification_prompt="Choose the target.",
+                clarification_fields=[{
+                    "id": "target",
+                    "label": "Target",
+                    "type": "single",
+                    "required": True,
+                    "options": ["A", "B"],
+                }],
+            ),
+        )
+
+        self.assertEqual(
+            _AnswerGraph.last_tool_names,
+            ("ask_user_clarification",),
+        )
+
+    async def test_runtime_search_failure_keeps_main_tool_result_boundary(self):
         wire, _ = await self._run(
             "runtime-search-fallback",
             _plan(
@@ -215,7 +484,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn("Production-like runtime matrix answer completed.", wire)
-        self.assertIn('"status":"skipped"', wire)
+        self.assertNotIn('"type":"search_results"', wire)
         self.assertNotIn("event: error", wire)
 
     async def test_successful_search_publishes_measured_search_time(self):
@@ -229,6 +498,103 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertRegex(wire, r'"timings_ms":\{"search":\d+\}')
+
+    async def test_cloudbase_search_streams_sources_and_bound_media_once(self):
+        _ProgressiveSearchUseCase.execute_count = 0
+        observed: dict[str, str] = {}
+        tracer = _Tracer()
+
+        async def grounded_followups(
+            _model,
+            user_message,
+            answer="",
+            **_kwargs,
+        ):
+            observed["question"] = user_message
+            observed["answer"] = answer
+            return ["Which verified result should we examine next?"]
+
+        wire, store = await self._run(
+            "cloudbase-progressive-search",
+            _plan(
+                needs_web_search=True,
+                needs_images=True,
+                search_query="recent AI progress",
+                image_query="AI launch event",
+                _capabilities=["web_search"],
+            ),
+            identity={"auth_type": "cloudbase", "membership": "free"},
+            search_use_case_type=_ProgressiveSearchUseCase,
+            followups_enabled=True,
+            followup_generator=grounded_followups,
+            tracer=tracer,
+        )
+
+        self.assertEqual(_ProgressiveSearchUseCase.execute_count, 1)
+        self.assertEqual(
+            _ProgressiveSearchUseCase.last_request_id,
+            "run-cloudbase-progressive-search",
+        )
+        self.assertEqual(wire.count('"type":"search_results"'), 1)
+        self.assertEqual(wire.count('"type":"search_media"'), 1)
+        self.assertIn('"source_id":"source-runtime-1"', wire)
+        self.assertIn('"vision_reviewed":true', wire)
+        self.assertLess(wire.index("event: sources"), wire.index("event: token"))
+        self.assertLess(wire.index("event: media"), wire.index("data: [DONE]"))
+        self.assertLess(wire.index("event: done"), wire.index('"type":"follow_ups"'))
+        self.assertEqual(
+            observed["answer"],
+            "Production-like runtime matrix answer completed.",
+        )
+        self.assertNotIn('"login_required":true', wire)
+        extras = [
+            value
+            for (namespace, key), value in store.langgraph_store.values.items()
+            if key == "latest_extras" and namespace
+        ]
+        self.assertEqual(len(extras), 1)
+        persisted = extras[0]["search_results"]
+        self.assertEqual(persisted["results"][0]["id"], "source-runtime-1")
+        self.assertEqual(
+            persisted["media"][0]["source_id"],
+            "source-runtime-1",
+        )
+        event_names = [name for name, _ in tracer.events]
+        expected_events = [
+            "chat.request_received",
+            "chat.pre_graph_timing",
+            "chat.answer_first_token",
+            "chat.answer_completed",
+            "chat.media_completed",
+            "chat.request_settled",
+        ]
+        for event_name in expected_events:
+            self.assertEqual(event_names.count(event_name), 1)
+        self.assertEqual(
+            [event_names.index(name) for name in expected_events],
+            sorted(event_names.index(name) for name in expected_events),
+        )
+        settled = dict(tracer.events)["chat.request_settled"]
+        media_event = dict(tracer.events)["chat.media_completed"]
+        self.assertEqual(settled["chat.outcome"], "completed")
+        self.assertEqual(media_event["chat.media.reason"], "published")
+        self.assertEqual(media_event["chat.media.count"], 1)
+        self.assertEqual(
+            settled["chat.request_id"],
+            "run-cloudbase-progressive-search",
+        )
+        for _, attributes in tracer.events:
+            self.assertEqual(
+                attributes["chat.request_id"],
+                "run-cloudbase-progressive-search",
+            )
+        for metric in (
+            "answer_first_token",
+            "answer_completed",
+            "media_completed",
+            "request_settled",
+        ):
+            self.assertIsInstance(settled[f"chat.timing.{metric}"], int)
 
     async def test_representative_plans_construct_tools_and_finish_streams(self):
         plans = {
@@ -297,6 +663,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         store = _ConversationStore()
         conversation_id = "runtime-location-retry"
         location_plan = _plan(needs_current_location=True)
+        tracer = _Tracer()
 
         first_wire, _ = await self._run(
             "location-first",
@@ -304,6 +671,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             store=store,
             conversation_id=conversation_id,
             body_updates={"message": "Where am I?"},
+            tracer=tracer,
         )
         self.assertIn("browser_location_request", first_wire)
         self.assertEqual(store.append_count, 1)
@@ -311,6 +679,9 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             store.metadata["yuanbao_chat_run_v1"]["status"],
             "completed",
         )
+        settled = dict(tracer.events)["chat.request_settled"]
+        self.assertEqual(settled["chat.outcome"], "location_retry")
+        self.assertIsInstance(settled["chat.timing.request_settled"], int)
 
         retry_wire, _ = await self._run(
             "location-second",

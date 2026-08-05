@@ -19,12 +19,10 @@ import { useAppDispatch } from '../../../store/appState';
 import type {
   ChatMessage,
   MeetingResult,
-  ProactiveNotification,
-  ScheduleItem,
   SkillInfo,
-  TravelPlan,
   WorkspaceAction,
-} from '../../../shared/types';
+} from '../model';
+import type { ProactiveNotification } from '../../settings/model';
 
 export interface MessageBubbleControllerInput {
   message: ChatMessage;
@@ -115,13 +113,6 @@ export function useMessageBubbleController({
 }: MessageBubbleControllerInput) {
   const dispatch = useAppDispatch();
   const { t } = useLanguage();
-  const [travelPlan, setTravelPlan] = useState<TravelPlan | null>(
-    message.travelPlanData || null,
-  );
-  const [travelStartTs] = useState<number | undefined>(message.travelStartTs);
-  const [parsedSchedules] = useState<Partial<ScheduleItem>[]>(
-    message.parsedSchedules || [],
-  );
   const [meetingCreating, setMeetingCreating] = useState(false);
   const [meetingResult, setMeetingResult] = useState<MeetingResult | null>(null);
   const [meetingStatusText, setMeetingStatusText] = useState('');
@@ -292,6 +283,7 @@ export function useMessageBubbleController({
           client_message: requestMessage,
           reference_images: [],
           response_language: getStoredLanguage(),
+          route_plan_id: action.payload.route_plan_id,
         },
       }));
     } catch {
@@ -420,6 +412,7 @@ export function useMessageBubbleController({
           title: action.payload.title,
           routeMode: action.payload.route_mode,
           routeStrategy: action.payload.route_strategy,
+          route: action.payload.route,
           showRoute: action.payload.show_route,
           reveal: true,
         },
@@ -434,15 +427,23 @@ export function useMessageBubbleController({
         ...input,
       });
       if (response.action) replaceWorkspaceAction(response.action);
-      if (operation === 'activate_map' && response.map?.places?.length) {
+      const responseActionPlaces = operation === 'activate_map' && response.action
+        ? usableMapPlaces(response.action)
+        : [];
+      const responseMapPlaces = response.map?.places?.length
+        ? response.map.places
+        : responseActionPlaces;
+      if (operation === 'activate_map' && responseMapPlaces.length) {
+        const responsePayload = response.action?.payload || {};
         dispatch({
           type: 'SET_MAP_PLACES',
           payload: {
-            places: response.map.places,
-            title: response.map.title,
-            routeMode: response.map.route_mode || undefined,
-            routeStrategy: response.map.route_strategy || undefined,
-            showRoute: response.map.show_route,
+            places: responseMapPlaces,
+            title: response.map?.title || responsePayload.title,
+            routeMode: response.map?.route_mode || responsePayload.route_mode || undefined,
+            routeStrategy: response.map?.route_strategy || responsePayload.route_strategy || undefined,
+            route: response.map?.route || responsePayload.route || undefined,
+            showRoute: response.map?.show_route ?? responsePayload.show_route,
             reveal: true,
           },
         });
@@ -530,18 +531,14 @@ export function useMessageBubbleController({
     meetingResult,
     meetingStatusText,
     mutateProactive,
-    parsedSchedules,
     proactiveBusy,
     replaceWorkspaceAction,
     requestRouteCalendarProposal,
     retryFailedAnswer,
     retryingAnswer,
     saveAnswerImage,
-    setTravelPlan,
     skill,
     skillActioned,
-    travelPlan,
-    travelStartTs,
     workspaceActions,
     workspaceBusy,
   };

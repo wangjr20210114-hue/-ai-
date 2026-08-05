@@ -2,7 +2,7 @@ import { Button } from 'tdesign-react';
 
 import type { MessageBubbleController } from '../../controller/useMessageBubbleController';
 import { useLanguage } from '../../../../i18n';
-import type { ChatMessage, ProactiveState } from '../../../../shared/types';
+import type { ChatMessage, ProactiveState } from '../../model';
 
 interface Props {
   message: ChatMessage;

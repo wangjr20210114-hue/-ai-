@@ -13,6 +13,7 @@ from .._application.intelligence.service import (
     load_intelligence_state,
     save_intelligence_state,
 )
+from .._application.i18n import normalize_language, text
 
 
 def _value(item, name, default=None):
@@ -103,8 +104,9 @@ async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
     body = ctx.request.body or {}
+    response_language = normalize_language(body.get("response_language"))
     if str(body.get("confirmation") or "") != "DELETE":
-        return error("请输入 DELETE 确认删除自己的数据", 403, code="INVALID_CONFIRMATION")
+        return error(text("reset.confirmation", response_language), 403, code="INVALID_CONFIRMATION")
 
     langgraph_store = ctx.store.langgraph_store
     current = await load_intelligence_state(langgraph_store, user_id)

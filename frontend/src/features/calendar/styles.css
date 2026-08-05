@@ -5,7 +5,7 @@
   padding: 12px;
 }
 .calendar-workspace-card {
-  --calendar-workspace-height: clamp(390px, calc(var(--right-pane-width, 340px) * 1.12), 520px);
+  --calendar-workspace-height: clamp(420px, calc(var(--right-pane-width, 340px) * 1.2), 540px);
   position: relative;
   overflow: hidden;
   flex: 0 0 auto;
@@ -22,6 +22,8 @@
   will-change: transform;
 }
 .calendar-month-pane {
+  display: flex;
+  flex-direction: column;
   transform: translateX(0);
   opacity: 1;
 }
@@ -93,12 +95,15 @@
   padding: 2px 0;
 }
 .calendar-grid {
+  min-height: 0;
+  flex: 1;
   display: grid;
   grid-template-columns: repeat(7, 1fr);
+  grid-template-rows: repeat(6, minmax(38px, 1fr));
   gap: 2px;
 }
 .calendar-day {
-  aspect-ratio: 1;
+  min-height: 38px;
   border-radius: 6px;
   border: 1px solid transparent;
   display: flex;
@@ -108,7 +113,6 @@
   cursor: pointer;
   transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, transform var(--motion-press) var(--motion-ease-out);
   position: relative;
-  min-height: 30px;
   background: transparent;
   color: inherit;
 }

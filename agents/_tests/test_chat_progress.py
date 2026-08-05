@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from agents._views.chat_progress import progress_event, tool_progress_event
+from agents._presenters.chat_stream import progress_event, tool_progress_event
 
 
 class TrustedChatProgressTests(unittest.TestCase):

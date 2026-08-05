@@ -2,207 +2,1621 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Floris Client API",
-    "version": "1.0.0",
-    "description": "Stable transport contract shared by Web, Android, HarmonyOS and iOS clients. Business orchestration stays in the Floris Maker backend."
+    "version": "1.9.0",
+    "description": "The complete, platform-neutral client boundary shared by Web, Android, HarmonyOS and iOS. Every server-owned value displayed by a Floris client is delivered through an operation below or through the versioned SSE/component contracts. Authentication, tenant scoping, orchestration, provider calls and persistence remain server responsibilities."
   },
   "servers": [
-    { "url": "https://floris-dev.jlutx.com", "description": "Development" }
+    {
+      "url": "https://floris-dev.jlutx.com",
+      "description": "Isolated development Maker project"
+    }
   ],
   "security": [
     { "florisBearer": [] },
     { "browserSession": [] }
   ],
+  "x-floris-turn-control": {
+    "queue": "per_conversation_fifo",
+    "queue_limit": 5,
+    "queued_visibility": "composer_drawer_only_until_turn_started",
+    "queued_mutations": "edit_delete_or_interrupt_current_then_promote",
+    "answer_ownership": "every user and assistant row carries the producing client_message_id",
+    "queue_dequeue_boundary": "same client_message_id reaches a Maker terminal state or exact stop acknowledgement",
+    "runtime_buffer": "maker_checkpoint_private_until_completed",
+    "commit_boundary": "run.status=completed",
+    "stop": "POST /stop with exact client_message_id",
+    "stop_acknowledgement": "a 2xx response confirms only the matching client_message_id returned in its body",
+    "stop_confirmation": "after a stop transport timeout, POST /run confirms the same client_message_id before any retry",
+    "recovery": "POST /run replays a Maker-backed public presentation snapshot by revision and never creates a duplicate generation",
+    "local_recovery": "clients may render their latest short-lived presentation cache immediately, then reconcile with /run",
+    "cancelled_projection": "discard answer, sources, media, cards and derived memory"
+  },
+  "tags": [
+    { "name": "Session", "description": "Identity, login continuity and public account state" },
+    { "name": "Profile", "description": "User-visible profile and avatar" },
+    { "name": "Chat", "description": "Conversation turns, history and run lifecycle" },
+    { "name": "Files", "description": "Tenant-scoped uploads and authenticated content" },
+    { "name": "Workspace", "description": "Calendar, map, route and confirmed action state" },
+    { "name": "Personalization", "description": "Preferences, memories, proactive state and usage" },
+    { "name": "Skills", "description": "Skill catalog, status and private submissions" },
+    { "name": "Maps", "description": "Verified places and multimodal route plans" },
+    { "name": "Papers", "description": "Academic search, reading library and reader stream" },
+    { "name": "Maintenance", "description": "Authenticated self-service data reset" }
+  ],
   "paths": {
-    "/auth/mobile/session": {
+    "/auth/session": {
+      "get": {
+        "operationId": "getSession",
+        "tags": ["Session"],
+        "summary": "Get the current identity, entitlements and available login methods",
+        "responses": {
+          "200": {
+            "description": "Current browser or native session projection",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthSession" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/auth/cloudbase/session": {
       "post": {
-        "summary": "Exchange a current CloudBase access token for a short-lived Floris token",
+        "operationId": "exchangeBrowserCloudBaseSession",
+        "tags": ["Session"],
+        "summary": "Exchange a current CloudBase access token for the browser session Cookie",
+        "description": "Browser-only same-origin bridge. Native apps use /auth/mobile/session.",
         "security": [],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CloudBaseExchange" } } }
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CloudBaseExchange" },
+              "example": { "access_token": "<cloudbase-access-token>" }
+            }
+          }
         },
         "responses": {
           "200": {
-            "description": "One-hour Floris access token; refresh remains owned by CloudBase",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MobileSession" } } }
+            "description": "Signed browser session established",
+            "headers": {
+              "Set-Cookie": {
+                "schema": { "type": "string" },
+                "description": "HttpOnly Floris browser session"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BrowserSessionExchange" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/auth/mobile/session": {
+      "post": {
+        "operationId": "exchangeMobileCloudBaseSession",
+        "tags": ["Session"],
+        "summary": "Exchange a current CloudBase access token for a short-lived Floris Bearer",
+        "description": "CloudBase remains the refresh-token owner. Floris never returns a second refresh token.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CloudBaseExchange" },
+              "example": { "access_token": "<cloudbase-access-token>" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One-hour Floris access token",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MobileSession" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "logoutBrowserSession",
+        "tags": ["Session"],
+        "summary": "Expire the current browser session",
+        "responses": {
+          "200": {
+            "description": "Browser session expired",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Ok" },
+                "example": { "ok": true }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/profile": {
+      "get": {
+        "operationId": "getProfileOrAvatar",
+        "tags": ["Profile"],
+        "summary": "Read the profile or an authenticated avatar object",
+        "parameters": [
+          {
+            "name": "avatar_key",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Omit for profile JSON; provide the server-issued key for avatar bytes."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profile JSON or avatar bytes",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProfileProjection" }
+              },
+              "image/png": { "schema": { "type": "string", "contentEncoding": "binary" } },
+              "image/jpeg": { "schema": { "type": "string", "contentEncoding": "binary" } },
+              "image/webp": { "schema": { "type": "string", "contentEncoding": "binary" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
+      "head": {
+        "operationId": "inspectAvatar",
+        "tags": ["Profile"],
+        "summary": "Read avatar metadata without downloading its body",
+        "parameters": [
+          {
+            "name": "avatar_key",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Avatar metadata" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "post": {
+        "operationId": "updateProfile",
+        "tags": ["Profile"],
+        "summary": "Create an avatar upload intent or update the visible profile",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  { "$ref": "#/components/schemas/CreateAvatarUploadRequest" },
+                  { "$ref": "#/components/schemas/UpdateProfileRequest" }
+                ]
+              },
+              "examples": {
+                "upload": {
+                  "value": {
+                    "operation": "create_avatar_upload",
+                    "content_type": "image/webp",
+                    "size": 123456
+                  }
+                },
+                "update": {
+                  "value": {
+                    "operation": "update",
+                    "display_name": "Floris 用户",
+                    "avatar_key": "<server-issued-key>"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Upload intent or updated identity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    { "$ref": "#/components/schemas/UploadIntent" },
+                    { "$ref": "#/components/schemas/ProfileUpdateResult" }
+                  ]
+                }
+              }
+            }
           }
         }
       }
     },
     "/chat": {
       "post": {
-        "summary": "Run one chat turn as a server-sent event stream",
+        "operationId": "streamChatTurn",
+        "tags": ["Chat"],
+        "summary": "Run one server-orchestrated chat turn as SSE",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChatTurnRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatTurnRequest" },
+              "example": {
+                "message": "最近 AI 有什么新进展？",
+                "client_message_id": "msg_01"
+              }
+            }
+          }
         },
         "responses": {
           "200": {
-            "description": "SSE frames. Clients must ignore unknown event types and preserve known payloads.",
-            "content": { "text/event-stream": { "schema": { "type": "string" } } },
-            "x-floris-event-schema": "/contracts/chat-events-v1.schema.json"
+            "description": "SSE frames followed by data: [DONE]. Ignore unknown event types.",
+            "content": {
+              "text/event-stream": { "schema": { "type": "string" } }
+            },
+            "x-floris-event-schema": "/contracts/chat-events-v1.schema.json",
+            "x-floris-event-types": ["chat"]
           }
         }
       }
     },
     "/messages": {
       "post": {
-        "summary": "Restore a tenant-scoped conversation and workspace projection",
+        "operationId": "getConversationBootstrap",
+        "tags": ["Chat", "Workspace"],
+        "summary": "Restore the complete visible projection for one conversation",
+        "description": "This is the canonical screen bootstrap: messages, search/media attachments, schedules, map state, pending actions and Maker run state.",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
-        "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "conversation_id": { "type": "string" } },
+                "additionalProperties": false
+              },
+              "example": { "conversation_id": "yb7_example" }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "Conversation bootstrap",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConversationBootstrap" } } }
+            "description": "Conversation screen bootstrap",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConversationBootstrap" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/run": {
+      "post": {
+        "operationId": "getChatRunState",
+        "tags": ["Chat"],
+        "summary": "Read lightweight run and reconnectable presentation state",
+        "description": "Poll only while a known run is active. revision increases when public text, progress, sources, reviewed media or component Actions change. This endpoint never starts model work.",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "conversation_id": { "type": "string" } },
+                "additionalProperties": false
+              },
+              "example": { "conversation_id": "yb7_example" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current run marker and public presentation snapshot",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ChatRunState" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/conversation": {
+      "post": {
+        "operationId": "appendConversationMessage",
+        "tags": ["Chat"],
+        "summary": "Append one durable message through the native Maker conversation store",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AppendMessageRequest" },
+              "example": {
+                "role": "user",
+                "content": "帮我规划明天的杭州行程",
+                "metadata": { "id": "msg_01" }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored message id",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AppendMessageResult" }
+              }
+            }
           }
         }
       }
     },
     "/conversations": {
       "get": {
-        "summary": "List conversation pointers for the authenticated identity",
-        "responses": { "200": { "description": "Conversation list" } }
+        "operationId": "listConversations",
+        "tags": ["Chat"],
+        "summary": "List the current identity's conversation pointers",
+        "responses": {
+          "200": {
+            "description": "Newest conversations first",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConversationList" }
+              }
+            }
+          }
+        }
       },
       "post": {
-        "summary": "Touch a conversation pointer",
+        "operationId": "mutateConversationPointer",
+        "tags": ["Chat"],
+        "summary": "Create, refresh or rename one tenant-scoped sidebar pointer",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
-        "responses": { "200": { "description": "Pointer updated" } }
-      },
-      "delete": {
-        "summary": "Delete one conversation in the current tenant namespace",
-        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
-        "responses": { "200": { "description": "Conversation deleted" } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  { "$ref": "#/components/schemas/TouchConversationRequest" },
+                  { "$ref": "#/components/schemas/RenameConversationRequest" }
+                ]
+              },
+              "example": {
+                "operation": "touch_pointer",
+                "conversation_id": "yb7_example",
+                "title": "杭州一日游",
+                "message_count": 2
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated pointer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["conversation"],
+                  "properties": {
+                    "conversation": { "$ref": "#/components/schemas/ConversationSummary" }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/stop": {
       "post": {
-        "summary": "Cancel the active Maker run",
+        "operationId": "stopConversationRun",
+        "tags": ["Chat"],
+        "summary": "Cancel and permanently discard one exact Maker turn",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "type": "object", "required": ["conversation_id"], "properties": { "conversation_id": { "type": "string" } } } } }
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/StopRequest" },
+              "example": {
+                "conversation_id": "yb7_example",
+                "client_message_id": "msg_01JTURNEXAMPLE"
+              }
+            }
+          }
         },
-        "responses": { "200": { "description": "Cancellation requested" } }
+        "responses": {
+          "200": {
+            "description": "Cancellation state",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/StopResult" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files": {
+      "post": {
+        "operationId": "createFileUpload",
+        "tags": ["Files"],
+        "summary": "Create a tenant-scoped upload intent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateFileUploadRequest" },
+              "example": {
+                "conversation_id": "yb7_example",
+                "name": "paper.pdf",
+                "content_type": "application/pdf",
+                "size": 245760
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Short-lived upload URL and authenticated content URL",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UploadIntent" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "downloadFile",
+        "tags": ["Files"],
+        "summary": "Download an authenticated file or one Maker-safe part",
+        "parameters": [
+          { "$ref": "#/components/parameters/FileKey" },
+          {
+            "name": "part",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 0 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Private file bytes",
+            "content": {
+              "application/octet-stream": { "schema": { "type": "string", "contentEncoding": "binary" } },
+              "application/pdf": { "schema": { "type": "string", "contentEncoding": "binary" } },
+              "image/png": { "schema": { "type": "string", "contentEncoding": "binary" } },
+              "image/jpeg": { "schema": { "type": "string", "contentEncoding": "binary" } },
+              "image/webp": { "schema": { "type": "string", "contentEncoding": "binary" } }
+            }
+          },
+          "416": {
+            "description": "Requested part does not exist",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      },
+      "head": {
+        "operationId": "inspectFile",
+        "tags": ["Files"],
+        "summary": "Read file size and Maker-safe part size",
+        "parameters": [{ "$ref": "#/components/parameters/FileKey" }],
+        "responses": {
+          "200": {
+            "description": "Metadata in Content-Length, X-Floris-File-Size, X-Floris-Part-Size, X-Floris-Part-Count and X-Floris-Part-Protocol. This query-part protocol is not HTTP Range."
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteFile",
+        "tags": ["Files"],
+        "summary": "Delete one file inside the current tenant scope",
+        "parameters": [{ "$ref": "#/components/parameters/FileKey" }],
+        "responses": {
+          "200": {
+            "description": "File deleted",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } }
+            }
+          }
+        }
       }
     },
     "/workspace": {
       "post": {
-        "summary": "Read or apply versioned calendar, map, route and action state",
+        "operationId": "workspaceOperation",
+        "tags": ["Workspace"],
+        "summary": "Read or mutate versioned calendar, map, route and action state",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OperationRequest" } } } },
-        "responses": { "200": { "description": "Workspace projection with revision" } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OperationRequest" },
+              "examples": {
+                "get": { "value": { "operation": "get" } },
+                "confirmAction": { "value": { "operation": "confirm_action", "action_id": "action-id", "version": 1 } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authoritative workspace projection",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/WorkspaceProjection" }
+              }
+            }
+          },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
       }
     },
     "/intelligence": {
       "post": {
-        "summary": "Read or update user preferences and enabled Skills",
+        "operationId": "intelligenceOperation",
+        "tags": ["Personalization"],
+        "summary": "Read or update visible preferences, memories and installed Skills",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OperationRequest" } } } },
-        "responses": { "200": { "description": "Intelligence projection" } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/IntelligenceOperationRequest" },
+              "examples": {
+                "get": { "value": { "operation": "get" } },
+                "searchPreferences": { "value": { "operation": "update_search_preferences", "preferences": { "result_limit": 12, "image_limit": 4, "parallel_image_search": true } } },
+                "mapPreferences": { "value": { "operation": "update_map_preferences", "preferences": { "service_mode": "balanced", "place_result_limit": 6, "route_stop_limit": 8, "search_timeout_seconds": 30, "preferred_route_mode": "transit", "route_strategy": "time_then_cost", "near_time_tolerance_minutes": 10, "learn_route_preferences": true } } },
+                "skills": { "value": { "operation": "update_skill_preferences", "preferences": { "web-search": true, "vision": false } } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Personalization projection",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/IntelligenceProjection" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/proactive": {
+      "post": {
+        "operationId": "proactiveOperation",
+        "tags": ["Personalization"],
+        "summary": "Read or update reminders, workflows and proactive preferences",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ProactiveOperationRequest" },
+              "examples": {
+                "get": { "value": { "operation": "get" } },
+                "snooze": { "value": { "operation": "snooze", "notification_id": "notification-id", "until": 1785945600 } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Proactive service projection",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProactiveProjection" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/provider_usage": {
+      "get": {
+        "operationId": "getProviderUsage",
+        "tags": ["Personalization"],
+        "summary": "Read Floris usage counters and available provider balance summaries",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "responses": {
+          "200": {
+            "description": "Usage projection",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProviderUsageProjection" }
+              }
+            }
+          }
+        }
       }
     },
     "/skill_marketplace": {
       "post": {
-        "summary": "Read the Skill catalog or enable, disable and uninstall user Skills",
+        "operationId": "skillMarketplaceOperation",
+        "tags": ["Skills"],
+        "summary": "Read the Skill catalog or download one installed Skill manifest",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
-        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OperationRequest" } } } },
-        "responses": { "200": { "description": "Catalog, dependency graph and public component API" } }
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OperationRequest" },
+              "examples": {
+                "catalog": { "value": { "operation": "catalog" } },
+                "package": { "value": { "operation": "package", "skill_id": "maps" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Catalog projection or portable Skill package manifest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    { "$ref": "#/components/schemas/SkillMarketplaceProjection" },
+                    { "type": "object", "required": ["package"], "properties": { "package": { "type": "object", "additionalProperties": true } } }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/skill-uploads": {
+      "get": {
+        "operationId": "listSkillUploads",
+        "tags": ["Skills"],
+        "summary": "List private Skill submissions for the signed-in user",
+        "responses": {
+          "200": {
+            "description": "Private upload records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["uploads"],
+                  "properties": {
+                    "uploads": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/SkillUploadRecord" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "mutateSkillUpload",
+        "tags": ["Skills"],
+        "summary": "Resolve a repository Skill, create or complete an upload, or submit a private Skill for review",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SkillUploadMutationRequest" },
+              "examples": {
+                "resolveRepository": {
+                  "value": {
+                    "operation": "resolve_url",
+                    "source_url": "https://github.com/example/floris-skill"
+                  }
+                },
+                "createZip": {
+                  "value": {
+                    "operation": "create",
+                    "name": "my-skill.zip",
+                    "content_type": "application/zip",
+                    "size": 2048
+                  }
+                },
+                "submitDeclarative": {
+                  "value": {
+                    "operation": "publish_declarative",
+                    "source_skill_id": "user-example-01",
+                    "name": "My Skill",
+                    "description": "A short description",
+                    "instructions": "Instructions"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Upload intent or updated upload record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    { "$ref": "#/components/schemas/UploadIntent" },
+                    { "$ref": "#/components/schemas/SkillDraftResult" },
+                    {
+                      "type": "object",
+                      "required": ["upload"],
+                      "properties": {
+                        "upload": { "$ref": "#/components/schemas/SkillUploadRecord" }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/places": {
       "post": {
-        "summary": "Resolve real places through the Floris Maps Adapter",
+        "operationId": "searchPlaces",
+        "tags": ["Maps"],
+        "summary": "Resolve verified place candidates",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
-        "responses": { "200": { "description": "Verified place candidates" } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PlaceSearchRequest" },
+              "example": { "query": "灵隐寺", "city": "杭州", "limit": 6 }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Verified places",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["places"],
+                  "properties": {
+                    "places": {
+                      "type": "array",
+                      "items": { "$ref": "./floris-components-v1.schema.json#/$defs/place" }
+                    },
+                    "cache": { "$ref": "#/components/schemas/CacheStatus" }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/routes": {
       "post": {
-        "summary": "Plan a verified route using Maker-scoped preferences",
+        "operationId": "planRoute",
+        "tags": ["Maps"],
+        "summary": "Plan a verified multimodal route between recommended places",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
-        "responses": { "200": { "description": "Driving, transit, walking or bicycling route" } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RouteRequest" },
+              "example": {
+                "places": [
+                  {
+                    "place_id": "place-a",
+                    "name": "灵隐寺",
+                    "address": "杭州",
+                    "latitude": 30.2403,
+                    "longitude": 120.1022
+                  },
+                  {
+                    "place_id": "place-b",
+                    "name": "西湖",
+                    "address": "杭州",
+                    "latitude": 30.2507,
+                    "longitude": 120.1438
+                  }
+                ],
+                "mode": "transit",
+                "strategy": "least_cost",
+                "optimize": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Route with per-leg and per-transport sections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["route"],
+                  "properties": {
+                    "route": { "$ref": "./floris-components-v1.schema.json#/$defs/routePlan" }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/papers": {
       "get": {
+        "operationId": "searchPapers",
+        "tags": ["Papers"],
         "summary": "Search verified academic records",
-        "responses": { "200": { "description": "Paper records" } }
+        "parameters": [
+          {
+            "name": "topic",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "example": "transformer"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paper candidates",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PaperSearchProjection" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "operationId": "savePaper",
+        "tags": ["Papers"],
+        "summary": "Resolve and save an exact public paper PDF",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SavePaperRequest" },
+              "example": {
+                "arxiv_id": "1706.03762",
+                "title": "Attention Is All You Need",
+                "source_url": "https://arxiv.org/abs/1706.03762"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved paper file",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SavedPaper" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/library": {
+      "get": {
+        "operationId": "getReadingLibrary",
+        "tags": ["Papers"],
+        "summary": "Read the current user's saved papers, folders and settings",
+        "parameters": [
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": { "enum": ["settings"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reading library projection",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReadingLibrary" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "operationId": "mutateReadingLibrary",
+        "tags": ["Papers"],
+        "summary": "Register, organize or annotate a saved reading item",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/OperationRequest" },
+              "example": {
+                "operation": "create_folder",
+                "name": "Transformer"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated library value",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "additionalProperties": true }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "delete": {
+        "operationId": "deleteReadingItem",
+        "tags": ["Papers"],
+        "summary": "Delete one saved reading item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Item deleted",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } }
+            }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
       }
     },
     "/reader": {
       "post": {
-        "summary": "Run the paper-reading Adapter",
+        "operationId": "streamPaperReader",
+        "tags": ["Papers"],
+        "summary": "Stream translation, summary, explanation, analysis or Q&A",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
-        "responses": { "200": { "description": "Reader result" } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ReaderRequest" },
+              "example": {
+                "action": "analyze",
+                "file_id": "server-issued-storage-key",
+                "response_language": "zh-CN"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "paper_source (for file_id), paper_delta, paper_done, ping and error_message events, then data: [DONE]",
+            "content": {
+              "text/event-stream": { "schema": { "type": "string" } }
+            },
+            "x-floris-event-schema": "/contracts/chat-events-v1.schema.json",
+            "x-floris-event-types": ["paper"]
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "422": { "description": "The owned PDF could not provide selectable text", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
       }
     },
-    "/profile": {
-      "get": {
-        "summary": "Read the account profile stored in Maker Blob",
-        "responses": { "200": { "description": "Profile" } }
-      },
+    "/document-text": {
       "post": {
-        "summary": "Create an avatar upload or update the profile",
-        "responses": { "200": { "description": "Updated identity and, for native clients, a replacement Floris token" } }
+        "operationId": "extractOwnedDocumentText",
+        "tags": ["Papers"],
+        "summary": "Extract text from an owned PDF stored in Makers Blob",
+        "description": "Normally consumed by /reader. Native clients do not need a local PDF parser.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/DocumentTextRequest" },
+              "example": { "file_id": "server-issued-storage-key" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Bounded extracted text and metadata", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentTextProjection" } } } },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "422": { "description": "Unsupported, scanned or unreadable PDF", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/image": {
+      "post": {
+        "operationId": "streamImageEdit",
+        "tags": ["Workspace"],
+        "summary": "Create a new version from an existing generated image action",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ImageEditRequest" },
+              "example": {
+                "prompt": "保持构图，把天空改成黄昏",
+                "parent_action_id": "action_01"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "image_progress, image_action and ping events, then data: [DONE]",
+            "content": {
+              "text/event-stream": { "schema": { "type": "string" } }
+            },
+            "x-floris-event-schema": "/contracts/chat-events-v1.schema.json",
+            "x-floris-event-types": ["image"]
+          }
+        }
+      }
+    },
+    "/reset-files": {
+      "post": {
+        "operationId": "resetFileOperation",
+        "tags": ["Maintenance"],
+        "summary": "Inspect or clear the current user's conversations and files",
+        "description": "Profile and avatar objects are intentionally preserved.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ResetFilesRequest" },
+              "example": { "confirmation": "DELETE", "operation": "inspect" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reset preview or deletion counts",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ResetFilesResult" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reset": {
+      "post": {
+        "operationId": "resetApplicationState",
+        "tags": ["Maintenance"],
+        "summary": "Clear tenant-scoped app state while preserving profile and Skill choices",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ResetStateRequest" },
+              "example": {
+                "confirmation": "DELETE",
+                "conversation_ids": ["yb7_example"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted state counts",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ResetStateResult" }
+              }
+            }
+          }
+        }
       }
     }
   },
   "components": {
     "securitySchemes": {
-      "florisBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "Floris JWT" },
-      "browserSession": { "type": "apiKey", "in": "cookie", "name": "floris_session" }
+      "florisBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Floris JWT",
+        "description": "Native-client access token obtained from /auth/mobile/session."
+      },
+      "browserSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "floris_session",
+        "description": "HttpOnly browser session. Browser JavaScript never reads it."
+      }
     },
     "parameters": {
       "ConversationId": {
         "name": "makers-conversation-id",
         "in": "header",
         "required": true,
-        "schema": { "type": "string", "minLength": 1, "maxLength": 180 },
-        "description": "Opaque client conversation id. The backend derives the tenant-scoped Maker id."
+        "schema": { "type": "string", "minLength": 6, "maxLength": 36 },
+        "description": "Stable opaque client conversation id. The server combines it with the signed identity to derive the Maker tenant scope."
+      },
+      "FileKey": {
+        "name": "key",
+        "in": "query",
+        "required": true,
+        "schema": { "type": "string", "minLength": 1 },
+        "description": "Server-issued tenant-scoped object key. Clients must not construct keys."
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Missing, invalid or expired session",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+        }
+      },
+      "Forbidden": {
+        "description": "Login, membership or an enabled capability is required",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+        }
+      },
+      "NotFound": {
+        "description": "Object does not exist in the current identity scope",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+        }
+      },
+      "Conflict": {
+        "description": "The supplied action version is stale or execution is already in progress",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+        }
       }
     },
     "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": { "type": "string" },
+          "code": { "type": "string" },
+          "details": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "Ok": {
+        "type": "object",
+        "required": ["ok"],
+        "properties": { "ok": { "const": true } },
+        "additionalProperties": true
+      },
       "CloudBaseExchange": {
         "type": "object",
         "required": ["access_token"],
-        "properties": { "access_token": { "type": "string", "minLength": 1, "maxLength": 16384 } }
+        "properties": {
+          "access_token": { "type": "string", "minLength": 1, "maxLength": 16384 }
+        },
+        "additionalProperties": false
       },
       "Identity": {
         "type": "object",
-        "required": ["id", "subject_id", "tenant_id", "auth_type", "membership"],
+        "required": ["id", "subject_id", "tenant_id", "username", "display_name", "avatar_url", "auth_type", "auth_providers", "membership", "roles"],
         "properties": {
           "id": { "type": "string" },
           "subject_id": { "type": "string" },
           "tenant_id": { "type": "string" },
+          "username": { "type": "string" },
           "display_name": { "type": "string" },
           "avatar_url": { "type": "string" },
           "auth_type": { "enum": ["guest", "wechat", "cloudbase"] },
+          "auth_providers": { "type": "array", "items": { "type": "string" } },
           "membership": { "enum": ["guest", "free", "plus", "pro"] },
           "roles": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      },
+      "Entitlements": {
+        "type": "object",
+        "required": ["plan", "limits", "payment_available"],
+        "properties": {
+          "plan": { "enum": ["guest", "free", "plus", "pro"] },
+          "limits": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } },
+          "payment_available": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      },
+      "LoginOptions": {
+        "type": "object",
+        "required": ["cloudbase_available", "cloudbase_session_url", "wechat_available", "wechat_mode", "wechat_start_url", "logout_url"],
+        "properties": {
+          "cloudbase_available": { "type": "boolean" },
+          "cloudbase_session_url": { "type": "string" },
+          "wechat_available": { "type": "boolean" },
+          "wechat_mode": { "enum": ["qr", "in_app"] },
+          "wechat_start_url": { "type": "string" },
+          "logout_url": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "AuthSession": {
+        "type": "object",
+        "required": ["identity", "entitlements", "login"],
+        "properties": {
+          "identity": { "$ref": "#/components/schemas/Identity" },
+          "entitlements": { "$ref": "#/components/schemas/Entitlements" },
+          "login": { "$ref": "#/components/schemas/LoginOptions" }
+        }
+      },
+      "BrowserSessionExchange": {
+        "type": "object",
+        "required": ["ok", "identity", "identity_persisted"],
+        "properties": {
+          "ok": { "const": true },
+          "identity": { "$ref": "#/components/schemas/Identity" },
+          "identity_persisted": { "type": "boolean" }
         }
       },
       "MobileSession": {
         "type": "object",
-        "required": ["access_token", "token_type", "expires_in", "contract_version", "identity"],
+        "required": ["access_token", "token_type", "expires_in", "contract_version", "identity", "identity_persisted"],
         "properties": {
           "access_token": { "type": "string" },
           "token_type": { "const": "Bearer" },
           "expires_in": { "type": "integer", "minimum": 60 },
           "contract_version": { "const": "1" },
-          "identity": { "$ref": "#/components/schemas/Identity" }
+          "identity": { "$ref": "#/components/schemas/Identity" },
+          "identity_persisted": { "type": "boolean" }
         }
+      },
+      "ProfileProjection": {
+        "type": "object",
+        "required": ["profile"],
+        "properties": {
+          "profile": { "$ref": "#/components/schemas/Identity" }
+        }
+      },
+      "CreateAvatarUploadRequest": {
+        "type": "object",
+        "required": ["operation", "content_type", "size"],
+        "properties": {
+          "operation": { "const": "create_avatar_upload" },
+          "content_type": { "enum": ["image/png", "image/jpeg", "image/webp"] },
+          "size": { "type": "integer", "minimum": 1, "maximum": 5242880 }
+        },
+        "additionalProperties": false
+      },
+      "UpdateProfileRequest": {
+        "type": "object",
+        "required": ["operation", "display_name"],
+        "properties": {
+          "operation": { "const": "update" },
+          "display_name": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "avatar_key": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "ProfileUpdateResult": {
+        "type": "object",
+        "required": ["ok", "identity"],
+        "properties": {
+          "ok": { "const": true },
+          "identity": { "$ref": "#/components/schemas/Identity" },
+          "access_token": { "type": "string", "description": "Returned only to native Bearer clients." },
+          "token_type": { "const": "Bearer" },
+          "expires_in": { "type": "integer" }
+        },
+        "additionalProperties": true
       },
       "ChatTurnRequest": {
         "type": "object",
         "required": ["message"],
         "properties": {
           "message": { "type": "string" },
-          "client_message_id": { "type": "string" },
+          "client_message_id": { "type": "string", "description": "Stable turn owner. The user request and its assistant answer share this exact value." },
           "reference_images": { "type": "array", "maxItems": 3, "items": { "type": "string" } },
           "clarification_response": { "type": "object", "additionalProperties": true },
           "current_location": { "type": "object", "additionalProperties": true }
         },
         "additionalProperties": true
+      },
+      "AppendMessageRequest": {
+        "type": "object",
+        "required": ["role", "content"],
+        "properties": {
+          "role": { "enum": ["user", "ai", "system"] },
+          "content": { "type": "string", "minLength": 1 },
+          "metadata": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": false
+      },
+      "AppendMessageResult": {
+        "type": "object",
+        "required": ["message_id"],
+        "properties": { "message_id": { "type": "string" } },
+        "additionalProperties": true
+      },
+      "ChatMessage": {
+        "type": "object",
+        "required": ["id", "role", "content", "ts"],
+        "properties": {
+          "id": { "type": "string" },
+          "client_message_id": { "type": "string" },
+          "role": { "enum": ["user", "ai"] },
+          "content": { "type": "string" },
+          "ts": { "type": "integer" },
+          "turnStartedAt": { "type": "integer", "description": "Original user-send boundary in epoch milliseconds." },
+          "searchStartedAt": { "type": "integer" },
+          "searchCompletedAt": { "type": "integer" },
+          "followUps": { "type": "array", "items": { "type": "string" } },
+          "progress": { "type": "array", "items": { "$ref": "./floris-components-v1.schema.json#/$defs/progress" } },
+          "searchResults": { "$ref": "./floris-components-v1.schema.json#/$defs/searchMeta" },
+          "papers": { "type": "array", "items": { "$ref": "./floris-components-v1.schema.json#/$defs/paper" } },
+          "workspaceActions": { "type": "array", "items": { "$ref": "./floris-components-v1.schema.json#/$defs/workspaceAction" } },
+          "clarification": { "$ref": "./floris-components-v1.schema.json#/$defs/clarification" },
+          "clarificationAnswered": { "type": "boolean" },
+          "stopped": { "type": "boolean", "description": "True on a user turn whose deliberately stopped assistant output was discarded." },
+          "experienceHints": { "type": "array", "items": { "$ref": "./floris-components-v1.schema.json#/$defs/experienceHint" } }
+        },
+        "additionalProperties": true
+      },
+      "ChatRun": {
+        "type": ["object", "null"],
+        "properties": {
+          "run_id": { "type": "string" },
+          "client_message_id": { "type": "string" },
+          "status": { "enum": ["running", "cancel_requested", "completed", "failed", "cancelled"] },
+          "error": { "type": "string" },
+          "started_at": { "type": "integer" },
+          "updated_at": { "type": "integer" },
+          "completed_at": { "type": ["integer", "null"] },
+          "diagnostics": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "RunPresentation": {
+        "type": ["object", "null"],
+        "description": "Bounded public UI projection for restoring an active turn. It contains no private reasoning or model/tool decision transcript.",
+        "properties": {
+          "schema_version": { "const": 1 },
+          "run_id": { "type": "string" },
+          "client_message_id": { "type": "string" },
+          "revision": { "type": "integer", "minimum": 0 },
+          "updated_at": { "type": "integer" },
+          "turn_started_at": { "type": "integer", "description": "Original user-send boundary in epoch milliseconds." },
+          "search_selected": { "type": "boolean" },
+          "search_started_at": { "type": "integer" },
+          "search_completed_at": { "type": "integer" },
+          "active_activity": { "enum": ["general", "web_search", "paper_search", "place_search", "route_planning", "calendar_preparation", "meeting_preparation", "image_generation", "image_review", "component_action"] },
+          "content": { "type": "string" },
+          "progress": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "search_results": { "type": "object", "additionalProperties": true },
+          "search_media": { "type": "object", "additionalProperties": true },
+          "workspace_actions": { "type": "array", "items": { "$ref": "./floris-components-v1.schema.json#/$defs/workspaceAction" } },
+          "clarification": { "type": "object", "additionalProperties": true },
+          "papers": { "type": "object", "additionalProperties": true },
+          "follow_ups": { "type": "array", "items": { "type": "string" } },
+          "experience_hints": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        },
+        "additionalProperties": false
+      },
+      "ChatRunState": {
+        "type": "object",
+        "required": ["run", "presentation"],
+        "properties": {
+          "run": { "$ref": "#/components/schemas/ChatRun" },
+          "presentation": { "$ref": "#/components/schemas/RunPresentation" }
+        },
+        "additionalProperties": false
+      },
+      "ConversationBootstrap": {
+        "type": "object",
+        "required": ["messages", "schedules", "map_places", "map_title", "map_route_mode", "map_route_strategy", "map_show_route", "workspace_revision", "run"],
+        "properties": {
+          "messages": { "type": "array", "items": { "$ref": "#/components/schemas/ChatMessage" } },
+          "schedules": { "type": "array", "items": { "$ref": "./floris-components-v1.schema.json#/$defs/schedule" } },
+          "map_places": { "type": "array", "items": { "$ref": "./floris-components-v1.schema.json#/$defs/place" } },
+          "map_title": { "type": "string" },
+          "map_route_mode": { "type": "string" },
+          "map_route_strategy": { "type": "string" },
+          "map_show_route": { "type": "boolean" },
+          "workspace_revision": { "type": "integer" },
+          "run": { "$ref": "#/components/schemas/ChatRun" },
+          "presentation": { "$ref": "#/components/schemas/RunPresentation" }
+        },
+        "additionalProperties": true
+      },
+      "ConversationSummary": {
+        "type": "object",
+        "required": ["conversationId", "createdAt", "lastMessageAt", "messageCount", "metadata"],
+        "properties": {
+          "conversationId": { "type": "string" },
+          "createdAt": { "type": "integer" },
+          "lastMessageAt": { "type": "integer" },
+          "messageCount": { "type": "integer", "minimum": 0 },
+          "metadata": {
+            "type": "object",
+            "required": ["title"],
+            "properties": {
+              "title": { "type": "string" },
+              "yuanbao_chat_run_v1": { "$ref": "#/components/schemas/ChatRun" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
+      "ConversationList": {
+        "type": "object",
+        "required": ["conversations"],
+        "properties": {
+          "conversations": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ConversationSummary" }
+          }
+        }
+      },
+      "TouchConversationRequest": {
+        "type": "object",
+        "required": ["operation", "conversation_id"],
+        "properties": {
+          "operation": { "const": "touch_pointer" },
+          "conversation_id": { "type": "string" },
+          "title": { "type": "string" },
+          "message_count": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "RenameConversationRequest": {
+        "type": "object",
+        "required": ["operation", "conversation_id", "title"],
+        "properties": {
+          "operation": { "const": "rename" },
+          "conversation_id": { "type": "string" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 64 }
+        },
+        "additionalProperties": false
+      },
+      "StopRequest": {
+        "type": "object",
+        "required": ["conversation_id"],
+        "properties": {
+          "conversation_id": { "type": "string" },
+          "client_message_id": { "type": "string", "description": "The exact client turn to discard. Prevents a delayed offline stop from cancelling a newer queued turn." }
+        },
+        "additionalProperties": false
+      },
+      "StopResult": {
+        "type": "object",
+        "required": ["status", "conversation_id"],
+        "properties": {
+          "status": { "enum": ["aborted", "discarded", "idle"] },
+          "conversation_id": { "type": "string" },
+          "run_id": { "type": ["string", "null"] },
+          "client_message_id": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "CreateFileUploadRequest": {
+        "type": "object",
+        "required": ["conversation_id", "name", "content_type", "size"],
+        "properties": {
+          "conversation_id": { "type": "string" },
+          "name": { "type": "string" },
+          "content_type": { "enum": ["application/pdf", "image/png", "image/jpeg", "image/webp"] },
+          "size": { "type": "integer", "minimum": 1, "maximum": 20971520 }
+        },
+        "additionalProperties": false
+      },
+      "UploadIntent": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": { "type": "string" },
+          "key": { "type": "string" },
+          "storage_key": { "type": "string" },
+          "upload_id": { "type": "string" },
+          "content_url": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "SkillDraft": {
+        "type": "object",
+        "required": ["name", "description", "instructions", "source_type", "source_url"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "description": { "type": "string", "maxLength": 280 },
+          "instructions": { "type": "string", "minLength": 1, "maxLength": 12000 },
+          "source_type": { "enum": ["file", "folder", "package", "paste", "url"] },
+          "source_url": { "type": "string", "maxLength": 1000 }
+        },
+        "additionalProperties": false
+      },
+      "SkillDraftResult": {
+        "type": "object",
+        "required": ["skill"],
+        "properties": { "skill": { "$ref": "#/components/schemas/SkillDraft" } },
+        "additionalProperties": false
+      },
+      "ResolveSkillUrlRequest": {
+        "type": "object",
+        "required": ["operation", "source_url"],
+        "properties": {
+          "operation": { "const": "resolve_url" },
+          "source_url": { "type": "string", "format": "uri", "maxLength": 1000 }
+        },
+        "additionalProperties": false
+      },
+      "CreateSkillUploadRequest": {
+        "type": "object",
+        "required": ["operation", "name", "content_type", "size"],
+        "properties": {
+          "operation": { "const": "create" },
+          "name": { "type": "string", "maxLength": 120 },
+          "content_type": { "enum": ["application/zip", "application/x-zip-compressed"] },
+          "size": { "type": "integer", "minimum": 1, "maximum": 2097152 }
+        },
+        "additionalProperties": false
+      },
+      "CompleteSkillUploadRequest": {
+        "type": "object",
+        "required": ["operation", "upload_id", "storage_key", "name"],
+        "properties": {
+          "operation": { "const": "complete" },
+          "upload_id": { "type": "string", "format": "uuid" },
+          "storage_key": { "type": "string" },
+          "name": { "type": "string", "maxLength": 120 }
+        },
+        "additionalProperties": false
+      },
+      "PublishSkillUploadRequest": {
+        "type": "object",
+        "required": ["operation", "upload_id"],
+        "properties": {
+          "operation": { "const": "publish" },
+          "upload_id": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "PublishDeclarativeSkillRequest": {
+        "type": "object",
+        "required": ["operation", "source_skill_id", "name", "instructions"],
+        "properties": {
+          "operation": { "const": "publish_declarative" },
+          "source_skill_id": { "type": "string" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "description": { "type": "string", "maxLength": 280 },
+          "instructions": { "type": "string", "minLength": 1, "maxLength": 12000 },
+          "installed_at": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "SkillUploadMutationRequest": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/ResolveSkillUrlRequest" },
+          { "$ref": "#/components/schemas/CreateSkillUploadRequest" },
+          { "$ref": "#/components/schemas/CompleteSkillUploadRequest" },
+          { "$ref": "#/components/schemas/PublishSkillUploadRequest" },
+          { "$ref": "#/components/schemas/PublishDeclarativeSkillRequest" }
+        ]
       },
       "OperationRequest": {
         "type": "object",
@@ -210,23 +1624,421 @@
         "properties": { "operation": { "type": "string" } },
         "additionalProperties": true
       },
-      "ConversationBootstrap": {
+      "WorkspaceProjection": {
         "type": "object",
-        "required": ["messages", "workspace_revision"],
+        "required": ["revision", "schedules", "map"],
         "properties": {
-          "messages": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
-          "workspace_revision": { "type": "integer" },
-          "schedules": { "type": "array", "items": { "type": "object" } },
-          "map_places": { "type": "array", "items": { "type": "object" } }
-        }
+          "revision": { "type": "integer" },
+          "schedules": { "type": "array", "items": { "$ref": "./floris-components-v1.schema.json#/$defs/schedule" } },
+          "map": { "type": ["object", "null"], "additionalProperties": true },
+          "action": { "$ref": "./floris-components-v1.schema.json#/$defs/workspaceAction" },
+          "actions": { "type": "array", "items": { "$ref": "./floris-components-v1.schema.json#/$defs/workspaceAction" } },
+          "travel_plan": { "$ref": "#/components/schemas/TravelPlan" },
+          "travel_plans": { "type": "array", "items": { "$ref": "#/components/schemas/TravelPlan" } },
+          "changed": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        },
+        "additionalProperties": true
+      },
+      "TravelPlan": {
+        "type": "object",
+        "required": ["id", "title", "departure", "destination", "days", "travel_style", "scenery_preference", "budget", "extra_notes", "markdown_content", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "departure": { "type": "string" },
+          "destination": { "type": "string" },
+          "days": { "type": "integer", "minimum": 1, "maximum": 60 },
+          "travel_style": { "type": "string" },
+          "scenery_preference": { "type": "string" },
+          "budget": { "type": "string" },
+          "extra_notes": { "type": "string" },
+          "markdown_content": { "type": "string", "description": "Complete itinerary and destination introduction rendered by every client." },
+          "created_at": { "type": "integer" },
+          "updated_at": { "type": "integer" }
+        },
+        "additionalProperties": false
+      },
+      "SearchPreferences": {
+        "type": "object",
+        "required": ["result_limit", "image_limit", "parallel_image_search"],
+        "properties": {
+          "result_limit": { "type": "integer", "minimum": 4, "maximum": 18 },
+          "image_limit": { "type": "integer", "minimum": 0, "maximum": 8 },
+          "parallel_image_search": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
+      "MapPreferences": {
+        "type": "object",
+        "required": ["service_mode", "place_result_limit", "route_stop_limit", "search_timeout_seconds", "preferred_route_mode", "route_strategy", "near_time_tolerance_minutes", "learn_route_preferences"],
+        "properties": {
+          "service_mode": { "type": "string", "enum": ["fast", "balanced", "complete"] },
+          "place_result_limit": { "type": "integer", "minimum": 3, "maximum": 12 },
+          "route_stop_limit": { "type": "integer", "minimum": 2, "maximum": 12 },
+          "search_timeout_seconds": { "type": "integer", "minimum": 10, "maximum": 55 },
+          "preferred_route_mode": { "type": "string", "enum": ["driving", "transit", "walking", "bicycling"] },
+          "route_strategy": { "type": "string", "enum": ["time_then_cost", "least_time", "least_cost"] },
+          "near_time_tolerance_minutes": { "type": "integer", "minimum": 0, "maximum": 30 },
+          "learn_route_preferences": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
+      "IntelligenceOperationRequest": {
+        "type": "object",
+        "required": ["operation"],
+        "properties": {
+          "operation": { "type": "string", "enum": ["get", "export", "confirm_memory", "reject_memory", "delete_memory", "rollback_memory", "confirm_rule", "reject_rule", "update_usage_preferences", "update_memory_preferences", "update_search_preferences", "update_map_preferences", "update_skill_preferences", "configure_skill_connection", "disconnect_skill_connection", "install_user_skill", "remove_user_skill", "set_user_skill_enabled", "clear_memories"] },
+          "preferences": { "anyOf": [
+            { "$ref": "#/components/schemas/SearchPreferences" },
+            { "$ref": "#/components/schemas/MapPreferences" },
+            { "type": "object", "additionalProperties": true }
+          ] },
+          "response_language": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "IntelligenceProjection": {
+        "type": "object",
+        "required": ["schema_version", "revision"],
+        "properties": {
+          "schema_version": { "type": "integer" },
+          "revision": { "type": "integer" },
+          "memory_proposals": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "memories": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "memory_preferences": { "type": "object", "additionalProperties": true },
+          "search_preferences": { "$ref": "#/components/schemas/SearchPreferences" },
+          "map_preferences": { "$ref": "#/components/schemas/MapPreferences" },
+          "skill_preferences": { "type": "object", "additionalProperties": { "type": "boolean" } },
+          "skill_preference_results": { "type": "array", "items": { "$ref": "#/components/schemas/SkillPreferenceResult" } },
+          "skill_catalog": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "skill_connections": { "type": "object", "additionalProperties": true },
+          "user_skills": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "rule_proposals": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "usage": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "SkillPreferenceResult": {
+        "type": "object",
+        "required": ["skill_id", "requested_enabled", "effective_enabled", "applied", "code"],
+        "properties": {
+          "skill_id": { "type": "string" },
+          "requested_enabled": { "type": "boolean" },
+          "effective_enabled": { "type": "boolean" },
+          "applied": { "type": "boolean" },
+          "code": { "type": "string", "enum": ["", "UNKNOWN_SKILL", "SKILL_LOCKED", "LOGIN_REQUIRED", "MEMBERSHIP_REQUIRED", "DEPENDENCY_REQUIRED", "POLICY_REJECTED"] }
+        },
+        "additionalProperties": false
+      },
+      "ProactiveNotification": {
+        "type": "object",
+        "required": ["id", "event_id", "run_id", "type", "title", "body", "reason", "action_prompt", "priority", "evidence", "status", "version", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "event_id": { "type": "string" },
+          "run_id": { "type": "string" },
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "body": { "type": "string" },
+          "reason": { "type": "string" },
+          "action_prompt": { "type": "string", "description": "Prompt sent by the Help me handle action. Wire name stays snake_case." },
+          "priority": { "type": "string", "enum": ["high", "normal", "low"] },
+          "evidence": { "type": "object", "additionalProperties": true },
+          "status": { "type": "string", "enum": ["unread", "read", "snoozed", "dismissed"] },
+          "version": { "type": "integer" },
+          "snoozed_until": { "type": ["integer", "null"], "description": "Unix timestamp. Wire name stays snake_case." },
+          "read_at": { "type": ["integer", "null"] },
+          "dismissed_at": { "type": ["integer", "null"] },
+          "expires_at": { "type": ["integer", "null"] },
+          "created_at": { "type": "integer" },
+          "updated_at": { "type": "integer" },
+          "window_origin": { "type": "string", "enum": ["memory", "operation"] }
+        },
+        "additionalProperties": true
+      },
+      "ProactiveOperationRequest": {
+        "type": "object",
+        "required": ["operation"],
+        "properties": {
+          "operation": { "type": "string", "enum": ["get", "refresh", "page_open", "tick", "memory_refresh", "update_preferences", "propose_workflow", "ingest_signal", "confirm_workflow", "reject_workflow", "cancel_workflow", "complete_workflow_step", "skip_workflow_step", "fail_workflow_step", "retry_workflow_step", "compensate_workflow_step", "mark_read", "dismiss", "snooze"] },
+          "notification_id": { "type": "string" },
+          "until": { "type": "integer", "description": "Unix timestamp used by snooze." },
+          "preferences": { "type": "object", "additionalProperties": true },
+          "response_language": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "ProactiveProjection": {
+        "type": "object",
+        "required": ["schema_version", "revision", "preferences", "notifications", "runs", "workflows", "checkpoints"],
+        "properties": {
+          "schema_version": { "type": "integer" },
+          "revision": { "type": "integer" },
+          "preferences": { "type": "object", "additionalProperties": true },
+          "notifications": { "type": "array", "items": { "$ref": "#/components/schemas/ProactiveNotification" } },
+          "runs": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "workflows": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "checkpoints": { "type": "object", "additionalProperties": true },
+          "last_tick": { "type": ["object", "null"], "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "ProviderUsageProjection": {
+        "type": "object",
+        "required": ["refreshed_at", "usage", "metering", "providers"],
+        "properties": {
+          "refreshed_at": { "type": "integer" },
+          "usage": { "type": "object", "additionalProperties": true },
+          "metering": { "type": "object", "additionalProperties": true },
+          "providers": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        },
+        "additionalProperties": false
+      },
+      "SkillMarketplaceProjection": {
+        "type": "object",
+        "required": ["skills", "preferences", "connections", "user_skills", "entitlements", "dependency_graph", "component_api", "identity"],
+        "properties": {
+          "skills": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "preferences": { "type": "object", "additionalProperties": { "type": "boolean" } },
+          "connections": { "type": "object", "additionalProperties": true },
+          "user_skills": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "entitlements": { "$ref": "#/components/schemas/Entitlements" },
+          "dependency_graph": { "type": "object", "additionalProperties": true },
+          "component_api": { "type": "object", "additionalProperties": true },
+          "identity": { "$ref": "#/components/schemas/Identity" }
+        },
+        "additionalProperties": true
+      },
+      "SkillUploadRecord": {
+        "type": "object",
+        "required": ["id", "name", "status", "review_available", "size"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "status": { "type": "string" },
+          "visibility": { "enum": ["private", "marketplace"] },
+          "review_status": { "enum": ["not_submitted", "pending_review", "approved", "rejected"] },
+          "review_available": { "type": "boolean" },
+          "source_type": { "enum": ["zip", "declarative"] },
+          "source_skill_id": { "type": "string" },
+          "description": { "type": "string" },
+          "size": { "type": "integer", "minimum": 0 },
+          "installed_at": { "type": "integer" },
+          "review_requested_at": { "type": "integer" }
+        },
+        "additionalProperties": true
+      },
+      "CacheStatus": {
+        "type": "object",
+        "required": ["hit"],
+        "properties": {
+          "hit": { "type": "boolean" },
+          "expires_at": { "type": "integer" }
+        },
+        "additionalProperties": true
+      },
+      "PlaceSearchRequest": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string", "minLength": 1 },
+          "city": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 12 }
+        },
+        "additionalProperties": false
+      },
+      "RouteRequest": {
+        "type": "object",
+        "required": ["places"],
+        "properties": {
+          "places": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 12,
+            "items": { "$ref": "./floris-components-v1.schema.json#/$defs/place" }
+          },
+          "mode": { "enum": ["driving", "transit", "walking", "bicycling"] },
+          "strategy": { "enum": ["time_then_cost", "least_time", "least_cost"] },
+          "optimize": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
+      "PaperSearchProjection": {
+        "type": "object",
+        "required": ["papers"],
+        "properties": {
+          "papers": {
+            "type": "array",
+            "items": { "$ref": "./floris-components-v1.schema.json#/$defs/paper" }
+          },
+          "error": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "SavePaperRequest": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "arxiv_id": { "type": "string" },
+          "title": { "type": "string", "minLength": 1 },
+          "pdf_url": { "type": "string" },
+          "source_url": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "SavedPaper": {
+        "type": "object",
+        "required": ["file_id", "storage_key", "filename", "title"],
+        "properties": {
+          "id": { "type": "string" },
+          "file_id": { "type": "string" },
+          "filename": { "type": "string" },
+          "title": { "type": "string" },
+          "arxiv_id": { "type": "string" },
+          "total_chars": { "type": "integer" },
+          "preview": { "type": "string" },
+          "file_size": { "type": "integer" },
+          "part_size": { "type": "integer" },
+          "storage_key": { "type": "string" },
+          "content_url": { "type": "string" },
+          "folder_id": { "type": "string" },
+          "assistant_results": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        },
+        "additionalProperties": true
+      },
+      "ReadingLibrary": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/SavedPaper" } },
+          "papers": { "type": "array", "items": { "$ref": "#/components/schemas/SavedPaper" } },
+          "folders": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "settings": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      },
+      "ReaderRequest": {
+        "type": "object",
+        "required": ["action"],
+        "anyOf": [
+          { "required": ["text"] },
+          { "required": ["file_id"] },
+          { "required": ["storage_key"] }
+        ],
+        "properties": {
+          "action": { "enum": ["translate", "summarize", "explain", "formula", "analyze", "full-translate", "terms", "qa"] },
+          "text": { "type": "string", "minLength": 1 },
+          "file_id": { "type": "string", "minLength": 1 },
+          "storage_key": { "type": "string", "minLength": 1, "description": "Alias of file_id for compatibility." },
+          "question": { "type": "string" },
+          "response_language": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "DocumentTextRequest": {
+        "type": "object",
+        "anyOf": [
+          { "required": ["file_id"] },
+          { "required": ["storage_key"] }
+        ],
+        "properties": {
+          "file_id": { "type": "string", "minLength": 1 },
+          "storage_key": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      },
+      "DocumentTextProjection": {
+        "type": "object",
+        "required": ["file_id", "storage_key", "text", "preview", "page_count", "truncated"],
+        "properties": {
+          "file_id": { "type": "string" },
+          "storage_key": { "type": "string" },
+          "text": { "type": "string", "maxLength": 120000 },
+          "preview": { "type": "string", "maxLength": 1200 },
+          "page_count": { "type": "integer", "minimum": 0 },
+          "truncated": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
+      "ImageEditRequest": {
+        "type": "object",
+        "required": ["prompt", "parent_action_id"],
+        "properties": {
+          "prompt": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "parent_action_id": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      },
+      "ResetFilesRequest": {
+        "type": "object",
+        "required": ["confirmation", "operation"],
+        "properties": {
+          "confirmation": { "const": "DELETE" },
+          "operation": { "enum": ["inspect", "clear"] }
+        },
+        "additionalProperties": false
+      },
+      "ResetFilesResult": {
+        "type": "object",
+        "properties": {
+          "conversation_ids": { "type": "array", "items": { "type": "string" } },
+          "conversations_deleted": { "type": "integer", "minimum": 0 },
+          "deleted": { "type": "object", "additionalProperties": { "type": "integer" } },
+          "profile_preserved": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      },
+      "ResetStateRequest": {
+        "type": "object",
+        "required": ["confirmation"],
+        "properties": {
+          "confirmation": { "const": "DELETE" },
+          "conversation_ids": { "type": "array", "maxItems": 1000, "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      },
+      "ResetStateResult": {
+        "type": "object",
+        "required": ["ok", "skills_preserved", "checkpoints_deleted", "state_items_deleted"],
+        "properties": {
+          "ok": { "const": true },
+          "skills_preserved": { "type": "object", "additionalProperties": { "type": "boolean" } },
+          "checkpoints_deleted": { "type": "integer", "minimum": 0 },
+          "state_items_deleted": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
       }
     }
   },
+  "x-floris-client-surfaces": {
+    "session": ["getSession", "exchangeBrowserCloudBaseSession", "exchangeMobileCloudBaseSession", "logoutBrowserSession"],
+    "profile": ["getProfileOrAvatar", "inspectAvatar", "updateProfile"],
+    "chat": ["streamChatTurn", "getConversationBootstrap", "getChatRunState", "appendConversationMessage", "listConversations", "touchConversationPointer", "stopConversationRun"],
+    "files": ["createFileUpload", "downloadFile", "inspectFile", "deleteFile"],
+    "workspace": ["workspaceOperation", "streamImageEdit"],
+    "personalization": ["intelligenceOperation", "proactiveOperation", "getProviderUsage"],
+    "skills": ["skillMarketplaceOperation", "listSkillUploads", "mutateSkillUpload"],
+    "maps": ["searchPlaces", "planRoute"],
+    "papers": ["searchPapers", "savePaper", "getReadingLibrary", "mutateReadingLibrary", "deleteReadingItem", "streamPaperReader"],
+    "maintenance": ["resetFileOperation", "resetApplicationState"]
+  },
+  "x-floris-platform-adapters": {
+    "identity_provider": "Use the official CloudBase SDK only for provider login and refresh; exchange the provider access token through /auth/mobile/session or /auth/cloudbase/session before calling Floris business APIs.",
+    "system_location": "Obtain a consented, short-lived OS location and pass it to /chat or /routes; the server remains authoritative for place resolution and route planning.",
+    "map_renderer": "Render server-issued place and route geometry with the platform map SDK; do not ask the map SDK to replace /places or /routes.",
+    "local_files": "File picking, PDF rendering/text extraction, ZIP construction and cache storage are replaceable client adapters; persistence and model operations still use Floris APIs.",
+    "presigned_upload": "PUT is allowed only to the short-lived URL returned by /files, /profile or /skill-uploads; clients never construct storage keys or upload origins.",
+    "speech_input": "Speech capture and recognition are replaceable client adapters. Web uses the browser speech service; native clients use an OS or official speech SDK, then place finalized text in the same composer before /chat."
+  },
   "x-floris-compatibility": {
     "component_schema": "/contracts/floris-components-v1.schema.json",
+    "event_schema": "/contracts/chat-events-v1.schema.json",
     "unknown_sse_events": "ignore",
     "unknown_components": "render_text_fallback",
     "additive_fields": "allowed",
-    "breaking_changes": "new_major_contract"
+    "breaking_changes": "new_major_contract",
+    "source_media_binding": "source_id",
+    "search_media_policy": "vision_reviewed_and_exact_inline_source_or_omit",
+    "json_wire_naming": "snake_case",
+    "conversation_scope": "signed_identity_plus_makers-conversation-id"
   }
 }

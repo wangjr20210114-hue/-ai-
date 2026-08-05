@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
-import { chronologicalSchedulePlaces, shouldPlanMakersRoute } from './makersMapRouting';
-import type { MakersMapPlace, ScheduleItem } from '../../../shared/types';
+import { chronologicalSchedulePlaces, shouldPlanMakersRoute, shouldRequestMakersRoute } from './makersMapRouting';
+import {
+  closestRouteSectionIndex,
+  legModeSequence,
+  routeHasIntercityLeg,
+  routeLegScope,
+  routeLegs,
+  routeSectionPath,
+  routeSectionSteps,
+  routeZoomLevel,
+} from './routePresentation';
+import type { ScheduleItem } from '../../calendar/model';
+import type { MakersMapPlace, MakersRoutePlan } from './types';
 
 describe('MakersMap geolocation recovery', () => {
   it('reuses a recent authorized location after a page refresh', () => {
@@ -61,5 +72,117 @@ describe('MakersMap geolocation recovery', () => {
 
     expect(chronologicalSchedulePlaces(items).map((item) => item.name))
       .toEqual(['早餐店', '北京站', '锦江之星']);
+  });
+
+  it('reuses a verified action route instead of requesting the provider again', () => {
+    const snapshot = { places: [{ place_id: 'a' }, { place_id: 'b' }] } as MakersRoutePlan;
+    expect(shouldRequestMakersRoute(true, 2, snapshot)).toBe(false);
+    expect(shouldRequestMakersRoute(true, 2)).toBe(true);
+  });
+
+  it('changes route detail naturally with map zoom', () => {
+    expect(routeZoomLevel(7)).toBe('overview');
+    expect(routeZoomLevel(10)).toBe('legs');
+    expect(routeZoomLevel(15)).toBe('sections');
+  });
+
+  it('keeps mixed transport modes in the provider order for each leg', () => {
+    const place = (name: string): MakersMapPlace => ({
+      place_id: name, name, address: name, latitude: 30.2, longitude: 120.1,
+    });
+    const route: MakersRoutePlan = {
+      schema_version: 4,
+      provider: 'tencent',
+      mode: 'transit',
+      places: [place('灵隐寺'), place('西湖')],
+      path: [],
+      distance_meters: 5000,
+      duration_seconds: 1800,
+      fare: { currency: 'CNY', basis: '' },
+      legs: [{
+        from: place('灵隐寺'), to: place('西湖'), mode: 'transit', path: [],
+        distance_meters: 5000, duration_seconds: 1800,
+        sections: [
+          { mode: 'walking', path: [], distance_meters: 300, duration_seconds: 300 },
+          { mode: 'bus', line: '278路', path: [], distance_meters: 4200, duration_seconds: 1200 },
+          { mode: 'walking', path: [], distance_meters: 500, duration_seconds: 300 },
+        ],
+      }],
+    };
+    expect(routeLegs(route)).toHaveLength(1);
+    expect(legModeSequence(routeLegs(route)[0])).toEqual(['walking', 'bus', 'walking']);
+  });
+
+  it('classifies route scope from provider cities without city-specific rules', () => {
+    const place = (name: string, city: string): MakersMapPlace => ({
+      place_id: name, name, city, address: name, latitude: 30.2, longitude: 120.1,
+    });
+    const leg = {
+      from: place('A', 'City One'), to: place('B', 'City Two'), mode: 'transit' as const,
+      path: [], sections: [], distance_meters: 10, duration_seconds: 10,
+    };
+    const route = {
+      schema_version: 4, provider: 'tencent', mode: 'transit' as const,
+      places: [leg.from, leg.to], path: [], legs: [leg], distance_meters: 10,
+      duration_seconds: 10, fare: { currency: 'CNY', basis: '' },
+    };
+    expect(routeLegScope(leg)).toBe('intercity');
+    expect(routeHasIntercityLeg(route)).toBe(true);
+  });
+
+  it('follows the map attention point through mixed provider route sections', () => {
+    const place = (name: string, latitude: number, longitude: number): MakersMapPlace => ({
+      place_id: name, name, address: name, latitude, longitude,
+    });
+    const origin = place('Origin', 31.2, 121.4);
+    const destination = place('Destination', 30.3, 120.2);
+    const route: MakersRoutePlan = {
+      schema_version: 4,
+      provider: 'tencent',
+      mode: 'transit',
+      places: [origin, destination],
+      path: [origin, destination],
+      distance_meters: 180000,
+      duration_seconds: 7200,
+      fare: { currency: 'CNY', basis: '' },
+      legs: [{
+        from: origin,
+        to: destination,
+        mode: 'transit',
+        path: [origin, destination],
+        distance_meters: 180000,
+        duration_seconds: 7200,
+        sections: [
+          {
+            mode: 'bus', line: 'Local A', distance_meters: 8000, duration_seconds: 1200,
+            path: [{ latitude: 31.2, longitude: 121.4 }, { latitude: 31.1, longitude: 121.3 }],
+          },
+          {
+            mode: 'rail', line: 'Rail B', distance_meters: 172000, duration_seconds: 6000,
+            path: [{ latitude: 31.1, longitude: 121.3 }, { latitude: 30.3, longitude: 120.2 }],
+          },
+        ],
+      }],
+    };
+
+    expect(routeSectionSteps(route).map(({ section }) => section.line)).toEqual(['Local A', 'Rail B']);
+    expect(closestRouteSectionIndex(route, { latitude: 31.19, longitude: 121.39 })).toBe(0);
+    expect(closestRouteSectionIndex(route, { latitude: 30.5, longitude: 120.4 })).toBe(1);
+
+    const leg = route.legs?.[0];
+    if (!leg) throw new Error('fixture leg missing');
+    leg.path = [
+      { latitude: 31.2, longitude: 121.4 },
+      { latitude: 31.1, longitude: 121.3 },
+      { latitude: 30.3, longitude: 120.2 },
+    ];
+    leg.sections.forEach((section) => {
+      section.path = [];
+      section.distance_meters = 90000;
+    });
+    const fallbackSteps = routeSectionSteps(route);
+    expect(routeSectionPath(fallbackSteps[0])).toHaveLength(2);
+    expect(routeSectionPath(fallbackSteps[1])).toHaveLength(2);
+    expect(closestRouteSectionIndex(route, { latitude: 30.4, longitude: 120.3 })).toBe(1);
   });
 });

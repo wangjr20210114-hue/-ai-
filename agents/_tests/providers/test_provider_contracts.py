@@ -4,7 +4,7 @@ from agents._tests.support.workspace_environment import *  # noqa: F401,F403
 class ProviderContractTests(unittest.IsolatedAsyncioTestCase):
     def test_generic_provider_400_is_not_misreported_as_bad_configuration(self):
         message = public_error("Error code: 400 - invalid_request: malformed conversation history")
-        self.assertIn("本轮上下文", message)
+        self.assertIn("这次没有生成成功", message)
         self.assertNotIn("配置异常", message)
 
     def test_runtime_requires_one_signed_multi_user_identity(self):
@@ -156,7 +156,7 @@ class ProviderContractTests(unittest.IsolatedAsyncioTestCase):
     def test_provider_errors_are_safe_and_actionable(self):
         raw = "Error code: 400 - Model ID must include provider prefix; type=invalid_request"
         message = public_error(raw)
-        self.assertIn("模型配置", message)
+        self.assertIn("模型服务暂时不可用", message)
         self.assertNotIn("provider prefix", message)
         self.assertNotIn("invalid_request", message)
 
@@ -196,7 +196,7 @@ class ProviderContractTests(unittest.IsolatedAsyncioTestCase):
             "event": {"title": "旧数据", "start_time": 100, "place": PLACE},
         }])[0]
         await save_workspace(store, "conversation-old", legacy)
-        current = await load_user_workspace(store, "conversation-old", "new-user")
+        current = await load_user_workspace(store, user_id="new-user")
         self.assertNotIn(event["id"], current["schedules"])
 
     def test_hunyuan_v3_uses_documented_submit_and_query_workflow(self):

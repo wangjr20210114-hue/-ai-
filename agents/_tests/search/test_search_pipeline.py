@@ -1,7 +1,71 @@
 from agents._tests.support.workspace_environment import *  # noqa: F401,F403
+from agents._application.i18n import text
+from agents.chat._graph import TOOL_FAILURE_MESSAGE
+from agents._infrastructure.providers.rich_search import _json_request
 
 
 class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
+    def test_provider_json_transport_uses_direct_https_connection(self):
+        calls = []
+
+        class Response:
+            status = 200
+            reason = "OK"
+            headers = {}
+
+            @staticmethod
+            def read(_limit):
+                return b'{"Response":{"Pages":[]}}'
+
+        class Connection:
+            def request(self, method, target, *, body, headers):
+                calls.append((method, target, json.loads(body), headers))
+
+            @staticmethod
+            def getresponse():
+                return Response()
+
+            @staticmethod
+            def close():
+                return None
+
+        with patch(
+            "agents._infrastructure.providers.rich_search.http.client.HTTPSConnection",
+            return_value=Connection(),
+        ) as connection_type:
+            result = _json_request(
+                "https://api.wsa.cloud.tencent.com/SearchPro",
+                {"Query": "最近 AI 有什么新进展"},
+                {"Authorization": "Bearer test"},
+                10,
+            )
+
+        connection_type.assert_called_once_with(
+            "api.wsa.cloud.tencent.com",
+            port=None,
+            timeout=10,
+        )
+        self.assertEqual(result, {"Response": {"Pages": []}})
+        self.assertEqual(calls[0][0:2], ("POST", "/SearchPro"))
+        self.assertEqual(calls[0][2], {"Query": "最近 AI 有什么新进展"})
+
+    def test_rich_search_failure_never_claims_a_confirmation_card(self):
+        content = tool_failure_fallback([
+            HumanMessage(content="最近 AI 有什么新进展"),
+            ToolMessage(
+                content=json.dumps({"tool_error": {
+                    "kind": "runtime",
+                    "detail": TOOL_FAILURE_MESSAGE,
+                    "retry_same_call": False,
+                }}, ensure_ascii=False),
+                name="rich_search",
+                tool_call_id="rich-search-failed",
+            ),
+        ])
+        self.assertIn("实时搜索这次没有完成", content)
+        self.assertNotIn("确认卡", content)
+        self.assertNotIn("工具", content)
+
     async def test_message_restore_keeps_rich_search_metadata(self):
         metadata = {"total": 1, "results": [{"title": "故宫", "url": "https://example.com"}], "media": []}
         messages = [
@@ -26,6 +90,9 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
                 "content": "## 故宫历史\n\n![太和殿](https://example.com/palace.jpg)",
                 "follow_ups": ["太和殿是做什么的？"],
                 "search_results": {**metadata, "media": [{"id": "media-1"}]},
+                "turn_started_at": 1_786_000_000_000,
+                "search_started_at": 1_786_000_000_000,
+                "search_completed_at": 1_786_000_012_345,
             },
         )
         store = SimpleNamespace(
@@ -37,6 +104,9 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ai_message["searchResults"]["media"], [{"id": "media-1"}])
         self.assertIn("palace.jpg", ai_message["content"])
         self.assertEqual(ai_message["followUps"], ["太和殿是做什么的？"])
+        self.assertEqual(ai_message["turnStartedAt"], 1_786_000_000_000)
+        self.assertEqual(ai_message["searchStartedAt"], 1_786_000_000_000)
+        self.assertEqual(ai_message["searchCompletedAt"], 1_786_000_012_345)
         self.assertNotIn("workspace_actions", response)
 
     def test_semantic_search_plan_requires_one_rich_search_first_step(self):
@@ -44,15 +114,27 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(required_tool_for_plan({"needs_web_search": False}), "")
 
     def test_temporal_policy_is_derived_after_capability_planning(self):
-        source = (
+        service_source = (
             AGENTS_ROOT
             / "_application"
             / "chat"
             / "turn_service.py"
         ).read_text(encoding="utf-8")
-        planned = source.index("capability_plan, planner_timed_out = await plan_capabilities_bounded")
-        strict_date = source.index('explicit_today = bool(capability_plan.get("strict_today_only"))')
-        self.assertLess(planned, strict_date)
+        search_source = (
+            AGENTS_ROOT
+            / "_application"
+            / "chat"
+            / "turn_search.py"
+        ).read_text(encoding="utf-8")
+        planned = service_source.index(
+            "capability_plan, planner_timed_out = await plan_capabilities_bounded"
+        )
+        search_runner = service_source.index("search_runner = PlannedSearchRunner(")
+        self.assertLess(planned, search_runner)
+        self.assertIn(
+            '"strict_date": bool(capability_plan.get("strict_today_only"))',
+            search_source,
+        )
 
     async def test_rich_search_reuses_evidence_but_not_turn_response_state(self):
         store = FakeStore()
@@ -126,6 +208,39 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(config["turn_tool_invocations"], 2)
                     self.assertEqual(config["turn_provider_calls"], 1)
 
+    async def test_search_use_case_tool_adapter_keeps_main_turn_local_dedupe(self):
+        result = json.dumps({
+            "ui_action": "rich_search_results",
+            "search_results": {
+                "query": "AI 近期重要进展",
+                "results": [],
+                "media": [],
+                "total": 0,
+                "search_config": {"turn_provider_calls": 1},
+            },
+            "evidence": "verified evidence",
+        }, ensure_ascii=False)
+        operation = AsyncMock(return_value=result)
+        tools = build_system_skill_tools(
+            None,
+            store=FakeStore(),
+            conversation_id="use-case-adapter",
+            user_id=TEST_USER_ID,
+            env={},
+            media_enabled=False,
+            rich_search_operation=operation,
+        )
+        tool = next(item for item in tools if item.name == "rich_search")
+
+        await tool.ainvoke({"query": "planner query"})
+        repeated = json.loads(await tool.ainvoke({"query": "rewritten query"}))
+
+        self.assertEqual(operation.await_count, 1)
+        self.assertEqual(
+            repeated["search_results"]["search_config"]["turn_tool_invocations"],
+            2,
+        )
+
     def test_search_preferences_have_fast_balanced_defaults_and_public_state(self):
         state = empty_intelligence_state()
         self.assertEqual(state["search_preferences"], {
@@ -141,7 +256,7 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
             {"title": "旧闻", "snippet": "", "date": "2026-07-15", "url": "https://example.com/2"},
             {"title": "无日期", "snippet": "内容", "date": "", "url": "https://example.com/3"},
         ]
-        kept, stats = _filter_for_target_date(results, "2026-07-16")
+        kept, stats = filter_sources_for_target_date(results, "2026-07-16")
         self.assertEqual([item["url"] for item in kept], ["https://example.com/1"])
         self.assertEqual(stats, {"received": 3, "kept": 1, "undated": 1, "mismatched": 1})
 
@@ -149,17 +264,69 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
         def request(*_args, **_kwargs):
             return {"Pages": []}
 
-        with patch("agents._infrastructure.providers.rich_search._json_request", side_effect=request) as provider:
+        with patch("agents._infrastructure.providers.rich_search._searchpro_request_json", new=AsyncMock(side_effect=request)) as provider:
             result = await run_rich_search(
                 {"WSA_API_KEY": "test"}, "factual query", "visual query", "basic",
             )
         self.assertEqual(result["total"], 0)
         self.assertIn("timings_ms", result)
         self.assertEqual(provider.call_count, 1)
-        self.assertIn("visual query", provider.call_args.args[1]["Query"])
+        payload = provider.call_args.args[1]
+        self.assertIn("visual query", payload["Query"])
+        self.assertIn(
+            text("model.search.provider_quality", "zh-CN"),
+            payload["Query"],
+        )
+        self.assertEqual(set(payload), {"Query"})
         self.assertEqual(result["search_config"]["provider_request_count"], 1)
         self.assertTrue(result["search_config"]["visual_query_merged"])
         self.assertTrue(result["search_config"]["parallel_image_search"])
+
+    async def test_searchpro_query_keeps_generic_constraints_within_provider_limit(self):
+        with patch(
+            "agents._infrastructure.providers.rich_search._searchpro_request_json",
+            new=AsyncMock(return_value={"Pages": []}),
+        ) as provider:
+            await run_rich_search(
+                {"WSA_API_KEY": "test"},
+                "original-user-query-" * 40,
+                "visual-intent-" * 30,
+                "basic",
+                target_date="2026-08-04",
+                prefer_recent=True,
+            )
+        provider_query = provider.call_args.args[1]["Query"]
+        payload = provider.call_args.args[1]
+        self.assertLess(payload["FromTime"], payload["ToTime"])
+        self.assertEqual(
+            payload["ToTime"] - payload["FromTime"] + 1,
+            121 * 24 * 60 * 60,
+        )
+        self.assertLessEqual(len(provider_query), 500)
+        self.assertTrue(provider_query.startswith("original-user-query-"))
+        self.assertIn("优先检索可直接访问", provider_query)
+        self.assertIn("当前日期：2026-08-04", provider_query)
+        self.assertIn("同时优先返回", provider_query)
+
+    async def test_rich_search_retries_one_transient_transport_failure(self):
+        with patch(
+            "agents._infrastructure.providers.rich_search._searchpro_request_json",
+            new=AsyncMock(side_effect=[TimeoutError("transient"), {"Pages": []}]),
+        ) as provider, patch(
+            "agents._infrastructure.providers.rich_search.asyncio.sleep",
+            new=AsyncMock(),
+        ):
+            result = await run_rich_search(
+                {"WSA_API_KEY": "test"},
+                "factual query",
+                depth="basic",
+            )
+
+        self.assertEqual(provider.call_count, 2)
+        self.assertEqual(
+            result["search_config"]["provider_request_count"],
+            2,
+        )
 
     def test_rich_search_visual_review_timeout_is_hard_bounded(self):
         self.assertEqual(_vision_review_timeout({}), 7.0)

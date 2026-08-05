@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../../../../shared/types';
+import type { ChatMessage } from '../../model';
 import { PaperRenderer as PapersView } from '../../../papers/view';
 
 

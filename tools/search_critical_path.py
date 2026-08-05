@@ -6,7 +6,6 @@ import asyncio
 import time
 from dataclasses import dataclass
 
-from agents._application.chat.turn_context import answer_tool_names
 from agents._application.search.ports import EvidenceRecord
 from agents._application.search.search_use_case import (
     SearchExecution,
@@ -35,7 +34,7 @@ class CriticalPathMetrics:
     first_token_ms: float
     media_complete_ms: float
     provider_requests: int
-    answer_tool_names: tuple[str, ...]
+    graph_tool_names: tuple[str, ...]
     event_order: tuple[str, ...]
 
 
@@ -58,8 +57,9 @@ class _Repository:
         evidence: SearchEvidence,
         *,
         ttl_seconds: int,
+        metadata=None,
     ) -> None:
-        del ttl_seconds
+        del ttl_seconds, metadata
         self.records[(subject_id, cache_key)] = evidence
 
 
@@ -96,6 +96,11 @@ class _Provider:
                 total=1,
             )
 
+        if request.media_mode == "blocking":
+            return SearchExecution(
+                evidence=await review_media(),
+                provider_request_count=1,
+            )
         return SearchExecution(
             evidence=SearchEvidence(
                 query=request.query,
@@ -140,14 +145,18 @@ async def run_fake_critical_path(
             image_query="redacted-image-query",
             result_limit=8,
             image_limit=2,
+            force_refresh=True,
             media_mode="progressive",
         ),
         on_media=on_media,
     )
+    if execution.evidence.media:
+        media_completed_ms = (time.perf_counter() - started_at) * 1000
+        events.append("media")
     sources_ms = (time.perf_counter() - started_at) * 1000
     events.append("sources")
 
-    tools = answer_tool_names(("rich_search",))
+    tools = ("rich_search",)
     await asyncio.sleep(latency.answer_first_token_ms / 1000)
     first_token_ms = (time.perf_counter() - started_at) * 1000
     events.append("token")
@@ -159,7 +168,6 @@ async def run_fake_critical_path(
         first_token_ms=first_token_ms,
         media_complete_ms=media_completed_ms,
         provider_requests=provider.calls,
-        answer_tool_names=tools,
+        graph_tool_names=tools,
         event_order=tuple(events),
     )
-

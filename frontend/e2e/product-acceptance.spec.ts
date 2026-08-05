@@ -75,14 +75,17 @@ test('one planned search streams an answer and binds reviewed media to its exact
   await expect(boundImage).toHaveAttribute('data-source-bound-media', 'media-search');
   await expect(answer.locator('.markdown-body')).toHaveAttribute('data-search-provider-calls', '1');
   await expect(answer.locator('.markdown-body')).toHaveAttribute('data-search-tool-invocations', '1');
-  await expect(answer.locator('.search-complete-meta')).toContainText('搜索 2.4 秒');
+  // The public stopwatch covers the actual request-to-answer interval. The
+  // mocked stream completes immediately, so it must not replace that duration
+  // with SearchPro's provider-only 2.4 second diagnostic.
+  await expect(answer.locator('.search-complete-meta')).toContainText('搜索 0.0 秒');
   expect(chatRequest?.headers['makers-conversation-id']).toBe('visual-baseline');
   expect(chatRequest?.body).not.toHaveProperty('tenant_id');
   expect(chatRequest?.body).not.toHaveProperty('user_id');
   expect(chatRequest?.body).not.toHaveProperty('membership');
 });
 
-test('trusted Skills expose their component actions through the marketplace boundary', async ({ page }) => {
+test('trusted Skills expose component actions without leaking internal permission keys', async ({ page }) => {
   let marketplaceRequests = 0;
   await installMockMakerApi(page, {
     onSkillMarketplaceRequest: () => { marketplaceRequests += 1; },
@@ -96,7 +99,7 @@ test('trusted Skills expose their component actions through the marketplace boun
   await expect(page.locator('.skills-page-brand')).toBeVisible();
   await expect(page.locator('.skills-page-account')).toBeVisible();
   await expect(page.locator('.component-api-list')).toContainText('calendar.change.propose');
-  await expect(page.locator('.component-api-list')).toContainText('components.calendar');
+  await expect(page.locator('.component-api-list')).not.toContainText('components.calendar');
   await expect(page.locator('.component-docs-toc-groups')).toContainText('日程');
   await expect(page.locator('.component-api-example')).toContainText('changes');
   const docs = page.locator('.component-docs');
@@ -106,10 +109,11 @@ test('trusted Skills expose their component actions through the marketplace boun
   await expect.poll(() => page.locator('.component-docs-toc').evaluate(
     (element) => element.getBoundingClientRect().width,
   )).toBeLessThanOrEqual(170);
-  await page.locator('.component-docs-toc-toggle').click();
   await expect(docs).toHaveClass(/is-toc-collapsed/);
   await page.locator('.component-docs-toc-toggle').click();
   await expect(docs).not.toHaveClass(/is-toc-collapsed/);
+  await page.locator('.component-docs-toc-toggle').click();
+  await expect(docs).toHaveClass(/is-toc-collapsed/);
   await page.evaluate(() => {
     document.documentElement.dataset.skillClosingObserved = '0';
     const marketplace = document.querySelector('.skills-page');
@@ -204,6 +208,50 @@ test('sending a question rejoins the live edge and scrolls to the bottom', async
   await expect.poll(() => page.locator('.chat-scroll').evaluate((element) => (
     element.scrollHeight - element.scrollTop - element.clientHeight
   ))).toBeLessThan(4);
+});
+
+test('a new conversation owns the next request without inheriting old rows', async ({ page }) => {
+  let chatRequest: { body: Record<string, unknown>; headers: Record<string, string> } | undefined;
+  await installMockMakerApi(page, {
+    identity: {
+      id: 'signed-reader',
+      subject_id: 'signed-reader',
+      tenant_id: 'tenant-signed',
+      username: 'signed-reader@example.test',
+      display_name: 'Signed Reader',
+      auth_type: 'cloudbase',
+      auth_providers: ['email'],
+      membership: 'free',
+      roles: ['user'],
+    },
+    chatEvents: [
+      { type: 'ai_response', content: 'Fresh conversation answer' },
+      { type: 'answer_complete', payload: { turn_id: 'fresh-turn' } },
+    ],
+    onChatRequest: (request) => { chatRequest = request; },
+  });
+  await waitForApp(page);
+
+  await expect(page.getByRole('button', { name: 'Signed Reader', exact: true })).toBeVisible();
+  await expect(page.locator('.msg-row')).toHaveCount(2);
+  const create = page.locator('[data-onboarding="new-conversation"]');
+  await expect(create).toBeVisible();
+  await create.click();
+  expect(await page.locator('.connection-operation-lock').count()).toBe(0);
+  await expect(page.locator('.app-shell')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('.msg-row')).toHaveCount(0);
+  const firstDraftId = await page.evaluate(() => localStorage.getItem('yuanbao.v6.conversationId'));
+  await create.click();
+  expect(await page.evaluate(() => localStorage.getItem('yuanbao.v6.conversationId'))).toBe(firstDraftId);
+
+  await page.locator('.input-box textarea').fill('Start a genuinely fresh turn');
+  await page.locator('.input-submit-button').click();
+  await expect(page.locator('.msg-row.ai')).toContainText('Fresh conversation answer');
+  await expect(page.locator('.chat-scroll')).not.toContainText('鍙俊绯荤粺姝ｅ湪');
+  expect(chatRequest?.headers['makers-conversation-id']).not.toBe('visual-baseline');
+  expect(chatRequest?.headers['makers-conversation-id']).toMatch(/^yb7_/);
+  await expect(page.locator('.conversation-item.is-active .conversation-item-title'))
+    .toHaveText('Start a genuinely fresh turn');
 });
 
 test('settings open through the feature controller without blocking on optional providers', async ({ page }) => {

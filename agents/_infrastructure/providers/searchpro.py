@@ -73,12 +73,27 @@ class SearchProGateway:
             image_limit=request.image_limit,
             target_date=request.target_date,
             strict_date=request.strict_date,
+            prefer_recent=request.prefer_recent_results,
             parallel_queries=request.parallel_queries,
             media_callback=publish if progressive else None,
             background_tasks=background_tasks if progressive else None,
             include_media=request.media_mode != "disabled",
+            response_language=request.response_language,
+            request_id=request.request_id,
         )
         evidence = _to_evidence(metadata)
+        search_config = metadata.get("search_config")
+        try:
+            provider_request_count = max(
+                1,
+                int(
+                    search_config.get("provider_request_count")
+                    if isinstance(search_config, Mapping)
+                    else 1
+                ),
+            )
+        except (TypeError, ValueError):
+            provider_request_count = 1
         if request.media_mode == "blocking" and on_media is not None:
             await on_media(evidence)
         normalized_tasks = tuple(
@@ -88,5 +103,6 @@ class SearchProGateway:
         return SearchExecution(
             evidence=evidence,
             media_tasks=normalized_tasks,
-            provider_request_count=1,
+            provider_request_count=provider_request_count,
+            metadata=dict(metadata),
         )

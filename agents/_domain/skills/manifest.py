@@ -11,6 +11,7 @@ class SkillToolBinding:
     name: str
     capability: str
     required: bool = True
+    publishes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -32,8 +33,6 @@ class SkillManifest:
     requires: tuple[str, ...]
     recommends: tuple[str, ...]
     conflicts: tuple[str, ...]
-    degrade_when_capabilities: tuple[str, ...]
-    unavailable_fallback: str
     permissions: frozenset[str]
     env_keys: tuple[str, ...]
     adapter: str
@@ -74,7 +73,6 @@ class SkillManifest:
             "requires": list(self.requires),
             "recommends": list(self.recommends),
             "conflicts": list(self.conflicts),
-            "unavailable_fallback": self.unavailable_fallback,
             "external": self.external,
             "configured": configured,
             "connect_url": self.connect_url,

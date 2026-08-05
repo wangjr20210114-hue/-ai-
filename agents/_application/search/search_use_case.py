@@ -5,9 +5,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import re
 from dataclasses import dataclass, replace
-from typing import Awaitable, Literal
+from typing import Any, Awaitable, Literal, Mapping
 
 from agents._domain.search.evidence import SearchEvidence
 
@@ -15,10 +14,6 @@ from .ports import EvidenceRepository, MediaCallback, SearchPort
 
 
 MediaMode = Literal["disabled", "progressive", "blocking"]
-_CURRENT_MARKERS = re.compile(
-    r"(今天|今日|现在|当前|最新|刚刚|近期|本周|today|current|latest|breaking|recent)",
-    re.IGNORECASE,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +22,7 @@ class SearchRequest:
     user_id: str
     conversation_id: str
     query: str
+    request_id: str = ""
     image_query: str = ""
     depth: str = "standard"
     result_limit: int = 8
@@ -34,8 +30,10 @@ class SearchRequest:
     parallel_queries: bool = True
     target_date: str = ""
     strict_date: bool = False
+    prefer_recent_results: bool = False
     force_refresh: bool = False
     media_mode: MediaMode = "progressive"
+    response_language: str = "zh-CN"
 
     def __post_init__(self) -> None:
         if not str(self.tenant_id or "").strip():
@@ -70,8 +68,10 @@ class SearchRequest:
             "parallel_queries": self.parallel_queries,
             "target_date": self.target_date,
             "strict_date": self.strict_date,
+            "prefer_recent_results": self.prefer_recent_results,
             "include_media": self.media_mode != "disabled",
             "provider_version": "searchpro-v1",
+            "response_language": self.response_language,
         }
         serialized = json.dumps(
             value,
@@ -89,6 +89,7 @@ class SearchExecution:
     cache_hit: bool = False
     coalesced: bool = False
     provider_request_count: int = 0
+    metadata: Mapping[str, Any] | None = None
 
     @property
     def initial(self) -> SearchEvidence:
@@ -99,7 +100,7 @@ def _ttl_seconds(request: SearchRequest) -> int:
     if (
         request.strict_date
         or request.target_date
-        or _CURRENT_MARKERS.search(request.query)
+        or request.prefer_recent_results
     ):
         return 2 * 60
     return 15 * 60 if request.depth == "deep" else 10 * 60
@@ -141,6 +142,7 @@ class SearchUseCase:
                     cache_hit=record.cache_hit,
                     coalesced=record.coalesced,
                     provider_request_count=0,
+                    metadata=record.metadata,
                 )
 
         async def persist_media(evidence: SearchEvidence) -> None:
@@ -169,6 +171,7 @@ class SearchUseCase:
                     cache_key,
                     value.evidence,
                     ttl_seconds=_ttl_seconds(request),
+                    metadata=value.metadata,
                 )
             return value
 
@@ -177,6 +180,13 @@ class SearchUseCase:
         flight_cache_key = (
             f"refresh:{cache_key}" if request.force_refresh else cache_key
         )
+        # A forced refresh means "fresh for this logical turn", matching the
+        # established rich-search contract.  Do not coalesce two different
+        # conversations merely because the same user asked the same words at
+        # nearly the same time; turn-local duplicate calls still share one
+        # flight through the conversation id.
+        if request.force_refresh:
+            flight_cache_key = f"{flight_cache_key}:{request.conversation_id}"
         flight_key = (id(loop), scope, request.subject_id, flight_cache_key)
         task = _FLIGHTS.get(flight_key)
         coalesced = task is not None and not task.done()

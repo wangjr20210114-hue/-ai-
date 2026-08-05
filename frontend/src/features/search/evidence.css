@@ -11,6 +11,7 @@
 
 /* 结构化富媒体：图片始终携带说明、来源和失败回退 */
 .rich-media-figure {
+  position: relative;
   display: block !important;
   width: calc(100% - 16px);
   max-width: calc(100% - 16px);
@@ -20,6 +21,30 @@
   border-radius: 12px;
   overflow: hidden;
   background: var(--app-panel-2);
+}
+.rich-media-figure.is-loading {
+  min-height: clamp(160px, 32vw, 300px);
+}
+.rich-media-figure.is-loading::before {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 30%, color-mix(in srgb, var(--app-panel) 70%, transparent) 48%, transparent 66%);
+  background-size: 220% 100%;
+  content: '';
+  animation: rich-media-shimmer 1.15s ease-in-out infinite;
+}
+.rich-media-figure img {
+  opacity: 0;
+  transform: scale(1.008);
+  transition: opacity 260ms ease, transform 360ms cubic-bezier(.22, 1, .36, 1);
+}
+.rich-media-figure.is-loaded img {
+  opacity: 1;
+  transform: scale(1);
+}
+@keyframes rich-media-shimmer {
+  from { background-position: 130% 0; }
+  to { background-position: -90% 0; }
 }
 .rich-media-figure.is-preview {
   border-style: dashed;
@@ -75,6 +100,11 @@
   font-weight: 600;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .rich-media-figure.is-loading::before { animation: none; }
+  .rich-media-figure img { transition: none; }
+}
+
 /* URL-only Markdown evidence is rendered as a compact inline citation. */
 .msg-bubble.ai .markdown-body a.md-citation-link {
   display: inline-block;
@@ -93,31 +123,4 @@
 }
 .msg-bubble.ai .markdown-body a.md-citation-link:hover {
   text-decoration-color: currentColor;
-}
-
-/* Evidence remains visible even when the answer model forgot to place an
- * inline Markdown citation. This is a compact row inside the answer bubble,
- * not a second source directory. */
-.msg-bubble.ai .markdown-body .search-evidence-links {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  margin-top: 10px;
-  padding-top: 7px;
-  border-top: 1px solid color-mix(in srgb, var(--app-border) 68%, transparent);
-  color: var(--app-text-3);
-  font-size: 12px;
-  line-height: 1.45;
-}
-.search-evidence-links-label {
-  flex: 0 0 auto;
-  font-weight: 600;
-}
-.msg-bubble.ai .markdown-body .search-evidence-links a.md-citation-link {
-  margin: 0;
-  max-width: min(360px, 100%);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }

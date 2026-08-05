@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -13,6 +14,14 @@ def _required(value: Any, field: str) -> str:
     return normalized
 
 
+def _relevance_score(value: Any) -> float:
+    try:
+        score = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, min(1.0, score)) if math.isfinite(score) else 0.0
+
+
 @dataclass(frozen=True, slots=True)
 class SearchSource:
     id: str
@@ -20,10 +29,20 @@ class SearchSource:
     url: str
     snippet: str
     published_at: str = ""
+    publisher: str = ""
+    publisher_domain: str = ""
+    relevance_score: float = 0.0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _required(self.id, "source id"))
         object.__setattr__(self, "url", _required(self.url, "source url"))
+        object.__setattr__(self, "publisher", str(self.publisher or "").strip())
+        object.__setattr__(
+            self, "publisher_domain", str(self.publisher_domain or "").strip(),
+        )
+        object.__setattr__(
+            self, "relevance_score", _relevance_score(self.relevance_score),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -32,6 +51,9 @@ class SearchSource:
             "url": self.url,
             "snippet": self.snippet,
             "published_at": self.published_at,
+            "publisher": self.publisher,
+            "publisher_domain": self.publisher_domain,
+            "relevance_score": self.relevance_score,
         }
 
     @classmethod
@@ -42,6 +64,11 @@ class SearchSource:
             url=str(value.get("url") or ""),
             snippet=str(value.get("snippet") or ""),
             published_at=str(value.get("published_at") or value.get("date") or ""),
+            publisher=str(value.get("publisher") or value.get("site") or ""),
+            publisher_domain=str(value.get("publisher_domain") or ""),
+            relevance_score=_relevance_score(
+                value.get("relevance_score") or value.get("score") or 0
+            ),
         )
 
 
@@ -59,7 +86,7 @@ class ReviewedMedia:
         object.__setattr__(self, "url", _required(self.url, "media url"))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        value = {
             "id": self.id,
             "url": self.url,
             "source_id": self.source_id,
@@ -67,6 +94,12 @@ class ReviewedMedia:
             "vision_reviewed": self.vision_reviewed,
             "caption": self.caption,
         }
+        return value
+
+    @property
+    def trusted_for_display(self) -> bool:
+        """Only pixel-reviewed media may cross the display boundary."""
+        return self.vision_reviewed
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "ReviewedMedia":
@@ -106,33 +139,6 @@ class SearchEvidence:
             "total": self.total,
             "media_pending": self.media_pending,
         }
-
-    def for_model(self) -> str:
-        """Return factual evidence only, never cached/generated answer prose."""
-        source_lines = "\n".join(
-            (
-                f"- {source.id} | [{source.title}]({source.url})"
-                f" | 发布日期={source.published_at or '未标注'}"
-                f" | 摘要={source.snippet}"
-            )
-            for source in self.sources
-        )
-        media_status = (
-            f"{len(self.media)} 张审核图片已由 source_id 绑定；"
-            "正文只需引用对应网页来源，禁止输出图片 Markdown 或媒体占位符。"
-            if self.media
-            else (
-                "图片仍在后台审核；正文只写事实与精确来源链接。"
-                if self.media_pending
-                else "没有可确定性绑定的审核图片。"
-            )
-        )
-        return (
-            "本轮 SearchUseCase 已完成唯一一次搜索。以下内容是可引用的事实证据，"
-            "不是回答提纲；不得再次搜索，也不得把未列出的时效事实写成已核验结论。\n"
-            f"{source_lines or '无可核验来源。'}\n"
-            f"{media_status}"
-        )
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "SearchEvidence":

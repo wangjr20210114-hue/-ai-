@@ -3,12 +3,20 @@
 import json
 import logging
 
-from .._application.workspace.service import active_map_payload, image_versions, load_user_workspace, public_action
+from .._application.workspace.service import (
+    active_map_payload,
+    image_versions,
+    load_user_workspace,
+    merge_public_action_snapshot,
+)
 from .._infrastructure.makers.identity import require_user, scoped_conversation_id
 from .._infrastructure.makers.data_version import namespace as data_namespace
 from .._infrastructure.http import error
 from .._infrastructure.makers.conversation_repository import public_chat_run, read_chat_run
+from .._infrastructure.makers.presentation_repository import load_presentation_snapshot
 from ..chat._protocol import action_fallback_content, public_content
+from .._application.i18n import normalize_language, text
+from .._application.chat.turn_control import turn_projection
 
 
 def _value(item, key, default=None):
@@ -53,6 +61,13 @@ def _hidden_clarification_id(message) -> str:
     if str(additional.get("floris_interaction") or "") != "clarification":
         return ""
     return str(additional.get("clarification_id") or "").strip()
+
+
+def _client_message_id(message) -> str:
+    additional = _value(message, "additional_kwargs", {})
+    if not isinstance(additional, dict):
+        return ""
+    return str(additional.get("floris_client_message_id") or "").strip()
 
 
 def _mark_clarification_answered(messages: list[dict], clarification_id: str) -> None:
@@ -115,15 +130,33 @@ def _coalesce_action_messages(messages: list[dict]) -> list[dict]:
 async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
+    response_language = normalize_language((ctx.request.body or {}).get("response_language"))
+    default_map_title = text("workspace.map.default_title", response_language)
     raw_conversation_id = ctx.conversation_id
     if not raw_conversation_id:
-        return error("makers-conversation-id header is required")
+        return error(text("request.conversation_header_required", response_language))
     conversation_id = scoped_conversation_id(ctx, user_id, raw_conversation_id)
 
     config = {"configurable": {"thread_id": conversation_id}}
     checkpoint_tuple = await ctx.store.langgraph_checkpointer.aget_tuple(config)
-    workspace = await load_user_workspace(ctx.store.langgraph_store, conversation_id, user_id)
+    workspace = await load_user_workspace(
+        ctx.store.langgraph_store,
+        user_id=user_id,
+    )
     run = await read_chat_run(ctx.store, conversation_id)
+    presentation = None
+    if isinstance(run, dict) and run.get("status") in {"running", "cancel_requested"}:
+        presentation = await load_presentation_snapshot(
+            getattr(ctx.store, "langgraph_store", None),
+            conversation_id,
+            str(run.get("run_id") or ""),
+        )
+        if (
+            isinstance(presentation, dict)
+            and str(presentation.get("client_message_id") or "")
+            != str(run.get("client_message_id") or "")
+        ):
+            presentation = None
     latest_extras = None
     if ctx.store.langgraph_store is not None:
         item = await ctx.store.langgraph_store.aget(
@@ -158,17 +191,42 @@ async def handler(ctx):
     result = []
     schedules_by_id = {}
     latest_map = []
-    latest_map_title = "相关地点"
+    latest_map_title = default_map_title
     latest_map_route_mode = ""
     latest_map_route_strategy = ""
+    latest_map_route = {}
     latest_map_show_route = False
     pending_actions = []
     pending_search_meta = None
     pending_papers = None
     pending_clarification = None
+    if isinstance(latest_extras, dict) and turn_projection(
+        run,
+        str(latest_extras.get("client_message_id") or ""),
+    ) in {"pending", "discarded"}:
+        latest_extras = None
+    suppress_turn_output = False
+    current_turn_projection = "legacy"
+    client_message_id = ""
     for index, message in enumerate(stored_messages):
         message_type = str(_value(message, "type", _value(message, "role", "")))
         content = _text(_value(message, "content", ""))
+        if message_type in {"human", "user"}:
+            client_message_id = _client_message_id(message)
+            current_turn_projection = turn_projection(run, client_message_id)
+            suppress_turn_output = current_turn_projection in {
+                "pending", "discarded",
+            }
+            if suppress_turn_output:
+                pending_actions = []
+                pending_search_meta = None
+                pending_papers = None
+                pending_clarification = None
+        elif suppress_turn_output:
+            # A stopped turn remains in the Maker checkpoint for tracing, but
+            # its tokens, sources and cards are deliberately absent from the
+            # public projection on every client and after every refresh.
+            continue
         hidden_clarification_id = _hidden_clarification_id(message)
         if hidden_clarification_id:
             _mark_clarification_answered(result, hidden_clarification_id)
@@ -186,7 +244,7 @@ async def handler(ctx):
                 places = action.get("places", [])
                 if isinstance(places, list):
                     latest_map = places
-                    latest_map_title = str(action.get("title") or "相关地点")
+                    latest_map_title = str(action.get("title") or default_map_title)
             elif isinstance(action, dict) and action.get("ui_action") in {
                 "map_action", "calendar_action", "side_effect_action",
             }:
@@ -200,7 +258,35 @@ async def handler(ctx):
                     # fallback for legacy or already-cleaned actions.
                     action_id = str(prepared.get("id") or "")
                     current = (workspace.get("actions") or {}).get(action_id)
-                    hydrated = public_action(current) if isinstance(current, dict) else prepared
+                    hydrated = (
+                        merge_public_action_snapshot(prepared, current)
+                        if isinstance(current, dict)
+                        else prepared
+                    )
+                    if not isinstance(current, dict):
+                        kind = str(prepared.get("kind") or "")
+                        status = str(prepared.get("status") or "")
+                        payload = prepared.get("payload")
+                        usable_legacy_map = (
+                            kind == "map_recommendation"
+                            and isinstance(payload, dict)
+                            and bool(payload.get("places"))
+                        )
+                        if (
+                            status in {
+                                "awaiting_confirmation", "ready", "active",
+                                "executing", "reconciliation_required",
+                            }
+                            and not usable_legacy_map
+                        ):
+                            hydrated = {
+                                **prepared,
+                                "status": "failed",
+                                "error": text(
+                                    "workspace.action.missing",
+                                    response_language,
+                                ),
+                            }
                     if hydrated.get("kind") == "image_generate":
                         payload = hydrated.get("payload") or {}
                         group_id = str(payload.get("group_id") or hydrated.get("id") or "")
@@ -247,6 +333,15 @@ async def handler(ctx):
                 "content": content,
                 "ts": index,
             }
+        if role == "user" and current_turn_projection == "discarded":
+            restored["stopped"] = True
+        if role == "user" and client_message_id:
+            restored["client_message_id"] = client_message_id
+        if role == "ai" and client_message_id:
+            # Every public answer is owned by the user turn that produced it.
+            # Clients can therefore reconcile exact pairs across cache restore,
+            # conversation switches and interrupted FIFO successors.
+            restored["client_message_id"] = client_message_id
         if role == "ai" and pending_actions:
             restored["workspaceActions"] = pending_actions
             pending_actions = []
@@ -262,21 +357,27 @@ async def handler(ctx):
         result.append(restored)
 
     if pending_actions:
-        result.append({
+        pending_action_message = {
             "id": f"checkpoint-action-{len(result)}",
             "role": "ai",
             "content": action_fallback_content(pending_actions),
             "ts": len(result),
             "workspaceActions": pending_actions,
-        })
+        }
+        if client_message_id:
+            pending_action_message["client_message_id"] = client_message_id
+        result.append(pending_action_message)
     if pending_clarification:
-        result.append({
+        pending_clarification_message = {
             "id": f"checkpoint-clarification-{len(result)}",
             "role": "ai",
             "content": "",
             "ts": len(result),
             "clarification": pending_clarification,
-        })
+        }
+        if client_message_id:
+            pending_clarification_message["client_message_id"] = client_message_id
+        result.append(pending_clarification_message)
 
     # Older builds persisted the user prompt before the Agent call, so several
     # failed attempts could appear as consecutive user-only rows after a later
@@ -284,7 +385,12 @@ async def handler(ctx):
     # deleting the underlying Makers checkpoint.
     compacted = []
     for restored in result:
-        if restored.get("role") == "user" and compacted and compacted[-1].get("role") == "user":
+        if (
+            restored.get("role") == "user"
+            and compacted
+            and compacted[-1].get("role") == "user"
+            and not compacted[-1].get("stopped")
+        ):
             compacted[-1] = restored
         else:
             compacted.append(restored)
@@ -304,6 +410,17 @@ async def handler(ctx):
                 search_results = latest_extras.get("search_results")
                 if isinstance(search_results, dict):
                     restored["searchResults"] = search_results
+                for source_key, target_key in (
+                    ("turn_started_at", "turnStartedAt"),
+                    ("search_started_at", "searchStartedAt"),
+                    ("search_completed_at", "searchCompletedAt"),
+                ):
+                    try:
+                        timestamp = int(latest_extras.get(source_key) or 0)
+                    except (TypeError, ValueError):
+                        timestamp = 0
+                    if timestamp > 0:
+                        restored[target_key] = timestamp
                 experience_hints = latest_extras.get("experience_hints")
                 if isinstance(experience_hints, list) and experience_hints:
                     restored["experienceHints"] = experience_hints[:4]
@@ -315,9 +432,10 @@ async def handler(ctx):
         schedules = list(schedules_by_id.values())
     if active_map:
         latest_map = active_map.get("places") or []
-        latest_map_title = str(active_map.get("title") or "相关地点")
+        latest_map_title = str(active_map.get("title") or default_map_title)
         latest_map_route_mode = str(active_map.get("route_mode") or "")
         latest_map_route_strategy = str(active_map.get("route_strategy") or "")
+        latest_map_route = active_map.get("route") or {}
         latest_map_show_route = bool(active_map.get("show_route"))
     return {
         "messages": result,
@@ -326,7 +444,9 @@ async def handler(ctx):
         "map_title": latest_map_title,
         "map_route_mode": latest_map_route_mode,
         "map_route_strategy": latest_map_route_strategy,
+        "map_route": latest_map_route,
         "map_show_route": latest_map_show_route,
         "workspace_revision": int(workspace.get("revision") or 0),
         "run": public_chat_run(run),
+        "presentation": presentation,
     }

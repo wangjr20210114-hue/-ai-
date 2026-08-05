@@ -1,13 +1,14 @@
 import React, { memo, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { RichMediaAsset, SearchMeta } from '../../shared/types';
+import type { RichMediaAsset, SearchMeta } from '../../features/search/model';
 import { isSafeRemoteUrl, linkBareCitations, replaceCitationMarkers, sourceLabel } from './richContent';
 import { useLanguage } from '../../i18n';
 import {
+  presentableSourceBoundMedia,
   remarkSourceBoundMedia,
   stripLegacyMediaMarkers,
-} from '../../features/search/sourceBoundMedia';
+} from '../../features/search/model/sourceBoundMedia';
 import { useMarkdownEnhancements } from './markdownEnhancements';
 
 function RichImage({
@@ -20,10 +21,14 @@ function RichImage({
   boundMediaId?: string;
 }) {
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const { t } = useLanguage();
   if (failed) return null;
   return (
-    <figure className={`rich-media-figure${asset.preview ? ' is-preview' : ''}`}>
+    <figure
+      className={`rich-media-figure streamed-component${asset.preview ? ' is-preview' : ''}${loaded ? ' is-loaded' : ' is-loading'}`}
+      aria-busy={!loaded}
+    >
       <img
         src={asset.url}
         alt={asset.alt || asset.caption || t('answerImage')}
@@ -32,6 +37,7 @@ function RichImage({
         draggable={false}
         data-source-id={sourceId}
         data-source-bound-media={boundMediaId}
+        onLoad={() => setLoaded(true)}
         onError={() => setFailed(true)}
       />
       {(asset.caption || asset.source_url) && (
@@ -137,16 +143,9 @@ function MarkdownRenderer({
   const { t } = useLanguage();
   const enhancements = useMarkdownEnhancements();
   const sources = useMemo(() => searchMeta?.results || [], [searchMeta?.results]);
-  const uncitedSources = useMemo(() => sources
-    .filter((source) => (
-      isSafeRemoteUrl(source.url)
-      && !content.includes(source.url)
-      && !content.includes(`[[cite:${source.id}]]`)
-    ))
-    .slice(0, 6), [content, sources]);
   const visibleMedia = useMemo(
     () => uniqueMediaAssets(searchMeta?.media || [])
-      .filter((asset) => asset.vision_reviewed === true),
+      .filter(presentableSourceBoundMedia),
     [searchMeta?.media],
   );
   const cleanedContent = useMemo(() => {
@@ -157,11 +156,15 @@ function MarkdownRenderer({
     return linkedContent;
   }, [content, sources]);
   const sourceBoundMediaPlugin = useMemo(
-    () => remarkSourceBoundMedia({ sources, media: visibleMedia }),
+    () => remarkSourceBoundMedia({
+      sources,
+      media: visibleMedia,
+    }),
     [sources, visibleMedia],
   );
   const providerCalls = searchMeta?.search_config?.turn_provider_calls;
   const toolInvocations = searchMeta?.search_config?.turn_tool_invocations;
+  const visionDiagnostics = searchMeta?.vision_diagnostics;
   const hasSearchMeta = Boolean(searchMeta);
   // Keep the renderer component identities stable. Completed answers still
   // re-render when header/proactive state changes; recreating these functions
@@ -251,6 +254,10 @@ function MarkdownRenderer({
       className={`markdown-body${streaming ? ' is-streaming' : ''}`}
       data-search-provider-calls={typeof providerCalls === 'number' ? providerCalls : undefined}
       data-search-tool-invocations={typeof toolInvocations === 'number' ? toolInvocations : undefined}
+      data-search-media-count={searchMeta ? visibleMedia.length : undefined}
+      data-search-vision-candidates={visionDiagnostics?.candidates}
+      data-search-vision-reviewed={visionDiagnostics?.reviewed}
+      data-search-vision-approved={visionDiagnostics?.approved}
     >
       <ReactMarkdown
         remarkPlugins={enhancements
@@ -261,23 +268,6 @@ function MarkdownRenderer({
       >
         {cleanedContent}
       </ReactMarkdown>
-      {uncitedSources.length > 0 && (
-        <div className="search-evidence-links" aria-label={t('viewSource')}>
-          <span className="search-evidence-links-label">{t('viewSource')}</span>
-          {uncitedSources.map((source) => (
-            <a
-              key={source.id || source.url}
-              href={source.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="md-citation-link"
-              title={source.url}
-            >
-              {source.title || sourceLabel(source.url, sources)}
-            </a>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { DownloadIcon } from 'tdesign-icons-react';
-import { streamImageEdit } from '../../features/image-studio/model/client';
-import { withEdgeOneAuth } from '../../services/auth';
-import { requestRaw } from '../../shared/transport/httpClient';
+import {
+  loadGeneratedImage,
+  streamImageEdit,
+} from '../../features/image-studio/model/client';
+import { withEdgeOneAuth } from '../../shared/auth/session';
 import { createZip } from '../../services/zip';
-import type { WorkspaceAction } from '../../shared/types';
+import type { WorkspaceAction } from '../../features/workspace/model';
 import { useLanguage, type TranslationKey } from '../../i18n';
 
 interface ImageVersion {
@@ -21,6 +23,7 @@ interface Props {
   action: WorkspaceAction;
   conversationId: string;
   onUpdated: (action: WorkspaceAction) => void;
+  disabled?: boolean;
 }
 
 function versionsFrom(action: WorkspaceAction): ImageVersion[] {
@@ -70,7 +73,7 @@ function PaintingStatus() {
   );
 }
 
-export default function ImageStudioCard({ action, conversationId, onUpdated }: Props) {
+export default function ImageStudioCard({ action, conversationId, onUpdated, disabled = false }: Props) {
   const { t } = useLanguage();
   const [currentAction, setCurrentAction] = useState(action);
   const [index, setIndex] = useState(0);
@@ -127,7 +130,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
   const fetchVersionBlob = async (version: ImageVersion): Promise<Blob> => {
     const cached = downloadCacheRef.current.get(version.image_url);
     if (cached) return cached.blob;
-    const response = await requestRaw(version.image_url);
+    const response = await loadGeneratedImage(version.image_url);
     if (!response.ok) throw new Error(t('imageDownloadFailed'));
     const blob = await response.blob();
     downloadCacheRef.current.set(version.image_url, { blob, objectUrl: URL.createObjectURL(blob) });
@@ -139,7 +142,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
 
   const generateEdit = async () => {
     const prompt = instruction.trim();
-    if (!prompt || !selected) return;
+    if (disabled || !prompt || !selected) return;
     setGenerating(true);
     let waitingForImage = false;
     try {
@@ -159,7 +162,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
   };
 
   const downloadOne = async () => {
-    if (!selected) return;
+    if (disabled || !selected) return;
     try {
       saveBlob(await fetchVersionBlob(selected), `Floris-image-${index + 1}.png`);
     } catch {
@@ -168,7 +171,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
   };
 
   const downloadAll = async () => {
-    if (!versions.length) return;
+    if (disabled || !versions.length) return;
     setDownloading(true);
     try {
       const entries = await Promise.all(versions.map(async (version, versionIndex) => {
@@ -204,12 +207,12 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
       <div className="image-studio-header">
         <div><strong>{t('imageStudio')}</strong><span>{index + 1} / {versions.length}</span></div>
         <div className="image-studio-downloads">
-          <Button size="small" variant="text" icon={<DownloadIcon />} disabled={generating || downloading} onClick={() => void downloadOne()}>{t('download')}</Button>
-          <Button size="small" variant="outline" loading={downloading} disabled={generating} onClick={() => void downloadAll()}>{t('batchDownload')}</Button>
+          <Button size="small" variant="text" icon={<DownloadIcon />} disabled={disabled || generating || downloading} onClick={() => void downloadOne()}>{t('download')}</Button>
+          <Button size="small" variant="outline" loading={downloading} disabled={disabled || generating} onClick={() => void downloadAll()}>{t('batchDownload')}</Button>
         </div>
       </div>
       <div className={`image-studio-stage ${generating || !imageReady ? 'is-painting' : ''}`}>
-        {versions.length > 1 && <button className="image-studio-nav previous" type="button" disabled={generating} aria-label={t('previousImage')} title={t('previousImage')} onClick={() => setIndex((index - 1 + versions.length) % versions.length)}>
+        {versions.length > 1 && <button className="image-studio-nav previous" type="button" disabled={disabled || generating} aria-label={t('previousImage')} title={t('previousImage')} onClick={() => setIndex((index - 1 + versions.length) % versions.length)}>
           <span className="image-studio-nav-mark" aria-hidden="true" />
         </button>}
         <img src={selectedSrc} alt={originalPrompt || t('generatedImage')} onLoad={() => {
@@ -219,19 +222,19 @@ export default function ImageStudioCard({ action, conversationId, onUpdated }: P
           setGenerating(false);
         }} onError={() => { setGenerating(false); MessagePlugin.error(t('imageLoadFailed')); }} />
         {(generating || !imageReady) && <div className="image-painting-overlay"><span /><PaintingStatus /></div>}
-        {versions.length > 1 && <button className="image-studio-nav next" type="button" disabled={generating} aria-label={t('nextImage')} title={t('nextImage')} onClick={() => setIndex((index + 1) % versions.length)}>
+        {versions.length > 1 && <button className="image-studio-nav next" type="button" disabled={disabled || generating} aria-label={t('nextImage')} title={t('nextImage')} onClick={() => setIndex((index + 1) % versions.length)}>
           <span className="image-studio-nav-mark" aria-hidden="true" />
         </button>}
       </div>
       <div className="image-studio-prompt" title={originalPrompt}>{originalPrompt}</div>
       <div className="image-studio-editor">
-        <textarea value={instruction} disabled={generating} onChange={(event) => setInstruction(event.target.value)} placeholder={editHint} maxLength={2000} />
-        <Button theme="primary" loading={generating} disabled={generating || !instruction.trim()} onClick={() => void generateEdit()}>{t('editFromImage')}</Button>
+        <textarea value={instruction} disabled={disabled || generating} onChange={(event) => setInstruction(event.target.value)} placeholder={editHint} maxLength={2000} />
+        <Button theme="primary" loading={generating} disabled={disabled || generating || !instruction.trim()} onClick={() => void generateEdit()}>{t('editFromImage')}</Button>
       </div>
       {versions.length > 1 && (
         <div className="image-studio-thumbs">
           {versions.map((version, versionIndex) => (
-            <button key={version.id} type="button" disabled={generating} className={versionIndex === index ? 'selected' : ''} aria-label={t('imageVersion', { number: versionIndex + 1 })} title={t('imageVersion', { number: versionIndex + 1 })} onClick={() => setIndex(versionIndex)}>
+            <button key={version.id} type="button" disabled={disabled || generating} className={versionIndex === index ? 'selected' : ''} aria-label={t('imageVersion', { number: versionIndex + 1 })} title={t('imageVersion', { number: versionIndex + 1 })} onClick={() => setIndex(versionIndex)}>
               <img src={downloadCacheRef.current.get(version.image_url)?.objectUrl || withEdgeOneAuth(version.image_url)} alt={t('imageVersion', { number: versionIndex + 1 })} />
             </button>
           ))}

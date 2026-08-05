@@ -17,3 +17,7 @@ export function autoFollowAfterScroll(
   if (distanceFromBottom <= 8) return true;
   return wasFollowing;
 }
+
+export function lastQuestionScrollTop(questionOffsetTop: number, padding = 16): number {
+  return Math.max(0, questionOffsetTop - padding);
+}

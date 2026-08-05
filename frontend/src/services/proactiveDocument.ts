@@ -1,4 +1,5 @@
-import type { DocumentContext, ProactiveNotification } from '../shared/types';
+import type { DocumentContext } from '../features/chat/model';
+import type { ProactiveNotification } from '../features/settings/model';
 
 export function proactiveDocumentReference(
   notification: ProactiveNotification,

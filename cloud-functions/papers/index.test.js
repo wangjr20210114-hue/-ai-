@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { __test } from './index.js';
+import { libraryKeys, persistLibraryItem } from '../library/state.js';
 
 const {
   downloadFirstValidPdf,
@@ -10,7 +11,35 @@ const {
   isSafePublicHttps,
   resolveDownloadCandidates,
   titleMatches,
+  storedPaperResponse,
 } = __test;
+
+test('paper responses expose one canonical key through both compatibility fields', () => {
+  const response = storedPaperResponse({
+    file_id: 'owned-key', storage_key: 'owned-key', filename: 'paper.pdf',
+    title: 'Paper', folder_id: 'papers', page_count: 3,
+  }, { size: 100 }, false);
+  assert.equal(response.file_id, 'owned-key');
+  assert.equal(response.storage_key, 'owned-key');
+  assert.equal(response.folder_id, 'papers');
+  assert.equal(response.reused, false);
+});
+
+test('new papers receive an automatic folder before their write completes', async () => {
+  const writes = new Map();
+  const store = { async set(key, value) { writes.set(key, value); } };
+  const keys = libraryKeys('tenants/demo/users/user/');
+  const item = {
+    id: 'paper-id', file_id: 'owned-key', storage_key: 'owned-key',
+    filename: 'paper.pdf', title: 'Paper', kind: 'paper', is_paper: true,
+  };
+  await persistLibraryItem(store, keys, item, {
+    items: [], folders: [], settings: { auto_organize: true },
+  });
+  assert.ok(item.folder_id);
+  assert.equal(JSON.parse(writes.get(keys.index))[0].folder_id, item.folder_id);
+  assert.equal(JSON.parse(writes.get(keys.folders))[0].name, '学术论文');
+});
 
 test('reuses only an exact stored paper identity', () => {
   const items = [

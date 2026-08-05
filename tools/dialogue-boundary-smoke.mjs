@@ -1,10 +1,13 @@
+import {
+  createSmokeClient,
+  createSmokeConversationId,
+} from './smoke-session.mjs';
+
+
 const baseUrl = String(process.env.FLORIS_SMOKE_BASE_URL || 'https://floris.jlutx.com').replace(/\/+$/, '');
 const authQuery = String(process.env.FLORIS_SMOKE_AUTH_QUERY || '').replace(/^\?/, '');
 const runStamp = Date.now();
-
-function endpoint(path) {
-  return `${baseUrl}${path}${authQuery ? `?${authQuery}` : ''}`;
-}
+const smoke = await createSmokeClient({ baseUrl, authQuery });
 
 function parseEvents(body) {
   const events = [];
@@ -32,7 +35,7 @@ function answerOf(events) {
 
 async function postChat(id, conversationId, requestBody) {
   const startedAt = Date.now();
-  const response = await fetch(endpoint('/chat'), {
+  const response = await smoke.fetch('/chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -76,7 +79,7 @@ async function postChat(id, conversationId, requestBody) {
 }
 
 async function chat(index, input) {
-  const conversationId = `yb7_smoke_route_${runStamp}_${index}`;
+  const conversationId = createSmokeConversationId('dialogue-route', index);
   const firstResult = await postChat(input.id, conversationId, {
     message: input.message,
     response_language: 'zh-CN',
@@ -248,6 +251,7 @@ for (let index = 0; index < selectedCases.length; index += 1) {
 process.stdout.write(`${JSON.stringify({
   ok: true,
   base_url: baseUrl,
+  auth: smoke.auth,
   run_stamp: runStamp,
   cases: results,
 }, null, 2)}\n`);

@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import MarkdownRenderer from './MarkdownRenderer';
 import { loadMarkdownEnhancements } from './markdownEnhancements';
-import type { SearchMeta } from '../../shared/types';
+import type { SearchMeta } from '../../features/search/model';
 import { LanguageProvider } from '../../i18n';
 
 const searchMeta: SearchMeta = {
@@ -49,13 +49,20 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('card.jpg');
   });
 
-  it('keeps verified sources visible when the model omits inline citations', () => {
+  it('does not present retrieved-but-unused results as answer citations', () => {
     const html = renderToStaticMarkup(
       <MarkdownRenderer content={'这里是综合后的结论。'} searchMeta={searchMeta} />,
     );
-    expect(html).toContain('class="search-evidence-links"');
-    expect(html).toContain('href="https://news.example/ai"');
-    expect(html).toContain('>AI 新闻</a>');
+    expect(html).not.toContain('class="search-evidence-links"');
+    expect(html).not.toContain('href="https://news.example/ai"');
+  });
+
+  it('does not flash the full source directory before inline citations stream in', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer streaming content={'正在组织第一条进展。'} searchMeta={searchMeta} />,
+    );
+    expect(html).not.toContain('class="search-evidence-links"');
+    expect(html).not.toContain('href="https://news.example/ai"');
   });
 
   it('turns a URL-only Markdown link into a small clickable inline citation', () => {
@@ -198,6 +205,25 @@ describe('MarkdownRenderer', () => {
     expect(html).not.toContain('one.jpg');
   });
 
+  it('never renders a source-bound image that did not pass visual review', () => {
+    const fallback = {
+      ...searchMeta.media[0],
+      source_id: 'source-1',
+      source_url: 'https://news.example/ai',
+      vision_reviewed: false,
+      vision_fallback: true,
+      source_bound_fallback: true,
+    };
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer
+        streaming
+        content={'第一条进展。[来源](https://news.example/ai)'}
+        searchMeta={{ ...searchMeta, media: [fallback], images: [fallback.url] }}
+      />,
+    );
+    expect(html).not.toContain('one.jpg');
+  });
+
   it('rejects a model-authored searched image even when its URL was reviewed', () => {
     const sourceBound = {
       ...searchMeta.media[0],
@@ -261,6 +287,53 @@ describe('MarkdownRenderer', () => {
     );
     expect(html).not.toContain('one.jpg');
     expect(html).not.toContain('图片核实中');
+  });
+
+  it('exposes safe media diagnostics without rendering technical copy', () => {
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer
+        content="Verified answer"
+        searchMeta={{
+          ...searchMeta,
+          media: [],
+          images: [],
+          vision_diagnostics: {
+            candidates: 4,
+            reviewed: 2,
+            approved: 0,
+          },
+        }}
+      />,
+    );
+    expect(html).toContain('data-search-media-count="0"');
+    expect(html).toContain('data-search-vision-candidates="4"');
+    expect(html).toContain('data-search-vision-reviewed="2"');
+    expect(html).not.toContain('data-search-source-bound-fallback');
+    expect(html).not.toContain('vision_diagnostics');
+  });
+
+  it('does not place reviewed media when its source was not cited inline', () => {
+    const sourceBound = {
+      ...searchMeta.media[0],
+      source_id: 'source-1',
+      source_url: 'https://news.example/ai',
+      vision_reviewed: true,
+    };
+    const completed = renderToStaticMarkup(
+      <MarkdownRenderer
+        content="Completed verified summary without an inline link."
+        searchMeta={{ ...searchMeta, media: [sourceBound] }}
+      />,
+    );
+    const streaming = renderToStaticMarkup(
+      <MarkdownRenderer
+        streaming
+        content="Still streaming and may add an inline link."
+        searchMeta={{ ...searchMeta, media: [sourceBound] }}
+      />,
+    );
+    expect(completed).not.toContain('data-source-bound-media="one"');
+    expect(streaming).not.toContain('data-source-bound-media="one"');
   });
 
   it('does not repeat source-bound reviewed images with the same caption', () => {

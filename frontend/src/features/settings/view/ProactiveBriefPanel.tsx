@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MessagePlugin } from 'tdesign-react';
 import { NotificationIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../../store/appState';
-import type { ProactiveNotification } from '../../../shared/types';
+import type { ProactiveNotification } from '../model';
 import { activeProactiveNotifications } from '../model/proactiveNotifications';
 import { loadProactiveDocumentContext } from '../../../services/proactiveDocument';
 import { useLanguage } from '../../../i18n';

@@ -2,6 +2,29 @@ from agents._tests.support.workspace_environment import *  # noqa: F401,F403
 
 
 class ChatStreamingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stream_restores_route_geometry_from_durable_map_action(self):
+        compact = {
+            "ui_action": "map_action",
+            "action": {
+                "id": "map-1",
+                "payload": {"places": [{"place_id": "poi-1"}]},
+            },
+        }
+        durable = {"id": "map-1", "kind": "map_recommendation", "payload": {"route": {"provider": "tencent", "path": [1, 2]}}}
+        maker_store = object()
+        loader = AsyncMock(return_value={"actions": {"map-1": durable}})
+        with patch(
+            "agents._application.chat.turn_io.load_user_workspace",
+            new=loader,
+        ):
+            hydrated = await hydrate_durable_map_action(maker_store, "user-1", compact)
+        loader.assert_awaited_once_with(maker_store, user_id="user-1")
+        self.assertEqual(hydrated["action"]["payload"]["route"]["path"], [1, 2])
+        self.assertEqual(
+            hydrated["action"]["payload"]["places"],
+            [{"place_id": "poi-1"}],
+        )
+
     async def test_checkpoint_recovers_structured_answers_and_resume_protocol_once(self):
         messages = [
             HumanMessage(content="规划六站路线并写入日程"),
@@ -195,6 +218,32 @@ class ChatStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("点击", restored["content"])
         self.assertEqual(restored["workspaceActions"][0]["id"], action["id"])
 
+    async def test_message_restore_expires_a_compact_action_missing_from_workspace(self):
+        compact_action = {
+            "id": "map-cleaned",
+            "kind": "map_recommendation",
+            "status": "ready",
+        }
+        messages = [
+            {"type": "human", "content": "打开刚才的路线", "id": "u-map-cleaned"},
+            {"type": "tool", "content": json.dumps({
+                "ui_action": "map_action",
+                "action": compact_action,
+            })},
+            {"type": "ai", "content": "路线已经准备好。", "id": "a-map-cleaned"},
+        ]
+        store = SimpleNamespace(
+            langgraph_checkpointer=FakeCheckpointer(messages),
+            langgraph_store=FakeStore(),
+        )
+        response = await messages_handler(authenticated_namespace(
+            conversation_id="restore-map-cleaned", store=store,
+        ))
+        restored = next(item for item in response["messages"] if item["role"] == "ai")
+        action = restored["workspaceActions"][0]
+        self.assertEqual(action["status"], "failed")
+        self.assertIn("过期", action["error"])
+
     async def test_message_restore_coalesces_model_prose_and_action_fallback(self):
         action = new_action(
             "image_generate", {"prompt": "蓝围巾橘猫", "group_id": "cat-duplicate"},
@@ -331,6 +380,18 @@ class ChatStreamingTests(unittest.IsolatedAsyncioTestCase):
         parts.append(tail)
         self.assertFalse(reset)
         self.assertEqual("".join(parts), "这是一段完全正常的流式回答内容。")
+
+        images = MarkdownImageStreamFilter()
+        visible = [
+            images.push("图片已经生成，"),
+            images.push("可继续调整。![结果](https://example.com/"),
+            images.push("generated.png) 后续文字仍然流式显示。"),
+            images.finish(),
+        ]
+        self.assertEqual(
+            "".join(visible),
+            "图片已经生成，可继续调整。 后续文字仍然流式显示。",
+        )
 
     def test_public_stream_filter_strips_echoed_observation_and_keeps_answer(self):
         guard = PublicStreamFilter(hold_chars=16)

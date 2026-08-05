@@ -1,9 +1,17 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { useChatController } from '../features/chat/controller/useChatController';
 import { useAppState } from '../store/appState';
 import Header from '../components/common/Header';
 import ChatInterface from '../components/chat/ChatInterface';
-import { EdgeOnePlatformPanel } from '../features/settings/view';
 import type { ChatClient } from '../services/chatClient';
 import type { RefObject } from 'react';
 import ConversationSidebar from '../components/conversation/ConversationSidebar';
@@ -11,6 +19,10 @@ import { useLanguage } from '../i18n';
 import { OPEN_RIGHT_WORKSPACE_EVENT } from '../services/workspaceEvents';
 import FlorisOnboarding from '../components/onboarding/FlorisOnboarding';
 import AuthDialog from '../features/auth/view/AuthDialog';
+
+const WorkspacePanel = lazy(
+  () => import('../features/workspace/view/WorkspacePanel'),
+);
 
 const LEFT_PANE_MIN = 190;
 const LEFT_PANE_MAX = 420;
@@ -46,6 +58,7 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
       return true;
     }
   });
+  const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const revealOnboardingArea = useCallback((area: 'sidebar' | 'workspace' | 'header') => {
     const compact = window.matchMedia(COMPACT_WORKSPACE_QUERY).matches;
@@ -87,6 +100,10 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
   useEffect(() => {
     bodyRef.current?.toggleAttribute('inert', !connected);
   }, [connected]);
+
+  useEffect(() => {
+    if (connected && rightPanelOpen) setWorkspaceLoaded(true);
+  }, [connected, rightPanelOpen]);
 
   useEffect(() => {
     try {
@@ -180,7 +197,17 @@ function AppLayout({ client }: { client: RefObject<ChatClient | null> }) {
               onKeyDown={resizeWithKeyboard('right')}
         />
         <div className={`right-workspace-shell ${rightPanelOpen ? 'is-open' : 'is-closed'}`} aria-hidden={!rightPanelOpen}>
-          <EdgeOnePlatformPanel />
+          {connected && workspaceLoaded && (
+            <Suspense fallback={(
+              <div className="right-workspace-loading" role="status" aria-label={t('loading')}>
+                <span className="skeleton skeleton-line" />
+                <span className="skeleton skeleton-block" />
+                <span className="skeleton skeleton-block" />
+              </div>
+            )}>
+              <WorkspacePanel />
+            </Suspense>
+          )}
         </div>
       </div>
       {!connected && (

@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, MessagePlugin, Textarea, Upload } from 'tdesign-react';
-import { SendIcon, AttachIcon } from 'tdesign-icons-react';
+import { SendIcon, AttachIcon, StopIcon, MicrophoneIcon } from 'tdesign-icons-react';
 import type { UploadFile } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
-import type { ChatMessage, WSMessage } from '../../shared/types';
+import type { ChatMessage, WSMessage } from '../../features/chat/model';
 import type { ChatClient } from '../../services/chatClient';
 import {
   saveConversationMessage,
   uploadDocument,
 } from '../../features/chat/model/client';
 import { proactiveOperation } from '../../features/settings/model/client';
-import { registerReadingItem } from '../../services/paperApi';
+import { registerReadingItem } from '../../features/papers/model/api';
 import { getStoredLanguage, translate, useLanguage } from '../../i18n';
+import { isConversationGenerationActive } from '../../features/chat/controller/chatRuntimeModel';
+import TurnQueueDrawer from '../../features/chat/view/TurnQueueDrawer';
+import { useSpeechInput } from '../../features/chat/controller/useSpeechInput';
 
 interface Props {
   client: React.RefObject<ChatClient | null>;
@@ -42,7 +45,7 @@ async function imageReferenceDataUrl(file: File): Promise<string> {
 
 /** 底部输入栏：文本输入 + 文档上传 + 发送（场景由后端自动推断）。 */
 export default function InputBar({ client }: Props) {
-  const { draft, documentContext, conversationId, conversations, messages } = useAppState();
+  const { draft, documentContext, conversationId, turnQueue, messages } = useAppState();
   const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const [text, setText] = useState('');
@@ -51,7 +54,13 @@ export default function InputBar({ client }: Props) {
   const sendLockRef = useRef(false);
   const [stopping, setStopping] = useState(false);
   const [referenceImage, setReferenceImage] = useState<{ name: string; dataUrl: string } | null>(null);
-  const activeStreaming = messages.some((message) => message.streaming);
+  const activeStreaming = isConversationGenerationActive(messages);
+  const speech = useSpeechInput({
+    language: getStoredLanguage(),
+    onTranscript: (transcript) => setText((current) => (
+      current.trim() ? `${current.trimEnd()} ${transcript}` : transcript
+    )),
+  });
 
   // 点击空态引导词 → 回填输入框
   useEffect(() => {
@@ -61,6 +70,10 @@ export default function InputBar({ client }: Props) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
+
+  useEffect(() => {
+    if (speech.failed) MessagePlugin.error(t('voiceInputFailed'));
+  }, [speech.failed, t]);
 
   const sendActivity = async (message: ChatMessage, activity: string, referenceImages: string[] = []) => {
     const msg: WSMessage = {
@@ -79,12 +92,12 @@ export default function InputBar({ client }: Props) {
         response_language: getStoredLanguage(),
       },
     };
-    await Promise.resolve(client.current?.send(msg));
+    return Promise.resolve(client.current?.send(msg));
   };
 
   const handleSend = async () => {
     const content = text.trim();
-    if (!content || sendLockRef.current || sending || stopping || activeStreaming) return;
+    if (!content || sendLockRef.current || sending) return;
     const message = {
       id: Date.now().toString(),
       role: 'user' as const,
@@ -93,27 +106,13 @@ export default function InputBar({ client }: Props) {
     };
     sendLockRef.current = true;
     setSending(true);
-    // Optimistically render and seed the SSE cache before any network await;
-    // otherwise stream_start can hydrate from an older cache and hide this row.
-    dispatch({ type: 'ADD_MESSAGE', payload: message });
-    window.dispatchEvent(new CustomEvent('floris:question-sent', {
-      detail: { conversationId, messageId: message.id },
-    }));
-    const previous = conversations.find((item) => item.id === conversationId);
-    dispatch({
-      type: 'UPSERT_CONVERSATION',
-      payload: {
-        id: conversationId,
-        title: previous?.pending ? (content.length > 32 ? `${content.slice(0, 32)}…` : content) : (previous?.title || content.slice(0, 32)),
-        createdAt: previous?.createdAt || Date.now(),
-        updatedAt: Date.now(),
-        messageCount: Math.max(1, Number(previous?.messageCount || 0) + 1),
-        pending: false,
-      },
-    });
-    setText('');
     try {
-      await sendActivity(message, 'asked', referenceImage ? [referenceImage.dataUrl] : []);
+      const result = await sendActivity(message, 'asked', referenceImage ? [referenceImage.dataUrl] : []);
+      if (result === 'queue_full') {
+        MessagePlugin.warning(t('queueLimitReached'));
+        return;
+      }
+      setText('');
       setReferenceImage(null);
       dispatch({ type: 'SET_DOCUMENT_CONTEXT', payload: null });
     } finally {
@@ -126,12 +125,7 @@ export default function InputBar({ client }: Props) {
     if (!activeStreaming || stopping || !client.current?.stop) return;
     setStopping(true);
     try {
-      const status = await client.current.stop();
-      if (status === 'confirmed') {
-        MessagePlugin.info(t('stoppedGeneration'));
-      } else {
-        MessagePlugin.warning(t('stoppedLocally'));
-      }
+      await client.current.stop();
     } finally { setStopping(false); }
   };
 
@@ -220,6 +214,7 @@ export default function InputBar({ client }: Props) {
 
   return (
     <div className="input-wrap">
+      <TurnQueueDrawer client={client} items={turnQueue} />
       <div className="input-box" onPaste={(event) => {
         const image = Array.from(event.clipboardData.files).find((file) => file.type.startsWith('image/'));
         if (!image) return;
@@ -239,7 +234,6 @@ export default function InputBar({ client }: Props) {
         <Textarea
           value={text}
           onChange={(v) => setText(v as string)}
-          disabled={stopping}
           placeholder={t('inputPlaceholder')}
           autosize={{ minRows: 1, maxRows: 5 }}
           style={{ width: '100%' }}
@@ -265,22 +259,44 @@ export default function InputBar({ client }: Props) {
               </Button>
             </Upload>
           </div>
-          {activeStreaming || stopping ? (
-            <Button className="input-submit-button" theme="danger" variant="outline" loading={stopping} disabled={stopping} onClick={() => { void handleStop(); }} aria-label={stopping ? t('stoppingGeneration') : t('stopGeneration')}>
-              {stopping ? t('stoppingGeneration') : `■ ${t('stopGeneration')}`}
-            </Button>
-          ) : (
+          <div className="input-turn-actions">
             <Button
-              className="input-submit-button"
+              className={`input-icon-button input-voice-button${speech.listening ? ' is-listening' : ''}`}
+              variant="text"
+              shape="circle"
+              icon={<MicrophoneIcon />}
+              onClick={speech.toggle}
+              disabled={!speech.supported || speech.processing}
+              loading={speech.processing}
+              aria-label={speech.listening ? t('stopVoiceInput') : t('startVoiceInput')}
+              title={speech.supported
+                ? (speech.listening ? t('stopVoiceInput') : t('startVoiceInput'))
+                : t('voiceInputUnavailable')}
+            />
+            {(activeStreaming || stopping) && <Button
+              className="input-submit-button input-icon-button input-stop-button"
+              theme="danger"
+              variant="outline"
+              shape="circle"
+              icon={<StopIcon />}
+              loading={stopping}
+              disabled={stopping}
+              onClick={() => { void handleStop(); }}
+              aria-label={stopping ? t('stoppingGeneration') : t('stopGeneration')}
+              title={stopping ? t('stoppingGeneration') : t('stopGeneration')}
+            />}
+            <Button
+              className="input-submit-button input-icon-button"
               theme="primary"
+              shape="circle"
               icon={<SendIcon />}
               onClick={() => { void handleSend(); }}
               loading={sending}
               disabled={!text.trim() || sending}
-            >
-              {t('send')}
-            </Button>
-          )}
+              aria-label={t('send')}
+              title={activeStreaming ? t('queueMessage') : t('send')}
+            />
+          </div>
         </div>
       </div>
     </div>

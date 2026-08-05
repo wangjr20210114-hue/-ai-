@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../../../../shared/types';
+import type { ChatMessage } from '../../model';
 
 export interface MessageContentRenderer {
   id: string;
@@ -18,8 +18,6 @@ function descriptor(
 export const messageContentRenderers: readonly MessageContentRenderer[] = Object.freeze([
   descriptor('search-evidence', (message) => Boolean(message.searchResults)),
   descriptor('paper', (message) => Boolean(message.papers?.length || message.paperFileId)),
-  descriptor('calendar', (message) => Boolean(message.parsedSchedules?.length)),
-  descriptor('map', (message) => Boolean(message.travelPlanData)),
   descriptor('action', (message) => Boolean(message.workspaceActions?.length)),
   descriptor('text', () => true),
 ]);

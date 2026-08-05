@@ -8,20 +8,32 @@ images are exposed to the answer model as ordinary Markdown resources.
 from __future__ import annotations
 
 import asyncio
+import http.client
+import io
 import json
 import logging
+import math
 import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
-from datetime import date, datetime
+from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from html import unescape
 from typing import Any, Awaitable, Callable
 
 from .web_media import collect_page_media
 from .vision import vision_completion, vision_providers
+from ..._application.i18n import text
+from ..._application.search.evidence_presenter import evidence_for_model
+from ..._domain.search.source_policy import (
+    RECENT_SOURCE_WINDOW_DAYS,
+    filter_preferred_recent_sources,
+    filter_sources_for_target_date,
+    rank_source_results,
+    source_domain,
+)
 
 
 def _vision_review_timeout(env: dict[str, Any]) -> float:
@@ -39,7 +51,51 @@ def _embedded_image_url(value: Any) -> str:
     return match.group(1).strip() if match else ""
 
 
-def _provider_image_candidates(results: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _provider_page_images(page: dict[str, Any], snippet: str) -> list[dict[str, str]]:
+    """Normalize the native SearchPro ``images``/``pics`` response contract."""
+    raw_items: list[Any] = []
+    for field in ("pics", "images"):
+        value = page.get(field)
+        if isinstance(value, list):
+            raw_items.extend(value)
+        elif value:
+            raw_items.append(value)
+    for field in ("image", "image_url", "thumbnail"):
+        if page.get(field):
+            raw_items.append(page[field])
+    embedded = _embedded_image_url(snippet)
+    if embedded:
+        raw_items.append({"url": embedded, "caption": ""})
+
+    output: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for raw in raw_items:
+        if isinstance(raw, dict):
+            url = str(
+                raw.get("origin_url")
+                or raw.get("url")
+                or raw.get("image_url")
+                or raw.get("src")
+                or ""
+            ).strip()
+            caption = str(raw.get("caption") or raw.get("alt") or raw.get("title") or "").strip()
+        else:
+            url = str(raw or "").strip()
+            caption = ""
+        if url.startswith("http://"):
+            url = "https://" + url[len("http://"):]
+        if not url.startswith("https://") or url in seen:
+            continue
+        seen.add(url)
+        output.append({"url": url, "caption": caption[:240]})
+        if len(output) >= 10:
+            break
+    return output
+
+
+def _provider_image_candidates(
+    results: list[dict[str, Any]], response_language: object = "zh-CN",
+) -> list[dict[str, str]]:
     """Return only SearchPro-supplied article images, never page-scraped media.
 
     These are the conservative fallback when every configured vision provider is
@@ -49,34 +105,156 @@ def _provider_image_candidates(results: list[dict[str, Any]]) -> list[dict[str, 
     candidates: list[dict[str, str]] = []
     seen: set[str] = set()
     for result in results:
-        image = unescape(str(result.get("image") or "").strip())
-        if image.startswith("http://"):
-            image = "https://" + image[len("http://"):]
-        path = urllib.parse.urlparse(image).path.lower()
-        if (
-            not image.startswith("https://")
-            or path.endswith((".svg", ".gif", ".ico"))
-            or image in seen
-        ):
-            continue
-        seen.add(image)
-        candidates.append({
-            "url": image,
-            "alt": "",
-            "context": "搜索服务返回的文章主图",
-            "source_url": result["url"],
-            "source_title": result["title"],
-        })
+        provider_images = result.get("provider_images")
+        if not isinstance(provider_images, list):
+            provider_images = [{"url": result.get("image") or "", "caption": ""}]
+        for item in provider_images:
+            if not isinstance(item, dict):
+                continue
+            image = unescape(str(item.get("url") or "").strip())
+            caption = str(item.get("caption") or "").strip()
+            if image.startswith("http://"):
+                image = "https://" + image[len("http://"):]
+            path = urllib.parse.urlparse(image).path.lower()
+            if (
+                not image.startswith("https://")
+                or path.endswith((".svg", ".gif", ".ico"))
+                or image in seen
+            ):
+                continue
+            seen.add(image)
+            candidates.append({
+                "url": image,
+                "alt": caption,
+                "context": caption or text("search.article_image", response_language),
+                "source_url": result["url"],
+                "source_title": result["title"],
+            })
     return candidates
 
 
 def _json_request(url: str, payload: dict, headers: dict, timeout: int) -> dict:
-    request = urllib.request.Request(
-        url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers=headers, method="POST",
+    """POST JSON without urllib's process-global proxy discovery overhead.
+
+    Tencent's WSA API guide uses ``HTTPSConnection`` for the API-key route.
+    In the Makers Python runtime, ``urllib.request.urlopen`` can spend longer
+    than the complete ten-second provider budget before SearchPro responds,
+    while the direct connection completes in well under a second.  Keep this
+    helper generic because the vision adapter shares the same JSON transport.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("JSON provider URL must be absolute HTTP(S)")
+    connection_type = (
+        http.client.HTTPSConnection
+        if parsed.scheme == "https"
+        else http.client.HTTPConnection
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read(8 * 1024 * 1024).decode("utf-8"))
+    connection = connection_type(
+        parsed.hostname,
+        port=parsed.port,
+        timeout=timeout,
+    )
+    target = parsed.path or "/"
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+    try:
+        connection.request(
+            "POST",
+            target,
+            body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers=headers,
+        )
+        response = connection.getresponse()
+        raw = response.read(8 * 1024 * 1024)
+        if not 200 <= int(response.status) < 300:
+            raise urllib.error.HTTPError(
+                url,
+                int(response.status),
+                str(response.reason or "provider request failed"),
+                response.headers,
+                io.BytesIO(raw),
+            )
+        return json.loads(raw.decode("utf-8"))
+    finally:
+        connection.close()
+
+
+def _retryable_searchpro_error(error: Exception) -> bool:
+    """Return whether a read-only SearchPro request is safe to retry once."""
+    if isinstance(error, urllib.error.HTTPError):
+        status = int(getattr(error, "code", 0) or 0)
+        return status in {408, 429} or status >= 500
+    return isinstance(
+        error,
+        (
+            asyncio.TimeoutError,
+            TimeoutError,
+            ConnectionError,
+            http.client.HTTPException,
+            OSError,
+        ),
+    )
+
+
+async def _searchpro_json_request(
+    url: str,
+    payload: dict,
+    headers: dict,
+    timeout: int,
+    request_id: str = "",
+) -> tuple[dict, int]:
+    """Use the shared SearchPro adapter with one bounded transport recovery."""
+    deadline = asyncio.get_running_loop().time() + max(1.0, float(timeout))
+    for attempt in range(1, 3):
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise asyncio.TimeoutError()
+        try:
+            data = await _searchpro_request_json(
+                url,
+                payload,
+                headers,
+                max(1, min(timeout, int(remaining))),
+            )
+            return data, attempt
+        except Exception as error:
+            if attempt >= 2 or not _retryable_searchpro_error(error):
+                raise
+            logging.warning(
+                "SearchPro transport retry request_id=%s attempt=%s error_type=%s",
+                request_id,
+                attempt,
+                type(error).__name__,
+            )
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise asyncio.TimeoutError() from error
+            await asyncio.sleep(min(0.2, remaining))
+    raise RuntimeError("SearchPro request did not complete")
+
+
+async def _searchpro_request_json(
+    url: str,
+    payload: dict,
+    headers: dict,
+    timeout: int,
+) -> dict:
+    """Call SearchPro through its proven direct Tencent transport.
+
+    The generic shared HTTP client remains useful for public page extraction,
+    but SearchPro's Maker runtime path is not equivalent: the provider's own
+    documented direct HTTPS request succeeds where the shared pool can spend
+    the complete budget establishing a connection.  Keep the blocking socket
+    off the event loop while retaining the cancellable outer deadline.
+    """
+    return await asyncio.to_thread(
+        _json_request,
+        url,
+        payload,
+        headers,
+        timeout,
+    )
 
 
 def _parse_pages(data: dict[str, Any], limit: int) -> list[dict[str, Any]]:
@@ -101,84 +279,112 @@ def _parse_pages(data: dict[str, Any], limit: int) -> list[dict[str, Any]]:
             host,
         ) else "wsa"
         snippet = str(page.get("passage") or page.get("snippet") or page.get("description") or "")
-        image = str(
-            page.get("image") or page.get("image_url") or page.get("thumbnail")
-            or _embedded_image_url(snippet)
-        ).strip()
-        if image.startswith("http://"):
-            image = "https://" + image[len("http://"):]
+        provider_images = _provider_page_images(page, snippet)
+        image = provider_images[0]["url"] if provider_images else ""
+        raw_score = page.get("score")
+        relevance_score = (
+            max(0.0, min(1.0, float(raw_score)))
+            if isinstance(raw_score, (int, float))
+            and not isinstance(raw_score, bool)
+            and math.isfinite(float(raw_score))
+            else 0.0
+        )
         results.append({
             "source": source_kind, "title": str(page.get("title") or page.get("name") or url)[:200],
             "snippet": snippet[:500],
             "url": url,
             "image": image,
+            "provider_images": provider_images,
             "date": str(page.get("date") or page.get("publish_time") or "")[:40],
+            "publisher": str(page.get("site") or page.get("site_name") or "")[:120],
+            "relevance_score": relevance_score,
         })
         if len(results) >= limit:
             break
     return results
 
 
-def _date_from_text(value: str, target_year: int | None = None) -> str:
-    """Return a canonical publication date found in provider metadata/text."""
-    text = str(value or "").strip()
-    if not text:
+def _bounded_provider_query(
+    query: str, qualifiers: list[str], limit: int = 500,
+) -> str:
+    """Compose one bounded SearchPro query without dropping whole constraints.
+
+    The factual user query receives three times the weight of each optional
+    qualifier. Unused space is redistributed deterministically, so short date
+    or quality constraints leave more room for the original query.
+    """
+    sections = [
+        value.strip()
+        for value in [str(query or ""), *qualifiers]
+        if value and value.strip()
+    ]
+    if not sections or limit <= 0:
         return ""
-    if text.isdigit() and len(text) in {10, 13}:
-        try:
-            stamp = int(text) / (1000 if len(text) == 13 else 1)
-            return datetime.fromtimestamp(stamp).date().isoformat()
-        except (OverflowError, OSError, ValueError):
-            pass
-    full = re.search(r"(?<!\d)(20\d{2})[年./-](\d{1,2})[月./-](\d{1,2})日?", text)
-    if full:
-        try:
-            return date(int(full.group(1)), int(full.group(2)), int(full.group(3))).isoformat()
-        except ValueError:
-            return ""
-    if target_year:
-        short = re.search(r"(?<!\d)(\d{1,2})[月./-](\d{1,2})日?(?!\d)", text)
-        if short:
-            try:
-                return date(target_year, int(short.group(1)), int(short.group(2))).isoformat()
-            except ValueError:
-                return ""
-    return ""
+    joined = "\n".join(sections)
+    if len(joined) <= limit:
+        return joined
+    available = max(0, limit - (len(sections) - 1))
+    weights = [3, *([1] * (len(sections) - 1))]
+    total_weight = sum(weights)
+    allocations = [available * weight // total_weight for weight in weights]
+    for index in range(available - sum(allocations)):
+        allocations[index % len(allocations)] += 1
+    unused = available - sum(
+        min(len(value), allocations[index])
+        for index, value in enumerate(sections)
+    )
+    while unused:
+        expandable = [
+            index for index, value in enumerate(sections)
+            if allocations[index] < len(value)
+        ]
+        if not expandable:
+            break
+        for index in expandable:
+            if not unused:
+                break
+            allocations[index] += 1
+            unused -= 1
+    return "\n".join(
+        value[:allocations[index]]
+        for index, value in enumerate(sections)
+    )[:limit]
 
 
-def _filter_for_target_date(
-    results: list[dict[str, Any]], target_date: str,
-) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Strictly retain sources whose publication date can be verified."""
+def _provider_time_window(
+    target_date: str, *, strict_date: bool, prefer_recent: bool,
+) -> dict[str, int]:
+    """Translate semantic recency into SearchPro's native time filter.
+
+    The window is intentionally generic and timezone-stable. SearchPro still
+    receives one request; local date verification remains the truth boundary
+    for incomplete provider metadata.
+    """
+    if not target_date or not (strict_date or prefer_recent):
+        return {}
     try:
         target = date.fromisoformat(target_date)
     except ValueError:
-        return results, {"received": len(results), "kept": len(results), "undated": 0, "mismatched": 0}
-    kept: list[dict[str, Any]] = []
-    undated = 0
-    mismatched = 0
-    for item in results:
-        raw_date = str(item.get("date") or "")
-        published = _date_from_text(raw_date, target.year)
-        if not published:
-            published = _date_from_text(
-                f"{item.get('title') or ''} {item.get('snippet') or ''}", target.year,
-            )
-        if not published:
-            undated += 1
-            continue
-        if published != target.isoformat():
-            mismatched += 1
-            continue
-        kept.append({**item, "date": published})
-    return kept, {
-        "received": len(results), "kept": len(kept),
-        "undated": undated, "mismatched": mismatched,
+        return {}
+    start = (
+        target
+        if strict_date
+        else target - timedelta(days=RECENT_SOURCE_WINDOW_DAYS)
+    )
+    beijing = timezone(timedelta(hours=8))
+    return {
+        "FromTime": int(datetime.combine(start, datetime_time.min, beijing).timestamp()),
+        "ToTime": int(datetime.combine(
+            target + timedelta(days=1), datetime_time.min, beijing,
+        ).timestamp()) - 1,
     }
 
 
 async def _extract_candidates(
-    results: list[dict[str, Any]], page_limit: int = 6, parallel: bool = True,
+    results: list[dict[str, Any]],
+    page_limit: int = 6,
+    parallel: bool = True,
+    timeout_seconds: float | None = None,
 ) -> list[dict[str, str]]:
     candidates = _provider_image_candidates(results)
 
@@ -197,10 +403,57 @@ async def _extract_candidates(
         return normalized
 
     selected_results = results[:max(1, min(6, page_limit))]
+    if not selected_results:
+        return candidates
     if parallel:
-        batches = await asyncio.gather(*(page(result) for result in selected_results))
+        # Keep every source page that completes inside the shared media budget.
+        # Waiting on one combined gather used to discard fast pages whenever
+        # any other publisher crossed the deadline.
+        tasks = [asyncio.create_task(page(result)) for result in selected_results]
+        try:
+            done, pending = await asyncio.wait(
+                tasks,
+                timeout=(
+                    max(0.1, float(timeout_seconds))
+                    if timeout_seconds is not None
+                    else None
+                ),
+            )
+        except asyncio.CancelledError:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        batches = []
+        for task in tasks:
+            if task not in done:
+                continue
+            try:
+                batches.append(task.result())
+            except Exception:
+                batches.append([])
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
     else:
-        batches = [await page(result) for result in selected_results]
+        batches = []
+        deadline = (
+            asyncio.get_running_loop().time() + max(0.1, float(timeout_seconds))
+            if timeout_seconds is not None
+            else None
+        )
+        for result in selected_results:
+            if deadline is None:
+                batches.append(await page(result))
+                continue
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                batches.append(await asyncio.wait_for(page(result), remaining))
+            except asyncio.TimeoutError:
+                break
     for batch in batches:
         candidates.extend(batch)
     output: list[dict[str, str]] = []
@@ -342,14 +595,10 @@ def _review_image(
     if not api_key:
         return "", "missing_api_key"
     model = str(env.get("HUNYUAN_VISION_MODEL") or "hy-vision-2.0-instruct")
-    prompt = (
-        '分析图片与用户查询的关系，只返回 JSON：'
-        '{"description":"准确描述图片实际内容","relevant":true或false,"promotional":true或false}。\n'
-        '以图片本身为准，网页上下文仅供参考。广告、促销价格、热线、二维码、Logo、图标、装饰、UI、占位图、纯文字截图或无关内容必须为 false；'
-        '图片能识别或呈现查询中的具体事件、人物、产品、地点或报道主体，且与来源标题语义一致时即可为 true；'
-        '不要求图片证明整篇回答，也不要因为无法确认次要背景细节而拒绝一张明显相关的非宣传图片。'
-        '品牌营销海报、带促销卖点的产品宣传图或商业导流图必须 promotional=true；普通新闻现场或客观产品实拍为 false。\n'
-        f'用户问题：{query[:120]}\n网页上下文：{(candidate.get("context") or candidate.get("alt") or candidate.get("source_title") or "")[:300]}'
+    prompt = text(
+        "model.search.vision_review", "zh-CN",
+        query=query[:120],
+        context=(candidate.get("context") or candidate.get("alt") or candidate.get("source_title") or "")[:300],
     )
     payload = {"model": model, "messages": [{"role": "user", "content": [
         {"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": candidate["url"]}},
@@ -445,15 +694,9 @@ async def _vision_filter(
 
     async def review(candidate: dict[str, str]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         context = str(candidate.get("context") or candidate.get("alt") or candidate.get("source_title") or "")[:240]
-        prompt = (
-            '快速审核图片，不做背景推理或深度分析。只判断图片是否直接帮助回答用户问题，以及是否属于广告、'
-            '促销、二维码、Logo、图标、UI、占位图、纯文字截图或无关内容；这些情况必须判为 false。'
-            '图片能识别或呈现查询中的具体事件、人物、产品、地点或报道主体，且与来源标题语义一致时即可判为 true；'
-            '不要因无法确认次要背景细节而拒绝明显相关的非宣传图片。'
-            '品牌营销海报、带促销卖点的产品宣传图或商业导流图必须 promotional=true；'
-            '普通新闻现场或客观产品实拍为 false。'
-            '只返回简短 JSON：{"description":"一句话描述可见主体","relevant":true,"promotional":false}。\n'
-            f'用户问题：{query[:160]}\n网页上下文：{context}'
+        prompt = text(
+            "model.search.vision_quick_review", "zh-CN",
+            query=query[:160], context=context,
         )
         try:
             raw, provider = await vision_completion(
@@ -478,11 +721,30 @@ async def _vision_filter(
         except Exception as exc:
             return None, {"error": f"review_{type(exc).__name__}"}
 
-    reviews = await asyncio.gather(*(review(candidate) for candidate in selected))
+    review_tasks = [asyncio.create_task(review(candidate)) for candidate in selected]
+    done, pending = await asyncio.wait(review_tasks, timeout=timeout + 0.5)
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+    completed_reviews: list[
+        tuple[dict[str, str], tuple[dict[str, Any] | None, dict[str, Any]]]
+    ] = []
+    for candidate, task in zip(selected, review_tasks):
+        if task not in done or task.cancelled():
+            continue
+        try:
+            completed_reviews.append((candidate, task.result()))
+        except Exception as exc:
+            completed_reviews.append((candidate, (None, {
+                "error": f"review_{type(exc).__name__}",
+            })))
     output: list[dict[str, str]] = []
     diagnostics: Counter[str] = Counter()
     diagnostics.update(prefilter_diagnostics)
-    for candidate, (item, provider_diagnostics) in zip(selected, reviews):
+    if pending:
+        diagnostics["timeout"] = len(pending)
+    for candidate, (item, provider_diagnostics) in completed_reviews:
         provider_name = str(provider_diagnostics.get("provider") or "")
         if provider_name:
             diagnostics[f"provider_{provider_name}"] += 1
@@ -506,7 +768,7 @@ async def _vision_filter(
             diagnostics["irrelevant"] += 1
     diagnostics["candidates"] = len(candidates)
     diagnostics["eligible_candidates"] = len(eligible_candidates)
-    diagnostics["reviewed"] = len(selected)
+    diagnostics["reviewed"] = len(completed_reviews)
     return output[:output_limit], dict(diagnostics)
 
 
@@ -521,27 +783,35 @@ async def rich_search(
     image_limit: int = 8,
     target_date: str = "",
     strict_date: bool = False,
+    prefer_recent: bool = False,
     media_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     background_tasks: list[asyncio.Task] | None = None,
     include_media: bool = True,
+    response_language: object = "zh-CN",
+    request_id: str = "",
 ) -> dict[str, Any]:
     started = time.perf_counter()
     api_key = str(env.get("WSA_API_KEY") or "").strip()
     base_url = str(env.get("WSA_BASE_URL") or "https://api.wsa.cloud.tencent.com").rstrip("/")
     if not api_key:
-        raise RuntimeError("富搜索缺少 WSA_API_KEY")
+        raise RuntimeError(text("search.provider_unconfigured", response_language))
     limit = max(4, min(18, int(result_limit))) if result_limit is not None else {
         "basic": 8, "standard": 12, "deep": 18,
     }.get(depth, 12)
     image_limit = max(0, min(8, int(image_limit)))
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json; charset=utf-8"}
-    provider_query = query
+    provider_qualifiers = [
+        text("model.search.provider_quality", response_language),
+    ]
     if target_date:
-        provider_query += (
-            f"\n当前日期：{target_date}。"
-            + (f"只返回发布日期可核验为 {target_date} 的当日内容，每条结果必须带发布日期。" if strict_date
-               else "检索和排序必须以该日期为时间基准，不要混用旧年份信息。")
-        )
+        provider_qualifiers.append(text(
+            "model.search.provider_date", response_language,
+            target_date=target_date,
+            constraint=text(
+                "model.search.provider_date_strict" if strict_date else "model.search.provider_date_asof",
+                response_language, target_date=target_date,
+            ),
+        ))
     provider_timeout = max(4, min(20, int(env.get("RICH_SEARCH_PROVIDER_TIMEOUT_SECONDS") or 10)))
     distinct_visual_query = bool(image_query and image_query.strip() != query.strip())
     # SearchPro already returns article passages and provider-supplied images.
@@ -549,28 +819,66 @@ async def rich_search(
     # paying for a second near-duplicate search. Page extraction remains
     # concurrent and pixel review still happens below.
     if distinct_visual_query:
-        provider_query += f"\n同时优先返回包含这些可视对象的结果：{image_query[:180]}"
-    data = await asyncio.wait_for(
-        asyncio.to_thread(
-            _json_request,
-            f"{base_url}/SearchPro",
-            {"Query": provider_query[:500]},
-            headers,
-            provider_timeout,
-        ),
-        timeout=provider_timeout + 0.5,
+        provider_qualifiers.append(text(
+            "model.search.provider_visual", response_language,
+            image_query=image_query[:180],
+        ))
+    provider_query = _bounded_provider_query(query, provider_qualifiers)
+    provider_time_window = _provider_time_window(
+        target_date,
+        strict_date=strict_date,
+        prefer_recent=prefer_recent,
+    )
+    provider_payload = {"Query": provider_query, **provider_time_window}
+    data, provider_request_count = await _searchpro_json_request(
+        f"{base_url}/SearchPro",
+        # Cnt and Industry remain premium-only. FromTime/ToTime are native
+        # standard filters and let SearchPro do the first recency pass without
+        # another provider call.
+        provider_payload,
+        headers,
+        provider_timeout,
+        request_id,
+    )
+    logging.info(
+        "SearchPro completed request_id=%s attempts=%s elapsed_ms=%s",
+        request_id,
+        provider_request_count,
+        round((time.perf_counter() - started) * 1000),
     )
     visual_data = data
     searched_at = time.perf_counter()
-    results = _parse_pages(data, limit)
-    visual_results = results
-    date_filter = {"received": len(results), "kept": len(results), "undated": 0, "mismatched": 0}
+    candidate_limit = min(30, max(limit * 3, limit))
+    candidate_results = _parse_pages(data, candidate_limit)
+    date_filter = {
+        "received": len(candidate_results),
+        "kept": len(candidate_results),
+        "undated": 0,
+        "mismatched": 0,
+    }
     if strict_date and target_date:
-        results, date_filter = _filter_for_target_date(results, target_date)
+        candidate_results, date_filter = filter_sources_for_target_date(
+            candidate_results, target_date
+        )
         # Images are evidence-bearing search output too. Do not review or
         # expose media from an older/undated article after its source has been
         # removed by the same-day truth boundary.
-        visual_results = results
+    if prefer_recent and target_date and not strict_date:
+        candidate_results, recent_filter = filter_preferred_recent_sources(
+            candidate_results,
+            target_date,
+        )
+        date_filter["recent"] = recent_filter
+    results = rank_source_results(
+        candidate_results, query, target_date, prefer_recent
+    )[:limit]
+    visual_results = results
+    date_filter["kept"] = len(results)
+    source_domains: list[str] = []
+    for item in results:
+        domain = source_domain(item.get("url"))
+        if domain and domain not in source_domains:
+            source_domains.append(domain)
     sources = [{
         "id": f"source-{index}", "source": item["source"], "title": item["title"],
         "snippet": item["snippet"][:240], "url": item["url"], "date": item["date"],
@@ -578,6 +886,9 @@ async def rich_search(
         # well as the separately reviewed full-width media pipeline.  Dropping
         # it here made visually rich provider results look text-only.
         "image": item.get("image", ""),
+        "publisher": item.get("publisher", ""),
+        "publisher_domain": source_domain(item.get("url")),
+        "relevance_score": item.get("relevance_score", 0.0),
     } for index, item in enumerate(results, 1)]
     # Keep SearchPro's own article hero images as explicitly provisional
     # diagnostics. Production waits for pixel review and never exposes these
@@ -585,9 +896,9 @@ async def rich_search(
     # older persisted runs and the optional progressive provider API.
     source_by_url = {item["url"]: item for item in sources}
     preview_media = []
-    for index, candidate in enumerate(_provider_image_candidates(results)[:image_limit], 1):
+    for index, candidate in enumerate(_provider_image_candidates(results, response_language)[:image_limit], 1):
         source = source_by_url.get(candidate["source_url"], {})
-        source_title = candidate.get("source_title") or source.get("title") or "搜索结果文章配图"
+        source_title = candidate.get("source_title") or source.get("title") or text("search.preview_image", response_language)
         preview_media.append({
             "id": f"preview-media-{index}", "kind": "image", "url": candidate["url"],
             "source_id": source.get("id", ""), "source_url": candidate["source_url"],
@@ -612,9 +923,13 @@ async def rich_search(
                 if media_callback is not None and background_tasks is not None
                 else "blocking"
             ),
-            "provider_request_count": 1,
+            "provider_request_count": provider_request_count,
+            "prefer_recent": prefer_recent,
             "visual_query_merged": distinct_visual_query,
             "provider_timeout_seconds": provider_timeout,
+            "source_domain_count": len(source_domains),
+            "source_domains": source_domains[:12],
+            "provider_time_window": provider_time_window,
             "page_fetch_limit": min(6, max(4, image_limit * 2)) if image_limit else 0,
         },
         "timings_ms": {
@@ -627,47 +942,20 @@ async def rich_search(
     async def enrich_media() -> dict[str, Any]:
         page_fetch_limit = min(6, max(4, image_limit * 2))
         media_timeout = max(2, min(10, int(env.get("RICH_SEARCH_MEDIA_TIMEOUT_SECONDS") or 5)))
-        try:
-            visual_candidates = await asyncio.wait_for(
-                _extract_candidates(visual_results, page_fetch_limit, parallel=parallel_queries),
-                timeout=media_timeout,
-            )
-        except asyncio.TimeoutError:
-            # Do not discard fast provider-supplied article images merely
-            # because one source page was slow to parse.
-            visual_candidates = _provider_image_candidates(visual_results)
+        visual_candidates = await _extract_candidates(
+            visual_results,
+            page_fetch_limit,
+            parallel=parallel_queries,
+            timeout_seconds=media_timeout,
+        )
         extracted_at = time.perf_counter()
         review_goal = image_query.strip() or query
-        vision_timeout = _vision_review_timeout(env)
-        try:
-            reviewed, diagnostics = await asyncio.wait_for(
-                _vision_filter(env, review_goal, visual_candidates, image_limit),
-                timeout=vision_timeout + 0.5,
-            )
-        except asyncio.TimeoutError:
-            reviewed, diagnostics = [], {"timeout": 1, "candidates": len(visual_candidates), "reviewed": 0}
-        # A vision outage should not turn a news answer into a permanently
-        # text-only response. SearchPro's own article hero image is traceable
-        # to a source URL, so retain it as an explicitly unreviewed fallback
-        # when the vision chain produced no relevance decision. If vision
-        # actively rejected candidates, keep the list empty instead.
-        explicit_rejection = bool(
-            diagnostics.get("approved", 0)
-            or diagnostics.get("irrelevant", 0)
+        reviewed, diagnostics = await _vision_filter(
+            env, review_goal, visual_candidates, image_limit,
         )
-        if not reviewed and not explicit_rejection:
-            fallback_candidates = _provider_image_candidates(results)[:image_limit]
-            if fallback_candidates:
-                reviewed = [{
-                    **candidate,
-                    "description": str(candidate.get("source_title") or "搜索结果文章主图")[:240],
-                    "vision_reviewed": False,
-                    "vision_fallback": True,
-                } for candidate in fallback_candidates]
-                diagnostics = {
-                    **diagnostics,
-                    "provider_fallback": len(reviewed),
-                }
+        # Search media is fail-closed. Provider hero images and page candidates
+        # are never published when visual review is unavailable, times out, or
+        # rejects them. A source-bound URL proves provenance, not relevance.
         reviewed_at = time.perf_counter()
         media = []
         for index, candidate in enumerate(reviewed, 1):
@@ -678,8 +966,7 @@ async def rich_search(
                 "source_id": source.get("id", ""), "source_url": candidate["source_url"],
                 "source_title": candidate["source_title"], "alt": caption, "caption": caption,
                 "attribution": candidate["source_title"], "generated": False,
-                "vision_reviewed": candidate.get("vision_reviewed", True),
-                **({"vision_fallback": True} if candidate.get("vision_fallback") else {}),
+                "vision_reviewed": True,
             })
         enriched = {
             **base_metadata, "media": media, "images": [item["url"] for item in media],
@@ -706,49 +993,3 @@ async def rich_search(
         background_tasks.append(task)
         return base_metadata
     return await enrich_media()
-
-
-def evidence_for_model(
-    metadata: dict[str, Any], *, require_relevant_image: bool = False,
-) -> str:
-    sources = "\n".join(
-        f"- {item.get('id') or 'source'} | 类型={item.get('source') or 'web'} | [{item['title']}]({item['url']})"
-        f" | 发布日期={item.get('date') or '未标注'} | 摘要={item['snippet']}"
-        for item in metadata.get("results", [])
-    )
-    media = "\n".join(
-        f"- {item.get('id') or 'media'} | source_id={item.get('source_id') or 'none'}"
-        f" | 图片说明={item['caption']} | 图片URL={item['url']}"
-        f" | 来源={item.get('source_title') or item.get('source_url') or '未知'}"
-        f"{' | 视觉审核暂不可用，仅作文章主图降级' if item.get('vision_fallback') or item.get('vision_reviewed') is False else ''}"
-        for item in metadata.get("media", [])
-    ) or "无通过视觉筛选的图片，不要插图。"
-    media_status = (
-        "图片正在后台审核。本轮只写正文与来源链接，不要插图，也不要声称正在生成图片。"
-        if metadata.get("media_pending")
-        else
-        "这里只列出审核通过的图片；若正文采用相应事实，请正常引用该图片 source_id 对应的网页来源。"
-        "前端会按 source_id 把图片放在同源引用段落后；没有精确来源引用时不会插图。"
-    )
-    image_instruction = (
-        "本轮语义计划器已判断真实图片能明显帮助理解；若采用相关事实，必须引用它对应的网页来源，"
-        "但不要自行输出图片 Markdown。"
-        if require_relevant_image and metadata.get("media")
-        else
-        "图片由前端确定性放置，不属于回答正文协议。"
-    )
-    temporal_instruction = (
-        f"本轮要求严格限定发布日期为 {metadata.get('target_date')}。"
-        "上方为空即表示没有核实到当日来源；必须直接说明这一证据边界，"
-        "不得用其他日期、未标日期或模型记忆补成当日新闻。\n\n"
-        if metadata.get("strict_date") and metadata.get("target_date")
-        else ""
-    )
-    return (
-        temporal_instruction
-        + f"可选网页/视频素材：\n{sources or '无'}\n\n"
-        f"经视觉模型审核的可选图片素材：\n{media}\n{media_status}\n\n"
-        f"这些只是事实素材，不是回答提纲。由你决定采用哪些事实以及以什么顺序呈现。{image_instruction}"
-        "若采用网页或视频，直接在相关段落使用上面给出的 Markdown 链接。"
-        "不要输出任何媒体占位符，不要自行输出图片 Markdown，不要使用未提供的图片 URL。"
-    )

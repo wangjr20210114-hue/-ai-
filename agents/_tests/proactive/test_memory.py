@@ -1,4 +1,7 @@
 from agents._tests.support.workspace_environment import *  # noqa: F401,F403
+from agents._application.intelligence.service import discard_turn_intelligence
+from agents._application.proactive.opportunities import opportunity_signal
+from agents._application.proactive.service import discard_proactive_source
 
 
 class ProactiveMemoryTests(unittest.IsolatedAsyncioTestCase):
@@ -115,6 +118,58 @@ class ProactiveMemoryTests(unittest.IsolatedAsyncioTestCase):
         memory["expires_at"] = 1_799_999_999
         self.assertEqual(prune_automatic_memories(state, 1_800_000_000), 1)
 
+    def test_stopped_turn_rolls_back_automatic_memory_without_deleting_prior_value(self):
+        state = empty_intelligence_state()
+        apply_automatic_memory_candidates(state, [{
+            "key": "preference.travel",
+            "value": "quiet museums",
+            "confidence": 0.9,
+            "ttl_days": 180,
+        }], source_message_id="client-old", now=1_800_000_000)
+        apply_automatic_memory_candidates(state, [{
+            "key": "preference.travel",
+            "value": "night clubs",
+            "confidence": 0.95,
+            "ttl_days": 180,
+        }], source_message_id="client-stopped", now=1_800_000_100)
+        self.assertEqual(discard_turn_intelligence(state, "client-stopped"), 1)
+        memory = next(iter(state["memories"].values()))
+        self.assertEqual(memory["value"], "quiet museums")
+        self.assertEqual(memory["source_message_id"], "client-old")
+
+    def test_stopped_turn_removes_a_new_automatic_memory(self):
+        state = empty_intelligence_state()
+        apply_automatic_memory_candidates(state, [{
+            "key": "preference.answer_style",
+            "value": "short",
+            "confidence": 0.9,
+            "ttl_days": 180,
+        }], source_message_id="client-stopped", now=1_800_000_000)
+        self.assertEqual(discard_turn_intelligence(state, "client-stopped"), 1)
+        self.assertEqual(state["memories"], {})
+
+    def test_stopped_turn_removes_its_semantic_opportunity_projection(self):
+        state = empty_proactive_state()
+        signal = opportunity_signal({
+            "type": "search_update",
+            "title": "New result",
+            "body": "A later update is available",
+            "action_prompt": "Check the update",
+            "priority": "low",
+            "confidence": 0.9,
+            "expires_in_hours": 24,
+            "reason": "fresh evidence",
+        }, source_id="client-stopped", now=1_800_000_000)
+        process_schedule_signals(state, [signal], 1_800_000_000)
+        self.assertTrue(state["notifications"])
+        self.assertGreater(
+            discard_proactive_source(state, "client-stopped"), 0,
+        )
+        self.assertEqual(state["events"], {})
+        self.assertEqual(state["runs"], {})
+        self.assertEqual(state["notifications"], {})
+        self.assertEqual(state["reminder_window"], [])
+
     def test_feedback_creates_confirmable_rule_instead_of_silent_policy_change(self):
         state = empty_intelligence_state()
         for index in range(3):
@@ -143,13 +198,9 @@ class ProactiveMemoryTests(unittest.IsolatedAsyncioTestCase):
         }])[0]
         await save_workspace(store, TEST_USER_ID, workspace)
 
-        from_old_conversation = await load_user_workspace(
-            store, "conversation-old", TEST_USER_ID,
-        )
-        from_new_conversation = await load_user_workspace(
-            store, "conversation-new", TEST_USER_ID,
-        )
+        first_read = await load_user_workspace(store, user_id=TEST_USER_ID)
+        second_read = await load_user_workspace(store, user_id=TEST_USER_ID)
 
-        self.assertIn(event["id"], from_old_conversation["schedules"])
-        self.assertIn(event["id"], from_new_conversation["schedules"])
+        self.assertIn(event["id"], first_read["schedules"])
+        self.assertIn(event["id"], second_read["schedules"])
 

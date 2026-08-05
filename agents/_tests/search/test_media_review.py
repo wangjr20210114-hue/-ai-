@@ -1,4 +1,8 @@
 from agents._tests.support.workspace_environment import *  # noqa: F401,F403
+from agents._domain.search.source_policy import (
+    filter_preferred_recent_sources,
+    source_domain,
+)
 
 
 class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
@@ -40,13 +44,13 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             ["https://example.com/yellow.png", "https://example.com/red.png"],
         )
 
-    def test_structured_actions_keep_public_answer_streaming_except_images(self):
+    def test_all_structured_actions_keep_public_answer_streaming(self):
         self.assertFalse(should_buffer_public_answer({"needs_route": True}))
         self.assertFalse(should_buffer_public_answer({
             "needs_route": False,
             "needs_calendar_action": True,
         }))
-        self.assertTrue(should_buffer_public_answer({
+        self.assertFalse(should_buffer_public_answer({
             "needs_image_generation": True,
         }))
         self.assertFalse(should_buffer_public_answer({
@@ -92,10 +96,103 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
     def test_searchpro_html_passage_exposes_provider_article_image(self):
         pages = _parse_pages({"Response": {"Pages": [{
             "url": "https://news.example/item",
+            "site": "Example Publisher",
+            "score": 0.87,
             "title": "大会新闻",
             "passage": "<p>正文</p><img src='http://qqpublic.qpic.cn/news.jpg' width='700'>",
+            "pics": [{
+                "caption": "大会现场",
+                "origin_url": "http://qqpublic.qpic.cn/provider-news.jpg",
+            }],
+        }, {
+            "url": "https://news.example/embedded",
+            "title": "摘要内图片",
+            "passage": "<p>正文</p><img src='http://qqpublic.qpic.cn/embedded.jpg'>",
         }]}}, 8)
-        self.assertEqual(pages[0]["image"], "https://qqpublic.qpic.cn/news.jpg")
+        self.assertEqual(pages[0]["image"], "https://qqpublic.qpic.cn/provider-news.jpg")
+        self.assertEqual(pages[0]["publisher"], "Example Publisher")
+        self.assertEqual(pages[0]["relevance_score"], 0.87)
+        self.assertEqual(pages[0]["provider_images"][0]["caption"], "大会现场")
+        self.assertEqual(pages[1]["image"], "https://qqpublic.qpic.cn/embedded.jpg")
+
+    def test_source_ranking_keeps_a_second_domain_when_relevant(self):
+        self.assertEqual(
+            source_domain("https://portal.example.co.uk?view=latest"),
+            "example.co.uk",
+        )
+        ranked = rank_source_results([
+            {
+                "url": "https://news.a.gov.cn/news/1",
+                "title": "AI 进展",
+                "snippet": "AI 进展 官方公告",
+            },
+            {
+                "url": "https://portal.a.gov.cn/news/2",
+                "title": "AI 进展补充",
+                "snippet": "AI 进展 官方公告",
+            },
+            {
+                "url": "https://news.example.com/news/3",
+                "title": "AI 进展观察",
+                "snippet": "AI 进展",
+            },
+        ], "AI 进展")
+        self.assertEqual(
+            [item["url"] for item in ranked[:2]],
+            ["https://news.a.gov.cn/news/1", "https://news.example.com/news/3"],
+        )
+        ranked = rank_source_results([{
+            "url": "https://feed.example/entry",
+            "title": "System release notes",
+            "snippet": "System release details",
+        }, {
+            "url": "https://research.example.edu/release",
+            "title": "System release notes",
+            "snippet": "System release details",
+        }], "system release details")
+        self.assertEqual(
+            ranked[0]["url"], "https://research.example.edu/release"
+        )
+
+    def test_recent_source_ranking_prefers_verified_fresh_dates(self):
+        ranked = rank_source_results([{
+            "url": "https://example.com/old",
+            "title": "AI 重要进展",
+            "snippet": "人工智能行业消息",
+            "date": "2024-05-06",
+        }, {
+            "url": "https://example.org/fresh",
+            "title": "AI 最新进展",
+            "snippet": "人工智能行业消息",
+            "date": "2026-08-03",
+        }], "最近 AI 有什么新进展", "2026-08-04", True)
+        self.assertEqual(ranked[0]["url"], "https://example.org/fresh")
+        self.assertEqual(ranked[0]["date"], "2026-08-03")
+
+    def test_recent_source_filter_does_not_pad_with_stale_results(self):
+        filtered, diagnostics = filter_preferred_recent_sources([{
+            "url": "https://example.com/old",
+            "title": "2024 年 AI 进展",
+            "snippet": "旧消息",
+            "date": "2024-05-06",
+        }, {
+            "url": "https://example.org/fresh",
+            "title": "AI 最新进展",
+            "snippet": "近期消息",
+            "date": "2026-08-03",
+        }, {
+            "url": "https://example.net/undated",
+            "title": "AI 观察",
+            "snippet": "没有可核验日期",
+            "date": "",
+        }], "2026-08-04")
+
+        self.assertEqual(
+            [item["url"] for item in filtered],
+            ["https://example.org/fresh"],
+        )
+        self.assertTrue(diagnostics["applied"])
+        self.assertEqual(diagnostics["stale_or_undated"], 2)
 
     def test_rich_search_handoff_keeps_media_out_of_model_authored_markdown(self):
         metadata = {
@@ -195,8 +292,9 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
         prompt = evidence_for_model({
             "results": [], "media": [], "media_pending": True,
         })
-        self.assertIn("图片正在后台审核", prompt)
-        self.assertIn("不要声称正在生成图片", prompt)
+        self.assertNotIn("经视觉模型审核、可由界面展示的图片素材", prompt)
+        self.assertNotIn("无通过视觉筛选的图片", prompt)
+        self.assertIn("不得评论图片是否存在、是否通过审核", prompt)
         self.assertIn("不要输出任何媒体占位符", prompt)
         self.assertNotIn("[[YUANBAO_MEDIA]]", prompt)
 
@@ -209,9 +307,24 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             }],
             "media_pending": True,
         }, require_relevant_image=True)
-        self.assertIn("图片正在后台审核", prompt)
+        self.assertNotIn("provider-preview.jpg", prompt)
+        self.assertNotIn("经视觉模型审核、可由界面展示的图片素材", prompt)
         self.assertIn("不要输出任何媒体占位符", prompt)
         self.assertNotIn("[[YUANBAO_MEDIA", prompt)
+
+    def test_recent_search_evidence_does_not_turn_recent_into_today(self):
+        prompt = evidence_for_model({
+            "query": "最近 AI 有什么新进展",
+            "target_date": "2026-08-04",
+            "strict_date": False,
+            "search_config": {"prefer_recent": True},
+            "results": [],
+            "media": [],
+            "media_pending": False,
+        })
+        self.assertIn("不是只问当天", prompt)
+        self.assertIn("不要把“最近”改写成“今天”", prompt)
+        self.assertIn("不要为了凑数量混入旧闻", prompt)
 
     def test_reviewed_search_media_is_bound_to_a_source_for_frontend_placement(self):
         prompt = evidence_for_model({
@@ -492,28 +605,111 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             user_id=TEST_USER_ID,
         )
 
-    async def test_rich_search_falls_back_to_traceable_provider_image_when_vision_is_unavailable(self):
+    async def test_rich_search_does_not_publish_provider_image_without_visual_review(self):
         page = {
             "url": "https://example.com/news",
             "title": "AI 发布会",
             "passage": "<p>报道</p><img src='http://img.example.com/hero.jpg'>",
         }
         with (
-            patch("agents._infrastructure.providers.rich_search._json_request", return_value={"Pages": [page]}),
+            patch("agents._infrastructure.providers.rich_search._searchpro_request_json", return_value={"Pages": [page]}) as search_request,
             patch("agents._infrastructure.providers.rich_search.collect_page_media", new=AsyncMock(return_value=[])),
         ):
             result = await run_rich_search(
                 {"WSA_API_KEY": "test"}, "AI 新闻", "AI 发布会现场", "basic", image_limit=2,
             )
-        self.assertEqual(result["images"], ["https://img.example.com/hero.jpg"])
+        self.assertEqual(result["images"], [])
         self.assertEqual(result["results"][0]["image"], "https://img.example.com/hero.jpg")
         self.assertEqual(result["preview_media"][0]["url"], "https://img.example.com/hero.jpg")
         self.assertTrue(result["preview_media"][0]["preview"])
-        self.assertEqual(result["media"][0]["url"], "https://img.example.com/hero.jpg")
-        self.assertFalse(result["media"][0]["vision_reviewed"])
-        self.assertTrue(result["media"][0]["vision_fallback"])
+        self.assertEqual(result["media"], [])
         self.assertEqual(result["vision_diagnostics"]["missing_api_key"], 1)
-        self.assertEqual(result["vision_diagnostics"]["provider_fallback"], 1)
+        provider_payload = search_request.call_args.args[1]
+        self.assertIn("AI 新闻", provider_payload["Query"])
+        self.assertEqual(set(provider_payload), {"Query"})
+
+    async def test_rich_search_does_not_publish_page_media_without_visual_review(self):
+        page = {
+            "url": "https://example.com/forbidden-city",
+            "title": "Forbidden City architecture guide",
+            "passage": "Verified architecture guide.",
+        }
+        candidate = {
+            "url": "https://img.example.com/hall.jpg?w=1200&h=800",
+            "context": "Forbidden City architecture and ceremonial hall",
+            "alt": "Forbidden City ceremonial hall",
+        }
+        with (
+            patch("agents._infrastructure.providers.rich_search._searchpro_request_json", return_value={"Pages": [page]}),
+            patch("agents._infrastructure.providers.rich_search.collect_page_media", new=AsyncMock(return_value=[candidate])),
+        ):
+            result = await run_rich_search(
+                {"WSA_API_KEY": "test"},
+                "Forbidden City architecture",
+                "Forbidden City ceremonial hall",
+                "basic",
+                image_limit=2,
+            )
+        self.assertEqual(result["images"], [])
+        self.assertEqual(result["media"], [])
+        self.assertEqual(result["vision_diagnostics"]["missing_api_key"], 1)
+
+    async def test_vision_deadline_keeps_completed_approved_images_only(self):
+        candidates = [
+            {"url": "https://img.example.com/approved.jpg?w=1200&h=800", "source_url": "https://example.com/approved", "source_title": "Approved source", "context": "AI launch event"},
+            {"url": "https://img.example.com/pending.jpg?w=1200&h=800", "source_url": "https://example.com/pending", "source_title": "Pending source", "context": "AI launch event"},
+        ]
+
+        async def partial_review(_env, content, **_kwargs):
+            url = content[0]["image_url"]["url"]
+            if "pending" in url:
+                await asyncio.sleep(2)
+            return json.dumps({"description": "Verified launch photo", "relevant": True, "promotional": False}), {"provider": "vision-test"}
+
+        with (
+            patch("agents._infrastructure.providers.rich_search._vision_review_timeout", return_value=0.01),
+            patch("agents._infrastructure.providers.rich_search.vision_completion", new=partial_review),
+        ):
+            reviewed, diagnostics = await _vision_filter(
+                {"HUNYUAN_VISION_API_KEY": "test"}, "AI launch event", candidates, 2,
+            )
+
+        self.assertEqual([item["url"] for item in reviewed], [candidates[0]["url"]])
+        self.assertEqual(diagnostics["approved"], 1)
+        self.assertEqual(diagnostics["reviewed"], 1)
+        self.assertEqual(diagnostics["timeout"], 1)
+
+    async def test_explicit_vision_rejection_never_uses_source_bound_fallback(self):
+        page = {
+            "url": "https://example.com/architecture",
+            "title": "Architecture guide",
+            "passage": "Verified architecture guide.",
+        }
+        candidate = {
+            "url": "https://img.example.com/unrelated.jpg?w=1200&h=800",
+            "context": "Architecture guide illustration",
+            "alt": "Architecture illustration",
+        }
+        rejection = json.dumps({
+            "description": "Unrelated image",
+            "relevant": False,
+            "promotional": False,
+        })
+        with (
+            patch("agents._infrastructure.providers.rich_search._searchpro_request_json", return_value={"Pages": [page]}),
+            patch("agents._infrastructure.providers.rich_search.collect_page_media", new=AsyncMock(return_value=[candidate])),
+            patch("agents._infrastructure.providers.rich_search.vision_completion", new=AsyncMock(return_value=(rejection, {"provider": "vision-test"}))),
+        ):
+            result = await run_rich_search(
+                {"WSA_API_KEY": "test", "HUNYUAN_IMAGE_API_KEY": "vision-key"},
+                "Architecture guide",
+                "Architecture illustration",
+                "basic",
+                image_limit=2,
+            )
+        self.assertEqual(result["media"], [])
+        self.assertEqual(result["vision_diagnostics"]["irrelevant"], 1)
+        self.assertNotIn("source_bound_fallback", result["vision_diagnostics"])
 
     async def test_strict_today_filter_also_excludes_old_article_media(self):
         pages = [{
@@ -530,7 +726,7 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             "passage": "今天发布",
         }]
         with (
-            patch("agents._infrastructure.providers.rich_search._json_request", return_value={"Pages": pages}),
+            patch("agents._infrastructure.providers.rich_search._searchpro_request_json", return_value={"Pages": pages}),
             patch("agents._infrastructure.providers.rich_search.collect_page_media", new=AsyncMock(return_value=[])),
         ):
             result = await run_rich_search(
@@ -546,379 +742,9 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
             [item["url"] for item in result["results"]],
             ["https://example.com/today"],
         )
-        self.assertEqual(result["images"], ["https://img.example.com/today.jpg"])
+        self.assertEqual(result["images"], [])
+        self.assertEqual(
+            [item["url"] for item in result["preview_media"]],
+            ["https://img.example.com/today.jpg"],
+        )
         self.assertNotIn("https://img.example.com/old.jpg", json.dumps(result))
-
-    def test_free_vision_fallback_chain_keeps_hunyuan_primary(self):
-        providers = vision_providers({
-            "HUNYUAN_IMAGE_API_KEY": "hy",
-            "CLOUDFLARE_ACCOUNT_ID": "account",
-            "CLOUDFLARE_WORKERS_AI_TOKEN": "cf",
-            "DASHSCOPE_API_KEY": "qwen",
-            "GEMINI_API_KEY": "gemini",
-        })
-        self.assertEqual([item.name for item in providers], [
-            "hunyuan", "cloudflare", "dashscope", "gemini",
-        ])
-        self.assertEqual(
-            providers[1].endpoint,
-            "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-11b-vision-instruct",
-        )
-
-    def test_preview_can_force_cloudflare_vision_first_without_changing_default_order(self):
-        providers = vision_providers({
-            "HUNYUAN_IMAGE_API_KEY": "hy",
-            "CLOUDFLARE_ACCOUNT_ID": "account",
-            "CLOUDFLARE_WORKERS_AI_TOKEN": "cf",
-            "VISION_PROVIDER_ORDER": "cloudflare,hunyuan",
-        })
-        self.assertEqual([item.name for item in providers], ["cloudflare", "hunyuan"])
-
-    def test_cloudflare_vision_uses_official_run_schema(self):
-        class Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self, _limit):
-                return json.dumps({
-                    "success": True,
-                    "result": {"response": "一只戴红围巾的猫"},
-                }).encode("utf-8")
-
-        provider = VisionProvider(
-            "cloudflare",
-            "https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/meta/llama-3.2-11b-vision-instruct",
-            "token",
-            "@cf/meta/llama-3.2-11b-vision-instruct",
-        )
-        content = [
-            {"type": "text", "text": "描述图片"},
-            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,ZmFrZQ=="}},
-        ]
-        with patch(
-            "agents._infrastructure.providers.vision.urllib.request.urlopen",
-            return_value=Response(),
-        ) as urlopen:
-            result = _post_completion(provider, content, 200, 2)
-        request = urlopen.call_args.args[0]
-        payload = json.loads(request.data.decode("utf-8"))
-        self.assertEqual(result, "一只戴红围巾的猫")
-        self.assertEqual(payload["messages"], [{"role": "user", "content": "描述图片"}])
-        self.assertEqual(payload["image"], "data:image/jpeg;base64,ZmFrZQ==")
-        self.assertNotIn("model", payload)
-
-    async def test_user_reference_image_uses_multimodal_provider_once(self):
-        with patch(
-            "agents._infrastructure.providers.vision.vision_completion",
-            new=AsyncMock(return_value=("一只戴红围巾的猫", {"provider": "cloudflare"})),
-        ) as completion:
-            description, diagnostics = await describe_reference_images(
-                {}, ["data:image/jpeg;base64,ZmFrZQ=="], "描述图片",
-            )
-        self.assertEqual(description, "一只戴红围巾的猫")
-        self.assertEqual(diagnostics["provider"], "cloudflare")
-        self.assertEqual(completion.await_count, 1)
-
-    async def test_multiple_reference_images_use_one_hy_vision_request_each(self):
-        with patch(
-            "agents._infrastructure.providers.vision.vision_completion",
-            new=AsyncMock(side_effect=[
-                ("第一张图片", {"provider": "hunyuan"}),
-                ("第二张图片", {"provider": "hunyuan"}),
-            ]),
-        ) as completion:
-            description, diagnostics = await describe_reference_images(
-                {}, ["https://example.com/1.jpg", "https://example.com/2.jpg"], "比较图片",
-            )
-        self.assertIn("附图 1：第一张图片", description)
-        self.assertIn("附图 2：第二张图片", description)
-        self.assertEqual(diagnostics["provider"], "hunyuan")
-        self.assertEqual(completion.await_count, 2)
-        for call in completion.call_args_list:
-            content = call.args[1]
-            self.assertEqual(sum(block.get("type") == "image_url" for block in content), 1)
-
-    async def test_image_generation_falls_back_to_cloudflare_workers_ai(self):
-        env = {
-            "CLOUDFLARE_ACCOUNT_ID": "account",
-            "CLOUDFLARE_WORKERS_AI_TOKEN": "token",
-        }
-        persisted = {"storage_key": "generated/test.jpg", "image_url": "/files?key=generated/test.jpg"}
-        with patch(
-            "agents._infrastructure.providers.side_effects._cloudflare_image_prompt",
-            return_value="an orange cat",
-        ) as translator, patch(
-            "agents._infrastructure.providers.side_effects._post_cloudflare_image",
-            return_value=(b"jpeg", "image/jpeg"),
-        ) as provider, patch(
-            "agents._infrastructure.providers.side_effects._persist_generated_bytes",
-            new=AsyncMock(return_value=persisted),
-        ):
-            result = await generate_image(
-                env, "一只猫", user_id=TEST_USER_ID,
-            )
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["provider"], "cloudflare")
-        self.assertTrue(result["prompt_translated"])
-        self.assertEqual(result["storage_key"], "generated/test.jpg")
-        translator.assert_called_once_with(
-            "account", "token", "@cf/zai-org/glm-4.7-flash", "一只猫",
-        )
-        self.assertEqual(provider.call_count, 1)
-
-    async def test_preview_can_force_cloudflare_image_generation_first(self):
-        env = {
-            "HUNYUAN_IMAGE_API_KEY": "hunyuan-key",
-            "CLOUDFLARE_ACCOUNT_ID": "account",
-            "CLOUDFLARE_WORKERS_AI_TOKEN": "token",
-            "IMAGE_PROVIDER_ORDER": "cloudflare,hunyuan",
-        }
-        with patch(
-            "agents._infrastructure.providers.side_effects._cloudflare_image_prompt",
-            return_value="an orange cat",
-        ), patch(
-            "agents._infrastructure.providers.side_effects._post_cloudflare_image",
-            return_value=(b"jpeg", "image/jpeg"),
-        ) as cloudflare, patch(
-            "agents._infrastructure.providers.side_effects._post_image",
-        ) as hunyuan, patch(
-            "agents._infrastructure.providers.side_effects._persist_generated_bytes",
-            new=AsyncMock(return_value={"storage_key": "generated/test.jpg", "image_url": "/files?key=generated/test.jpg"}),
-        ):
-            result = await generate_image(
-                env, "一只猫", user_id=TEST_USER_ID,
-            )
-        self.assertEqual(result["provider"], "cloudflare")
-        self.assertFalse(result["fallback"])
-        self.assertEqual(cloudflare.call_count, 1)
-        hunyuan.assert_not_called()
-
-    async def test_cloudflare_image_generation_continues_when_prompt_translation_fails(self):
-        env = {
-            "CLOUDFLARE_ACCOUNT_ID": "account",
-            "CLOUDFLARE_WORKERS_AI_TOKEN": "token",
-            "IMAGE_PROVIDER_ORDER": "cloudflare,hunyuan",
-        }
-        with patch(
-            "agents._infrastructure.providers.side_effects._cloudflare_image_prompt",
-            side_effect=RuntimeError("translation response shape changed"),
-        ), patch(
-            "agents._infrastructure.providers.side_effects._post_cloudflare_image",
-            return_value=(b"png", "image/png"),
-        ) as cloudflare, patch(
-            "agents._infrastructure.providers.side_effects._persist_generated_bytes",
-            new=AsyncMock(return_value={
-                "storage_key": "generated/result.png",
-                "image_url": "/files?key=result",
-            }),
-        ):
-            result = await generate_image(
-                env,
-                "一只戴紫色围巾的橘猫",
-                user_id=TEST_USER_ID,
-            )
-
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["provider"], "cloudflare")
-        self.assertFalse(result["prompt_translated"])
-        self.assertEqual(cloudflare.call_args.args[3], "一只戴紫色围巾的橘猫")
-
-    def test_cloudflare_translates_chinese_image_prompt_with_current_multilingual_model(self):
-        class Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self, _limit):
-                return json.dumps({
-                    "success": True,
-                    "result": {
-                        "choices": [{
-                            "message": {
-                                "content": "An orange cat wearing a blue scarf on a white background, no text."
-                            }
-                        }],
-                    },
-                }).encode("utf-8")
-
-        with patch(
-            "agents._infrastructure.providers.side_effects.urllib.request.urlopen",
-            return_value=Response(),
-        ) as urlopen:
-            translated = _cloudflare_image_prompt(
-                "account", "token", "@cf/zai-org/glm-4.7-flash",
-                "一只戴蓝色围巾的橘猫，白色背景，不要文字",
-            )
-        request = urlopen.call_args.args[0]
-        payload = json.loads(request.data.decode("utf-8"))
-        self.assertTrue(request.full_url.endswith("/ai/run/@cf/zai-org/glm-4.7-flash"))
-        self.assertEqual(payload["temperature"], 0)
-        self.assertIn("一只戴蓝色围巾的橘猫", payload["messages"][1]["content"])
-        self.assertEqual(
-            translated,
-            "An orange cat wearing a blue scarf on a white background, no text.",
-        )
-
-    def test_cloudflare_semantically_normalizes_english_image_prompt_too(self):
-        class Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self, _limit):
-                return json.dumps({
-                    "result": {"response": "An orange cat wearing a blue scarf."},
-                }).encode("utf-8")
-
-        with patch(
-            "agents._infrastructure.providers.side_effects.urllib.request.urlopen",
-            return_value=Response(),
-        ) as urlopen:
-            prompt = "An orange cat wearing a blue scarf."
-            self.assertEqual(
-                _cloudflare_image_prompt(
-                    "account", "token", "@cf/zai-org/glm-4.7-flash", prompt,
-                ),
-                prompt,
-            )
-        urlopen.assert_called_once()
-
-    def test_cloudflare_flux_uses_official_image_schema(self):
-        class Response:
-            headers = {"Content-Type": "application/json"}
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self, _limit):
-                return json.dumps({
-                    "success": True,
-                    "result": {"image": base64.b64encode(b"jpeg").decode("ascii")},
-                }).encode("utf-8")
-
-        with patch(
-            "agents._infrastructure.providers.side_effects.urllib.request.urlopen",
-            return_value=Response(),
-        ) as urlopen:
-            body, content_type = _post_cloudflare_image(
-                "account", "token", "@cf/black-forest-labs/flux-1-schnell", "一只猫",
-            )
-        request = urlopen.call_args.args[0]
-        payload = json.loads(request.data.decode("utf-8"))
-        self.assertTrue(request.full_url.endswith("/ai/run/@cf/black-forest-labs/flux-1-schnell"))
-        self.assertEqual(payload, {"prompt": "一只猫", "steps": 4})
-        self.assertEqual((body, content_type), (b"jpeg", "image/jpeg"))
-
-    def test_cloudflare_img2img_uses_official_byte_array_reference(self):
-        class Response:
-            headers = {"Content-Type": "image/png"}
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self, _limit):
-                return b"png"
-
-        with patch(
-            "agents._infrastructure.providers.side_effects._reference_bytes",
-            return_value=(b"source", "image/jpeg"),
-        ), patch(
-            "agents._infrastructure.providers.side_effects.urllib.request.urlopen",
-            return_value=Response(),
-        ) as urlopen:
-            body, content_type = _post_cloudflare_image(
-                "account", "token", "@cf/runwayml/stable-diffusion-v1-5-img2img",
-                "改成水彩", ["data:image/jpeg;base64,c291cmNl"],
-            )
-        request = urlopen.call_args.args[0]
-        payload = json.loads(request.data.decode("utf-8"))
-        self.assertEqual(payload["image"], list(b"source"))
-        self.assertEqual(payload["num_steps"], 12)
-        self.assertEqual(payload["strength"], 0.72)
-        self.assertNotIn("width", payload)
-        self.assertNotIn("height", payload)
-        self.assertEqual((body, content_type), (b"png", "image/png"))
-
-    def test_cloudflare_img2img_retries_base64_for_legacy_rest_gateway(self):
-        class Response:
-            headers = {"Content-Type": "image/png"}
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self, _limit):
-                return b"png"
-
-        failed = urllib.error.HTTPError("https://example.com", 422, "schema", {}, None)
-        with patch(
-            "agents._infrastructure.providers.side_effects._reference_bytes",
-            return_value=(b"source", "image/jpeg"),
-        ), patch(
-            "agents._infrastructure.providers.side_effects.urllib.request.urlopen",
-            side_effect=[failed, Response()],
-        ) as urlopen:
-            body, content_type = _post_cloudflare_image(
-                "account", "token", "@cf/runwayml/stable-diffusion-v1-5-img2img",
-                "改成水彩", ["data:image/jpeg;base64,c291cmNl"],
-            )
-        self.assertEqual(urlopen.call_count, 2)
-        retry_payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
-        self.assertEqual(retry_payload["image_b64"], base64.b64encode(b"source").decode("ascii"))
-        self.assertEqual((body, content_type), (b"png", "image/png"))
-
-    def test_cloudflare_img2img_retries_when_schema_error_uses_http_200_envelope(self):
-        class Response:
-            headers = {"Content-Type": "application/json"}
-
-            def __init__(self, payload):
-                self.payload = payload
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self, _limit):
-                return json.dumps(self.payload).encode("utf-8")
-
-        rejected = Response({"success": False, "errors": [{"code": 1001, "message": "schema"}]})
-        succeeded = Response({
-            "success": True,
-            "result": base64.b64encode(b"jpeg").decode("ascii"),
-        })
-        with patch(
-            "agents._infrastructure.providers.side_effects._reference_bytes",
-            return_value=(b"source", "image/jpeg"),
-        ), patch(
-            "agents._infrastructure.providers.side_effects.urllib.request.urlopen",
-            side_effect=[rejected, succeeded],
-        ) as urlopen:
-            body, content_type = _post_cloudflare_image(
-                "account", "token", "@cf/runwayml/stable-diffusion-v1-5-img2img",
-                "green scarf", ["data:image/jpeg;base64,c291cmNl"],
-            )
-
-        self.assertEqual(urlopen.call_count, 2)
-        first_payload = json.loads(urlopen.call_args_list[0].args[0].data.decode("utf-8"))
-        retry_payload = json.loads(urlopen.call_args_list[1].args[0].data.decode("utf-8"))
-        self.assertIn("image", first_payload)
-        self.assertIn("image_b64", retry_payload)
-        self.assertEqual((body, content_type), (b"jpeg", "image/jpeg"))
-

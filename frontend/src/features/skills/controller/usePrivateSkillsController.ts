@@ -2,18 +2,18 @@ import { useRef, useState } from 'react';
 import { MessagePlugin } from 'tdesign-react';
 
 import { useLanguage } from '../../../i18n';
-import type { SkillUploadRecord, UserSkillRecord } from '../../../shared/types';
+import type { SkillUploadRecord, UserSkillRecord } from '../model';
 import { intelligenceOperation } from '../../settings/model/client';
 import {
   requestMarketplaceReview,
   requestUserSkillMarketplaceReview,
+  resolveUserSkillUrl,
   uploadPrivateSkillPackage,
 } from '../model/client';
 import {
   parseUserSkillText,
   readUserSkillFile,
   readUserSkillFolder,
-  readUserSkillUrl,
   type UserSkillDraft,
 } from '../model/userSkillImport';
 
@@ -64,7 +64,7 @@ export function usePrivateSkillsController(conversationId: string) {
   const importText = (value: string) => importResolved(
     () => Promise.resolve(parseUserSkillText(value)),
   );
-  const importUrl = (value: string) => importResolved(() => readUserSkillUrl(value));
+  const importUrl = (value: string) => importResolved(() => resolveUserSkillUrl(value));
 
   const uploadArchive = async (file?: File) => {
     if (!file) return;

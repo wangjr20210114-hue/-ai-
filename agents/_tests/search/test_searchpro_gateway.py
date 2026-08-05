@@ -12,6 +12,7 @@ def request(*, image_limit: int = 0, media_mode: str = "disabled") -> SearchRequ
         tenant_id="tenant-a",
         user_id="user-a",
         conversation_id="conversation-a",
+        request_id="maker-run-search-1",
         query="AI 进展",
         image_query="AI 芯片实物",
         depth="standard",
@@ -44,14 +45,18 @@ class SearchProGatewayTests(unittest.IsolatedAsyncioTestCase):
                 "WSA_BASE_URL": "https://search.test",
             },
         )
-        with patch("agents._infrastructure.providers.rich_search._json_request", side_effect=json_request):
+        async def async_json_request(url, payload, headers, timeout):
+            return json_request(url, payload, headers, timeout)
+
+        with patch("agents._infrastructure.providers.rich_search._searchpro_request_json", side_effect=async_json_request):
             execution = await gateway.search(request())
 
         self.assertEqual(calls, ["https://search.test/SearchPro"])
         self.assertEqual(execution.provider_request_count, 1)
         self.assertEqual(execution.evidence.sources[0].id, "source-1")
+        self.assertEqual(execution.metadata["results"][0]["id"], "source-1")
 
-    async def test_unreviewed_provider_fallback_is_not_domain_media(self):
+    async def test_only_visually_reviewed_media_reaches_domain(self):
         provider_result = {
             "query": "AI 进展",
             "results": [
@@ -77,6 +82,14 @@ class SearchProGatewayTests(unittest.IsolatedAsyncioTestCase):
                     "source_url": "https://example.test/news",
                     "vision_reviewed": True,
                 },
+                {
+                    "id": "media-source-bound",
+                    "url": "https://img.test/source-bound.jpg",
+                    "source_id": "source-1",
+                    "source_url": "https://example.test/news",
+                    "vision_reviewed": False,
+                    "source_bound_fallback": True,
+                },
             ],
             "total": 1,
             "media_pending": False,
@@ -96,6 +109,46 @@ class SearchProGatewayTests(unittest.IsolatedAsyncioTestCase):
             [item.id for item in execution.evidence.media],
             ["media-reviewed"],
         )
+
+    async def test_provider_attempt_count_is_preserved(self):
+        provider_result = {
+            "query": "AI progress",
+            "results": [],
+            "media": [],
+            "total": 0,
+            "media_pending": False,
+            "search_config": {"provider_request_count": 2},
+        }
+        gateway = SearchProGateway({"WSA_API_KEY": "test-key"})
+
+        with patch(
+            "agents._infrastructure.providers.searchpro.provider_rich_search",
+            new=AsyncMock(return_value=provider_result),
+        ):
+            execution = await gateway.search(request())
+
+        self.assertEqual(execution.provider_request_count, 2)
+
+    async def test_makers_request_id_reaches_provider_adapter_only(self):
+        provider = AsyncMock(return_value={
+            "query": "AI progress",
+            "results": [],
+            "media": [],
+            "total": 0,
+            "media_pending": False,
+            "search_config": {"provider_request_count": 1},
+        })
+        gateway = SearchProGateway({"WSA_API_KEY": "test-key"})
+
+        with patch(
+            "agents._infrastructure.providers.searchpro.provider_rich_search",
+            new=provider,
+        ):
+            execution = await gateway.search(request())
+
+        self.assertEqual(execution.provider_request_count, 1)
+        self.assertEqual(provider.await_args.kwargs["request_id"], "maker-run-search-1")
+        self.assertNotIn("request_id", execution.metadata)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { InstalledSkill } from '../../shared/types';
+import { translate } from '../../i18n';
+import type { InstalledSkill } from './model';
 import {
   filterMarketplaceSkills,
   groupMarketplaceSkills,
@@ -94,9 +95,9 @@ describe('Skill marketplace Model', () => {
     expect(() => skillInstallOrder([
       skill({ id: 'a', requires: ['b'] }),
       skill({ id: 'b', requires: ['a'] }),
-    ], 'a')).toThrow(/cycle/i);
+    ], 'a')).toThrow(translate('skillDependencyCycle', { id: 'a' }));
     expect(() => skillInstallOrder([
       skill({ id: 'calendar', requires: ['missing'] }),
-    ], 'calendar')).toThrow(/Missing Skill dependency/);
+    ], 'calendar')).toThrow(translate('skillDependencyMissing', { id: 'missing' }));
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseUserSkillText, publicSkillMarkdownUrl } from './userSkillImport';
+import { translate } from '../../../i18n';
+import { parseUserSkillText } from './userSkillImport';
 
 describe('private user Skill import', () => {
   it('reads standard SKILL.md metadata without enabling executable code', () => {
@@ -27,14 +28,6 @@ describe('private user Skill import', () => {
         'SKILL.md': 'Do anything',
         'floris.json': { adapter: 'evil.module' },
       },
-    }))).toThrow(/executable adapters/);
-  });
-
-  it('normalizes public GitHub URLs and rejects arbitrary hosts', () => {
-    expect(publicSkillMarkdownUrl('https://github.com/acme/floris-skill'))
-      .toBe('https://raw.githubusercontent.com/acme/floris-skill/HEAD/SKILL.md');
-    expect(publicSkillMarkdownUrl('https://github.com/acme/floris-skill/blob/dev/docs/SKILL.md'))
-      .toBe('https://raw.githubusercontent.com/acme/floris-skill/dev/docs/SKILL.md');
-    expect(() => publicSkillMarkdownUrl('https://example.com/SKILL.md')).toThrow(/public GitHub/);
+    }))).toThrow(translate('privateSkillExecutableForbidden'));
   });
 });

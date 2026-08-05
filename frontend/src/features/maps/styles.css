@@ -24,11 +24,78 @@
     linear-gradient(135deg, rgba(var(--app-accent-rgb), 0.08), rgba(var(--app-accent-soft-rgb), 0.06)),
     var(--app-panel-2);
 }
+.makers-route-zoom-hint {
+  position: absolute;
+  z-index: 2;
+  top: 38px;
+  left: 8px;
+  display: grid;
+  gap: 1px;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--app-border) 75%, transparent);
+  border-radius: 9px;
+  color: var(--app-text);
+  background: color-mix(in srgb, var(--app-panel) 91%, transparent);
+  backdrop-filter: blur(9px);
+  box-shadow: 0 6px 18px rgba(23, 32, 51, .10);
+  font-size: 12.5px;
+  font-weight: 700;
+  pointer-events: none;
+  animation: routeHintIn 180ms var(--motion-ease-out);
+}
+.makers-route-zoom-hint small { color: var(--app-text-3); font-size: 11px; font-weight: 500; }
+.makers-route-journey { display: grid; gap: 8px; margin-top: 8px; }
+.makers-route-overview {
+  display: grid;
+  gap: 6px;
+  padding: 11px 12px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--app-accent) 7%, var(--app-panel));
+}
+.makers-route-overview > strong { color: var(--app-text); font-size: 13px; }
+.makers-route-primary-metrics { display: flex; flex-wrap: wrap; gap: 5px 12px; color: var(--app-text); font-size: 13px; font-weight: 680; }
+.makers-route-secondary-metrics { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--app-text-3); font-size: 11.5px; }
+.makers-route-fare-note { color: var(--app-text-3); font-size: 11.5px; }
+.makers-route-fare-note summary { width: fit-content; cursor: pointer; color: var(--app-text-2); }
+.makers-route-fare-note p { margin: 5px 0 0; line-height: 1.55; }
+.makers-route-focus {
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  background: var(--app-panel);
+  animation: routeFocusIn 220ms var(--motion-ease-out);
+}
+.makers-route-focus-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 5px 11px; border-bottom: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent); }
+.makers-route-focus-heading > div { display: flex; align-items: center; gap: 7px; color: var(--app-text-2); font-size: 11.5px; font-weight: 650; }
+.makers-route-focus-heading em { padding: 2px 6px; border-radius: 999px; color: var(--app-accent); background: rgba(var(--app-accent-rgb), .09); font-size: 10.5px; font-style: normal; }
+.makers-route-focus-heading nav { display: flex; gap: 1px; }
+.makers-route-focus-heading .t-button { width: 26px; height: 26px; }
+.makers-route-focus-body { display: grid; grid-template-columns: 5px minmax(0, 1fr); gap: 10px; padding: 11px 12px; }
+.makers-route-focus-body > i,
+.makers-route-all-steps button > i { border-radius: 999px; background: var(--route-mode-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--route-mode-color) 13%, transparent); }
+.makers-route-focus-body strong { display: block; color: var(--app-text); font-size: 14px; line-height: 1.4; }
+.makers-route-focus-body p { margin: 3px 0 0; color: var(--app-text-2); font-size: 12px; line-height: 1.45; }
+.makers-route-focus-body small { display: block; margin-top: 5px; color: var(--app-text-3); font-size: 11.5px; }
+.makers-route-all-steps { padding: 0 3px; color: var(--app-text-2); font-size: 12px; }
+.makers-route-all-steps > summary { width: fit-content; padding: 3px 2px; cursor: pointer; font-weight: 650; }
+.makers-route-all-steps ol { display: grid; gap: 2px; margin: 5px 0 0; padding: 0; list-style: none; }
+.makers-route-all-steps button { display: grid; width: 100%; grid-template-columns: 4px minmax(0, 1fr); gap: 9px; padding: 7px 8px; border: 0; border-radius: 8px; color: inherit; background: transparent; text-align: left; cursor: pointer; transition: background-color 160ms ease, transform 160ms var(--motion-ease-out); }
+.makers-route-all-steps button:hover { background: var(--app-panel-2); transform: translateX(2px); }
+.makers-route-all-steps button.is-active { color: var(--app-text); background: rgba(var(--app-accent-rgb), .08); }
+.makers-route-all-steps button strong,
+.makers-route-all-steps button small { display: block; }
+.makers-route-all-steps button strong { font-size: 12px; }
+.makers-route-all-steps button small { margin-top: 2px; overflow: hidden; color: var(--app-text-3); text-overflow: ellipsis; white-space: nowrap; }
+@keyframes routeHintIn { from { opacity: 0; transform: translateY(-3px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes routeFocusIn { from { opacity: .35; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .makers-map.is-updating::after {
   content: '';
   pointer-events: none;
   position: absolute;
-  inset: 28px 0 28px;
+  top: 28px;
+  right: 0;
+  left: 0;
+  height: 220px;
   border-radius: 10px;
   background: radial-gradient(circle at center, rgba(var(--app-accent-rgb), 0.22), transparent 68%);
   animation: mapUpdateWave 1.05s ease-out;
@@ -95,3 +162,9 @@
 }
 
 .workspace-map-action:disabled { color: #8b94a8; cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  .makers-route-focus,
+  .makers-route-zoom-hint { animation: none; }
+  .makers-route-all-steps button { transition: none; }
+}

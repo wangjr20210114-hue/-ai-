@@ -5,7 +5,8 @@ import { useAppDispatch, useAppState } from '../../../store/appState';
 import { clearLocalApplicationData } from '../../../services/conversation';
 import { capabilityEnabled } from '../../../services/skills';
 import { languageName, useLanguage, type Language } from '../../../i18n';
-import type { InstalledSkill, MakersIntelligenceState, ProviderUsageSummary } from '../../../shared/types';
+import type { InstalledSkill } from '../../skills/model';
+import type { MakersIntelligenceState, ProviderUsageSummary } from '../model';
 import { ensureAuthSession } from '../../../shared/auth/session';
 import { proactiveFallbackLines } from '../model/proactiveNotifications';
 import {

@@ -4,13 +4,14 @@
   "version": "5.1.0",
   "type": "module",
   "scripts": {
-    "test": "node --test auth/session.test.js auth/controllers/controllers.test.js auth/controllers/cloudbase-controller.test.js middleware.test.js cloud-functions/mobile-contract.test.js cloud-functions/platform-reuse.test.js cloud-functions/profile/index.test.js cloud-functions/acceptance/index.test.js cloud-functions/conversations/index.test.js cloud-functions/files/index.test.js cloud-functions/papers/index.test.js cloud-functions/proactive-tick/index.test.js cloud-functions/reset-files/index.test.js cloud-functions/skill-uploads/index.test.js tools/tests/makers-deploy-target.test.mjs",
+    "test": "node --test auth/session.test.js auth/controllers/controllers.test.js auth/controllers/cloudbase-controller.test.js middleware.test.js cloud-functions/mobile-contract.test.js cloud-functions/platform-reuse.test.js cloud-functions/profile/index.test.js cloud-functions/acceptance/index.test.js cloud-functions/conversations/index.test.js cloud-functions/document-text/index.test.js cloud-functions/files/index.test.js cloud-functions/papers/index.test.js cloud-functions/proactive-tick/index.test.js cloud-functions/reset-files/index.test.js cloud-functions/skill-uploads/index.test.js tools/tests/makers-deploy-target.test.mjs tools/tests/smoke-session.test.mjs",
     "check:skills": "python tools/assert-skill-integrity.py",
     "check:entitlements": "node tools/generate-entitlement-contract.mjs --check && node --test tools/tests/entitlement-contract.test.mjs",
     "check:architecture": "python tools/assert-python-architecture.py && python tools/split-workspace-tests.py --check",
     "check:deploy-target": "node tools/assert-makers-deploy-target.mjs",
     "check:release": "npm run check:deploy-target && node tools/assert-dev-release-state.mjs",
-    "check:all": "npm run check:entitlements && npm run check:architecture && npm run check:skills && npm test && npm --prefix frontend run check:boundaries && npm --prefix frontend run lint && npm --prefix frontend test && npm --prefix frontend run build -- --mode edgeone",
+    "benchmark:search:live": "python tools/benchmark-live-search.py",
+    "check:all": "npm run check:entitlements && npm run check:architecture && npm run check:skills && npm test && npm --prefix frontend run check:boundaries && npm --prefix frontend run lint && npm --prefix frontend test && npm --prefix frontend run test:e2e:product && npm --prefix frontend run build -- --mode edgeone",
     "test:edgeone-build-routes": "node tools/assert-edgeone-build-routes.mjs",
     "test:dialogue:production": "node tools/dialogue-boundary-smoke.mjs",
     "test:linkage:production": "node tools/route-calendar-linkage-smoke.mjs",
@@ -19,6 +20,7 @@
   },
   "dependencies": {
     "@edgeone/pages-blob": "^0.0.14",
-    "@neondatabase/serverless": "1.1.0"
+    "@neondatabase/serverless": "1.1.0",
+    "pdfjs-dist": "^4.10.38"
   }
 }

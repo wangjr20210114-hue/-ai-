@@ -18,12 +18,12 @@ class MediaBinding:
 
 
 def bind_reviewed_media(evidence: SearchEvidence) -> tuple[MediaBinding, ...]:
-    """Bind only reviewed media whose source ID and URL agree exactly."""
+    """Bind only trusted media whose source ID and URL agree exactly."""
     sources = {source.id: source for source in evidence.sources}
     return tuple(
         MediaBinding(media=item, source=sources[item.source_id])
         for item in evidence.media
-        if item.vision_reviewed
+        if item.trusted_for_display
         and item.source_id in sources
         and item.source_url == sources[item.source_id].url
     )

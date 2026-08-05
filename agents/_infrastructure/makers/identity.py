@@ -11,6 +11,7 @@ from typing import Any
 
 from ..._domain.identity import TenantIdentity
 from .data_version import CONVERSATION_PREFIX
+from ..._application.i18n import text
 
 
 class AuthError(ValueError):
@@ -21,7 +22,7 @@ def required_user_id(value: Any) -> str:
     """Fail closed when a storage/model operation lacks authenticated scope."""
     user_id = str(value or "").strip()
     if not user_id:
-        raise AuthError("缺少经过验证的用户身份")
+        raise AuthError(text("auth.identity_required"))
     return user_id
 
 
@@ -86,27 +87,27 @@ def _base64url_decode(value: str) -> bytes:
 def _verify_session(token: str, secret: str) -> dict[str, Any]:
     parts = str(token or "").split(".")
     if len(parts) != 3:
-        raise AuthError("需要有效的登录会话")
+        raise AuthError(text("auth.session_required"))
     try:
         header = json.loads(_base64url_decode(parts[0]).decode("utf-8"))
         payload = json.loads(_base64url_decode(parts[1]).decode("utf-8"))
         supplied_signature = _base64url_decode(parts[2])
     except Exception as exc:
-        raise AuthError("登录会话格式无效") from exc
+        raise AuthError(text("auth.session_format_invalid")) from exc
     if header.get("alg") != "HS256" or header.get("typ") != "JWT":
-        raise AuthError("登录会话算法无效")
+        raise AuthError(text("auth.session_algorithm_invalid"))
     expected_signature = hmac.new(
         secret.encode("utf-8"),
         f"{parts[0]}.{parts[1]}".encode("utf-8"),
         hashlib.sha256,
     ).digest()
     if not hmac.compare_digest(supplied_signature, expected_signature):
-        raise AuthError("登录会话签名无效")
+        raise AuthError(text("auth.session_signature_invalid"))
     now = int(time.time())
     if int(payload.get("exp") or 0) <= now:
-        raise AuthError("登录会话已过期")
+        raise AuthError(text("auth.session_expired"))
     if int(payload.get("nbf") or 0) > now:
-        raise AuthError("登录会话尚未生效")
+        raise AuthError(text("auth.session.not_yet_valid"))
     return payload
 
 
@@ -129,7 +130,7 @@ def _identity_from_payload(
         payload.get("sub") or payload.get("subject_id") or ""
     ).strip()
     if not tenant_id or not subject_id:
-        raise AuthError("登录会话缺少租户或用户身份")
+        raise AuthError(text("auth.session_identity_missing"))
     session_id = str(
         payload.get("sid")
         or payload.get("jti")
@@ -144,7 +145,7 @@ def _identity_from_payload(
             session_id=session_id,
         )
     except ValueError as exc:
-        raise AuthError(str(exc)) from exc
+        raise AuthError(text("auth.identity_invalid")) from exc
 
 
 class MakerIdentityResolver:
@@ -159,7 +160,7 @@ class MakerIdentityResolver:
         env = getattr(ctx, "env", None) or {}
         secret = _env_value(env, "JWT_SECRET").strip()
         if len(secret) < 32:
-            raise AuthError("服务端登录签名尚未配置")
+            raise AuthError(text("auth.server_signature_missing"))
         token = _session_token(ctx)
         return _identity_from_payload(_verify_session(token, secret), token)
 
@@ -168,7 +169,7 @@ def require_user(ctx: Any) -> dict[str, Any]:
     env = getattr(ctx, "env", None) or {}
     secret = _env_value(env, "JWT_SECRET").strip()
     if len(secret) < 32:
-        raise AuthError("服务端登录签名尚未配置")
+        raise AuthError(text("auth.server_signature_missing"))
     token = _session_token(ctx)
     payload = _verify_session(token, secret)
     identity = _identity_from_payload(payload, token)
@@ -204,7 +205,7 @@ def require_user(ctx: Any) -> dict[str, Any]:
 def scoped_conversation_id(ctx: Any, user_id: str, conversation_id: str | None = None) -> str:
     raw = str(conversation_id if conversation_id is not None else getattr(ctx, "conversation_id", "") or "")
     if not raw or len(raw) > 180:
-        raise ValueError("无效会话 ID")
+        raise ValueError(text("auth.conversation_id_invalid"))
     digest = hashlib.sha256(
         f"{str(user_id or '')}:{raw}".encode("utf-8")
     ).hexdigest()[:32]

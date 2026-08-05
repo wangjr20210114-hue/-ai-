@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../../../shared/types';
+import type { ChatMessage } from '../../chat/model';
 import { useLanguage } from '../../../i18n';
 import PaperInlineReader from './PaperInlineReader';
 import PaperListCard from './PaperListCard';
@@ -6,7 +6,6 @@ import PaperListCard from './PaperListCard';
 
 export function PaperRenderer({ message }: { message: ChatMessage }) {
   const { t } = useLanguage();
-  if (message.streaming) return null;
   return <>
     {message.papers && message.papers.length > 0 && (
       <div style={{ marginTop: 12, width: '100%' }}>

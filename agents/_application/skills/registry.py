@@ -14,8 +14,6 @@ logic.
 
 from __future__ import annotations
 
-import importlib
-import inspect
 import json
 import re
 from functools import lru_cache
@@ -24,11 +22,7 @@ from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 from ..._domain.skills.manifest import SkillManifest, SkillToolBinding
-from .runtime_ports import (
-    SERVICE_PERMISSIONS,
-    SkillServices,
-)
-
+from ..i18n import text
 SKILL_MANIFEST_SCHEMA_VERSION = 2
 SYSTEM_ADAPTER_PREFIX = "agents._skill_adapters."
 _SKILL_ID = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
@@ -45,12 +39,10 @@ _PERMISSIONS = {
     "conversation.read",
     "user.read",
     "browser.location",
-    "components.system",
 }
 from .component_api import (  # noqa: E402
     COMPONENT_PERMISSIONS,
     PUBLIC_COMPONENT_ACTIONS,
-    component_envelope,
     component_permission,
     known_component_actions,
 )
@@ -58,241 +50,10 @@ from .component_api import (  # noqa: E402
 _PERMISSIONS.update(COMPONENT_PERMISSIONS)
 
 
-def _runtime_root_package() -> str:
-    """Return ``agents`` locally and EdgeOne's ``pages_agents`` after bundling."""
-    package = str(__package__ or "agents._application.skills")
-    for marker in (
-        "._application",
-        "._infrastructure",
-        "._domain",
-        "._presenters",
-        "._controllers",
-    ):
-        if marker in package:
-            return package.split(marker, 1)[0]
-    return package.split(".", 1)[0]
 
 
-def _runtime_module_name(module_name: str) -> str:
-    """Translate source entry points into the package name chosen by Makers."""
-    clean_name = str(module_name or "").strip()
-    if clean_name == "agents":
-        return _runtime_root_package()
-    if clean_name.startswith("agents."):
-        return f"{_runtime_root_package()}{clean_name[len('agents'):]}"
-    return clean_name
 
 
-class SkillRuntimeContext:
-    """Least-privilege Makers handles exposed to one plug-in adapter."""
-
-    __slots__ = (
-        "skill_id",
-        "permissions",
-        "conversation_id",
-        "request_id",
-        "tenant_id",
-        "user_id",
-        "env",
-        "_state_store",
-        "_checkpointer",
-        "_model",
-        "_tracer",
-        "_browser_location",
-        "_components",
-        "_component_actions",
-        "_services",
-        "_kind",
-    )
-
-    def __init__(self, manifest: SkillManifest, runtime: Mapping[str, Any]):
-        self.skill_id = manifest.id
-        self._kind = manifest.kind
-        self.permissions = manifest.permissions
-        self.conversation_id = (
-            str(runtime.get("conversation_id") or "")
-            if "conversation.read" in self.permissions
-            else ""
-        )
-        raw_identity = (
-            runtime.get("identity")
-            if isinstance(runtime.get("identity"), Mapping)
-            else {}
-        )
-        self.request_id = str(
-            runtime.get("request_id")
-            or raw_identity.get("request_id")
-            or self.conversation_id
-            or ""
-        )
-        self.tenant_id = (
-            str(
-                raw_identity.get("tenant_id")
-                or runtime.get("tenant_id")
-                or ""
-            )
-            if "user.read" in self.permissions
-            else ""
-        )
-        self.user_id = (
-            str(
-                raw_identity.get("subject_id")
-                or raw_identity.get("user_id")
-                or runtime.get("user_id")
-                or ""
-            )
-            if "user.read" in self.permissions
-            else ""
-        )
-        raw_env = runtime.get("env") if isinstance(runtime.get("env"), Mapping) else {}
-        self.env = MappingProxyType({
-            key: raw_env.get(key)
-            for key in manifest.env_keys
-            if key in raw_env
-        })
-        self._state_store = (
-            runtime.get("state_store")
-            if "makers.state" in self.permissions
-            else None
-        )
-        self._checkpointer = (
-            runtime.get("checkpointer")
-            if "makers.checkpointer" in self.permissions
-            else None
-        )
-        self._model = (
-            runtime.get("model")
-            if "makers.model" in self.permissions
-            else None
-        )
-        self._tracer = (
-            runtime.get("tracer")
-            if "makers.trace" in self.permissions
-            else None
-        )
-        self._browser_location = (
-            dict(runtime.get("browser_location") or {})
-            if "browser.location" in self.permissions
-            else {}
-        )
-        self._components = (
-            runtime.get("components")
-            if isinstance(runtime.get("components"), Mapping)
-            else {}
-        )
-        self._component_actions = frozenset(manifest.component_actions)
-        services = runtime.get("services")
-        self._services = (
-            services
-            if isinstance(services, (Mapping, SkillServices))
-            else {}
-        )
-
-    @property
-    def state_store(self):
-        self.require("makers.state")
-        return self._state_store
-
-    @property
-    def checkpointer(self):
-        self.require("makers.checkpointer")
-        return self._checkpointer
-
-    @property
-    def model(self):
-        self.require("makers.model")
-        return self._model
-
-    @property
-    def tracer(self):
-        self.require("makers.trace")
-        return self._tracer
-
-    @property
-    def browser_location(self) -> dict[str, Any]:
-        self.require("browser.location")
-        return dict(self._browser_location)
-
-    def blob_store(self, name: str, *, consistency: str = "strong"):
-        """Return an EdgeOne Makers Blob store only when explicitly declared."""
-        self.require("makers.blob")
-        from pages_blob import get_store
-
-        clean_name = str(name or "").strip()
-        if not clean_name:
-            raise ValueError("Makers Blob store name is required")
-        return get_store(clean_name, consistency=consistency)
-
-    def component(self, action: str):
-        """Return one host-provided typed component action after permission checks."""
-        clean_action = str(action or "").strip()
-        if clean_action not in known_component_actions():
-            raise ValueError(f"Unknown Floris component action {clean_action!r}")
-        if clean_action not in self._component_actions:
-            raise PermissionError(
-                f"Skill {self.skill_id} did not declare component action "
-                f"{clean_action}"
-            )
-        permission = component_permission(clean_action)
-        if (
-            permission not in self.permissions
-            and not (
-                self._kind == "system"
-                and "components.system" in self.permissions
-            )
-        ):
-            raise PermissionError(
-                f"Skill {self.skill_id} did not declare component permission {permission}"
-            )
-        handler = self._components.get(clean_action)
-        if not callable(handler):
-            raise RuntimeError(f"Component action {clean_action} is unavailable")
-        def dispatch(payload: Mapping[str, Any]):
-            envelope = component_envelope(
-                clean_action,
-                payload,
-                request_id=self.request_id,
-                tenant_id=self.tenant_id,
-                user_id=self.user_id,
-            )
-            return handler(envelope)
-
-        return dispatch
-
-    def service(self, name: str):
-        """Return only a declared, controller-supplied application service."""
-        clean_name = str(name or "").strip()
-        permission = SERVICE_PERMISSIONS.get(clean_name)
-        if permission is None:
-            raise ValueError(f"Unknown Skill service {clean_name!r}")
-        if permission not in self.permissions:
-            raise PermissionError(
-                f"Skill {self.skill_id} did not declare service permission "
-                f"{permission}"
-            )
-        value = (
-            self._services.get(clean_name)
-            if isinstance(self._services, Mapping)
-            else self._services.get(clean_name)
-        )
-        if value is None:
-            raise RuntimeError(f"Skill service {clean_name} is unavailable")
-        return value
-
-    def trace(self, name: str, attributes: Mapping[str, Any] | None = None) -> None:
-        self.require("makers.trace")
-        event = getattr(self._tracer, "event", None)
-        if callable(event):
-            event(
-                f"skill.{self.skill_id}.{str(name or 'event')[:80]}",
-                dict(attributes or {}),
-            )
-
-    def require(self, permission: str) -> None:
-        if permission not in self.permissions:
-            raise PermissionError(
-                f"Skill {self.skill_id} did not declare permission {permission}"
-            )
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:
@@ -388,6 +149,7 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
             name=name,
             capability=capability,
             required=bool(item.get("required", True)),
+            publishes=_string_tuple(item.get("publishes")),
         ))
     action_kinds = _string_tuple(raw.get("action_kinds"))
     if any(not _ACTION_ID.fullmatch(item) for item in action_kinds):
@@ -401,8 +163,6 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         raise ValueError(
             f"{source}: unknown Makers permissions {sorted(unknown_permissions)}"
         )
-    if kind != "system" and "components.system" in permissions:
-        raise ValueError(f"{source}: only system Skills may request components.system")
     component_actions = _string_tuple(raw.get("component_actions"))
     unknown_component_actions = set(component_actions) - set(
         known_component_actions()
@@ -411,11 +171,40 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         raise ValueError(
             f"{source}: unknown component actions {sorted(unknown_component_actions)}"
         )
+    published_component_actions = {
+        action
+        for binding in tool_bindings
+        for action in binding.publishes
+    }
+    non_public_tool_publications = (
+        published_component_actions - set(PUBLIC_COMPONENT_ACTIONS)
+    )
+    if non_public_tool_publications:
+        raise ValueError(
+            f"{source}: tools may publish only public component actions "
+            f"{sorted(non_public_tool_publications)}"
+        )
+    undeclared_tool_publications = (
+        published_component_actions - set(component_actions)
+    )
+    if undeclared_tool_publications:
+        raise ValueError(
+            f"{source}: tool publications must be declared in component_actions "
+            f"{sorted(undeclared_tool_publications)}"
+        )
+    if str(raw.get("adapter") or "").strip():
+        unused_component_actions = (
+            set(component_actions) - published_component_actions
+        )
+        if unused_component_actions:
+            raise ValueError(
+                f"{source}: executable adapter declares unused component actions "
+                f"{sorted(unused_component_actions)}"
+            )
     missing_component_permissions = {
         component_permission(action)
         for action in component_actions
         if component_permission(action) not in permissions
-        and not (kind == "system" and "components.system" in permissions)
     }
     if missing_component_permissions:
         raise ValueError(
@@ -457,15 +246,6 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
     recovery_tools = _string_tuple(planner.get("recovery_tools"))
     if any(not _TOOL_ID.fullmatch(item) for item in recovery_tools):
         raise ValueError(f"{source}: invalid planner recovery tool")
-    unavailable_fallback = str(
-        raw.get("unavailable_fallback") or "block"
-    ).strip()
-    if unavailable_fallback not in {"block", "model_only"}:
-        raise ValueError(f"{source}: invalid unavailable fallback")
-    if unavailable_fallback != "block" and kind != "system":
-        raise ValueError(
-            f"{source}: only trusted system Skills may declare a fallback"
-        )
     manifest = SkillManifest(
         id=skill_id,
         version=version,
@@ -488,10 +268,6 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         requires=_string_tuple(raw.get("requires")),
         recommends=_string_tuple(raw.get("recommends")),
         conflicts=_string_tuple(raw.get("conflicts")),
-        degrade_when_capabilities=_string_tuple(
-            raw.get("degrade_when_capabilities")
-        ),
-        unavailable_fallback=unavailable_fallback,
         permissions=permissions,
         env_keys=_string_tuple(raw.get("env_keys")),
         adapter=str(raw.get("adapter") or "").strip(),
@@ -507,7 +283,11 @@ def _parse_manifest(raw: Mapping[str, Any], source: str) -> SkillManifest:
         prompt_topic=str(planner.get("topic") or "").strip()[:64],
         prompt_instructions=str(
             planner.get("instructions")
-            or raw.get("_skill_instructions")
+            or (
+                raw.get("_skill_instructions")
+                if kind != "system"
+                else ""
+            )
             or ""
         ).strip()[:4000],
         prompt_recovery_tools=recovery_tools,
@@ -560,15 +340,6 @@ def _validate_registry(manifests: Iterable[SkillManifest]) -> tuple[SkillManifes
             )
         if manifest.id in related:
             raise ValueError(f"Skill {manifest.id} cannot relate to itself")
-        missing_capabilities = (
-            set(manifest.degrade_when_capabilities) - set(capability_owner)
-        )
-        if missing_capabilities:
-            raise ValueError(
-                f"Skill {manifest.id} references missing degradation "
-                f"capabilities {sorted(missing_capabilities)}"
-            )
-
     visiting: set[str] = set()
     visited: set[str] = set()
 
@@ -654,6 +425,14 @@ def skill_manifest(skill_id: str) -> SkillManifest | None:
 
 def known_skill_ids() -> frozenset[str]:
     return frozenset(manifest.id for manifest in skill_manifests())
+
+
+def skill_required_plans() -> dict[str, str]:
+    """Return the entitlement floor declared by each trusted package."""
+    return {
+        manifest.id: manifest.required_plan
+        for manifest in skill_manifests()
+    }
 
 
 def default_skill_preferences() -> dict[str, bool]:
@@ -762,14 +541,6 @@ def enabled_skills_from_preferences(
     return resolve_enabled_skills(enabled)
 
 
-def capability_is_enabled(
-    capability: str,
-    preferences: Mapping[str, Any] | None,
-) -> bool:
-    owner = capability_skill_map().get(str(capability or "").strip())
-    return bool(owner and owner in enabled_skills_from_preferences(preferences))
-
-
 def capability_skill_map() -> dict[str, str]:
     return {
         capability: manifest.id
@@ -783,23 +554,6 @@ def skill_plan_flags() -> dict[str, tuple[str, ...]]:
         manifest.id: manifest.plan_flags
         for manifest in skill_manifests()
         if manifest.plan_flags
-    }
-
-
-def skill_degradation_capabilities() -> dict[str, tuple[str, ...]]:
-    return {
-        manifest.id: manifest.degrade_when_capabilities
-        for manifest in skill_manifests()
-        if manifest.degrade_when_capabilities
-    }
-
-
-def skill_unavailable_fallbacks() -> dict[str, str]:
-    """Return manifest-owned behavior when an entitled Skill is unavailable."""
-    return {
-        manifest.id: manifest.unavailable_fallback
-        for manifest in skill_manifests()
-        if manifest.unavailable_fallback != "block"
     }
 
 
@@ -870,25 +624,50 @@ def skill_is_configured(
     )
 
 
-def planner_skill_index() -> str:
+def _planner_summary(manifest: SkillManifest, response_language: object) -> str:
+    if manifest.kind == "system":
+        return text(
+            f"model.skill.{manifest.id}.summary",
+            response_language,
+        )
+    return manifest.planner_summary
+
+
+def _planner_instructions(
+    manifest: SkillManifest,
+    response_language: object,
+) -> str:
+    if manifest.kind == "system":
+        return text(
+            f"model.skill.{manifest.id}.instructions",
+            response_language,
+        )
+    return manifest.prompt_instructions
+
+
+def planner_skill_index(response_language: object = "zh-CN") -> str:
     lines = []
     for manifest in skill_manifests():
-        if not manifest.capabilities or not manifest.planner_summary:
+        summary = _planner_summary(manifest, response_language)
+        if not manifest.capabilities or not summary:
             continue
         lines.append(
-            f"- {manifest.id}: {manifest.planner_summary} "
+            f"- {manifest.id}: {summary} "
             f"[capabilities: {', '.join(manifest.capabilities)}]"
         )
     return "\n".join(lines)
 
 
-def planner_topic_summaries() -> dict[str, str]:
+def planner_topic_summaries(
+    response_language: object = "zh-CN",
+) -> dict[str, str]:
     """Return manifest-owned semantic retrieval topics."""
     summaries: dict[str, list[str]] = {}
     for manifest in skill_manifests():
-        if manifest.prompt_topic and manifest.planner_summary:
+        summary = _planner_summary(manifest, response_language)
+        if manifest.prompt_topic and summary:
             summaries.setdefault(manifest.prompt_topic, []).append(
-                manifest.planner_summary
+                summary
             )
     return {
         topic: " ".join(dict.fromkeys(values))
@@ -896,18 +675,32 @@ def planner_topic_summaries() -> dict[str, str]:
     }
 
 
-def planner_topic_instructions() -> dict[str, str]:
+def planner_topic_instructions(
+    response_language: object = "zh-CN",
+) -> dict[str, str]:
     """Return optional plug-in prompt fragments keyed by semantic topic."""
     details: dict[str, list[str]] = {}
     for manifest in skill_manifests():
-        if manifest.prompt_topic and manifest.prompt_instructions:
+        instructions = _planner_instructions(manifest, response_language)
+        if manifest.prompt_topic and instructions:
             details.setdefault(manifest.prompt_topic, []).append(
-                manifest.prompt_instructions
+                instructions
             )
-    return {
+    result = {
         topic: "\n".join(dict.fromkeys(values))
         for topic, values in details.items()
     }
+    for topic, summary in planner_topic_summaries(response_language).items():
+        result.setdefault(
+            topic,
+            text(
+                "model.planner.skill_boundary",
+                response_language,
+                topic=topic,
+                summary=summary,
+            ),
+        )
+    return result
 
 
 def planner_topic_tools() -> dict[str, tuple[str, ...]]:
@@ -924,119 +717,3 @@ def planner_topic_tools() -> dict[str, tuple[str, ...]]:
         topic: tuple(dict.fromkeys(names))
         for topic, names in result.items()
     }
-
-
-def build_adapter_tools(
-    runtime: Mapping[str, Any],
-    enabled_skills: Iterable[str],
-) -> list[Any]:
-    """Discover and build tools supplied by plug-in adapters.
-
-    Adapters are ordinary repository-owned Python callables declared as
-    ``package.module:function``. They receive only SkillRuntimeContext handles
-    allowed by their manifest and must return tools whose names the manifest
-    owns.
-    """
-    enabled = set(resolve_enabled_skills(enabled_skills))
-    raw_identity = (
-        runtime.get("identity")
-        if isinstance(runtime.get("identity"), Mapping)
-        else {}
-    )
-    membership = str(
-        raw_identity.get("membership")
-        or runtime.get("membership")
-        or "free"
-    ).strip().lower()
-    plan_rank = {"guest": 0, "free": 1, "plus": 2, "pro": 3}
-    current_rank = plan_rank.get(membership, 1)
-    built: list[Any] = []
-    built_names: set[str] = set()
-    for manifest in skill_manifests():
-        if not manifest.adapter or manifest.id not in enabled:
-            continue
-        if any(dependency not in enabled for dependency in manifest.requires):
-            continue
-        if current_rank < plan_rank[manifest.required_plan]:
-            continue
-        if not all(
-            bool(str((runtime.get("env") or {}).get(key) or "").strip())
-            for key in manifest.provider_env
-        ):
-            continue
-        module_name, separator, attribute = manifest.adapter.partition(":")
-        if not separator or not module_name or not attribute:
-            raise ValueError(
-                f"Skill {manifest.id} adapter must be package.module:function"
-            )
-        builder = getattr(
-            importlib.import_module(_runtime_module_name(module_name)),
-            attribute,
-        )
-        if not callable(builder):
-            raise TypeError(f"Skill {manifest.id} adapter is not callable")
-        context = SkillRuntimeContext(manifest, runtime)
-        result = builder(context)
-        if inspect.isawaitable(result):
-            raise TypeError(f"Skill {manifest.id} adapter builder must be synchronous")
-        tools = list(result or [])
-        declared = {binding.name for binding in manifest.tools}
-        returned = {str(getattr(tool, "name", "") or "") for tool in tools}
-        if len(returned) != len(tools) or "" in returned:
-            raise ValueError(
-                f"Skill {manifest.id} adapter returned duplicate or unnamed tools"
-            )
-        if not returned.issubset(declared):
-            raise ValueError(
-                f"Skill {manifest.id} adapter returned undeclared tools "
-                f"{sorted(returned - declared)}"
-            )
-        required = {
-            binding.name
-            for binding in manifest.tools
-            if binding.required
-        }
-        missing_required = required - returned
-        if missing_required:
-            raise ValueError(
-                f"Skill {manifest.id} adapter did not return required tools "
-                f"{sorted(missing_required)}"
-            )
-        duplicate_global = built_names.intersection(returned)
-        if duplicate_global:
-            raise ValueError(
-                "Skill adapter tool names must be globally unique: "
-                f"{sorted(duplicate_global)}"
-            )
-        built_names.update(returned)
-        built.extend(tools)
-    return built
-
-
-async def run_preference_hooks(
-    runtime: Mapping[str, Any],
-    previous: Mapping[str, Any],
-    current: Mapping[str, Any],
-) -> None:
-    """Notify only Skills whose effective user preference changed."""
-    for manifest in skill_manifests():
-        if not manifest.preference_hook:
-            continue
-        before = bool(previous.get(manifest.id, manifest.default_enabled))
-        after = bool(current.get(manifest.id, manifest.default_enabled))
-        if before == after:
-            continue
-        module_name, separator, attribute = manifest.preference_hook.partition(":")
-        if not separator or not module_name or not attribute:
-            raise ValueError(
-                f"Skill {manifest.id} preference_hook must be package.module:function"
-            )
-        hook = getattr(
-            importlib.import_module(_runtime_module_name(module_name)),
-            attribute,
-        )
-        if not callable(hook):
-            raise TypeError(f"Skill {manifest.id} preference hook is not callable")
-        result = hook(SkillRuntimeContext(manifest, runtime), after)
-        if inspect.isawaitable(result):
-            await result

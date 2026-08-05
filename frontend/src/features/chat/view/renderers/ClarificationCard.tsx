@@ -8,7 +8,7 @@ import {
 } from '../../../../components/chat/clarificationSubmission';
 import { getStoredLanguage, useLanguage } from '../../../../i18n';
 import type { ChatClient } from '../../../../services/chatClient';
-import type { ClarificationPrompt } from '../../../../shared/types';
+import type { ClarificationPrompt } from '../../model';
 
 interface Props {
   clarification: ClarificationPrompt;
@@ -101,15 +101,17 @@ export function ClarificationCard({
         <legend>{field.label}{field.required ? t('requiredSingle') : ''}</legend>
         <div className="clarification-option-list">{options.map((option) => {
           const optionValue = clarificationOptionValue(field, option);
-          return <label key={option} className="clarification-option">
-            <input
-              type="radio"
-              name={`${clarification.id}-${field.id}`}
-              checked={value === optionValue}
-              onChange={() => chooseAndAdvance(field.id, optionValue)}
-            />
+          const selected = value === optionValue;
+          return <button
+            key={option}
+            type="button"
+            className={`clarification-option${selected ? ' is-selected' : ''}`}
+            aria-pressed={selected}
+            disabled={submitting || generationActive}
+            onClick={() => chooseAndAdvance(field.id, optionValue)}
+          >
             {option}
-          </label>;
+          </button>;
         })}</div>
       </fieldset>;
     }
@@ -149,7 +151,7 @@ export function ClarificationCard({
         value={typeof value === 'string' ? value : ''}
         placeholder={field.placeholder}
         step={field.type === 'time' ? 300 : undefined}
-        onChange={(event) => setValue(field.id, event.target.value)}
+        onInput={(event) => setValue(field.id, event.currentTarget.value)}
         onKeyDown={(event) => {
           if (event.key !== 'Enter' || !currentComplete) return;
           event.preventDefault();

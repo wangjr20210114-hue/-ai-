@@ -3,7 +3,7 @@ import { Button } from 'tdesign-react';
 
 import { nextWholeHourRange } from '../../../../components/chat/workspaceUi';
 import { useLanguage } from '../../../../i18n';
-import type { WorkspaceAction } from '../../../../shared/types';
+import type { WorkspaceAction } from '../../model';
 
 interface Props {
   action: WorkspaceAction;

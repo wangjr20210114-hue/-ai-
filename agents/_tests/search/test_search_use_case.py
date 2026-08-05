@@ -9,6 +9,7 @@ from agents._application.search.search_use_case import (
     SearchExecution,
     SearchRequest,
     SearchUseCase,
+    _ttl_seconds,
 )
 from agents._domain.search.evidence import SearchEvidence, SearchSource
 
@@ -53,7 +54,15 @@ class InMemoryEvidenceRepository:
         value = self.records.get((subject_id, cache_key))
         return EvidenceRecord(value, cache_hit=True, coalesced=False) if value else None
 
-    async def put(self, subject_id, cache_key, value, *, ttl_seconds):
+    async def put(
+        self,
+        subject_id,
+        cache_key,
+        value,
+        *,
+        ttl_seconds,
+        metadata=None,
+    ):
         self.records[(subject_id, cache_key)] = value
 
 
@@ -73,6 +82,19 @@ def request(*, force_refresh: bool = False) -> SearchRequest:
 
 
 class SearchUseCaseTests(unittest.IsolatedAsyncioTestCase):
+    def test_recent_intent_is_explicit_on_the_request_contract(self):
+        recent = replace(request(), prefer_recent_results=True)
+        ordinary = request()
+        self.assertTrue(recent.prefer_recent_results)
+        self.assertFalse(ordinary.prefer_recent_results)
+        self.assertEqual(_ttl_seconds(recent), 120)
+        self.assertEqual(_ttl_seconds(ordinary), 600)
+
+    def test_ttl_does_not_infer_recent_intent_from_query_words(self):
+        ordinary = replace(request(), query="latest recent current")
+        self.assertFalse(ordinary.prefer_recent_results)
+        self.assertEqual(_ttl_seconds(ordinary), 600)
+
     async def test_execute_calls_provider_once_and_never_caches_answer(self):
         provider = FakeSearchPort()
         repository = InMemoryEvidenceRepository()

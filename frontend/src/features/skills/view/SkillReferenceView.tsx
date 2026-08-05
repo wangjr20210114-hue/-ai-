@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { ChevronLeftIcon, ChevronRightIcon } from 'tdesign-icons-react';
 
 import type { TranslationKey } from '../../../i18n';
-import type { SkillComponentApi } from '../../../shared/types';
+import type { SkillComponentApi } from '../model';
 import type { SkillMarketplaceController } from './SkillsMarketplaceShell';
 
 const DOC_SECTIONS = [
@@ -19,40 +19,63 @@ const ERROR_CODES = [
   ['PERMISSION_DENIED', 'componentDocsErrorPermission'],
   ['CONFLICT', 'componentDocsErrorConflict'],
 ] as const;
-const CATEGORY_ORDER = ['search', 'maps', 'calendar', 'image'];
+const CATEGORY_ORDER = ['chat', 'search', 'maps', 'calendar', 'paper', 'image', 'workspace'];
 const CATEGORY_LABELS: Record<string, TranslationKey> = {
+  chat: 'componentDocsCategoryChat',
   search: 'componentDocsCategorySearch',
   maps: 'componentDocsCategoryMaps',
   calendar: 'componentDocsCategoryCalendar',
+  paper: 'componentDocsCategoryPaper',
   image: 'componentDocsCategoryImage',
+  workspace: 'componentDocsCategoryWorkspace',
 };
 
 type ComponentAction = SkillComponentApi['actions'][number];
+type Translate = SkillMarketplaceController['t'];
 
-function actionExample(action: ComponentAction) {
+function actionExample(action: ComponentAction, t: Translate) {
   const examples: Record<string, Record<string, unknown>> = {
+    'clarification.request': {
+      action: action.id,
+      payload: {
+        clarification: {
+          id: 'travel-budget',
+          title: t('componentExampleBudgetTitle'),
+          prompt: t('componentExampleBudgetPrompt'),
+          fields: [{ id: 'budget', label: t('componentExampleBudgetLabel'), type: 'single', options: [t('componentExampleEconomy'), t('componentExampleStandard'), t('componentExampleUndecided')] }],
+        },
+      },
+    },
     'search.evidence.publish': {
       action: action.id,
-      payload: { source_id: 'source-01', title: 'Product announcement', url: 'https://example.com/news' },
+      payload: { source_id: 'source-01', title: t('componentExampleAnnouncement'), url: 'https://example.com/news' },
     },
     'search.media.publish': {
       action: action.id,
-      payload: { source_id: 'source-01', media: [{ url: 'https://example.com/photo.jpg', alt: 'Launch event' }] },
+      payload: { source_id: 'source-01', media: [{ url: 'https://example.com/photo.jpg', alt: t('componentExampleLaunchEvent') }] },
     },
     'maps.place.select': {
       action: action.id,
-      payload: { places: [{ name: 'People Square', lat: 31.2304, lng: 121.4737 }] },
+      payload: { places: [{ name: t('componentExamplePlace'), lat: 31.2304, lng: 121.4737 }] },
     },
     'calendar.change.propose': {
       action: action.id,
       payload: {
-        changes: [{ operation: 'create', title: 'Project sync', start_at: '2026-08-03T10:00:00+08:00' }],
+        changes: [{ operation: 'create', title: t('componentExampleProjectSync'), start_at: '2026-08-03T10:00:00+08:00' }],
         warnings: [],
       },
     },
     'image.result.publish': {
       action: action.id,
-      payload: { storage_key: 'images/result.png', versions: [{ label: 'Original' }] },
+      payload: { storage_key: 'images/result.png', versions: [{ label: t('componentExampleOriginal') }] },
+    },
+    'paper.results.publish': {
+      action: action.id,
+      payload: { papers: [{ title: 'Attention Is All You Need', arxiv_id: '1706.03762' }], topic: t('componentExampleTransformer') },
+    },
+    'workspace.action.propose': {
+      action: action.id,
+      payload: { kind: 'meeting_create', payload: { subject: t('componentExampleProjectSync'), start_time: '2026-08-05T10:00:00+08:00' } },
     },
   };
   if (examples[action.id]) return examples[action.id];
@@ -72,7 +95,7 @@ export function SkillReferenceView({
   controller: SkillMarketplaceController;
 }) {
   const { marketplace, skillText, t } = controller;
-  const [tocCollapsed, setTocCollapsed] = useState(false);
+  const [tocCollapsed, setTocCollapsed] = useState(true);
   const actions = useMemo(
     () => marketplace?.component_api.actions || [],
     [marketplace?.component_api.actions],
@@ -96,7 +119,7 @@ export function SkillReferenceView({
       permission: 'components.calendar',
       description: '',
       input: {},
-    },
+    }, t,
   ), null, 2);
 
   return (
@@ -164,12 +187,11 @@ export function SkillReferenceView({
             >
               <h3>{t(CATEGORY_LABELS[category] || 'componentDocsCategoryOther')}</h3>
               {categoryActions.map((action) => {
-                const example = JSON.stringify(actionExample(action), null, 2);
+                const example = JSON.stringify(actionExample(action, t), null, 2);
                 return <section className="component-api-entry" id={`component-action-${action.id}`} key={action.id}>
                   <h4>{skillText(action.name, action.id)}</h4>
                   <p><code>{action.id}</code></p>
                   <p>{skillText(action.description_i18n, action.description)}</p>
-                  <p className="component-api-permission"><strong>{t('componentDocsPermission')}</strong><code>{action.permission}</code></p>
                   <table aria-label={t('componentDocsParameters')}>
                     <thead><tr><th>{t('componentDocsParameter')}</th><th>{t('componentDocsType')}</th><th>{t('componentDocsRequired')}</th></tr></thead>
                     <tbody>

@@ -7,6 +7,7 @@ from agents._domain.search.evidence import (
     SearchEvidence,
     SearchSource,
 )
+from agents._application.search.evidence_presenter import present_search_evidence
 
 
 class SearchEvidenceTests(unittest.TestCase):
@@ -35,11 +36,12 @@ class SearchEvidenceTests(unittest.TestCase):
             total=1,
         )
 
-        model_evidence = evidence.for_model()
+        model_evidence = present_search_evidence(evidence)
 
         self.assertIn("[架构资料](https://example.test/architecture)", model_evidence)
         self.assertIn("source-1", model_evidence)
-        self.assertNotIn("https://cdn.example.test/architecture.jpg", model_evidence)
+        self.assertIn("source_id=source-1", model_evidence)
+        self.assertIn("发布者域=example.test", model_evidence)
         self.assertNotIn("最终回答", model_evidence)
         self.assertNotIn("![", model_evidence)
         self.assertNotIn("MEDIA_SLOT", model_evidence)
@@ -64,6 +66,57 @@ class SearchEvidenceTests(unittest.TestCase):
                 ),
             )
 
+    def test_model_evidence_requires_real_publisher_diversity_when_available(self):
+        evidence = SearchEvidence(
+            query="近期进展",
+            sources=(
+                SearchSource(
+                    id="source-1",
+                    title="机构公告",
+                    url="https://news.example.test/one",
+                    snippet="第一项事实",
+                    publisher_domain="example.test",
+                ),
+                SearchSource(
+                    id="source-2",
+                    title="独立公告",
+                    url="https://official.example.org/two",
+                    snippet="第二项事实",
+                    publisher_domain="example.org",
+                ),
+            ),
+        )
+
+        model_evidence = present_search_evidence(evidence)
+
+        self.assertIn("包含 2 个独立发布者域", model_evidence)
+        self.assertIn("必须覆盖至少两个发布者域", model_evidence)
+        self.assertIn("不得把同一发布者的系列文章", model_evidence)
+
+    def test_model_evidence_discloses_when_publishers_are_concentrated(self):
+        evidence = SearchEvidence(
+            query="近期进展",
+            sources=(
+                SearchSource(
+                    id="source-1",
+                    title="系列一",
+                    url="https://news.example.test/one",
+                    snippet="第一项事实",
+                ),
+                SearchSource(
+                    id="source-2",
+                    title="系列二",
+                    url="https://news.example.test/two",
+                    snippet="第二项事实",
+                ),
+            ),
+        )
+
+        model_evidence = present_search_evidence(evidence)
+
+        self.assertIn("只有 1 个独立发布者域", model_evidence)
+        self.assertIn("不得声称已经得到多方独立核验", model_evidence)
+
     def test_rejects_empty_source_identity(self):
         with self.assertRaisesRegex(ValueError, "source id"):
             SearchSource(id="", title="气象局", url="https://a.test/1", snippet="晴")
@@ -80,6 +133,9 @@ class SearchEvidenceTests(unittest.TestCase):
                     url="https://a.test/1",
                     snippet="晴",
                     published_at="2026-07-31",
+                    publisher="Example Publisher",
+                    publisher_domain="a.test",
+                    relevance_score=0.91,
                 ),
             ),
             media=(
@@ -101,6 +157,9 @@ class SearchEvidenceTests(unittest.TestCase):
         self.assertEqual(restored, evidence)
         self.assertIsInstance(restored.sources, tuple)
         self.assertIsInstance(restored.media, tuple)
+        self.assertEqual(restored.sources[0].publisher, "Example Publisher")
+        self.assertEqual(restored.sources[0].publisher_domain, "a.test")
+        self.assertEqual(restored.sources[0].relevance_score, 0.91)
 
 
 if __name__ == "__main__":

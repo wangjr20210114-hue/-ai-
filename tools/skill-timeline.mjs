@@ -1,9 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { extname } from 'node:path';
 
+import {
+  createSmokeClient,
+  createSmokeConversationId,
+} from './smoke-session.mjs';
+
 const baseUrl = String(
   process.env.FLORIS_SMOKE_BASE_URL || 'https://floris.jlutx.com',
 ).replace(/\/+$/, '');
+const authQuery = String(process.env.FLORIS_SMOKE_AUTH_QUERY || '').replace(/^\?/, '');
+const smoke = await createSmokeClient({ baseUrl, authQuery });
 const label = String(process.env.FLORIS_TIMELINE_LABEL || 'skill')
   .toLowerCase()
   .replace(/[^a-z0-9_-]+/g, '-')
@@ -11,7 +18,7 @@ const label = String(process.env.FLORIS_TIMELINE_LABEL || 'skill')
 const message = String(process.env.FLORIS_TIMELINE_MESSAGE || '').trim();
 if (!message) throw new Error('FLORIS_TIMELINE_MESSAGE is required');
 
-const conversationId = `yb7_skill_${label}_${Date.now()}`;
+const conversationId = createSmokeConversationId(`skill-${label}`);
 const startedAt = performance.now();
 const events = [];
 
@@ -84,7 +91,7 @@ const headers = {
   'Content-Type': 'application/json',
   'makers-conversation-id': conversationId,
 };
-const response = await fetch(`${baseUrl}/chat`, {
+const response = await smoke.fetch('/chat', {
   method: 'POST',
   headers,
   body: JSON.stringify({
@@ -113,7 +120,7 @@ if (buffer.trim()) record(buffer);
 
 let persisted = {};
 try {
-  const messagesResponse = await fetch(`${baseUrl}/messages`, {
+  const messagesResponse = await smoke.fetch('/messages', {
     method: 'POST',
     headers,
     body: JSON.stringify({ conversation_id: conversationId }),
@@ -137,6 +144,7 @@ try {
 process.stdout.write(`${JSON.stringify({
   label,
   base_url: baseUrl,
+  auth: smoke.auth,
   conversation_id: conversationId,
   total_ms: elapsedMs(),
   events,

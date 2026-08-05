@@ -7,10 +7,9 @@ import unittest
 from pathlib import Path
 
 from agents._application.chat import turn_service as turn_service_module
+from agents._application.chat import turn_search as turn_search_module
 from agents._application.chat.turn_context import (
-    answer_tool_names,
     experience_hints_for_plan,
-    model_only_search_fallback,
     search_request_for_plan,
 )
 
@@ -27,41 +26,55 @@ class ChatTurnBoundaryTests(unittest.TestCase):
     def test_controller_is_a_bounded_delegate_without_runtime_dependencies(self):
         controller_path = (
             Path(__file__).parents[2]
-            / "_application"
-            / "chat"
-            / "turn_controller.py"
+            / "_controllers"
+            / "chat_controller.py"
         )
         source = controller_path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        imported_names = {
+            alias.name
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+        }
 
         self.assertLessEqual(len(source.splitlines()), 100)
         self.assertIn("ChatTurnService(ctx)", source)
+        self.assertEqual(imported_names, {"ChatTurnService"})
         self.assertNotIn("_infrastructure", source)
         self.assertNotIn("SearchPro", source)
 
-    def test_planned_search_is_not_an_answer_graph_tool(self):
-        self.assertEqual(
-            answer_tool_names(("rich_search", "search_arxiv")),
-            ("search_arxiv",),
-        )
-
-    def test_runtime_search_failure_becomes_plain_model_fallback(self):
-        original = {
-            "needs_web_search": True,
-            "needs_images": True,
-            "needs_image_generation": False,
-            "_capabilities": ["web_search"],
+    def test_turn_service_delegates_policy_and_io_helpers(self):
+        service_path = Path(turn_service_module.__file__)
+        source = service_path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        local_functions = {
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        delegated = {
+            "checkpoint_dialogue_context",
+            "checkpoint_final_answer",
+            "direct_paper_tool_arguments",
+            "dynamic_system_prompt",
+            "normalize_browser_current_location",
+            "runtime_datetime_context",
+            "tools_for_capability_stage",
+        }
+        imports = {
+            node.module
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom)
         }
 
-        fallback = model_only_search_fallback(original)
+        self.assertLessEqual(len(source.splitlines()), 1_300)
+        self.assertTrue(delegated.isdisjoint(local_functions))
+        self.assertIn("turn_io", imports)
+        self.assertIn("turn_policy", imports)
 
-        self.assertTrue(original["needs_web_search"])
-        self.assertFalse(fallback["needs_web_search"])
-        self.assertFalse(fallback["needs_images"])
-        self.assertEqual(fallback["_capabilities"], [])
-        self.assertIn(
-            "web-search",
-            fallback["_runtime_model_fallback_skills"],
-        )
+    def test_search_experience_hint_is_presentation_only(self):
+        fallback = {"_runtime_model_fallback_skills": ["web-search"]}
         prompt = turn_service_module.dynamic_system_prompt(
             selected_tools=set(),
             now="2026-08-01 18:00 Asia/Shanghai",
@@ -84,6 +97,33 @@ class ChatTurnBoundaryTests(unittest.TestCase):
                 "login_required": True,
             }],
         )
+        self.assertEqual(
+            experience_hints_for_plan(fallback, auth_type="cloudbase"),
+            [{
+                "kind": "freshness",
+                "skill_ids": ["web-search"],
+                "login_required": False,
+            }],
+        )
+
+    def test_public_search_answer_cannot_narrate_media_pipeline_state(self):
+        prompt = turn_service_module.dynamic_system_prompt(
+            selected_tools={"rich_search"},
+            now="2026-08-05 02:30 Asia/Shanghai",
+            response_language_instruction="请使用简体中文回答。",
+            capability_plan={"needs_web_search": True, "needs_images": True},
+            calendar_context="",
+            reference_image_context="",
+            document_context="",
+            current_location_context="",
+            current_route_context="",
+            memory_context="",
+            public_answer=True,
+        )
+
+        self.assertIn("完全属于可信后端与前端 Presenter", prompt)
+        self.assertIn("不得评论候选图片是否存在、是否通过审核", prompt)
+        self.assertIn("只自然回答用户的主题", prompt)
 
     def test_disabled_non_search_skill_uses_a_small_presentation_hint(self):
         self.assertEqual(
@@ -115,6 +155,24 @@ class ChatTurnBoundaryTests(unittest.TestCase):
         self.assertIn("正文不要提及 Skill", prompt)
         self.assertIn("不得声称已生成媒体", prompt)
 
+    def test_explicit_downgrade_reason_overrides_auth_shape(self):
+        self.assertEqual(
+            experience_hints_for_plan(
+                {
+                    "_runtime_model_fallback_skills": ["web-search"],
+                    "_runtime_fallback_reasons": {
+                        "web-search": "degraded",
+                    },
+                },
+                auth_type="guest",
+            ),
+            [{
+                "kind": "freshness",
+                "skill_ids": ["web-search"],
+                "login_required": False,
+            }],
+        )
+
     def test_private_skill_context_is_lower_trust_and_cannot_authorize_tools(self):
         prompt = turn_service_module.dynamic_system_prompt(
             selected_tools=set(),
@@ -138,7 +196,9 @@ class ChatTurnBoundaryTests(unittest.TestCase):
         request = search_request_for_plan(
             {
                 "needs_web_search": True,
-                "needs_images": True,
+                # Ordinary rich search still owns its source-bound article
+                # media; it does not require a separate visual user request.
+                "needs_images": False,
                 "search_query": "Floris 最新架构",
                 "image_query": "Floris 界面",
             },
@@ -149,7 +209,6 @@ class ChatTurnBoundaryTests(unittest.TestCase):
             result_limit=8,
             image_limit=4,
             parallel_queries=True,
-            vision_enabled=True,
             force_refresh=False,
         )
 
@@ -175,7 +234,6 @@ class ChatTurnBoundaryTests(unittest.TestCase):
             result_limit=8,
             image_limit=3,
             parallel_queries=True,
-            vision_enabled=True,
             force_refresh=False,
         )
 
@@ -191,41 +249,33 @@ class ChatTurnBoundaryTests(unittest.TestCase):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
             and node.name == "handler"
         )
-
-        self.assertLessEqual(len(handler.body), 2)
-        self.assertNotIn("SearchPro", source)
-        self.assertNotIn("_infrastructure.providers", source)
-
-    def test_production_controller_preexecutes_search_and_filters_answer_tools(self):
-        controller_path = (
-            Path(__file__).parents[2]
-            / "_application"
-            / "chat"
-            / "turn_service.py"
-        )
-        source = controller_path.read_text(encoding="utf-8")
-
-        self.assertIn("search_use_case.execute(", source)
-        self.assertIn("answer_tool_names(", source)
-
-    def test_turn_service_imports_its_search_evidence_annotation(self):
-        service_path = (
-            Path(__file__).parents[2]
-            / "_application"
-            / "chat"
-            / "turn_service.py"
-        )
-        tree = ast.parse(service_path.read_text(encoding="utf-8"))
         imported_names = {
-            alias.asname or alias.name
+            alias.name
             for node in tree.body
             if isinstance(node, ast.ImportFrom)
             for alias in node.names
         }
 
-        self.assertIn("SearchEvidence", imported_names)
+        self.assertLessEqual(len(handler.body), 2)
+        self.assertEqual(imported_names, {"ChatTurnController"})
+        self.assertNotIn("SearchPro", source)
+        self.assertNotIn("_infrastructure.providers", source)
 
-    def test_progressive_media_call_matches_the_domain_contract(self):
+    def test_production_search_use_case_preserves_the_rich_search_tool_contract(self):
+        service_source = Path(turn_service_module.__file__).read_text(encoding="utf-8")
+        search_source = Path(turn_search_module.__file__).read_text(encoding="utf-8")
+
+        self.assertIn("self._use_case.execute(", search_source)
+        self.assertIn("on_media=publish_media", search_source)
+        self.assertIn("self.background_tasks.extend(execution.media_tasks)", search_source)
+        self.assertIn("self._queue.put(self._presenter.media(completed))", search_source)
+        self.assertIn("rich_search_operation=search_runner.execute", service_source)
+        self.assertIn(
+            "required_tool_names = required_tools_for_plan(capability_plan)",
+            service_source,
+        )
+
+    def test_chat_uses_the_semantic_progressive_media_policy(self):
         service_path = (
             Path(__file__).parents[2]
             / "_application"
@@ -238,14 +288,16 @@ class ChatTurnBoundaryTests(unittest.TestCase):
             for node in ast.walk(tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
-            and node.func.id == "progressive_media_for_plan"
+            and node.func.id == "build_system_skill_tools"
         ]
 
         self.assertEqual(len(calls), 1)
-        self.assertEqual(len(calls[0].args), 1)
+        keywords = {keyword.arg: keyword.value for keyword in calls[0].keywords}
+        self.assertIsInstance(keywords["progressive_media"], ast.Call)
+        self.assertIsInstance(keywords["progressive_media"].func, ast.Name)
         self.assertEqual(
-            [keyword.arg for keyword in calls[0].keywords],
-            ["planner_timed_out"],
+            keywords["progressive_media"].func.id,
+            "progressive_media_for_plan",
         )
 
     def test_runtime_annotations_resolve_from_module_scope(self):

@@ -1,6 +1,5 @@
 import { requestJson, requestRaw } from '../../../shared/transport/httpClient';
 import { authorizedFetch, withEdgeOneAuth } from '../../../shared/auth/session';
-import { streamEvents, type StreamEventHandlers } from '../../../shared/transport/sseClient';
 import { translate } from '../../../i18n';
 import {
   createConversationId,
@@ -12,10 +11,11 @@ import type {
   ChatMessage,
   ConversationSummary,
   StoredFileInfo,
-} from '../../../shared/types';
+} from './types';
 import type {
   BootstrapData,
   BootstrapOptions,
+  ChatRunState,
   MakersChatRun,
 } from './types';
 
@@ -26,50 +26,46 @@ export const routes = Object.freeze([
   '/conversations',
   '/files',
   '/messages',
+  '/run',
   '/stop',
 ]);
 
-export function loadMessages<T>(conversationId: string): Promise<T> {
-  return requestJson<T>('/messages', {
-    headers: { 'makers-conversation-id': conversationId },
-  });
-}
-
-export function appendConversationMessage<T>(
-  conversationId: string,
-  message: unknown,
-): Promise<T> {
-  return requestJson<T>('/conversation', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'makers-conversation-id': conversationId,
-    },
-    body: JSON.stringify({ message }),
-  });
-}
-
-export function stopConversation<T>(conversationId: string): Promise<T> {
-  return requestJson<T>('/stop', {
-    method: 'POST',
-    headers: { 'makers-conversation-id': conversationId },
-  });
-}
-
-export function streamChat(
+export function openChatTurn(
   conversationId: string,
   body: unknown,
-  handlers: StreamEventHandlers,
   signal?: AbortSignal,
-): Promise<void> {
-  return streamEvents('/chat', {
+): Promise<Response> {
+  return authorizedFetch('/chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'makers-conversation-id': conversationId,
+      ...makersConversationHeaders(conversationId),
     },
     body: JSON.stringify(body),
-  }, handlers, signal);
+    signal,
+  });
+}
+
+export function requestConversationStop(
+  conversationId: string,
+  clientMessageId = '',
+  signal?: AbortSignal,
+): Promise<Response> {
+  return authorizedFetch('/stop', {
+    method: 'POST',
+    // Maker middleware scopes every conversation operation from this header;
+    // the exact client turn remains in the payload so a delayed stop cannot
+    // cancel a newer FIFO head.
+    headers: {
+      'Content-Type': 'application/json',
+      ...makersConversationHeaders(conversationId),
+    },
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      ...(clientMessageId ? { client_message_id: clientMessageId } : {}),
+    }),
+    signal,
+  });
 }
 
 export async function bootstrapApp(
@@ -107,7 +103,7 @@ export async function bootstrapApp(
       return data;
     }
     if (options.strict) {
-      throw new Error(`Could not load Makers run (${response.status})`);
+      throw new Error(translate('chatRunLoadFailed', { status: response.status }));
     }
   } catch (error) {
     if (options.strict) throw error;
@@ -116,6 +112,21 @@ export async function bootstrapApp(
     options.signal?.removeEventListener('abort', abortFromCaller);
   }
   return { messages: [] };
+}
+
+export function readChatRun(
+  conversationId: string,
+  signal?: AbortSignal,
+): Promise<ChatRunState> {
+  return requestJson<ChatRunState>('/run', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...makersConversationHeaders(conversationId),
+    },
+    body: JSON.stringify({ conversation_id: conversationId }),
+    signal,
+  });
 }
 
 function normalizeConversation(
@@ -138,12 +149,14 @@ function normalizeConversation(
     || run?.status === 'cancel_requested'
     ? 'running'
     : run?.status === 'failed' ? 'failed' : 'idle';
+  const messageCount = Number(item.messageCount || item.message_count || 0);
   return {
     id,
     title: String(metadata.title || item.title || translate('newConversation')),
     createdAt,
     updatedAt,
-    messageCount: Number(item.messageCount || item.message_count || 0),
+    messageCount,
+    pending: messageCount === 0,
     activityStatus,
   };
 }
@@ -193,6 +206,26 @@ export async function touchConversationIndex(
       detail: { conversationId },
     }));
   }
+}
+
+export async function renameConversation(
+  conversationId: string,
+  title: string,
+): Promise<ConversationSummary> {
+  const data = await requestJson<{ conversation?: Record<string, unknown> }>('/conversations', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...makersConversationHeaders(conversationId),
+    },
+    body: JSON.stringify({
+      operation: 'rename',
+      conversation_id: conversationId,
+      title: title.trim(),
+    }),
+  });
+  if (!data.conversation) throw new Error(translate('renameConversationFailed'));
+  return normalizeConversation(data.conversation);
 }
 
 export async function saveConversationMessage(

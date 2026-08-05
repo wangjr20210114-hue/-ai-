@@ -3,10 +3,8 @@ from __future__ import annotations
 import unittest
 
 from agents._application.skills.component_api import COMPONENT_API_VERSION
-from agents._application.skills.registry import (
-    SkillRuntimeContext,
-    parse_skill_manifests,
-)
+from agents._application.skills.registry import parse_skill_manifests
+from agents._application.skills.runtime import SkillRuntimeContext
 
 
 def runtime_manifest():

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { initialState, reducer } from './appState';
-import type { ChatMessage } from '../shared/types';
+import type { ChatMessage } from '../features/chat/model';
 
 const userMessage: ChatMessage = {
   id: 'msg-1',
@@ -47,6 +47,7 @@ describe('app state reducer', () => {
       thinking: true,
       draft: 'unfinished',
       messages: [userMessage],
+      turnQueue: [{ id: 'queued', content: 'later', enqueuedAt: 1 }],
       mapPlaces: [{ place_id: 'old', name: '旧地点', address: '', latitude: 1, longitude: 1 }],
       documentContext: { fileId: 'uploads/test.pdf', filename: 'test.pdf', text: 'test body' },
     };
@@ -54,10 +55,11 @@ describe('app state reducer', () => {
     const next = reducer(previous, { type: 'SET_CONVERSATION_ID', payload: 'conv-fresh' });
 
     expect(next.conversationId).toBe('conv-fresh');
-    expect(next.connected).toBe(false);
+    expect(next.connected).toBe(true);
     expect(next.thinking).toBe(false);
     expect(next.draft).toBe('');
     expect(next.messages).toEqual([]);
+    expect(next.turnQueue).toEqual([]);
     expect(next.documentContext).toBeNull();
     expect(next.mapPlaces).toEqual(previous.mapPlaces);
   });

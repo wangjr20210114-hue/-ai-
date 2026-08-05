@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { autoFollowAfterScroll, hasTextSelectionInside } from './scrollSelection';
+import { autoFollowAfterScroll, hasTextSelectionInside, lastQuestionScrollTop } from './scrollSelection';
 import { streamingMarkdownAnswer } from './streamingAnswer';
 
 describe('message selection auto-follow guard', () => {
@@ -26,13 +26,19 @@ describe('message selection auto-follow guard', () => {
     expect(autoFollowAfterScroll(false, 800, 850, 24)).toBe(false);
     expect(autoFollowAfterScroll(false, 850, 874, 0)).toBe(true);
   });
+
+  it('places the last question near the top without negative scroll', () => {
+    expect(lastQuestionScrollTop(840)).toBe(824);
+    expect(lastQuestionScrollTop(10)).toBe(0);
+  });
 });
 
 describe('streaming Markdown answer', () => {
-  it('does not apply special buffering rules to legacy media markers', () => {
+  it('never exposes an unfinished internal rich-search marker', () => {
     expect(streamingMarkdownAnswer('**重点**\n\n[[YUANBAO_MEDIA: 1]]\n\n继续'))
       .toBe('**重点**\n\n[[YUANBAO_MEDIA: 1]]\n\n继续');
-    expect(streamingMarkdownAnswer('正文\n[[YUANBAO_MED')).toBe('正文\n[[YUANBAO_MED');
+    expect(streamingMarkdownAnswer('正文\n[[YUANBAO_MED')).toBe('正文\n');
+    expect(streamingMarkdownAnswer('正文\n[[cite:source-')).toBe('正文\n');
   });
 
   it('hides an incomplete Markdown image tail and restores it when complete', () => {

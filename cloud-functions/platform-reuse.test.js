@@ -75,14 +75,19 @@ test('runtime is pure multi-user with signed sessions and tenant-scoped storage'
   );
 });
 
-test('release gates execute the Makers production chain', async () => {
-  const [workflow, requirements] = await Promise.all([
+test('release gates execute the Makers production chain and browser acceptance', async () => {
+  const [workflow, requirements, rootManifest, frontendManifest] = await Promise.all([
     read('.github/workflows/ci.yml'),
     read('requirements.txt'),
+    read('package.json'),
+    read('frontend/package.json'),
   ]);
   assert.match(workflow, /unittest discover -s agents\/_tests/);
   assert.match(workflow, /npm test/);
+  assert.match(workflow, /npm run test:e2e:product/);
   assert.match(workflow, /--mode edgeone/);
+  assert.match(rootManifest, /frontend run test:e2e:product/);
+  assert.match(frontendManifest, /playwright test e2e\/product-acceptance\.spec\.ts/);
   assert.doesNotMatch(workflow, /working-directory: backend|import main/);
   assert.doesNotMatch(requirements, />=|~=/);
 });
@@ -149,6 +154,9 @@ test('static acceptance site covers every release capability with executable det
     assert.match(procedure, /不新增用户气泡/);
   }
   const acceptanceCopy = rawCases + procedures;
+  assert.doesNotMatch(acceptanceCopy + app, /ai-active-agent|AI-ACTIVE-AGENT-FLORIS/i);
+  assert.match(acceptanceCopy + app, /floris-dev/);
+  assert.doesNotMatch(acceptanceCopy, /安装官方腾讯会议|显示未安装|开始安装/);
   assert.match(acceptanceCopy, /Request conditions\/请求条件/);
   assert.match(acceptanceCopy, /Block request\/屏蔽请求/);
   assert.match(acceptanceCopy, /\(blocked:devtools\)/);
@@ -164,13 +172,14 @@ test('static acceptance site covers every release capability with executable det
 });
 
 test('reported acceptance regressions keep explicit implementation guards', async () => {
-  const [files, library, readerClient, chatError, chatTools, chatGraph, workspace, messageBubble, clarificationSubmission, capabilityPlan, chatAgent, styles, chatClient, chatRuntime] = await Promise.all([
+  const [files, library, readerClient, chatError, chatTools, chatGraph, i18nCatalog, workspace, messageBubble, clarificationSubmission, capabilityPlan, chatAgent, styles, chatClient, chatTransport] = await Promise.all([
     read('cloud-functions/files/index.js'),
     read('cloud-functions/library/index.js'),
-    read('frontend/src/services/paperApi.ts'),
+    read('frontend/src/features/papers/model/api.ts'),
     read('frontend/src/services/chatError.ts'),
     read('agents/_infrastructure/skills/builtin_operations.py'),
     read('agents/chat/_graph.py'),
+    read('agents/_application/i18n_catalogs.py'),
     read('agents/_controllers/workspace_controller.py'),
     read('frontend/src/features/chat/view/renderers/ClarificationCard.tsx'),
     read('frontend/src/components/chat/clarificationSubmission.ts'),
@@ -178,7 +187,7 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
     read('agents/_application/chat/turn_service.py'),
     read('frontend/src/styles/reset.css'),
     read('frontend/src/features/chat/model/client.ts'),
-    read('frontend/src/features/chat/controller/chatRuntime.ts'),
+    read('frontend/src/features/chat/controller/chatTransport.ts'),
   ]);
   assert.match(files, /image\/png/);
   assert.match(library, /manual_folder/);
@@ -186,7 +195,10 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.match(chatError, /failed to fetch/i);
   assert.match(chatTools, /initial_visual_references/);
   assert.match(chatGraph, /handle_tool_errors=_tool_failure_message/);
-  assert.match(chatGraph, /工具暂时没有完成/);
+  assert.match(chatGraph, /text\("chat\.fallback\.required_failed", "zh-CN"\)/);
+  assert.match(i18nCatalog, /"chat\.fallback\.required_failed": _user_copy/);
+  assert.doesNotMatch(chatGraph, /工具暂时没有完成/);
+  assert.doesNotMatch(chatGraph + i18nCatalog, /不要重复调用同一工具/);
   assert.match(chatGraph, /isinstance\(exc, ValueError\)/);
   assert.match(workspace, /collect_schedule_signals/);
   const clarificationCard = messageBubble;
@@ -197,12 +209,12 @@ test('reported acceptance regressions keep explicit implementation guards', asyn
   assert.doesNotMatch(clarificationCard, /SET_DRAFT/);
   assert.doesNotMatch(capabilityPlan, /def clarification_tool_available/);
   assert.doesNotMatch(chatAgent, /if not clarification_tool_available/);
-  assert.match(chatAgent, /product-wide interaction capability/);
+  assert.match(capabilityPlan, /one complete semantic plan without a duplicate preflight round/);
   assert.match(chatGraph, /required_or_question_tools/);
   assert.match(styles, /themeDiagonalReveal 280ms/);
   assert.match(chatClient, /operation: 'touch_pointer'/);
   assert.match(chatClient, /yuanbao:conversation-saved/);
-  assert.match(chatRuntime, /touchConversationIndex\(this\.conversationId/);
+  assert.match(chatTransport, /touchConversationIndex\(this\.conversationId/);
   assert.doesNotMatch(styles, /themeDiagonalReveal 1100ms/);
 });
 
@@ -245,7 +257,7 @@ test('settings and Skills open on lightweight configuration reads', async () => 
     read('frontend/src/features/skills/model/client.ts'),
     read('agents/_controllers/intelligence_controller.py'),
     read('cloud-functions/library/index.js'),
-    read('frontend/src/services/paperApi.ts'),
+    read('frontend/src/features/papers/model/api.ts'),
     read('frontend/src/components/chat/InputBar.tsx'),
     read('agents/_application/skills/registry.py'),
     read('frontend/src/features/skills/page.css'),
@@ -327,12 +339,14 @@ test('new multi-user and Skill surfaces follow the layered MVC boundary', async 
   assert.match(marketplaceModel, /filterMarketplaceSkills/);
 });
 
-test('runtime does not reimplement generic tracing, queue or cron services', async () => {
-  const [system, tick, proactive, skillRuntime, adapters] = await Promise.all([
+test('runtime reuses Makers tracing and does not reimplement queue or cron services', async () => {
+  const [system, tick, proactive, skillRuntime, turnTelemetry, requestContext, adapters] = await Promise.all([
     read('agents/_controllers/system_controller.py'),
     read('cloud-functions/proactive-tick/index.js'),
     read('agents/_application/proactive/service.py'),
     read('agents/_application/skills/runtime_ports.py'),
+    read('agents/_application/chat/turn_telemetry.py'),
+    read('agents/_infrastructure/makers/request_context.py'),
     Promise.all([
       'core',
       'proactive_agent',
@@ -354,8 +368,13 @@ test('runtime does not reimplement generic tracing, queue or cron services', asy
   assert.doesNotMatch(system, /["']schedule["']:\s*["']0 \* \* \* \*["']/);
   assert.match(proactive, /Policy|policy|notification/i);
   assert.match(skillRuntime, /ToolOperationService/);
+  assert.match(turnTelemetry, /getattr\(tracer, "event", None\)/);
+  assert.match(turnTelemetry, /chat\.answer_first_token/);
+  assert.match(turnTelemetry, /chat\.request_settled/);
+  assert.match(requestContext, /getattr\(ctx, "run_id", ""\)/);
+  assert.doesNotMatch(requestContext, /request\.body|request\.headers|x-request/i);
   assert.doesNotMatch(
-    system + tick + skillRuntime + adapters,
+    system + tick + skillRuntime + turnTelemetry + requestContext + adapters,
     /OPS_ALERT_WEBHOOK|PROACTIVE_OPS_WEBHOOK|Sentry|OpenTelemetry|Redis|BullMQ|Celery|APScheduler|node-cron|sqlite|boto3|new WebSocket/i,
   );
   assert.doesNotMatch(adapters, /pages_blob|get_store|langgraph_checkpointer|langgraph_store/);
@@ -395,15 +414,15 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
   const sources = await Promise.all([
     read('frontend/src/app/App.tsx'),
     read('frontend/src/main.tsx'),
-    read('frontend/src/services/auth.ts'),
-    read('frontend/src/services/paperApi.ts'),
+    read('frontend/src/shared/auth/session.ts'),
+    read('frontend/src/features/papers/model/api.ts'),
     read('frontend/src/components/chat/InputBar.tsx'),
     read('frontend/src/features/chat/view/MessageBubble.tsx'),
     read('frontend/src/features/chat/view/renderers/MessageBubbleView.tsx'),
     read('frontend/src/features/chat/view/renderers/MessagePrimaryRenderer.tsx'),
+    read('frontend/src/features/chat/view/renderers/WorkspaceActionRenderer.tsx'),
     read('frontend/src/features/chat/controller/useMessageBubbleController.ts'),
-    read('frontend/src/features/maps/view/TravelPlanCard.tsx'),
-    read('frontend/src/features/maps/view/RouteMap.tsx'),
+    read('frontend/src/features/maps/view/MakersMap.tsx'),
     read('frontend/vite.config.ts'),
   ]);
   const active = sources.join('\n');
@@ -414,18 +433,44 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
   assert.match(active, /useChatController/);
   assert.doesNotMatch(active, /useSSEChat/);
   assert.doesNotMatch(active, /AuthGate|loginAppSession|registerAppSession/);
-  const chatClient = await read('frontend/src/features/chat/controller/chatRuntime.ts');
-  const stopRequest = chatClient.match(/const requestStop[\s\S]*?authorizedFetch\('\/stop'[\s\S]*?body: JSON\.stringify/);
+  const [chatClient, chatModel, turnControl] = await Promise.all([
+    read('frontend/src/features/chat/controller/chatTransport.ts'),
+    read('frontend/src/features/chat/model/client.ts'),
+    read('frontend/src/features/chat/controller/turnControl.ts'),
+  ]);
+  assert.match(
+    turnControl,
+    /requestConversationStop\(\s*this\.conversationId,\s*clientMessageId/,
+  );
+  const stopRequest = chatModel.match(
+    /export function requestConversationStop[\s\S]*?authorizedFetch\('\/stop'[\s\S]*?body: JSON\.stringify/,
+  );
   assert.ok(stopRequest);
-  assert.doesNotMatch(stopRequest[0], /makersConversationHeaders/);
+  assert.match(
+    stopRequest[0],
+    /makersConversationHeaders\(conversationId\)/,
+    'stop must pass Maker middleware through the same conversation scope',
+  );
+  const recovery = turnControl.match(
+    /async recover\([\s\S]*?\n  close\(\)/,
+  );
+  assert.ok(recovery, 'network recovery must reattach to the Maker checkpoint');
+  assert.match(recovery[0], /bootstrapApp\(this\.conversationId/);
+  assert.doesNotMatch(
+    recovery[0],
+    /openChatTurn\(/,
+    'network recovery must not start a duplicate model run',
+  );
+  assert.match(chatClient, /client_message_id:\s*this\.activeClientMessageId/);
   assert.doesNotMatch(
     chatClient,
-    /transport_recovering|RECOVERY_DEADLINE|shouldAutoResume|async resume\s*\(/,
-    'failed or stopped chat runs must never resume automatically',
+    /awaitingCancellation/,
+    'a failed stop acknowledgement must not deadlock the per-conversation FIFO',
   );
   const i18n = await read('frontend/src/i18n.tsx');
   assert.match(chatClient, /translate\('networkGenerationEnded'\)/);
-  assert.match(i18n, /不会自动重试/);
+  assert.match(i18n, /网络连接中断，请检查网络后重试/);
+  assert.doesNotMatch(i18n, /不会自动(?:重新生成|重试|继续)/);
   assert.match(active, /t\('retryGeneration'\)/);
   assert.match(i18n, /重试生成/);
 });

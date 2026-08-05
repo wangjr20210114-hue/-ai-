@@ -2,43 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 from ..search.search_use_case import SearchRequest
 from ..._domain.entitlements.policy import public_entitlements
-
-
-def answer_tool_names(required_tools: Iterable[str]) -> tuple[str, ...]:
-    """Exclude search after SearchUseCase has resolved the plan."""
-    return tuple(
-        name
-        for name in dict.fromkeys(str(item or "") for item in required_tools)
-        if name and name != "rich_search"
-    )
-
-
-def model_only_search_fallback(
-    plan: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Return a safe plain-model plan after a runtime search failure."""
-    fallback = dict(plan)
-    fallback["needs_web_search"] = False
-    fallback["needs_images"] = False
-    fallback["_capabilities"] = [
-        capability
-        for capability in (fallback.get("_capabilities") or [])
-        if str(capability) != "web_search"
-    ]
-    fallback["_runtime_model_fallback_skills"] = list(dict.fromkeys([
-        *(fallback.get("_runtime_model_fallback_skills") or []),
-        "web-search",
-    ]))
-    fallback["_runtime_omitted_skills"] = list(dict.fromkeys([
-        *(fallback.get("_runtime_omitted_skills") or []),
-        "web-search",
-    ]))
-    return fallback
 
 
 def experience_hints_for_plan(
@@ -54,21 +22,71 @@ def experience_hints_for_plan(
     ))[:8]
     if not skills:
         return []
+    raw_reasons = plan.get("_runtime_fallback_reasons") or {}
+    reasons = (
+        {
+            str(skill_id or "").strip(): str(reason or "").strip()
+            for skill_id, reason in raw_reasons.items()
+        }
+        if isinstance(raw_reasons, Mapping)
+        else {}
+    )
+
+    def login_required(skill_id: str) -> bool:
+        reason = reasons.get(skill_id)
+        if reason:
+            return reason == "login_required"
+        # Backward compatibility for persisted messages created before the
+        # entitlement layer began carrying an explicit downgrade reason.
+        return str(auth_type or "") == "guest"
+
     hints: list[dict[str, Any]] = []
     if "web-search" in skills:
         hints.append({
             "kind": "freshness",
             "skill_ids": ["web-search"],
-            "login_required": str(auth_type or "") == "guest",
+            "login_required": login_required("web-search"),
         })
         skills = [value for value in skills if value != "web-search"]
-    if skills:
+    login_skills = [
+        skill_id for skill_id in skills if login_required(skill_id)
+    ]
+    degraded_skills = [
+        skill_id for skill_id in skills if skill_id not in login_skills
+    ]
+    if login_skills:
         hints.append({
             "kind": "skill_suggestion",
-            "skill_ids": skills,
-            "login_required": str(auth_type or "") == "guest",
+            "skill_ids": login_skills,
+            "login_required": True,
+        })
+    if degraded_skills:
+        hints.append({
+            "kind": "skill_suggestion",
+            "skill_ids": degraded_skills,
+            "login_required": False,
         })
     return hints
+
+
+def state_requirements_for_plan(
+    plan: Mapping[str, Any],
+    fallback_tool_names: tuple[str, ...] = (),
+) -> tuple[bool, bool]:
+    """Return whether the selected chain needs workspace or proactive state."""
+    fallback = set(fallback_tool_names)
+    workspace = bool(
+        plan.get("needs_calendar_context")
+        or plan.get("needs_calendar_action")
+        or plan.get("needs_route")
+        or {"propose_calendar_changes", "plan_route_between_places"} & fallback
+    )
+    proactive = bool(
+        plan.get("needs_workflow_action")
+        or plan.get("needs_opportunity_review")
+        or "propose_workflow" in fallback
+    )
+    return workspace, proactive
 
 
 def search_request_for_plan(
@@ -81,8 +99,9 @@ def search_request_for_plan(
     result_limit: int,
     image_limit: int,
     parallel_queries: bool,
-    vision_enabled: bool,
     force_refresh: bool,
+    progressive_media: bool | None = None,
+    response_language: str = "zh-CN",
 ) -> SearchRequest | None:
     if (
         not plan.get("needs_web_search")
@@ -90,17 +109,25 @@ def search_request_for_plan(
         or str(plan.get("blocked_skill") or "").strip()
     ):
         return None
+    # Real article media belongs to the web-search component contract. Turning
+    # off the standalone Vision Skill must not silently make every rich-search
+    # answer text-only; the provider adapter still applies its configured
+    # review chain; media that does not complete visual review fails closed.
     media_enabled = bool(
-        vision_enabled
-        and image_limit > 0
+        image_limit > 0
         and (plan.get("needs_web_search") or plan.get("needs_images"))
     )
+    progressive_media = (
+        not bool(plan.get("needs_image_generation"))
+        if progressive_media is None
+        else bool(progressive_media)
+    )
+    # Factual sources stay on the answer path. Reviewed images may arrive later
+    # unless image generation needs them as provider references first.
     media_mode = (
-        "disabled"
-        if not media_enabled
-        else "blocking"
-        if plan.get("needs_image_generation")
-        else "progressive"
+        "progressive" if media_enabled and progressive_media
+        else "blocking" if media_enabled
+        else "disabled"
     )
     entitlements = public_entitlements(identity)
     return SearchRequest(
@@ -119,6 +146,8 @@ def search_request_for_plan(
         parallel_queries=parallel_queries,
         target_date=current_date,
         strict_date=bool(plan.get("strict_today_only")),
+        prefer_recent_results=bool(plan.get("prefer_recent_results")),
         force_refresh=force_refresh,
         media_mode=media_mode,
+        response_language=response_language,
     )

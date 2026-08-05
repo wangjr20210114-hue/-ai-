@@ -11,6 +11,7 @@
 @import "../features/chat/composer.css";
 @import "../features/settings/styles.css";
 @import "../features/calendar/styles.css";
+@import "../features/workspace/styles.css";
 @import "../features/maps/styles.css";
 @import "../shared/ui/workspace-actions.css";
 @import "../features/calendar/meeting.css";
@@ -18,9 +19,7 @@
 @import "../features/image-studio/message.css";
 @import "../features/image-studio/styles.css";
 @import "../features/papers/styles.css";
-@import "../features/maps/routes.css";
 @import "../features/chat/actions.css";
-@import "../features/maps/travel.css";
 @import "../shared/ui/styles.css";
 @import "../styles/motion.css";
 @import "../features/papers/reader.css";

@@ -1,0 +1,249 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const clientMocks = vi.hoisted(() => ({
+  bootstrapApp: vi.fn(),
+  openChatTurn: vi.fn(),
+  readChatRun: vi.fn(),
+  requestConversationStop: vi.fn(),
+  touchConversationIndex: vi.fn(),
+}));
+
+vi.mock('../model/client', () => clientMocks);
+vi.mock('../../../services/browserLocation', () => ({
+  browserLocationRequestContext: () => 'idle',
+  currentBrowserLocation: () => null,
+  requestBrowserLocationForChat: vi.fn(),
+}));
+vi.mock('../../../i18n', () => ({
+  translate: (key: string) => key,
+}));
+
+import { SSEChatClient } from './chatTransport';
+
+class MemoryStorage {
+  private values = new Map<string, string>();
+
+  getItem(key: string) { return this.values.get(key) ?? null; }
+  setItem(key: string, value: string) { this.values.set(key, value); }
+  removeItem(key: string) { this.values.delete(key); }
+  clear() { this.values.clear(); }
+}
+
+function turn(clientId: string) {
+  return {
+    type: 'chat',
+    payload: {
+      client_message_id: clientId,
+      client_message: {
+        id: clientId,
+        role: 'user',
+        content: clientId,
+      },
+    },
+  };
+}
+
+function completedResponse() {
+  return new Response('data: [DONE]\n\n', {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+  });
+}
+
+function pendingUntilAbort(signal: AbortSignal) {
+  return new Promise<Response>((_resolve, reject) => {
+    signal.addEventListener('abort', () => {
+      const error = new Error('detached');
+      error.name = 'AbortError';
+      reject(error);
+    }, { once: true });
+  });
+}
+
+async function waitFor(check: () => boolean) {
+  for (let index = 0; index < 80; index += 1) {
+    if (check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error('condition was not reached');
+}
+
+describe('chat transport FIFO durability', () => {
+  beforeEach(() => {
+    clientMocks.bootstrapApp.mockReset();
+    clientMocks.openChatTurn.mockReset();
+    clientMocks.readChatRun.mockReset();
+    clientMocks.requestConversationStop.mockReset();
+    clientMocks.touchConversationIndex.mockReset().mockResolvedValue(undefined);
+    const localStorage = new MemoryStorage();
+    const sessionStorage = new MemoryStorage();
+    vi.stubGlobal('window', {
+      localStorage,
+      sessionStorage,
+      setTimeout,
+      clearTimeout,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('navigator', { onLine: true });
+  });
+
+  it('keeps the active FIFO head across a conversation switch and resumes only the successor', async () => {
+    clientMocks.openChatTurn
+      .mockImplementationOnce((_conversationId, _payload, signal) => (
+        pendingUntilAbort(signal)
+      ))
+      .mockResolvedValueOnce(completedResponse());
+
+    const firstClient = new SSEChatClient('conversation-switch');
+    firstClient.connect(null);
+    await firstClient.send(turn('client-active'));
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 1);
+    await firstClient.send(turn('client-successor'));
+    firstClient.close();
+
+    const restoredClient = new SSEChatClient('conversation-switch');
+    restoredClient.connect({
+      run_id: 'run-active',
+      client_message_id: 'client-active',
+      status: 'completed',
+      error: '',
+      diagnostics: {},
+      started_at: 1,
+      updated_at: 2,
+      completed_at: 2,
+    });
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 2);
+    expect(clientMocks.openChatTurn.mock.calls[1][1].client_message_id)
+      .toBe('client-successor');
+    restoredClient.close();
+  });
+
+  it('keeps waiting turns out of chat events and exposes an editable five-item drawer queue', async () => {
+    clientMocks.openChatTurn.mockImplementation((_conversationId, _payload, signal) => (
+      pendingUntilAbort(signal)
+    ));
+    const client = new SSEChatClient('conversation-drawer');
+    const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    client.on((event) => events.push(event));
+    client.connect(null);
+
+    expect(await client.send(turn('active'))).toBe('started');
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 1);
+    for (let index = 1; index <= 5; index += 1) {
+      expect(await client.send(turn(`waiting-${index}`))).toBe('queued');
+    }
+    expect(await client.send(turn('waiting-overflow'))).toBe('queue_full');
+    expect(client.queuedTurns().map((item) => item.id)).toEqual([
+      'waiting-1', 'waiting-2', 'waiting-3', 'waiting-4', 'waiting-5',
+    ]);
+    expect(events.filter((event) => event.type === 'optimistic_user'))
+      .toHaveLength(1);
+
+    expect(client.updateQueuedTurn('waiting-2', '编辑后的问题')).toBe(true);
+    expect(client.queuedTurns()[1].content).toBe('编辑后的问题');
+    expect(client.removeQueuedTurn('waiting-3')).toBe(true);
+    expect(client.queuedTurns().map((item) => item.id)).not.toContain('waiting-3');
+    client.close();
+  });
+
+  it('shows every local waiting turn when the active Maker run came from another transport', async () => {
+    const client = new SSEChatClient('conversation-external-run');
+    (client as unknown as { activeClientMessageId: string }).activeClientMessageId = 'external-client-message';
+    await client.send(turn('local-waiting'));
+    expect(client.queuedTurns().map((item) => item.id)).toEqual(['local-waiting']);
+    client.close();
+  });
+
+  it('dequeues an explicitly stopped head only after confirmation and runs the queued successor', async () => {
+    clientMocks.openChatTurn
+      .mockImplementationOnce((_conversationId, _payload, signal) => (
+        pendingUntilAbort(signal)
+      ))
+      .mockResolvedValueOnce(completedResponse());
+    clientMocks.requestConversationStop.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ client_message_id: 'client-stopped' }),
+    });
+
+    const client = new SSEChatClient('conversation-stop');
+    client.connect(null);
+    await client.send(turn('client-stopped'));
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 1);
+    await client.send(turn('client-after-stop'));
+    await client.stop();
+
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 2);
+    expect(clientMocks.requestConversationStop).toHaveBeenCalledWith(
+      'conversation-stop',
+      'client-stopped',
+      expect.any(AbortSignal),
+    );
+    expect(clientMocks.openChatTurn.mock.calls[1][1].client_message_id)
+      .toBe('client-after-stop');
+    client.close();
+  });
+
+  it('moves a selected waiting turn to the front and interrupts the active turn', async () => {
+    clientMocks.openChatTurn
+      .mockImplementationOnce((_conversationId, _payload, signal) => pendingUntilAbort(signal))
+      .mockResolvedValueOnce(completedResponse())
+      .mockResolvedValueOnce(completedResponse());
+    clientMocks.requestConversationStop.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ client_message_id: 'client-active' }),
+    });
+    const client = new SSEChatClient('conversation-priority');
+    client.connect(null);
+    await client.send(turn('client-active'));
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 1);
+    await client.send(turn('client-normal-next'));
+    await client.send(turn('client-priority'));
+
+    expect(await client.interruptWithQueuedTurn('client-priority')).toBe('confirmed');
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 3);
+    expect(clientMocks.openChatTurn.mock.calls[1][1].client_message_id).toBe('client-priority');
+    expect(clientMocks.openChatTurn.mock.calls[2][1].client_message_id).toBe('client-normal-next');
+    client.close();
+  });
+
+  it('confirms a timed-out stop from the same Maker run instead of reposting it', async () => {
+    clientMocks.openChatTurn
+      .mockImplementationOnce((_conversationId, _payload, signal) => (
+        pendingUntilAbort(signal)
+      ))
+      .mockResolvedValueOnce(completedResponse());
+    clientMocks.requestConversationStop.mockRejectedValue(
+      Object.assign(new Error('deadline'), { name: 'AbortError' }),
+    );
+    clientMocks.readChatRun.mockResolvedValue({
+      run: {
+        run_id: 'run-stopped',
+        client_message_id: 'client-slow-stop',
+        status: 'cancelled',
+        error: '',
+        diagnostics: {},
+        started_at: 1,
+        updated_at: 2,
+        completed_at: 2,
+      },
+    });
+
+    const client = new SSEChatClient('conversation-slow-stop');
+    client.connect(null);
+    await client.send(turn('client-slow-stop'));
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 1);
+    await client.send(turn('client-after-slow-stop'));
+    expect(await client.stop()).toBe('confirmed');
+
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 2);
+    expect(clientMocks.readChatRun).toHaveBeenCalledWith(
+      'conversation-slow-stop',
+      expect.any(AbortSignal),
+    );
+    expect(clientMocks.requestConversationStop).toHaveBeenCalledTimes(1);
+    expect(clientMocks.openChatTurn.mock.calls[1][1].client_message_id)
+      .toBe('client-after-slow-stop');
+    client.close();
+  });
+});

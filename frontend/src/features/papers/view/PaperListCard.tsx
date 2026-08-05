@@ -6,14 +6,15 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { BookOpenIcon, JumpIcon } from 'tdesign-icons-react';
-import type { ChatMessage, PaperInfo } from '../../../shared/types';
+import type { ChatMessage } from '../../chat/model';
+import type { PaperInfo } from '../model';
 import {
   dedupePapers,
   paperArxivHref,
   paperDownloadId,
   paperSourceHref,
 } from '../../../services/paperUtils';
-import PaperFullReader from './PaperFullReader';
+import PaperFullReader from './LazyPaperFullReader';
 import { useLanguage } from '../../../i18n';
 import { usePapersController } from '../controller/usePapersController';
 
@@ -86,6 +87,7 @@ export default function PaperListCard({ message }: Props) {
   };
 
   const openReader = async (paper: PaperInfo) => {
+    if (message.streaming) return;
     const stored = await ensureDownloaded(paper);
     if (stored) {
       preloadPaperFile(stored.fileId, {
@@ -131,7 +133,7 @@ export default function PaperListCard({ message }: Props) {
                   className="paper-assistant-button"
                   theme="primary"
                   loading={downloadingId === downloadId}
-                  disabled={!downloadId}
+                  disabled={message.streaming || !downloadId}
                   icon={<BookOpenIcon />}
                   onClick={() => void openReader(paper)}
                 >

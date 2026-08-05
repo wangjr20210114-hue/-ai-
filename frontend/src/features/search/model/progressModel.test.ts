@@ -36,6 +36,17 @@ describe('trusted structured progress Model', () => {
     })).toBeNull();
   });
 
+  it('preserves the controller timestamp across a browser restore', () => {
+    expect(normalizeProgressEvent({
+      schema_version: 1,
+      stage: 'retrieval',
+      status: 'active',
+      activity: 'web_search',
+      source: 'controller',
+      updated_at: 1786000000123,
+    }, 200)?.updated_at).toBe(1786000000123);
+  });
+
   it('updates stable steps and closes active work on completion', () => {
     const planning = initialPlanningProgress(100);
     const planned = normalizeProgressEvent({

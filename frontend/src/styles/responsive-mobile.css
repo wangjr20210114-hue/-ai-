@@ -74,8 +74,9 @@
     gap: 4px;
   }
 
-  .input-submit-button {
-    min-width: 72px;
+  .input-submit-button,
+  .input-voice-button {
+    min-width: 40px;
   }
 
   .chat-reference-image,
@@ -91,14 +92,11 @@
   }
 
   .workspace-confirm-actions,
-.travel-plan-actions,
-.skills-marketplace-footer {
+  .skills-marketplace-footer {
     flex-wrap: wrap;
   }
 
-  .travel-plan-card,
-.travel-plan-markdown,
-.image-studio-card {
+  .image-studio-card {
     padding: 10px;
   }
 

@@ -300,3 +300,16 @@
 .pdf-text-layer ::selection {
   background: rgba(var(--app-accent-rgb), 0.3);
 }
+.paper-reader-lazy-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 2600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--app-text-2);
+  background: color-mix(in srgb, var(--app-panel) 86%, transparent);
+  backdrop-filter: blur(12px);
+  animation: dialogBackdropIn 180ms ease both;
+}

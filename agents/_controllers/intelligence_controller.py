@@ -1,4 +1,4 @@
-"""Controller for user memory, preferences, Skill installs, and connections."""
+"""Controller for user memory, preferences, Skill switches, and connections."""
 
 from __future__ import annotations
 
@@ -21,25 +21,22 @@ from .._application.intelligence.service import (
 )
 from .._application.proactive.service import load_proactive_state, save_proactive_state, update_preferences
 from .._infrastructure.makers.identity import require_user
-from .._domain.entitlements.policy import (
-    allowed_skill_ids,
-    effective_skill_preferences,
-    public_entitlements,
-)
+from .._domain.entitlements.policy import public_entitlements
 from .._infrastructure.http import error
-from .._application.skills.registry import (
-    run_preference_hooks,
-    skill_manifest,
-)
+from .._application.skills.runtime import run_preference_hooks
+from .._application.intelligence.skill_preferences import apply_skill_preference_batch
 from .._views.intelligence import public_intelligence_view
+from .._application.i18n import normalize_language, text
 
 
 async def handler(ctx):
     identity = require_user(ctx)
     user_id = str(identity["user_id"])
     body = ctx.request.body or {}
+    response_language = normalize_language(body.get("response_language"))
     operation = str(body.get("operation") or "get")
     store = ctx.store.langgraph_store
+    operation_metadata = {}
     try:
         state = await load_intelligence_state(store, user_id)
         if operation == "get" or operation == "export":
@@ -49,16 +46,16 @@ async def handler(ctx):
                 identity,
             )
         if operation == "confirm_memory":
-            confirm_memory(state, str(body.get("proposal_id") or ""), int(body.get("version") or 0))
+            confirm_memory(state, str(body.get("proposal_id") or ""), int(body.get("version") or 0), response_language=response_language)
         elif operation == "reject_memory":
-            reject_memory(state, str(body.get("proposal_id") or ""), int(body.get("version") or 0))
+            reject_memory(state, str(body.get("proposal_id") or ""), int(body.get("version") or 0), response_language=response_language)
         elif operation == "delete_memory":
-            delete_memory(state, str(body.get("memory_id") or ""))
+            delete_memory(state, str(body.get("memory_id") or ""), response_language=response_language)
         elif operation == "rollback_memory":
-            rollback_memory(state, str(body.get("memory_id") or ""), int(body.get("target_version") or 0))
+            rollback_memory(state, str(body.get("memory_id") or ""), int(body.get("target_version") or 0), response_language=response_language)
         elif operation in {"confirm_rule", "reject_rule"}:
             rule = decide_rule(
-                state, str(body.get("rule_id") or ""), int(body.get("version") or 0), operation == "confirm_rule",
+                state, str(body.get("rule_id") or ""), int(body.get("version") or 0), operation == "confirm_rule", response_language=response_language,
             )
             if operation == "confirm_rule" and rule.get("kind") == "disable_notification_type":
                 proactive = await load_proactive_state(store, user_id)
@@ -94,85 +91,24 @@ async def handler(ctx):
         elif operation == "update_map_preferences":
             changes = body.get("preferences") or {}
             if not isinstance(changes, dict):
-                raise ValueError("地图设置格式无效")
+                raise ValueError(text("settings.map_invalid", response_language))
             current = dict(state.get("map_preferences") or DEFAULT_MAP_PREFERENCES)
             current.update(changes)
             state["map_preferences"] = normalize_map_preferences(current)
-        elif operation in {
-            "update_skill_preferences",
-            "install_skill",
-            "uninstall_skill",
-        }:
-            if operation == "install_skill":
-                requested = {str(body.get("skill_id") or ""): True}
-            elif operation == "uninstall_skill":
-                requested = {str(body.get("skill_id") or ""): False}
-            else:
-                requested = body.get("preferences") or {}
+        elif operation == "update_skill_preferences":
+            requested = body.get("preferences") or {}
             if not isinstance(requested, dict):
-                raise ValueError("Skills 设置格式无效")
+                raise ValueError(text("settings.skills_invalid", response_language))
             previous = dict(
                 state.get("skill_preferences") or DEFAULT_SKILL_PREFERENCES
             )
-            current = dict(previous)
-            for skill_id in DEFAULT_SKILL_PREFERENCES:
-                manifest = skill_manifest(skill_id)
-                if manifest and manifest.locked:
-                    current[skill_id] = True
-                elif skill_id in requested:
-                    eligible = skill_id in allowed_skill_ids(
-                        identity,
-                        [skill_id],
-                        required_plans={
-                            skill_id: (
-                                manifest.required_plan
-                                if manifest is not None
-                                else "free"
-                            ),
-                        },
-                    )
-                    if bool(requested[skill_id]) and not eligible:
-                        raise ValueError("当前身份或会员等级无法安装此 Skill")
-                    current[skill_id] = bool(requested[skill_id])
-            # Enabling a Skill is atomic with all hard dependencies declared by
-            # its manifest. Disabling a dependency does not destroy a user's
-            # preference for dependants; runtime resolution simply withholds
-            # those tools until the requirement is enabled again.
-            pending = [
-                skill_id
-                for skill_id, enabled in requested.items()
-                if bool(enabled)
-            ]
-            while pending:
-                skill_id = pending.pop()
-                manifest = skill_manifest(skill_id)
-                if manifest is None:
-                    continue
-                for dependency in manifest.requires:
-                    if not current.get(dependency, False):
-                        dependency_manifest = skill_manifest(dependency)
-                        dependency_required_plan = (
-                            dependency_manifest.required_plan
-                            if dependency_manifest is not None
-                            else "free"
-                        )
-                        if dependency not in allowed_skill_ids(
-                            identity,
-                            [dependency],
-                            required_plans={
-                                dependency: dependency_required_plan,
-                            },
-                        ):
-                            raise ValueError(
-                                "当前身份或会员等级无法安装该 Skill 的必需依赖"
-                            )
-                        current[dependency] = True
-                        pending.append(dependency)
-            current = effective_skill_preferences(identity, current)
-            for skill_id in DEFAULT_SKILL_PREFERENCES:
-                manifest = skill_manifest(skill_id)
-                if manifest and manifest.locked:
-                    current[skill_id] = True
+            current, preference_results = apply_skill_preference_batch(
+                identity,
+                previous,
+                DEFAULT_SKILL_PREFERENCES,
+                requested,
+            )
+            operation_metadata["skill_preference_results"] = preference_results
             state["skill_preferences"] = current
             await run_preference_hooks(
                 {
@@ -185,15 +121,16 @@ async def handler(ctx):
             )
         elif operation == "configure_skill_connection":
             if str(identity.get("auth_type") or "guest") == "guest":
-                raise ValueError("请先使用微信登录再连接外部 Skill")
+                raise ValueError(text("settings.connection_login", response_language))
             configure_skill_connection(
                 state,
                 str(body.get("skill_id") or ""),
                 str(body.get("token") or ""),
+                response_language=response_language,
             )
         elif operation == "disconnect_skill_connection":
             if str(identity.get("auth_type") or "guest") == "guest":
-                raise ValueError("游客没有可断开的外部 Skill")
+                raise ValueError(text("settings.connection_guest", response_language))
             disconnect_skill_connection(
                 state,
                 str(body.get("skill_id") or ""),
@@ -204,7 +141,7 @@ async def handler(ctx):
             "remove_user_skill",
         }:
             if str(identity.get("auth_type") or "guest") == "guest":
-                raise ValueError("Sign in before managing private Skills")
+                raise ValueError(text("settings.private_skill_login", response_language))
             if operation == "install_user_skill":
                 limits = public_entitlements(identity).get("limits") or {}
                 install_user_skill(
@@ -215,25 +152,31 @@ async def handler(ctx):
                         or limits.get("userSkillUploads")
                         or 0
                     ),
+                    response_language=response_language,
                 )
             elif operation == "set_user_skill_enabled":
                 set_user_skill_enabled(
                     state,
                     str(body.get("skill_id") or ""),
                     bool(body.get("enabled")),
+                    response_language=response_language,
                 )
             else:
-                remove_user_skill(state, str(body.get("skill_id") or ""))
+                remove_user_skill(
+                    state, str(body.get("skill_id") or ""),
+                    response_language=response_language,
+                )
         elif operation == "clear_memories":
             state["memories"] = {}
             state["memory_proposals"] = {}
         else:
-            raise ValueError("不支持的记忆与反馈操作")
+            raise ValueError(text("settings.operation_unsupported", response_language))
         saved = await save_intelligence_state(store, state, user_id)
-        return public_intelligence_view(
+        public = public_intelligence_view(
             saved,
             getattr(ctx, "env", {}) or {},
             identity,
         )
+        return {**public, **operation_metadata}
     except Exception as exc:
         return error(str(exc))

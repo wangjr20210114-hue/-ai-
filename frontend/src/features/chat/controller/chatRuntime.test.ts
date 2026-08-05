@@ -8,10 +8,13 @@ import {
   progressTextForTool,
   resolveSearchStartAt,
   restoredConversationWasInterrupted,
+  isConversationGenerationActive,
+  messagesForDurableCache,
+  shouldPersistRenderedMessages,
   terminalGenerationError,
 } from './useChatController';
-import type { ChatMessage, WorkspaceAction } from '../../../shared/types';
-import type { SearchMeta } from '../../../shared/types';
+import type { ChatMessage, WorkspaceAction } from '../model';
+import type { SearchMeta } from '../model';
 
 const media = [{
   id: 'media-1', kind: 'image' as const, url: 'https://example.com/news.jpg',
@@ -86,28 +89,57 @@ describe('terminal generation failure', () => {
     expect(terminalGenerationError(new TypeError('Failed to fetch'))).toBe('Failed to fetch');
   });
 
-  it('marks watchdog timeout as stopped and explicitly requires a click', () => {
+  it('presents a concise retry action after a watchdog timeout', () => {
     expect(terminalGenerationError(new DOMException('Aborted', 'AbortError'), true))
-      .toContain('不会自动重新生成');
-    expect(terminalGenerationError(new DOMException('Aborted', 'AbortError'), true))
-      .toContain('点击重试');
+      .toBe('生成超时，请重试。');
   });
 
   it('treats an explicit abort as a terminal stop', () => {
     expect(terminalGenerationError(new DOMException('Aborted', 'AbortError')))
-      .toBe('生成已停止，不会自动重新生成。');
+      .toBe('生成已停止。');
   });
 });
 
 describe('chat transport ownership', () => {
+  it('does not cache old rows under a newly selected conversation id', () => {
+    expect(shouldPersistRenderedMessages('conversation-old', 'conversation-new')).toBe(false);
+    expect(shouldPersistRenderedMessages('conversation-new', 'conversation-new')).toBe(true);
+  });
+
+  it('keeps streaming answer fragments out of the durable conversation cache', () => {
+    const rows: ChatMessage[] = [
+      { id: 'user', role: 'user', content: 'question', ts: 1 },
+      { id: 'partial', role: 'ai', content: 'must disappear', ts: 2, streaming: true },
+      { id: 'complete', role: 'ai', content: 'committed', ts: 3, streaming: false },
+    ];
+    expect(messagesForDurableCache(rows).map((item) => item.id))
+      .toEqual(['user', 'complete']);
+  });
+
+  it('does not let a stale historical stream lock restored action cards', () => {
+    expect(isConversationGenerationActive([
+      { id: 'stale', role: 'ai', content: '旧回答', ts: 1, streaming: true },
+      { id: 'restored', role: 'ai', content: '可操作的新回答', ts: 2, streaming: false },
+    ])).toBe(false);
+    expect(isConversationGenerationActive([
+      { id: 'user', role: 'user', content: '新问题', ts: 1 },
+      { id: 'live', role: 'ai', content: '', ts: 2, streaming: true },
+    ])).toBe(true);
+    expect(isConversationGenerationActive([
+      { id: 'user', role: 'user', content: '第一个问题', ts: 1 },
+      { id: 'live', role: 'ai', content: '', ts: 2, streaming: true },
+      { id: 'queued', role: 'user', content: '排队问题', ts: 3, queued: true },
+    ])).toBe(true);
+  });
+
   it('allows bounded semantic preflight before the stream idle watchdog', () => {
     expect(CHAT_INITIAL_RESPONSE_TIMEOUT_MS).toBeGreaterThan(20_000);
     expect(CHAT_INITIAL_RESPONSE_TIMEOUT_MS).toBeLessThan(60_000);
   });
 
-  it('rejects a second send while the current stream owns the conversation', () => {
+  it('accepts another send into the per-conversation queue', () => {
     expect(canStartChatTransport(false)).toBe(true);
-    expect(canStartChatTransport(true)).toBe(false);
+    expect(canStartChatTransport(true)).toBe(true);
   });
 
   it('retries a semantic location request without duplicating the user bubble', () => {
@@ -129,6 +161,8 @@ describe('chat transport ownership', () => {
 
 describe('search timing ownership', () => {
   it('never replaces a turn start with a later progress event timestamp', () => {
+    // 1000 is the optimistic user-message timestamp, even if semantic search
+    // is only confirmed by a later controller event.
     expect(resolveSearchStartAt(undefined, undefined, true, 1000)).toBe(1000);
     expect(resolveSearchStartAt(1000, undefined, true, 9000)).toBe(1000);
     expect(resolveSearchStartAt(undefined, 1000, true, 9000)).toBe(1000);

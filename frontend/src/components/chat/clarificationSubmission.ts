@@ -1,4 +1,4 @@
-import type { ClarificationField, ClarificationPrompt } from '../../shared/types';
+import type { ClarificationField, ClarificationPrompt } from '../../features/chat/model';
 
 export interface ClarificationResponse {
   id: string;

@@ -1,4 +1,7 @@
-import type { InstalledSkill } from '../../shared/types';
+import type { InstalledSkill } from './model/types';
+import { translate } from '../../i18n';
+
+export type * from './model/types';
 
 export type MarketplaceView = 'catalog' | 'enabled' | 'docs' | 'upload';
 
@@ -42,9 +45,9 @@ export function skillInstallOrder(
   const visited = new Set<string>();
   const visit = (id: string) => {
     if (visited.has(id)) return;
-    if (visiting.has(id)) throw new Error(`Invalid Skill dependency cycle: ${id}`);
+    if (visiting.has(id)) throw new Error(translate('skillDependencyCycle', { id }));
     const skill = skills.get(id);
-    if (!skill) throw new Error(`Missing Skill dependency: ${id}`);
+    if (!skill) throw new Error(translate('skillDependencyMissing', { id }));
     visiting.add(id);
     for (const required of skill.requires || []) visit(required);
     visiting.delete(id);

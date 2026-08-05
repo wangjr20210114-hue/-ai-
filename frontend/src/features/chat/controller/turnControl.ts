@@ -1,0 +1,256 @@
+import { bootstrapApp, readChatRun, requestConversationStop } from '../model/client';
+import type { BootstrapData, ChatRunState, MakersChatRun } from '../model';
+
+// Maker cancellation first reads and updates the native conversation before
+// batching derived-state cleanup.  Keep the transport alive long enough for
+// that authoritative acknowledgement instead of aborting the write early.
+const STOP_TIMEOUT_MS = 12_000;
+const STOP_CONFIRM_TIMEOUT_MS = 8_000;
+const RECOVERY_POLL_MS = 850;
+const RECOVERY_ABSENT_GRACE_CHECKS = 8;
+const MANUAL_STOP_PREFIX = 'floris:manual-stop:';
+
+function stopStorageKey(conversationId: string): string {
+  return `${MANUAL_STOP_PREFIX}${conversationId}`;
+}
+
+export function readManualStopClientMessageId(conversationId: string): string {
+  try {
+    const value = window.sessionStorage.getItem(stopStorageKey(conversationId)) || '';
+    return value === '1' ? '' : value;
+  } catch {
+    return '';
+  }
+}
+
+export function readManualStopIntent(conversationId: string): boolean {
+  try {
+    return Boolean(window.sessionStorage.getItem(stopStorageKey(conversationId)));
+  } catch {
+    return false;
+  }
+}
+
+function writeManualStopIntent(
+  conversationId: string,
+  stopped: boolean,
+  clientMessageId = '',
+): void {
+  try {
+    if (stopped) {
+      window.sessionStorage.setItem(
+        stopStorageKey(conversationId),
+        clientMessageId || '1',
+      );
+    } else {
+      window.sessionStorage.removeItem(stopStorageKey(conversationId));
+    }
+  } catch {
+    // Runtime state below remains authoritative for this tab.
+  }
+}
+
+export function turnControlDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timer = window.setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      window.clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
+}
+
+export type TurnRecovery = {
+  outcome: 'completed' | 'cancelled' | 'failed' | 'not_admitted';
+  data?: BootstrapData;
+  run?: MakersChatRun | null;
+};
+
+/** Cross-client turn lifecycle adapter over the Maker stop/messages APIs. */
+export class TurnControlClient {
+  private stopIntent: boolean;
+  private stoppedClientId: string;
+  private retryTimer: number | undefined;
+  private onlineListener: (() => void) | undefined;
+  private closed = false;
+
+  constructor(private readonly conversationId: string) {
+    this.stopIntent = readManualStopIntent(conversationId);
+    this.stoppedClientId = readManualStopClientMessageId(conversationId);
+  }
+
+  get hasStopIntent(): boolean { return this.stopIntent; }
+  get stopClientMessageId(): string { return this.stoppedClientId; }
+  isStopped(clientMessageId: string): boolean {
+    return Boolean(
+      this.stopIntent
+      && (
+        !this.stoppedClientId
+        || this.stoppedClientId === clientMessageId
+      )
+    );
+  }
+
+  markStopped(clientMessageId: string): void {
+    this.stopIntent = true;
+    this.stoppedClientId = clientMessageId;
+    writeManualStopIntent(this.conversationId, true, clientMessageId);
+  }
+
+  clearStopIntent(clientMessageId = ''): void {
+    if (clientMessageId && this.stoppedClientId && this.stoppedClientId !== clientMessageId) return;
+    this.stopIntent = false;
+    this.stoppedClientId = '';
+    writeManualStopIntent(this.conversationId, false);
+  }
+
+  private clearRetry(): void {
+    if (this.retryTimer) window.clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+    if (this.onlineListener) {
+      window.removeEventListener('online', this.onlineListener);
+      this.onlineListener = undefined;
+    }
+  }
+
+  private async attemptStop(clientMessageId: string): Promise<boolean> {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), STOP_TIMEOUT_MS);
+    try {
+      const response = await requestConversationStop(
+        this.conversationId,
+        clientMessageId,
+        controller.signal,
+      );
+      if (response.ok) {
+        const acknowledgement = await response.json() as {
+          client_message_id?: unknown;
+        };
+        if (
+          !clientMessageId
+          || String(acknowledgement.client_message_id || '') === clientMessageId
+        ) return true;
+      }
+    } catch {
+      // The server persists the exact cancellation tombstone before optional
+      // derived-state cleanup. A slow cleanup can outlive the HTTP deadline;
+      // confirm that same Maker run instead of posting duplicate stops.
+    } finally {
+      window.clearTimeout(timer);
+    }
+    const confirmController = new AbortController();
+    const confirmTimer = window.setTimeout(
+      () => confirmController.abort(),
+      STOP_CONFIRM_TIMEOUT_MS,
+    );
+    try {
+      const data = await readChatRun(this.conversationId, confirmController.signal);
+      return Boolean(
+        data.run
+        && data.run.client_message_id === clientMessageId
+        && data.run.status === 'cancelled'
+      );
+    } catch {
+      return false;
+    } finally {
+      window.clearTimeout(confirmTimer);
+    }
+  }
+
+  private scheduleStopRetry(clientMessageId: string, confirmed: () => void): void {
+    this.clearRetry();
+    const retry = () => {
+      if (this.closed) return;
+      void this.attemptStop(clientMessageId).then((ok) => {
+        if (ok) {
+          this.clearRetry();
+          this.clearStopIntent(clientMessageId);
+          confirmed();
+          return;
+        }
+        this.scheduleStopRetry(clientMessageId, confirmed);
+      });
+    };
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      this.onlineListener = retry;
+      window.addEventListener('online', retry, { once: true });
+    } else {
+      this.retryTimer = window.setTimeout(retry, RECOVERY_POLL_MS);
+    }
+  }
+
+  async stop(clientMessageId: string, confirmed: () => void): Promise<'confirmed' | 'local'> {
+    if (await this.attemptStop(clientMessageId)) {
+      this.clearRetry();
+      this.clearStopIntent(clientMessageId);
+      confirmed();
+      return 'confirmed';
+    }
+    this.scheduleStopRetry(clientMessageId, confirmed);
+    return 'local';
+  }
+
+  async recover(
+    expectedClientMessageId: string,
+    signal: AbortSignal,
+    onProgress?: (state: ChatRunState) => void,
+  ): Promise<TurnRecovery> {
+    let absentChecks = 0;
+    while (
+      !this.closed
+      && !signal.aborted
+      && !this.isStopped(expectedClientMessageId)
+    ) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        await turnControlDelay(RECOVERY_POLL_MS, signal);
+        continue;
+      }
+      try {
+        const state = await readChatRun(this.conversationId, signal);
+        const run = state.run;
+        const sameTurn = Boolean(
+          run
+          && (!expectedClientMessageId || run.client_message_id === expectedClientMessageId),
+        );
+        if (sameTurn && (run?.status === 'running' || run?.status === 'cancel_requested')) {
+          absentChecks = 0;
+          onProgress?.(state);
+          await turnControlDelay(RECOVERY_POLL_MS, signal);
+          continue;
+        }
+        if (sameTurn && run?.status === 'completed') {
+          const data = await bootstrapApp(this.conversationId, {
+            strict: true,
+            timeoutMs: 8_000,
+            signal,
+          });
+          return { outcome: 'completed', data, run };
+        }
+        if (sameTurn && run?.status === 'cancelled') return { outcome: 'cancelled', run };
+        if (sameTurn && run?.status === 'failed') return { outcome: 'failed', run };
+        if (run?.status === 'running' || run?.status === 'cancel_requested') {
+          await turnControlDelay(RECOVERY_POLL_MS, signal);
+          continue;
+        }
+        absentChecks += 1;
+        // Maker metadata and the presentation snapshot are eventually
+        // consistent. Keep displaying the local live projection during this
+        // grace window; never turn a refresh into a duplicate plain-model run.
+        if (absentChecks >= RECOVERY_ABSENT_GRACE_CHECKS) return { outcome: 'not_admitted', run };
+      } catch {
+        // A network recovery reads the existing Maker checkpoint only.
+      }
+      await turnControlDelay(RECOVERY_POLL_MS, signal);
+    }
+    return { outcome: 'cancelled' };
+  }
+
+  close(): void {
+    this.closed = true;
+    this.clearRetry();
+  }
+}

@@ -16,7 +16,6 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agents.chat._capability_plan import (
     CapabilityPlan,
-    apply_runtime_skill_policy,
     fallback_tools_for_prompt_topics,
     media_enabled_for_plan,
     parse_capability_plan,
@@ -29,6 +28,7 @@ from agents.chat._capability_plan import (
     required_tool_for_plan,
     required_tools_for_plan,
 )
+from agents._application.chat.skill_policy import apply_runtime_skill_policy
 from agents.chat._followups import (
     generate_followups,
     parse_followups,
@@ -43,35 +43,42 @@ from agents.chat._history import (
 )
 from agents.chat._calendar_context import calendar_context, latest_route_context
 from agents.chat._graph import action_completion_fallback, tool_failure_fallback, tool_result_fallback
-from agents.chat.index import (
+from agents._application.chat.turn_io import (
+    checkpoint_dialogue_context,
+    checkpoint_final_answer,
+    hydrate_durable_map_action,
+)
+from agents._application.chat.turn_policy import (
     SYSTEM_PROMPT,
     SYSTEM_PROMPT_SECTIONS,
     SYSTEM_PROMPT_SECTION_ORDER,
+    direct_paper_tool_arguments,
+    empty_generation_error,
+    dynamic_system_prompt,
+    runtime_datetime_context,
+    should_buffer_public_answer,
+    tools_for_capability_stage,
+)
+from agents._application.chat.turn_protocol import (
     capability_planning_message,
     checkpoint_clarification_answers,
     checkpoint_clarification_state,
-    checkpoint_dialogue_context,
-    checkpoint_final_answer,
     clarification_response_answers,
     clarification_response_id,
-    direct_paper_tool_arguments,
-    empty_generation_error,
     graph_user_message,
-    dynamic_system_prompt,
-    runtime_datetime_context,
     resume_capability_protocol,
-    should_buffer_public_answer,
     should_persist_user_message,
-    tools_for_capability_stage,
 )
-from agents._infrastructure.skills.builtin_operations import (
+from agents._infrastructure.skills.builtin_operations import build_system_skill_tools
+from agents._infrastructure.skills.paper_candidates import (
     _paper_candidate_ids_from_model,
     _paper_candidates_from_searchpro,
-    build_system_skill_tools,
+)
+from agents._infrastructure.skills.route_resolution import (
     preserve_planned_route_stops,
     verify_place_queries_parallel,
 )
-from agents.chat._protocol import PublicStreamFilter, StreamDeltaNormalizer, action_fallback_content, checkpoint_recovery_needed, dsml_tool_calls, public_content, public_error, safe_error_diagnostics
+from agents.chat._protocol import MarkdownImageStreamFilter, PublicStreamFilter, StreamDeltaNormalizer, action_fallback_content, checkpoint_recovery_needed, dsml_tool_calls, public_content, public_error, safe_error_diagnostics
 from agents.messages.index import handler as messages_handler
 from agents._infrastructure.providers.side_effects import (
     _cloudflare_image_prompt,
@@ -89,13 +96,16 @@ from agents._infrastructure.providers.vision import (
 from agents._infrastructure.makers.identity import require_user, scoped_conversation_id
 from agents._infrastructure.makers.data_version import CONVERSATION_PREFIX
 from agents._infrastructure.providers.rich_search import (
-    _filter_for_target_date,
     _parse_pages,
     _review_image,
     _vision_filter,
     _vision_review_timeout,
     evidence_for_model,
     rich_search as run_rich_search,
+)
+from agents._domain.search.source_policy import (
+    filter_sources_for_target_date,
+    rank_source_results,
 )
 from agents._infrastructure.providers.arxiv import (
     _best_title_match,

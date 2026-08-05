@@ -7,7 +7,7 @@ from .policy import (
     normalize_membership,
     plan_allows,
     public_entitlements,
-    require_skill_access,
+    skill_unavailability_reasons,
 )
 
 __all__ = (
@@ -17,5 +17,5 @@ __all__ = (
     "normalize_membership",
     "plan_allows",
     "public_entitlements",
-    "require_skill_access",
+    "skill_unavailability_reasons",
 )

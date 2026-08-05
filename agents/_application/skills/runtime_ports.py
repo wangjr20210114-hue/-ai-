@@ -54,10 +54,10 @@ SERVICE_PERMISSIONS = {
     "search": "components.search",
     "maps": "components.maps",
     "calendar": "components.calendar",
-    "meeting": "components.calendar",
+    "meeting": "components.workspace",
     "image": "components.image",
     "vision": "components.search",
-    "papers": "components.files",
+    "papers": "components.paper",
     "workspace": "components.workspace",
 }
 

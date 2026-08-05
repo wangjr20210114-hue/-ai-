@@ -55,7 +55,7 @@ def latest_route_context(workspace: dict) -> str:
     """Expose one bounded, provider-verified route for calendar continuation."""
     route = workspace.get("latest_route_plan")
     if not isinstance(route, dict) or not str(route.get("id") or ""):
-        return "无"
+        return "[]"
     stops = []
     for item in (route.get("ordered_stops") or [])[:12]:
         if not isinstance(item, dict):
@@ -66,7 +66,7 @@ def latest_route_context(workspace: dict) -> str:
             "address": str(item.get("address") or "")[:180],
         })
     if len(stops) < 2:
-        return "无"
+        return "[]"
     public = {
         "id": str(route.get("id") or ""),
         "created_at": int(route.get("created_at") or 0),
@@ -76,4 +76,36 @@ def latest_route_context(workspace: dict) -> str:
         "mode": str(route.get("mode") or ""),
         "calendar_hint": str(route.get("calendar_hint") or "")[:240],
     }
+    # One recommended-place pair is one leg, but a leg may contain several
+    # provider-selected transport sections.  Keep this compact composition in
+    # the continuation contract so a later calendar/map turn does not flatten
+    # walk -> bus -> rail into a single generic mode.
+    legs = []
+    for raw_leg in (route.get("legs") or [])[:11]:
+        if not isinstance(raw_leg, dict):
+            continue
+        item = {
+            "mode": str(raw_leg.get("mode") or public["mode"]),
+            "distance_meters": int(raw_leg.get("distance_meters") or 0),
+            "duration_seconds": int(raw_leg.get("duration_seconds") or 0),
+        }
+        sections = []
+        for raw_section in (raw_leg.get("sections") or [])[:8]:
+            if not isinstance(raw_section, dict):
+                continue
+            section = {
+                "mode": str(raw_section.get("mode") or item["mode"]),
+                "distance_meters": int(raw_section.get("distance_meters") or 0),
+                "duration_seconds": int(raw_section.get("duration_seconds") or 0),
+            }
+            for key in ("line", "vehicle", "geton", "getoff", "station_count", "instruction"):
+                value = raw_section.get(key)
+                if value not in (None, ""):
+                    section[key] = str(value)[:240] if key != "station_count" else max(0, int(value or 0))
+            sections.append(section)
+        if sections:
+            item["sections"] = sections
+        legs.append(item)
+    if legs:
+        public["legs"] = legs
     return json.dumps(public, ensure_ascii=False, separators=(",", ":"))

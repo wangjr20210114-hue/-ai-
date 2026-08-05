@@ -1,5 +1,5 @@
 import MarkdownRenderer from '../../../../components/common/MarkdownRenderer';
-import type { SearchMeta } from '../../../../shared/types';
+import type { SearchMeta } from '../../model';
 
 
 export function TextRenderer({

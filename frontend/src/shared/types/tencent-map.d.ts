@@ -2,6 +2,21 @@ interface TencentMapInstance {
   destroy?: () => void;
   fitBounds?: (bounds: unknown, options?: Record<string, unknown>) => void;
   resize?: () => void;
+  getZoom?: () => number;
+  getCenter?: () => TencentMapCoordinate;
+  on?: (event: string, listener: () => void) => void;
+  off?: (event: string, listener: () => void) => void;
+}
+
+interface TencentMapCoordinate {
+  lat?: number;
+  lng?: number;
+  getLat?: () => number;
+  getLng?: () => number;
+}
+
+interface TencentMapOverlay {
+  setMap?: (map: TencentMapInstance | null) => void;
 }
 
 interface TencentLatLngBounds {
@@ -16,11 +31,11 @@ interface TencentMapNamespace {
   Map: new (container: HTMLElement, options: Record<string, unknown>) => TencentMapInstance;
   LatLng: new (lat: number, lng: number) => unknown;
   LatLngBounds?: new () => TencentLatLngBounds;
-  MultiMarker: new (options: Record<string, unknown>) => unknown;
+  MultiMarker: new (options: Record<string, unknown>) => TencentMapOverlay;
   MarkerStyle: new (options: Record<string, unknown>) => unknown;
-  MultiPolyline: new (options: Record<string, unknown>) => unknown;
+  MultiPolyline: new (options: Record<string, unknown>) => TencentMapOverlay;
   PolylineStyle: new (options: Record<string, unknown>) => unknown;
-  MultiLabel: new (options: Record<string, unknown>) => unknown;
+  MultiLabel: new (options: Record<string, unknown>) => TencentMapOverlay;
   LabelStyle: new (options: Record<string, unknown>) => unknown;
   service?: {
     Geocoder: new () => {

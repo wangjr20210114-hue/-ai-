@@ -1,4 +1,4 @@
-from ..._infrastructure.skills.builtin_operations import RoutePlanInput
+from ..._application.skills.tool_contracts import RoutePlanInput
 from .._tool_factory import build_service_tools
 
 

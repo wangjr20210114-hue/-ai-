@@ -1,58 +1,16 @@
 import { getStore } from '@edgeone/pages-blob';
 import { currentUser, tenantPrefix } from '../../auth/current-user.js';
 import { requireSkillAccess } from '../../auth/entitlements.js';
-
-const DATA_GENERATION = 'v7_20260724_clear';
+import {
+  libraryKeys,
+  loadJson,
+  loadLibraryState,
+  persistLibraryItem,
+  saveJson,
+} from './state.js';
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
-}
-
-async function loadJson(store, key, fallback) {
-  const raw = await store.get(key, { type: 'arrayBuffer' });
-  if (!raw) return fallback;
-  try { return JSON.parse(new TextDecoder().decode(raw)); }
-  catch { return fallback; }
-}
-
-async function saveJson(store, key, value) { await store.set(key, JSON.stringify(value)); }
-
-function inferredFolderName(item) {
-  if (item.is_paper || item.kind === 'paper') return '学术论文';
-  const text = `${item.title || ''} ${item.filename || ''} ${item.preview || ''}`.toLowerCase();
-  if (/合同|协议|contract|agreement/.test(text)) return '合同与协议';
-  if (/报告|白皮书|report|white\s*paper/.test(text)) return '报告与白皮书';
-  if (/手册|说明书|manual|guide/.test(text)) return '手册与指南';
-  if (/书籍|电子书|ebook|book/.test(text)) return '书籍';
-  return 'PDF 文档';
-}
-
-function ensureFolder(folders, name) {
-  let folder = folders.find((item) => item.category === name || item.name === name);
-  if (!folder) {
-    folder = { id: crypto.randomUUID(), name: name.slice(0, 80), category: name, automatic: true, created_at: Date.now() };
-    folders.push(folder);
-  }
-  return folder;
-}
-
-async function loadState(store, keys) {
-  const items = await loadJson(store, keys.index, []);
-  const folders = await loadJson(store, keys.folders, []);
-  const settings = { auto_organize: true, ...await loadJson(store, keys.settings, {}) };
-  let changed = false;
-  if (settings.auto_organize) {
-    for (const item of items) {
-      if (!item.folder_id && !item.manual_folder) {
-        item.folder_id = ensureFolder(folders, inferredFolderName(item)).id;
-        changed = true;
-      }
-    }
-  }
-  if (changed) {
-    await Promise.all([saveJson(store, keys.index, items), saveJson(store, keys.folders, folders)]);
-  }
-  return { items, folders, settings };
 }
 
 export async function onRequest(context) {
@@ -63,11 +21,7 @@ export async function onRequest(context) {
     return json({ error: error.message, code: error.code }, error.status || 403);
   }
   const prefix = tenantPrefix(user, env);
-  const keys = {
-    index: `${prefix}library/${DATA_GENERATION}/index.json`,
-    folders: `${prefix}library/${DATA_GENERATION}/folders.json`,
-    settings: `${prefix}library/${DATA_GENERATION}/settings.json`,
-  };
+  const keys = libraryKeys(prefix);
   const store = getStore({ name: 'yuanbao-files', consistency: 'strong' });
 
   if (request.method === 'GET') {
@@ -76,7 +30,7 @@ export async function onRequest(context) {
       const settings = { auto_organize: true, ...await loadJson(store, keys.settings, {}) };
       return json({ settings });
     }
-    const state = await loadState(store, keys);
+    const state = await loadLibraryState(store, keys);
     state.items.sort((a, b) => Number(b.last_opened_at || b.created_at) - Number(a.last_opened_at || a.created_at));
     return json(state);
   }
@@ -84,7 +38,8 @@ export async function onRequest(context) {
   if (request.method === 'POST') {
     const body = await request.json();
     const operation = String(body.operation || 'register');
-    const { items, folders, settings } = await loadState(store, keys);
+    const state = await loadLibraryState(store, keys);
+    const { items, folders, settings } = state;
 
     if (operation === 'settings') {
       settings.auto_organize = body.auto_organize !== false;
@@ -129,7 +84,10 @@ export async function onRequest(context) {
       const item = items.find((candidate) => candidate.storage_key === storageKey || candidate.file_id === storageKey);
       if (!item) return json({ error: '阅读项目不存在，请先保存到“我的阅读”' }, 404);
       const action = String(body.action || '');
-      if (!['translate', 'summarize', 'analyze'].includes(action)) return json({ error: '不支持的助读结果类型' }, 400);
+      if (![
+        'translate', 'summarize', 'explain', 'formula',
+        'analyze', 'full-translate', 'terms', 'qa',
+      ].includes(action)) return json({ error: '不支持的助读结果类型' }, 400);
       const content = String(body.content || '').trim().slice(0, 30000);
       if (!content) return json({ error: '助读结果不能为空' }, 400);
       const result = {
@@ -165,9 +123,7 @@ export async function onRequest(context) {
       assistant_results: Array.isArray(existing?.assistant_results) ? existing.assistant_results : [],
       created_at: existing?.created_at || now, last_opened_at: now,
     };
-    if (!item.folder_id && settings.auto_organize) item.folder_id = ensureFolder(folders, inferredFolderName(item)).id;
-    const next = [item, ...items.filter((candidate) => candidate.id !== item.id && candidate.storage_key !== storageKey)];
-    await Promise.all([saveJson(store, keys.index, next.slice(0, 500)), saveJson(store, keys.folders, folders)]);
+    await persistLibraryItem(store, keys, item, state);
     return json({ item });
   }
 
@@ -175,7 +131,7 @@ export async function onRequest(context) {
     const url = new URL(request.url);
     const id = url.searchParams.get('id') || '';
     const folderId = url.searchParams.get('folder_id') || '';
-    const { items, folders } = await loadState(store, keys);
+    const { items, folders } = await loadLibraryState(store, keys);
     if (folderId) {
       await Promise.all([
         saveJson(store, keys.folders, folders.filter((folder) => folder.id !== folderId)),

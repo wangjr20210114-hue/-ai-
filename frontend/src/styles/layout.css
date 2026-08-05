@@ -141,6 +141,17 @@
 }
 .right-workspace-shell.is-closed { width: 0; flex-basis: 0; opacity: 0; transform: translateX(32px); pointer-events: none; }
 .right-workspace-shell .my-panel { width: var(--right-pane-width, 340px); height: 100%; }
+.right-workspace-loading {
+  width: var(--right-pane-width, 340px);
+  height: 100%;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 24px 18px;
+  background: var(--app-panel);
+}
+.right-workspace-loading .skeleton-line { width: 42%; height: 18px; }
+.right-workspace-loading .skeleton-block { width: 100%; height: 132px; border-radius: 16px; }
 .workspace-resizer-right { transition: width 0.25s ease, flex-basis 0.25s ease, opacity 0.2s ease; }
 .workspace-resizer-right.is-closed { width: 0; flex-basis: 0; opacity: 0; pointer-events: none; }
 

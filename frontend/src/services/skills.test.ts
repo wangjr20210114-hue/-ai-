@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { InstalledSkill } from '../shared/types';
+import type { InstalledSkill } from '../features/skills/model';
 import { capabilityEnabled } from './skills';
 
 function skill(

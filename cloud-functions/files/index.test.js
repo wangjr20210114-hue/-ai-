@@ -29,7 +29,11 @@ test('HEAD exposes the Makers-safe part size without reading the object body', a
   const response = await call(mockStore(new Uint8Array(10)), 'HEAD');
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('content-length'), '10');
+  assert.equal(response.headers.get('accept-ranges'), null);
+  assert.equal(response.headers.get('x-floris-file-size'), '10');
+  assert.equal(response.headers.get('x-floris-part-protocol'), 'makers-parts-v1');
   assert.equal(response.headers.get('x-yuanbao-file-size'), '10');
+  assert.equal(Number(response.headers.get('x-floris-part-size')), __test.DOWNLOAD_PART_BYTES);
   assert.equal(Number(response.headers.get('x-yuanbao-part-size')), __test.DOWNLOAD_PART_BYTES);
 });
 
@@ -45,6 +49,9 @@ test('GET part keeps large Blob transfers below the Cloud Function response limi
   const response = await call(mockStore(bytes), 'GET', '&part=1');
   assert.equal(response.status, 200);
   assert.equal(Number(response.headers.get('content-length')), 3);
-  assert.equal(response.headers.get('content-range'), `bytes ${__test.DOWNLOAD_PART_BYTES}-${__test.DOWNLOAD_PART_BYTES + 2}/${bytes.byteLength}`);
+  assert.equal(response.headers.get('content-range'), null);
+  assert.equal(response.headers.get('x-floris-part-index'), '1');
+  assert.equal(response.headers.get('x-floris-part-start'), String(__test.DOWNLOAD_PART_BYTES));
+  assert.equal(response.headers.get('x-floris-part-end'), String(bytes.byteLength));
   assert.deepEqual(new Uint8Array(await response.arrayBuffer()), bytes.slice(__test.DOWNLOAD_PART_BYTES));
 });

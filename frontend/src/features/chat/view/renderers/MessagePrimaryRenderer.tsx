@@ -2,10 +2,10 @@ import type { RefObject } from 'react';
 import { CheckIcon, CopyIcon, ImageIcon } from 'tdesign-icons-react';
 
 import type { MessageBubbleController } from '../../controller/useMessageBubbleController';
-import { publicAssistantMarkdown, streamingMarkdownAnswer } from '../../../../components/chat/streamingAnswer';
+import { publicAssistantMarkdown, streamingMarkdownAnswer, workspaceActionsReady } from '../../../../components/chat/streamingAnswer';
 import { useLanguage } from '../../../../i18n';
 import type { ChatClient } from '../../../../services/chatClient';
-import type { ChatMessage, ProactiveState } from '../../../../shared/types';
+import type { ChatMessage, ProactiveState } from '../../model';
 import { ClarificationCard } from './ClarificationCard';
 import { MeetingConfirmationCard } from './MeetingConfirmationCard';
 import { ProgressRenderer } from './ProgressRenderer';
@@ -95,7 +95,7 @@ export function MessagePrimaryRenderer({
     >
       {controller.retryingAnswer ? t('retrying') : t('retryGeneration')}
     </button>}
-    {!message.streaming && <WorkspaceActionRenderer
+    {workspaceActionsReady(message.streaming) && <WorkspaceActionRenderer
       actions={controller.workspaceActions}
       busyKey={controller.workspaceBusy}
       conversationId={conversationId}

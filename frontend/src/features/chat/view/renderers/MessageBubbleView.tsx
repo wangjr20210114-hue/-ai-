@@ -5,7 +5,7 @@ import type { AssistantChainPosition } from '../../../../components/chat/assista
 import { hasTextSelectionInside } from '../../../../components/chat/scrollSelection';
 import { useLanguage } from '../../../../i18n';
 import type { ChatClient } from '../../../../services/chatClient';
-import type { ChatMessage, ProactiveState } from '../../../../shared/types';
+import type { ChatMessage, ProactiveState } from '../../model';
 import { MessageExtrasRenderer } from './MessageExtrasRenderer';
 import { MessagePrimaryRenderer } from './MessagePrimaryRenderer';
 import { selectRenderer } from './rendererRegistry';
@@ -74,7 +74,11 @@ export function MessageBubbleView({
     };
   }, [isUser, message.streaming, message.followUps]);
 
-  return <div className={`msg-row ${isUser ? 'user' : 'ai'}${isAssistantChain ? ` assistant-chain-${assistantChainPosition}` : ''}`}>
+  return <div
+    className={`msg-row ${isUser ? 'user' : 'ai'}${isAssistantChain ? ` assistant-chain-${assistantChainPosition}` : ''}`}
+    data-message-id={message.id}
+    data-message-role={message.role}
+  >
     {!isUser && (assistantChainPosition === 'middle' || assistantChainPosition === 'end')
       ? <div className="msg-avatar-spacer" aria-hidden="true" />
       : <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>
@@ -93,7 +97,9 @@ export function MessageBubbleView({
         className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''} ${isImageCreation ? 'is-image-generation' : ''}${isAssistantChain ? ` assistant-chain-bubble assistant-chain-bubble-${assistantChainPosition}` : ''}`}
       >
         {isUser
-          ? message.content
+          ? <>
+            {message.content}
+          </>
           : <MessagePrimaryRenderer
             message={message}
             client={client}

@@ -16,7 +16,7 @@
       "一个已存在历史会话的单用户工作区"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -66,7 +66,7 @@
       "消息：你好，请用一句话介绍你能做什么"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -116,7 +116,7 @@
       "消息：用三点解释什么是向量数据库，并给出一段 Python 伪代码"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -167,7 +167,7 @@
       "消息：最近AI有什么新进展"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -223,7 +223,7 @@
       "消息：写一篇较长的人工智能发展史"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -274,7 +274,7 @@
       "CORE-04 产生的会话"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -324,7 +324,7 @@
       "会话 A：北京故宫；会话 B：上海外滩"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -372,7 +372,7 @@
       "任意消息"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -477,7 +477,7 @@
       "联网消息：最近AI有什么新进展；简单消息：1+1 等于几？只给答案"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -532,7 +532,7 @@
       "消息：今天 AI 有什么新闻？"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -580,7 +580,7 @@
       "消息：比较 DeepSeek 和混元最新公开能力"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -631,7 +631,7 @@
       "消息：介绍故宫太和殿并配一张有帮助的真实图片"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -646,7 +646,7 @@
       "图片与主题匹配且不是占位图",
       "图片出现在相关段落附近",
       "页面不存在新旧媒体占位符；模型自行输出的图片 Markdown 不渲染",
-      "仅 vision_reviewed=true 且 source_id、source_url 与段落精确来源一致的图片可见",
+      "仅视觉审核图片或 SearchPro 明确标记的文章主图降级可见，且 source_id、source_url 必须与段落精确来源一致",
       "媒体失败不影响文字回答",
       "除用例明确要求的受控失败外，相关请求无意外 4xx/5xx，Console 无新增未捕获异常。",
       "结果、备注、最后编辑主机/时间和上传证据在刷新后仍存在，并可从另一台主机同步看到。"
@@ -682,7 +682,7 @@
       "任意知识问题"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -783,7 +783,7 @@
       "故宫博物院，北京"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -831,7 +831,7 @@
       "消息：推荐北京三里屯附近 3 家适合晚餐的真实餐馆，说明推荐理由和地址，并在地图显示"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -891,7 +891,7 @@
       "TRAVEL-02 的三个地点"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -943,7 +943,7 @@
       "浏览器位置权限：拒绝/允许各一次"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -993,7 +993,7 @@
       "消息：北京 301 医院附近的锦江之星酒店到北京站多远"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1045,7 +1045,7 @@
       "TRAVEL-05 路线"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1096,7 +1096,7 @@
       "简单消息：1+1等于几"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1151,7 +1151,7 @@
       "标题：验收日程；09:00-10:00；地点：故宫博物院"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1201,7 +1201,7 @@
       "改为 10:00-11:30，标题追加“已修改”"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1249,7 +1249,7 @@
       "删除 CAL-01 创建的目标"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1298,7 +1298,7 @@
       "路线闭环消息：明天从北京站去锦江之星品尚（北京五棵松店），帮我规划路线；回答后追问“能帮我写入日程吗？”"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1353,7 +1353,7 @@
       "全字段修改为 TEST-CAL-全量修改、16:30、天坛公园；再测试不存在目标与删除"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1409,7 +1409,7 @@
       "明天 10:00–11:00 TEST-CAL-冲突-A；10:30–11:30 TEST-CAL-冲突-B；地点为故宫与颐和园"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1461,7 +1461,7 @@
       "同一用户两个会话"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1510,7 +1510,7 @@
       "消息：画一只戴蓝色围巾的橘猫，水彩风格"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1561,7 +1561,7 @@
       "消息：把围巾改成红色，其他保持不变"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1611,7 +1611,7 @@
       "IMAGE-01/02 版本"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1661,7 +1661,7 @@
       "生图消息：生成一张故宫太和殿雪景海报，建筑外观要准确"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1765,7 +1765,7 @@
       "7-20MB 可复制文本 PDF，文件名：TEST-中文大文件-READ-01.pdf"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1819,7 +1819,7 @@
       "文件夹：验收资料"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1870,7 +1870,7 @@
       "选择一篇已知摘要的论文"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1919,7 +1919,7 @@
       "论文英文摘要"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -1969,7 +1969,7 @@
       "一个原文可回答问题；一个原文没有答案的问题"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2018,7 +2018,7 @@
       "消息：查找 2024 年关于 continual learning 的 3 篇 arXiv 论文，显示作者和年份"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2068,7 +2068,7 @@
       "READ-02 文件夹"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2117,7 +2117,7 @@
       "依次选择仅观察、可提醒、可提案"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2171,7 +2171,7 @@
       "一条 30 分钟内开始的日程"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2224,7 +2224,7 @@
       "三条主动提醒分别操作帮我处理、忽略、稍后"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2274,7 +2274,7 @@
       "设置免打扰时段覆盖当前时间；每日上限设为 1"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2324,7 +2324,7 @@
       "未来日程地点和可观察天气"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2374,7 +2374,7 @@
       "可用间隔小于路线时长+15分钟"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2425,7 +2425,7 @@
       "专用 Preview 的一次性测试时刻前存在一条 TEST-CRON 可扫描日程"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2479,7 +2479,7 @@
       "创建一个含 0 分钟步骤和一个人工步骤的测试工作流"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2531,7 +2531,7 @@
       "消息：我长期不吃香菜，以后推荐餐厅时请避开香菜"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2579,7 +2579,7 @@
       "测试手机号 13800138000；临时安排：明天下午 3 点取快递"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2629,7 +2629,7 @@
       "连续忽略同一提醒类型"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2680,7 +2680,7 @@
       "设置极低日预算进行测试"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2731,7 +2731,7 @@
       "全新无痕浏览器"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2771,7 +2771,7 @@
     "id": "MEET-01",
     "module": "腾讯会议",
     "title": "未配置时安全隐藏",
-    "scope": "个人版本通过 Skills 广场安装官方腾讯会议 MCP；未配置 Token 时不得暴露工具。",
+    "scope": "个人版本通过 Skills 广场启用并连接官方腾讯会议 MCP；未配置 Token 时不得暴露工具。",
     "implementation": "optional-last",
     "releaseBlocker": false,
     "preconditions": [
@@ -2783,12 +2783,12 @@
       "消息：明天下午帮我创建一个腾讯会议"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
-      "【目标网页左栏】点击 Skills 广场，核对腾讯会议卡片显示未安装和三步安装说明。",
-      "【腾讯会议卡片】点击开始安装，确认只打开 meeting.tencent.com 官方 AI Skill 页面；不要粘贴 Token。",
+      "【目标网页左栏】点击 Skills 广场，核对腾讯会议卡片显示待连接和三步连接说明。",
+      "【腾讯会议卡片】点击连接腾讯会议，确认只打开 meeting.tencent.com 官方 AI Skill 页面；不要粘贴 Token。",
       "【目标网页】发送创建会议消息，观察回答和 Action。",
       "【验收站】回到 MEET-01，按实际结果选择“通过/失败/阻塞/不适用”；备注写明实际现象、关键请求状态和复现条件，不要填写密钥。",
       "【验收站】在“证据”上传页面截图、Network/Console 截图或短录屏；等待提示已保存到 Makers Blob，再刷新测试站确认附件仍可打开。"
@@ -2832,7 +2832,7 @@
       "一个未来的 30 分钟测试时段；先在该时段创建普通 TEST-MEETING-CONFLICT 日程"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2891,7 +2891,7 @@
       "已有少量测试数据"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2940,7 +2940,7 @@
       "Deployment ID"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -2991,7 +2991,7 @@
       "控制台生成的 Preview 链接"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -3039,7 +3039,7 @@
       "冻结后在另一入口修改相关 Workspace"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -3089,7 +3089,7 @@
       "一个测试副作用 Action"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 阻断验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -3139,7 +3139,7 @@
       "无敏感信息的测试文件"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -3186,7 +3186,7 @@
       "要求给出精确页码证据的问题"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -3233,7 +3233,7 @@
       "一个多日旅行计划"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -3280,7 +3280,7 @@
       "两种 Run"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 功能验收使用的 Deployment；确认环境标签为 Preview，并复制 Deployment ID。",
       "【验收站】顶部“测试环境”选择 Preview，填写刚复制的 Deployment ID、测试人和当前主机名称；等待同步状态显示“已同步”。",
       "【目标网页】从该 Deployment 点击“预览”并在新标签打开；确认地址属于目标部署，不要用 Production 地址执行写入、故障注入或付费测试。",
       "【浏览器工具】按 F12（macOS 可按 ⌥⌘I）打开开发者工具；Network 勾选 Preserve log/保留日志，清空 Network 与 Console 后开始本用例。",
@@ -3329,7 +3329,7 @@
       "录屏片段：普通动效与 prefers-reduced-motion 各一段"
     ],
     "steps": [
-      "【Makers 控制台】进入项目 ai-active-agent → 部署管理，定位本轮 Preview；复制 Deployment ID，并从该 Deployment 点击“预览”打开目标网页。",
+      "【Makers 控制台】进入项目 floris-dev → 部署管理，定位本轮 Preview；复制 Deployment ID，并从该 Deployment 点击“预览”打开目标网页。",
       "【验收站】顶部“测试环境”选择 Preview，填写 Deployment ID、测试人和当前主机名称；等待显示“已同步”。",
       "【目标网页】开始录屏。把鼠标依次移到打开侧栏、展开/收起右栏、主题切换、刷新提醒、日历上/下月、图片上/下一张、论文缩放和关闭等仅有图形的按钮上；每个按钮停留约 1 秒，确认出现说明功能的悬浮提示，且不发生抖动或布局位移。",
       "【目标网页】依次按下并松开上述按钮；以 0.25 倍速回看，确认按下时短暂缩小、松开立即恢复，反馈没有超过约 0.2 秒。再切换一次深色/浅色主题，确认整页过渡约 0.28 秒完成、不超过 0.5 秒。关闭被打开的设置面板，回到新对话。",

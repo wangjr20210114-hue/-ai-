@@ -8,10 +8,69 @@
   border-radius: 10px;
   color: var(--app-text-2);
   background: transparent;
-  cursor: pointer;
   text-align: left;
   animation: content-reveal var(--motion-reveal) var(--motion-ease-smooth) both;
   transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.conversation-item-main {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.conversation-rename-button,
+.conversation-item-actions button {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--app-text-3);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateX(3px);
+  transition: opacity 150ms ease, transform 150ms ease, color 150ms ease, background 150ms ease;
+}
+
+.conversation-item:hover .conversation-rename-button,
+.conversation-item:focus-within .conversation-rename-button,
+.conversation-item-actions button {
+  opacity: 1;
+  transform: none;
+}
+
+.conversation-rename-button:hover,
+.conversation-item-actions button:hover {
+  color: var(--td-brand-color);
+  background: rgba(var(--app-accent-rgb), 0.1);
+}
+
+.conversation-item-actions { display: inline-flex; flex: 0 0 auto; }
+.conversation-rename-input {
+  width: 100%;
+  min-width: 0;
+  height: 25px;
+  padding: 2px 7px;
+  border: 1px solid var(--td-brand-color);
+  border-radius: 7px;
+  outline: none;
+  color: var(--app-text);
+  background: var(--app-panel);
+  font: inherit;
+  font-size: 13px;
 }
 
 .conversation-item:hover {

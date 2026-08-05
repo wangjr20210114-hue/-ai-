@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 
-import * as paperApi from '../../../services/paperApi';
+import * as paperApi from '../model/api';
 import { loadLibrary, readPaper, searchPapers } from '../model/client';
 
 

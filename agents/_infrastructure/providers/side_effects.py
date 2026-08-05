@@ -14,8 +14,14 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+from ..._application.i18n import text
 import uuid
 from typing import Any
+
+
+def _copy(key: str, language: object = "zh-CN", **params: object) -> str:
+    return text(key, language, **params)
 
 
 class WorkersAIImageResponseError(RuntimeError):
@@ -23,16 +29,16 @@ class WorkersAIImageResponseError(RuntimeError):
 
     def __init__(self, safe_reason: str):
         self.safe_reason = str(safe_reason or "unknown")[:120]
-        super().__init__(f"Workers AI 图片响应无效：{self.safe_reason}")
+        super().__init__(self.safe_reason)
 
 
 def _meeting_epoch(value: str) -> int:
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError as exc:
-        raise ValueError("腾讯会议时间必须是带时区的 ISO 8601") from exc
+        raise ValueError(_copy("meeting.time.iso_required")) from exc
     if parsed.tzinfo is None:
-        raise ValueError("腾讯会议时间必须包含时区")
+        raise ValueError(_copy("meeting.time.timezone_required"))
     return int(parsed.timestamp())
 
 
@@ -146,13 +152,13 @@ def _find_meeting_trace(value: Any) -> str:
     return ""
 
 
-def _post_tencent_meeting_mcp(env: dict[str, Any], subject: str, start_iso: str, end_iso: str) -> dict[str, Any]:
+def _post_tencent_meeting_mcp(env: dict[str, Any], subject: str, start_iso: str, end_iso: str, response_language: object = "zh-CN") -> dict[str, Any]:
     """Call Tencent Meeting's official remote MCP using a personal Skill token."""
     token = str(env.get("TENCENT_MEETING_TOKEN") or "").strip()
     if not token:
-        raise ValueError("腾讯会议 Skill 尚未安装")
+        raise ValueError(_copy("meeting.skill_missing", response_language))
     if _meeting_epoch(end_iso) <= _meeting_epoch(start_iso):
-        raise ValueError("腾讯会议结束时间必须晚于开始时间")
+        raise ValueError(_copy("meeting.end_before_start", response_language))
     endpoint = str(
         env.get("TENCENT_MEETING_MCP_URL")
         or "https://mcp.meeting.tencent.com/mcp/wemeet-open/v1"
@@ -163,7 +169,7 @@ def _post_tencent_meeting_mcp(env: dict[str, Any], subject: str, start_iso: str,
         "params": {
             "name": "schedule_meeting",
             "arguments": {
-                "subject": str(subject or "腾讯会议")[:240],
+                "subject": str(subject or _copy("meeting.default_subject", response_language))[:240],
                 "start_time": start_iso,
                 "end_time": end_iso,
                 "_client_info": {"os": "EdgeOne-Makers", "agent": "yuanbao", "model": "configured"},
@@ -190,18 +196,18 @@ def _post_tencent_meeting_mcp(env: dict[str, Any], subject: str, start_iso: str,
             data = json.loads(response.read(2 * 1024 * 1024).decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code >= 500:
-            raise MeetingResultUnknown(f"腾讯会议 MCP 返回 {exc.code}，结果未知") from exc
-        return {"ok": False, "error": f"腾讯会议授权失效或请求被拒绝（{exc.code}）"}
+            raise MeetingResultUnknown(_copy("meeting.provider.unknown_http", response_language, code=exc.code)) from exc
+        return {"ok": False, "error": _copy("meeting.provider.denied", response_language, code=exc.code)}
     except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
-        raise MeetingResultUnknown("腾讯会议 MCP 请求中断，外部结果未知") from exc
+        raise MeetingResultUnknown(_copy("meeting.provider.interrupted", response_language)) from exc
     if isinstance(data.get("error"), dict):
-        return {"ok": False, "error": str(data["error"].get("message") or "腾讯会议 MCP 调用失败")[:300]}
+        return {"ok": False, "error": str(data["error"].get("message") or _copy("meeting.provider.failed", response_language))[:300]}
     result = data.get("result") if isinstance(data, dict) else None
     if isinstance(result, dict) and isinstance(result.get("error"), dict):
-        return {"ok": False, "error": str(result["error"].get("message") or "腾讯会议 MCP 调用失败")[:300]}
+        return {"ok": False, "error": str(result["error"].get("message") or _copy("meeting.provider.failed", response_language))[:300]}
     meeting = _find_meeting_payload(result)
     if not meeting:
-        return {"ok": False, "error": "腾讯会议 MCP 未返回可识别的会议信息"}
+        return {"ok": False, "error": _copy("meeting.provider.result_invalid", response_language)}
     return {
         "ok": True,
         "meeting_id": str(meeting.get("meeting_id") or ""),
@@ -214,14 +220,14 @@ def _post_tencent_meeting_mcp(env: dict[str, Any], subject: str, start_iso: str,
     }
 
 
-async def create_tencent_meeting(env: dict[str, Any], subject: str, start_iso: str, end_iso: str) -> dict[str, Any]:
+async def create_tencent_meeting(env: dict[str, Any], subject: str, start_iso: str, end_iso: str, response_language: object = "zh-CN") -> dict[str, Any]:
     """Create through Tencent Meeting's official personal MCP Skill."""
     try:
-        return await asyncio.to_thread(_post_tencent_meeting_mcp, env, subject, start_iso, end_iso)
+        return await asyncio.to_thread(_post_tencent_meeting_mcp, env, subject, start_iso, end_iso, response_language)
     except MeetingResultUnknown as exc:
         return {"ok": False, "error": str(exc), "reconciliation_required": True}
     except Exception as exc:
-        return {"ok": False, "error": f"创建腾讯会议失败：{exc}"}
+        return {"ok": False, "error": _copy("meeting.create_failed", response_language, reason=exc)}
 
 
 def _post_image(
@@ -249,7 +255,7 @@ def _post_image(
     data = json.loads(body.decode("utf-8"))
     image_url = (((data.get("data") or [{}])[0]) or {}).get("url")
     if not image_url:
-        raise RuntimeError("生图服务未返回图片地址")
+        raise RuntimeError(_copy("image.provider.url_missing"))
     return {"ok": True, "image_url": image_url, "prompt": prompt, "model": model}
 
 
@@ -279,7 +285,7 @@ def _post_image_v3(
     submitted = request_json(f"{root}/v1/api/image/submit", submit_payload, 30)
     job_id = str(submitted.get("id") or "").strip()
     if not job_id:
-        raise RuntimeError("混元生图 3.0 未返回任务 ID")
+        raise RuntimeError(_copy("image.provider.task_missing"))
 
     deadline = time.monotonic() + 90
     delay = 0.8
@@ -294,10 +300,10 @@ def _post_image_v3(
         if state in {"completed", "succeeded", "success"} and image_url:
             return {"ok": True, "image_url": image_url, "prompt": prompt, "model": model}
         if state in {"failed", "error", "cancelled", "canceled"}:
-            raise RuntimeError("混元生图 3.0 任务执行失败")
+            raise RuntimeError(_copy("image.provider.task_failed"))
         time.sleep(delay)
         delay = min(3.0, delay * 1.45)
-    raise TimeoutError("混元生图 3.0 在 90 秒内未完成")
+    raise TimeoutError(_copy("image.provider.task_timeout"))
 
 
 def _reference_bytes(value: str) -> tuple[bytes, str]:
@@ -307,7 +313,7 @@ def _reference_bytes(value: str) -> tuple[bytes, str]:
         mime = header.split(";", 1)[0].split(":", 1)[1].lower()
         body = base64.b64decode(encoded, validate=True)
         if not body or len(body) > 8 * 1024 * 1024:
-            raise ValueError("参考图片大小无效或超过 8MB")
+            raise ValueError(_copy("image.reference.size_invalid"))
         return body, mime
     return _download_image(reference)
 
@@ -426,11 +432,7 @@ def _cloudflare_image_prompt(
         "messages": [
             {
                 "role": "system",
-                "content": (
-                    "Normalize the image-generation or image-editing instructions into one precise "
-                    "English diffusion prompt. Preserve every subject, color, layout, background, exclusion, "
-                    "and edit constraint. Output only the English prompt, without quotes or explanation."
-                ),
+                "content": text("model.image.normalize_prompt", "zh-CN"),
             },
             {"role": "user", "content": prompt},
         ],
@@ -459,22 +461,22 @@ def _cloudflare_image_prompt(
             translated = str(message.get("content") or choice.get("text") or "").strip()
     translated = translated.strip().strip("`").strip().strip('"').strip()
     if not translated:
-        raise RuntimeError("Workers AI 未返回图片提示词")
+        raise RuntimeError(_copy("image.provider.prompt_missing"))
     return translated[:2048]
 
 
 def _download_image(url: str) -> tuple[bytes, str]:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme != "https":
-        raise ValueError("生成图片地址必须使用 HTTPS")
+        raise ValueError(_copy("image.provider.https_required"))
     request = urllib.request.Request(url, headers={"User-Agent": "Yuanbao-Agent/1.0"})
     with urllib.request.urlopen(request, timeout=30) as response:
         content_type = str(response.headers.get("Content-Type") or "image/png").split(";", 1)[0].lower()
         if not content_type.startswith("image/"):
-            raise ValueError("生图服务返回的不是图片")
+            raise ValueError(_copy("image.provider.not_image"))
         body = response.read(12 * 1024 * 1024 + 1)
     if not body or len(body) > 12 * 1024 * 1024:
-        raise ValueError("生成图片大小无效或超过 12MB")
+        raise ValueError(_copy("image.provider.size_invalid_12"))
     return body, content_type
 
 
@@ -506,7 +508,7 @@ async def _persist_generated_bytes(
         from pages_blob import get_store
 
         if not body or len(body) > 16 * 1024 * 1024:
-            raise ValueError("生成图片大小无效或超过 16MB")
+            raise ValueError(_copy("image.provider.size_invalid_16"))
         mime = str(content_type or "image/png").split(";", 1)[0].lower()
         suffix = {"image/jpeg": "jpg", "image/webp": "webp", "image/bmp": "bmp"}.get(mime, "png")
         from ..makers.data_version import BLOB_GENERATION_PATH
@@ -546,6 +548,7 @@ async def generate_image(
     prompt: str,
     reference_images: list[str] | None = None,
     user_id: str = "",
+    response_language: object = "zh-CN",
 ) -> dict[str, Any]:
     api_key = str(env.get("HUNYUAN_IMAGE_API_KEY") or "").strip()
     base_url = str(env.get("HUNYUAN_IMAGE_BASE_URL") or "https://tokenhub.tencentmaas.com").rstrip("/")
@@ -579,7 +582,7 @@ async def generate_image(
                 "fallback": bool(failures),
             }
         except Exception as exc:
-            failures.append(f"混元：{type(exc).__name__}")
+            failures.append(f"{_copy('image.provider.hunyuan_label', response_language)}: {type(exc).__name__}")
             # Preserve legacy text-to-image availability when v3 is not enabled.
             if not references and model.lower() == "hy-image-v3.0":
                 try:
@@ -597,7 +600,7 @@ async def generate_image(
                         "fallback": True,
                     }
                 except Exception as fallback_exc:
-                    failures.append(f"混元 Lite：{type(fallback_exc).__name__}")
+                    failures.append(f"{_copy('image.provider.hunyuan_lite_label', response_language)}: {type(fallback_exc).__name__}")
         return None
 
     cloudflare_account = str(env.get("CLOUDFLARE_ACCOUNT_ID") or "").strip()
@@ -700,6 +703,8 @@ async def generate_image(
     if not failures:
         return {
             "ok": False,
-            "error": "未配置生图服务；请配置 HUNYUAN_IMAGE_API_KEY，或 Cloudflare Account ID 与 Workers AI Token",
+            "error": _copy("image.provider.unconfigured", response_language),
         }
-    return {"ok": False, "error": f"生成图片失败（{'；'.join(failures)}）"}
+    return {"ok": False, "error": _copy(
+        "image.provider.failed", response_language, reasons="; ".join(failures),
+    )}

@@ -1,4 +1,4 @@
-import type { WorkspaceAction } from '../../shared/types';
+import type { WorkspaceAction } from '../../features/chat/model';
 
 export function nextWholeHourRange(now = new Date()): { start: string; end: string } {
   const start = new Date(now);

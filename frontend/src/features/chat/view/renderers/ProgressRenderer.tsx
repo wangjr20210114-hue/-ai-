@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 
-import type { ChatMessage } from '../../../../shared/types';
-import { progressTranslationKey } from '../../../../shared/ui/progressLabel';
+import type { ChatMessage } from '../../model';
+import { progressTranslationKey } from '../../model';
 import { useLanguage } from '../../../../i18n';
+import { SearchCompleteMeta, SearchLiveTiming } from '../../../search/view';
 
 
 function ImageCreationProgress({ message }: { message: ChatMessage }) {
@@ -31,31 +32,11 @@ function ImageCreationProgress({ message }: { message: ChatMessage }) {
 
 export function ProgressRenderer({ message }: { message: ChatMessage }) {
   const { t } = useLanguage();
-  const providerSearchDurationMs = Number(message.searchResults?.timings_ms?.search || 0);
-  const sourceCount = message.searchResults?.results?.length || 0;
-  const [now, setNow] = useState(() => Date.now());
-  const searchStartedAt = Number(message.searchStartedAt || 0);
-  const searchCompletedAt = Number(message.searchCompletedAt || 0);
-  const searchDurationMs = searchStartedAt
-    ? Math.max(0, (searchCompletedAt || now) - searchStartedAt)
-    : providerSearchDurationMs;
-  const searchInProgress = Boolean(message.streaming && searchStartedAt && !searchCompletedAt);
-  useEffect(() => {
-    if (!searchInProgress) return undefined;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [searchInProgress]);
-  const searchTiming = searchStartedAt || providerSearchDurationMs
-    ? t('searchCompletedIn', { seconds: (searchDurationMs / 1000).toFixed(1) })
-    : '';
-
   if (!message.streaming) {
-    return (searchStartedAt || providerSearchDurationMs) ? <div className="search-complete-meta">
-      {t('searchCompleteMeta', {
-        count: sourceCount,
-        seconds: (searchDurationMs / 1000).toFixed(1),
-      })}
-    </div> : null;
+    // A failed/degraded search has a start timestamp but no evidence payload.
+    // Do not present that state as "0 sources"; a real zero-result search
+    // still has `searchResults` and remains truthfully rendered.
+    return <SearchCompleteMeta message={message} />;
   }
   const visibleProgress = (message.progress || [])
     .filter((step) => step.stage !== 'complete')
@@ -83,11 +64,7 @@ export function ProgressRenderer({ message }: { message: ChatMessage }) {
     <div className={`search-progress ${message.content ? 'has-content' : ''}`}>
       <div className="image-generating-spinner" />
       <span className="search-progress-status" title={progressStatus}>{progressStatus}</span>
-      {searchTiming && <span className="search-progress-time">
-        {searchInProgress
-          ? t('searchingForSeconds', { seconds: Math.max(1, Math.round(searchDurationMs / 1000)) })
-          : searchTiming}
-      </span>}
+      <span className="search-progress-time"><SearchLiveTiming message={message} /></span>
       <span className="image-generating-dots"><span>.</span><span>.</span><span>.</span></span>
     </div>
     {!message.content && visibleProgress.length > 0 && (

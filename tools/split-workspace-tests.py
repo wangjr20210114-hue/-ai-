@@ -24,11 +24,29 @@ DOMAINS = {
     "workspace/calendar": ("CalendarWorkspaceTests", ROOT / "agents/_tests/workspace/test_calendar.py"),
     "workspace/workflows": ("WorkspaceWorkflowTests", ROOT / "agents/_tests/workspace/test_workflows.py"),
     "maps/places": ("MapPlaceTests", ROOT / "agents/_tests/maps/test_places.py"),
-    "maps/routes": ("MapRouteTests", ROOT / "agents/_tests/maps/test_routes.py"),
+    "maps/routes/core": (
+        "MapRouteCoreTests",
+        ROOT / "agents/_tests/maps/test_routes_core.py",
+    ),
+    "maps/routes/continuations": (
+        "RouteContinuationTests",
+        ROOT / "agents/_tests/maps/test_route_continuations.py",
+    ),
     "proactive/opportunities": ("ProactiveOpportunityTests", ROOT / "agents/_tests/proactive/test_opportunities.py"),
     "proactive/memory": ("ProactiveMemoryTests", ROOT / "agents/_tests/proactive/test_memory.py"),
     "papers/discovery": ("PaperDiscoveryTests", ROOT / "agents/_tests/papers/test_discovery.py"),
     "providers/contracts": ("ProviderContractTests", ROOT / "agents/_tests/providers/test_provider_contracts.py"),
+}
+
+DISCOVERY_PATHS = {
+    "search/media": (
+        ROOT / "agents/_tests/search/test_media_review.py",
+        ROOT / "agents/_tests/search/test_image_provider_fallbacks.py",
+    ),
+    "maps/places": (
+        ROOT / "agents/_tests/maps/test_places.py",
+        ROOT / "agents/_tests/maps/test_place_provider_boundaries.py",
+    ),
 }
 
 
@@ -40,10 +58,15 @@ def classify(test_name: str) -> str:
         "named_author", "author_institution", "title_matching",
     )):
         return "papers/discovery"
+    if value.startswith("route") and any(token in value for token in (
+        "calendar", "revalidates", "failure", "nearby_brand",
+        "card_choices", "silently_picks", "route_change",
+    )):
+        return "maps/routes/continuations"
     if value.startswith("route") or any(token in value for token in (
         "latest_route", "planned_route", "multi_stop",
     )):
-        return "maps/routes"
+        return "maps/routes/core"
     if value.startswith("calendar") or value.startswith("meeting"):
         return "workspace/calendar"
     if value.startswith("hunyuan") and "workflow" in words:
@@ -195,15 +218,16 @@ def write_split():
 def discovered_tests():
     found = {}
     for domain, (_, path) in DOMAINS.items():
-        if not path.exists():
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and node.name.startswith("test_")
-            ):
-                found.setdefault(node.name, []).append(domain)
+        for discovery_path in DISCOVERY_PATHS.get(domain, (path,)):
+            if not discovery_path.exists():
+                continue
+            tree = ast.parse(discovery_path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name.startswith("test_")
+                ):
+                    found.setdefault(node.name, []).append(domain)
     return found
 
 
