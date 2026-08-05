@@ -520,7 +520,7 @@ class CalendarWorkspaceTests(unittest.IsolatedAsyncioTestCase):
             tool_call_id="calendar-failed",
         )
         self.assertEqual(action_completion_fallback([failed]), "")
-        self.assertIn("没有生成确认卡", tool_failure_fallback([failed]))
+        self.assertIn("确认卡没有生成成功", tool_failure_fallback([failed]))
 
         runtime_failed = ToolMessage(
             content=json.dumps({"tool_error": {

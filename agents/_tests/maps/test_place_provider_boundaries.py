@@ -310,7 +310,7 @@ class MapPlaceProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 name="recommend_nearby_places_on_map",
             ),
         ])
-        self.assertIn("地点服务这次没有找到", result)
+        self.assertIn("暂时没有找到合适的附近地点", result)
         self.assertNotIn("确认卡", result)
 
     def test_missing_browser_location_failure_fallback_never_claims_search(self):
@@ -326,8 +326,8 @@ class MapPlaceProviderBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 name="recommend_nearby_places_on_map",
             ),
         ])
-        self.assertIn("没有收到浏览器定位坐标", result)
-        self.assertIn("地点服务", result)
+        self.assertIn("暂时没有找到合适的附近地点", result)
+        self.assertNotIn("浏览器定位坐标", result)
         self.assertNotIn("已授权", result)
 
     def test_current_location_result_has_truthful_terminal_fallback(self):

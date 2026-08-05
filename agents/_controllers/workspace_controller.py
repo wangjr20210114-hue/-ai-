@@ -70,6 +70,39 @@ def _response(state, action=None, **extra):
     return payload
 
 
+def _public_travel_plan(value: object) -> dict:
+    """Project stored travel data onto the versioned client contract.
+
+    Destination prose belongs in ``markdown_content``. Legacy client-only
+    fields such as ``baike_info`` and ``session_id`` have no trusted producer
+    and must not leak back into the public cross-platform model.
+    """
+    if not isinstance(value, dict):
+        return {}
+    return {
+        "id": str(value.get("id") or ""),
+        "title": str(value.get("title") or ""),
+        "departure": str(value.get("departure") or ""),
+        "destination": str(value.get("destination") or ""),
+        "days": max(1, min(60, int(value.get("days") or 1))),
+        "travel_style": str(value.get("travel_style") or ""),
+        "scenery_preference": str(value.get("scenery_preference") or ""),
+        "budget": str(value.get("budget") or ""),
+        "extra_notes": str(value.get("extra_notes") or ""),
+        "markdown_content": str(value.get("markdown_content") or ""),
+        "created_at": int(value.get("created_at") or 0),
+        "updated_at": int(value.get("updated_at") or 0),
+    }
+
+
+def _public_travel_plans(values) -> list[dict]:
+    return [
+        projected
+        for value in values
+        if (projected := _public_travel_plan(value))
+    ]
+
+
 def _require_action_skill(
     action_kind: str,
     access: SkillAccess,
@@ -255,11 +288,11 @@ async def handler(ctx):
             return _response(
                 state,
                 actions=active_actions[-30:],
-                travel_plans=sorted(
+                travel_plans=_public_travel_plans(sorted(
                     state.get("travel_plans", {}).values(),
                     key=lambda item: int(item.get("updated_at") or item.get("created_at") or 0),
                     reverse=True,
-                ),
+                )),
             )
 
         if operation == "save_travel_plan":
@@ -285,14 +318,17 @@ async def handler(ctx):
                 "budget": str(raw.get("budget") or "").strip()[:120],
                 "extra_notes": str(raw.get("extra_notes") or "").strip()[:1000],
                 "markdown_content": str(raw.get("markdown_content") or "")[:100_000],
-                "baike_info": raw.get("baike_info") if isinstance(raw.get("baike_info"), dict) else {},
                 "created_at": int(previous.get("created_at") or now),
                 "updated_at": now,
             }
             plans[plan_id] = plan
             state = await save_workspace(store, workspace_id, state)
             await _record_route_signal(store, f"travel_plan_saved:{plan_id}:{now}", user_id, ctx.env)
-            return _response(state, travel_plan=plan, travel_plans=list(state["travel_plans"].values()))
+            return _response(
+                state,
+                travel_plan=_public_travel_plan(plan),
+                travel_plans=_public_travel_plans(state["travel_plans"].values()),
+            )
 
         if operation == "delete_travel_plan":
             plan_id = str(body.get("plan_id") or "")
@@ -300,7 +336,11 @@ async def handler(ctx):
                 raise ValueError(text("workspace.travel.missing", response_language))
             state = await save_workspace(store, workspace_id, state)
             await _record_route_signal(store, f"travel_plan_deleted:{plan_id}:{int(time.time())}", user_id, ctx.env)
-            return _response(state, deleted_plan_id=plan_id, travel_plans=list(state["travel_plans"].values()))
+            return _response(
+                state,
+                deleted_plan_id=plan_id,
+                travel_plans=_public_travel_plans(state["travel_plans"].values()),
+            )
 
         if operation == "activate_map":
             _require_action_skill("map_recommendation", skill_access, response_language)

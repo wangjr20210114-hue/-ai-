@@ -70,7 +70,7 @@ class GraphProtocolTests(unittest.IsolatedAsyncioTestCase):
         )
         result = await graph.ainvoke({"messages": messages})
 
-        self.assertIn("第 3 次校验失败", result["messages"][-1].content)
+        self.assertEqual(result["messages"][-1].content, "确认卡没有生成成功，请重试。")
         self.assertEqual(model.bound_calls, 0)
         self.assertEqual(model.unbound_calls, 0)
 

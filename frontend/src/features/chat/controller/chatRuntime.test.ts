@@ -88,16 +88,14 @@ describe('terminal generation failure', () => {
     expect(terminalGenerationError(new TypeError('Failed to fetch'))).toBe('Failed to fetch');
   });
 
-  it('marks watchdog timeout as stopped and explicitly requires a click', () => {
+  it('presents a concise retry action after a watchdog timeout', () => {
     expect(terminalGenerationError(new DOMException('Aborted', 'AbortError'), true))
-      .toContain('不会自动重新生成');
-    expect(terminalGenerationError(new DOMException('Aborted', 'AbortError'), true))
-      .toContain('点击重试');
+      .toBe('生成超时，请重试。');
   });
 
   it('treats an explicit abort as a terminal stop', () => {
     expect(terminalGenerationError(new DOMException('Aborted', 'AbortError')))
-      .toBe('生成已停止，不会自动重新生成。');
+      .toBe('生成已停止。');
   });
 });
 

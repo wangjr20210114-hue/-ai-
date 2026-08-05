@@ -62,7 +62,7 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
     text('frontend/public/contracts/mobile-client-v1.md'),
   ]);
   assert.equal(api.openapi, '3.1.0');
-  assert.equal(api.info.version, '1.4.0');
+  assert.equal(api.info.version, '1.4.1');
   assert.ok(api.paths['/auth/mobile/session']);
   assert.ok(api.paths['/chat'].post.responses['200']['x-floris-event-schema']);
   assert.ok(api.paths['/reader'].post.responses['200']['x-floris-event-schema']);
@@ -127,6 +127,18 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   assert.ok(api.components.schemas.ProactiveNotification.properties.snoozed_until);
   assert.equal(api.components.schemas.ProactiveNotification.properties.actionPrompt, undefined);
   assert.equal(api.components.schemas.ProactiveNotification.properties.snoozedUntil, undefined);
+  assert.equal(api.components.schemas.TravelPlan.additionalProperties, false);
+  assert.ok(api.components.schemas.TravelPlan.properties.markdown_content);
+  assert.equal(api.components.schemas.TravelPlan.properties.baike_info, undefined);
+  assert.equal(api.components.schemas.TravelPlan.properties.session_id, undefined);
+  assert.equal(
+    api.components.schemas.WorkspaceProjection.properties.travel_plan.$ref,
+    '#/components/schemas/TravelPlan',
+  );
+  assert.equal(
+    api.components.schemas.WorkspaceProjection.properties.travel_plans.items.$ref,
+    '#/components/schemas/TravelPlan',
+  );
   assert.ok(api.paths['/document-text']);
   assert.ok(api.components.schemas.ReaderRequest.anyOf);
   assert.ok(api.components.schemas.ReaderRequest.properties.file_id);
@@ -154,6 +166,7 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   assert.match(guide, /search_media.*可以与.*ai_response.*交错到达/s);
   assert.match(guide, /未完成、失败或未通过的候选一律不显示/);
   assert.match(guide, /action_prompt.*snoozed_until/s);
+  assert.match(guide, /markdown_content.*不提供 `baike_info`/s);
   assert.doesNotMatch(guide, /GitHub\s*(?:登录|登入|OAuth|login)/i);
   for (const path of Object.keys(api.paths)) {
     assert.match(guide, new RegExp(path.replaceAll('/', '\\/')));

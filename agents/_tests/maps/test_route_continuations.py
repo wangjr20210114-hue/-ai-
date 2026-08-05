@@ -461,7 +461,7 @@ class RouteContinuationTests(unittest.IsolatedAsyncioTestCase):
                 tool_call_id="route-failed",
             ),
         ])
-        self.assertIn("没有完成路线规划", content)
+        self.assertIn("路线规划未完成", content)
         self.assertNotIn("确认卡", content)
 
     async def test_route_tool_asks_user_to_choose_when_nearby_brand_has_multiple_branches(self):

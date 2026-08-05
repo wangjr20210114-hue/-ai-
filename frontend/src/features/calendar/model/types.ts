@@ -8,7 +8,6 @@ import type { WorkspaceAction } from '../../workspace/model';
 
 export interface TravelPlan {
   id: string;
-  session_id: string;
   title: string;
   departure: string;
   destination: string;
@@ -18,13 +17,6 @@ export interface TravelPlan {
   budget: string;
   extra_notes: string;
   markdown_content: string;
-  baike_info: {
-    summary?: string;
-    highlights?: string[];
-    best_season?: string;
-    error?: string;
-    [key: string]: unknown;
-  };
   created_at: number;
   updated_at: number;
 }

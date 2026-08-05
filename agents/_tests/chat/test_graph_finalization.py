@@ -557,8 +557,7 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
             ),
         ]})
 
-        self.assertIn("没有完成路线规划", result["messages"][-1].content)
-        self.assertIn("超过时间预算", result["messages"][-1].content)
+        self.assertEqual(result["messages"][-1].content, "路线规划未完成，请检查地点后重试。")
         self.assertFalse(any(
             isinstance(message, ToolMessage)
             and message.name == "propose_calendar_changes"

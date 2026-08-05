@@ -1,6 +1,6 @@
 # Floris 跨端客户端 API v1
 
-这份文档是 Web、Android、HarmonyOS 和 iOS 的统一接入说明，对应 OpenAPI `1.4.0`。客户端只负责界面、系统权限、通知、文件选择和本地缓存；聊天编排、搜索、Skills、地图、日程、论文、权益、身份隔离和持久化均由 Floris 后端提供。
+这份文档是 Web、Android、HarmonyOS 和 iOS 的统一接入说明，对应 OpenAPI `1.4.1`。客户端只负责界面、系统权限、通知、文件选择和本地缓存；聊天编排、搜索、Skills、地图、日程、论文、权益、身份隔离和持久化均由 Floris 后端提供。
 
 ## 1. 契约文件
 
@@ -788,6 +788,8 @@ OpenAPI 描述 HTTP 方法和基础 Schema；以下表描述具有 `operation` �
 | `confirm_action` | `action_id`, `version` | 确认日程、会议或其他待确认副作用 |
 | `cancel_action` | `action_id`, `version` | 取消未结束 Action |
 | `generate_image` | `prompt`, `parent_action_id?` | 创建新的图片版本；新客户端优先使用流式 `/image` |
+
+`TravelPlan.markdown_content` 同时承载完整行程和目的地介绍。服务端没有独立百科生产者，因此契约不提供 `baike_info`、`highlights` 或 `best_season`；客户端也不要为这些历史占位字段保留空 UI。
 
 `version` 是乐观并发控制字段。收到 `409` 或版本错误时重新调用 `get`，不能覆盖服务端的新版本。
 

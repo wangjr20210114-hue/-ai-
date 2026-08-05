@@ -214,12 +214,30 @@ class WorkspaceWorkflowTests(unittest.IsolatedAsyncioTestCase):
         store = FakeStore()
         saved = await handler(FakeContext(store, {
             "operation": "save_travel_plan",
-            "plan": {"title": "北京三日游", "destination": "北京", "days": 3, "markdown_content": "行程"},
+            "plan": {
+                "title": "北京三日游",
+                "destination": "北京",
+                "days": 3,
+                "markdown_content": "行程与目的地介绍",
+                "baike_info": {"summary": "客户端遗留字段"},
+                "session_id": "legacy-client-session",
+            },
         }))
         plan = saved["travel_plan"]
         self.assertTrue(plan["id"].startswith("travel_"))
+        self.assertEqual(plan["markdown_content"], "行程与目的地介绍")
+        self.assertNotIn("baike_info", plan)
+        self.assertNotIn("session_id", plan)
         restored = await load_user_workspace(store, user_id=TEST_USER_ID)
         self.assertIn(plan["id"], restored["travel_plans"])
+        self.assertNotIn("baike_info", restored["travel_plans"][plan["id"]])
+        self.assertNotIn("session_id", restored["travel_plans"][plan["id"]])
+        restored["travel_plans"][plan["id"]]["baike_info"] = {"summary": "历史数据"}
+        restored["travel_plans"][plan["id"]]["session_id"] = "historical-session"
+        await save_workspace(store, TEST_USER_ID, restored)
+        projected = await handler(FakeContext(store, {"operation": "get"}))
+        self.assertNotIn("baike_info", projected["travel_plans"][0])
+        self.assertNotIn("session_id", projected["travel_plans"][0])
         deleted = await handler(FakeContext(store, {"operation": "delete_travel_plan", "plan_id": plan["id"]}))
         self.assertEqual(deleted["deleted_plan_id"], plan["id"])
 
