@@ -12,7 +12,7 @@ import {
   mergeProgressStep,
   normalizeProgressEvent,
 } from '../../search/model/progressModel';
-import { mergeSearchMeta, resolveSearchStartAt } from '../../search/model/searchRuntime';
+import { mergeSearchMeta, resolveSearchStartAt, restoredPresentationTiming } from '../../search/model/searchRuntime';
 import { SSEChatClient } from './chatTransport';
 import { readManualStopClientMessageId, readManualStopIntent } from './turnControl';
 import {
@@ -405,17 +405,26 @@ export function useChatRuntime() {
           const progress = Array.isArray(snapshot.progress) && snapshot.progress.length
             ? snapshot.progress as unknown as StructuredProgressStep[]
             : current.progress;
-          const searchActive = (progress || []).some((step) => (
-            step.activity === 'web_search'
-            || step.activity === 'paper_search'
-            || step.activity === 'place_search'
-          ));
-          const searchStartedAt = rememberSearchStart(streamId, current, searchActive);
+          const timing = restoredPresentationTiming(snapshot, current, progress || [], current.ts);
+          if (timing.searchStartedAt) searchStartedAtRef.current.set(streamId, timing.searchStartedAt);
+          if (timing.searchCompletedAt) searchCompletedAtRef.current.set(streamId, timing.searchCompletedAt);
+          const skill = timing.searchSelected ? {
+            ...(current.skill || { mode: 'immediate', content: '', action_label: '', params: {}, data: {} }),
+            intent: 'search',
+            icon: '🔍',
+            data: {
+              ...(current.skill?.data || {}),
+              status: 'searching',
+              statusText: translate('processingInformation'),
+            },
+          } as ChatMessage['skill'] : current.skill;
           const next: ChatMessage = {
             ...current,
             content: String(snapshot.content ?? current.content),
             streaming: true,
             progress,
+            turnStartedAt: timing.turnStartedAt,
+            ...(skill ? { skill } : {}),
             ...(searchResults ? { searchResults } : {}),
             ...(snapshot.workspace_actions?.length
               ? { workspaceActions: snapshot.workspace_actions }
@@ -426,7 +435,8 @@ export function useChatRuntime() {
             ...(snapshot.experience_hints?.length
               ? { experienceHints: snapshot.experience_hints }
               : {}),
-            ...(searchStartedAt ? { searchStartedAt } : {}),
+            ...(timing.searchStartedAt ? { searchStartedAt: timing.searchStartedAt } : {}),
+            ...(timing.searchCompletedAt ? { searchCompletedAt: timing.searchCompletedAt } : {}),
           };
           streams.set(streamId, next);
           publish(id, cached(id).map((item) => item.id === streamId ? next : item));
@@ -668,6 +678,13 @@ export function useChatRuntime() {
       let visibleMessages = liveTransport ? safelyMerged : settleStoppedMessages(safelyMerged);
       let restoredStreamId = '';
       if (!liveTransport && runActive) {
+        const presentation = data.presentation;
+        const restoredProgress = (presentation?.progress || [])
+          .map((step) => normalizeProgressEvent(step))
+          .filter((step): step is StructuredProgressStep => Boolean(step));
+        const restoredTiming = presentation
+          ? restoredPresentationTiming(presentation, {}, restoredProgress)
+          : null;
         const activeClientMessageId = String(data.run?.client_message_id || '');
         const boundary = visibleMessages.length;
         let activeAiIndex = visibleMessages.findIndex((item) => (
@@ -697,17 +714,20 @@ export function useChatRuntime() {
             content: '',
             ts: Date.now(),
             streaming: true,
+            ...(restoredTiming ? { turnStartedAt: restoredTiming.turnStartedAt } : {}),
+            ...(restoredTiming?.searchStartedAt ? { searchStartedAt: restoredTiming.searchStartedAt } : {}),
+            ...(restoredTiming?.searchCompletedAt ? { searchCompletedAt: restoredTiming.searchCompletedAt } : {}),
             client_message_id: activeClientMessageId || undefined,
             skill: {
-              intent: 'chat',
+              intent: restoredTiming?.searchSelected ? 'search' : 'chat',
               mode: 'immediate',
               content: '',
-              icon: '',
+              icon: restoredTiming?.searchSelected ? '🔍' : '',
               action_label: '',
               params: {},
               data: { status: 'recovering', statusText: translate('recoveringGeneration') },
             },
-            progress: [initialPlanningProgress()],
+            progress: restoredProgress.length ? restoredProgress : [initialPlanningProgress()],
           };
           visibleMessages = [
             ...visibleMessages.slice(0, boundary),
@@ -715,7 +735,6 @@ export function useChatRuntime() {
             ...visibleMessages.slice(boundary),
           ];
         }
-        const presentation = data.presentation;
         if (restoredStreamId && presentation) {
           visibleMessages = visibleMessages.map((item) => {
             if (item.id !== restoredStreamId) return item;
@@ -729,14 +748,27 @@ export function useChatRuntime() {
                 media_pending: false,
               });
             }
-            const progress = (presentation.progress || [])
-              .map((step) => normalizeProgressEvent(step))
-              .filter((step): step is StructuredProgressStep => Boolean(step));
+            const progress = restoredProgress;
+            const timing = restoredPresentationTiming(presentation, item, progress, item.ts);
+            const skill = timing.searchSelected ? {
+              ...(item.skill || { mode: 'immediate', content: '', action_label: '', params: {}, data: {} }),
+              intent: 'search',
+              icon: '🔍',
+              data: {
+                ...(item.skill?.data || {}),
+                status: 'recovering',
+                statusText: translate('recoveringGeneration'),
+              },
+            } as ChatMessage['skill'] : item.skill;
             return {
               ...item,
               content: String(presentation.content ?? item.content),
               streaming: true,
+              turnStartedAt: timing.turnStartedAt,
+              ...(skill ? { skill } : {}),
               ...(progress.length ? { progress } : {}),
+              ...(timing.searchStartedAt ? { searchStartedAt: timing.searchStartedAt } : {}),
+              ...(timing.searchCompletedAt ? { searchCompletedAt: timing.searchCompletedAt } : {}),
               ...(searchResults ? { searchResults } : {}),
               ...(presentation.workspace_actions?.length
                 ? { workspaceActions: presentation.workspace_actions }
@@ -758,6 +790,8 @@ export function useChatRuntime() {
         }
         const restoredStream = visibleMessages.find((item) => item.id === restoredStreamId);
         if (restoredStreamId && restoredStream) {
+          if (restoredStream.searchStartedAt) searchStartedAtRef.current.set(restoredStreamId, restoredStream.searchStartedAt);
+          if (restoredStream.searchCompletedAt) searchCompletedAtRef.current.set(restoredStreamId, restoredStream.searchCompletedAt);
           streamsRef.current.get(conversationId)?.set(restoredStreamId, restoredStream);
         }
       } else if (data.run?.status === 'cancelled') {

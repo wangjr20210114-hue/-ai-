@@ -62,7 +62,7 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
     text('frontend/public/contracts/mobile-client-v1.md'),
   ]);
   assert.equal(api.openapi, '3.1.0');
-  assert.equal(api.info.version, '1.8.0');
+  assert.equal(api.info.version, '1.9.0');
   assert.equal(api['x-floris-turn-control'].commit_boundary, 'run.status=completed');
   assert.match(api['x-floris-turn-control'].runtime_buffer, /private_until_completed/);
   assert.match(api['x-floris-turn-control'].queue_dequeue_boundary, /terminal state|stop acknowledgement/);
@@ -73,6 +73,10 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   assert.ok(api.paths['/auth/mobile/session']);
   assert.ok(api.paths['/run']);
   assert.ok(api.components.schemas.RunPresentation);
+  assert.ok(api.components.schemas.RunPresentation.properties.turn_started_at);
+  assert.ok(api.components.schemas.RunPresentation.properties.search_selected);
+  assert.ok(api.components.schemas.RunPresentation.properties.active_activity);
+  assert.ok(api.components.schemas.RenameConversationRequest);
   assert.equal(api.components.schemas.RunPresentation.properties.messages, undefined);
   assert.match(guide, /POST \/run/);
   assert.ok(api.paths['/chat'].post.responses['200']['x-floris-event-schema']);
@@ -144,6 +148,8 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   assert.equal(api.components.schemas.TravelPlan.properties.session_id, undefined);
   assert.ok(api.components.schemas.ChatRun.properties.client_message_id);
   assert.ok(api.components.schemas.ChatMessage.properties.client_message_id);
+  assert.ok(api.components.schemas.ChatMessage.properties.turnStartedAt);
+  assert.ok(api.components.schemas.ChatMessage.properties.searchStartedAt);
   assert.ok(api.components.schemas.ChatMessage.properties.stopped);
   assert.ok(api.components.schemas.StopRequest.properties.client_message_id);
   assert.deepEqual(

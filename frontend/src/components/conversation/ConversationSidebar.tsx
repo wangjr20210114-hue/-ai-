@@ -3,13 +3,15 @@ import { MessagePlugin } from 'tdesign-react';
 import {
   createNewConversation,
   listConversations,
+  renameConversation,
 } from '../../features/chat/model/client';
-import { reconcileConversationSummary, setActiveConversationId } from '../../services/conversation';
+import { isPristinePendingConversation, reconcileConversationSummary, setActiveConversationId } from '../../services/conversation';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ConversationSummary } from '../../features/chat/model';
 import { formatConversationTime } from '../../services/time';
 import ProactiveBriefPanel from '../../features/settings/view/ProactiveBriefPanel';
 import { translate, useLanguage } from '../../i18n';
+import { CheckIcon, CloseIcon, EditIcon } from 'tdesign-icons-react';
 
 const AppSettingsButton = lazy(
   () => import('../../features/settings/view/AppSettingsButton'),
@@ -37,12 +39,15 @@ function pendingConversation(conversationId: string): ConversationSummary {
 }
 
 export default function ConversationSidebar({ open, onClose }: Props) {
-  const { conversationId, conversations } = useAppState();
+  const { conversationId, conversations, messages } = useAppState();
   const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const [loading, setLoading] = useState(true);
   const creatingRef = useRef(false);
   const [loadError, setLoadError] = useState('');
+  const [renamingId, setRenamingId] = useState('');
+  const [renameValue, setRenameValue] = useState('');
+  const [savingRename, setSavingRename] = useState(false);
   const [toolsLoaded, setToolsLoaded] = useState(
     () => !window.matchMedia(COMPACT_SIDEBAR_QUERY).matches,
   );
@@ -112,6 +117,14 @@ export default function ConversationSidebar({ open, onClose }: Props) {
     if (creatingRef.current) return;
     creatingRef.current = true;
     try {
+      const current = conversations.find((item) => item.id === conversationId);
+      if (isPristinePendingConversation(current, messages)) {
+        const reused = { ...current!, updatedAt: Date.now() };
+        dispatch({ type: 'UPSERT_CONVERSATION', payload: reused });
+        setActiveConversationId(reused.id);
+        onClose();
+        return;
+      }
       // Running conversations remain active in the background. The active
       // transport ref is switched without cancelling their request.
       const conversation = createNewConversation();
@@ -125,6 +138,43 @@ export default function ConversationSidebar({ open, onClose }: Props) {
       window.setTimeout(() => { creatingRef.current = false; }, 0);
     }
   };
+
+  const startRename = (conversation: ConversationSummary) => {
+    setRenamingId(conversation.id);
+    setRenameValue(conversation.title);
+  };
+
+  const saveRename = async (conversation: ConversationSummary) => {
+    const title = renameValue.replace(/\s+/g, ' ').trim().slice(0, 64);
+    if (!title) return;
+    if (title === conversation.title) {
+      setRenamingId('');
+      return;
+    }
+    const optimistic = { ...conversation, title, updatedAt: Date.now() };
+    dispatch({ type: 'UPSERT_CONVERSATION', payload: optimistic });
+    setRenamingId('');
+    setSavingRename(true);
+    try {
+      const saved = await renameConversation(conversation.id, title);
+      dispatch({ type: 'UPSERT_CONVERSATION', payload: reconcileConversationSummary(saved, optimistic) });
+    } catch {
+      dispatch({ type: 'UPSERT_CONVERSATION', payload: conversation });
+      MessagePlugin.error(t('renameConversationFailed'));
+    } finally {
+      setSavingRename(false);
+    }
+  };
+
+  const conversationMeta = (conversation: ConversationSummary) => (
+    conversation.activityStatus === 'running'
+      ? t('generatingAnswer')
+      : conversation.activityStatus === 'failed'
+        ? t('previousGenerationFailed')
+        : conversation.pending
+          ? t('noMessagesYet')
+          : `${conversation.messageCount ? t('messageCount', { count: conversation.messageCount }) : ''}${formatConversationTime(conversation.updatedAt)}`
+  );
 
   return (
     <>
@@ -171,29 +221,53 @@ export default function ConversationSidebar({ open, onClose }: Props) {
             </button>
           )}
           {conversations.map((conversation) => (
-            <button
-              type="button"
+            <div
               key={conversation.id}
               className={`conversation-item ${conversation.id === conversationId ? 'is-active' : ''}`}
-              onClick={() => { activate(conversation.id); }}
               title={conversation.title}
             >
-              <span className={`conversation-item-icon status-${conversation.activityStatus || 'idle'}`} aria-label={conversation.activityStatus === 'running' ? t('generating') : conversation.activityStatus === 'failed' ? t('generationFailedShort') : t('idle')}>
-                {conversation.activityStatus === 'running' ? '◌' : conversation.activityStatus === 'failed' ? '!' : '◇'}
-              </span>
-              <span className="conversation-item-content">
-                <span className="conversation-item-title">{conversation.title}</span>
-                <span className="conversation-item-meta">
-                  {conversation.activityStatus === 'running'
-                    ? t('generatingAnswer')
-                    : conversation.activityStatus === 'failed'
-                      ? t('previousGenerationFailed')
-                      : conversation.pending
-                    ? t('noMessagesYet')
-                    : `${conversation.messageCount ? t('messageCount', { count: conversation.messageCount }) : ''}${formatConversationTime(conversation.updatedAt)}`}
+              {renamingId === conversation.id ? (
+                <div className="conversation-item-main">
+                  <span className={`conversation-item-icon status-${conversation.activityStatus || 'idle'}`} aria-hidden="true">
+                    {conversation.activityStatus === 'running' ? '◌' : conversation.activityStatus === 'failed' ? '!' : '◇'}
+                  </span>
+                  <span className="conversation-item-content">
+                    <input
+                      className="conversation-rename-input"
+                      value={renameValue}
+                      maxLength={64}
+                      aria-label={t('conversationName')}
+                      autoFocus
+                      onChange={(event) => setRenameValue(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') { event.preventDefault(); void saveRename(conversation); }
+                        if (event.key === 'Escape') setRenamingId('');
+                      }}
+                    />
+                    <span className="conversation-item-meta">{conversationMeta(conversation)}</span>
+                  </span>
+                </div>
+              ) : (
+                <button type="button" className="conversation-item-main" onClick={() => { activate(conversation.id); }}>
+                  <span className={`conversation-item-icon status-${conversation.activityStatus || 'idle'}`} aria-label={conversation.activityStatus === 'running' ? t('generating') : conversation.activityStatus === 'failed' ? t('generationFailedShort') : t('idle')}>
+                    {conversation.activityStatus === 'running' ? '◌' : conversation.activityStatus === 'failed' ? '!' : '◇'}
+                  </span>
+                  <span className="conversation-item-content">
+                    <span className="conversation-item-title">{conversation.title}</span>
+                    <span className="conversation-item-meta">{conversationMeta(conversation)}</span>
+                  </span>
+                </button>
+              )}
+              {renamingId === conversation.id ? (
+                <span className="conversation-item-actions">
+                  <button type="button" disabled={savingRename} onClick={() => { void saveRename(conversation); }} aria-label={t('saveName')} title={t('saveName')}><CheckIcon /></button>
+                  <button type="button" onClick={() => setRenamingId('')} aria-label={t('cancel')} title={t('cancel')}><CloseIcon /></button>
                 </span>
-              </span>
-            </button>
+              ) : (
+                <button type="button" className="conversation-rename-button" onClick={() => startRename(conversation)} aria-label={t('renameConversation')} title={t('renameConversation')}><EditIcon /></button>
+              )}
+            </div>
           ))}
         </div>
         <ProactiveBriefPanel />

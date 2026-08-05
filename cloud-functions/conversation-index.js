@@ -95,6 +95,7 @@ export function conversationPointer(user, values = {}) {
       owner_user_id: user.id,
       tenant_id: user.tenant_id,
       title: String(values.title || metadata.title || '历史对话'),
+      ...(metadata.title_source === 'manual' ? { title_source: 'manual' } : {}),
       ...(metadata.yuanbao_chat_run_v1
         ? { yuanbao_chat_run_v1: metadata.yuanbao_chat_run_v1 }
         : {}),
@@ -133,7 +134,9 @@ export async function touchConversationPointer(indexStore, user, values) {
       pointerMessageCount(values?.messageCount),
     ),
     metadata: { ...existingMetadata, ...(values?.metadata || {}) },
-    title: values?.title || existingMetadata.title || '',
+    title: existingMetadata.title_source === 'manual'
+      ? existingMetadata.title
+      : values?.title || existingMetadata.title || '',
   });
 }
 

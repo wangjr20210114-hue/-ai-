@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { autoFollowAfterScroll, hasTextSelectionInside } from './scrollSelection';
+import { autoFollowAfterScroll, hasTextSelectionInside, lastQuestionScrollTop } from './scrollSelection';
 import { streamingMarkdownAnswer } from './streamingAnswer';
 
 describe('message selection auto-follow guard', () => {
@@ -25,6 +25,11 @@ describe('message selection auto-follow guard', () => {
   it('stays detached until the user really reaches the bottom', () => {
     expect(autoFollowAfterScroll(false, 800, 850, 24)).toBe(false);
     expect(autoFollowAfterScroll(false, 850, 874, 0)).toBe(true);
+  });
+
+  it('places the last question near the top without negative scroll', () => {
+    expect(lastQuestionScrollTop(840)).toBe(824);
+    expect(lastQuestionScrollTop(10)).toBe(0);
   });
 });
 

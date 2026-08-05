@@ -9,9 +9,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from .turn_context import state_requirements_for_plan
 from .turn_finalizer import TurnFinalizer
+from .turn_background import TurnBackgroundWork
 from .turn_io import (
     _document_context,
-    _recent_user_questions,
     _text_content,
     _ui_action,
     _usage_values,
@@ -57,7 +57,6 @@ from ...chat._capability_plan import (
     progressive_media_for_plan,
     required_tools_for_plan,
 )
-from ...chat._followups import should_generate_followups
 from ...chat._protocol import (
     MarkdownImageStreamFilter,
     PublicStreamFilter,
@@ -69,7 +68,6 @@ from ...chat._protocol import (
 from ...chat._calendar_context import calendar_context, latest_route_context
 from ..._application.intelligence.service import (
     confirmed_memory_context,
-    extract_automatic_memory_candidates,
     load_intelligence_state,
     usage_summary,
     skill_runtime_env,
@@ -87,7 +85,7 @@ from ..._infrastructure.makers.provider_usage_repository import (
 )
 from ..._application.proactive.service import load_proactive_state
 from ..._presenters.chat_stream import ChatStreamPresenter
-from .presentation_journal import PresentationJournalQueue
+from .presentation_journal import presentation_queue_for_turn
 HEARTBEAT_SECONDS = 5
 MAX_GRAPH_RECURSION = 24
 
@@ -524,11 +522,12 @@ async def _handle(ctx):
     # Publication-date strictness is a semantic planner decision.  Keyword
     # matching incorrectly treated “截至今天的最新能力” as “published today”
     # and discarded the latest verifiable release from earlier dates.
-    queue = PresentationJournalQueue(
+    queue = presentation_queue_for_turn(
         store=getattr(ctx.store, "langgraph_store", None),
         conversation_id=conversation_id,
         run_id=run_id,
-        client_message_id=str(body.get("client_message_id") or ""),
+        body=body,
+        run_state=admitted_run_state,
     )
     component_journal = ComponentPublicationJournal()
     search_runner = PlannedSearchRunner(
@@ -851,40 +850,21 @@ async def _handle(ctx):
             ))
             if bool(body.get("_diagnostics")):
                 await queue.put(presenter.stage_timing(stage_timings_ms))
-            # Follow-up generation waits for the actual answer so the original
-            # request cannot be mistaken for a completed fact or item count.
-            followups_enabled = should_generate_followups(
-                capability_plan,
+            background_work = TurnBackgroundWork.start(
+                model=fast_model,
+                message=message,
+                response_language=response_language,
+                capability_plan=capability_plan,
                 blocked_skill=blocked_skill,
-            )
-            memory_enabled = bool(
-                (intelligence.get("memory_preferences") or {}).get("enabled", True)
-            )
-            memory_task = (
-                asyncio.create_task(
-                    extract_automatic_memory_candidates(
-                        fast_model, message, response_language=response_language,
-                    )
-                )
-                if memory_enabled
-                and capability_plan.get("needs_memory_extraction")
-                else None
-            )
-            opportunity_enabled = bool(
-                "workflow_action" in enabled_capabilities
-                and capability_plan.get("needs_opportunity_review")
-            )
-            recent_questions_task = (
-                asyncio.create_task(
-                    _recent_user_questions(
-                        ctx.store, conversation_id, message, admitted_run_state,
-                    )
-                )
-                if opportunity_enabled
-                else None
+                intelligence=intelligence,
+                enabled_capabilities=enabled_capabilities,
+                store=ctx.store,
+                conversation_id=conversation_id,
+                run_state=admitted_run_state,
             )
 
             async def reset_public_stream() -> None:
+                background_work.followups.discard()
                 pending_ai_content.clear()
                 final_answer_parts.clear()
                 stream_delta.reset()
@@ -896,6 +876,10 @@ async def _handle(ctx):
                 if not content:
                     return
                 final_answer_parts.append(content)
+                background_work.followups.maybe_start(
+                    "".join(final_answer_parts),
+                    clarification_emitted=clarification_emitted,
+                )
                 if buffer_public_answer:
                     pending_ai_content.append(content)
                 else:
@@ -1147,6 +1131,7 @@ async def _handle(ctx):
                                 )
                             delta, reset_required = public_stream.push(normalized_content)
                             if reset_required:
+                                background_work.followups.discard()
                                 pending_ai_content.clear()
                                 final_answer_parts.clear()
                                 await queue.put(presenter.reset())
@@ -1159,12 +1144,14 @@ async def _handle(ctx):
                 if image_tail:
                     delta, reset_required = public_stream.push(image_tail)
                     if reset_required:
+                        background_work.followups.discard()
                         pending_ai_content.clear()
                         final_answer_parts.clear()
                         await queue.put(presenter.reset())
                     await emit_public(delta)
                 tail, reset_required = public_stream.finish()
                 if reset_required:
+                    background_work.followups.discard()
                     pending_ai_content.clear()
                     final_answer_parts.clear()
                     await queue.put(presenter.reset())
@@ -1250,11 +1237,12 @@ async def _handle(ctx):
                     answer_capability_plan=answer_capability_plan,
                     memory_context=memory_context,
                     pending_actions=pending_actions,
-                    followups_enabled=followups_enabled,
-                    memory_task=memory_task,
-                    recent_questions_task=recent_questions_task,
-                    opportunity_enabled=opportunity_enabled,
+                    followups_enabled=background_work.followups.enabled,
+                    memory_task=background_work.memory_task,
+                    recent_questions_task=background_work.recent_questions_task,
+                    opportunity_enabled=background_work.opportunity_enabled,
                     telemetry=telemetry,
+                    followups_task=background_work.followups.task,
                 ).finish(
                     answer=final_answer,
                     run_error=run_error,

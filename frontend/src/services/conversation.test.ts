@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../features/chat/model';
-import { clearLocalApplicationData, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, discardStreamingAnswer, discardTurnAnswer, durableMessageCount, getOrCreateConversationId, hasDurableAssistantPayload, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
+import { clearLocalApplicationData, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, discardStreamingAnswer, discardTurnAnswer, durableMessageCount, getOrCreateConversationId, hasDurableAssistantPayload, isPristinePendingConversation, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
 import { CONVERSATION_PREFIX, isCurrentConversationId } from './dataVersion';
 
 describe('getOrCreateConversationId', () => {
@@ -427,5 +427,20 @@ describe('eventually consistent conversation summaries', () => {
       pending: false,
       activityStatus: 'idle',
     });
+  });
+});
+
+describe('pristine pending conversation reuse', () => {
+  it('reuses only a structurally empty pending draft', () => {
+    const pending = { id: 'draft', title: '自定义名称', createdAt: 1, updatedAt: 1, messageCount: 0, pending: true };
+    expect(isPristinePendingConversation(pending, [])).toBe(true);
+  });
+
+  it('does not reuse an old conversation merely renamed to 新对话', () => {
+    const renamed = { id: 'old', title: '新对话', createdAt: 1, updatedAt: 2, messageCount: 2, pending: false };
+    expect(isPristinePendingConversation(renamed, [])).toBe(false);
+    expect(isPristinePendingConversation({ ...renamed, messageCount: 0, pending: true }, [
+      { id: 'u1', role: 'user', content: '已有问题', ts: 1 },
+    ])).toBe(false);
   });
 });

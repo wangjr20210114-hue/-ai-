@@ -218,6 +218,11 @@ export interface RunPresentationSnapshot {
   client_message_id: string;
   revision: number;
   updated_at: number;
+  turn_started_at?: number;
+  search_selected?: boolean;
+  search_started_at?: number;
+  search_completed_at?: number;
+  active_activity?: StructuredProgressActivity;
   content: string;
   progress?: Record<string, unknown>[];
   search_results?: Partial<SearchMeta>;

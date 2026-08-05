@@ -1,4 +1,49 @@
 import type { SearchMeta } from './types';
+import type { RunPresentationSnapshot, StructuredProgressStep } from '../../chat/model';
+import { normalizeTimestamp } from '../../../services/time';
+
+export interface RestoredPresentationTiming {
+  turnStartedAt: number;
+  searchSelected: boolean;
+  searchStartedAt?: number;
+  searchCompletedAt?: number;
+}
+
+export function restoredPresentationTiming(
+  snapshot: RunPresentationSnapshot,
+  current: {
+    turnStartedAt?: number;
+    searchStartedAt?: number;
+    searchCompletedAt?: number;
+  } = {},
+  progress: StructuredProgressStep[] = [],
+  fallback = Date.now(),
+): RestoredPresentationTiming {
+  const turnStartedAt = normalizeTimestamp(
+    snapshot.turn_started_at,
+    Number(current.turnStartedAt || fallback),
+  );
+  const searchSelected = Boolean(
+    snapshot.search_selected
+    || snapshot.search_results
+    || progress.some((step) => ['web_search', 'paper_search', 'place_search'].includes(step.activity)),
+  );
+  const searchStartedAt = searchSelected
+    ? normalizeTimestamp(
+      snapshot.search_started_at,
+      Number(current.searchStartedAt || turnStartedAt),
+    )
+    : undefined;
+  const searchCompletedAt = snapshot.search_completed_at
+    ? normalizeTimestamp(snapshot.search_completed_at, Number(current.searchCompletedAt || 0))
+    : (current.searchCompletedAt || undefined);
+  return {
+    turnStartedAt,
+    searchSelected,
+    ...(searchStartedAt ? { searchStartedAt } : {}),
+    ...(searchCompletedAt ? { searchCompletedAt } : {}),
+  };
+}
 
 export function resolveSearchStartAt(
   current: number | undefined,

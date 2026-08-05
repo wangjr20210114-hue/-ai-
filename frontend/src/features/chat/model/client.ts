@@ -149,12 +149,14 @@ function normalizeConversation(
     || run?.status === 'cancel_requested'
     ? 'running'
     : run?.status === 'failed' ? 'failed' : 'idle';
+  const messageCount = Number(item.messageCount || item.message_count || 0);
   return {
     id,
     title: String(metadata.title || item.title || translate('newConversation')),
     createdAt,
     updatedAt,
-    messageCount: Number(item.messageCount || item.message_count || 0),
+    messageCount,
+    pending: messageCount === 0,
     activityStatus,
   };
 }
@@ -204,6 +206,26 @@ export async function touchConversationIndex(
       detail: { conversationId },
     }));
   }
+}
+
+export async function renameConversation(
+  conversationId: string,
+  title: string,
+): Promise<ConversationSummary> {
+  const data = await requestJson<{ conversation?: Record<string, unknown> }>('/conversations', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...makersConversationHeaders(conversationId),
+    },
+    body: JSON.stringify({
+      operation: 'rename',
+      conversation_id: conversationId,
+      title: title.trim(),
+    }),
+  });
+  if (!data.conversation) throw new Error(translate('renameConversationFailed'));
+  return normalizeConversation(data.conversation);
 }
 
 export async function saveConversationMessage(

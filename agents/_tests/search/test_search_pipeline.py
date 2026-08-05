@@ -90,6 +90,9 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
                 "content": "## 故宫历史\n\n![太和殿](https://example.com/palace.jpg)",
                 "follow_ups": ["太和殿是做什么的？"],
                 "search_results": {**metadata, "media": [{"id": "media-1"}]},
+                "turn_started_at": 1_786_000_000_000,
+                "search_started_at": 1_786_000_000_000,
+                "search_completed_at": 1_786_000_012_345,
             },
         )
         store = SimpleNamespace(
@@ -101,6 +104,9 @@ class SearchPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ai_message["searchResults"]["media"], [{"id": "media-1"}])
         self.assertIn("palace.jpg", ai_message["content"])
         self.assertEqual(ai_message["followUps"], ["太和殿是做什么的？"])
+        self.assertEqual(ai_message["turnStartedAt"], 1_786_000_000_000)
+        self.assertEqual(ai_message["searchStartedAt"], 1_786_000_000_000)
+        self.assertEqual(ai_message["searchCompletedAt"], 1_786_000_012_345)
         self.assertNotIn("workspace_actions", response)
 
     def test_semantic_search_plan_requires_one_rich_search_first_step(self):

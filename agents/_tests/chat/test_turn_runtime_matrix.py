@@ -239,6 +239,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         search_use_case_type=_SearchUseCase,
         followups_enabled: bool = False,
         followup_generator=None,
+        graph_type=_AnswerGraph,
         tracer=None,
     ) -> tuple[str, _ConversationStore]:
         store = store or _ConversationStore()
@@ -268,6 +269,7 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             "workflow-action": True,
             "meeting-action": True,
         }
+        followup_impl = followup_generator or AsyncMock(return_value=[])
 
         with (
             patch(
@@ -300,16 +302,20 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             patch(
                 "agents._application.chat.turn_service.build_graph",
                 side_effect=(
-                    lambda _model, tools, *_args, **_kwargs: _AnswerGraph(tools)
+                    lambda _model, tools, *_args, **_kwargs: graph_type(tools)
                 ),
             ),
             patch(
-                "agents._application.chat.turn_service.should_generate_followups",
+                "agents._application.chat.turn_background.should_generate_followups",
                 return_value=followups_enabled,
             ),
             patch(
                 "agents._application.chat.turn_finalizer.generate_followups",
-                new=(followup_generator or AsyncMock(return_value=[])),
+                new=followup_impl,
+            ),
+            patch(
+                "agents._application.chat.turn_background.generate_followups",
+                new=followup_impl,
             ),
         ):
             stream = await ChatTurnService(ctx).handle()
@@ -324,6 +330,29 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             name,
         )
         return wire, store
+
+    async def test_followups_begin_during_a_grounded_answer_stream(self):
+        followup_started = asyncio.Event()
+
+        class LongAnswerGraph(_AnswerGraph):
+            async def astream(self, *_args, **_kwargs):
+                yield AIMessageChunk(content="这是已经形成的公开回答内容。" * 24), {}
+                await asyncio.wait_for(followup_started.wait(), timeout=1.0)
+                yield AIMessageChunk(content="这是回答的最后一段。"), {}
+
+        async def followups(_model, _user_message, answer="", **_kwargs):
+            self.assertGreaterEqual(len(answer), 180)
+            followup_started.set()
+            return ["接下来还可以了解什么？"]
+
+        wire, _ = await self._run(
+            "parallel-followups",
+            _plan(),
+            followups_enabled=True,
+            followup_generator=followups,
+            graph_type=LongAnswerGraph,
+        )
+        self.assertIn('"type":"follow_ups"', wire)
 
     async def test_guest_search_plan_falls_back_to_model_without_install_prompt(self):
         _SearchUseCase.execute_count = 0

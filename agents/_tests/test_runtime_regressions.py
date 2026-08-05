@@ -83,19 +83,25 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
     async def test_public_stream_snapshot_recovers_without_private_reasoning(self):
         store = FakeStore()
         presenter = ChatStreamPresenter("zh-CN")
+        started_at = int(time.time() * 1000) - 1_000
         queue = PresentationJournalQueue(
             store=store,
             conversation_id="conversation-recovery",
             run_id="run-recovery",
             client_message_id="client-recovery",
+            turn_started_at=started_at,
         )
         await queue.put(presenter.progress("planning", "completed"))
+        await queue.put(presenter.progress(
+            "retrieval", "active", activity="web_search",
+        ))
         await queue.put(presenter.token("正在恢复"))
         await queue.put(presenter.token("中的回答"))
         await queue.put(presenter.sources({
             "query": "AI",
             "results": [{"title": "source", "url": "https://example.com"}],
         }))
+        await queue.put(presenter.done("run-recovery"))
         await queue.put(object())
 
         snapshot = await load_presentation_snapshot(
@@ -106,6 +112,14 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot["content"], "正在恢复中的回答")
         self.assertEqual(snapshot["client_message_id"], "client-recovery")
         self.assertEqual(snapshot["search_results"]["query"], "AI")
+        self.assertEqual(snapshot["turn_started_at"], started_at)
+        self.assertEqual(snapshot["search_started_at"], started_at)
+        self.assertTrue(snapshot["search_selected"])
+        self.assertGreaterEqual(
+            snapshot["search_completed_at"], snapshot["search_started_at"],
+        )
+        self.assertEqual(snapshot["active_activity"], "general")
+        self.assertGreater(snapshot["progress"][-1]["updated_at"], 0)
         self.assertGreaterEqual(snapshot["revision"], 4)
         self.assertNotIn("messages", snapshot)
         self.assertNotIn("tool_calls", snapshot)

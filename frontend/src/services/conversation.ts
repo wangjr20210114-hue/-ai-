@@ -55,6 +55,18 @@ export function makersConversationHeaders(conversationId: string): Record<string
   return { 'makers-conversation-id': conversationId };
 }
 
+/** Identify a reusable draft by lifecycle state, never by its display title. */
+export function isPristinePendingConversation(
+  conversation: ConversationSummary | undefined,
+  messages: ChatMessage[],
+): boolean {
+  return Boolean(
+    conversation?.pending
+    && Number(conversation.messageCount || 0) === 0
+    && messages.length === 0,
+  );
+}
+
 /**
  * Return true when an assistant row has durable, user-visible state.
  *

@@ -9,6 +9,9 @@ from typing import Any
 from .._application.i18n import normalize_language, text
 
 
+EARLY_FOLLOWUP_GROUNDING_CHARS = 180
+
+
 def should_generate_followups(
     capability_plan: dict[str, Any],
     *,
@@ -24,6 +27,16 @@ def should_generate_followups(
     if blocked_skill or capability_plan.get("needs_clarification"):
         return False
     return True
+
+
+def has_early_followup_grounding(answer: str) -> bool:
+    """Return whether the public answer is substantial enough for early work.
+
+    This is a transport-latency threshold, independent of task topics or
+    products. The terminal path still handles short answers using the complete
+    text.
+    """
+    return len(answer.strip()) >= EARLY_FOLLOWUP_GROUNDING_CHARS
 
 
 def _text(content: Any) -> str:

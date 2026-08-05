@@ -410,6 +410,17 @@ async def handler(ctx):
                 search_results = latest_extras.get("search_results")
                 if isinstance(search_results, dict):
                     restored["searchResults"] = search_results
+                for source_key, target_key in (
+                    ("turn_started_at", "turnStartedAt"),
+                    ("search_started_at", "searchStartedAt"),
+                    ("search_completed_at", "searchCompletedAt"),
+                ):
+                    try:
+                        timestamp = int(latest_extras.get(source_key) or 0)
+                    except (TypeError, ValueError):
+                        timestamp = 0
+                    if timestamp > 0:
+                        restored[target_key] = timestamp
                 experience_hints = latest_extras.get("experience_hints")
                 if isinstance(experience_hints, list) and experience_hints:
                     restored["experienceHints"] = experience_hints[:4]

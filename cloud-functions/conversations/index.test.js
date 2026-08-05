@@ -67,11 +67,12 @@ class FakeConversationRouteStore {
       createdAt: 100,
       lastMessageAt: 100,
       messageCount: 1,
-      metadata: {},
+      metadata: { title: 'Original title', durable_marker: 'preserved' },
     };
   }
 
   async updateConversation({ conversationId, metadata }) {
+    this.updatedMetadata = metadata;
     return {
       conversationId,
       createdAt: 100,
@@ -81,6 +82,53 @@ class FakeConversationRouteStore {
     };
   }
 }
+
+test('rename updates native Maker metadata and the tenant-scoped pointer', async () => {
+  const store = new FakeConversationRouteStore();
+  const indexStore = new FakeIndexStore();
+  const request = await authenticatedRequest('https://example.com/conversations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      operation: 'rename',
+      conversation_id: 'yb7_rename-route',
+      title: '  杭州   周末计划  ',
+    }),
+  });
+  const response = await onRequest({
+    request,
+    env: TEST_AUTH_ENV,
+    agent: { store },
+    __indexStore: indexStore,
+  });
+
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.conversation.metadata.title, '杭州 周末计划');
+  assert.equal(store.updatedMetadata.durable_marker, 'preserved');
+  const pointer = [...indexStore.values.values()][0];
+  assert.equal(pointer.metadata.title, '杭州 周末计划');
+});
+
+test('rename rejects blank titles without updating Maker state', async () => {
+  const store = new FakeConversationRouteStore();
+  const request = await authenticatedRequest('https://example.com/conversations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      operation: 'rename',
+      conversation_id: 'yb7_rename-route',
+      title: '   ',
+    }),
+  });
+  const response = await onRequest({
+    request,
+    env: TEST_AUTH_ENV,
+    agent: { store },
+    __indexStore: new FakeIndexStore(),
+  });
+  assert.equal(response.status, 400);
+});
 
 test('normalizes documented and legacy conversation list return shapes', () => {
   const item = conversation('yb7_shape');
@@ -186,6 +234,27 @@ test('touching a pointer preserves its title and creation time', async () => {
   assert.equal(touched.createdAt, original.createdAt);
   assert.equal(touched.messageCount, 3);
   assert.ok(touched.lastMessageAt > original.lastMessageAt);
+});
+
+test('touching a manually renamed pointer never replaces its title with a later question', async () => {
+  const indexStore = new FakeIndexStore();
+  const conversationId = 'yb7_66666666666666666666666666666666';
+  await writeConversationPointer(indexStore, user, {
+    conversationId,
+    clientConversationId: 'yb7_manual-title',
+    title: '我的杭州计划',
+    metadata: { title_source: 'manual' },
+    now: 1_785_600_003_000,
+  });
+  const touched = await touchConversationPointer(indexStore, user, {
+    conversationId,
+    clientConversationId: 'yb7_manual-title',
+    title: '第一条用户问题',
+    messageCount: 2,
+    now: 1_785_600_004_000,
+  });
+  assert.equal(touched.metadata.title, '我的杭州计划');
+  assert.equal(touched.metadata.title_source, 'manual');
 });
 
 test('conversation route writes its sidebar pointer through Makers Blob', async () => {

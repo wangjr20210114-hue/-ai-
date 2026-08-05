@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Floris Client API",
-    "version": "1.8.0",
+    "version": "1.9.0",
     "description": "The complete, platform-neutral client boundary shared by Web, Android, HarmonyOS and iOS. Every server-owned value displayed by a Floris client is delivered through an operation below or through the versioned SSE/component contracts. Authentication, tenant scoping, orchestration, provider calls and persistence remain server responsibilities."
   },
   "servers": [
@@ -380,15 +380,20 @@
         }
       },
       "post": {
-        "operationId": "touchConversationPointer",
+        "operationId": "mutateConversationPointer",
         "tags": ["Chat"],
-        "summary": "Create or refresh one tenant-scoped sidebar pointer",
+        "summary": "Create, refresh or rename one tenant-scoped sidebar pointer",
         "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/TouchConversationRequest" },
+              "schema": {
+                "oneOf": [
+                  { "$ref": "#/components/schemas/TouchConversationRequest" },
+                  { "$ref": "#/components/schemas/RenameConversationRequest" }
+                ]
+              },
               "example": {
                 "operation": "touch_pointer",
                 "conversation_id": "yb7_example",
@@ -1358,6 +1363,9 @@
           "role": { "enum": ["user", "ai"] },
           "content": { "type": "string" },
           "ts": { "type": "integer" },
+          "turnStartedAt": { "type": "integer", "description": "Original user-send boundary in epoch milliseconds." },
+          "searchStartedAt": { "type": "integer" },
+          "searchCompletedAt": { "type": "integer" },
           "followUps": { "type": "array", "items": { "type": "string" } },
           "progress": { "type": "array", "items": { "$ref": "./floris-components-v1.schema.json#/$defs/progress" } },
           "searchResults": { "$ref": "./floris-components-v1.schema.json#/$defs/searchMeta" },
@@ -1393,6 +1401,11 @@
           "client_message_id": { "type": "string" },
           "revision": { "type": "integer", "minimum": 0 },
           "updated_at": { "type": "integer" },
+          "turn_started_at": { "type": "integer", "description": "Original user-send boundary in epoch milliseconds." },
+          "search_selected": { "type": "boolean" },
+          "search_started_at": { "type": "integer" },
+          "search_completed_at": { "type": "integer" },
+          "active_activity": { "enum": ["general", "web_search", "paper_search", "place_search", "route_planning", "calendar_preparation", "meeting_preparation", "image_generation", "image_review", "component_action"] },
           "content": { "type": "string" },
           "progress": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
           "search_results": { "type": "object", "additionalProperties": true },
@@ -1469,6 +1482,16 @@
           "conversation_id": { "type": "string" },
           "title": { "type": "string" },
           "message_count": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "RenameConversationRequest": {
+        "type": "object",
+        "required": ["operation", "conversation_id", "title"],
+        "properties": {
+          "operation": { "const": "rename" },
+          "conversation_id": { "type": "string" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 64 }
         },
         "additionalProperties": false
       },

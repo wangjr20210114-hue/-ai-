@@ -240,6 +240,9 @@ test('a new conversation owns the next request without inheriting old rows', asy
   expect(await page.locator('.connection-operation-lock').count()).toBe(0);
   await expect(page.locator('.app-shell')).toHaveAttribute('aria-busy', 'false');
   await expect(page.locator('.msg-row')).toHaveCount(0);
+  const firstDraftId = await page.evaluate(() => localStorage.getItem('yuanbao.v6.conversationId'));
+  await create.click();
+  expect(await page.evaluate(() => localStorage.getItem('yuanbao.v6.conversationId'))).toBe(firstDraftId);
 
   await page.locator('.input-box textarea').fill('Start a genuinely fresh turn');
   await page.locator('.input-submit-button').click();
@@ -247,6 +250,8 @@ test('a new conversation owns the next request without inheriting old rows', asy
   await expect(page.locator('.chat-scroll')).not.toContainText('鍙俊绯荤粺姝ｅ湪');
   expect(chatRequest?.headers['makers-conversation-id']).not.toBe('visual-baseline');
   expect(chatRequest?.headers['makers-conversation-id']).toMatch(/^yb7_/);
+  await expect(page.locator('.conversation-item.is-active .conversation-item-title'))
+    .toHaveText('Start a genuinely fresh turn');
 });
 
 test('settings open through the feature controller without blocking on optional providers', async ({ page }) => {

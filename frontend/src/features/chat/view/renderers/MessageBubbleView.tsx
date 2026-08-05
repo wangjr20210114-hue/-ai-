@@ -74,7 +74,11 @@ export function MessageBubbleView({
     };
   }, [isUser, message.streaming, message.followUps]);
 
-  return <div className={`msg-row ${isUser ? 'user' : 'ai'}${isAssistantChain ? ` assistant-chain-${assistantChainPosition}` : ''}`}>
+  return <div
+    className={`msg-row ${isUser ? 'user' : 'ai'}${isAssistantChain ? ` assistant-chain-${assistantChainPosition}` : ''}`}
+    data-message-id={message.id}
+    data-message-role={message.role}
+  >
     {!isUser && (assistantChainPosition === 'middle' || assistantChainPosition === 'end')
       ? <div className="msg-avatar-spacer" aria-hidden="true" />
       : <div className={`msg-avatar ${isUser ? 'user' : 'ai'}`}>

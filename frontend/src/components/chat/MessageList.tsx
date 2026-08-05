@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import MessageBubble from '../../features/chat/view/MessageBubble';
 import type { ChatClient } from '../../services/chatClient';
-import { autoFollowAfterScroll, hasTextSelectionInside } from './scrollSelection';
+import { autoFollowAfterScroll, hasTextSelectionInside, lastQuestionScrollTop } from './scrollSelection';
 import { useLanguage, type TranslationKey } from '../../i18n';
 import { assistantChainPositions } from './assistantMessageChain';
 import { useAuthSession } from '../../shared/auth/useAuthSession';
@@ -43,9 +43,22 @@ export default function MessageList({ client }: Props) {
   const previousCountRef = useRef(0);
   const shouldStickToBottomRef = useRef(true);
   const previousScrollTopRef = useRef(0);
+  const previousConversationIdRef = useRef(conversationId);
+  const pendingQuestionAnchorRef = useRef(false);
+
+  useLayoutEffect(() => {
+    if (previousConversationIdRef.current === conversationId) return;
+    previousConversationIdRef.current = conversationId;
+    pendingQuestionAnchorRef.current = true;
+    previousCountRef.current = 0;
+    shouldStickToBottomRef.current = false;
+  }, [conversationId]);
 
   useEffect(() => {
     const focusQuestion = () => {
+      // A newly sent question owns the viewport, even when this conversation
+      // was just created and has not completed its first history hydration.
+      pendingQuestionAnchorRef.current = false;
       shouldStickToBottomRef.current = true;
       requestAnimationFrame(() => requestAnimationFrame(() => {
         const container = scrollRef.current;
@@ -67,7 +80,15 @@ export default function MessageList({ client }: Props) {
     // Sending a message of your own always rejoins the live edge.
     const ownMessageSent = grew && messages[messages.length - 1]?.role === 'user';
     if (ownMessageSent) shouldStickToBottomRef.current = true;
-    if (isInitialRestore) {
+    if (pendingQuestionAnchorRef.current && messages.length > 0) {
+      const questions = container.querySelectorAll<HTMLElement>('[data-message-role="user"]');
+      const latestQuestion = questions.item(questions.length - 1);
+      container.scrollTop = latestQuestion
+        ? lastQuestionScrollTop(latestQuestion.offsetTop)
+        : 0;
+      previousScrollTopRef.current = container.scrollTop;
+      pendingQuestionAnchorRef.current = false;
+    } else if (isInitialRestore) {
       // Run before paint so a restored task opens at the bottom without a visible scroll.
       container.scrollTop = container.scrollHeight;
       previousScrollTopRef.current = container.scrollTop;
@@ -90,7 +111,7 @@ export default function MessageList({ client }: Props) {
       previousScrollTopRef.current = container.scrollTop;
     }
     previousCountRef.current = messages.length;
-  }, [messages, thinking]);
+  }, [conversationId, messages, thinking]);
 
   const trackScrollPosition = () => {
     const container = scrollRef.current;

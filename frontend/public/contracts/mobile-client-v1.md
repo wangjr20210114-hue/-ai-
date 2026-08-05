@@ -278,7 +278,7 @@ curl "$BASE/conversations" \
 
 ### POST /conversations
 
-创建或更新侧栏中的会话指针。
+创建或更新侧栏中的会话指针。客户端只能用 `pending=true + message_count=0 + 本地无消息` 判定可复用的真空白对话，不能按“新对话”标题判断；首条用户消息成为默认标题。
 
 ```bash
 curl -X POST "$BASE/conversations" \
@@ -286,6 +286,16 @@ curl -X POST "$BASE/conversations" \
   -H "makers-conversation-id: $CID" \
   -H "Content-Type: application/json" \
   -d "{\"operation\":\"touch_pointer\",\"conversation_id\":\"$CID\",\"title\":\"杭州一日游\",\"message_count\":2}"
+```
+
+重命名已有对话：
+
+```bash
+curl -X POST "$BASE/conversations" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "makers-conversation-id: $CID" \
+  -H "Content-Type: application/json" \
+  -d "{\"operation\":\"rename\",\"conversation_id\":\"$CID\",\"title\":\"杭州周末计划\"}"
 ```
 
 ### POST /stop
@@ -743,7 +753,7 @@ type 流式渲染；未知事件忽略，未知组件保留正文。搜索图片
 | --- | --- | --- |
 | 身份、会员、权益 | `/auth/session` 或移动 Bearer | 缓存只用于启动占位，最终必须服从服务端 |
 | 会话列表 | `/conversations` | 本地保存最近列表用于瞬时启动，联网后合并并以服务端为准 |
-| 消息、来源、图片、卡片 | `/messages`、`/run` 与 `/chat` SSE | 可短期缓存当前公开流快照以便首帧恢复；随后必须按 `/run` 的 run、revision、client_message_id 和 Action ID 原子对账 |
+| 消息、来源、图片、卡片 | `/messages`、`/run` 与 `/chat` SSE | 可短期缓存当前公开流快照以便首帧恢复；随后必须按 `/run` 的 run、revision、client_message_id 和 Action ID 原子对账；恢复 `turn_started_at`、搜索起止时间和 progress 原始时间，不能用重连时刻重置计时 |
 | 搜索来源与媒体 | `search_results`、`search_media` | 只能按 `source_id` 合并；不能猜测、重排来源绑定 |
 | 日程、地图、路线、图片版本 | `/workspace` | 可以做视图排序和动画；不能自行把待确认 Action 标成成功 |
 | 个人资料与头像 | `/profile` | 可保存头像的本地二进制缓存，资料更新以服务端响应为准 |

@@ -7,6 +7,7 @@ import type { BootstrapData, ChatRunState, MakersChatRun } from '../model';
 const STOP_TIMEOUT_MS = 12_000;
 const STOP_CONFIRM_TIMEOUT_MS = 8_000;
 const RECOVERY_POLL_MS = 850;
+const RECOVERY_ABSENT_GRACE_CHECKS = 8;
 const MANUAL_STOP_PREFIX = 'floris:manual-stop:';
 
 function stopStorageKey(conversationId: string): string {
@@ -236,7 +237,10 @@ export class TurnControlClient {
           continue;
         }
         absentChecks += 1;
-        if (absentChecks >= 2) return { outcome: 'not_admitted', run };
+        // Maker metadata and the presentation snapshot are eventually
+        // consistent. Keep displaying the local live projection during this
+        // grace window; never turn a refresh into a duplicate plain-model run.
+        if (absentChecks >= RECOVERY_ABSENT_GRACE_CHECKS) return { outcome: 'not_admitted', run };
       } catch {
         // A network recovery reads the existing Maker checkpoint only.
       }

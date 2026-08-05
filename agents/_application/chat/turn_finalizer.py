@@ -63,6 +63,7 @@ class TurnFinalizer:
         recent_questions_task: asyncio.Task | None,
         opportunity_enabled: bool,
         telemetry: Any,
+        followups_task: asyncio.Task | None = None,
     ) -> None:
         self._ctx = ctx
         self._presenter = presenter
@@ -86,6 +87,7 @@ class TurnFinalizer:
         self._recent_questions_task = recent_questions_task
         self._opportunity_enabled = opportunity_enabled
         self._telemetry = telemetry
+        self._followups_task = followups_task
 
     def _experience_hints(self) -> list[dict[str, Any]]:
         return experience_hints_for_plan(
@@ -103,7 +105,7 @@ class TurnFinalizer:
 
     def _cancel_optional_work(self) -> None:
         self._search_runner.cancel()
-        for task in (self._memory_task, self._recent_questions_task):
+        for task in (self._memory_task, self._recent_questions_task, self._followups_task):
             if task is not None and not task.done():
                 task.cancel()
 
@@ -141,7 +143,13 @@ class TurnFinalizer:
         store = self._ctx.store.langgraph_store
         hints = self._experience_hints()
         search_results = self._search_runner.latest_enriched_media
-        if not answer or store is None or not (follow_ups or search_results or hints):
+        turn_started_at = int(getattr(self._queue, "turn_started_at", 0) or 0)
+        timing = {
+            "turn_started_at": turn_started_at,
+            "search_started_at": turn_started_at,
+            "search_completed_at": int(time.time() * 1000),
+        } if getattr(self._queue, "search_selected", False) and turn_started_at else {}
+        if not answer or store is None or not (follow_ups or search_results or hints or timing):
             return
         await store.aput(
             data_namespace("message_meta", self._conversation_id),
@@ -155,6 +163,7 @@ class TurnFinalizer:
                 "content": answer,
                 "follow_ups": follow_ups or [],
                 "experience_hints": hints,
+                **timing,
                 **(
                     {"search_results": search_results}
                     if search_results
@@ -380,7 +389,7 @@ class TurnFinalizer:
         terminal_outcome = (
             "cancelled" if cancelled else "failed" if run_error else "completed"
         )
-        followups_task: asyncio.Task | None = None
+        followups_task: asyncio.Task | None = self._followups_task
         prepared_follow_ups: list[str] = []
 
         async def discard_cancelled_turn() -> None:
@@ -398,7 +407,7 @@ class TurnFinalizer:
             if cancelled:
                 await discard_cancelled_turn()
                 return
-            followups_task = (
+            followups_task = followups_task or (
                 asyncio.create_task(generate_followups(
                     self._fast_model,
                     self._message,

@@ -53,6 +53,12 @@ function publicConversation(item) {
   };
 }
 
+function normalizedManualTitle(value) {
+  const title = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!title) throw new Error('Invalid conversation title');
+  return title.slice(0, 64);
+}
+
 export async function onRequest(context) {
   const { request, env = {} } = context;
   const store = context.agent?.store;
@@ -76,6 +82,51 @@ export async function onRequest(context) {
 
   if (request.method === 'POST') {
     const body = await request.json().catch(() => ({}));
+    if (body.operation === 'rename') {
+      let clientConversationId;
+      let conversationId;
+      let title;
+      try {
+        clientConversationId = normalizeConversationId(body.conversation_id);
+        conversationId = await scopedConversationId(user, clientConversationId);
+        title = normalizedManualTitle(body.title);
+      } catch {
+        return json({ error: 'Invalid conversation rename request' }, 400);
+      }
+      const existing = await store.getConversation({ conversationId });
+      const indexStore = context.__indexStore || getStore({ name: 'yuanbao-files', consistency: 'strong' });
+      if (!existing) {
+        const pointer = await touchConversationPointer(indexStore, user, {
+          conversationId,
+          clientConversationId,
+          title,
+          messageCount: 0,
+          metadata: { title_source: 'manual' },
+        });
+        return json({ conversation: publicConversation(pointer) });
+      }
+      const conversation = await store.updateConversation({
+        conversationId,
+        metadata: {
+          ...(existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {}),
+          title,
+          title_source: 'manual',
+          client_conversation_id: clientConversationId,
+          owner_user_id: user.id,
+          tenant_id: user.tenant_id,
+        },
+      });
+      await writeConversationPointer(indexStore, user, {
+        conversationId,
+        clientConversationId,
+        createdAt: conversation?.createdAt || existing.createdAt,
+        lastMessageAt: conversation?.lastMessageAt || existing.lastMessageAt,
+        messageCount: conversation?.messageCount ?? existing.messageCount,
+        metadata: { ...(conversation?.metadata || {}), title_source: 'manual' },
+        title,
+      });
+      return json({ conversation: publicConversation(conversation) });
+    }
     if (body.operation === 'touch_pointer') {
       let clientConversationId;
       let conversationId;
@@ -155,5 +206,6 @@ export async function onRequest(context) {
 }
 
 export const __test = {
+  normalizedManualTitle,
   publicConversation,
 };
