@@ -457,6 +457,11 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
     'network recovery must not start a duplicate model run',
   );
   assert.match(chatClient, /client_message_id:\s*this\.activeClientMessageId/);
+  assert.doesNotMatch(
+    chatClient,
+    /awaitingCancellation/,
+    'a failed stop acknowledgement must not deadlock the per-conversation FIFO',
+  );
   const i18n = await read('frontend/src/i18n.tsx');
   assert.match(chatClient, /translate\('networkGenerationEnded'\)/);
   assert.match(i18n, /网络连接中断，请检查网络后重试/);

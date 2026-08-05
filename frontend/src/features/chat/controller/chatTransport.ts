@@ -192,7 +192,6 @@ export class SSEChatClient {
   private ready = false;
   private closed = false;
   private draining = false;
-  private awaitingCancellation = false;
   private cancellationRetryTimer: number | undefined;
   private cancellationOnlineListener: (() => void) | undefined;
   private explicitlyStoppedTurns = new Set<string>();
@@ -249,7 +248,6 @@ export class SSEChatClient {
       );
       this.activeClientMessageId = stoppedClientMessageId;
       this.activeStreamId = restoredStreamId || `ai-recover-${run?.run_id || Date.now()}`;
-      this.awaitingCancellation = true;
       this.emit({
         type: 'stop_requested',
         payload: {
@@ -323,7 +321,6 @@ export class SSEChatClient {
 
   private cancellationConfirmed(onConfirmed?: () => void) {
     this.clearCancellationRetry();
-    this.awaitingCancellation = false;
     this.setManualStopIntent(false);
     this.activeClientMessageId = '';
     this.activeStreamId = '';
@@ -355,16 +352,14 @@ export class SSEChatClient {
     clientId: string,
     onConfirmed?: () => void,
   ): Promise<'confirmed' | 'local'> {
-    // Pause the FIFO before the request starts. Otherwise an aborted fetch can
-    // unwind faster than the Maker cancellation reaches the server.
-    this.awaitingCancellation = true;
     if (await this.attemptMakerCancellation(clientId)) {
       this.cancellationConfirmed(onConfirmed);
       return 'confirmed';
     }
     // Retry only the cancellation when connectivity returns. Later queued
-    // turns remain paused, so a delayed abort can never hit their Maker run.
+    // turns remain safe because the server targets this exact client id.
     this.scheduleCancellationRetry(clientId, onConfirmed);
+    void this.drain();
     return 'local';
   }
 
@@ -373,7 +368,6 @@ export class SSEChatClient {
     // cleared only after the server confirms its cancellation tombstone.
     this.explicitlyStoppedTurns.add(this.activeClientMessageId);
     this.setManualStopIntent(true, this.activeClientMessageId);
-    this.awaitingCancellation = true;
     this.controller?.abort();
     this.emit({
       type: 'stop_requested',
@@ -405,10 +399,10 @@ export class SSEChatClient {
   }
 
   private async drain() {
-    if (!this.ready || this.closed || this.draining || this.awaitingCancellation) return;
+    if (!this.ready || this.closed || this.draining) return;
     this.draining = true;
     try {
-      while (this.ready && this.pending.length && !this.awaitingCancellation) {
+      while (this.ready && this.pending.length) {
         const message = this.pending.shift();
         this.persistQueue();
         if (message) await this.runTurn(message);
