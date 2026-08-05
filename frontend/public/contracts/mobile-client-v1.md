@@ -219,7 +219,7 @@ data: [DONE]
 2. 只有队首调用 `POST /chat`；收到 `[DONE]` 或可核验终态后再处理下一条。
 3. 连接中断时调用 `POST /messages`读取同一 `client_message_id` 的 Maker run。`running` 时继续等待，`completed` 时恢复检查点结果；只有确认请求未被准入时才使用原 ID 重发。
 4. 显式停止必须调用 `POST /stop` 并携带队首 `client_message_id`。立即删除当前 AI 回答，不保留部分文本、来源或卡片，也不新增“已停止”提示消息。
-5. 断网时暂停后续队列，联网后先重试同一停止请求，再开始下一轮。过期停止由 `client_message_id` 隔离，不得中止新队首。
+5. 断网或停止请求超时时暂停后续队列，先用 `POST /messages` 核对同一 `client_message_id`；若 Maker run 已为 `cancelled` 就直接确认，只有尚未取消时才重试同一停止请求。过期停止不得中止新队首。
 6. 队首在 Maker 终态或精确停止确认前必须继续保存在本地 FIFO；切换会话或刷新只分离传输。重新进入时先用 `POST /messages` 对账同一 `client_message_id`，确认终态后才出队，不能在发起 `POST /chat` 时提前删除。
 
 ### POST /conversation

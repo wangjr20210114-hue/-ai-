@@ -21,6 +21,7 @@
     "runtime_buffer": "maker_checkpoint_private_until_completed",
     "commit_boundary": "run.status=completed",
     "stop": "POST /stop with exact client_message_id",
+    "stop_confirmation": "after a stop transport timeout, POST /messages confirms the same client_message_id before any retry",
     "recovery": "POST /messages polls the same run and never creates a duplicate generation",
     "cancelled_projection": "discard answer, sources, media, cards and derived memory"
   },

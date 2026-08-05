@@ -142,4 +142,45 @@ describe('chat transport FIFO durability', () => {
       .toBe('client-after-stop');
     client.close();
   });
+
+  it('confirms a timed-out stop from the same Maker run instead of reposting it', async () => {
+    clientMocks.openChatTurn
+      .mockImplementationOnce((_conversationId, _payload, signal) => (
+        pendingUntilAbort(signal)
+      ))
+      .mockResolvedValueOnce(completedResponse());
+    clientMocks.requestConversationStop.mockRejectedValue(
+      Object.assign(new Error('deadline'), { name: 'AbortError' }),
+    );
+    clientMocks.bootstrapApp.mockResolvedValue({
+      messages: [],
+      run: {
+        run_id: 'run-stopped',
+        client_message_id: 'client-slow-stop',
+        status: 'cancelled',
+        error: '',
+        diagnostics: {},
+        started_at: 1,
+        updated_at: 2,
+        completed_at: 2,
+      },
+    });
+
+    const client = new SSEChatClient('conversation-slow-stop');
+    client.connect(null);
+    await client.send(turn('client-slow-stop'));
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 1);
+    await client.send(turn('client-after-slow-stop'));
+    expect(await client.stop()).toBe('confirmed');
+
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 2);
+    expect(clientMocks.bootstrapApp).toHaveBeenCalledWith(
+      'conversation-slow-stop',
+      expect.objectContaining({ strict: true }),
+    );
+    expect(clientMocks.requestConversationStop).toHaveBeenCalledTimes(1);
+    expect(clientMocks.openChatTurn.mock.calls[1][1].client_message_id)
+      .toBe('client-after-slow-stop');
+    client.close();
+  });
 });

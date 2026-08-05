@@ -66,6 +66,7 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   assert.equal(api['x-floris-turn-control'].commit_boundary, 'run.status=completed');
   assert.match(api['x-floris-turn-control'].runtime_buffer, /private_until_completed/);
   assert.match(api['x-floris-turn-control'].queue_dequeue_boundary, /terminal state|stop acknowledgement/);
+  assert.match(api['x-floris-turn-control'].stop_confirmation, /same client_message_id/);
   assert.ok(api.paths['/auth/mobile/session']);
   assert.ok(api.paths['/chat'].post.responses['200']['x-floris-event-schema']);
   assert.ok(api.paths['/reader'].post.responses['200']['x-floris-event-schema']);

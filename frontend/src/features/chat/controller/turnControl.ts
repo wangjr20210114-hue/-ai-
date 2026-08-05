@@ -2,6 +2,7 @@ import { bootstrapApp, requestConversationStop } from '../model/client';
 import type { BootstrapData, MakersChatRun } from '../model';
 
 const STOP_TIMEOUT_MS = 4_000;
+const STOP_CONFIRM_TIMEOUT_MS = 5_000;
 const RECOVERY_POLL_MS = 2_000;
 const MANUAL_STOP_PREFIX = 'floris:manual-stop:';
 
@@ -121,11 +122,26 @@ export class TurnControlClient {
         clientMessageId,
         controller.signal,
       );
-      return response.ok;
+      if (response.ok) return true;
     } catch {
-      return false;
+      // The server persists the exact cancellation tombstone before optional
+      // derived-state cleanup. A slow cleanup can outlive the HTTP deadline;
+      // confirm that same Maker run instead of posting duplicate stops.
     } finally {
       window.clearTimeout(timer);
+    }
+    try {
+      const data = await bootstrapApp(this.conversationId, {
+        strict: true,
+        timeoutMs: STOP_CONFIRM_TIMEOUT_MS,
+      });
+      return Boolean(
+        data.run
+        && data.run.client_message_id === clientMessageId
+        && data.run.status === 'cancelled'
+      );
+    } catch {
+      return false;
     }
   }
 
