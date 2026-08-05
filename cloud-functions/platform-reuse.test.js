@@ -446,7 +446,11 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
     /export function requestConversationStop[\s\S]*?authorizedFetch\('\/stop'[\s\S]*?body: JSON\.stringify/,
   );
   assert.ok(stopRequest);
-  assert.doesNotMatch(stopRequest[0], /makersConversationHeaders/);
+  assert.match(
+    stopRequest[0],
+    /makersConversationHeaders\(conversationId\)/,
+    'stop must pass Maker middleware through the same conversation scope',
+  );
   const recovery = turnControl.match(
     /async recover\([\s\S]*?\n  close\(\)/,
   );
