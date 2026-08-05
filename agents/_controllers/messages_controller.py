@@ -61,6 +61,13 @@ def _hidden_clarification_id(message) -> str:
     return str(additional.get("clarification_id") or "").strip()
 
 
+def _client_message_id(message) -> str:
+    additional = _value(message, "additional_kwargs", {})
+    if not isinstance(additional, dict):
+        return ""
+    return str(additional.get("floris_client_message_id") or "").strip()
+
+
 def _mark_clarification_answered(messages: list[dict], clarification_id: str) -> None:
     for message in reversed(messages):
         clarification = message.get("clarification")
@@ -178,9 +185,40 @@ async def handler(ctx):
     pending_search_meta = None
     pending_papers = None
     pending_clarification = None
+    discarded_client_ids = {
+        str(value)
+        for value in (
+            run.get("discarded_client_message_ids", [])
+            if isinstance(run, dict)
+            else []
+        )
+        if str(value)
+    }
+    if (
+        isinstance(latest_extras, dict)
+        and str(latest_extras.get("client_message_id") or "")
+        in discarded_client_ids
+    ):
+        latest_extras = None
+    suppress_turn_output = False
     for index, message in enumerate(stored_messages):
         message_type = str(_value(message, "type", _value(message, "role", "")))
         content = _text(_value(message, "content", ""))
+        if message_type in {"human", "user"}:
+            client_message_id = _client_message_id(message)
+            suppress_turn_output = bool(
+                client_message_id and client_message_id in discarded_client_ids
+            )
+            if suppress_turn_output:
+                pending_actions = []
+                pending_search_meta = None
+                pending_papers = None
+                pending_clarification = None
+        elif suppress_turn_output:
+            # A stopped turn remains in the Maker checkpoint for tracing, but
+            # its tokens, sources and cards are deliberately absent from the
+            # public projection on every client and after every refresh.
+            continue
         hidden_clarification_id = _hidden_clarification_id(message)
         if hidden_clarification_id:
             _mark_clarification_answered(result, hidden_clarification_id)
@@ -287,6 +325,10 @@ async def handler(ctx):
                 "content": content,
                 "ts": index,
             }
+        if role == "user" and suppress_turn_output:
+            restored["stopped"] = True
+        if role == "user" and client_message_id:
+            restored["client_message_id"] = client_message_id
         if role == "ai" and pending_actions:
             restored["workspaceActions"] = pending_actions
             pending_actions = []
@@ -324,7 +366,12 @@ async def handler(ctx):
     # deleting the underlying Makers checkpoint.
     compacted = []
     for restored in result:
-        if restored.get("role") == "user" and compacted and compacted[-1].get("role") == "user":
+        if (
+            restored.get("role") == "user"
+            and compacted
+            and compacted[-1].get("role") == "user"
+            and not compacted[-1].get("stopped")
+        ):
             compacted[-1] = restored
         else:
             compacted.append(restored)

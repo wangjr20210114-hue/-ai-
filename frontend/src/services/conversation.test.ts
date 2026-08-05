@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '../features/chat/model';
-import { clearLocalApplicationData, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, durableMessageCount, getOrCreateConversationId, hasDurableAssistantPayload, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
+import { clearLocalApplicationData, coalesceActionMessages, coalesceDuplicateAssistantMessages, createConversationId, discardStreamingAnswer, discardTurnAnswer, durableMessageCount, getOrCreateConversationId, hasDurableAssistantPayload, loadLocalConversations, makersConversationHeaders, mergeMessages, reconcileCompletedMessage, reconcileConversationSummary, saveLocalConversations, setActiveConversationId, settleStoppedMessages } from './conversation';
 import { CONVERSATION_PREFIX, isCurrentConversationId } from './dataVersion';
 
 describe('getOrCreateConversationId', () => {
@@ -194,6 +194,19 @@ describe('mergeMessages', () => {
       .toEqual(['checkpoint-user', 'live-ai']);
   });
 
+  it('preserves queued user turns behind a recovered Maker run', () => {
+    const remote: ChatMessage[] = [
+      { id: 'checkpoint-user', role: 'user', content: '第一个问题', ts: 1 },
+    ];
+    const local: ChatMessage[] = [
+      { id: 'local-user', role: 'user', content: '第一个问题', ts: 10 },
+      { id: 'live-ai', role: 'ai', content: '正在生成', ts: 11, streaming: true },
+      { id: 'queued-user', role: 'user', content: '第二个问题', ts: 12, queued: true },
+    ];
+    expect(mergeMessages(remote, local, { preserveStreaming: true }).map((item) => item.id))
+      .toEqual(['checkpoint-user', 'live-ai', 'queued-user']);
+  });
+
   it('restores a Makers-persisted clarification card without requiring prose', () => {
     const clarification = {
       id: 'required-location',
@@ -334,6 +347,34 @@ describe('reconcileCompletedMessage', () => {
 });
 
 describe('stopped stream settlement', () => {
+  it('removes a completed stopped turn after offline refresh without touching neighbors', () => {
+    const messages: ChatMessage[] = [
+      { id: 'old-user', role: 'user', content: '旧问题', ts: 1 },
+      { id: 'old-answer', role: 'ai', content: '旧回答', ts: 2 },
+      { id: 'server-user', client_message_id: 'turn-stop', role: 'user', content: '停止的问题', ts: 3 },
+      { id: 'server-answer', role: 'ai', content: '不能复活的完成回答', ts: 4 },
+      { id: 'queued', role: 'user', content: '队列中的问题', ts: 5, queued: true },
+    ];
+    expect(discardTurnAnswer(messages, 'turn-stop').map((item) => item.id)).toEqual([
+      'old-user',
+      'old-answer',
+      'server-user',
+      'queued',
+    ]);
+  });
+
+  it('deletes the active answer completely after an explicit stop', () => {
+    const messages: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: '长回答', ts: 1 },
+      { id: 'partial', role: 'ai', content: '已经生成的部分', ts: 2, streaming: true },
+      { id: 'queued', role: 'user', content: '下一个问题', ts: 3, queued: true },
+    ];
+    expect(discardStreamingAnswer(messages, 'partial')).toEqual([
+      messages[0],
+      messages[2],
+    ]);
+  });
+
   it('removes an empty thinking placeholder and preserves partial text as completed', () => {
     const messages: ChatMessage[] = [
       { id: 'u1', role: 'user', content: '长回答', ts: 1 },

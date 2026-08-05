@@ -230,15 +230,20 @@ def graph_user_message(
     content: str,
     clarification_id: str = "",
     clarification_answers: list[dict] | None = None,
+    client_message_id: str = "",
 ) -> dict:
     message = {"role": "user", "content": content}
-    if clarification_id:
+    if client_message_id:
         message["additional_kwargs"] = {
+            "floris_client_message_id": str(client_message_id),
+        }
+    if clarification_id:
+        message.setdefault("additional_kwargs", {}).update({
             "floris_ui_hidden": True,
             "floris_interaction": "clarification",
             "clarification_id": clarification_id,
             "floris_answers": copy.deepcopy(clarification_answers or []),
-        }
+        })
     return message
 
 

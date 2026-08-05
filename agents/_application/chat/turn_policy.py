@@ -171,9 +171,19 @@ def location_clarification_arguments(
 
 def run_cancelled(value: object) -> bool:
     """Treat both the platform acknowledgement and terminal marker as stop."""
+    if not isinstance(value, dict):
+        return False
+    if value.get("status") in {"cancel_requested", "cancelled"}:
+        return True
+    client_message_id = str(value.get("client_message_id") or "")
     return bool(
-        isinstance(value, dict)
-        and value.get("status") in {"cancel_requested", "cancelled"}
+        client_message_id
+        and client_message_id
+        in {
+            str(item)
+            for item in (value.get("discarded_client_message_ids") or [])
+            if str(item)
+        }
     )
 
 

@@ -114,6 +114,11 @@ describe('chat transport ownership', () => {
       { id: 'user', role: 'user', content: '新问题', ts: 1 },
       { id: 'live', role: 'ai', content: '', ts: 2, streaming: true },
     ])).toBe(true);
+    expect(isConversationGenerationActive([
+      { id: 'user', role: 'user', content: '第一个问题', ts: 1 },
+      { id: 'live', role: 'ai', content: '', ts: 2, streaming: true },
+      { id: 'queued', role: 'user', content: '排队问题', ts: 3, queued: true },
+    ])).toBe(true);
   });
 
   it('allows bounded semantic preflight before the stream idle watchdog', () => {
@@ -121,9 +126,9 @@ describe('chat transport ownership', () => {
     expect(CHAT_INITIAL_RESPONSE_TIMEOUT_MS).toBeLessThan(60_000);
   });
 
-  it('rejects a second send while the current stream owns the conversation', () => {
+  it('accepts another send into the per-conversation queue', () => {
     expect(canStartChatTransport(false)).toBe(true);
-    expect(canStartChatTransport(true)).toBe(false);
+    expect(canStartChatTransport(true)).toBe(true);
   });
 
   it('retries a semantic location request without duplicating the user bubble', () => {

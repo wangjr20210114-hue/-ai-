@@ -1,6 +1,6 @@
 # Floris 跨端客户端 API v1
 
-这份文档是 Web、Android、HarmonyOS 和 iOS 的统一接入说明，对应 OpenAPI `1.4.1`。客户端只负责界面、系统权限、通知、文件选择和本地缓存；聊天编排、搜索、Skills、地图、日程、论文、权益、身份隔离和持久化均由 Floris 后端提供。
+这份文档是 Web、Android、HarmonyOS 和 iOS 的统一接入说明，对应 OpenAPI `1.5.0`。客户端只负责界面、系统权限、通知、文件选择和本地缓存；聊天编排、搜索、Skills、地图、日程、论文、权益、身份隔离和持久化均由 Floris 后端提供。
 
 ## 1. 契约文件
 
@@ -211,6 +211,16 @@ data: [DONE]
 }
 ```
 
+#### 每会话发送队列与网络恢复
+
+客户端为每个会话维护独立 FIFO，可以在当前回答生成时继续接收用户消息。队列属于客户交互状态；服务端通过 Makers 会话运行状态保证同一会话同时只准入一轮，不要自建 Redis/Celery 队列。
+
+1. 为每次发送生成稳定 `client_message_id`，立即显示用户消息并加入该会话队列。
+2. 只有队首调用 `POST /chat`；收到 `[DONE]` 或可核验终态后再处理下一条。
+3. 连接中断时调用 `POST /messages`读取同一 `client_message_id` 的 Maker run。`running` 时继续等待，`completed` 时恢复检查点结果；只有确认请求未被准入时才使用原 ID 重发。
+4. 显式停止必须调用 `POST /stop` 并携带队首 `client_message_id`。立即删除当前 AI 回答，不保留部分文本、来源或卡片，也不新增“已停止”提示消息。
+5. 断网时暂停后续队列，联网后先重试同一停止请求，再开始下一轮。过期停止由 `client_message_id` 隔离，不得中止新队首。
+
 ### POST /conversation
 
 需要单独保存消息时，通过服务端会话存储追加，不在客户端复制持久化逻辑。
@@ -246,13 +256,13 @@ curl -X POST "$BASE/conversations" \
 
 ### POST /stop
 
-取消当前生成。
+取消并彻底丢弃当前生成。`client_message_id` 用于防止断网后延迟到达的停止请求误伤下一轮。
 
 ```bash
 curl -X POST "$BASE/stop" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"conversation_id\":\"$CID\"}"
+  -d "{\"conversation_id\":\"$CID\",\"client_message_id\":\"msg_01\"}"
 ```
 
 ## 6. 文件

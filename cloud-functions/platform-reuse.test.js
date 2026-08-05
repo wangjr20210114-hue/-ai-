@@ -437,17 +437,26 @@ test('production frontend has no active FastAPI or WebSocket transport fallback'
     read('frontend/src/features/chat/controller/chatTransport.ts'),
     read('frontend/src/features/chat/model/client.ts'),
   ]);
-  assert.match(chatClient, /requestConversationStop\(this\.conversationId/);
+  assert.match(
+    chatClient,
+    /requestConversationStop\(\s*this\.conversationId,\s*clientId/,
+  );
   const stopRequest = chatModel.match(
     /export function requestConversationStop[\s\S]*?authorizedFetch\('\/stop'[\s\S]*?body: JSON\.stringify/,
   );
   assert.ok(stopRequest);
   assert.doesNotMatch(stopRequest[0], /makersConversationHeaders/);
-  assert.doesNotMatch(
-    chatClient,
-    /transport_recovering|RECOVERY_DEADLINE|shouldAutoResume|async resume\s*\(/,
-    'failed or stopped chat runs must never resume automatically',
+  const recovery = chatClient.match(
+    /private async recoverActiveRun[\s\S]*?private async recoverExistingRun/,
   );
+  assert.ok(recovery, 'network recovery must reattach to the Maker checkpoint');
+  assert.match(recovery[0], /bootstrapApp\(this\.conversationId/);
+  assert.doesNotMatch(
+    recovery[0],
+    /openChatTurn\(/,
+    'network recovery must not start a duplicate model run',
+  );
+  assert.match(chatClient, /client_message_id:\s*this\.activeClientMessageId/);
   const i18n = await read('frontend/src/i18n.tsx');
   assert.match(chatClient, /translate\('networkGenerationEnded'\)/);
   assert.match(i18n, /网络连接中断，请检查网络后重试/);

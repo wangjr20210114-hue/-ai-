@@ -62,7 +62,7 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
     text('frontend/public/contracts/mobile-client-v1.md'),
   ]);
   assert.equal(api.openapi, '3.1.0');
-  assert.equal(api.info.version, '1.4.1');
+  assert.equal(api.info.version, '1.5.0');
   assert.ok(api.paths['/auth/mobile/session']);
   assert.ok(api.paths['/chat'].post.responses['200']['x-floris-event-schema']);
   assert.ok(api.paths['/reader'].post.responses['200']['x-floris-event-schema']);
@@ -131,6 +131,14 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   assert.ok(api.components.schemas.TravelPlan.properties.markdown_content);
   assert.equal(api.components.schemas.TravelPlan.properties.baike_info, undefined);
   assert.equal(api.components.schemas.TravelPlan.properties.session_id, undefined);
+  assert.ok(api.components.schemas.ChatRun.properties.client_message_id);
+  assert.ok(api.components.schemas.ChatMessage.properties.client_message_id);
+  assert.ok(api.components.schemas.ChatMessage.properties.stopped);
+  assert.ok(api.components.schemas.StopRequest.properties.client_message_id);
+  assert.deepEqual(
+    api.components.schemas.StopResult.properties.status.enum,
+    ['aborted', 'discarded', 'idle'],
+  );
   assert.equal(
     api.components.schemas.WorkspaceProjection.properties.travel_plan.$ref,
     '#/components/schemas/TravelPlan',
@@ -167,6 +175,9 @@ test('v1 publishes one cross-platform API and forward-compatible event contract'
   assert.match(guide, /未完成、失败或未通过的候选一律不显示/);
   assert.match(guide, /action_prompt.*snoozed_until/s);
   assert.match(guide, /markdown_content.*不提供 `baike_info`/s);
+  assert.match(guide, /每会话发送队列.*FIFO/s);
+  assert.match(guide, /client_message_id.*误伤下一轮/s);
+  assert.match(guide, /不新增“已停止”提示消息/);
   assert.doesNotMatch(guide, /GitHub\s*(?:登录|登入|OAuth|login)/i);
   for (const path of Object.keys(api.paths)) {
     assert.match(guide, new RegExp(path.replaceAll('/', '\\/')));

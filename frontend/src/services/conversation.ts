@@ -94,6 +94,45 @@ export function settleStoppedMessages(messages: ChatMessage[]): ChatMessage[] {
     .map((message) => message.streaming ? { ...message, streaming: false } : message);
 }
 
+/** Remove a deliberately stopped answer instead of turning it into content. */
+export function discardStreamingAnswer(
+  messages: ChatMessage[],
+  streamId = '',
+): ChatMessage[] {
+  return messages.filter((message) => !(
+    message.role === 'ai'
+    && (message.streaming || (streamId && message.id === streamId))
+  ));
+}
+
+/** Remove every assistant projection owned by one deliberately stopped turn. */
+export function discardTurnAnswer(
+  messages: ChatMessage[],
+  clientMessageId: string,
+  streamId = '',
+): ChatMessage[] {
+  if (!clientMessageId) return discardStreamingAnswer(messages, streamId);
+  const userIndex = messages.findIndex((message) => (
+    message.role === 'user'
+    && (
+      message.id === clientMessageId
+      || message.client_message_id === clientMessageId
+    )
+  ));
+  if (userIndex < 0) return discardStreamingAnswer(messages, streamId);
+  const nextUserOffset = messages.slice(userIndex + 1).findIndex((message) => (
+    message.role === 'user'
+  ));
+  const turnEnd = nextUserOffset < 0
+    ? messages.length
+    : userIndex + 1 + nextUserOffset;
+  return messages.filter((message, index) => !(
+    message.role === 'ai'
+    && index > userIndex
+    && index < turnEnd
+  ));
+}
+
 function workspaceActionIds(message: ChatMessage): Set<string> {
   return new Set((message.workspaceActions || []).map((action) => action.id).filter(Boolean));
 }
@@ -360,7 +399,11 @@ export function mergeMessages(
     const isLiveTail = preserveStreaming && Boolean(message.streaming) && index > lastRemoteMatch;
     if (!consumed.has(index)
       && index > lastRemoteMatch
-      && (index <= lastRemoteMatch + 1 + lastCompletedLocalOffset || isLiveTail)) {
+      && (
+        index <= lastRemoteMatch + 1 + lastCompletedLocalOffset
+        || isLiveTail
+        || (message.role === 'user' && message.queued)
+      )) {
       output.push({ ...message, streaming: isLiveTail });
     }
   });

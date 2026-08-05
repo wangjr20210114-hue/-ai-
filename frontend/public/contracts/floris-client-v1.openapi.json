@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Floris Client API",
-    "version": "1.4.1",
+    "version": "1.5.0",
     "description": "The complete, platform-neutral client boundary shared by Web, Android, HarmonyOS and iOS. Every server-owned value displayed by a Floris client is delivered through an operation below or through the versioned SSE/component contracts. Authentication, tenant scoping, orchestration, provider calls and persistence remain server responsibilities."
   },
   "servers": [
@@ -379,7 +379,10 @@
           "content": {
             "application/json": {
               "schema": { "$ref": "#/components/schemas/StopRequest" },
-              "example": { "conversation_id": "yb7_example" }
+              "example": {
+                "conversation_id": "yb7_example",
+                "client_message_id": "msg_01JTURNEXAMPLE"
+              }
             }
           }
         },
@@ -1303,6 +1306,7 @@
         "required": ["id", "role", "content", "ts"],
         "properties": {
           "id": { "type": "string" },
+          "client_message_id": { "type": "string" },
           "role": { "enum": ["user", "ai"] },
           "content": { "type": "string" },
           "ts": { "type": "integer" },
@@ -1313,6 +1317,7 @@
           "workspaceActions": { "type": "array", "items": { "$ref": "./floris-components-v1.schema.json#/$defs/workspaceAction" } },
           "clarification": { "$ref": "./floris-components-v1.schema.json#/$defs/clarification" },
           "clarificationAnswered": { "type": "boolean" },
+          "stopped": { "type": "boolean", "description": "True on a user turn whose deliberately stopped assistant output was discarded." },
           "experienceHints": { "type": "array", "items": { "$ref": "./floris-components-v1.schema.json#/$defs/experienceHint" } }
         },
         "additionalProperties": true
@@ -1321,6 +1326,7 @@
         "type": ["object", "null"],
         "properties": {
           "run_id": { "type": "string" },
+          "client_message_id": { "type": "string" },
           "status": { "enum": ["running", "cancel_requested", "completed", "failed", "cancelled"] },
           "error": { "type": "string" },
           "started_at": { "type": "integer" },
@@ -1390,16 +1396,20 @@
       "StopRequest": {
         "type": "object",
         "required": ["conversation_id"],
-        "properties": { "conversation_id": { "type": "string" } },
+        "properties": {
+          "conversation_id": { "type": "string" },
+          "client_message_id": { "type": "string", "description": "The exact client turn to discard. Prevents a delayed offline stop from cancelling a newer queued turn." }
+        },
         "additionalProperties": false
       },
       "StopResult": {
         "type": "object",
         "required": ["status", "conversation_id"],
         "properties": {
-          "status": { "enum": ["aborted", "idle"] },
+          "status": { "enum": ["aborted", "discarded", "idle"] },
           "conversation_id": { "type": "string" },
-          "run_id": { "type": ["string", "null"] }
+          "run_id": { "type": ["string", "null"] },
+          "client_message_id": { "type": ["string", "null"] }
         },
         "additionalProperties": false
       },

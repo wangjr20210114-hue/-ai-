@@ -16,6 +16,7 @@ from ..i18n import language_instruction, normalize_language, text
 from .turn_policy import (
     normalize_browser_current_location,
     normalize_browser_location_request,
+    run_cancelled,
 )
 from .turn_protocol import (
     clarification_answer_value,
@@ -163,12 +164,18 @@ async def admit_turn(ctx) -> tuple[AdmittedTurn | None, Any | None]:
             )
 
     run_id = request_id_for_turn(ctx)
-    await write_chat_run(
+    admitted_run = await write_chat_run(
         ctx.store,
         conversation_id,
         run_id=run_id,
         status="running",
+        client_message_id=str(body.get("client_message_id") or ""),
     )
+    if run_cancelled(admitted_run):
+        return None, error(
+            text("chat.conversation_busy", response_language),
+            409,
+        )
     reference_images = [
         str(item)
         for item in (body.get("reference_images") or [])

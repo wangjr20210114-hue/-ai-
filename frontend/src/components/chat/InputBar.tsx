@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, MessagePlugin, Textarea, Upload } from 'tdesign-react';
-import { SendIcon, AttachIcon } from 'tdesign-icons-react';
+import { SendIcon, AttachIcon, StopIcon } from 'tdesign-icons-react';
 import type { UploadFile } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ChatMessage, WSMessage } from '../../features/chat/model';
@@ -85,7 +85,7 @@ export default function InputBar({ client }: Props) {
 
   const handleSend = async () => {
     const content = text.trim();
-    if (!content || sendLockRef.current || sending || stopping || activeStreaming) return;
+    if (!content || sendLockRef.current || sending) return;
     const message = {
       id: Date.now().toString(),
       role: 'user' as const,
@@ -127,12 +127,7 @@ export default function InputBar({ client }: Props) {
     if (!activeStreaming || stopping || !client.current?.stop) return;
     setStopping(true);
     try {
-      const status = await client.current.stop();
-      if (status === 'confirmed') {
-        MessagePlugin.info(t('stoppedGeneration'));
-      } else {
-        MessagePlugin.warning(t('stoppedLocally'));
-      }
+      await client.current.stop();
     } finally { setStopping(false); }
   };
 
@@ -240,7 +235,6 @@ export default function InputBar({ client }: Props) {
         <Textarea
           value={text}
           onChange={(v) => setText(v as string)}
-          disabled={stopping}
           placeholder={t('inputPlaceholder')}
           autosize={{ minRows: 1, maxRows: 5 }}
           style={{ width: '100%' }}
@@ -266,22 +260,31 @@ export default function InputBar({ client }: Props) {
               </Button>
             </Upload>
           </div>
-          {activeStreaming || stopping ? (
-            <Button className="input-submit-button" theme="danger" variant="outline" loading={stopping} disabled={stopping} onClick={() => { void handleStop(); }} aria-label={stopping ? t('stoppingGeneration') : t('stopGeneration')}>
-              {stopping ? t('stoppingGeneration') : `■ ${t('stopGeneration')}`}
-            </Button>
-          ) : (
+          <div className="input-turn-actions">
+            {(activeStreaming || stopping) && <Button
+              className="input-submit-button input-icon-button input-stop-button"
+              theme="danger"
+              variant="outline"
+              shape="circle"
+              icon={<StopIcon />}
+              loading={stopping}
+              disabled={stopping}
+              onClick={() => { void handleStop(); }}
+              aria-label={stopping ? t('stoppingGeneration') : t('stopGeneration')}
+              title={stopping ? t('stoppingGeneration') : t('stopGeneration')}
+            />}
             <Button
-              className="input-submit-button"
+              className="input-submit-button input-icon-button"
               theme="primary"
+              shape="circle"
               icon={<SendIcon />}
               onClick={() => { void handleSend(); }}
               loading={sending}
               disabled={!text.trim() || sending}
-            >
-              {t('send')}
-            </Button>
-          )}
+              aria-label={t('send')}
+              title={activeStreaming ? t('queueMessage') : t('send')}
+            />
+          </div>
         </div>
       </div>
     </div>

@@ -46,6 +46,7 @@ export function openChatTurn(
 
 export function requestConversationStop(
   conversationId: string,
+  clientMessageId = '',
   signal?: AbortSignal,
 ): Promise<Response> {
   return authorizedFetch('/stop', {
@@ -53,7 +54,10 @@ export function requestConversationStop(
     // Makers requires cancellation to target the run through the payload.
     // Carrying the conversation header can replace the active run signal.
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ conversation_id: conversationId }),
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      ...(clientMessageId ? { client_message_id: clientMessageId } : {}),
+    }),
     signal,
   });
 }

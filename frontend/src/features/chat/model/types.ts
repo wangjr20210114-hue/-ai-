@@ -95,10 +95,13 @@ export interface ClarificationPrompt {
 
 export interface ChatMessage {
   id: string;
+  client_message_id?: string;
   role: 'user' | 'ai';
   content: string;
   ts: number;
   streaming?: boolean;
+  queued?: boolean;
+  stopped?: boolean;
   turnStartedAt?: number;
   searchStartedAt?: number;
   searchCompletedAt?: number;
@@ -188,6 +191,7 @@ export type {
 
 export interface MakersChatRun {
   run_id?: string;
+  client_message_id?: string;
   status?: 'running' | 'cancel_requested' | 'completed' | 'failed' | 'cancelled';
   error?: string;
   diagnostics?: {

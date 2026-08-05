@@ -47,5 +47,12 @@ export function shouldPersistRenderedMessages(
  * necessarily stale presentation state.
  */
 export function isConversationGenerationActive(messages: ChatMessage[]): boolean {
-  return messages[messages.length - 1]?.streaming === true;
+  let activeIndex = -1;
+  messages.forEach((message, index) => {
+    if (message.role === 'ai' && message.streaming === true) activeIndex = index;
+  });
+  if (activeIndex < 0) return false;
+  return !messages.slice(activeIndex + 1).some((message) => (
+    message.role === 'ai' && !message.streaming
+  ));
 }

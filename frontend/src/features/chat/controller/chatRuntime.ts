@@ -3,19 +3,18 @@ import { MessagePlugin } from 'tdesign-react';
 import { bootstrapApp } from '../model/client';
 import { proactiveOperation } from '../../settings/model/client';
 import { presentableChatError } from '../../../services/chatError';
-import { durableMessageCount, hasDurableAssistantPayload, isDurableChatMessage, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../../../services/conversation';
+import { discardStreamingAnswer, discardTurnAnswer, durableMessageCount, isDurableChatMessage, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../../../services/conversation';
 import { useAppDispatch, useAppState } from '../../../store/appState';
-import type { ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, StructuredProgressStep, WorkspaceAction } from '../model';
+import type { BootstrapData, ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, StructuredProgressStep, WorkspaceAction } from '../model';
 import { translate } from '../../../i18n';
 import {
   initialPlanningProgress,
   mergeProgressStep,
 } from '../../search/model/progressModel';
 import { mergeSearchMeta, resolveSearchStartAt } from '../../search/model/searchRuntime';
-import { SSEChatClient } from './chatTransport';
+import { readManualStopClientMessageId, readManualStopIntent, SSEChatClient } from './chatTransport';
 import {
   actionOnlyFallback,
-  restoredConversationWasInterrupted,
   shouldPersistRenderedMessages,
 } from './chatRuntimeModel';
 
@@ -24,15 +23,16 @@ export {
   canStartChatTransport,
   locationRetryMessage,
   progressTextForTool,
+  readManualStopClientMessageId,
   readManualStopIntent,
   terminalGenerationError,
 } from './chatTransport';
 export {
   actionOnlyFallback,
   isConversationGenerationActive,
-  restoredConversationWasInterrupted,
   shouldPersistRenderedMessages,
 } from './chatRuntimeModel';
+export { restoredConversationWasInterrupted } from './chatRuntimeModel';
 export { mergeSearchMeta, resolveSearchStartAt } from '../../search/model/searchRuntime';
 
 const MESSAGE_CACHE_PREFIX = 'yuanbao.messages.';
@@ -140,7 +140,18 @@ export function useChatRuntime() {
             Number(message.ts || Date.now()),
           );
           const current = cached(id);
-          publish(id, current.some((item) => item.id === message.id) ? current : [...current, message]);
+          publish(id, current.some((item) => item.id === message.id)
+            ? current.map((item) => item.id === message.id ? { ...item, ...message } : item)
+            : [...current, message]);
+          break;
+        }
+        case 'turn_started': {
+          const clientMessageId = String(event.payload.client_message_id || '');
+          if (clientMessageId) {
+            publish(id, cached(id).map((item) => (
+              item.id === clientMessageId ? { ...item, queued: false } : item
+            )));
+          }
           break;
         }
         case 'clarification_submitted': {
@@ -277,12 +288,56 @@ export function useChatRuntime() {
           break;
         }
         case 'stop_requested': {
-          streams.clear();
-          searchStartedAtRef.current.clear();
-          searchCompletedAtRef.current.clear();
+          const stoppedClientMessageId = String(event.payload.client_message_id || '');
+          if (streamId) streams.delete(streamId);
+          else streams.clear();
+          if (streamId) {
+            searchStartedAtRef.current.delete(streamId);
+            searchCompletedAtRef.current.delete(streamId);
+          }
           pendingTurnStartedAtRef.current.delete(id);
-          publish(id, settleStoppedMessages(cached(id)));
+          publish(id, discardTurnAnswer(cached(id), stoppedClientMessageId, streamId));
           setConversationActivity(id, 'idle');
+          break;
+        }
+        case 'transport_recovering': {
+          const current = streams.get(streamId);
+          if (!current) break;
+          const skill = {
+            ...(current.skill || { intent: 'chat', mode: 'immediate', content: '', icon: '', action_label: '', params: {}, data: {} }),
+            data: {
+              ...(current.skill?.data || {}),
+              status: 'recovering',
+              statusText: translate('recoveringGeneration'),
+            },
+          } as ChatMessage['skill'];
+          streams.set(streamId, { ...current, skill });
+          patch(id, streamId, { skill });
+          break;
+        }
+        case 'recovery_snapshot': {
+          const data = event.payload.data as BootstrapData | undefined;
+          if (!data) break;
+          streams.delete(streamId);
+          searchStartedAtRef.current.delete(streamId);
+          searchCompletedAtRef.current.delete(streamId);
+          const withoutPlaceholder = cached(id).filter((item) => item.id !== streamId);
+          publish(id, mergeMessages(data.messages || [], withoutPlaceholder));
+          setConversationActivity(id, 'idle');
+          if (activeConversationRef.current === id) {
+            dispatch({
+              type: 'HYDRATE_WORKSPACE',
+              payload: {
+                schedules: data.schedules,
+                mapPlaces: data.map_places,
+                mapTitle: data.map_title,
+                mapRouteMode: data.map_route_mode || undefined,
+                mapRouteStrategy: data.map_route_strategy || undefined,
+                mapRoute: data.map_route,
+                mapShowRoute: data.map_show_route,
+              },
+            });
+          }
           break;
         }
         case 'search_status': {
@@ -482,50 +537,69 @@ export function useChatRuntime() {
       const runActive = data.run?.status === 'running' || data.run?.status === 'cancel_requested';
       const liveTransport = client.hasActiveTransport();
       const merged = mergeMessages(data.messages, cached(conversationId), {
-        preserveStreaming: runActive && liveTransport,
+        preserveStreaming: runActive,
       });
-      const hasUnansweredUser = merged[merged.length - 1]?.role === 'user';
-      const interrupted = restoredConversationWasInterrupted(
-        merged,
-        runActive,
-        liveTransport,
-      );
-      let visibleMessages = liveTransport ? merged : settleStoppedMessages(merged);
-      if (!liveTransport && (runActive || hasUnansweredUser)) {
-        // A reload or lost browser connection must never silently resume an
-        // earlier model run. Stop the orphaned Maker run and render one
-        // explicit failure row; only the user's Retry button can send again.
-        if (runActive) void client.stop();
-        if (interrupted) {
-          visibleMessages = [
-            ...visibleMessages,
-            {
-              id: `ai-interrupted-${data.run?.run_id || Date.now()}`,
-              role: 'ai',
-              content: translate('previousGenerationStopped'),
-              ts: Date.now(),
-              streaming: false,
-              failed: true,
-              skill: {
-                intent: 'chat',
-                mode: 'immediate',
-                content: '',
-                icon: '✨',
-                action_label: '',
-                params: {},
-                data: { status: 'error', statusText: translate('generationStoppedStatus') },
-              },
+      const stoppedBeforeReload = readManualStopIntent(conversationId);
+      const safelyMerged = stoppedBeforeReload
+        ? discardTurnAnswer(
+            merged,
+            readManualStopClientMessageId(conversationId)
+              || String(data.run?.client_message_id || ''),
+          )
+        : merged;
+      let visibleMessages = liveTransport ? safelyMerged : settleStoppedMessages(safelyMerged);
+      let restoredStreamId = '';
+      if (!liveTransport && runActive) {
+        const queuedIndex = visibleMessages.findIndex((item) => item.role === 'user' && item.queued);
+        const boundary = queuedIndex < 0 ? visibleMessages.length : queuedIndex;
+        let activeAiIndex = -1;
+        for (let index = boundary - 1; index >= 0; index -= 1) {
+          if (visibleMessages[index].role === 'user') break;
+          if (visibleMessages[index].role === 'ai') {
+            activeAiIndex = index;
+            break;
+          }
+        }
+        if (activeAiIndex >= 0) {
+          restoredStreamId = visibleMessages[activeAiIndex].id;
+          visibleMessages = visibleMessages.map((item, index) => (
+            index === activeAiIndex ? { ...item, streaming: true } : item
+          ));
+        } else {
+          restoredStreamId = `ai-recover-${data.run?.run_id || Date.now()}`;
+          const placeholder: ChatMessage = {
+            id: restoredStreamId,
+            role: 'ai',
+            content: '',
+            ts: Date.now(),
+            streaming: true,
+            skill: {
+              intent: 'chat',
+              mode: 'immediate',
+              content: '',
+              icon: '',
+              action_label: '',
+              params: {},
+              data: { status: 'recovering', statusText: translate('recoveringGeneration') },
             },
+            progress: [initialPlanningProgress()],
+          };
+          visibleMessages = [
+            ...visibleMessages.slice(0, boundary),
+            placeholder,
+            ...visibleMessages.slice(boundary),
           ];
         }
+      } else if (data.run?.status === 'cancelled') {
+        visibleMessages = discardStreamingAnswer(visibleMessages);
       }
       publish(conversationId, visibleMessages);
       const summary = conversationsRef.current.find((item) => item.id === conversationId);
-      const restoredActivityStatus = interrupted
-        ? 'failed' as const
-        : hasDurableAssistantPayload(visibleMessages[visibleMessages.length - 1])
-          ? 'idle' as const
-          : summary?.activityStatus;
+      const restoredActivityStatus = runActive
+        ? 'running' as const
+        : data.run?.status === 'failed'
+          ? 'failed' as const
+          : 'idle' as const;
       if (
         summary
         && (
@@ -543,6 +617,7 @@ export function useChatRuntime() {
         ));
         dispatch({ type: 'UPSERT_CONVERSATION', payload: reconciled });
       }
+      client.connect(data.run, restoredStreamId);
       if (activeConversationRef.current === conversationId) {
         dispatch({
           type: 'HYDRATE_WORKSPACE',

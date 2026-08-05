@@ -913,9 +913,12 @@ async def _handle(ctx):
                 # concurrently and may have raced the first metadata update.
                 latest_before_graph = await read_chat_run(ctx.store, conversation_id)
                 if (
-                    isinstance(latest_before_graph, dict)
-                    and latest_before_graph.get("run_id")
-                    and str(latest_before_graph.get("run_id")) != run_id
+                    run_cancelled(latest_before_graph)
+                    or (
+                        isinstance(latest_before_graph, dict)
+                        and latest_before_graph.get("run_id")
+                        and str(latest_before_graph.get("run_id")) != run_id
+                    )
                 ):
                     cancelled = True
                 else:
@@ -930,6 +933,7 @@ async def _handle(ctx):
                         message,
                         clarification_id,
                         current_clarification_answers,
+                        str(body.get("client_message_id") or ""),
                     )
                     async for event in graph.astream(
                         {"messages": [current_user_message]},

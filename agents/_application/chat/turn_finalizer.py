@@ -91,6 +91,20 @@ class TurnFinalizer:
             auth_type=str(self._identity.get("auth_type") or "guest"),
         )
 
+    async def _cancelled_now(self) -> bool:
+        latest = await read_chat_run(self._ctx.store, self._conversation_id)
+        return bool(
+            isinstance(latest, dict)
+            and str(latest.get("run_id") or "") == self._run_id
+            and run_cancelled(latest)
+        )
+
+    def _cancel_optional_work(self) -> None:
+        self._search_runner.cancel()
+        for task in (self._memory_task, self._recent_questions_task):
+            if task is not None and not task.done():
+                task.cancel()
+
     async def _persist_answer_extras(
         self,
         answer: str,
@@ -106,6 +120,10 @@ class TurnFinalizer:
             data_namespace("message_meta", self._conversation_id),
             "latest_extras",
             {
+                "run_id": self._run_id,
+                "client_message_id": str(
+                    self._body.get("client_message_id") or ""
+                ),
                 "original_content": answer,
                 "content": answer,
                 "follow_ups": follow_ups or [],
@@ -321,11 +339,17 @@ class TurnFinalizer:
         usage: list[int],
     ) -> None:
         """Finish media, UI events, durable state, and usage exactly once."""
+        cancelled = cancelled or await self._cancelled_now()
         terminal_outcome = (
             "cancelled" if cancelled else "failed" if run_error else "completed"
         )
         followups_task: asyncio.Task | None = None
         try:
+            if cancelled:
+                self._cancel_optional_work()
+                await self._finish_run("", True, {})
+                await self._persist_usage(usage)
+                return
             followups_task = (
                 asyncio.create_task(generate_followups(
                     self._fast_model,
@@ -360,6 +384,13 @@ class TurnFinalizer:
                     media_outcome,
                     self._search_runner.media_diagnostics,
                 )
+            cancelled = await self._cancelled_now()
+            if cancelled:
+                terminal_outcome = "cancelled"
+                self._cancel_optional_work()
+                await self._finish_run("", True, {})
+                await self._persist_usage(usage)
+                return
             if answer and self._search_runner.latest_enriched_media:
                 try:
                     await self._persist_answer_extras(answer)

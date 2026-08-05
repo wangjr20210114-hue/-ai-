@@ -58,6 +58,29 @@ body {
   flex: 0 0 auto;
 }
 
+.input-turn-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.input-icon-button.input-submit-button {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+}
+
+.input-icon-button.input-submit-button:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.04);
+  box-shadow: 0 7px 18px color-mix(in srgb, var(--td-brand-color) 24%, transparent);
+}
+
+.input-stop-button.input-submit-button:hover:not(:disabled) {
+  box-shadow: 0 7px 18px rgba(213, 73, 65, 0.2);
+}
+
 .markdown-body,
 .image-studio-card,
 .paper-inline-reader {

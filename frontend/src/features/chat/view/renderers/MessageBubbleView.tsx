@@ -93,7 +93,10 @@ export function MessageBubbleView({
         className={`msg-bubble ${isUser ? 'user' : 'ai'} ${message.failed ? 'is-error' : ''} ${isImageCreation ? 'is-image-generation' : ''}${isAssistantChain ? ` assistant-chain-bubble assistant-chain-bubble-${assistantChainPosition}` : ''}`}
       >
         {isUser
-          ? message.content
+          ? <>
+            {message.content}
+            {message.queued && <small className="queued-message-status">{t('queuedMessage')}</small>}
+          </>
           : <MessagePrimaryRenderer
             message={message}
             client={client}

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import time
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
 from agents._infrastructure.makers.conversation_repository import (
+    discard_chat_turn,
     public_chat_run,
     read_chat_run,
     write_chat_run,
@@ -22,8 +27,15 @@ from agents.proactive.index import handler as proactive_handler
 from agents.stop.index import handler as stop_handler
 from agents._controllers.system_controller import _expected_tick_after
 from agents._application.chat.turn_policy import run_cancelled
+from agents._application.chat.turn_finalizer import TurnFinalizer
 from agents._infrastructure.makers.identity import scoped_conversation_id
 from agents._tests.auth_helpers import TEST_USER_ID, authenticated_context
+from agents._tests.auth_helpers import authenticated_namespace
+from agents._tests.support.fakes import (
+    FakeCheckpointer,
+    FakeStore as WorkspaceFakeStore,
+)
+from agents.messages.index import handler as messages_handler
 
 
 class FakeStore:
@@ -190,11 +202,13 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
             "conversation-1",
             run_id="run-1",
             status="running",
+            client_message_id="client-1",
             diagnostics={"stage": "semantic_plan", "category": "request_rejected"},
         )
         restored = await read_chat_run(store, "conversation-1")
         self.assertEqual(restored["status"], "running")
         self.assertEqual(public_chat_run(restored)["run_id"], "run-1")
+        self.assertEqual(public_chat_run(restored)["client_message_id"], "client-1")
         self.assertEqual(
             public_chat_run(restored)["diagnostics"]["stage"],
             "semantic_plan",
@@ -226,10 +240,174 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["status"], "aborted")
         self.assertEqual((await read_chat_run(store, physical_id))["status"], "cancelled")
 
+    async def test_delayed_stop_tombstone_never_cancels_the_next_turn(self):
+        store = FakeConversationStore()
+        await write_chat_run(
+            store, "conversation-queue", run_id="run-1", status="running",
+            client_message_id="client-1",
+        )
+        stopped, active = await discard_chat_turn(
+            store, "conversation-queue", client_message_id="client-1",
+        )
+        self.assertTrue(active)
+        self.assertEqual(stopped["status"], "cancelled")
+        await write_chat_run(
+            store, "conversation-queue", run_id="run-2", status="running",
+            client_message_id="client-2",
+        )
+        current, active = await discard_chat_turn(
+            store, "conversation-queue", client_message_id="client-1",
+        )
+        self.assertFalse(active)
+        self.assertEqual(current["run_id"], "run-2")
+        self.assertEqual(current["status"], "running")
+        self.assertIn("client-1", current["discarded_client_message_ids"])
+
+    async def test_stop_before_admission_prevents_the_model_run(self):
+        store = FakeConversationStore()
+        stopped, active = await discard_chat_turn(
+            store, "conversation-early-stop", client_message_id="client-early",
+        )
+        self.assertFalse(active)
+        self.assertIn("client-early", stopped["discarded_client_message_ids"])
+        admitted = await write_chat_run(
+            store,
+            "conversation-early-stop",
+            run_id="run-must-not-start",
+            status="running",
+            client_message_id="client-early",
+        )
+        self.assertEqual(admitted["status"], "cancelled")
+        self.assertTrue(run_cancelled(admitted))
+
+    async def test_cancelled_turn_answer_and_cards_never_restore(self):
+        cancelled_id = "client-cancelled"
+        messages = [
+            HumanMessage(
+                content="保留这个问题",
+                additional_kwargs={"floris_client_message_id": cancelled_id},
+                id="u-cancelled",
+            ),
+            ToolMessage(
+                content=json.dumps({
+                    "ui_action": "clarification_action",
+                    "clarification": {
+                        "id": "must-not-render",
+                        "title": "不应显示",
+                        "prompt": "不应显示",
+                        "fields": [{"id": "x", "label": "x", "type": "text"}],
+                    },
+                }, ensure_ascii=False),
+                tool_call_id="cancelled-tool",
+            ),
+            AIMessage(content="这段回答必须被彻底删除", id="a-cancelled"),
+            HumanMessage(
+                content="下一个问题",
+                additional_kwargs={"floris_client_message_id": "client-next"},
+                id="u-next",
+            ),
+            AIMessage(content="下一个回答", id="a-next"),
+        ]
+
+        class Store:
+            def __init__(self):
+                self.langgraph_checkpointer = FakeCheckpointer(messages)
+                self.langgraph_store = WorkspaceFakeStore()
+
+            async def get_conversation(self, **_values):
+                return {"metadata": {"yuanbao_chat_run_v1": {
+                    "run_id": "run-next",
+                    "client_message_id": "client-next",
+                    "status": "completed",
+                    "discarded_client_message_ids": [cancelled_id],
+                }}}
+
+        response = await messages_handler(authenticated_namespace(
+            conversation_id="restore-cancelled", store=Store(),
+        ))
+        restored = response["messages"]
+        self.assertEqual(
+            [(item["role"], item["content"]) for item in restored],
+            [
+                ("user", "保留这个问题"),
+                ("user", "下一个问题"),
+                ("ai", "下一个回答"),
+            ],
+        )
+        self.assertTrue(restored[0]["stopped"])
+        self.assertNotIn("clarification", restored[0])
+
     def test_chat_producer_honors_both_makers_stop_states(self):
         self.assertTrue(run_cancelled({"status": "cancel_requested"}))
         self.assertTrue(run_cancelled({"status": "cancelled"}))
+        self.assertTrue(run_cancelled({
+            "status": "running",
+            "client_message_id": "client-stop",
+            "discarded_client_message_ids": ["client-stop"],
+        }))
         self.assertFalse(run_cancelled({"status": "running"}))
+
+    async def test_cancelled_finalizer_publishes_no_answer_or_card(self):
+        store = FakeConversationStore()
+        await write_chat_run(
+            store, "conversation-finalizer", run_id="run-stop",
+            status="cancelled", client_message_id="client-stop",
+        )
+        queue = asyncio.Queue()
+        sentinel = object()
+
+        class SearchRunner:
+            cancelled = False
+
+            def cancel(self):
+                self.cancelled = True
+
+        search = SearchRunner()
+        settled = []
+        finalizer = TurnFinalizer(
+            ctx=SimpleNamespace(
+                store=store,
+                env={},
+            ),
+            presenter=SimpleNamespace(),
+            queue=queue,
+            completion_sentinel=sentinel,
+            search_runner=search,
+            fast_model=object(),
+            message="question",
+            response_language="zh-CN",
+            conversation_id="conversation-finalizer",
+            user_id=TEST_USER_ID,
+            run_id="run-stop",
+            body={},
+            identity={"auth_type": "user"},
+            capability_plan={},
+            answer_capability_plan={},
+            memory_context="",
+            pending_actions=[{"action": {"id": "must-not-publish"}}],
+            followups_enabled=True,
+            memory_task=None,
+            recent_questions_task=None,
+            opportunity_enabled=False,
+            telemetry=SimpleNamespace(
+                settle=lambda outcome: settled.append(outcome),
+                timings_ms={},
+            ),
+        )
+        await finalizer.finish(
+            answer="partial answer that must disappear",
+            run_error="",
+            run_diagnostics={},
+            cancelled=False,
+            clarification_emitted=False,
+            pending_search_results={"results": [{"title": "hidden"}]},
+            pending_papers={"papers": [{"title": "hidden"}]},
+            usage=[0, 0, 0],
+        )
+        self.assertTrue(search.cancelled)
+        self.assertEqual(await queue.get(), sentinel)
+        self.assertTrue(queue.empty())
+        self.assertEqual(settled, ["cancelled"])
 
     def test_daily_health_grace_uses_scheduled_boundary(self):
         now = int(datetime.fromisoformat("2026-07-19T11:00:00+08:00").timestamp())
