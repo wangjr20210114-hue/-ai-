@@ -1,5 +1,6 @@
 package com.floris.android.core.auth
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -10,6 +11,8 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Device credential adapter backed by Android Keystore.
@@ -19,53 +22,57 @@ import javax.crypto.spec.GCMParameterSpec
  * Ciphertext is bound to its preference key through AES-GCM additional data, so
  * entries cannot be swapped without authentication failing.
  */
+@SuppressLint("ApplySharedPref")
 class SecureCredentialStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    private val lock = Any()
 
-    @Synchronized
-    fun read(name: String): String? {
-        val encoded = preferences.getString(name, null) ?: return null
-        return runCatching {
-            val packed = Base64.decode(encoded, Base64.NO_WRAP)
-            require(packed.size > IV_BYTES)
-            val iv = packed.copyOfRange(0, IV_BYTES)
-            val ciphertext = packed.copyOfRange(IV_BYTES, packed.size)
+    suspend fun read(name: String): String? = withContext(Dispatchers.IO) {
+        synchronized(lock) {
+            val encoded = preferences.getString(name, null) ?: return@synchronized null
+            runCatching {
+                val packed = Base64.decode(encoded, Base64.NO_WRAP)
+                require(packed.size > IV_BYTES)
+                val iv = packed.copyOfRange(0, IV_BYTES)
+                val ciphertext = packed.copyOfRange(IV_BYTES, packed.size)
+                val cipher = Cipher.getInstance(TRANSFORMATION)
+                cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(TAG_BITS, iv))
+                cipher.updateAAD(name.toByteArray(StandardCharsets.UTF_8))
+                String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8)
+            }.getOrElse {
+                // A restored/corrupt ciphertext cannot be decrypted by this device's
+                // Keystore key. Drop it so AuthManager can safely re-authenticate.
+                preferences.edit().remove(name).commit()
+                null
+            }
+        }
+    }
+
+    suspend fun write(name: String, value: String) = withContext(Dispatchers.IO) {
+        synchronized(lock) {
+            if (value.isEmpty()) {
+                preferences.edit().remove(name).commit()
+                return@synchronized
+            }
             val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(TAG_BITS, iv))
+            cipher.init(Cipher.ENCRYPT_MODE, key())
             cipher.updateAAD(name.toByteArray(StandardCharsets.UTF_8))
-            String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8)
-        }.getOrElse {
-            // A restored/corrupt ciphertext cannot be decrypted by this device's
-            // Keystore key. Drop it so AuthManager can safely re-authenticate.
-            preferences.edit().remove(name).apply()
-            null
+            val encrypted = cipher.doFinal(value.toByteArray(StandardCharsets.UTF_8))
+            val packed = cipher.iv + encrypted
+            check(
+                preferences.edit()
+                    .putString(name, Base64.encodeToString(packed, Base64.NO_WRAP))
+                    .commit(),
+            ) { "Secure credential could not be persisted" }
         }
     }
 
-    @Synchronized
-    fun write(name: String, value: String) {
-        if (value.isEmpty()) {
-            remove(name)
-            return
-        }
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, key())
-        cipher.updateAAD(name.toByteArray(StandardCharsets.UTF_8))
-        val encrypted = cipher.doFinal(value.toByteArray(StandardCharsets.UTF_8))
-        val packed = cipher.iv + encrypted
-        preferences.edit()
-            .putString(name, Base64.encodeToString(packed, Base64.NO_WRAP))
-            .apply()
+    suspend fun remove(name: String) = withContext(Dispatchers.IO) {
+        synchronized(lock) { preferences.edit().remove(name).commit() }
     }
 
-    @Synchronized
-    fun remove(name: String) {
-        preferences.edit().remove(name).apply()
-    }
-
-    @Synchronized
-    fun clear() {
-        preferences.edit().clear().apply()
+    suspend fun clear() = withContext(Dispatchers.IO) {
+        synchronized(lock) { preferences.edit().clear().commit() }
     }
 
     private fun key(): SecretKey {
