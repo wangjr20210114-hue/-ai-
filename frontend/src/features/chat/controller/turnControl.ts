@@ -1,8 +1,11 @@
 import { bootstrapApp, requestConversationStop } from '../model/client';
 import type { BootstrapData, MakersChatRun } from '../model';
 
-const STOP_TIMEOUT_MS = 4_000;
-const STOP_CONFIRM_TIMEOUT_MS = 5_000;
+// Maker cancellation first reads and updates the native conversation before
+// batching derived-state cleanup.  Keep the transport alive long enough for
+// that authoritative acknowledgement instead of aborting the write early.
+const STOP_TIMEOUT_MS = 12_000;
+const STOP_CONFIRM_TIMEOUT_MS = 8_000;
 const RECOVERY_POLL_MS = 2_000;
 const MANUAL_STOP_PREFIX = 'floris:manual-stop:';
 
@@ -122,7 +125,15 @@ export class TurnControlClient {
         clientMessageId,
         controller.signal,
       );
-      if (response.ok) return true;
+      if (response.ok) {
+        const acknowledgement = await response.json() as {
+          client_message_id?: unknown;
+        };
+        if (
+          !clientMessageId
+          || String(acknowledgement.client_message_id || '') === clientMessageId
+        ) return true;
+      }
     } catch {
       // The server persists the exact cancellation tombstone before optional
       // derived-state cleanup. A slow cleanup can outlive the HTTP deadline;

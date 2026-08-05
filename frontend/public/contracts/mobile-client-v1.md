@@ -222,6 +222,8 @@ data: [DONE]
 5. 断网或停止请求超时时暂停后续队列，先用 `POST /messages` 核对同一 `client_message_id`；若 Maker run 已为 `cancelled` 就直接确认，只有尚未取消时才重试同一停止请求。过期停止不得中止新队首。
 6. 队首在 Maker 终态或精确停止确认前必须继续保存在本地 FIFO；切换会话或刷新只分离传输。重新进入时先用 `POST /messages` 对账同一 `client_message_id`，确认终态后才出队，不能在发起 `POST /chat` 时提前删除。
 
+`POST /stop` 返回 2xx 时仍须核对响应体的 `client_message_id` 与当前队首一致，匹配后才可放行下一条；客户端应给 Maker 原生会话状态留出合理的读写时间，不要用激进的短超时提前中断取消写入。
+
 ### POST /conversation
 
 需要单独保存消息时，通过服务端会话存储追加，不在客户端复制持久化逻辑。

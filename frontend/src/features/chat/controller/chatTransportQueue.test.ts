@@ -123,7 +123,10 @@ describe('chat transport FIFO durability', () => {
         pendingUntilAbort(signal)
       ))
       .mockResolvedValueOnce(completedResponse());
-    clientMocks.requestConversationStop.mockResolvedValue({ ok: true });
+    clientMocks.requestConversationStop.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ client_message_id: 'client-stopped' }),
+    });
 
     const client = new SSEChatClient('conversation-stop');
     client.connect(null);

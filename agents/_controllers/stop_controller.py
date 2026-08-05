@@ -1,5 +1,7 @@
 """Controller for cancellation delegated to the Makers Agent runtime."""
 
+import asyncio
+
 from .._infrastructure.makers.identity import require_user, scoped_conversation_id
 from .._infrastructure.http import error
 from .._infrastructure.makers.conversation_repository import discard_chat_turn
@@ -23,14 +25,17 @@ async def _discard_turn_derived_state(ctx, user_id: str, conversation_id: str, c
     if store is None or not client_id:
         return
     try:
-        intelligence = await load_intelligence_state(store, user_id)
-        if discard_turn_intelligence(intelligence, client_id):
-            await save_intelligence_state(store, intelligence, user_id)
-        proactive = await load_proactive_state(store, user_id)
-        if discard_proactive_source(proactive, client_id):
-            await save_proactive_state(store, proactive, user_id)
         namespace = data_namespace("message_meta", conversation_id)
-        item = await store.aget(namespace, "latest_extras")
+        intelligence, proactive, item = await asyncio.gather(
+            load_intelligence_state(store, user_id),
+            load_proactive_state(store, user_id),
+            store.aget(namespace, "latest_extras"),
+        )
+        writes = []
+        if discard_turn_intelligence(intelligence, client_id):
+            writes.append(save_intelligence_state(store, intelligence, user_id))
+        if discard_proactive_source(proactive, client_id):
+            writes.append(save_proactive_state(store, proactive, user_id))
         value = (
             item.get("value")
             if isinstance(item, dict)
@@ -41,9 +46,11 @@ async def _discard_turn_derived_state(ctx, user_id: str, conversation_id: str, c
             and str(value.get("client_message_id") or "") == client_id
         ):
             if hasattr(store, "adelete"):
-                await store.adelete(namespace, "latest_extras")
+                writes.append(store.adelete(namespace, "latest_extras"))
             else:
-                await store.aput(namespace, "latest_extras", {})
+                writes.append(store.aput(namespace, "latest_extras", {}))
+        if writes:
+            await asyncio.gather(*writes)
     except Exception:
         # Cancellation itself must remain available when an optional cleanup
         # is temporarily unavailable on an older Maker store.
@@ -75,6 +82,9 @@ async def handler(ctx):
         if active
         else None
     )
+    # Maker Store reads and writes above are batched so the acknowledgement
+    # remains quick without weakening the guarantee that stopped content is
+    # absent from memory, proactive state and cached presentation extras.
     await _discard_turn_derived_state(
         ctx,
         str(identity["user_id"]),
