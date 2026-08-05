@@ -30,6 +30,9 @@ echo 'sdk.dir=<你的 Android SDK 路径>' > local.properties
 覆盖：SSE 帧切分与事件分发、未知事件忽略、搜索/图片乱序合并、严格来源图片绑定、
 五种响应语言注入，以及 CloudBase 登录/刷新/交换 Floris Bearer 全链路。
 
+主动提醒由 WorkManager 在联网时低频唤醒；Maker `/proactive` 决定提醒策略与内容，
+Android 只做按账号隔离的系统通知投递和本地去重。
+
 ## 架构
 
 ```

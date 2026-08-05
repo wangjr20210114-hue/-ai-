@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.floris.android.AppContainer
 import com.floris.android.core.notify.ProactiveNotifier
+import com.floris.android.core.notify.ProactiveDeliveryStore
+import com.floris.android.core.auth.AuthState
 import com.floris.android.ui.account.AccountViewModel
 import com.floris.android.ui.auth.LoginViewModel
 import com.floris.android.ui.calendar.CalendarViewModel
@@ -40,9 +42,17 @@ fun AppContainer.profileViewModelFactory() = factory {
         strings = strings,
         // 主动提醒同时推到系统通知栏——移动端相对网页端的优势。
         notifier = { items ->
+            val identity = (authManager.state.value as? AuthState.SignedIn)?.identity
+            val subject = identity?.subject_id?.ifBlank { identity.id }?.ifBlank { identity.auth_type }
+            val fresh = if (subject.isNullOrBlank() || !ProactiveNotifier.hasPermission(appContext)) {
+                emptyList()
+            } else {
+                val store = ProactiveDeliveryStore(appContext)
+                items.filter { store.claim(subject, it) }
+            }
             ProactiveNotifier.notifyAll(
                 appContext,
-                items,
+                fresh,
                 strings.get(com.floris.android.ui.prefs.StringKey.NotificationChannelName),
                 strings.get(com.floris.android.ui.prefs.StringKey.NotificationChannelDescription),
             )

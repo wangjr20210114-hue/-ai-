@@ -8,6 +8,7 @@ import com.floris.android.core.auth.TokenStore
 import com.floris.android.core.chat.ChatRuntimeStore
 import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.network.FlorisClient
+import com.floris.android.core.notify.ProactiveSync
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -20,6 +21,7 @@ class FlorisApp : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        ProactiveSync.schedule(this)
     }
 }
 

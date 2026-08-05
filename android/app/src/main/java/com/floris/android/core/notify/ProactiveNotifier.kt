@@ -30,7 +30,6 @@ object ProactiveNotifier {
 
     fun ensureChannel(context: Context, name: String, descriptionText: String) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
         val channel = NotificationChannel(
             CHANNEL_ID,
             name,
