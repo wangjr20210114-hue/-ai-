@@ -51,9 +51,13 @@ export function requestConversationStop(
 ): Promise<Response> {
   return authorizedFetch('/stop', {
     method: 'POST',
-    // Makers requires cancellation to target the run through the payload.
-    // Carrying the conversation header can replace the active run signal.
-    headers: { 'Content-Type': 'application/json' },
+    // Maker middleware scopes every conversation operation from this header;
+    // the exact client turn remains in the payload so a delayed stop cannot
+    // cancel a newer FIFO head.
+    headers: {
+      'Content-Type': 'application/json',
+      ...makersConversationHeaders(conversationId),
+    },
     body: JSON.stringify({
       conversation_id: conversationId,
       ...(clientMessageId ? { client_message_id: clientMessageId } : {}),

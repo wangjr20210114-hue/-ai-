@@ -266,6 +266,7 @@ curl -X POST "$BASE/conversations" \
 ```bash
 curl -X POST "$BASE/stop" \
   -H "Authorization: Bearer $TOKEN" \
+  -H "makers-conversation-id: $CID" \
   -H "Content-Type: application/json" \
   -d "{\"conversation_id\":\"$CID\",\"client_message_id\":\"msg_01\"}"
 ```

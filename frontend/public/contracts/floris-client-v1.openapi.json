@@ -385,6 +385,7 @@
         "operationId": "stopConversationRun",
         "tags": ["Chat"],
         "summary": "Cancel and permanently discard one exact Maker turn",
+        "parameters": [{ "$ref": "#/components/parameters/ConversationId" }],
         "requestBody": {
           "required": true,
           "content": {
@@ -1113,7 +1114,7 @@
         "name": "makers-conversation-id",
         "in": "header",
         "required": true,
-        "schema": { "type": "string", "minLength": 6, "maxLength": 180 },
+        "schema": { "type": "string", "minLength": 6, "maxLength": 36 },
         "description": "Stable opaque client conversation id. The server combines it with the signed identity to derive the Maker tenant scope."
       },
       "FileKey": {
