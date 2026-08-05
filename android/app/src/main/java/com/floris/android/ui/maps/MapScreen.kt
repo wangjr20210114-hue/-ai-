@@ -1,5 +1,7 @@
 package com.floris.android.ui.maps
 
+import android.annotation.SuppressLint
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
@@ -66,12 +68,16 @@ import com.floris.android.ui.components.StatusChip
 import com.floris.android.ui.components.routeModeLabel
 import com.floris.android.ui.mapViewModelFactory
 import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.StringResolver
 import com.floris.android.ui.prefs.t
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class MapViewModel(private val repository: FlorisRepository) : ViewModel() {
+class MapViewModel(
+    private val repository: FlorisRepository,
+    private val strings: StringResolver,
+) : ViewModel() {
 
     data class UiState(
         val searching: Boolean = false,
@@ -97,14 +103,17 @@ class MapViewModel(private val repository: FlorisRepository) : ViewModel() {
             }.onSuccess { places ->
                 _state.value = _state.value.copy(searching = false, searchResults = places)
             }.onFailure {
-                _state.value = _state.value.copy(searching = false, error = "地点搜索失败")
+                _state.value = _state.value.copy(
+                    searching = false,
+                    error = strings.get(StringKey.MapSearchFailed),
+                )
             }
         }
     }
 
     fun planRoute(places: List<Place>, mode: String) {
         if (places.size < 2) {
-            _state.value = _state.value.copy(error = "至少需要两个地点来规划路线")
+            _state.value = _state.value.copy(error = strings.get(StringKey.MapNeedTwoPlaces))
             return
         }
         _state.value = _state.value.copy(planningRoute = true, routeMode = mode, error = null)
@@ -115,10 +124,13 @@ class MapViewModel(private val repository: FlorisRepository) : ViewModel() {
                 _state.value = _state.value.copy(
                     planningRoute = false,
                     route = route,
-                    error = if (route == null) "路线服务暂不可用" else null,
+                    error = if (route == null) strings.get(StringKey.MapServiceUnavailable) else null,
                 )
             }.onFailure {
-                _state.value = _state.value.copy(planningRoute = false, error = "路线规划失败")
+                _state.value = _state.value.copy(
+                    planningRoute = false,
+                    error = strings.get(StringKey.MapPlanFailed),
+                )
             }
         }
     }
@@ -140,6 +152,7 @@ fun MapScreen(container: AppContainer, onBack: () -> Unit) {
     }
 
     val displayPlaces = state.searchResults.ifEmpty { workspace.places }
+    val displayRoute = state.route ?: workspace.route
 
     Column(
         Modifier
@@ -153,7 +166,7 @@ fun MapScreen(container: AppContainer, onBack: () -> Unit) {
         ) {
             com.floris.android.ui.components.IconPill(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "返回",
+                contentDescription = t(StringKey.Back),
                 onClick = onBack,
             )
             Spacer(Modifier.width(4.dp))
@@ -184,7 +197,7 @@ fun MapScreen(container: AppContainer, onBack: () -> Unit) {
                 item(key = "map") {
                     TencentMapView(
                         places = displayPlaces,
-                        route = state.route,
+                        route = displayRoute,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(260.dp)
@@ -257,7 +270,7 @@ fun MapScreen(container: AppContainer, onBack: () -> Unit) {
                     }
                 }
 
-                state.route?.let { route ->
+                displayRoute?.let { route ->
                     item(key = "route") {
                         RouteCard(route, state.planningRoute)
                     }
@@ -277,51 +290,94 @@ fun MapScreen(container: AppContainer, onBack: () -> Unit) {
 private fun RouteCard(route: RoutePlan, planning: Boolean) {
     FlorisCard {
         Column(Modifier.padding(14.dp)) {
-            Text(
-                "${routeModeLabel(route.mode ?: "")}路线",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                route.distance_text?.let { StatusChip(it, MaterialTheme.colorScheme.primary) }
-                route.duration_text?.let { StatusChip(it, MaterialTheme.colorScheme.secondary) }
-                route.cost_text?.let { StatusChip(it, MaterialTheme.colorScheme.tertiary) }
-            }
-            if (route.ordered_stops.isNotEmpty()) {
-                Spacer(Modifier.height(10.dp))
-                route.ordered_stops.forEachIndexed { index, stop ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier.size(20.dp).clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                "${index + 1}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Text(stop.name, style = MaterialTheme.typography.labelLarge)
-                    }
-                }
-            }
-            route.legs.forEach { leg ->
-                leg.instruction?.let {
+            val places = route.places.ifEmpty { route.ordered_stops }
+            val distance = route.distance_text ?: route.distance_meters.takeIf { it > 0 }?.let(::distanceText)
+            val duration = route.duration_text
+                ?: route.duration_seconds.takeIf { it > 0 }?.let { durationText(it) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
                     Text(
-                        it,
+                        places.takeIf { it.size >= 2 }?.let {
+                            "${it.first().name} → ${it.last().name}"
+                        } ?: t(StringKey.MapNamedRoute, routeModeLabel(route.mode ?: "")),
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        listOfNotNull(distance, duration, route.cost_text).joinToString(" · "),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp),
                     )
+                }
+                StatusChip(routeModeLabel(route.mode ?: ""), MaterialTheme.colorScheme.primary)
+            }
+            route.legs.forEachIndexed { index, leg ->
+                Spacer(Modifier.height(if (index == 0) 12.dp else 8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(22.dp).clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("${index + 1}", style = MaterialTheme.typography.labelSmall)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            listOfNotNull(leg.from?.name, leg.to?.name).joinToString(" → ")
+                                .ifBlank { leg.instruction.orEmpty() },
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            listOfNotNull(
+                                leg.distance_text ?: leg.distance_meters.takeIf { it > 0 }?.let(::distanceText),
+                                leg.duration_text
+                                    ?: leg.duration_seconds.takeIf { it > 0 }?.let { durationText(it) },
+                            ).joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                val modes = leg.sections.map { it.mode }.ifEmpty { listOfNotNull(leg.mode) }
+                Row(
+                    Modifier.padding(start = 30.dp, top = 5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    modes.distinct().forEach { mode ->
+                        StatusChip(routeModeLabel(mode), routeModeColor(mode))
+                    }
                 }
             }
         }
     }
 }
 
-/** Tencent GL JS map inside a WebView; requires TENCENT_MAP_KEY in local.properties. */
+@Composable
+private fun routeModeColor(mode: String): Color = when (mode) {
+    "rail" -> MaterialTheme.colorScheme.secondary
+    "bus", "transit" -> MaterialTheme.colorScheme.tertiary
+    "bicycling" -> Color(0xFF2F8B68)
+    "walking" -> MaterialTheme.colorScheme.onSurfaceVariant
+    else -> MaterialTheme.colorScheme.primary
+}
+
+private fun distanceText(meters: Double): String =
+    if (meters >= 1000) "%.1f km".format(meters / 1000) else "${meters.toInt()} m"
+
+@Composable
+private fun durationText(seconds: Double): String {
+    val minutes = (seconds / 60).toInt().coerceAtLeast(1)
+    return if (minutes >= 60) {
+        t(StringKey.DurationHoursMinutes, minutes / 60, minutes % 60)
+    } else t(StringKey.DurationMinutes, minutes)
+}
+
+/** Tencent GL JS map inside a locked-down WebView; requires TENCENT_MAP_KEY in local.properties. */
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun TencentMapView(places: List<Place>, route: RoutePlan?, modifier: Modifier = Modifier) {
     val key = BuildConfig.TENCENT_MAP_KEY
@@ -330,8 +386,14 @@ private fun TencentMapView(places: List<Place>, route: RoutePlan?, modifier: Mod
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
         factory = { context ->
             WebView(context).apply {
+                // JavaScript is required by Tencent GL JS. Local files, content providers and
+                // mixed content remain disabled; the document has a fixed HTTPS base origin.
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                settings.safeBrowsingEnabled = true
                 webViewClient = WebViewClient()
             }
         },
@@ -343,9 +405,31 @@ private fun TencentMapView(places: List<Place>, route: RoutePlan?, modifier: Mod
 
 private fun buildMapHtml(key: String, places: List<Place>, route: RoutePlan?): String {
     val markers = places.joinToString(",") { "{lat:${it.latitude},lng:${it.longitude},name:\"${it.name.jsEscape()}\"}" }
-    val polyline = route?.polyline.orEmpty().joinToString(",") { pair ->
-        "[${pair.getOrElse(0) { 0.0 }},${pair.getOrElse(1) { 0.0 }}]"
+    fun points(points: List<com.floris.android.core.model.RoutePoint>) =
+        points.joinToString(",") { "[${it.latitude},${it.longitude}]" }
+    val contractPath = route?.path.orEmpty()
+    val legacyPath = route?.polyline.orEmpty().map {
+        com.floris.android.core.model.RoutePoint(
+            it.getOrElse(0) { 0.0 },
+            it.getOrElse(1) { 0.0 },
+        )
     }
+    val coarse = points(contractPath.ifEmpty { legacyPath })
+    val legs = route?.legs.orEmpty().mapIndexed { index, leg ->
+        val path = leg.path.ifEmpty {
+            leg.polyline.map { pair ->
+                com.floris.android.core.model.RoutePoint(
+                    pair.getOrElse(0) { 0.0 }, pair.getOrElse(1) { 0.0 },
+                )
+            }
+        }
+        "{id:'leg$index',scope:'${(leg.scope ?: "unknown").jsEscape()}',mode:'${(leg.mode ?: "driving").jsEscape()}',points:[${points(path)}]}"
+    }.orEmpty().joinToString(",")
+    val sections = route?.legs.orEmpty().flatMapIndexed { legIndex, leg ->
+        leg.sections.mapIndexed { sectionIndex, section ->
+            "{id:'section${legIndex}_$sectionIndex',scope:'${(leg.scope ?: "unknown").jsEscape()}',mode:'${section.mode.jsEscape()}',points:[${points(section.path)}]}"
+        }
+    }.orEmpty().joinToString(",")
     val center = places.firstOrNull() ?: Place(latitude = 39.9, longitude = 116.4)
     return """
         <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -360,14 +444,54 @@ private fun buildMapHtml(key: String, places: List<Place>, route: RoutePlan?): S
           return { id: 'p' + i, position: new TMap.LatLng(p.lat, p.lng), content: p.name };
         });
         new TMap.MultiMarker({ map: map, geometries: geometries });
-        var line = [$polyline];
-        if (line.length > 1) {
-          new TMap.MultiPolyline({ map: map, geometries: [{
-            id: 'route', paths: line.map(function(p){ return new TMap.LatLng(p[0], p[1]); })
-          }]});
+        var coarse = [$coarse];
+        var legs = [$legs];
+        var sections = [$sections];
+        var styles = {
+          driving:{color:'#5B72E8',width:7,borderWidth:1,borderColor:'#FFFFFF'},
+          transit:{color:'#2E9C76',width:7,borderWidth:1,borderColor:'#FFFFFF'},
+          bus:{color:'#2E9C76',width:7,borderWidth:1,borderColor:'#FFFFFF'},
+          rail:{color:'#9A63D4',width:8,borderWidth:1,borderColor:'#FFFFFF'},
+          walking:{color:'#8A8178',width:5,dashArray:[5,5]},
+          bicycling:{color:'#E98B45',width:6,borderWidth:1,borderColor:'#FFFFFF'}
+        };
+        var routeLayer = new TMap.MultiPolyline({map:map,styles:styles,geometries:[]});
+        function distanceToCenter(item) {
+          if (!item.points.length) return 999999;
+          var center = map.getCenter(), point = item.points[Math.floor(item.points.length/2)];
+          var dx = point[0] - center.lat, dy = point[1] - center.lng;
+          return dx*dx + dy*dy;
         }
+        function geometry(item) {
+          return {id:item.id,styleId:styles[item.mode] ? item.mode : 'driving',
+            paths:item.points.map(function(p){return new TMap.LatLng(p[0],p[1]);})};
+        }
+        function renderRoute() {
+          var zoom = map.getZoom(), visible = [];
+          if (zoom <= 7) {
+            visible = legs.filter(function(item){return item.scope === 'intercity';});
+            if (!visible.length && coarse.length > 1) visible = [{id:'route',mode:'driving',points:coarse}];
+          } else if (zoom <= 12) {
+            visible = legs.length ? legs : [{id:'route',mode:'driving',points:coarse}];
+          } else {
+            visible = (sections.length ? sections : legs).slice().sort(function(a,b){
+              return distanceToCenter(a)-distanceToCenter(b);
+            }).slice(0,4);
+          }
+          routeLayer.setGeometries(visible.filter(function(item){return item.points.length>1;}).map(geometry));
+        }
+        renderRoute();
+        map.on('zoom_changed', renderRoute);
+        map.on('center_changed', function(){ if(map.getZoom()>12) renderRoute(); });
         </script></body></html>
     """.trimIndent()
 }
 
-private fun String.jsEscape(): String = replace("\\", "\\\\").replace("\"", "\\\"")
+private fun String.jsEscape(): String = this
+    .replace("\\", "\\\\")
+    .replace("'", "\\'")
+    .replace("\"", "\\\"")
+    .replace("<", "\\u003C")
+    .replace(">", "\\u003E")
+    .replace("\r", "\\r")
+    .replace("\n", "\\n")

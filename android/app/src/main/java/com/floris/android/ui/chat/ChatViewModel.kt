@@ -3,18 +3,27 @@ package com.floris.android.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.floris.android.core.chat.ChatMessageUi
+import com.floris.android.core.chat.ChatRuntimeStore
+import com.floris.android.core.chat.PendingChatTurn
+import com.floris.android.core.chat.mergeProjection
 import com.floris.android.core.chat.StreamTypewriter
 import com.floris.android.core.chat.reduce
 import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.data.arr
 import com.floris.android.core.data.asString
 import com.floris.android.core.data.obj
+import com.floris.android.core.data.num
 import com.floris.android.core.data.str
 import com.floris.android.core.model.Clarification
+import com.floris.android.core.model.ChatRun
 import com.floris.android.core.model.Paper
+import com.floris.android.core.model.ProgressComponent
+import com.floris.android.core.model.RunPresentation
 import com.floris.android.core.model.SearchMeta
 import com.floris.android.core.model.WorkspaceAction
 import com.floris.android.core.network.sse.ChatEvent
+import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.StringResolver
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +31,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -41,11 +51,17 @@ data class ChatUiState(
     val submittingClarification: Boolean = false,
     val locationRequestReason: String? = null,
     val transientError: String? = null,
+    val queuedTurns: List<PendingChatTurn> = emptyList(),
+    val recovering: Boolean = false,
 )
+
+enum class ChatSendDisposition { STARTED, QUEUED, QUEUE_FULL, IGNORED }
 
 class ChatViewModel(
     private val repository: FlorisRepository,
+    private val runtimeStore: ChatRuntimeStore,
     private val json: Json,
+    private val strings: StringResolver,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ChatUiState())
@@ -54,12 +70,17 @@ class ChatViewModel(
     private var streamJob: Job? = null
     private var lastUserMessage: String? = null
     private var lastClientMessageId: String? = null
+    private var activeTurn: PendingChatTurn? = null
+    private var lastPresentationRevision = -1L
     private var restored = false
+    private var activeConversationPending = true
 
     init {
         viewModelScope.launch {
             val id = repository.activeConversationId()
-            _state.update { it.copy(conversationId = id) }
+            _state.update {
+                it.copy(conversationId = id, queuedTurns = runtimeStore.loadQueue(id))
+            }
             restore(id)
         }
     }
@@ -71,16 +92,29 @@ class ChatViewModel(
         streamJob?.cancel()
         viewModelScope.launch {
             repository.setActiveConversationId(id)
-            _state.value = ChatUiState(conversationId = id)
+            _state.value = ChatUiState(
+                conversationId = id,
+                queuedTurns = runtimeStore.loadQueue(id),
+            )
             restore(id)
         }
     }
 
     fun newConversation() {
+        if (activeConversationPending && _state.value.messages.isEmpty() &&
+            _state.value.queuedTurns.isEmpty() && !_state.value.streaming
+        ) return
+        // The Maker run is not cancelled here. Reopening the old conversation
+        // restores the exact run through POST /run.
         streamJob?.cancel()
         val id = repository.newConversationId()
         viewModelScope.launch { repository.setActiveConversationId(id) }
-        _state.value = ChatUiState(conversationId = id, bootstrapping = false)
+        _state.value = ChatUiState(
+            conversationId = id,
+            bootstrapping = false,
+            queuedTurns = runtimeStore.loadQueue(id),
+        )
+        activeConversationPending = true
         restored = true
     }
 
@@ -88,13 +122,83 @@ class ChatViewModel(
         _state.update { it.copy(bootstrapping = true) }
         runCatching { repository.bootstrap(conversationId) }
             .onSuccess { data ->
+                if (_state.value.conversationId != conversationId) return@onSuccess
                 val parsed = data.messages.mapNotNull(::parseRestoredMessage)
-                _state.update { it.copy(messages = parsed, bootstrapping = false) }
+                val savedActiveTurn = runtimeStore.loadActiveTurn(conversationId)
+                activeTurn = savedActiveTurn
+                lastClientMessageId = savedActiveTurn?.id
+                    ?: data.run?.client_message_id?.takeIf { it.isNotBlank() }
+                lastUserMessage = parsed.lastOrNull { it.role == ChatMessageUi.Role.USER }?.content
+                    ?: savedActiveTurn?.text
+                activeConversationPending = if (parsed.isEmpty()) {
+                    runCatching { repository.listConversations() }
+                        .getOrNull()
+                        ?.firstOrNull { it.id == conversationId }
+                        ?.let { it.pending && !it.manuallyRenamed }
+                        ?: true
+                } else false
+                val run = data.run
+                val activeRun = run?.takeIf { it.active }
+                val runActive = activeRun != null
+                val restoredMessages = if (activeRun != null) {
+                    restoreActiveMessage(parsed, activeRun, data.presentation)
+                } else if (run?.status == "cancelled") {
+                    parsed.filterNot {
+                        it.role == ChatMessageUi.Role.AI &&
+                            it.clientMessageId == run.client_message_id
+                    }
+                } else parsed
+                _state.update {
+                    it.copy(
+                        messages = restoredMessages,
+                        bootstrapping = false,
+                        streaming = runActive,
+                        recovering = runActive,
+                    )
+                }
                 data.schedules.takeIf { it.isNotEmpty() }?.let {
                     repository.schedulesFlow.value = repository.parseSchedules(JsonArray(it))
                 }
+                if (data.map_places.isNotEmpty()) {
+                    repository.publishMapWorkspace(
+                        buildJsonObject {
+                            put("places", JsonArray(data.map_places))
+                            put("title", data.map_title)
+                            put("route_mode", data.map_route_mode)
+                            put("route_strategy", data.map_route_strategy)
+                            put("show_route", data.map_show_route)
+                            data.map_route?.let { put("route", it) }
+                        },
+                        data.map_title,
+                    )
+                }
+
+                val stoppedClientId = runtimeStore.stoppedClientMessageId(conversationId)
+                when {
+                    stoppedClientId.isNotBlank() -> {
+                        discardAssistantTurn(stoppedClientId)
+                        confirmStop(conversationId, stoppedClientId, run)
+                    }
+                    activeRun != null -> recoverExistingRun(conversationId, activeRun)
+                    run != null && run.status in setOf("completed", "failed", "cancelled") -> {
+                        runtimeStore.clearActiveTurn(conversationId, run.client_message_id)
+                        activeTurn = null
+                        drainQueue()
+                    }
+                    savedActiveTurn != null -> executeTurn(savedActiveTurn)
+                    else -> drainQueue()
+                }
             }
-            .onFailure { _state.update { it.copy(bootstrapping = false, transientError = "历史恢复失败") } }
+            .onFailure {
+                if (_state.value.conversationId == conversationId) {
+                    _state.update {
+                        it.copy(
+                            bootstrapping = false,
+                            transientError = strings.get(StringKey.ChatRestoreFailed),
+                        )
+                    }
+                }
+            }
         restored = true
     }
 
@@ -129,6 +233,9 @@ class ChatViewModel(
         return ChatMessageUi(
             id = raw.str("id") ?: metadata.str("id") ?: UUID.randomUUID().toString(),
             role = if (role == "user") ChatMessageUi.Role.USER else ChatMessageUi.Role.AI,
+            clientMessageId = raw.str("client_message_id")
+                ?: metadata.str("client_message_id")
+                ?: metadata.str("id"),
             content = content(),
             searchResults = search,
             papers = papers,
@@ -136,55 +243,218 @@ class ChatViewModel(
             followUps = followUps,
             clarification = clarification,
             streaming = false,
+            turnStartedAt = raw.num("turnStartedAt") ?: metadata.num("turnStartedAt"),
+            searchStartedAt = raw.num("searchStartedAt") ?: metadata.num("searchStartedAt"),
+            searchCompletedAt = raw.num("searchCompletedAt") ?: metadata.num("searchCompletedAt"),
         ).takeIf { it.hasDurablePayload }
+    }
+
+    private fun restoreActiveMessage(
+        messages: List<ChatMessageUi>,
+        run: ChatRun,
+        presentation: RunPresentation?,
+    ): List<ChatMessageUi> {
+        lastClientMessageId = run.client_message_id
+        lastPresentationRevision = presentation?.revision ?: -1
+        val existingIndex = messages.indexOfLast {
+            it.role == ChatMessageUi.Role.AI && it.clientMessageId == run.client_message_id
+        }
+        val target = if (existingIndex >= 0) messages[existingIndex] else ChatMessageUi(
+            id = "ai-recover-${run.run_id.ifBlank { System.currentTimeMillis().toString() }}",
+            role = ChatMessageUi.Role.AI,
+            clientMessageId = run.client_message_id,
+            streaming = true,
+            turnStartedAt = presentation?.turn_started_at ?: run.started_at,
+        )
+        val restored = presentation?.let { applyPresentation(target, it) }
+            ?: target.copy(streaming = true)
+        return if (existingIndex >= 0) {
+            messages.mapIndexed { index, item -> if (index == existingIndex) restored else item }
+        } else messages + restored
+    }
+
+    private fun applyPresentation(
+        current: ChatMessageUi,
+        presentation: RunPresentation,
+    ): ChatMessageUi {
+        val progress = presentation.progress.mapNotNull { raw ->
+            runCatching {
+                json.decodeFromJsonElement(ProgressComponent.serializer(), raw)
+            }.getOrNull()
+        }
+        val searchResults = presentation.search_results?.let { raw ->
+            runCatching { json.decodeFromJsonElement(SearchMeta.serializer(), raw) }.getOrNull()
+        }
+        val searchMedia = presentation.search_media?.let { raw ->
+            runCatching { json.decodeFromJsonElement(SearchMeta.serializer(), raw) }.getOrNull()
+        }
+        val mergedSearch = listOfNotNull(searchResults, searchMedia).fold(current.searchResults) {
+                accumulated, projection -> accumulated.mergeProjection(projection)
+            }
+        return current.copy(
+            clientMessageId = presentation.client_message_id.ifBlank { current.clientMessageId },
+            content = presentation.content,
+            progress = progress.lastOrNull() ?: current.progress,
+            progressTrail = if (progress.isNotEmpty()) progress else current.progressTrail,
+            searchResults = mergedSearch,
+            actions = presentation.workspace_actions.ifEmpty { current.actions },
+            clarification = presentation.clarification ?: current.clarification,
+            papers = presentation.papers?.papers?.ifEmpty { current.papers } ?: current.papers,
+            followUps = presentation.follow_ups.ifEmpty { current.followUps },
+            hints = presentation.experience_hints.ifEmpty { current.hints },
+            streaming = true,
+            turnStartedAt = presentation.turn_started_at ?: current.turnStartedAt,
+            searchStartedAt = presentation.search_started_at ?: current.searchStartedAt,
+            searchCompletedAt = presentation.search_completed_at ?: current.searchCompletedAt,
+            error = presentation.error ?: current.error,
+        )
     }
 
     // ---------- Send ----------
 
-    fun send(text: String, referenceImages: List<String> = emptyList(), location: Pair<Double, Double>? = null) {
+    fun send(
+        text: String,
+        referenceImages: List<String> = emptyList(),
+        location: Pair<Double, Double>? = null,
+    ): ChatSendDisposition {
         val message = text.trim()
-        if (message.isEmpty() || _state.value.streaming) return
-        val clientMessageId = UUID.randomUUID().toString()
-        lastUserMessage = message
-        lastClientMessageId = clientMessageId
-
-        val userMessage = ChatMessageUi(
-            id = clientMessageId,
-            role = ChatMessageUi.Role.USER,
-            content = message,
+        if (message.isEmpty() || _state.value.bootstrapping) return ChatSendDisposition.IGNORED
+        val turn = PendingChatTurn(
+            id = UUID.randomUUID().toString(),
+            text = message,
+            referenceImages = referenceImages.take(3),
+            latitude = location?.first,
+            longitude = location?.second,
         )
-        val assistantId = UUID.randomUUID().toString()
-        _state.update {
-            it.copy(
-                messages = it.messages + userMessage + ChatMessageUi(
+        if (_state.value.streaming || streamJob?.isActive == true) {
+            return if (enqueue(turn)) ChatSendDisposition.QUEUED
+            else ChatSendDisposition.QUEUE_FULL
+        }
+        executeTurn(turn)
+        return ChatSendDisposition.STARTED
+    }
+
+    private fun executeTurn(turn: PendingChatTurn) {
+        val conversationId = _state.value.conversationId
+        if (conversationId.isBlank()) return
+        activeTurn = turn
+        runtimeStore.saveActiveTurn(conversationId, turn)
+        lastUserMessage = turn.text
+        lastClientMessageId = turn.id
+        lastPresentationRevision = -1
+
+        val firstQuestion = activeConversationPending &&
+            _state.value.messages.none { it.role == ChatMessageUi.Role.USER }
+        activeConversationPending = false
+        val userMessage = ChatMessageUi(
+            id = turn.id,
+            role = ChatMessageUi.Role.USER,
+            clientMessageId = turn.id,
+            content = turn.text,
+            turnStartedAt = turn.createdAt,
+        )
+        val assistantId = _state.value.messages.lastOrNull {
+            it.role == ChatMessageUi.Role.AI && it.clientMessageId == turn.id
+        }?.id ?: UUID.randomUUID().toString()
+        _state.update { current ->
+            val hasUser = current.messages.any {
+                it.role == ChatMessageUi.Role.USER && it.clientMessageId == turn.id
+            }
+            val hasAssistant = current.messages.any {
+                it.role == ChatMessageUi.Role.AI && it.clientMessageId == turn.id
+            }
+            current.copy(
+                messages = current.messages +
+                    (if (hasUser) emptyList() else listOf(userMessage)) +
+                    (if (hasAssistant) emptyList() else listOf(ChatMessageUi(
                     id = assistantId,
                     role = ChatMessageUi.Role.AI,
+                    clientMessageId = turn.id,
                     streaming = true,
-                ),
+                    turnStartedAt = turn.createdAt,
+                ))),
                 streaming = true,
+                recovering = false,
                 transientError = null,
             )
         }
 
+        // Index immediately so a new conversation moves to the top and its
+        // first question becomes the default title before generation ends.
+        viewModelScope.launch {
+            runCatching {
+                repository.touchConversation(
+                    conversationId = conversationId,
+                    title = turn.text.take(40).takeIf { firstQuestion },
+                    messageCount = _state.value.messages.count { it.hasDurablePayload },
+                )
+            }
+        }
+
         val body = buildJsonObject {
-            put("message", message)
-            put("client_message_id", clientMessageId)
-            if (referenceImages.isNotEmpty()) {
+            put("message", turn.text)
+            put("client_message_id", turn.id)
+            if (turn.referenceImages.isNotEmpty()) {
                 putJsonArray("reference_images") {
-                    referenceImages.take(3).forEach { add(JsonPrimitive(it)) }
+                    turn.referenceImages.forEach { add(JsonPrimitive(it)) }
                 }
             }
-            location?.let { (lat, lng) ->
+            if (turn.latitude != null && turn.longitude != null) {
                 put("current_location", buildJsonObject {
-                    put("latitude", lat)
-                    put("longitude", lng)
+                    put("latitude", turn.latitude)
+                    put("longitude", turn.longitude)
                 })
             }
         }
-        startStream(assistantId, body)
+        startStream(assistantId, turn, body)
     }
 
-    private fun startStream(assistantId: String, body: JsonObject) {
+    private fun enqueue(turn: PendingChatTurn, first: Boolean = false): Boolean {
+        val state = _state.value
+        if (state.queuedTurns.size >= ChatRuntimeStore.MAX_WAITING_TURNS) {
+            return false
+        }
+        val next = if (first) listOf(turn) + state.queuedTurns else state.queuedTurns + turn
+        runtimeStore.saveQueue(state.conversationId, next)
+        _state.update { it.copy(queuedTurns = next) }
+        return true
+    }
+
+    fun updateQueuedTurn(id: String, text: String) {
+        val normalized = text.trim()
+        if (normalized.isEmpty()) return
+        val next = _state.value.queuedTurns.map {
+            if (it.id == id) it.copy(text = normalized) else it
+        }
+        runtimeStore.saveQueue(_state.value.conversationId, next)
+        _state.update { it.copy(queuedTurns = next) }
+    }
+
+    fun removeQueuedTurn(id: String) {
+        val next = _state.value.queuedTurns.filterNot { it.id == id }
+        runtimeStore.saveQueue(_state.value.conversationId, next)
+        _state.update { it.copy(queuedTurns = next) }
+    }
+
+    fun interruptWithQueuedTurn(id: String) {
+        val selected = _state.value.queuedTurns.firstOrNull { it.id == id } ?: return
+        val reordered = listOf(selected) + _state.value.queuedTurns.filterNot { it.id == id }
+        runtimeStore.saveQueue(_state.value.conversationId, reordered)
+        _state.update { it.copy(queuedTurns = reordered) }
+        stop()
+    }
+
+    private fun drainQueue() {
+        val state = _state.value
+        if (state.bootstrapping || state.streaming || streamJob?.isActive == true) return
+        val next = state.queuedTurns.firstOrNull() ?: return
+        val rest = state.queuedTurns.drop(1)
+        runtimeStore.saveQueue(state.conversationId, rest)
+        _state.update { it.copy(queuedTurns = rest) }
+        executeTurn(next)
+    }
+
+    private fun startStream(assistantId: String, turn: PendingChatTurn, body: JsonObject) {
         val conversationId = _state.value.conversationId
         streamJob?.cancel()
         streamJob = viewModelScope.launch {
@@ -203,7 +473,8 @@ class ChatViewModel(
                 }
             }
 
-            runCatching {
+            var streamError: Throwable? = null
+            try {
                 repository.streamChat(conversationId, body).collect { event ->
                     when (event) {
                         is ChatEvent.LocationRequest ->
@@ -214,11 +485,33 @@ class ChatViewModel(
                             typewriter.reset()
                             updateAssistant(assistantId) { it.copy(content = "") }
                         }
+                        is ChatEvent.Progress -> {
+                            updateAssistant(assistantId) { current ->
+                                val searchStart = if (
+                                    event.payload.activity == "web_search" &&
+                                    current.searchStartedAt == null
+                                ) turn.createdAt else current.searchStartedAt
+                                val searchEnd = if (
+                                    event.payload.activity == "web_search" &&
+                                    event.payload.status == "completed"
+                                ) System.currentTimeMillis() else current.searchCompletedAt
+                                current.reduce(event).copy(
+                                    searchStartedAt = searchStart,
+                                    searchCompletedAt = searchEnd,
+                                )
+                            }
+                        }
                         is ChatEvent.AnswerComplete -> {
                             sawTerminal = true
                             typewriter.finish()
                             drain(typewriter, assistantId)
-                            updateAssistant(assistantId) { it.reduce(event) }
+                            updateAssistant(assistantId) {
+                                it.reduce(event).copy(
+                                    searchCompletedAt = if (it.searchStartedAt != null) {
+                                        System.currentTimeMillis()
+                                    } else it.searchCompletedAt,
+                                )
+                            }
                         }
                         is ChatEvent.Error -> {
                             sawTerminal = true
@@ -229,34 +522,51 @@ class ChatViewModel(
                         else -> updateAssistant(assistantId) { it.reduce(event) }
                     }
                 }
-            }.onFailure { error ->
-                typewriter.finish()
-                drain(typewriter, assistantId)
-                updateAssistant(assistantId) {
-                    it.copy(streaming = false, failed = true, error = error.message ?: "网络错误")
-                }
+            } catch (error: Throwable) {
+                streamError = error
             }
             // 无论如何都把缓冲里剩下的字符补齐，终态与后端一致。
             typewriter.finish()
             drain(typewriter, assistantId)
             painter.cancel()
 
+            if (streamError != null && !sawTerminal) {
+                _state.update { it.copy(recovering = true) }
+                val recovered = recoverRun(conversationId, turn.id, assistantId)
+                if (recovered) return@launch
+                updateAssistant(assistantId) {
+                    it.copy(
+                        streaming = false,
+                        failed = true,
+                        error = streamError?.message
+                            ?: strings.get(StringKey.ChatConnectionInterrupted),
+                    )
+                }
+            }
+
             updateAssistant(assistantId) { current ->
                 if (current.streaming) current.copy(
                     streaming = false,
                     failed = !sawTerminal && current.content.isBlank() && !current.hasDurablePayload,
-                    error = if (!sawTerminal && current.content.isBlank()) "连接中断，请重试" else current.error,
+                    error = if (!sawTerminal && current.content.isBlank()) {
+                        strings.get(StringKey.ChatConnectionInterrupted)
+                    } else current.error,
                 ) else current
             }
-            _state.update { it.copy(streaming = false) }
+            _state.update { it.copy(streaming = false, recovering = false) }
+            runtimeStore.clearActiveTurn(conversationId, turn.id)
+            activeTurn = null
             // Keep the tenant-level conversation index fresh (fire-and-forget).
             runCatching {
                 repository.touchConversation(
                     conversationId,
-                    lastUserMessage?.take(40) ?: "新对话",
-                    _state.value.messages.count { it.hasDurablePayload },
+                    title = null,
+                    messageCount = _state.value.messages.count { it.hasDurablePayload },
                 )
             }
+            yield()
+            streamJob = null
+            drainQueue()
         }
     }
 
@@ -275,12 +585,163 @@ class ChatViewModel(
         }
     }
 
+    private fun updateAssistantByOwner(
+        clientMessageId: String,
+        transform: (ChatMessageUi) -> ChatMessageUi,
+    ) {
+        _state.update { state ->
+            val index = state.messages.indexOfLast {
+                it.role == ChatMessageUi.Role.AI && it.clientMessageId == clientMessageId
+            }
+            if (index < 0) state else state.copy(
+                messages = state.messages.mapIndexed { itemIndex, item ->
+                    if (itemIndex == index) transform(item) else item
+                },
+            )
+        }
+    }
+
+    private fun recoverExistingRun(conversationId: String, run: ChatRun) {
+        val assistantId = _state.value.messages.lastOrNull {
+            it.role == ChatMessageUi.Role.AI && it.clientMessageId == run.client_message_id
+        }?.id ?: return
+        streamJob?.cancel()
+        streamJob = viewModelScope.launch {
+            recoverRun(conversationId, run.client_message_id, assistantId)
+        }
+    }
+
+    /** Poll only Maker's existing checkpoint; never starts a second model turn. */
+    private suspend fun recoverRun(
+        conversationId: String,
+        clientMessageId: String,
+        assistantId: String,
+    ): Boolean {
+        var absentChecks = 0
+        while (_state.value.conversationId == conversationId) {
+            val state = runCatching { repository.chatRun(conversationId) }.getOrNull()
+            val run = state?.run
+            val sameTurn = run != null && (
+                clientMessageId.isBlank() || run.client_message_id == clientMessageId
+            )
+            if (sameTurn && run?.active == true) {
+                absentChecks = 0
+                state.presentation?.takeIf {
+                    it.client_message_id == clientMessageId && it.revision > lastPresentationRevision
+                }?.let { presentation ->
+                    lastPresentationRevision = presentation.revision
+                    updateAssistant(assistantId) { applyPresentation(it, presentation) }
+                }
+                delay(RECOVERY_POLL_MS)
+                continue
+            }
+            if (sameTurn && run?.status == "completed") {
+                val data = runCatching { repository.bootstrap(conversationId) }.getOrNull()
+                if (data != null && _state.value.conversationId == conversationId) {
+                    _state.update { current ->
+                        current.copy(
+                            messages = data.messages.mapNotNull(::parseRestoredMessage),
+                            streaming = false,
+                            recovering = false,
+                        )
+                    }
+                } else {
+                    updateAssistant(assistantId) { it.copy(streaming = false) }
+                    _state.update { it.copy(streaming = false, recovering = false) }
+                }
+                finishRecoveredTurn(conversationId, clientMessageId)
+                return true
+            }
+            if (sameTurn && run?.status == "cancelled") {
+                discardAssistantTurn(clientMessageId)
+                _state.update { it.copy(streaming = false, recovering = false) }
+                runtimeStore.clearStopIntent(conversationId, clientMessageId)
+                finishRecoveredTurn(conversationId, clientMessageId)
+                return true
+            }
+            if (sameTurn && run?.status == "failed") {
+                updateAssistant(assistantId) {
+                    it.copy(
+                        streaming = false,
+                        failed = true,
+                        error = run.error ?: strings.get(StringKey.ChatGenerationFailed),
+                    )
+                }
+                _state.update { it.copy(streaming = false, recovering = false) }
+                finishRecoveredTurn(conversationId, clientMessageId)
+                return true
+            }
+            if (run?.active == true) {
+                // A newer turn may already own Maker. Never overwrite it with
+                // stale presentation from the disconnected turn.
+                delay(RECOVERY_POLL_MS)
+                continue
+            }
+            absentChecks += 1
+            if (absentChecks >= RECOVERY_ABSENT_GRACE_CHECKS) return false
+            delay(RECOVERY_POLL_MS)
+        }
+        return true
+    }
+
+    private fun finishRecoveredTurn(conversationId: String, clientMessageId: String) {
+        runtimeStore.clearActiveTurn(conversationId, clientMessageId)
+        activeTurn = null
+        streamJob = null
+        viewModelScope.launch {
+            yield()
+            drainQueue()
+        }
+    }
+
+    private fun discardAssistantTurn(clientMessageId: String) {
+        _state.update { state ->
+            state.copy(messages = state.messages.filterNot {
+                it.role == ChatMessageUi.Role.AI && it.clientMessageId == clientMessageId
+            })
+        }
+    }
+
     fun stop() {
         val conversationId = _state.value.conversationId
+        val clientMessageId = activeTurn?.id
+            ?: lastClientMessageId
+            ?: _state.value.messages.lastOrNull { it.streaming }?.clientMessageId
+            ?: return
+        runtimeStore.markStopIntent(conversationId, clientMessageId)
         streamJob?.cancel()
-        viewModelScope.launch { runCatching { repository.stop(conversationId) } }
-        updateAll { if (it.streaming) it.copy(streaming = false) else it }
-        _state.update { it.copy(streaming = false) }
+        streamJob = null
+        discardAssistantTurn(clientMessageId)
+        _state.update { it.copy(streaming = false, recovering = false) }
+        activeTurn = null
+        confirmStop(conversationId, clientMessageId, null)
+    }
+
+    private fun confirmStop(conversationId: String, clientMessageId: String, knownRun: ChatRun?) {
+        viewModelScope.launch {
+            var run = knownRun
+            while (runtimeStore.stoppedClientMessageId(conversationId) == clientMessageId) {
+                val acknowledged = runCatching {
+                    repository.stop(conversationId, clientMessageId)
+                }.getOrNull()?.str("client_message_id") == clientMessageId
+                if (acknowledged) {
+                    runtimeStore.clearStopIntent(conversationId, clientMessageId)
+                    runtimeStore.clearActiveTurn(conversationId, clientMessageId)
+                    break
+                }
+                run = runCatching { repository.chatRun(conversationId).run }.getOrNull()
+                if (
+                    run?.client_message_id == clientMessageId &&
+                    run?.status == "cancelled"
+                ) {
+                    runtimeStore.clearStopIntent(conversationId, clientMessageId)
+                    runtimeStore.clearActiveTurn(conversationId, clientMessageId)
+                    break
+                }
+                delay(RECOVERY_POLL_MS)
+            }
+            if (_state.value.conversationId == conversationId) drainQueue()
+        }
     }
 
     fun retryLast() {
@@ -304,7 +765,15 @@ class ChatViewModel(
     fun provideLocation(latitude: Double, longitude: Double) {
         _state.update { it.copy(locationRequestReason = null) }
         val message = lastUserMessage ?: return
-        send(message, location = latitude to longitude)
+        enqueue(
+            PendingChatTurn(
+                id = UUID.randomUUID().toString(),
+                text = message,
+                latitude = latitude,
+                longitude = longitude,
+            ),
+            first = true,
+        )
     }
 
     fun dismissLocationRequest() {
@@ -317,6 +786,13 @@ class ChatViewModel(
         if (_state.value.streaming) return
         _state.update { it.copy(submittingClarification = true) }
         val summary = answers.entries.joinToString("；") { "${it.key}: ${it.value}" }
+        val turn = PendingChatTurn(
+            id = UUID.randomUUID().toString(),
+            text = strings.get(StringKey.ClarificationAnswered, summary),
+        )
+        activeTurn = turn
+        lastClientMessageId = turn.id
+        lastUserMessage = turn.text
         val assistantId = UUID.randomUUID().toString()
         _state.update { state ->
             state.copy(
@@ -330,15 +806,19 @@ class ChatViewModel(
                             message
                         }
                     } + ChatMessageUi(
-                    id = assistantId, role = ChatMessageUi.Role.AI, streaming = true,
+                    id = assistantId,
+                    role = ChatMessageUi.Role.AI,
+                    clientMessageId = turn.id,
+                    streaming = true,
+                    turnStartedAt = turn.createdAt,
                 ),
                 streaming = true,
                 submittingClarification = false,
             )
         }
         val body = buildJsonObject {
-            put("message", "（已提交澄清）$summary")
-            put("client_message_id", UUID.randomUUID().toString())
+            put("message", turn.text)
+            put("client_message_id", turn.id)
             put("clarification_response", buildJsonObject {
                 put("clarification_id", clarification.id)
                 answers.forEach { (key, value) ->
@@ -351,7 +831,7 @@ class ChatViewModel(
                 }
             })
         }
-        startStream(assistantId, body)
+        startStream(assistantId, turn, body)
     }
 
     // ---------- Workspace actions ----------
@@ -385,6 +865,33 @@ class ChatViewModel(
         }
     }
 
+    /** Continue an existing image action through the shared Maker /image stream. */
+    fun editImage(action: WorkspaceAction, prompt: String) {
+        val instruction = prompt.trim()
+        if (instruction.isEmpty() || _state.value.busyActionId != null) return
+        val conversationId = _state.value.conversationId
+        _state.update { it.copy(busyActionId = action.id, transientError = null) }
+        viewModelScope.launch {
+            runCatching {
+                repository.streamImageEdit(conversationId, instruction, action.id).collect { event ->
+                    when (event) {
+                        is ChatEvent.ImageAction -> replaceAction(event.action)
+                        is ChatEvent.WorkspaceActionEvent -> replaceAction(event.action)
+                        is ChatEvent.Error -> error(event.content)
+                        else -> Unit
+                    }
+                }
+            }.onFailure { failure ->
+                _state.update {
+                    it.copy(
+                        transientError = failure.message ?: strings.get(StringKey.ChatImageFailed),
+                    )
+                }
+            }
+            _state.update { it.copy(busyActionId = null) }
+        }
+    }
+
     private fun workspaceAction(action: WorkspaceAction, operation: String) {
         val conversationId = _state.value.conversationId
         _state.update { it.copy(busyActionId = action.id) }
@@ -408,7 +915,9 @@ class ChatViewModel(
                     repository.schedulesFlow.value = repository.parseSchedules(it)
                 }
             }.onFailure {
-                _state.update { s -> s.copy(transientError = "操作失败，请稍后重试") }
+                _state.update {
+                    it.copy(transientError = strings.get(StringKey.OperationFailed))
+                }
             }
             _state.update { it.copy(busyActionId = null) }
         }
@@ -423,4 +932,9 @@ class ChatViewModel(
     }
 
     fun consumeError() = _state.update { it.copy(transientError = null) }
+
+    private companion object {
+        const val RECOVERY_POLL_MS = 850L
+        const val RECOVERY_ABSENT_GRACE_CHECKS = 8
+    }
 }

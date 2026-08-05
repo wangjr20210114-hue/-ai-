@@ -3,6 +3,7 @@ package com.floris.android.core.share
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
+import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -27,7 +28,7 @@ object ImageSaver {
         context: Context,
         image: ImageBitmap,
         displayName: String = "floris-${System.currentTimeMillis()}",
-    ): Result<String> = withContext(Dispatchers.IO) {
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val bitmap = image.asAndroidBitmap()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -38,7 +39,7 @@ object ImageSaver {
         }
     }
 
-    private fun saveViaMediaStore(context: Context, bitmap: Bitmap, name: String): String {
+    private fun saveViaMediaStore(context: Context, bitmap: Bitmap, name: String) {
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, "$name.png")
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")
@@ -62,10 +63,9 @@ object ImageSaver {
             runCatching { resolver.delete(uri, null, null) }
             throw error
         }
-        return "已保存到相册 · $ALBUM"
     }
 
-    private fun saveToPublicDirectory(context: Context, bitmap: Bitmap, name: String): String {
+    private fun saveToPublicDirectory(context: Context, bitmap: Bitmap, name: String) {
         val directory = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
             ALBUM,
@@ -78,7 +78,11 @@ object ImageSaver {
             }
         }
         // 让系统相册立刻能看到这张图。
-        MediaStore.Images.Media.insertImage(context.contentResolver, file.absolutePath, name, null)
-        return "已保存到相册 · $ALBUM"
+        MediaScannerConnection.scanFile(
+            context,
+            arrayOf(file.absolutePath),
+            arrayOf("image/png"),
+            null,
+        )
     }
 }

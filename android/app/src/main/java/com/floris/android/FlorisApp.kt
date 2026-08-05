@@ -5,6 +5,7 @@ import android.content.Context
 import com.floris.android.core.auth.AuthManager
 import com.floris.android.core.auth.CloudBaseAuthApi
 import com.floris.android.core.auth.TokenStore
+import com.floris.android.core.chat.ChatRuntimeStore
 import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.network.FlorisClient
 import kotlinx.serialization.json.Json
@@ -54,13 +55,21 @@ class AppContainer(private val context: Context) {
             )
         },
         guestExchange = { florisClient.obtainGuestSession() },
+        onSignedOut = {
+            chatRuntimeStore.clearAll()
+            repository.clearLocalIdentityProjection()
+        },
     )
 
-    val florisClient: FlorisClient by lazy { FlorisClient(authManager, json) }
+    val florisClient: FlorisClient by lazy {
+        FlorisClient(authManager, json) { preferences.language.value.tag }
+    }
 
     val repository: FlorisRepository by lazy {
         FlorisRepository(florisClient, tokenStore, json, context)
     }
+
+    val chatRuntimeStore: ChatRuntimeStore by lazy { ChatRuntimeStore(context, json) }
 
     /** 客户端本地偏好（主题、语言、新手介绍、富搜索数量）。 */
     val preferences: com.floris.android.ui.prefs.AppPreferences by lazy {
@@ -68,5 +77,9 @@ class AppContainer(private val context: Context) {
             context,
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main),
         )
+    }
+
+    val strings: com.floris.android.ui.prefs.StringResolver by lazy {
+        com.floris.android.ui.prefs.StringResolver { preferences.language.value }
     }
 }

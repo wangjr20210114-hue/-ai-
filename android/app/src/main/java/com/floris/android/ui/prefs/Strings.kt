@@ -3,7 +3,8 @@ package com.floris.android.ui.prefs
 /** 文案键。每条必须提供全部五种语言，避免静默回退。 */
 enum class StringKey {
     // 通用
-    Confirm, Cancel, Retry, Done, Close, Search, Loading, Failed,
+    Confirm, Cancel, Retry, Done, Close, Search, Loading, Failed, Back, Delete, Edit, Send,
+    Self, Decrease, Increase, QuoteOne, QuoteTwo, QuoteThree, QuoteFour, QuoteFive,
     // 处理进度（与网页端逐字一致）
     UnderstandingRequest, ProgressPlanning, ProgressRetrieval, ProgressVerification,
     ProgressSynthesis, ProgressFinalizing, ProgressComplete, ProgressWebSearch,
@@ -20,7 +21,7 @@ enum class StringKey {
     LoginAsGuest, GuestBadge, GuestUpgradeHint, ExitConfirmToast,
     LoginOr, GuestSignInCta, GuestProfileNotice,
     // 回答操作
-    CopyPlainText, CopiedToClipboard, SaveAsImage, Saving, SaveImageFailed,
+    CopyPlainText, CopiedToClipboard, SaveAsImage, Saving, SaveImageFailed, SavedToGallery,
     // 个人信息
     AccountTitle, AccountMembership, AccountHelp, AccountAboutDesc,
     // 澄清卡
@@ -31,6 +32,17 @@ enum class StringKey {
     AppTagline, ChatIntro, ChatInputHint, ChatStop, ChatNew, ChatHistory,
     SuggestNews, SuggestBooks, SuggestPlace, SuggestCode,
     ChatSources, ChatEmptyHistoryTitle, ChatEmptyHistoryBody,
+    ChatSourceCount, PaperCited, LocationPermissionTitle, LocationPermissionBody,
+    AttachedImageCount, ActionMapTitle, ActionCalendarTitle, ActionMeetingTitle,
+    ActionImageTitle, ActionWorkspaceTitle, ActionRouteMode, CalendarChangeAdd,
+    CalendarChangeUpdate, MeetingSubject, MeetingTime, Unscheduled, Yes, No,
+    SelectValue, InputPlaceholder,
+    ChatQueueTitle, ChatQueueEdit, ChatQueueDelete, ChatQueueRunNow, ChatQueueFull,
+    ChatRename, ChatRenameHint, ChatMessageCount, TimeJustNow, TimeMinutesAgo,
+    TimeHoursAgo, TimeDaysAgo, ChatAddImage, ChatVoiceStart, ChatVoiceStop, ChatVoiceUnavailable,
+    ImageEditHint, ImageEditAction, ImageOriginal, ImageUpdated, ImagePrompt,
+    ChatRestoreFailed, ChatConnectionInterrupted, ChatGenerationFailed,
+    ChatImageFailed, OperationFailed,
     // 新手介绍
     OnboardingWelcomeTitle, OnboardingOwners, OnboardingGithubWelcome, OnboardingIntroOffer,
     OnboardingStart, OnboardingSkip, OnboardingNewConversation, OnboardingHistory,
@@ -41,17 +53,44 @@ enum class StringKey {
     // Skills
     SkillsEyebrow, SkillsTitle, SkillsSubtitle, SkillsSearchHint, SkillsEnabledCount,
     SkillsAlwaysOn, SkillsGuestReady, SkillsRequires, SkillsDependencies, SkillsComponentApi,
+    SkillsConflicts, SkillsRecommends, SkillCategoryFoundation, SkillCategoryKnowledge,
+    SkillCategoryCreative, SkillCategoryProductivity, SkillCategoryLocation, SkillCategoryOther,
     SkillsLoginRequired, SkillsLoginHint, SkillsGuestNotice,
+    SkillsAdd, SkillsImportTitle, SkillsImportUrl, SkillsImportName,
+    SkillsImportDescription, SkillsImportInstructions, SkillsImport, SkillsChooseFile,
+    SkillsPrivate, SkillsRemove, SkillsUploads, SkillsSubmitReview, SkillsPendingReview,
+    SkillsApproved, SkillsRejected, SkillsStored,
+    SkillsConnection, SkillsConnectionToken, SkillsConnect, SkillsConnected, SkillsDisconnect,
+    SkillsMarketFailed, SkillsEmptyTitle, SkillsEmptyBody, SkillsOperationFailed,
+    SkillsImportFailed, SkillsSubmitFailed, SkillsConnectFailed, SkillsDisconnectFailed,
+    SkillsOfficial,
     // 日程
     CalendarTitle, CalendarToday, CalendarDayEmpty, CalendarEmptyTitle, CalendarEmptyBody,
+    CalendarAdd, CalendarEdit, CalendarDelete, CalendarEventTitle, CalendarLocation,
+    CalendarStart, CalendarDuration, CalendarSave,
+    CalendarYearMonth, CalendarPreviousMonth, CalendarNextMonth, CalendarOnline,
+    CalendarLoadFailed, CalendarSaveFailed, CalendarDeleteFailed,
+    WeekMonday, WeekTuesday, WeekWednesday, WeekThursday, WeekFriday, WeekSaturday, WeekSunday,
     // 阅读
     ReadingTitle, ReadingSearchHint, ReadingLibrary, ReadingEmptyTitle, ReadingEmptyBody,
     ReadingSummarize, ReadingTranslate, ReadingNoResultTitle, ReadingNoResultBody,
+    ReadingUpload, ReadingUploading, ReadingSave, ReadingSaved, ReadingDelete, ReadingUploadFailed,
+    ReadingResults, ReadingAutoOrganize, ReadingFolderNew, ReadingFolderRename,
+    ReadingFolderDelete, ReadingAll, ReadingPaper, ReadingOpen, ReadingOpening,
+    ReadingMove, ReadingAnalyze, ReadingAsk, ReadingAskHint, ReadingSaveResult,
+    ReadingSearchFailed, ReadingSaveFailed, ReadingDeleteFailed, ReadingOperationFailed,
+    ReadingOpenFailed, ReadingRunFailed,
     // 地图
     MapTitle, MapSearchHint, MapPlaces, MapRoute, MapEmptyTitle, MapEmptyBody, MapShowOnMap,
+    MapNamedRoute, DurationHoursMinutes, DurationMinutes, MapSearchFailed,
+    MapNeedTwoPlaces, MapServiceUnavailable, MapPlanFailed,
     // 个人中心
     ProfileTitle, ProfileBriefs, ProfileWorkspace, ProfileAccount, ProfileSettings,
     ProfileAbout, ProfileSignOut, ProfileMap, ProfileReading,
+    ProfileDefaultUser, ProfileReadingDesc, ProfileMapDesc, ProfileSettingsDesc,
+    ProfileAboutDesc, Important, MembershipPlus, MembershipPro, MembershipFree, MembershipGuest,
+    ProfileAvatar, ProfileDefaultDisplayName, ProfileNameUpdated, ProfileUpdateFailed,
+    ProfileAvatarUpdated, ProfileAvatarUpdateFailed, HistoryLoadFailed,
     // 设置
     SettingsTitle, SettingsAppearance, SettingsTheme, SettingsThemeSystem, SettingsThemeLight,
     SettingsThemeDark, SettingsLanguage, SettingsPreferences, SettingsProactive,
@@ -59,9 +98,27 @@ enum class StringKey {
     SettingsImageCandidatesDesc, SettingsReplayTour, SettingsReplayTourDesc, SettingsUsage,
     SettingsDailyTokens, SettingsMonthlyTokens, SettingsData, SettingsResetData,
     SettingsResetTitle, SettingsResetBody, SettingsResetConfirm, SettingsNickname, SettingsNotSet,
+    SettingsResetting, SettingsParallelImages, SettingsParallelImagesDesc,
+    SettingsMapExperience, SettingsMapExperienceDesc, SettingsMapServiceMode,
+    SettingsMapFast, SettingsMapBalanced, SettingsMapComplete, SettingsMapPlaceCount,
+    SettingsMapRouteStops, SettingsMapTimeout, SettingsPreferredRoute,
+    SettingsRouteStrategy, SettingsNearTolerance, SettingsLearnRoute,
+    RouteDriving, RouteTransit, RouteWalking, RouteBicycling,
+    StrategyTimeCost, StrategyLeastTime, StrategyLeastCost,
+    SettingsPersonalization, SettingsPersonalizationDesc, PersonalizationTitle,
+    MemorySection, MemoryEnabled, MemoryEnabledDesc, MemoryPending, MemorySaved,
+    MemoryEmpty, MemoryReason, MemoryReject, MemoryRollback, MemoryClear,
+    MemoryClearTitle, MemoryClearBody, RulesSection, ProactiveSection,
+    ProactiveAutonomy, ProactiveObserve, ProactiveRemind, ProactivePropose,
+    ProactiveLowRiskAuto, ProactiveQuietHours, ProactiveDailyLimit,
+    ProactiveLookahead, ProactiveWindowLimit, ProactiveProviderLimit,
+    ProactiveRouteGap, ProactiveTravelBuffer, WorkflowSection, WorkflowEmpty,
+    WorkflowConfirm, WorkflowReject, WorkflowCancel, WorkflowCompleteStep,
+    WorkflowSkipStep, SettingsSaved, SettingsSaveFailed,
+    SettingsResetSucceeded, SettingsResetFailed,
     // 登录
     LoginEmail, LoginSendCode, LoginSending, LoginCode, LoginSignIn, LoginSigningIn,
-    LoginBackToEmail, LoginCodeSentTo,
+    LoginBackToEmail, LoginCodeSentTo, LoginInvalidEmail, LoginEnterCode, LoginOperationFailed,
     // 工作区动作
     ActionAwaiting, ActionReady, ActionActive, ActionExecuting, ActionSucceeded,
     ActionFailed, ActionCancelled, ActionNeedsReview, ActionUnknown,
@@ -87,6 +144,18 @@ object Strings {
         put(StringKey.Search, "搜索", "搜尋", "Search", "找找看", "搜索")
         put(StringKey.Loading, "加载中…", "載入中…", "Loading…", "正在翻找…", "加载中…")
         put(StringKey.Failed, "加载失败", "載入失敗", "Failed to load", "没找到呢", "加载失败")
+        put(StringKey.Back, "返回", "返回", "Back", "回去", "返回")
+        put(StringKey.Delete, "删除", "刪除", "Delete", "删掉", "删除")
+        put(StringKey.Edit, "编辑", "編輯", "Edit", "改一下", "编辑")
+        put(StringKey.Send, "发送", "傳送", "Send", "发出去", "发送")
+        put(StringKey.Self, "我", "我", "Me", "我", "我")
+        put(StringKey.Decrease, "减少", "減少", "Decrease", "少一点", "减少")
+        put(StringKey.Increase, "增加", "增加", "Increase", "多一点", "增加")
+        put(StringKey.QuoteOne, "把小事做好，时间会替你铺成路。", "把小事做好，時間會替你鋪成路。", "Small things done well become a path over time.", "把小事做好，时间会替你铺成路喵。", "把小事做好，时间会替你铺成路。")
+        put(StringKey.QuoteTwo, "风会记得每一片认真生长的叶子。", "風會記得每一片認真生長的葉子。", "The wind remembers every leaf that kept growing.", "风会记得每片认真长大的叶子喵。", "风会记得认真生长的叶子。")
+        put(StringKey.QuoteThree, "慢一点也没关系，星光总会找到夜路。", "慢一點也沒關係，星光總會找到夜路。", "It's fine to go slowly; starlight still finds the night road.", "慢一点没关系，星光会找到夜路喵。", "慢一点也没关系。")
+        put(StringKey.QuoteFour, "留一点从容，给正在发生的好事。", "留一點從容，給正在發生的好事。", "Leave a little room for good things already unfolding.", "给正在发生的好事留点从容喵。", "给好事留一点从容。")
+        put(StringKey.QuoteFive, "今天也要像大橘一样，稳稳地晒太阳。", "今天也要像大橘一樣，穩穩地曬太陽。", "Take in today's sunshine like a content orange cat.", "今天也像大橘一样稳稳晒太阳喵。", "今天也稳稳地晒太阳。")
 
         // ---- 处理进度（逐字对齐网页端 i18n）----
         put(StringKey.UnderstandingRequest, "我先看一下", "我先看一下", "Let me take a look", "我先看一下喵", "我先看一下")
@@ -233,7 +302,7 @@ object Strings {
         put(StringKey.Saving, "保存中…", "儲存中…", "Saving…", "存着喵…", "保存中…")
         put(
             StringKey.ClarificationAnswered,
-            "已选择：%s", "已選擇：%s", "Answered: %s", "选好了喵：%s", "已选择：%s",
+            "已选择：{0}", "已選擇：{0}", "Answered: {0}", "选好了喵：{0}", "已选择：{0}",
         )
         put(
             StringKey.AccountTitle,
@@ -257,6 +326,7 @@ object Strings {
             "保存失败，请稍后重试", "儲存失敗，請稍後重試", "Save failed, please retry",
             "没存上喵，再试一次", "保存失败，请稍后重试。",
         )
+        put(StringKey.SavedToGallery, "已保存到相册", "已儲存到相簿", "Saved to gallery", "已经存到相册啦喵", "已保存到相册")
 
         // ---- 底部导航 ----
         put(StringKey.TabChat, "聊天", "聊天", "Chat", "聊天", "聊天")
@@ -304,6 +374,26 @@ object Strings {
             "用 Python 写个快排喵", "用 Python 写一个快速排序",
         )
         put(StringKey.ChatSources, "来源", "來源", "Sources", "线索来源", "来源")
+        put(StringKey.ChatSourceCount, "{0} 个来源", "{0} 個來源", "{0} sources", "{0} 条线索", "{0} 个来源")
+        put(StringKey.PaperCited, "被引 {0}", "被引 {0}", "Cited by {0}", "被引用 {0} 次", "被引 {0}")
+        put(StringKey.LocationPermissionTitle, "需要你的位置", "需要你的位置", "Location needed", "可以告诉我你在哪吗", "需要位置权限")
+        put(StringKey.LocationPermissionBody, "Floris 希望使用当前位置来提供更准确的结果。", "Floris 希望使用目前位置來提供更準確的結果。", "Floris can use your current location to improve the result.", "告诉我当前位置，结果会更准确喵。", "使用当前位置可提高结果准确度。")
+        put(StringKey.AttachedImageCount, "已附 {0} 张图片", "已附 {0} 張圖片", "{0} images attached", "夹了 {0} 张图片", "已附 {0} 张图片")
+        put(StringKey.ActionMapTitle, "地图推荐", "地圖推薦", "Map recommendation", "地图推荐", "地图推荐")
+        put(StringKey.ActionCalendarTitle, "日程变更", "日程變更", "Calendar changes", "日程调整", "日程变更")
+        put(StringKey.ActionMeetingTitle, "会议", "會議", "Meeting", "会议", "会议")
+        put(StringKey.ActionImageTitle, "图片生成", "圖片生成", "Image generation", "图片工坊", "图片生成")
+        put(StringKey.ActionWorkspaceTitle, "待处理事项", "待處理事項", "Workspace action", "等你确认的事", "待处理事项")
+        put(StringKey.ActionRouteMode, "路线方式：{0}", "路線方式：{0}", "Route mode: {0}", "怎么走：{0}", "路线方式：{0}")
+        put(StringKey.CalendarChangeAdd, "新增", "新增", "Add", "新增", "新增")
+        put(StringKey.CalendarChangeUpdate, "更新", "更新", "Update", "更新", "更新")
+        put(StringKey.MeetingSubject, "主题：{0}", "主題：{0}", "Subject: {0}", "主题：{0}", "主题：{0}")
+        put(StringKey.MeetingTime, "时间：{0} ~ {1}", "時間：{0} ~ {1}", "Time: {0} – {1}", "时间：{0} 到 {1}", "时间：{0} ~ {1}")
+        put(StringKey.Unscheduled, "未定", "未定", "Not set", "还没定", "未定")
+        put(StringKey.Yes, "是", "是", "Yes", "是呀", "是")
+        put(StringKey.No, "否", "否", "No", "不是", "否")
+        put(StringKey.SelectValue, "选择{0}", "選擇{0}", "Choose {0}", "选一下{0}", "选择{0}")
+        put(StringKey.InputPlaceholder, "请输入", "請輸入", "Enter a value", "写在这里", "请输入")
         put(
             StringKey.ChatEmptyHistoryTitle,
             "暂无历史对话", "暫無歷史對話", "No conversations yet",
@@ -317,6 +407,32 @@ object Strings {
             "先聊一句吧，我会替你收好的喵",
             "开始新对话后会保存在此。",
         )
+        put(StringKey.ChatQueueTitle, "待发送 {0}/5", "待傳送 {0}/5", "Queued {0}/5", "排队中 {0}/5 喵", "待发送 {0}/5")
+        put(StringKey.ChatQueueEdit, "编辑", "編輯", "Edit", "改一下", "编辑")
+        put(StringKey.ChatQueueDelete, "删除", "刪除", "Delete", "删掉", "删除")
+        put(StringKey.ChatQueueRunNow, "立即发送", "立即傳送", "Send now", "现在发喵", "立即发送")
+        put(StringKey.ChatQueueFull, "最多可排队 5 条消息", "最多可排隊 5 則訊息", "Up to 5 messages can be queued", "最多排 5 条喵", "最多可排队 5 条消息")
+        put(StringKey.ChatRename, "重命名对话", "重新命名對話", "Rename chat", "给它换个名字", "重命名对话")
+        put(StringKey.ChatRenameHint, "输入新名称", "輸入新名稱", "New chat name", "新名字写这里", "输入新名称")
+        put(StringKey.ChatMessageCount, "{0} 条", "{0} 則", "{0} messages", "{0} 条喵", "{0} 条")
+        put(StringKey.TimeJustNow, "刚刚", "剛剛", "Just now", "刚刚喵", "刚刚")
+        put(StringKey.TimeMinutesAgo, "{0} 分钟前", "{0} 分鐘前", "{0} min ago", "{0} 分钟前喵", "{0} 分钟前")
+        put(StringKey.TimeHoursAgo, "{0} 小时前", "{0} 小時前", "{0} hr ago", "{0} 小时前喵", "{0} 小时前")
+        put(StringKey.TimeDaysAgo, "{0} 天前", "{0} 天前", "{0} days ago", "{0} 天前喵", "{0} 天前")
+        put(StringKey.ChatAddImage, "添加图片", "新增圖片", "Add image", "加张图片", "添加图片")
+        put(StringKey.ChatVoiceStart, "语音输入", "語音輸入", "Voice input", "说给我听", "语音输入")
+        put(StringKey.ChatVoiceStop, "停止听写", "停止聽寫", "Stop listening", "听好啦", "停止听写")
+        put(StringKey.ChatVoiceUnavailable, "此设备暂不支持语音输入", "此裝置暫不支援語音輸入", "Voice input is unavailable on this device", "这台设备还听不了喵", "此设备不支持语音输入")
+        put(StringKey.ImageEditHint, "描述你想调整的地方", "描述你想調整的地方", "Describe what to change", "想怎么改呢", "描述调整内容")
+        put(StringKey.ImageEditAction, "继续调整", "繼續調整", "Edit image", "继续改图", "继续调整")
+        put(StringKey.ImageOriginal, "原图", "原圖", "Original", "原图", "原图")
+        put(StringKey.ImageUpdated, "新图", "新圖", "Updated", "新图", "新图")
+        put(StringKey.ImagePrompt, "提示词：{0}", "提示詞：{0}", "Prompt: {0}", "提示词：{0}", "提示词：{0}")
+        put(StringKey.ChatRestoreFailed, "对话恢复失败，请重试", "對話恢復失敗，請重試", "Couldn't restore this chat. Try again.", "没找回这段对话，再试一次喵", "对话恢复失败，请重试")
+        put(StringKey.ChatConnectionInterrupted, "连接中断，请重试", "連線中斷，請重試", "Connection interrupted. Try again.", "连接断了一下，再试试喵", "连接中断，请重试")
+        put(StringKey.ChatGenerationFailed, "生成失败，请重试", "生成失敗，請重試", "Generation failed. Try again.", "这次没写完，再试一次喵", "生成失败，请重试")
+        put(StringKey.ChatImageFailed, "图片处理失败，请重试", "圖片處理失敗，請重試", "Image edit failed. Try again.", "图片没改好，再试一次喵", "图片处理失败，请重试")
+        put(StringKey.OperationFailed, "操作失败，请稍后重试", "操作失敗，請稍後重試", "Something went wrong. Try again.", "这次没办好，稍后再试喵", "操作失败，请重试")
 
         // ---- 新手介绍（与网页端逐字一致）----
         put(
@@ -552,9 +668,98 @@ object Strings {
             "换个关键词试试", "換個關鍵詞試試", "Try another keyword",
             "换个词再找找喵", "请更换关键词。",
         )
+        put(StringKey.CalendarAdd, "添加日程", "新增日程", "Add event", "添加日程喵", "添加日程")
+        put(StringKey.CalendarEdit, "编辑", "編輯", "Edit", "改一下", "编辑")
+        put(StringKey.CalendarDelete, "删除", "刪除", "Delete", "删掉", "删除")
+        put(StringKey.CalendarEventTitle, "日程名称", "日程名稱", "Title", "要做什么", "日程名称")
+        put(StringKey.CalendarLocation, "地点（可选）", "地點（可選）", "Location (optional)", "在哪里呀", "地点（可选）")
+        put(StringKey.CalendarStart, "开始时间", "開始時間", "Start time", "什么时候开始", "开始时间")
+        put(StringKey.CalendarDuration, "时长（分钟）", "時長（分鐘）", "Duration (minutes)", "要多久", "时长（分钟）")
+        put(StringKey.CalendarSave, "保存日程", "儲存日程", "Save event", "收好日程", "保存日程")
+        put(StringKey.CalendarYearMonth, "{0}年{1}月", "{0}年{1}月", "{1}/{0}", "{0}年{1}月", "{0}年{1}月")
+        put(StringKey.CalendarPreviousMonth, "上月", "上月", "Previous month", "上个月", "上月")
+        put(StringKey.CalendarNextMonth, "下月", "下月", "Next month", "下个月", "下月")
+        put(StringKey.CalendarOnline, "线上", "線上", "Online", "线上", "线上")
+        put(StringKey.CalendarLoadFailed, "日程加载失败", "日程載入失敗", "Couldn't load calendar", "日程没加载出来喵", "日程加载失败")
+        put(StringKey.CalendarSaveFailed, "日程保存失败", "日程儲存失敗", "Couldn't save the event", "日程没存上喵", "日程保存失败")
+        put(StringKey.CalendarDeleteFailed, "日程删除失败", "日程刪除失敗", "Couldn't delete the event", "日程没删掉喵", "日程删除失败")
+        put(StringKey.WeekMonday, "一", "一", "Mon", "一", "一")
+        put(StringKey.WeekTuesday, "二", "二", "Tue", "二", "二")
+        put(StringKey.WeekWednesday, "三", "三", "Wed", "三", "三")
+        put(StringKey.WeekThursday, "四", "四", "Thu", "四", "四")
+        put(StringKey.WeekFriday, "五", "五", "Fri", "五", "五")
+        put(StringKey.WeekSaturday, "六", "六", "Sat", "六", "六")
+        put(StringKey.WeekSunday, "日", "日", "Sun", "日", "日")
+        put(StringKey.SkillsAdd, "添加 Skill", "新增 Skill", "Add Skill", "添加 Skill 喵", "添加 Skill")
+        put(StringKey.SkillsImportTitle, "添加自己的 Skill", "新增自己的 Skill", "Add your Skill", "添加自己的 Skill 喵", "添加自己的 Skill")
+        put(StringKey.SkillsImportUrl, "仓库或文档地址", "儲存庫或文件地址", "Repository or document URL", "仓库或文档地址", "仓库或文档地址")
+        put(StringKey.SkillsImportName, "名称", "名稱", "Name", "叫什么名字", "名称")
+        put(StringKey.SkillsImportDescription, "简介（可选）", "簡介（可選）", "Description (optional)", "简单介绍一下", "简介（可选）")
+        put(StringKey.SkillsImportInstructions, "使用说明", "使用說明", "Instructions", "告诉 Floris 怎么做", "使用说明")
+        put(StringKey.SkillsImport, "导入", "匯入", "Import", "导入喵", "导入")
+        put(StringKey.SkillsChooseFile, "选择 MD、JSON 或 ZIP", "選擇 MD、JSON 或 ZIP", "Choose MD, JSON, or ZIP", "选个文件喵", "选择 MD、JSON 或 ZIP")
+        put(StringKey.SkillsPrivate, "我的 Skills", "我的 Skills", "My Skills", "我的 Skills", "我的 Skills")
+        put(StringKey.SkillsRemove, "移除", "移除", "Remove", "移除", "移除")
+        put(StringKey.SkillsUploads, "私有 Skill 包", "私有 Skill 套件", "Private Skill packages", "私有 Skill 包", "私有 Skill 包")
+        put(StringKey.SkillsSubmitReview, "提交广场审核", "提交廣場審核", "Submit for review", "提交到广场看看", "提交广场审核")
+        put(StringKey.SkillsPendingReview, "审核中", "審核中", "In review", "正在审核", "审核中")
+        put(StringKey.SkillsApproved, "已通过", "已通過", "Approved", "审核通过", "已通过")
+        put(StringKey.SkillsRejected, "未通过", "未通過", "Rejected", "没有通过", "未通过")
+        put(StringKey.SkillsStored, "仅自己可见", "僅自己可見", "Private", "只给自己看", "仅自己可见")
+        put(StringKey.SkillsConnection, "连接服务", "連接服務", "Connect service", "接上服务", "连接服务")
+        put(StringKey.SkillsConnectionToken, "粘贴访问令牌", "貼上存取權杖", "Paste access token", "把访问令牌放这里", "输入访问令牌")
+        put(StringKey.SkillsConnect, "安全连接", "安全連接", "Connect", "连上它", "连接")
+        put(StringKey.SkillsConnected, "已连接", "已連接", "Connected", "已经连好啦", "已连接")
+        put(StringKey.SkillsDisconnect, "断开", "中斷連線", "Disconnect", "先断开", "断开")
+        put(StringKey.SkillsMarketFailed, "Skills 加载失败", "Skills 載入失敗", "Couldn't load Skills", "Skills 没加载出来喵", "Skills 加载失败")
+        put(StringKey.SkillsEmptyTitle, "暂无 Skills", "暫無 Skills", "No Skills yet", "这里还空着喵", "暂无 Skills")
+        put(StringKey.SkillsEmptyBody, "Skills 广场暂时为空", "Skills 廣場暫時為空", "The marketplace is empty for now", "广场里暂时没有新本领", "Skills 广场暂时为空")
+        put(StringKey.SkillsOperationFailed, "操作失败，请重试", "操作失敗，請重試", "Couldn't complete that. Try again.", "这次没办好，再试一次喵", "操作失败，请重试")
+        put(StringKey.SkillsImportFailed, "导入失败，请检查内容", "匯入失敗，請檢查內容", "Import failed. Check the content.", "没能装进去，检查一下内容喵", "导入失败，请检查内容")
+        put(StringKey.SkillsSubmitFailed, "提交失败，请重试", "提交失敗，請重試", "Submission failed. Try again.", "没递上去，再试一次喵", "提交失败，请重试")
+        put(StringKey.SkillsConnectFailed, "连接失败，请重试", "連接失敗，請重試", "Connection failed. Try again.", "没连上，再试一次喵", "连接失败，请重试")
+        put(StringKey.SkillsDisconnectFailed, "断开失败，请重试", "中斷連線失敗，請重試", "Couldn't disconnect. Try again.", "没断开，再试一次喵", "断开失败，请重试")
+        put(StringKey.SkillsOfficial, "Floris 官方", "Floris 官方", "Floris", "Floris 官方", "Floris 官方")
+        put(StringKey.SkillsConflicts, "不兼容：{0}", "不相容：{0}", "Conflicts: {0}", "不能和这些一起用：{0}", "不兼容：{0}")
+        put(StringKey.SkillsRecommends, "推荐搭配：{0}", "推薦搭配：{0}", "Works well with: {0}", "推荐一起开：{0}", "推荐搭配：{0}")
+        put(StringKey.SkillCategoryFoundation, "基础能力", "基礎能力", "Essentials", "基础能力", "基础能力")
+        put(StringKey.SkillCategoryKnowledge, "知识检索", "知識檢索", "Knowledge", "知识检索", "知识检索")
+        put(StringKey.SkillCategoryCreative, "创作", "創作", "Creative", "创作", "创作")
+        put(StringKey.SkillCategoryProductivity, "效率", "效率", "Productivity", "效率", "效率")
+        put(StringKey.SkillCategoryLocation, "位置服务", "位置服務", "Location", "位置服务", "位置服务")
+        put(StringKey.SkillCategoryOther, "其他", "其他", "Other", "其他", "其他")
+        put(StringKey.ReadingUpload, "上传 PDF", "上傳 PDF", "Upload PDF", "上传 PDF 喵", "上传 PDF")
+        put(StringKey.ReadingUploading, "上传中…", "上傳中…", "Uploading…", "正在上传喵…", "上传中…")
+        put(StringKey.ReadingSave, "保存", "儲存", "Save", "收好", "保存")
+        put(StringKey.ReadingSaved, "已保存", "已儲存", "Saved", "收好啦", "已保存")
+        put(StringKey.ReadingDelete, "删除", "刪除", "Delete", "删掉", "删除")
+        put(StringKey.ReadingUploadFailed, "上传失败，请重试", "上傳失敗，請重試", "Upload failed. Try again", "上传失败了喵", "上传失败，请重试")
+        put(StringKey.ReadingResults, "检索结果 · {0}", "檢索結果 · {0}", "Results · {0}", "找到 {0} 篇喵", "检索结果 · {0}")
+        put(StringKey.ReadingAutoOrganize, "自动整理", "自動整理", "Auto-organize", "自动整理", "自动整理")
+        put(StringKey.ReadingFolderNew, "新建文件夹", "新增資料夾", "New folder", "新建文件夹", "新建文件夹")
+        put(StringKey.ReadingFolderRename, "重命名文件夹", "重新命名資料夾", "Rename folder", "给文件夹换名", "重命名文件夹")
+        put(StringKey.ReadingFolderDelete, "删除文件夹", "刪除資料夾", "Delete folder", "删除文件夹", "删除文件夹")
+        put(StringKey.ReadingAll, "全部", "全部", "All", "全部", "全部")
+        put(StringKey.ReadingPaper, "论文", "論文", "Paper", "论文", "论文")
+        put(StringKey.ReadingOpen, "打开", "開啟", "Open", "打开看看", "打开")
+        put(StringKey.ReadingOpening, "打开中…", "開啟中…", "Opening…", "正在打开…", "打开中…")
+        put(StringKey.ReadingMove, "移动", "移動", "Move", "挪到…", "移动")
+        put(StringKey.ReadingAnalyze, "分析", "分析", "Analyze", "仔细分析", "分析")
+        put(StringKey.ReadingAsk, "提问", "提問", "Ask", "问问论文", "提问")
+        put(StringKey.ReadingAskHint, "你想问这份文档什么？", "你想問這份文件什麼？", "What would you like to ask?", "想问这份文档什么喵？", "输入问题")
+        put(StringKey.ReadingSaveResult, "保存结果", "儲存結果", "Save result", "把结果收好", "保存结果")
+        put(StringKey.ReadingSearchFailed, "论文检索失败", "論文檢索失敗", "Paper search failed", "论文没找到喵", "论文检索失败")
+        put(StringKey.ReadingSaveFailed, "保存失败，请重试", "儲存失敗，請重試", "Couldn't save. Try again.", "没存上，再试一次喵", "保存失败，请重试")
+        put(StringKey.ReadingDeleteFailed, "删除失败，请重试", "刪除失敗，請重試", "Couldn't delete. Try again.", "没删掉，再试一次喵", "删除失败，请重试")
+        put(StringKey.ReadingOperationFailed, "操作失败，请重试", "操作失敗，請重試", "Couldn't complete that. Try again.", "这次没办好喵", "操作失败，请重试")
+        put(StringKey.ReadingOpenFailed, "文件打开失败", "檔案開啟失敗", "Couldn't open the file", "文件没打开喵", "文件打开失败")
+        put(StringKey.ReadingRunFailed, "阅读失败，请重试", "閱讀失敗，請重試", "Reading failed. Try again.", "这次没读好喵", "阅读失败，请重试")
 
         // ---- 地图 ----
         put(StringKey.MapTitle, "地图", "地圖", "Map", "地图", "地图")
+        put(StringKey.MapNamedRoute, "{0}路线", "{0}路線", "{0} route", "{0}路线", "{0}路线")
+        put(StringKey.DurationHoursMinutes, "{0} 小时 {1} 分", "{0} 小時 {1} 分", "{0} hr {1} min", "{0} 小时 {1} 分", "{0} 小时 {1} 分")
+        put(StringKey.DurationMinutes, "{0} 分钟", "{0} 分鐘", "{0} min", "{0} 分钟", "{0} 分钟")
         put(
             StringKey.MapSearchHint,
             "搜索真实地点…", "搜尋真實地點…", "Search real places…",
@@ -572,6 +777,10 @@ object Strings {
             "在聊天中获取推荐，或直接搜索。",
         )
         put(StringKey.MapShowOnMap, "查看地点", "查看地點", "Show on map", "去地图看看", "查看地点")
+        put(StringKey.MapSearchFailed, "地点搜索失败", "地點搜尋失敗", "Place search failed", "没找到地点喵", "地点搜索失败")
+        put(StringKey.MapNeedTwoPlaces, "至少选择两个地点", "至少選擇兩個地點", "Choose at least two places", "至少选两个地方喵", "至少选择两个地点")
+        put(StringKey.MapServiceUnavailable, "路线服务暂不可用", "路線服務暫不可用", "Routes are temporarily unavailable", "路线暂时没回来喵", "路线服务暂不可用")
+        put(StringKey.MapPlanFailed, "路线规划失败", "路線規劃失敗", "Route planning failed", "路线没规划好喵", "路线规划失败")
 
         // ---- 个人中心 ----
         put(StringKey.ProfileTitle, "我的", "我的", "Me", "我的", "我的")
@@ -583,6 +792,23 @@ object Strings {
         put(StringKey.ProfileSignOut, "退出登录", "登出", "Sign out", "先走一步", "退出登录")
         put(StringKey.ProfileMap, "地图工作区", "地圖工作區", "Map workspace", "地图小窝", "地图工作区")
         put(StringKey.ProfileReading, "我的阅读", "我的閱讀", "My Reading", "我的读物", "我的阅读")
+        put(StringKey.ProfileDefaultUser, "Floris 用户", "Floris 使用者", "Floris user", "Floris 的朋友", "Floris 用户")
+        put(StringKey.ProfileReadingDesc, "论文、文档与自动整理的文件夹", "論文、文件與自動整理的資料夾", "Papers, documents and organized folders", "论文和文档都收在这里", "论文、文档与文件夹")
+        put(StringKey.ProfileMapDesc, "地点、当前位置与路线结果", "地點、目前位置與路線結果", "Places, current location and routes", "地点和路线都在这里", "地点、位置与路线")
+        put(StringKey.ProfileSettingsDesc, "主题、语言、偏好与用量", "主題、語言、偏好與用量", "Theme, language, preferences and usage", "样子和习惯都能调整", "主题、语言、偏好与用量")
+        put(StringKey.ProfileAboutDesc, "查看功能说明与使用帮助", "查看功能說明與使用說明", "Feature guide and help", "看看我都会什么", "功能说明与帮助")
+        put(StringKey.Important, "重要", "重要", "Important", "很重要", "重要")
+        put(StringKey.MembershipPlus, "Plus 会员", "Plus 會員", "Plus", "Plus 会员", "Plus 会员")
+        put(StringKey.MembershipPro, "Pro 会员", "Pro 會員", "Pro", "Pro 会员", "Pro 会员")
+        put(StringKey.MembershipFree, "免费版", "免費版", "Free", "免费版", "免费版")
+        put(StringKey.MembershipGuest, "游客", "訪客", "Guest", "游客", "游客")
+        put(StringKey.ProfileAvatar, "头像", "頭像", "Avatar", "头像", "头像")
+        put(StringKey.ProfileDefaultDisplayName, "Floris 用户", "Floris 使用者", "Floris user", "Floris 的朋友", "Floris 用户")
+        put(StringKey.ProfileNameUpdated, "昵称已更新", "暱稱已更新", "Name updated", "新名字记好啦喵", "昵称已更新")
+        put(StringKey.ProfileUpdateFailed, "更新失败，请重试", "更新失敗，請重試", "Update failed. Try again.", "没更新好，再试一次喵", "更新失败，请重试")
+        put(StringKey.ProfileAvatarUpdated, "头像已更新", "頭像已更新", "Avatar updated", "新头像换好啦喵", "头像已更新")
+        put(StringKey.ProfileAvatarUpdateFailed, "头像更新失败，请重试", "頭像更新失敗，請重試", "Avatar update failed. Try again.", "头像没换好喵", "头像更新失败，请重试")
+        put(StringKey.HistoryLoadFailed, "对话加载失败", "對話載入失敗", "Couldn't load conversations", "对话没加载出来喵", "对话加载失败")
 
         // ---- 设置 ----
         put(StringKey.SettingsTitle, "设置", "設定", "Settings", "设置", "设置")
@@ -614,6 +840,68 @@ object Strings {
             "设为 0 可关闭富搜索配图", "設為 0 可關閉富搜尋配圖", "Set to 0 to disable rich images",
             "设成 0 就不配图啦喵", "设为 0 关闭配图。",
         )
+        put(StringKey.SettingsParallelImages, "边搜边找图", "邊搜邊找圖", "Search images in parallel", "边搜边找图喵", "并行图片搜索")
+        put(StringKey.SettingsParallelImagesDesc, "让图片审核与正文检索同时进行", "讓圖片審核與正文檢索同時進行", "Review images while retrieving sources", "图片和资料一起找喵", "图片审核与检索并行")
+        put(StringKey.SettingsMapExperience, "地图与路线", "地圖與路線", "Maps and routes", "地图和路线", "地图与路线")
+        put(StringKey.SettingsMapExperienceDesc, "这些设置会影响下一次地点搜索和路线规划", "這些設定會影響下一次地點搜尋和路線規劃", "Applied to your next place search and route", "下次规划就会按这里来喵", "影响后续地点与路线结果")
+        put(StringKey.SettingsMapServiceMode, "规划细致度", "規劃細緻度", "Planning detail", "规划细致度", "规划细致度")
+        put(StringKey.SettingsMapFast, "快速", "快速", "Fast", "快一点", "快速")
+        put(StringKey.SettingsMapBalanced, "均衡", "均衡", "Balanced", "刚刚好", "均衡")
+        put(StringKey.SettingsMapComplete, "完整", "完整", "Complete", "细细规划", "完整")
+        put(StringKey.SettingsMapPlaceCount, "地点结果", "地點結果", "Place results", "地点结果", "地点结果")
+        put(StringKey.SettingsMapRouteStops, "单条路线地点", "單條路線地點", "Stops per route", "路线地点数", "单条路线地点")
+        put(StringKey.SettingsMapTimeout, "搜索等待（秒）", "搜尋等待（秒）", "Search timeout (sec)", "最多等几秒", "搜索等待（秒）")
+        put(StringKey.SettingsPreferredRoute, "常用出行方式", "常用出行方式", "Preferred travel mode", "平时怎么走", "常用出行方式")
+        put(StringKey.SettingsRouteStrategy, "路线优先级", "路線優先級", "Route priority", "路线先看什么", "路线优先级")
+        put(StringKey.SettingsNearTolerance, "近似路线容差（分钟）", "近似路線容差（分鐘）", "Near-route tolerance (min)", "可多花几分钟", "近似路线容差（分钟）")
+        put(StringKey.SettingsLearnRoute, "记住路线偏好", "記住路線偏好", "Learn route preferences", "记住我的路线习惯", "记住路线偏好")
+        put(StringKey.RouteDriving, "驾车", "駕車", "Drive", "驾车", "驾车")
+        put(StringKey.RouteTransit, "公交", "大眾運輸", "Transit", "公共交通", "公交")
+        put(StringKey.RouteWalking, "步行", "步行", "Walk", "走路", "步行")
+        put(StringKey.RouteBicycling, "骑行", "騎行", "Bike", "骑车", "骑行")
+        put(StringKey.StrategyTimeCost, "时间兼顾费用", "時間兼顧費用", "Time, then cost", "先省时间再省钱", "时间兼顾费用")
+        put(StringKey.StrategyLeastTime, "最快", "最快", "Fastest", "最快到达", "最快")
+        put(StringKey.StrategyLeastCost, "最省", "最省", "Lowest cost", "最省钱", "最省")
+        put(StringKey.SettingsPersonalization, "个性化", "個人化", "Personalization", "更懂你", "个性化")
+        put(StringKey.SettingsPersonalizationDesc, "管理记忆、主动提醒与长期计划", "管理記憶、主動提醒與長期計畫", "Manage memory, proactive notes and long-running plans", "看看我记住了什么喵", "管理记忆、提醒与长期计划")
+        put(StringKey.PersonalizationTitle, "个性化", "個人化", "Personalization", "更懂你", "个性化")
+        put(StringKey.MemorySection, "记忆", "記憶", "Memory", "我记住的", "记忆")
+        put(StringKey.MemoryEnabled, "使用记忆", "使用記憶", "Use memory", "记住有用的小事", "使用记忆")
+        put(StringKey.MemoryEnabledDesc, "让回答逐渐贴近你的偏好；新增记忆仍由你确认", "讓回答逐漸貼近你的偏好；新增記憶仍由你確認", "Personalize answers; new memories still need your approval", "想记住新东西前会先问你喵", "个性化回答；新增记忆需确认")
+        put(StringKey.MemoryPending, "待你确认", "待你確認", "Needs your approval", "等你点头", "待确认")
+        put(StringKey.MemorySaved, "已经记住", "已經記住", "Remembered", "已经记住啦", "已记住")
+        put(StringKey.MemoryEmpty, "还没有记住任何偏好", "還沒有記住任何偏好", "No saved preferences yet", "还没记住东西喵", "暂无记忆")
+        put(StringKey.MemoryReason, "为什么建议记住", "為什麼建議記住", "Why this was suggested", "为什么想记住", "建议理由")
+        put(StringKey.MemoryReject, "不记住", "不記住", "Don't remember", "不要记", "拒绝")
+        put(StringKey.MemoryRollback, "恢复上次", "恢復上次", "Restore previous", "换回上次", "恢复上一版")
+        put(StringKey.MemoryClear, "清空记忆", "清空記憶", "Clear memory", "全部忘掉", "清空记忆")
+        put(StringKey.MemoryClearTitle, "清空全部记忆？", "清空全部記憶？", "Clear all memory?", "要全部忘掉吗？", "清空全部记忆？")
+        put(StringKey.MemoryClearBody, "只清除个性化记忆，不影响账号、聊天和文件。", "只清除個人化記憶，不影響帳號、聊天和檔案。", "This only clears personalized memory. Chats and files stay unchanged.", "只忘掉小习惯，聊天和文件都还在喵", "仅清除个性化记忆，不影响其他数据。")
+        put(StringKey.RulesSection, "提醒建议", "提醒建議", "Reminder suggestions", "提醒小建议", "提醒建议")
+        put(StringKey.ProactiveSection, "主动提醒", "主動提醒", "Proactive notes", "主动小话", "主动提醒")
+        put(StringKey.ProactiveAutonomy, "处理方式", "處理方式", "Action mode", "怎么帮你", "处理方式")
+        put(StringKey.ProactiveObserve, "仅观察", "僅觀察", "Observe", "先看看", "仅观察")
+        put(StringKey.ProactiveRemind, "提醒", "提醒", "Remind", "提醒我", "提醒")
+        put(StringKey.ProactivePropose, "先询问", "先詢問", "Ask first", "先问我", "先询问")
+        put(StringKey.ProactiveLowRiskAuto, "低风险自动", "低風險自動", "Auto low-risk", "小事自动做", "低风险自动")
+        put(StringKey.ProactiveQuietHours, "免打扰时段", "勿擾時段", "Quiet hours", "睡觉时别叫我", "免打扰时段")
+        put(StringKey.ProactiveDailyLimit, "每天最多提醒", "每天最多提醒", "Daily limit", "每天最多说几次", "每日上限")
+        put(StringKey.ProactiveLookahead, "提前关注（小时）", "提前關注（小時）", "Look ahead (hours)", "提前看几小时", "提前关注（小时）")
+        put(StringKey.ProactiveWindowLimit, "单次展示数量", "單次顯示數量", "Items shown", "一次说几条", "单次展示数量")
+        put(StringKey.ProactiveProviderLimit, "日程检查数量", "日程檢查數量", "Schedules checked", "一次看几个日程", "日程检查数量")
+        put(StringKey.ProactiveRouteGap, "路线关注间隔（小时）", "路線關注間隔（小時）", "Route look-ahead gap (hours)", "隔几小时看路线", "路线间隔（小时）")
+        put(StringKey.ProactiveTravelBuffer, "出行预留（分钟）", "出行預留（分鐘）", "Travel buffer (minutes)", "出门多留几分钟", "出行预留（分钟）")
+        put(StringKey.WorkflowSection, "长期计划", "長期計畫", "Long-running plans", "一步步计划", "长期计划")
+        put(StringKey.WorkflowEmpty, "暂无进行中的计划", "暫無進行中的計畫", "No active plans", "现在没有长期计划喵", "暂无计划")
+        put(StringKey.WorkflowConfirm, "开始计划", "開始計畫", "Start plan", "开始吧", "开始计划")
+        put(StringKey.WorkflowReject, "暂不开始", "暫不開始", "Not now", "先不要", "拒绝计划")
+        put(StringKey.WorkflowCancel, "结束计划", "結束計畫", "End plan", "结束吧", "结束计划")
+        put(StringKey.WorkflowCompleteStep, "完成这一步", "完成這一步", "Complete step", "这步做好啦", "完成步骤")
+        put(StringKey.WorkflowSkipStep, "跳过", "跳過", "Skip", "先跳过", "跳过")
+        put(StringKey.SettingsSaved, "已保存", "已儲存", "Saved", "记好啦", "已保存")
+        put(StringKey.SettingsSaveFailed, "保存失败，请重试", "儲存失敗，請重試", "Couldn't save. Try again.", "没记住，再试一次喵", "保存失败，请重试")
+        put(StringKey.SettingsResetSucceeded, "数据已清除", "資料已清除", "Data cleared", "已经收拾干净啦", "数据已清除")
+        put(StringKey.SettingsResetFailed, "清除失败，请重试", "清除失敗，請重試", "Couldn't clear data. Try again.", "没清干净，再试一次喵", "清除失败，请重试")
         put(StringKey.SettingsReplayTour, "新人介绍", "新人介紹", "Feature tour", "再逛一次小窝", "新人介绍")
         put(
             StringKey.SettingsReplayTourDesc,
@@ -635,6 +923,7 @@ object Strings {
             "将删除全部会话、工作区与文件。账号与个人信息保留。",
         )
         put(StringKey.SettingsResetConfirm, "确认清除", "確認清除", "Erase", "确认收拾", "确认清除")
+        put(StringKey.SettingsResetting, "清除中…", "清除中…", "Clearing…", "正在清理喵…", "清除中…")
         put(StringKey.SettingsNickname, "昵称", "暱稱", "Display name", "怎么叫你", "昵称")
         put(StringKey.SettingsNotSet, "未设置", "未設定", "Not set", "还没取名", "未设置")
 
@@ -647,6 +936,9 @@ object Strings {
         put(StringKey.LoginSigningIn, "登录中…", "登入中…", "Signing in…", "正在开门…", "登录中…")
         put(StringKey.LoginBackToEmail, "返回修改邮箱", "返回修改郵箱", "Change email", "改个邮箱", "返回修改邮箱")
         put(StringKey.LoginCodeSentTo, "验证码已发送至", "驗證碼已發送至", "Code sent to", "验证码送到了", "验证码已发送至")
+        put(StringKey.LoginInvalidEmail, "请输入有效的邮箱地址", "請輸入有效的電子郵件地址", "Enter a valid email address", "这个邮箱好像不对喵", "请输入有效邮箱")
+        put(StringKey.LoginEnterCode, "请输入邮箱收到的验证码", "請輸入電子郵件收到的驗證碼", "Enter the code from your email", "把邮箱里的验证码填进来喵", "请输入验证码")
+        put(StringKey.LoginOperationFailed, "登录失败，请重试", "登入失敗，請重試", "Sign-in failed. Try again.", "没能登录，再试一次喵", "登录失败，请重试")
 
         // ---- 工作区动作 ----
         put(StringKey.ActionAwaiting, "待确认", "待確認", "Needs confirmation", "等你点头", "待确认")
@@ -671,4 +963,18 @@ object Strings {
 
     fun of(key: StringKey, language: Language): String =
         catalog[key]?.getOrNull(language.index) ?: catalog[key]?.firstOrNull() ?: key.name
+
+    fun format(key: StringKey, language: Language, vararg args: Any): String =
+        args.foldIndexed(of(key, language)) { index, text, value ->
+            text.replace("{$index}", value.toString())
+        }
+
+    internal fun hasCompleteEntry(key: StringKey): Boolean =
+        catalog[key]?.let { entry ->
+            entry.size == Language.entries.size && entry.all(String::isNotBlank)
+        } == true
+}
+
+class StringResolver(private val language: () -> Language) {
+    fun get(key: StringKey, vararg args: Any): String = Strings.format(key, language(), *args)
 }

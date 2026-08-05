@@ -73,6 +73,9 @@ class MainActivity : ComponentActivity() {
                             container = app.container,
                             signedIn = authState is AuthState.SignedIn,
                             authLoading = authState is AuthState.Loading,
+                            sessionKey = (authState as? AuthState.SignedIn)?.identity?.let {
+                                it.subject_id.ifBlank { it.id }.ifBlank { it.auth_type }
+                            }.orEmpty(),
                         )
                         DoubleBackToExit(onExit = { finish() })
                     }

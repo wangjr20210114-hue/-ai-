@@ -22,7 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -51,8 +51,6 @@ import com.floris.android.BuildConfig
 import com.floris.android.core.auth.AuthManager
 import com.floris.android.core.auth.AuthState
 import com.floris.android.core.data.FlorisRepository
-import com.floris.android.core.data.arr
-import com.floris.android.core.data.str
 import com.floris.android.core.model.Identity
 import com.floris.android.core.model.ProactiveNotification
 import com.floris.android.core.model.Profile
@@ -70,6 +68,7 @@ import com.floris.android.ui.components.pressable
 import com.floris.android.ui.onboarding.TourStepKey
 import com.floris.android.ui.onboarding.onboardingTarget
 import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.StringResolver
 import com.floris.android.ui.prefs.t
 import com.floris.android.ui.profileViewModelFactory
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -89,6 +88,7 @@ private const val FEATURE_DOC_URL =
 class ProfileViewModel(
     private val repository: FlorisRepository,
     private val authManager: AuthManager,
+    private val strings: StringResolver,
     /**
      * 系统通知推送钩子。由界面层注入（需要 Context），
      * 单测里传 null 即可完全绕开 Android 框架。
@@ -119,6 +119,7 @@ class ProfileViewModel(
         viewModelScope.launch {
             // 后端 /profile 对游客返回 403（Login required），不必发这次请求。
             if (!authManager.isGuest) {
+                repository.loadCachedAvatar()
                 runCatching { repository.getProfile() }
                     .onSuccess { profile -> _state.update { it.copy(profile = profile) } }
             }
@@ -152,7 +153,7 @@ class ProfileViewModel(
             }.onSuccess { response ->
                 applyProactive(response)
             }.onFailure {
-                _state.update { s -> s.copy(error = "操作失败，请稍后重试") }
+                _state.update { s -> s.copy(error = strings.get(StringKey.OperationFailed)) }
             }
             _state.update { it.copy(mutatingId = null) }
         }
@@ -165,20 +166,7 @@ class ProfileViewModel(
     }
 
     private fun applyProactive(response: JsonObject) {
-        val raw = response.arr("notifications") ?: response.arr("items") ?: response.arr("briefs")
-        val parsed = raw.orEmpty().mapNotNull { element ->
-            val obj = element as? JsonObject ?: return@mapNotNull null
-            ProactiveNotification(
-                id = obj.str("id") ?: return@mapNotNull null,
-                title = obj.str("title") ?: return@mapNotNull null,
-                body = obj.str("body") ?: obj.str("summary"),
-                type = obj.str("type") ?: obj.str("kind"),
-                priority = obj.str("priority"),
-                status = obj.str("status") ?: "unread",
-                snoozedUntil = obj.str("snoozed_until")?.toLongOrNull(),
-                actionPrompt = obj.str("action_prompt"),
-            )
-        }
+        val parsed = repository.parseProactiveNotifications(response)
         val active = activeNotifications(parsed)
         _state.update { it.copy(notifications = active) }
         pushToStatusBar(active)
@@ -231,6 +219,7 @@ fun ProfileScreen(
     )
     val authState by viewModel.authState.collectAsState()
     val state by viewModel.state.collectAsState()
+    val localAvatar by container.repository.localAvatarFlow.collectAsState()
     val identity = (authState as? AuthState.SignedIn)?.identity ?: Identity()
     val uriHandler = LocalUriHandler.current
     // 以后端下发的身份为准判断游客态。
@@ -269,7 +258,7 @@ fun ProfileScreen(
                         Modifier.padding(18.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        val avatarUrl = state.profile?.avatar_url ?: identity.avatar_url
+                        val avatarUrl = localAvatar ?: state.profile?.avatar_url ?: identity.avatar_url
                         Box(
                             Modifier
                                 .size(62.dp)
@@ -289,8 +278,8 @@ fun ProfileScreen(
                         ) {
                             if (!avatarUrl.isNullOrEmpty()) {
                                 AsyncImage(
-                                    model = absoluteUrl(avatarUrl),
-                                    contentDescription = "头像",
+                                    model = if (avatarUrl == localAvatar) avatarUrl else absoluteUrl(avatarUrl),
+                                    contentDescription = t(StringKey.Self),
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize().clip(CircleShape),
                                 )
@@ -312,7 +301,7 @@ fun ProfileScreen(
                             Text(
                                 state.profile?.display_name
                                     ?: identity.display_name
-                                    ?: "Floris 用户",
+                                    ?: t(StringKey.ProfileDefaultUser),
                                 style = MaterialTheme.typography.headlineSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -391,8 +380,8 @@ fun ProfileScreen(
             item(key = "reading") {
                 SettingRow(
                     title = t(StringKey.ProfileReading),
-                    subtitle = "论文、文档与自动整理的文件夹",
-                    icon = Icons.Default.MenuBook,
+                    subtitle = t(StringKey.ProfileReadingDesc),
+                    icon = Icons.AutoMirrored.Filled.MenuBook,
                     onClick = onOpenReading,
                     modifier = Modifier.onboardingTarget(TourStepKey.READING),
                     trailing = { Chevron() },
@@ -401,7 +390,7 @@ fun ProfileScreen(
             item(key = "map") {
                 SettingRow(
                     title = t(StringKey.ProfileMap),
-                    subtitle = "地点、当前位置与路线结果",
+                    subtitle = t(StringKey.ProfileMapDesc),
                     icon = Icons.Default.Place,
                     onClick = onOpenMap,
                     modifier = Modifier.onboardingTarget(TourStepKey.MAP),
@@ -414,7 +403,7 @@ fun ProfileScreen(
             item(key = "settings") {
                 SettingRow(
                     title = t(StringKey.ProfileSettings),
-                    subtitle = "主题、语言、偏好与用量",
+                    subtitle = t(StringKey.ProfileSettingsDesc),
                     icon = Icons.Default.Settings,
                     onClick = onOpenSettings,
                     modifier = Modifier.onboardingTarget(TourStepKey.SETTINGS),
@@ -424,7 +413,7 @@ fun ProfileScreen(
             item(key = "about") {
                 SettingRow(
                     title = t(StringKey.ProfileAbout),
-                    subtitle = "Floris Android · 契约 v1",
+                    subtitle = t(StringKey.ProfileAboutDesc),
                     icon = Icons.Default.Info,
                     onClick = { runCatching { uriHandler.openUri(FEATURE_DOC_URL) } },
                     modifier = Modifier.onboardingTarget(TourStepKey.GITHUB),
@@ -508,7 +497,7 @@ private fun ProactiveCard(
                     }
                 }
                 if (item.priority == "high") {
-                    StatusChip("重要", MaterialTheme.colorScheme.error)
+                    StatusChip(t(StringKey.Important), MaterialTheme.colorScheme.error)
                 }
             }
             Spacer(Modifier.height(10.dp))
@@ -541,11 +530,12 @@ private fun ProactiveCard(
 private fun clockLabel(epochSeconds: Long): String =
     SimpleDateFormat("M/d HH:mm", Locale.getDefault()).format(Date(epochSeconds * 1000))
 
+@Composable
 private fun membershipLabel(membership: String) = when (membership) {
-    "plus" -> "Plus 会员"
-    "pro" -> "Pro 会员"
-    "free" -> "免费版"
-    else -> "游客"
+    "plus" -> t(StringKey.MembershipPlus)
+    "pro" -> t(StringKey.MembershipPro)
+    "free" -> t(StringKey.MembershipFree)
+    else -> t(StringKey.MembershipGuest)
 }
 
 private fun absoluteUrl(url: String): String =

@@ -35,12 +35,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.DateRange
-import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.Icon
@@ -48,6 +48,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -64,6 +65,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -92,6 +95,7 @@ import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.t
 import com.floris.android.ui.profile.ProfileScreen
 import com.floris.android.ui.settings.SettingsScreen
+import com.floris.android.ui.settings.PersonalizationScreen
 import com.floris.android.ui.skills.SkillsScreen
 import com.floris.android.ui.theme.LocalDarkTheme
 import kotlinx.coroutines.launch
@@ -105,6 +109,7 @@ object Routes {
     const val HISTORY = "history"
     const val MAP = "map"
     const val SETTINGS = "settings"
+    const val PERSONALIZATION = "personalization"
     /** 个人信息：昵称、头像、会员与新手教程入口，点头像进入。 */
     const val ACCOUNT = "account"
 }
@@ -122,12 +127,17 @@ private val tabs = listOf(
     Tab(Routes.CHAT, StringKey.TabChat, Icons.Outlined.ChatBubbleOutline, Icons.Filled.ChatBubble, TourStepKey.NEW_CONVERSATION),
     Tab(Routes.SKILLS, StringKey.TabSkills, Icons.Outlined.StarOutline, Icons.Filled.Star, TourStepKey.SKILLS),
     Tab(Routes.CALENDAR, StringKey.TabCalendar, Icons.Outlined.DateRange, Icons.Filled.DateRange, TourStepKey.CALENDAR),
-    Tab(Routes.READING, StringKey.TabReading, Icons.Outlined.MenuBook, Icons.Filled.MenuBook, TourStepKey.READING),
+    Tab(Routes.READING, StringKey.TabReading, Icons.AutoMirrored.Outlined.MenuBook, Icons.AutoMirrored.Filled.MenuBook, TourStepKey.READING),
     Tab(Routes.PROFILE, StringKey.TabProfile, Icons.Outlined.Person, Icons.Filled.Person, TourStepKey.PROFILE),
 )
 
 @Composable
-fun FlorisNavHost(container: AppContainer, signedIn: Boolean, authLoading: Boolean) {
+fun FlorisNavHost(
+    container: AppContainer,
+    signedIn: Boolean,
+    authLoading: Boolean,
+    sessionKey: String,
+) {
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val onboardingDone by container.preferences.onboardingDone.collectAsState()
@@ -138,7 +148,7 @@ fun FlorisNavHost(container: AppContainer, signedIn: Boolean, authLoading: Boole
             authLoading -> Splash()
             !signedIn -> LoginScreen(container = container)
             else -> Box(Modifier.fillMaxSize()) {
-                MainShell(container, navController)
+                MainShell(container, navController, sessionKey)
 
                 if (!onboardingDone) {
                     OnboardingOverlay(
@@ -161,14 +171,18 @@ fun FlorisNavHost(container: AppContainer, signedIn: Boolean, authLoading: Boole
 }
 
 @Composable
-private fun MainShell(container: AppContainer, navController: NavHostController) {
+private fun MainShell(
+    container: AppContainer,
+    navController: NavHostController,
+    sessionKey: String,
+) {
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     val showTabBar = currentRoute in tabs.map { it.route }
 
     // 五个底部 Tab 共用 Activity 级 ViewModelStore：切页不销毁、不重复拉数据，
     // 回到旧页时数据与滚动位置立即就在，不再有"等一下界面才出来"。
-    val tabOwner = LocalViewModelStoreOwner.current
+    val tabOwner = rememberSessionViewModelStoreOwner(sessionKey)
     val dark = LocalDarkTheme.current
 
     // 背景铺在最外层：之前画在聊天页内部，Tab 栏与状态栏区域露白，
@@ -256,7 +270,17 @@ private fun MainShell(container: AppContainer, navController: NavHostController)
                         MapScreen(container = container, onBack = { navController.popBackStack() })
                     }
                     composable(Routes.SETTINGS) {
-                        SettingsScreen(container = container, onBack = { navController.popBackStack() })
+                        SettingsScreen(
+                            container = container,
+                            onBack = { navController.popBackStack() },
+                            onOpenPersonalization = { navController.navigate(Routes.PERSONALIZATION) },
+                        )
+                    }
+                    composable(Routes.PERSONALIZATION) {
+                        PersonalizationScreen(
+                            container = container,
+                            onBack = { navController.popBackStack() },
+                        )
                     }
                 }
             }
@@ -270,6 +294,18 @@ private fun MainShell(container: AppContainer, navController: NavHostController)
     }
 }
 
+@Composable
+private fun rememberSessionViewModelStoreOwner(sessionKey: String): ViewModelStoreOwner {
+    val store = remember(sessionKey) { ViewModelStore() }
+    val owner = remember(store) { object : ViewModelStoreOwner {
+        override val viewModelStore: ViewModelStore = store
+    } }
+    DisposableEffect(store) {
+        onDispose { store.clear() }
+    }
+    return owner
+}
+
 /**
  * 页面转场动画。
  *
@@ -278,7 +314,9 @@ private fun MainShell(container: AppContainer, navController: NavHostController)
  * 二级页面（历史/地图/设置/个人信息）：从右侧滑入、返回滑回右侧。
  */
 private const val TAB_FADE_MS = 160
-private val SECONDARY_ROUTES = setOf(Routes.HISTORY, Routes.MAP, Routes.SETTINGS, Routes.ACCOUNT)
+private val SECONDARY_ROUTES = setOf(
+    Routes.HISTORY, Routes.MAP, Routes.SETTINGS, Routes.PERSONALIZATION, Routes.ACCOUNT,
+)
 
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.isSecondary(): Boolean =
     targetState.destination.route in SECONDARY_ROUTES ||

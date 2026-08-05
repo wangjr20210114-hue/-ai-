@@ -327,7 +327,7 @@ fun Stepper(
     ) {
         IconPill(
             icon = Icons.Default.Remove,
-            contentDescription = "减少",
+            contentDescription = t(StringKey.Decrease),
             onClick = { onValueChange((value - 1).coerceIn(range)) },
             size = 32.dp,
             iconSize = 16.dp,
@@ -358,7 +358,7 @@ fun Stepper(
         }
         IconPill(
             icon = Icons.Default.Add,
-            contentDescription = "增加",
+            contentDescription = t(StringKey.Increase),
             onClick = { onValueChange((value + 1).coerceIn(range)) },
             size = 32.dp,
             iconSize = 16.dp,
@@ -452,10 +452,10 @@ fun GuestNotice(
 @Composable
 fun SettingRow(
     title: String,
+    modifier: Modifier = Modifier,
     subtitle: String? = null,
     icon: ImageVector? = null,
     onClick: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
     trailing: @Composable (() -> Unit)? = null,
 ) {
     FlorisCard(modifier = modifier, onClick = onClick) {
@@ -555,7 +555,7 @@ fun CatAvatar(size: Dp, modifier: Modifier = Modifier) {
 fun UserAvatar(size: Dp, modifier: Modifier = Modifier) {
     Image(
         painter = painterResource(R.drawable.default_user_avatar),
-        contentDescription = "我",
+        contentDescription = t(StringKey.Self),
         modifier = modifier
             .size(size)
             .clip(CircleShape),
@@ -584,15 +584,10 @@ fun AuroraOrb(size: Dp, modifier: Modifier = Modifier) {
 /** 顶栏轮播暖心语录（网页端同款）。 */
 @Composable
 fun QuotePill(modifier: Modifier = Modifier) {
-    val quotes = remember {
-        listOf(
-            "把小事做好，时间会替你铺成路。",
-            "风会记得每一片认真生长的叶子。",
-            "慢一点也没关系，星光总会找到夜路。",
-            "留一点从容，给正在发生的好事。",
-            "今天也要像大橘一样，稳稳地晒太阳。",
-        )
-    }
+    val quotes = listOf(
+        t(StringKey.QuoteOne), t(StringKey.QuoteTwo), t(StringKey.QuoteThree),
+        t(StringKey.QuoteFour), t(StringKey.QuoteFive),
+    )
     var index by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {

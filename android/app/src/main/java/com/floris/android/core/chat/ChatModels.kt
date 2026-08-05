@@ -13,6 +13,8 @@ import com.floris.android.core.network.sse.ChatEvent
 data class ChatMessageUi(
     val id: String,
     val role: Role,
+    /** Stable owner shared by the user request and its assistant answer. */
+    val clientMessageId: String? = null,
     val content: String = "",
     val searchResults: SearchMeta? = null,
     val papers: List<Paper> = emptyList(),
@@ -33,6 +35,10 @@ data class ChatMessageUi(
     val failed: Boolean = false,
     val error: String? = null,
     val usageTotal: Long? = null,
+    /** Original send boundary; search timing is measured from here. */
+    val turnStartedAt: Long? = null,
+    val searchStartedAt: Long? = null,
+    val searchCompletedAt: Long? = null,
 ) {
     enum class Role { USER, AI }
 
@@ -47,8 +53,15 @@ data class ChatMessageUi(
 
     /** 后端给出的搜索耗时（秒，一位小数）；没有则为 null。 */
     val searchDurationSeconds: String?
-        get() = searchResults?.timings_ms?.get("search")?.takeIf { it > 0 }
-            ?.let { "%.1f".format(it / 1000.0) }
+        get() {
+            val start = turnStartedAt ?: searchStartedAt
+            val end = searchCompletedAt
+            if (start != null && end != null && end > start) {
+                return "%.1f".format((end - start) / 1000.0)
+            }
+            return searchResults?.timings_ms?.get("search")?.takeIf { it > 0 }
+                ?.let { "%.1f".format(it / 1000.0) }
+        }
 }
 
 /** Applies one SSE event to the in-flight assistant message. Pure function. */
@@ -61,19 +74,15 @@ fun ChatMessageUi.reduce(event: ChatEvent): ChatMessageUi = when (event) {
         progress = event.payload,
         progressTrail = progressTrail.mergeProgress(event.payload),
     )
-    is ChatEvent.SearchResults -> copy(searchResults = event.payload)
-    is ChatEvent.SearchMedia -> {
-        val base = searchResults
-        copy(
-            searchResults = (base ?: SearchMeta(query = event.payload.query)).copy(
-                media = (base?.media.orEmpty() + event.payload.media).distinctBy { it.id },
-                images = (base?.images.orEmpty() + event.payload.images).distinct(),
-                media_pending = false,
-            ),
-        )
-    }
+    is ChatEvent.SearchResults -> copy(searchResults = searchResults.mergeProjection(event.payload))
+    is ChatEvent.SearchMedia -> copy(searchResults = searchResults.mergeProjection(event.payload))
     is ChatEvent.PaperResultsEvent -> copy(papers = event.payload.papers)
     is ChatEvent.WorkspaceActionEvent -> {
+        val next = event.action
+        val replaced = actions.map { if (it.id == next.id) next else it }
+        copy(actions = if (actions.any { it.id == next.id }) replaced else actions + next)
+    }
+    is ChatEvent.ImageAction -> {
         val next = event.action
         val replaced = actions.map { if (it.id == next.id) next else it }
         copy(actions = if (actions.any { it.id == next.id }) replaced else actions + next)
@@ -92,6 +101,42 @@ fun ChatMessageUi.reduce(event: ChatEvent): ChatMessageUi = when (event) {
     is ChatEvent.Error -> copy(streaming = false, failed = true, error = event.content)
     // ping / location request / proactive / ignored / malformed: no UI impact here.
     else -> this
+}
+
+/**
+ * Search result and reviewed-media frames are independent stream projections,
+ * so neither arrival order may erase fields already received from the other.
+ */
+fun SearchMeta?.mergeProjection(incoming: SearchMeta): SearchMeta {
+    val previous = this ?: return incoming
+    val resultsById = linkedMapOf<String, com.floris.android.core.model.SearchSource>()
+    (previous.results + incoming.results).forEach { source ->
+        val key = source.id.ifBlank { source.url }
+        resultsById[key] = source
+    }
+    val mediaById = linkedMapOf<String, MediaItem>()
+    (previous.media + incoming.media).forEach { item ->
+        val key = item.id.ifBlank { item.url }
+        mediaById[key] = item
+    }
+    val results = resultsById.values.toList()
+    val media = mediaById.values.toList()
+    return SearchMeta(
+        query = incoming.query.ifBlank { previous.query },
+        results = results,
+        images = (previous.images + incoming.images).distinct(),
+        media = media,
+        sources_used = (previous.sources_used + incoming.sources_used).distinct(),
+        total = maxOf(previous.total, incoming.total, results.size),
+        target_date = incoming.target_date ?: previous.target_date,
+        strict_date = incoming.strict_date ?: previous.strict_date,
+        media_pending = when {
+            media.isNotEmpty() -> false
+            incoming.media_pending != null -> incoming.media_pending
+            else -> previous.media_pending
+        },
+        timings_ms = previous.timings_ms + incoming.timings_ms,
+    )
 }
 
 /**

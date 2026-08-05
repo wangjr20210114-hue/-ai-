@@ -19,17 +19,24 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,6 +55,7 @@ import com.floris.android.ui.components.InlineLoading
 import com.floris.android.ui.components.StatusChip
 import com.floris.android.ui.historyViewModelFactory
 import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.StringResolver
 import com.floris.android.ui.prefs.t
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,7 +64,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class HistoryViewModel(private val repository: FlorisRepository) : ViewModel() {
+class HistoryViewModel(
+    private val repository: FlorisRepository,
+    private val strings: StringResolver,
+) : ViewModel() {
 
     data class UiState(
         val loading: Boolean = true,
@@ -74,7 +85,12 @@ class HistoryViewModel(private val repository: FlorisRepository) : ViewModel() {
         viewModelScope.launch {
             runCatching { repository.listConversations() }
                 .onSuccess { _state.value = UiState(loading = false, conversations = it) }
-                .onFailure { _state.value = UiState(loading = false, error = "加载失败") }
+                .onFailure {
+                    _state.value = UiState(
+                        loading = false,
+                        error = strings.get(StringKey.HistoryLoadFailed),
+                    )
+                }
         }
     }
 
@@ -83,6 +99,35 @@ class HistoryViewModel(private val repository: FlorisRepository) : ViewModel() {
         _state.value = _state.value.copy(conversations = before.filterNot { it.id == id })
         viewModelScope.launch {
             runCatching { repository.deleteConversation(id) }
+                .onFailure { _state.value = _state.value.copy(conversations = before) }
+        }
+    }
+
+    fun rename(conversation: ConversationSummary, title: String) {
+        val normalized = title.replace(Regex("\\s+"), " ").trim().take(64)
+        if (normalized.isEmpty() || normalized == conversation.title) return
+        val before = _state.value.conversations
+        _state.value = _state.value.copy(
+            conversations = before.map {
+                if (it.id == conversation.id) it.copy(
+                    title = normalized,
+                    pending = false,
+                    manuallyRenamed = true,
+                    updatedAt = System.currentTimeMillis(),
+                ) else it
+            }.sortedByDescending { it.updatedAt },
+        )
+        viewModelScope.launch {
+            runCatching { repository.renameConversation(conversation.id, normalized) }
+                .onSuccess { saved ->
+                    if (saved != null) {
+                        _state.value = _state.value.copy(
+                            conversations = _state.value.conversations.map {
+                                if (it.id == saved.id) saved else it
+                            }.sortedByDescending { it.updatedAt },
+                        )
+                    }
+                }
                 .onFailure { _state.value = _state.value.copy(conversations = before) }
         }
     }
@@ -100,6 +145,35 @@ fun HistoryScreen(
     val viewModel: HistoryViewModel = viewModel(factory = container.historyViewModelFactory())
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
+    var renameTarget by remember { mutableStateOf<ConversationSummary?>(null) }
+    var renameValue by remember { mutableStateOf("") }
+
+    renameTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text(t(StringKey.ChatRename)) },
+            text = {
+                OutlinedTextField(
+                    value = renameValue,
+                    onValueChange = { renameValue = it.take(64) },
+                    label = { Text(t(StringKey.ChatRenameHint)) },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = renameValue.isNotBlank(),
+                    onClick = {
+                        viewModel.rename(target, renameValue)
+                        renameTarget = null
+                    },
+                ) { Text(t(StringKey.Confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) { Text(t(StringKey.Cancel)) }
+            },
+        )
+    }
 
     Column(
         Modifier
@@ -113,7 +187,7 @@ fun HistoryScreen(
         ) {
             IconPill(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "返回",
+                contentDescription = t(StringKey.Back),
                 onClick = onBack,
             )
             Spacer(Modifier.width(4.dp))
@@ -150,19 +224,26 @@ fun HistoryScreen(
                                         contentAlignment = Alignment.CenterEnd,
                                     ) {
                                         Icon(
-                                            Icons.Default.DeleteOutline, "删除",
+                                            Icons.Default.DeleteOutline, t(StringKey.Delete),
                                             tint = MaterialTheme.colorScheme.error,
                                             modifier = Modifier.size(20.dp),
                                         )
                                     }
                                 },
                             ) {
-                                ConversationRow(conversation) {
-                                    scope.launch {
-                                        viewModel.open(conversation.id)
-                                        onOpenConversation()
-                                    }
-                                }
+                                ConversationRow(
+                                    conversation = conversation,
+                                    onRename = {
+                                        renameTarget = conversation
+                                        renameValue = conversation.title
+                                    },
+                                    onClick = {
+                                        scope.launch {
+                                            viewModel.open(conversation.id)
+                                            onOpenConversation()
+                                        }
+                                    },
+                                )
                             }
                         }
                     }
@@ -173,7 +254,11 @@ fun HistoryScreen(
 }
 
 @Composable
-private fun ConversationRow(conversation: ConversationSummary, onClick: () -> Unit) {
+private fun ConversationRow(
+    conversation: ConversationSummary,
+    onRename: () -> Unit,
+    onClick: () -> Unit,
+) {
     FlorisCard(onClick = onClick) {
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
@@ -188,7 +273,7 @@ private fun ConversationRow(conversation: ConversationSummary, onClick: () -> Un
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    "${conversation.messageCount} 条 · ${relativeTime(conversation.updatedAt)}",
+                    "${t(StringKey.ChatMessageCount, conversation.messageCount)} · ${relativeTime(conversation.updatedAt)}",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -197,19 +282,27 @@ private fun ConversationRow(conversation: ConversationSummary, onClick: () -> Un
                 "running" -> StatusChip(t(StringKey.ActionActive), MaterialTheme.colorScheme.primary)
                 "failed" -> StatusChip(t(StringKey.ActionFailed), MaterialTheme.colorScheme.error)
             }
+            IconPill(
+                icon = Icons.Default.Edit,
+                contentDescription = t(StringKey.ChatRename),
+                onClick = onRename,
+                size = 34.dp,
+                iconSize = 17.dp,
+            )
         }
     }
 }
 
+@Composable
 private fun relativeTime(timestamp: Long): String {
     if (timestamp <= 0) return ""
     val millis = if (timestamp < 10_000_000_000L) timestamp * 1000 else timestamp
     val diff = System.currentTimeMillis() - millis
     return when {
-        diff < 60_000 -> "刚刚"
-        diff < 3_600_000 -> "${diff / 60_000} 分钟前"
-        diff < 86_400_000 -> "${diff / 3_600_000} 小时前"
-        diff < 7 * 86_400_000L -> "${diff / 86_400_000} 天前"
+        diff < 60_000 -> t(StringKey.TimeJustNow)
+        diff < 3_600_000 -> t(StringKey.TimeMinutesAgo, diff / 60_000)
+        diff < 86_400_000 -> t(StringKey.TimeHoursAgo, diff / 3_600_000)
+        diff < 7 * 86_400_000L -> t(StringKey.TimeDaysAgo, diff / 86_400_000)
         else -> SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(millis))
     }
 }

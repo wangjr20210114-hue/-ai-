@@ -67,12 +67,15 @@ fun SearchProgress(
 ) {
     val steps = message.progressTrail
     val webSearchActive = steps.any { it.activity == "web_search" && it.status == "active" }
+    val searchTurnActive = message.searchStartedAt != null || webSearchActive
 
     // 秒表：仅在联网搜索进行中且后端还没给出耗时时自增。
     var elapsedSeconds by remember(message.id) { mutableIntStateOf(0) }
-    var startedAt by remember(message.id) { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(message.streaming, webSearchActive) {
-        if (!message.streaming || !webSearchActive) return@LaunchedEffect
+    var startedAt by remember(message.id, message.turnStartedAt) {
+        mutableLongStateOf(message.turnStartedAt ?: System.currentTimeMillis())
+    }
+    LaunchedEffect(message.streaming, searchTurnActive) {
+        if (!message.streaming || !searchTurnActive) return@LaunchedEffect
         while (true) {
             elapsedSeconds = ((System.currentTimeMillis() - startedAt) / 1000).toInt().coerceAtLeast(1)
             delay(1000)
@@ -80,7 +83,7 @@ fun SearchProgress(
     }
 
     val searchTiming = when {
-        webSearchActive && message.streaming ->
+        searchTurnActive && message.streaming ->
             t(StringKey.SearchingForSeconds, elapsedSeconds.coerceAtLeast(1))
         else -> ""
     }

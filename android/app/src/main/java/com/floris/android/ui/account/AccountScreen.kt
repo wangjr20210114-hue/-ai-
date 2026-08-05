@@ -1,5 +1,8 @@
 package com.floris.android.ui.account
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -41,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,14 +67,17 @@ import com.floris.android.ui.components.SettingRow
 import com.floris.android.ui.components.StatusChip
 import com.floris.android.ui.components.UserAvatar
 import com.floris.android.ui.components.IconPill
+import com.floris.android.ui.components.pressable
 import com.floris.android.ui.prefs.AppPreferences
 import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.StringResolver
 import com.floris.android.ui.prefs.t
 import com.floris.android.ui.accountViewModelFactory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import coil.compose.AsyncImage
 
 private const val FEATURE_DOC_URL =
     "https://github.com/wangjr20210114-hue/-ai-/blob/main/README.md"
@@ -83,6 +91,7 @@ class AccountViewModel(
     private val repository: FlorisRepository,
     private val authManager: AuthManager,
     val preferences: AppPreferences,
+    private val strings: StringResolver,
 ) : ViewModel() {
 
     data class UiState(
@@ -91,6 +100,7 @@ class AccountViewModel(
         val monthlyTokens: Long = 0,
         val loading: Boolean = true,
         val message: String? = null,
+        val updatingProfile: Boolean = false,
     )
 
     val authState = authManager.state
@@ -102,6 +112,7 @@ class AccountViewModel(
 
     fun refresh() {
         viewModelScope.launch {
+            repository.loadCachedAvatar()
             val conversationId = repository.activeConversationId()
             runCatching { repository.getProfile() }
                 .onSuccess { profile -> _state.update { it.copy(profile = profile) } }
@@ -122,17 +133,48 @@ class AccountViewModel(
         val trimmed = name.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
-            runCatching { repository.updateDisplayName(trimmed) }
-                .onSuccess {
+            runCatching { repository.updateProfile(trimmed, null) }
+                .onSuccess { profile ->
                     // 以后端回执为准再更新界面。
                     _state.update {
                         it.copy(
-                            profile = it.profile?.copy(display_name = trimmed),
-                            message = "昵称已更新",
+                            profile = profile,
+                            message = strings.get(StringKey.ProfileNameUpdated),
                         )
                     }
                 }
-                .onFailure { _state.update { s -> s.copy(message = "更新失败，请稍后重试") } }
+                .onFailure {
+                    _state.update { s ->
+                        s.copy(message = strings.get(StringKey.ProfileUpdateFailed))
+                    }
+                }
+        }
+    }
+
+    fun updateAvatar(uri: Uri) {
+        val displayName = _state.value.profile?.display_name
+            ?: (authManager.state.value as? AuthState.SignedIn)?.identity?.display_name
+            ?: strings.get(StringKey.ProfileDefaultDisplayName)
+        _state.update { it.copy(updatingProfile = true) }
+        viewModelScope.launch {
+            runCatching { repository.updateProfile(displayName, uri) }
+                .onSuccess { profile ->
+                    _state.update {
+                        it.copy(
+                            profile = profile,
+                            updatingProfile = false,
+                            message = strings.get(StringKey.ProfileAvatarUpdated),
+                        )
+                    }
+                }
+                .onFailure {
+                    _state.update {
+                        it.copy(
+                            updatingProfile = false,
+                            message = strings.get(StringKey.ProfileAvatarUpdateFailed),
+                        )
+                    }
+                }
         }
     }
 
@@ -149,6 +191,10 @@ fun AccountScreen(container: AppContainer, onBack: () -> Unit) {
     val identity = (authState as? AuthState.SignedIn)?.identity ?: Identity()
     val uriHandler = LocalUriHandler.current
     val snackbar = remember { SnackbarHostState() }
+    val localAvatar by container.repository.localAvatarFlow.collectAsState()
+    val pickAvatar = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri -> uri?.let(viewModel::updateAvatar) }
 
     var editingName by remember { mutableStateOf(false) }
     var nameDraft by remember { mutableStateOf("") }
@@ -205,7 +251,7 @@ fun AccountScreen(container: AppContainer, onBack: () -> Unit) {
         ) {
             IconPill(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "返回",
+                contentDescription = t(StringKey.Back),
                 onClick = onBack,
             )
             Spacer(Modifier.width(4.dp))
@@ -223,7 +269,28 @@ fun AccountScreen(container: AppContainer, onBack: () -> Unit) {
                             Modifier.padding(18.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            UserAvatar(size = 58.dp)
+                            val avatarUrl = state.profile?.avatar_url ?: identity.avatar_url
+                            val avatarModel = localAvatar ?: avatarUrl?.let(::accountAvatarUrl)
+                            Box(
+                                Modifier
+                                    .size(58.dp)
+                                    .clip(CircleShape)
+                                    .pressable(enabled = !state.updatingProfile) {
+                                        pickAvatar.launch("image/*")
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (avatarModel != null) {
+                                    AsyncImage(
+                                        model = avatarModel,
+                                        contentDescription = t(StringKey.ProfileAvatar),
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                    )
+                                } else {
+                                    UserAvatar(size = 58.dp)
+                                }
+                            }
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(
@@ -318,6 +385,10 @@ fun AccountScreen(container: AppContainer, onBack: () -> Unit) {
         }
     }
 }
+
+private fun accountAvatarUrl(value: String): String =
+    if (value.startsWith("http://") || value.startsWith("https://")) value
+    else com.floris.android.BuildConfig.FLORIS_BASE_URL.trimEnd('/') + "/" + value.trimStart('/')
 
 @Composable
 private fun Chevron() {

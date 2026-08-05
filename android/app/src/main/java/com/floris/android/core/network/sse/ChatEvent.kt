@@ -24,6 +24,7 @@ sealed interface ChatEvent {
     data class SearchMedia(val payload: SearchMeta) : ChatEvent
     data class PaperResultsEvent(val payload: PaperResults) : ChatEvent
     data class WorkspaceActionEvent(val eventType: String, val action: WorkspaceAction) : ChatEvent
+    data class ImageAction(val action: WorkspaceAction) : ChatEvent
     data class ClarificationEvent(val clarification: Clarification) : ChatEvent
     data class LocationRequest(val reason: String) : ChatEvent
     data class ExperienceHint(val items: List<ExperienceHintItem>) : ChatEvent
@@ -77,6 +78,12 @@ class ChatEventDispatcher(private val json: Json) {
                 json.decodeFromJsonElement(WorkspaceAction.serializer(), actionElement),
             )
         }
+        "image_action" -> ChatEvent.ImageAction(
+            json.decodeFromJsonElement(
+                WorkspaceAction.serializer(),
+                obj["action"] ?: obj.payload()["action"] ?: throw IllegalArgumentException("missing action"),
+            ),
+        )
         "clarification_action" -> {
             val payload = obj.payload()
             val clarification = payload["clarification"] ?: payload

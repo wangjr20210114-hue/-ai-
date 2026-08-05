@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import okhttp3.Authenticator
@@ -26,6 +27,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.Route
 import okhttp3.logging.HttpLoggingInterceptor
+import okio.Buffer
 import retrofit2.Retrofit
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -48,6 +50,7 @@ class FlorisClient(
         explicitNulls = false
         coerceInputValues = true
     },
+    private val responseLanguage: () -> String = { "zh-CN" },
 ) {
     private val jsonMediaType = "application/json".toMediaType()
 
@@ -73,12 +76,34 @@ class FlorisClient(
             .build()
     }
 
+    /** Add the selected product language to every Maker JSON command. */
+    private val responseLanguageInterceptor = Interceptor { chain ->
+        val original = chain.request()
+        val body = original.body
+        val contentType = body?.contentType()
+        if (body == null || contentType?.subtype?.contains("json", ignoreCase = true) != true) {
+            return@Interceptor chain.proceed(original)
+        }
+        val replacement = runCatching {
+            val buffer = Buffer()
+            body.writeTo(buffer)
+            injectResponseLanguage(json, buffer.readUtf8(), responseLanguage())
+                ?.toRequestBody(contentType)
+        }.getOrNull()
+        chain.proceed(
+            if (replacement == null) original else original.newBuilder()
+                .method(original.method, replacement)
+                .build(),
+        )
+    }
+
     private val baseClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         // 云函数冷启动首字节可能超过 30s，普通请求给足 90s。
         .readTimeout(90, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .addInterceptor(authInterceptor)
+        .addInterceptor(responseLanguageInterceptor)
         .authenticator(tokenAuthenticator)
         .apply {
             if (BuildConfig.DEBUG) {
@@ -87,6 +112,13 @@ class FlorisClient(
                 )
             }
         }
+        .build()
+
+    /** Presigned Maker Blob URLs must never receive the Floris bearer. */
+    private val blobClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
+        .writeTimeout(90, TimeUnit.SECONDS)
         .build()
 
     val api: FlorisApi = Retrofit.Builder()
@@ -130,6 +162,26 @@ class FlorisClient(
     /** SSE streaming for POST /chat. */
     fun streamChat(conversationId: String, body: JsonObject): Flow<ChatEvent> =
         streamSse("chat", conversationId, body).map { dispatcher.dispatch(it) }
+
+    fun streamImageEdit(conversationId: String, body: JsonObject): Flow<ChatEvent> =
+        streamSse("image", conversationId, body).map { dispatcher.dispatch(it) }
+
+    suspend fun putPresigned(
+        url: String,
+        contentType: String,
+        bytes: ByteArray,
+    ) = withContext(Dispatchers.IO) {
+        require(url.startsWith("https://")) { "Only HTTPS upload URLs are accepted" }
+        val request = Request.Builder()
+            .url(url)
+            .put(bytes.toRequestBody(contentType.toMediaType()))
+            .build()
+        blobClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw ApiException(response.code, "Blob upload failed (${response.code})")
+            }
+        }
+    }
 
     /**
      * SSE streaming for POST /reader (论文助读：summarize / translate / analyze / qa).
@@ -247,6 +299,19 @@ class FlorisClient(
         /** 后端游客会话为 7 天；响应缺少 Max-Age 时按此兜底。 */
         const val GUEST_FALLBACK_TTL_SECONDS = 7L * 24 * 60 * 60
     }
+}
+
+internal fun injectResponseLanguage(json: Json, rawBody: String, requested: String): String? {
+    val payload = runCatching { json.parseToJsonElement(rawBody) as? JsonObject }.getOrNull()
+        ?: return null
+    if ("response_language" in payload) return null
+    val language = requested.takeIf {
+        it in setOf("zh-CN", "zh-TW", "en", "cat-cute", "cat-cold")
+    } ?: "zh-CN"
+    val localized = JsonObject(
+        payload + ("response_language" to kotlinx.serialization.json.JsonPrimitive(language)),
+    )
+    return json.encodeToString(JsonObject.serializer(), localized)
 }
 
 /** 论文助读增量结果。 */

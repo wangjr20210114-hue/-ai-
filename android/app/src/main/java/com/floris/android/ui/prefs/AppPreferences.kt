@@ -79,7 +79,7 @@ class AppPreferences(private val context: Context, scope: CoroutineScope) {
     }
 
     suspend fun setWebResults(value: Int) {
-        val clamped = value.coerceIn(3, 12)
+        val clamped = value.coerceIn(3, 18)
         _webResults.value = clamped
         context.uiDataStore.edit { it[Keys.WEB_RESULTS] = clamped }
     }

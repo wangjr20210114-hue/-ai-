@@ -1,5 +1,9 @@
 package com.floris.android.ui.skills
 
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -8,6 +12,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -16,18 +21,22 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -40,7 +49,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -55,25 +67,38 @@ import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.data.asString
 import com.floris.android.core.data.obj
 import com.floris.android.core.model.Skill
+import com.floris.android.core.model.SkillUploadRecord
+import com.floris.android.core.model.SkillConnectionState
+import com.floris.android.core.model.UserSkill
 import com.floris.android.ui.components.AnimateIn
 import com.floris.android.ui.components.EmptyState
 import com.floris.android.ui.components.FlorisCard
 import com.floris.android.ui.components.FlorisSwitch
 import com.floris.android.ui.components.GuestNotice
 import com.floris.android.ui.components.InlineLoading
+import com.floris.android.ui.components.PillButton
+import com.floris.android.ui.components.PillStyle
 import com.floris.android.ui.components.SectionHeader
 import com.floris.android.ui.components.StatusChip
 import com.floris.android.ui.papers.SearchField
 import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.StringResolver
 import com.floris.android.ui.prefs.t
 import com.floris.android.ui.skillsViewModelFactory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 class SkillsViewModel(
     private val repository: FlorisRepository,
     private val authManager: AuthManager,
+    private val strings: StringResolver,
 ) : ViewModel() {
 
     data class UiState(
@@ -84,6 +109,10 @@ class SkillsViewModel(
         val error: String? = null,
         /** 游客：只有契约里的 guest_skill_ids 可用，其余需登录。 */
         val isGuest: Boolean = false,
+        val uploads: List<SkillUploadRecord> = emptyList(),
+        val userSkills: List<UserSkill> = emptyList(),
+        val connections: Map<String, SkillConnectionState> = emptyMap(),
+        val importing: Boolean = false,
     )
 
     private val _state = MutableStateFlow(UiState(isGuest = authManager.isGuest))
@@ -128,15 +157,14 @@ class SkillsViewModel(
             val conversationId = repository.activeConversationId()
             runCatching {
                 val catalog = repository.skillCatalog(conversationId)
-                val preferences = repository.intelligencePreferences(conversationId)
-                catalog to preferences
-            }.onSuccess { (catalog, intelligence) ->
-                val prefs = intelligence.obj("preferences")?.obj("skills")
+                val uploads = if (guest) emptyList() else repository.listSkillUploads()
+                catalog to uploads
+            }.onSuccess { (catalog, uploadObjects) ->
                 val enabled = catalog.skills.mapNotNull { skill ->
-                    val pref = prefs?.get(skill.id)?.asString()
+                    val pref = catalog.preferences[skill.id]
                     val isEnabled = skill.enabled
                         ?: skill.locked?.takeIf { it }
-                        ?: pref?.let { it != "false" }
+                        ?: pref
                         ?: true
                     if (isEnabled) skill.id else null
                 }.toSet()
@@ -145,9 +173,15 @@ class SkillsViewModel(
                     skills = catalog.skills,
                     enabledIds = enabled,
                     isGuest = guest,
+                    uploads = uploadObjects,
+                    userSkills = catalog.user_skills,
+                    connections = catalog.connections,
                 )
             }.onFailure {
-                _state.value = _state.value.copy(loading = false, error = "技能市场加载失败")
+                _state.value = _state.value.copy(
+                    loading = false,
+                    error = strings.get(StringKey.SkillsMarketFailed),
+                )
             }
         }
     }
@@ -155,8 +189,8 @@ class SkillsViewModel(
     fun toggle(skill: Skill, enabled: Boolean) {
         if (_state.value.busyId != null) return
         // 游客越权由后端 403 拦截，这里先在客户端明确提示，避免无谓往返。
-        if (_state.value.isGuest && !skill.availableToGuest) {
-            _state.value = _state.value.copy(error = "请先登录后使用此技能")
+        if (skill.eligible == false) {
+            _state.value = _state.value.copy(error = strings.get(StringKey.SkillsLoginHint))
             return
         }
         _state.value = _state.value.copy(busyId = skill.id)
@@ -172,34 +206,168 @@ class SkillsViewModel(
             }.onFailure { error ->
                 _state.value = _state.value.copy(
                     busyId = null,
-                    error = error.message?.takeIf { it.isNotBlank() } ?: "操作失败，请重试",
+                    error = error.message?.takeIf { it.isNotBlank() }
+                        ?: strings.get(StringKey.SkillsOperationFailed),
                 )
             }
+        }
+    }
+
+    fun importUrl(url: String) = importOperation {
+        val resolved = repository.resolveSkillUrl(url).obj("skill")
+            ?: error(strings.get(StringKey.SkillsImportFailed))
+        repository.installUserSkill(resolved)
+    }
+
+    fun importText(name: String, description: String, instructions: String) = importOperation {
+        repository.installUserSkillText(name, description, instructions)
+    }
+
+    fun importFile(uri: Uri, filename: String) = importOperation {
+        repository.importUserSkillFile(uri, filename)
+    }
+
+    private fun importOperation(block: suspend () -> JsonObject) {
+        if (_state.value.importing) return
+        _state.update { it.copy(importing = true, error = null) }
+        viewModelScope.launch {
+            runCatching { block() }
+                .onSuccess {
+                    _state.update { it.copy(importing = false) }
+                    refresh(force = true)
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            importing = false,
+                            error = error.message ?: strings.get(StringKey.SkillsImportFailed),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun setUserSkillEnabled(skill: UserSkill, enabled: Boolean) {
+        viewModelScope.launch {
+            runCatching { repository.setUserSkillEnabled(skill.id, enabled) }
+                .onSuccess { refresh(force = true) }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(error = error.message ?: strings.get(StringKey.SkillsOperationFailed))
+                    }
+                }
+        }
+    }
+
+    fun removeUserSkill(skill: UserSkill) {
+        viewModelScope.launch {
+            runCatching { repository.removeUserSkill(skill.id) }
+                .onSuccess { refresh(force = true) }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(error = error.message ?: strings.get(StringKey.SkillsOperationFailed))
+                    }
+                }
+        }
+    }
+
+    fun requestReview(upload: SkillUploadRecord) {
+        if (_state.value.busyId != null) return
+        _state.update { it.copy(busyId = upload.id, error = null) }
+        viewModelScope.launch {
+            runCatching { repository.requestSkillReview(upload.id) }
+                .onSuccess { refresh(force = true) }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            busyId = null,
+                            error = error.message ?: strings.get(StringKey.SkillsSubmitFailed),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun publishUserSkill(skill: UserSkill) {
+        if (_state.value.busyId != null) return
+        _state.update { it.copy(busyId = skill.id, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                repository.publishDeclarativeSkill(
+                    sourceSkillId = skill.id,
+                    name = skill.name,
+                    description = skill.description,
+                    instructions = skill.instructions,
+                    installedAt = skill.installed_at,
+                )
+            }.onSuccess { refresh(force = true) }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            busyId = null,
+                            error = error.message ?: strings.get(StringKey.SkillsSubmitFailed),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun connect(skill: Skill, token: String) {
+        if (_state.value.busyId != null || token.isBlank()) return
+        _state.update { it.copy(busyId = skill.id, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                repository.configureSkillConnection(
+                    repository.activeConversationId(), skill.id, token.trim(),
+                )
+            }.onSuccess { refresh(force = true) }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            busyId = null,
+                            error = error.message ?: strings.get(StringKey.SkillsConnectFailed),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun disconnect(skill: Skill) {
+        if (_state.value.busyId != null) return
+        _state.update { it.copy(busyId = skill.id, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                repository.disconnectSkillConnection(repository.activeConversationId(), skill.id)
+            }.onSuccess { refresh(force = true) }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            busyId = null,
+                            error = error.message ?: strings.get(StringKey.SkillsDisconnectFailed),
+                        )
+                    }
+                }
         }
     }
 
     fun consumeError() { _state.value = _state.value.copy(error = null) }
 }
 
-/**
- * 游客可用技能，取自 contracts/entitlements.v1.json 的 guest_skill_ids。
- * 与后端 auth/entitlements.js skillAccess() 判定保持一致。
- */
-private val GUEST_SKILL_IDS = setOf("core", "proactive-agent")
-
-private val Skill.availableToGuest: Boolean get() = id in GUEST_SKILL_IDS
+/** Eligibility is the backend entitlement projection; Android never copies its rules. */
+private val Skill.availableToGuest: Boolean get() = eligible != false
 
 private val categoryOrder =
     listOf("foundation", "knowledge", "creative", "productivity", "location", "other")
 
-private val categoryLabels = mapOf(
-    "foundation" to "基础能力",
-    "knowledge" to "知识检索",
-    "creative" to "创作",
-    "productivity" to "效率",
-    "location" to "位置服务",
-    "other" to "其他",
-)
+@Composable
+private fun categoryLabel(category: String): String = when (category) {
+    "foundation" -> t(StringKey.SkillCategoryFoundation)
+    "knowledge" -> t(StringKey.SkillCategoryKnowledge)
+    "creative" -> t(StringKey.SkillCategoryCreative)
+    "productivity" -> t(StringKey.SkillCategoryProductivity)
+    "location" -> t(StringKey.SkillCategoryLocation)
+    else -> t(StringKey.SkillCategoryOther)
+}
 
 private fun skillIcon(category: String?): ImageVector = when (category) {
     "knowledge" -> Icons.Default.Search
@@ -217,7 +385,17 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
         factory = container.skillsViewModelFactory(),
     )
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
     var query by remember { mutableStateOf("") }
+    var showImport by remember { mutableStateOf(false) }
+    val pickSkill = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        uri?.let {
+            viewModel.importFile(it, skillDisplayName(context, it))
+            showImport = false
+        }
+    }
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(state.error) {
         state.error?.let { snackbar.showSnackbar(it); viewModel.consumeError() }
@@ -237,7 +415,22 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
                 fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.height(4.dp))
-            Text(t(StringKey.SkillsTitle), style = MaterialTheme.typography.headlineMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    t(StringKey.SkillsTitle),
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                if (!state.isGuest) {
+                    PillButton(
+                        text = t(StringKey.SkillsAdd),
+                        leadingIcon = Icons.Default.Add,
+                        compact = true,
+                        enabled = !state.importing,
+                        onClick = { showImport = true },
+                    )
+                }
+            }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -268,7 +461,9 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
         Box(Modifier.weight(1f)) {
             when {
                 state.loading -> InlineLoading()
-                state.skills.isEmpty() -> EmptyState("暂无技能", "技能市场暂时为空")
+                state.skills.isEmpty() -> EmptyState(
+                    t(StringKey.SkillsEmptyTitle), t(StringKey.SkillsEmptyBody),
+                )
                 else -> {
                     val filtered = state.skills.filter { skill ->
                         query.isBlank() ||
@@ -284,9 +479,35 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        if (state.userSkills.isNotEmpty()) {
+                            item(key = "user-skills-header") {
+                                SectionHeader("${t(StringKey.SkillsPrivate)} · ${state.userSkills.size}")
+                            }
+                            items(state.userSkills, key = { "user-${it.id}" }) { skill ->
+                                UserSkillCard(
+                                    skill = skill,
+                                    busy = state.busyId == skill.id,
+                                    onToggle = { viewModel.setUserSkillEnabled(skill, it) },
+                                    onRemove = { viewModel.removeUserSkill(skill) },
+                                    onPublish = { viewModel.publishUserSkill(skill) },
+                                )
+                            }
+                        }
+                        if (state.uploads.isNotEmpty()) {
+                            item(key = "skill-uploads-header") {
+                                SectionHeader("${t(StringKey.SkillsUploads)} · ${state.uploads.size}")
+                            }
+                            items(state.uploads, key = { "upload-${it.id}" }) { upload ->
+                                SkillUploadCard(
+                                    upload = upload,
+                                    busy = state.busyId == upload.id,
+                                    onPublish = { viewModel.requestReview(upload) },
+                                )
+                            }
+                        }
                         grouped.forEach { (category, skills) ->
                             item(key = "header-$category") {
-                                SectionHeader("${categoryLabels[category] ?: category} · ${skills.size}")
+                                SectionHeader("${categoryLabel(category)} · ${skills.size}")
                             }
                             items(skills, key = { it.id }) { skill ->
                                 AnimateIn(0) {
@@ -296,7 +517,10 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
                                         busy = state.busyId == skill.id,
                                         missing = skill.requires.filter { it !in state.enabledIds },
                                         needsLogin = state.isGuest && !skill.availableToGuest,
+                                        connection = state.connections[skill.id],
                                         onToggle = { enabled -> viewModel.toggle(skill, enabled) },
+                                        onConnect = { token -> viewModel.connect(skill, token) },
+                                        onDisconnect = { viewModel.disconnect(skill) },
                                     )
                                 }
                             }
@@ -307,7 +531,218 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
         }
     }
+
+    if (showImport) {
+        SkillImportDialog(
+            busy = state.importing,
+            onDismiss = { showImport = false },
+            onChooseFile = {
+                pickSkill.launch(arrayOf("text/markdown", "application/json", "application/zip"))
+            },
+            onImportUrl = {
+                viewModel.importUrl(it)
+                showImport = false
+            },
+            onImportText = { name, description, instructions ->
+                viewModel.importText(name, description, instructions)
+                showImport = false
+            },
+        )
+    }
 }
+
+@Composable
+private fun SkillImportDialog(
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onChooseFile: () -> Unit,
+    onImportUrl: (String) -> Unit,
+    onImportText: (String, String, String) -> Unit,
+) {
+    var url by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var instructions by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(t(StringKey.SkillsImportTitle)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ImportField(url, { url = it }, t(StringKey.SkillsImportUrl))
+                Text("—", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                ImportField(name, { name = it }, t(StringKey.SkillsImportName))
+                ImportField(description, { description = it }, t(StringKey.SkillsImportDescription))
+                ImportField(
+                    instructions,
+                    { instructions = it },
+                    t(StringKey.SkillsImportInstructions),
+                    singleLine = false,
+                )
+                PillButton(
+                    text = t(StringKey.SkillsChooseFile),
+                    onClick = onChooseFile,
+                    style = PillStyle.Tonal,
+                    enabled = !busy,
+                    compact = true,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy && (url.isNotBlank() || instructions.isNotBlank()),
+                onClick = {
+                    if (url.isNotBlank()) onImportUrl(url)
+                    else onImportText(name, description, instructions)
+                },
+            ) { Text(t(StringKey.SkillsImport)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(t(StringKey.Cancel)) }
+        },
+    )
+}
+
+@Composable
+private fun ImportField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    hint: String,
+    singleLine: Boolean = true,
+) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        if (value.isEmpty()) {
+            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = singleLine,
+            maxLines = if (singleLine) 1 else 6,
+            textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun UserSkillCard(
+    skill: UserSkill,
+    busy: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onRemove: () -> Unit,
+    onPublish: () -> Unit,
+) {
+    FlorisCard {
+        Column(Modifier.padding(14.dp)) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(skill.name, style = MaterialTheme.typography.titleMedium)
+                if (skill.description.isNotBlank()) {
+                    Text(
+                        skill.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    skill.source_type,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = onRemove) { Text(t(StringKey.SkillsRemove)) }
+            FlorisSwitch(checked = skill.enabled, onCheckedChange = onToggle)
+          }
+          if (skill.review_status !in setOf("pending_review", "approved")) {
+              Spacer(Modifier.height(8.dp))
+              PillButton(
+                  text = if (busy) t(StringKey.Loading) else t(StringKey.SkillsSubmitReview),
+                  onClick = onPublish,
+                  enabled = !busy,
+                  compact = true,
+                  style = PillStyle.Tonal,
+              )
+          } else {
+              Spacer(Modifier.height(8.dp))
+              StatusChip(skillReviewLabel(skill.review_status), skillReviewColor(skill.review_status))
+          }
+        }
+    }
+}
+
+@Composable
+private fun SkillUploadCard(
+    upload: SkillUploadRecord,
+    busy: Boolean,
+    onPublish: () -> Unit,
+) {
+    FlorisCard {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(upload.name, style = MaterialTheme.typography.titleMedium)
+                upload.description?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(5.dp))
+                StatusChip(skillReviewLabel(upload.review_status), skillReviewColor(upload.review_status))
+            }
+            if (upload.review_available && upload.review_status !in setOf("pending_review", "approved")) {
+                Spacer(Modifier.width(8.dp))
+                PillButton(
+                    text = if (busy) t(StringKey.Loading) else t(StringKey.SkillsSubmitReview),
+                    onClick = onPublish,
+                    enabled = !busy,
+                    compact = true,
+                    style = PillStyle.Tonal,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun skillReviewLabel(status: String): String = when (status) {
+    "pending_review" -> t(StringKey.SkillsPendingReview)
+    "approved" -> t(StringKey.SkillsApproved)
+    "rejected" -> t(StringKey.SkillsRejected)
+    else -> t(StringKey.SkillsStored)
+}
+
+@Composable
+private fun skillReviewColor(status: String) = when (status) {
+    "pending_review" -> MaterialTheme.colorScheme.secondary
+    "approved" -> MaterialTheme.colorScheme.tertiary
+    "rejected" -> MaterialTheme.colorScheme.error
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+private fun skillDisplayName(context: android.content.Context, uri: Uri): String =
+    context.contentResolver.query(
+        uri,
+        arrayOf(OpenableColumns.DISPLAY_NAME),
+        null,
+        null,
+        null,
+    )?.use { cursor ->
+        val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+    }?.takeIf { it.isNotBlank() } ?: "SKILL.md"
 
 @Composable
 private fun SkillCard(
@@ -316,11 +751,16 @@ private fun SkillCard(
     busy: Boolean,
     missing: List<String>,
     needsLogin: Boolean,
+    connection: SkillConnectionState?,
     onToggle: (Boolean) -> Unit,
+    onConnect: (String) -> Unit,
+    onDisconnect: () -> Unit,
 ) {
+    var token by remember(skill.id) { mutableStateOf("") }
     FlorisCard {
+        Column(Modifier.padding(14.dp).alpha(if (needsLogin) 0.5f else 1f)) {
         // 未登录不可用的技能整体压暗，一眼能分出哪些要登录。
-        Row(Modifier.padding(14.dp).alpha(if (needsLogin) 0.5f else 1f)) {
+        Row {
             Box(
                 Modifier
                     .size(40.dp)
@@ -343,7 +783,7 @@ private fun SkillCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (needsLogin || skill.locked == true || skill.builtin == true) {
+                    if (needsLogin || skill.locked == true) {
                         Spacer(Modifier.width(5.dp))
                         Icon(
                             Icons.Default.Lock, contentDescription = null,
@@ -356,7 +796,7 @@ private fun SkillCard(
                     listOfNotNull(
                         (skill.publisher?.get("name")).asString(),
                         skill.version?.let { "v$it" },
-                    ).joinToString(" · ").ifEmpty { "Floris 官方" },
+                    ).joinToString(" · ").ifEmpty { t(StringKey.SkillsOfficial) },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -370,18 +810,32 @@ private fun SkillCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (needsLogin) {
                         StatusChip(t(StringKey.SkillsLoginRequired), MaterialTheme.colorScheme.error)
-                    } else {
-                        StatusChip(t(StringKey.SkillsGuestReady), MaterialTheme.colorScheme.tertiary)
                     }
                     if (skill.locked == true) {
                         StatusChip(t(StringKey.SkillsAlwaysOn), MaterialTheme.colorScheme.secondary)
                     }
-                    if (skill.requires.isNotEmpty()) {
-                        StatusChip(
-                            "${t(StringKey.SkillsDependencies)} ${skill.requires.size}",
-                            MaterialTheme.colorScheme.primary,
-                        )
-                    }
+                }
+                if (skill.requires.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        t(StringKey.SkillsRequires, skill.requires.joinToString("、")),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (skill.conflicts.isNotEmpty()) {
+                    Text(
+                        t(StringKey.SkillsConflicts, skill.conflicts.joinToString("、")),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                if (skill.recommends.isNotEmpty()) {
+                    Text(
+                        t(StringKey.SkillsRecommends, skill.recommends.joinToString("、")),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 if (needsLogin) {
                     Spacer(Modifier.height(6.dp))
@@ -405,6 +859,73 @@ private fun SkillCard(
                 onCheckedChange = onToggle,
                 enabled = !busy && !needsLogin && skill.locked != true,
             )
+        }
+        if (skill.external && enabled && !needsLogin && skill.credential?.kind == "token") {
+            Spacer(Modifier.height(12.dp))
+            val connected = connection?.configured == true || skill.configured
+            if (connected) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    StatusChip(t(StringKey.SkillsConnected), MaterialTheme.colorScheme.tertiary)
+                    Spacer(Modifier.weight(1f))
+                    PillButton(
+                        text = t(StringKey.SkillsDisconnect),
+                        onClick = onDisconnect,
+                        style = PillStyle.Danger,
+                        compact = true,
+                        enabled = !busy,
+                    )
+                }
+            } else {
+                val instructions = skill.credential.instructions["zh-CN"]
+                    ?: skill.credential.instructions["zh"]
+                    ?: skill.credential.instructions["en"]
+                    ?: skill.credential.instructions.values.firstOrNull().orEmpty()
+                if (instructions.isNotBlank()) {
+                    Text(
+                        instructions,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                Box(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    if (token.isEmpty()) {
+                        Text(
+                            t(StringKey.SkillsConnectionToken),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    BasicTextField(
+                        value = token,
+                        onValueChange = { token = it },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        textStyle = MaterialTheme.typography.bodySmall.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    PillButton(
+                        text = t(StringKey.SkillsConnect),
+                        onClick = { onConnect(token) },
+                        compact = true,
+                        enabled = token.isNotBlank() && !busy,
+                    )
+                }
+            }
+        }
         }
     }
 }

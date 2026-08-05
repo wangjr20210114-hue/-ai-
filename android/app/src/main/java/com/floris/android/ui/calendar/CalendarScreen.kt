@@ -1,5 +1,7 @@
 package com.floris.android.ui.calendar
 
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,15 +22,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,6 +47,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -59,22 +69,30 @@ import com.floris.android.ui.components.StatusChip
 import com.floris.android.ui.components.pressable
 import com.floris.android.ui.calendarViewModelFactory
 import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.StringResolver
 import com.floris.android.ui.prefs.t
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-class CalendarViewModel(private val repository: FlorisRepository) : ViewModel() {
+class CalendarViewModel(
+    private val repository: FlorisRepository,
+    private val strings: StringResolver,
+) : ViewModel() {
 
     data class UiState(
         val loading: Boolean = true,
         val error: String? = null,
         /** 后台静默刷新中（已有缓存时不遮挡界面）。 */
         val refreshing: Boolean = false,
+        val saving: Boolean = false,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -101,14 +119,75 @@ class CalendarViewModel(private val repository: FlorisRepository) : ViewModel() 
                         loading = false,
                         refreshing = false,
                         // 有缓存时失败不必打扰用户，继续看旧数据即可。
-                        error = if (hasCache) null else "日程加载失败",
+                        error = if (hasCache) null else strings.get(StringKey.CalendarLoadFailed),
                     )
                 }
         }
     }
-}
 
-private val weekLabels = listOf("一", "二", "三", "四", "五", "六", "日")
+    fun saveSchedule(
+        existingId: String?,
+        title: String,
+        startTime: Long,
+        durationMinutes: Int,
+        location: String,
+    ) {
+        if (title.isBlank() || _state.value.saving) return
+        _state.value = _state.value.copy(saving = true, error = null)
+        viewModelScope.launch {
+            runCatching {
+                repository.directCalendarChanges(
+                    repository.activeConversationId(),
+                    buildJsonArray {
+                        add(buildJsonObject {
+                            put("operation", if (existingId == null) "create" else "update")
+                            existingId?.let { put("schedule_id", it) }
+                            put("event", buildJsonObject {
+                                put("title", title.trim())
+                                put("start_time", startTime)
+                                put("duration_minutes", durationMinutes.coerceAtLeast(1))
+                                put("category", "other")
+                                location.trim().takeIf { it.isNotEmpty() }?.let { put("location", it) }
+                            })
+                        })
+                    },
+                )
+            }.onSuccess {
+                _state.value = _state.value.copy(saving = false)
+            }.onFailure {
+                _state.value = _state.value.copy(
+                    saving = false,
+                    error = strings.get(StringKey.CalendarSaveFailed),
+                )
+            }
+        }
+    }
+
+    fun deleteSchedule(schedule: Schedule) {
+        if (_state.value.saving) return
+        _state.value = _state.value.copy(saving = true, error = null)
+        viewModelScope.launch {
+            runCatching {
+                repository.directCalendarChanges(
+                    repository.activeConversationId(),
+                    buildJsonArray {
+                        add(buildJsonObject {
+                            put("operation", "delete")
+                            put("schedule_id", schedule.id)
+                        })
+                    },
+                )
+            }.onSuccess {
+                _state.value = _state.value.copy(saving = false)
+            }.onFailure {
+                _state.value = _state.value.copy(
+                    saving = false,
+                    error = strings.get(StringKey.CalendarDeleteFailed),
+                )
+            }
+        }
+    }
+}
 
 @Composable
 fun CalendarScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
@@ -124,6 +203,8 @@ fun CalendarScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) 
     var year by remember { mutableIntStateOf(today.get(Calendar.YEAR)) }
     var month by remember { mutableIntStateOf(today.get(Calendar.MONTH)) } // 0-based
     var selectedDay by remember { mutableStateOf(dayKeyOf(today)) }
+    var editorOpen by remember { mutableStateOf(false) }
+    var editingSchedule by remember { mutableStateOf<Schedule?>(null) }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -139,11 +220,21 @@ fun CalendarScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) 
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item(key = "header") {
-                Text(
-                    t(StringKey.CalendarTitle),
-                    style = MaterialTheme.typography.headlineMedium,
-                    modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 6.dp),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        t(StringKey.CalendarTitle),
+                        style = MaterialTheme.typography.headlineMedium,
+                        modifier = Modifier.weight(1f).padding(start = 4.dp, top = 6.dp, bottom = 6.dp),
+                    )
+                    com.floris.android.ui.components.IconPill(
+                        icon = Icons.Default.Add,
+                        contentDescription = t(StringKey.CalendarAdd),
+                        onClick = {
+                            editingSchedule = null
+                            editorOpen = true
+                        },
+                    )
+                }
             }
             item(key = "month") {
                 MonthCard(
@@ -179,7 +270,16 @@ fun CalendarScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) 
                 }
             } else {
                 items(daySchedules, key = { it.id }) { schedule ->
-                    AnimateIn(0) { ScheduleRow(schedule) }
+                    AnimateIn(0) {
+                        ScheduleRow(
+                            schedule,
+                            onEdit = {
+                                editingSchedule = schedule
+                                editorOpen = true
+                            },
+                            onDelete = { viewModel.deleteSchedule(schedule) },
+                        )
+                    }
                 }
             }
             if (state.loading && schedules.isEmpty()) {
@@ -191,6 +291,19 @@ fun CalendarScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) 
                 }
             }
         }
+    }
+
+    if (editorOpen) {
+        ScheduleEditorDialog(
+            schedule = editingSchedule,
+            selectedDay = selectedDay,
+            saving = state.saving,
+            onDismiss = { editorOpen = false },
+            onSave = { title, start, duration, location ->
+                viewModel.saveSchedule(editingSchedule?.id, title, start, duration, location)
+                editorOpen = false
+            },
+        )
     }
 }
 
@@ -213,20 +326,20 @@ private fun MonthCard(
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "${year}年${month + 1}月",
+                    t(StringKey.CalendarYearMonth, year, month + 1),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
                 com.floris.android.ui.components.IconPill(
                     icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                    contentDescription = "上月",
+                    contentDescription = t(StringKey.CalendarPreviousMonth),
                     onClick = onPrevMonth,
                     size = 32.dp,
                     iconSize = 18.dp,
                 )
                 com.floris.android.ui.components.IconPill(
                     icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = "下月",
+                    contentDescription = t(StringKey.CalendarNextMonth),
                     onClick = onNextMonth,
                     size = 32.dp,
                     iconSize = 18.dp,
@@ -234,9 +347,13 @@ private fun MonthCard(
             }
             Spacer(Modifier.height(8.dp))
             Row {
-                weekLabels.forEach { label ->
+                listOf(
+                    StringKey.WeekMonday, StringKey.WeekTuesday, StringKey.WeekWednesday,
+                    StringKey.WeekThursday, StringKey.WeekFriday, StringKey.WeekSaturday,
+                    StringKey.WeekSunday,
+                ).forEach { key ->
                     Text(
-                        label,
+                        t(key),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -319,7 +436,11 @@ private fun MonthCard(
 }
 
 @Composable
-private fun ScheduleRow(schedule: Schedule) {
+private fun ScheduleRow(
+    schedule: Schedule,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
     FlorisCard {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(
@@ -327,9 +448,13 @@ private fun ScheduleRow(schedule: Schedule) {
                 modifier = Modifier.padding(end = 14.dp),
             ) {
                 Text(timeOf(schedule.start_time), style = MaterialTheme.typography.titleMedium)
-                if (schedule.end_time > 0) {
+                val endTime = schedule.end_time.takeIf { it > 0 }
+                    ?: schedule.duration_minutes.takeIf { it > 0 }?.let {
+                        schedule.start_time + it * 60L
+                    }
+                if (endTime != null) {
                     Text(
-                        timeOf(schedule.end_time),
+                        timeOf(endTime),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -355,9 +480,133 @@ private fun ScheduleRow(schedule: Schedule) {
                 }
             }
             if (schedule.location_kind == "online") {
-                StatusChip("线上", MaterialTheme.colorScheme.secondary)
+                StatusChip(t(StringKey.CalendarOnline), MaterialTheme.colorScheme.secondary)
             }
+            com.floris.android.ui.components.IconPill(
+                icon = Icons.Default.Edit,
+                contentDescription = t(StringKey.CalendarEdit),
+                onClick = onEdit,
+                size = 32.dp,
+                iconSize = 15.dp,
+            )
+            com.floris.android.ui.components.IconPill(
+                icon = Icons.Default.DeleteOutline,
+                contentDescription = t(StringKey.CalendarDelete),
+                onClick = onDelete,
+                size = 32.dp,
+                iconSize = 15.dp,
+                tint = MaterialTheme.colorScheme.error,
+            )
         }
+    }
+}
+
+@Composable
+private fun ScheduleEditorDialog(
+    schedule: Schedule?,
+    selectedDay: String,
+    saving: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (String, Long, Int, String) -> Unit,
+) {
+    val context = LocalContext.current
+    val initialStart = schedule?.start_time?.takeIf { it > 0 } ?: run {
+        val day = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).parse(selectedDay)?.time
+            ?: System.currentTimeMillis()
+        (day + 9 * 60 * 60 * 1000) / 1000
+    }
+    var title by remember(schedule?.id) { mutableStateOf(schedule?.title.orEmpty()) }
+    var location by remember(schedule?.id) { mutableStateOf(schedule?.location.orEmpty()) }
+    var start by remember(schedule?.id, selectedDay) { mutableStateOf(initialStart) }
+    var duration by remember(schedule?.id) {
+        mutableStateOf((schedule?.duration_minutes ?: 60).coerceAtLeast(1).toString())
+    }
+    val calendar = remember(start) {
+        Calendar.getInstance().apply { timeInMillis = start * 1000 }
+    }
+    fun chooseDate() {
+        DatePickerDialog(
+            context,
+            { _, year, month, day ->
+                val next = Calendar.getInstance().apply {
+                    timeInMillis = start * 1000
+                    set(year, month, day)
+                }
+                start = next.timeInMillis / 1000
+            },
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH),
+            calendar.get(Calendar.DAY_OF_MONTH),
+        ).show()
+    }
+    fun chooseTime() {
+        TimePickerDialog(
+            context,
+            { _, hour, minute ->
+                val next = Calendar.getInstance().apply {
+                    timeInMillis = start * 1000
+                    set(Calendar.HOUR_OF_DAY, hour)
+                    set(Calendar.MINUTE, minute)
+                    set(Calendar.SECOND, 0)
+                }
+                start = next.timeInMillis / 1000
+            },
+            calendar.get(Calendar.HOUR_OF_DAY),
+            calendar.get(Calendar.MINUTE),
+            true,
+        ).show()
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (schedule == null) t(StringKey.CalendarAdd) else t(StringKey.CalendarEdit)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                CalendarField(title, { title = it }, t(StringKey.CalendarEventTitle))
+                CalendarField(location, { location = it }, t(StringKey.CalendarLocation))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = ::chooseDate) {
+                        Text(SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(Date(start * 1000)))
+                    }
+                    TextButton(onClick = ::chooseTime) { Text(timeOf(start)) }
+                }
+                CalendarField(
+                    duration,
+                    { duration = it.filter(Char::isDigit).take(4) },
+                    t(StringKey.CalendarDuration),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !saving && title.isNotBlank() && duration.toIntOrNull() != null,
+                onClick = {
+                    onSave(title, start, duration.toIntOrNull() ?: 60, location)
+                },
+            ) { Text(t(StringKey.CalendarSave)) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(t(StringKey.Cancel)) } },
+    )
+}
+
+@Composable
+private fun CalendarField(value: String, onValueChange: (String) -> Unit, hint: String) {
+    Box(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        if (value.isEmpty()) {
+            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

@@ -1,6 +1,9 @@
 package com.floris.android.core.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 
 // ---------- Identity ----------
@@ -45,6 +48,8 @@ data class ConversationSummary(
     val createdAt: Long = 0,
     val updatedAt: Long = 0,
     val messageCount: Int = 0,
+    val pending: Boolean = false,
+    val manuallyRenamed: Boolean = false,
     val activityStatus: String = "idle",
 )
 
@@ -54,6 +59,63 @@ data class ConversationBootstrap(
     val workspace_revision: Long = 0,
     val schedules: List<JsonObject> = emptyList(),
     val map_places: List<JsonObject> = emptyList(),
+    val map_title: String = "",
+    val map_route_mode: String = "",
+    val map_route_strategy: String = "",
+    val map_route: JsonObject? = null,
+    val map_show_route: Boolean = false,
+    val run: ChatRun? = null,
+    val presentation: RunPresentation? = null,
+)
+
+/** Public Maker run state. It never contains private model reasoning. */
+@Serializable
+data class ChatRun(
+    val run_id: String = "",
+    val client_message_id: String = "",
+    val status: String = "",
+    val error: String? = null,
+    val started_at: Long? = null,
+    val updated_at: Long? = null,
+    val completed_at: Long? = null,
+    val diagnostics: JsonObject? = null,
+) {
+    val active: Boolean get() = status == "running" || status == "cancel_requested"
+}
+
+/**
+ * Bounded UI snapshot published by the Maker backend while a turn is running.
+ * Android restores this projection after process death instead of starting a
+ * second, downgraded model request.
+ */
+@Serializable
+data class RunPresentation(
+    val schema_version: Int = 1,
+    val run_id: String = "",
+    val client_message_id: String = "",
+    val revision: Long = 0,
+    val updated_at: Long = 0,
+    val turn_started_at: Long? = null,
+    val search_selected: Boolean = false,
+    val search_started_at: Long? = null,
+    val search_completed_at: Long? = null,
+    val active_activity: String? = null,
+    val content: String = "",
+    val progress: List<JsonObject> = emptyList(),
+    val search_results: JsonObject? = null,
+    val search_media: JsonObject? = null,
+    val workspace_actions: List<WorkspaceAction> = emptyList(),
+    val clarification: Clarification? = null,
+    val papers: PaperResults? = null,
+    val follow_ups: List<String> = emptyList(),
+    val experience_hints: List<ExperienceHintItem> = emptyList(),
+    val error: String? = null,
+)
+
+@Serializable
+data class ChatRunState(
+    val run: ChatRun? = null,
+    val presentation: RunPresentation? = null,
 )
 
 // ---------- Components (floris-components-v1) ----------
@@ -83,6 +145,7 @@ data class MediaItem(
     val id: String = "",
     val kind: String = "image",
     val url: String = "",
+    val source_id: String? = null,
     val alt: String = "",
     val caption: String = "",
     val generated: Boolean = false,
@@ -211,11 +274,38 @@ data class ExperienceHintItem(
 
 @Serializable
 data class RouteLeg(
+    val from: Place? = null,
+    val to: Place? = null,
+    val scope: String? = null,
     val mode: String? = null,
     val distance_text: String? = null,
     val duration_text: String? = null,
     val instruction: String? = null,
     val polyline: List<List<Double>> = emptyList(),
+    val path: List<RoutePoint> = emptyList(),
+    val sections: List<RouteSection> = emptyList(),
+    val distance_meters: Double = 0.0,
+    val duration_seconds: Double = 0.0,
+)
+
+@Serializable
+data class RoutePoint(
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
+)
+
+@Serializable
+data class RouteSection(
+    val mode: String = "walking",
+    val path: List<RoutePoint> = emptyList(),
+    val distance_meters: Double = 0.0,
+    val duration_seconds: Double = 0.0,
+    val line: String? = null,
+    val vehicle: String? = null,
+    val geton: String? = null,
+    val getoff: String? = null,
+    val station_count: Int? = null,
+    val instruction: String? = null,
 )
 
 @Serializable
@@ -229,6 +319,14 @@ data class RoutePlan(
     val ordered_stops: List<Place> = emptyList(),
     val legs: List<RouteLeg> = emptyList(),
     val polyline: List<List<Double>> = emptyList(),
+    val schema_version: Int = 1,
+    val provider: String = "",
+    val places: List<Place> = emptyList(),
+    val path: List<RoutePoint> = emptyList(),
+    val distance_meters: Double = 0.0,
+    val duration_seconds: Double = 0.0,
+    val fare: JsonObject = JsonObject(emptyMap()),
+    val transit: JsonObject? = null,
 )
 
 // ---------- Skills ----------
@@ -244,12 +342,74 @@ data class Skill(
     val enabled: Boolean? = null,
     val locked: Boolean? = null,
     val builtin: Boolean? = null,
+    val installed: Boolean? = null,
+    val eligible: Boolean? = null,
+    val required_plan: String? = null,
+    val eligibility_reason: String? = null,
+    val conflicts: List<String> = emptyList(),
+    val recommends: List<String> = emptyList(),
+    val capabilities: List<String> = emptyList(),
+    val component_actions: List<String> = emptyList(),
+    val external: Boolean = false,
+    val configured: Boolean = false,
+    val connect_url: String = "",
+    val credential: SkillCredential? = null,
     val publisher: JsonObject? = null,
+)
+
+@Serializable
+data class SkillCredential(
+    val kind: String = "token",
+    val ttl_seconds: Long = 0,
+    val help_url: String = "",
+    val instructions: Map<String, String> = emptyMap(),
+)
+
+@Serializable
+data class SkillConnectionState(
+    val configured: Boolean = false,
+    val connected_at: Long = 0,
+    val expires_at: Long = 0,
+)
+
+@Serializable
+data class UserSkill(
+    val id: String = "",
+    val name: String = "",
+    val description: String = "",
+    val instructions: String = "",
+    val source_type: String = "",
+    val source_url: String = "",
+    val enabled: Boolean = true,
+    val installed_at: Long = 0,
+    val updated_at: Long = 0,
+    val review_status: String = "not_submitted",
+)
+
+@Serializable
+data class SkillUploadRecord(
+    val id: String = "",
+    val name: String = "",
+    val status: String = "stored",
+    val visibility: String = "private",
+    val review_status: String = "not_submitted",
+    val review_available: Boolean = false,
+    val source_type: String = "zip",
+    val source_skill_id: String? = null,
+    val description: String? = null,
+    val size: Long = 0,
+    val installed_at: Long? = null,
+    val review_requested_at: Long? = null,
 )
 
 @Serializable
 data class SkillMarketplaceState(
     val skills: List<Skill> = emptyList(),
+    val preferences: Map<String, Boolean> = emptyMap(),
+    val connections: Map<String, SkillConnectionState> = emptyMap(),
+    val user_skills: List<UserSkill> = emptyList(),
+    val entitlements: JsonObject? = null,
+    val identity: Identity? = null,
     val dependency_graph: JsonObject? = null,
     val component_api: JsonObject? = null,
     val enabled: List<String> = emptyList(),
@@ -263,10 +423,16 @@ data class Schedule(
     val title: String = "",
     val start_time: Long = 0,
     val end_time: Long = 0,
+    val duration_minutes: Int = 0,
+    val duration_days: Int = 0,
+    val category: String? = null,
     val location: String? = null,
     val place: Place? = null,
     val location_kind: String? = null,
     val notes: String? = null,
+    val description: String? = null,
+    val markdown_content: String? = null,
+    val done: Boolean = false,
     val source_route_plan_id: String? = null,
     val deleted: Boolean? = null,
 )
@@ -281,6 +447,145 @@ data class Profile(
     val email: String? = null,
 )
 
+@Serializable
+data class MapPreferences(
+    val service_mode: String = "balanced",
+    val place_result_limit: Int = 6,
+    val route_stop_limit: Int = 8,
+    val search_timeout_seconds: Int = 30,
+    val preferred_route_mode: String = "driving",
+    val route_strategy: String = "time_then_cost",
+    val near_time_tolerance_minutes: Int = 10,
+    val learn_route_preferences: Boolean = true,
+)
+
+@Serializable
+data class MemoryHistoryEntry(
+    val version: Int = 0,
+    val value: JsonElement = JsonNull,
+    val sensitivity: String = "normal",
+    val updated_at: Long = 0,
+)
+
+@Serializable
+data class MemoryProposal(
+    val id: String = "",
+    val memory_key: String = "",
+    val value: JsonElement = JsonNull,
+    val reason: String = "",
+    val sensitivity: String = "normal",
+    val status: String = "pending",
+    val version: Int = 0,
+    val created_at: Long = 0,
+    val updated_at: Long = 0,
+)
+
+@Serializable
+data class UserMemory(
+    val id: String = "",
+    val memory_key: String = "",
+    val value: JsonElement = JsonNull,
+    val confidence: Double = 0.0,
+    val sensitivity: String = "normal",
+    val version: Int = 0,
+    val history: List<MemoryHistoryEntry> = emptyList(),
+    val created_at: Long = 0,
+    val updated_at: Long = 0,
+)
+
+@Serializable
+data class ProactiveRuleProposal(
+    val id: String = "",
+    val kind: String = "",
+    val target: String = "",
+    val reason: String = "",
+    val status: String = "pending",
+    val version: Int = 0,
+    val created_at: Long = 0,
+    val updated_at: Long = 0,
+)
+
+@Serializable
+data class IntelligenceState(
+    val schema_version: Int = 1,
+    val revision: Int = 0,
+    val memory_proposals: List<MemoryProposal> = emptyList(),
+    val memories: List<UserMemory> = emptyList(),
+    val memory_count: Int = memories.size,
+    val memory_preferences: MemoryPreferences = MemoryPreferences(),
+    val search_preferences: SearchPreferences = SearchPreferences(),
+    val map_preferences: MapPreferences = MapPreferences(),
+    val rule_proposals: List<ProactiveRuleProposal> = emptyList(),
+)
+
+@Serializable
+data class MemoryPreferences(val enabled: Boolean = true)
+
+@Serializable
+data class SearchPreferences(
+    val result_limit: Int = 8,
+    val image_limit: Int = 4,
+    val parallel_image_search: Boolean = true,
+)
+
+@Serializable
+data class QuietHours(
+    val enabled: Boolean = false,
+    val start: String = "22:00",
+    val end: String = "07:00",
+)
+
+@Serializable
+data class ProactivePreferences(
+    val enabled: Boolean = true,
+    val autonomy_mode: String = "propose",
+    val timezone: String = "Asia/Shanghai",
+    val quiet_hours: QuietHours = QuietHours(),
+    val daily_limit: Int = 6,
+    val lookahead_hours: Int = 24,
+    val window_limit: Int = 10,
+    val provider_schedule_limit: Int = 6,
+    val route_gap_hours: Int = 3,
+    val travel_buffer_minutes: Int = 20,
+    val fallback_mottos: List<String> = emptyList(),
+    val types: Map<String, Boolean> = emptyMap(),
+)
+
+@Serializable
+data class ProactiveWorkflowStep(
+    val id: String = "",
+    val offset_minutes: Int = 0,
+    val title: String = "",
+    val body: String = "",
+    val action_prompt: String = "",
+    val depends_on: List<String> = emptyList(),
+    val status: String = "pending",
+    val attempt: Int = 0,
+    val last_error: String? = null,
+    val due_at: Long? = null,
+)
+
+@Serializable
+data class ProactiveWorkflow(
+    val id: String = "",
+    val title: String = "",
+    val reason: String = "",
+    val status: String = "awaiting_confirmation",
+    val version: Int = 0,
+    val steps: List<ProactiveWorkflowStep> = emptyList(),
+    val created_at: Long = 0,
+    val updated_at: Long = 0,
+)
+
+@Serializable
+data class ProactiveState(
+    val schema_version: Int = 1,
+    val revision: Int = 0,
+    val preferences: ProactivePreferences = ProactivePreferences(),
+    val notifications: List<ProactiveNotification> = emptyList(),
+    val workflows: List<ProactiveWorkflow> = emptyList(),
+)
+
 /**
  * 主动提醒（POST /proactive）。后端负责生成与状态流转，
  * 客户端只展示并把用户决定原样转发（mark_read / snooze / dismiss）。
@@ -293,7 +598,7 @@ data class ProactiveNotification(
     val type: String? = null,
     val priority: String? = null,
     val status: String = "unread",
-    val snoozedUntil: Long? = null,
+    @SerialName("snoozed_until") val snoozedUntil: Long? = null,
     /** 后端建议的处理话术，点"去处理"时填入输入框。 */
-    val actionPrompt: String? = null,
+    @SerialName("action_prompt") val actionPrompt: String? = null,
 )

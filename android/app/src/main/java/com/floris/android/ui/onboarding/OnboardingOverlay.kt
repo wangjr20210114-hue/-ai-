@@ -31,11 +31,11 @@ import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.WbSunny
@@ -83,7 +83,7 @@ private data class TourStep(
     val copy: StringKey,
     val icon: ImageVector,
     val target: TourTarget,
-    val label: String,
+    val label: StringKey,
     /** 聚光灯锚点，按顺序取第一个可见的。 */
     val anchors: List<String>,
 )
@@ -95,53 +95,53 @@ private data class TourStep(
 private val steps = listOf(
     TourStep(
         StringKey.OnboardingNewConversation, Icons.Default.AddCircle, TourTarget.CHAT,
-        "新对话", listOf(TourStepKey.NEW_CONVERSATION),
+        StringKey.ChatNew, listOf(TourStepKey.NEW_CONVERSATION),
     ),
     TourStep(
         StringKey.OnboardingHistory, Icons.Default.History, TourTarget.CHAT,
-        "历史记录", listOf(TourStepKey.HISTORY),
+        StringKey.ChatHistory, listOf(TourStepKey.HISTORY),
     ),
     TourStep(
-        StringKey.OnboardingChatInput, Icons.Default.Send, TourTarget.CHAT,
-        "对话输入", listOf(TourStepKey.INPUT),
+        StringKey.OnboardingChatInput, Icons.AutoMirrored.Filled.Send, TourTarget.CHAT,
+        StringKey.ChatInputHint, listOf(TourStepKey.INPUT),
     ),
     TourStep(
         StringKey.OnboardingSkills, Icons.Default.Star, TourTarget.SKILLS,
-        "Skills 广场", listOf(TourStepKey.SKILLS),
+        StringKey.TabSkills, listOf(TourStepKey.SKILLS),
     ),
     TourStep(
         StringKey.OnboardingCalendar, Icons.Default.DateRange, TourTarget.CALENDAR,
-        "日程", listOf(TourStepKey.CALENDAR),
+        StringKey.TabCalendar, listOf(TourStepKey.CALENDAR),
     ),
     TourStep(
-        StringKey.OnboardingReading, Icons.Default.MenuBook, TourTarget.READING,
-        "我的阅读", listOf(TourStepKey.READING),
+        StringKey.OnboardingReading, Icons.AutoMirrored.Filled.MenuBook, TourTarget.READING,
+        StringKey.TabReading, listOf(TourStepKey.READING),
     ),
     TourStep(
         StringKey.OnboardingMap, Icons.Default.Place, TourTarget.PROFILE,
-        "地图工作区", listOf(TourStepKey.MAP),
+        StringKey.MapTitle, listOf(TourStepKey.MAP),
     ),
     TourStep(
         StringKey.OnboardingReminders, Icons.Default.Notifications, TourTarget.PROFILE,
-        "主动提醒", listOf(TourStepKey.REMINDERS),
+        StringKey.Reminders, listOf(TourStepKey.REMINDERS),
     ),
     TourStep(
         StringKey.OnboardingProfileCenter, Icons.Default.Person, TourTarget.PROFILE,
-        "个人中心", listOf(TourStepKey.PROFILE),
+        StringKey.ProfileTitle, listOf(TourStepKey.PROFILE),
     ),
     TourStep(
         StringKey.OnboardingSettings, Icons.Default.Settings, TourTarget.PROFILE,
-        "设置", listOf(TourStepKey.SETTINGS),
+        StringKey.SettingsTitle, listOf(TourStepKey.SETTINGS),
     ),
     // 主题切换回到聊天页顶栏：那里才是真实存在的按钮。
     TourStep(
         StringKey.OnboardingTheme, Icons.Default.WbSunny, TourTarget.CHAT,
-        "白天 / 黑夜", listOf(TourStepKey.THEME),
+        StringKey.SettingsTheme, listOf(TourStepKey.THEME),
     ),
     // 收尾：告诉用户去哪看文档，但不自动打开浏览器。
     TourStep(
         StringKey.OnboardingGithub, Icons.Default.Info, TourTarget.CHAT,
-        "功能文档", listOf(TourStepKey.THEME),
+        StringKey.AccountHelp, listOf(TourStepKey.THEME),
     ),
 )
 
@@ -377,7 +377,7 @@ private fun TourCard(
             }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(step.label, style = MaterialTheme.typography.titleMedium)
+                Text(t(step.label), style = MaterialTheme.typography.titleMedium)
                 Text(
                     "${index + 1}/$total",
                     style = MaterialTheme.typography.labelSmall,

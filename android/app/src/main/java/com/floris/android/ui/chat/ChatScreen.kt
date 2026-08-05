@@ -8,8 +8,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,6 +46,13 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SaveAlt
@@ -63,6 +72,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -98,6 +108,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.floris.android.AppContainer
 import com.floris.android.R
 import com.floris.android.core.chat.ChatMessageUi
+import com.floris.android.core.chat.PendingChatTurn
 import com.floris.android.core.share.ImageSaver
 import com.floris.android.core.share.MarkdownPlainText
 import com.floris.android.ui.chatViewModelFactory
@@ -115,6 +126,7 @@ import com.floris.android.ui.components.QuotePill
 import com.floris.android.ui.components.SearchCompleteMeta
 import com.floris.android.ui.components.SearchProgress
 import com.floris.android.ui.components.SearchSourcesRow
+import com.floris.android.ui.components.SourceBoundAnswer
 import com.floris.android.ui.components.StatusChip
 import com.floris.android.ui.components.WorkspaceActionCard
 import com.floris.android.ui.components.panelBorderColor
@@ -124,6 +136,7 @@ import com.floris.android.ui.layout.Responsive
 import com.floris.android.ui.onboarding.TourStepKey
 import com.floris.android.ui.onboarding.onboardingTarget
 import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.LocalLanguage
 import com.floris.android.ui.prefs.t
 import com.floris.android.ui.theme.LocalDarkTheme
 import com.floris.android.ui.theme.userBubbleBrush
@@ -149,6 +162,30 @@ fun ChatScreen(
 
     var draft by remember { mutableStateOf("") }
     var images by remember { mutableStateOf<List<String>>(emptyList()) }
+    var voiceListening by remember { mutableStateOf(false) }
+    var voicePrefix by remember { mutableStateOf("") }
+    val language = LocalLanguage.current
+    val voiceUnavailableText = t(StringKey.ChatVoiceUnavailable)
+    val voiceController = remember(context, voiceUnavailableText) {
+        VoiceInputController(
+            context = context,
+            onText = { recognized ->
+                draft = if (voicePrefix.isBlank()) recognized else "$voicePrefix $recognized"
+            },
+            onListeningChanged = { voiceListening = it },
+            onUnavailable = { scope.launch { snackbar.showSnackbar(voiceUnavailableText) } },
+        )
+    }
+    DisposableEffect(voiceController) {
+        onDispose { voiceController.release() }
+    }
+
+    val voicePermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) voiceController.start(language.speechTag)
+        else scope.launch { snackbar.showSnackbar(voiceUnavailableText) }
+    }
 
     val pickImages = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(3),
@@ -229,8 +266,10 @@ fun ChatScreen(
     if (state.locationRequestReason != null && !hasLocationPermission(context)) {
         AlertDialog(
             onDismissRequest = viewModel::dismissLocationRequest,
-            title = { Text("需要你的位置") },
-            text = { Text(state.locationRequestReason ?: "Floris 希望使用当前位置来提供更准确的结果。") },
+            title = { Text(t(StringKey.LocationPermissionTitle)) },
+            text = {
+                Text(state.locationRequestReason ?: t(StringKey.LocationPermissionBody))
+            },
             confirmButton = {
                 TextButton(onClick = {
                     locationPermission.launch(
@@ -248,6 +287,7 @@ fun ChatScreen(
     }
 
     val dark = LocalDarkTheme.current
+    val queueFullText = t(StringKey.ChatQueueFull)
 
     // 背景已由 MainShell 铺满整屏（含底栏区域），这里不再重复绘制。
     Box(Modifier.fillMaxSize()) {
@@ -309,6 +349,7 @@ fun ChatScreen(
                                                 viewModel.activateMap(action)
                                                 onOpenMap()
                                             },
+                                            onEditImage = viewModel::editImage,
                                             onClarificationSubmit = { clarification, answers ->
                                                 viewModel.submitClarification(clarification, answers)
                                             },
@@ -326,6 +367,12 @@ fun ChatScreen(
                     }
                 }
 
+                TurnQueueDrawer(
+                    turns = state.queuedTurns,
+                    onUpdate = viewModel::updateQueuedTurn,
+                    onDelete = viewModel::removeQueuedTurn,
+                    onRunNow = viewModel::interruptWithQueuedTurn,
+                )
                 InputBar(
                     draft = draft,
                     onDraftChange = { draft = it },
@@ -337,15 +384,164 @@ fun ChatScreen(
                         )
                     },
                     onClearImages = { images = emptyList() },
+                    voiceListening = voiceListening,
+                    onVoice = {
+                        if (voiceListening) {
+                            voiceController.stop()
+                        } else if (!voiceController.available) {
+                            scope.launch { snackbar.showSnackbar(voiceUnavailableText) }
+                        } else {
+                            voicePrefix = draft.trimEnd()
+                            if (ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO,
+                                ) == PermissionChecker.PERMISSION_GRANTED
+                            ) voiceController.start(language.speechTag)
+                            else voicePermission.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
                     onSend = {
-                        viewModel.send(draft, images)
-                        draft = ""
-                        images = emptyList()
+                        voiceController.stop()
+                        when (viewModel.send(draft, images)) {
+                            ChatSendDisposition.STARTED,
+                            ChatSendDisposition.QUEUED -> {
+                                draft = ""
+                                images = emptyList()
+                            }
+                            ChatSendDisposition.QUEUE_FULL -> {
+                                scope.launch { snackbar.showSnackbar(queueFullText) }
+                            }
+                            ChatSendDisposition.IGNORED -> Unit
+                        }
                     },
                     onStop = viewModel::stop,
                 )
             }
         }
+    }
+}
+
+/** Compact Codex-style drawer for turns waiting behind the active Maker run. */
+@Composable
+private fun TurnQueueDrawer(
+    turns: List<PendingChatTurn>,
+    onUpdate: (String, String) -> Unit,
+    onDelete: (String) -> Unit,
+    onRunNow: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    AnimatedVisibility(
+        visible = turns.isNotEmpty(),
+        enter = expandVertically() + fadeIn(),
+        exit = shrinkVertically() + fadeOut(),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 2.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
+                .border(1.dp, panelBorderColor(), RoundedCornerShape(16.dp)),
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .pressable { expanded = !expanded }
+                    .padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    t(StringKey.ChatQueueTitle, turns.size),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                IconPill(
+                    icon = if (expanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                    contentDescription = null,
+                    onClick = { expanded = !expanded },
+                    size = 30.dp,
+                    iconSize = 18.dp,
+                )
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                Column(Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp)) {
+                    turns.forEach { turn ->
+                        QueueTurnRow(turn, onUpdate, onDelete, onRunNow)
+                        if (turn != turns.last()) Spacer(Modifier.height(6.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QueueTurnRow(
+    turn: PendingChatTurn,
+    onUpdate: (String, String) -> Unit,
+    onDelete: (String) -> Unit,
+    onRunNow: (String) -> Unit,
+) {
+    var editing by remember(turn.id) { mutableStateOf(false) }
+    var value by remember(turn.id, turn.text) { mutableStateOf(turn.text) }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .padding(start = 12.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (editing) {
+            BasicTextField(
+                value = value,
+                onValueChange = { value = it },
+                textStyle = MaterialTheme.typography.bodySmall.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            Text(
+                turn.text,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        IconPill(
+            icon = Icons.Default.Edit,
+            contentDescription = t(StringKey.ChatQueueEdit),
+            onClick = {
+                if (editing) onUpdate(turn.id, value)
+                editing = !editing
+            },
+            size = 30.dp,
+            iconSize = 15.dp,
+        )
+        IconPill(
+            icon = Icons.Default.DeleteOutline,
+            contentDescription = t(StringKey.ChatQueueDelete),
+            onClick = { onDelete(turn.id) },
+            size = 30.dp,
+            iconSize = 15.dp,
+        )
+        IconPill(
+            icon = Icons.Default.PlayArrow,
+            contentDescription = t(StringKey.ChatQueueRunNow),
+            onClick = { onRunNow(turn.id) },
+            size = 30.dp,
+            iconSize = 17.dp,
+            tint = MaterialTheme.colorScheme.primary,
+        )
     }
 }
 
@@ -516,6 +712,7 @@ private fun AssistantRow(
     onConfirm: (com.floris.android.core.model.WorkspaceAction) -> Unit,
     onCancel: (com.floris.android.core.model.WorkspaceAction) -> Unit,
     onShowMap: (com.floris.android.core.model.WorkspaceAction) -> Unit,
+    onEditImage: (com.floris.android.core.model.WorkspaceAction, String) -> Unit,
     onClarificationSubmit: (com.floris.android.core.model.Clarification, Map<String, Any>) -> Unit,
     onFollowUp: (String) -> Unit,
     onRetry: () -> Unit,
@@ -551,8 +748,9 @@ private fun AssistantRow(
                 else SearchProgress(message)
             }
             if (message.content.isNotBlank() || message.streaming) {
-                MarkdownText(
-                    markdown = message.content,
+                SourceBoundAnswer(
+                    content = message.content,
+                    searchMeta = message.searchResults,
                     streaming = message.streaming && message.content.isNotBlank(),
                 )
             }
@@ -564,7 +762,6 @@ private fun AssistantRow(
                     Spacer(Modifier.height(12.dp))
                     SearchSourcesRow(meta)
                 }
-                if (meta.media.isNotEmpty()) MediaGrid(meta.media)
             }
             PaperListCard(message.papers)
             }
@@ -574,6 +771,7 @@ private fun AssistantRow(
             // 文案先取好：t() 是 @Composable，不能在点击回调里调用。
             val copiedText = t(StringKey.CopiedToClipboard)
             val saveFailedText = t(StringKey.SaveImageFailed)
+            val savedText = t(StringKey.SavedToGallery)
             Spacer(Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 GhostAction(
@@ -599,7 +797,7 @@ private fun AssistantRow(
                                     onSuccess = { ImageSaver.saveToGallery(context, it) },
                                     onFailure = { Result.failure(it) },
                                 )
-                            onNotify(result.getOrElse { saveFailedText })
+                            onNotify(if (result.isSuccess) savedText else saveFailedText)
                             saving = false
                         }
                     },
@@ -607,14 +805,17 @@ private fun AssistantRow(
             }
         }
 
-        message.actions.forEach { action ->
-            WorkspaceActionCard(
-                action = action,
-                busy = busyActionId == action.id,
-                onConfirm = { onConfirm(action) },
-                onCancel = { onCancel(action) },
-                onShowMap = { onShowMap(action) },
-            )
+        if (!message.streaming) {
+            message.actions.forEach { action ->
+                WorkspaceActionCard(
+                    action = action,
+                    busy = busyActionId == action.id,
+                    onConfirm = { onConfirm(action) },
+                    onCancel = { onCancel(action) },
+                    onShowMap = { onShowMap(action) },
+                    onEditImage = { prompt -> onEditImage(action, prompt) },
+                )
+            }
         }
         message.clarification?.let { clarification ->
             ClarificationForm(
@@ -702,6 +903,8 @@ private fun InputBar(
     streaming: Boolean,
     onPickImages: () -> Unit,
     onClearImages: () -> Unit,
+    voiceListening: Boolean,
+    onVoice: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
@@ -716,7 +919,10 @@ private fun InputBar(
                 Modifier.padding(start = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                StatusChip("已附 $imageCount 张图片", MaterialTheme.colorScheme.primary)
+                StatusChip(
+                    t(StringKey.AttachedImageCount, imageCount),
+                    MaterialTheme.colorScheme.primary,
+                )
                 Spacer(Modifier.width(6.dp))
                 Text(
                     t(StringKey.Close),
@@ -741,10 +947,21 @@ private fun InputBar(
         ) {
             IconPill(
                 icon = Icons.Outlined.Image,
-                contentDescription = "添加图片",
+                contentDescription = t(StringKey.ChatAddImage),
                 onClick = onPickImages,
                 size = 40.dp,
                 iconSize = 19.dp,
+            )
+            IconPill(
+                icon = if (voiceListening) Icons.Default.MicOff else Icons.Default.Mic,
+                contentDescription = t(
+                    if (voiceListening) StringKey.ChatVoiceStop else StringKey.ChatVoiceStart,
+                ),
+                onClick = onVoice,
+                size = 40.dp,
+                iconSize = 19.dp,
+                tint = if (voiceListening) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Box(
                 Modifier
@@ -776,12 +993,21 @@ private fun InputBar(
                 )
             }
             Spacer(Modifier.width(4.dp))
+            if (streaming) {
+                PrimaryIconButton(
+                    icon = Icons.Default.Close,
+                    contentDescription = t(StringKey.ChatStop),
+                    onClick = onStop,
+                    danger = true,
+                    size = 38.dp,
+                )
+                Spacer(Modifier.width(4.dp))
+            }
             PrimaryIconButton(
-                icon = if (streaming) Icons.Default.Close else Icons.AutoMirrored.Filled.Send,
-                contentDescription = if (streaming) t(StringKey.ChatStop) else "发送",
-                onClick = { if (streaming) onStop() else if (draft.isNotBlank()) onSend() },
-                enabled = streaming || draft.isNotBlank(),
-                danger = streaming,
+                icon = Icons.AutoMirrored.Filled.Send,
+                contentDescription = t(StringKey.Send),
+                onClick = { if (draft.isNotBlank()) onSend() },
+                enabled = draft.isNotBlank(),
             )
         }
     }

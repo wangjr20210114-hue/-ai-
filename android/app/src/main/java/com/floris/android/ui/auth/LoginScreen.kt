@@ -49,12 +49,16 @@ import com.floris.android.ui.components.PillStyle
 import com.floris.android.ui.layout.Responsive
 import com.floris.android.ui.loginViewModelFactory
 import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.StringResolver
 import com.floris.android.ui.prefs.t
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class LoginViewModel(private val authManager: AuthManager) : ViewModel() {
+class LoginViewModel(
+    private val authManager: AuthManager,
+    private val strings: StringResolver,
+) : ViewModel() {
 
     data class UiState(
         val email: String = "",
@@ -105,14 +109,19 @@ class LoginViewModel(private val authManager: AuthManager) : ViewModel() {
         val email = _state.value.email.trim()
         if (_state.value.anyBusy) return
         if (!email.contains("@")) {
-            _state.value = _state.value.copy(error = "请输入有效的邮箱地址")
+            _state.value = _state.value.copy(error = strings.get(StringKey.LoginInvalidEmail))
             return
         }
         _state.value = _state.value.copy(busy = true, error = null)
         viewModelScope.launch {
             runCatching { authManager.sendEmailOtp(email) }
                 .onSuccess { _state.value = _state.value.copy(busy = false, step = Step.CODE) }
-                .onFailure { _state.value = _state.value.copy(busy = false, error = it.message) }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        error = strings.get(StringKey.LoginOperationFailed),
+                    )
+                }
         }
     }
 
@@ -120,13 +129,18 @@ class LoginViewModel(private val authManager: AuthManager) : ViewModel() {
         val current = _state.value
         if (current.anyBusy) return
         if (current.code.length < 4) {
-            _state.value = current.copy(error = "请输入邮箱收到的验证码")
+            _state.value = current.copy(error = strings.get(StringKey.LoginEnterCode))
             return
         }
         _state.value = current.copy(busy = true, error = null)
         viewModelScope.launch {
             runCatching { authManager.verifyEmailOtp(current.email, current.code) }
-                .onFailure { _state.value = _state.value.copy(busy = false, error = it.message) }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        error = strings.get(StringKey.LoginOperationFailed),
+                    )
+                }
             // 成功后 AuthState 翻转，导航层会替换本页
         }
     }
@@ -147,7 +161,10 @@ class LoginViewModel(private val authManager: AuthManager) : ViewModel() {
         viewModelScope.launch {
             runCatching { authManager.signInAsGuest() }
                 .onFailure {
-                    _state.value = _state.value.copy(guestBusy = false, error = it.message)
+                    _state.value = _state.value.copy(
+                        guestBusy = false,
+                        error = strings.get(StringKey.LoginOperationFailed),
+                    )
                 }
         }
     }

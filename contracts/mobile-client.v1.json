@@ -1,0 +1,73 @@
+{
+  "contract": "floris-mobile-client",
+  "version": "1",
+  "base_url": "https://floris-dev.jlutx.com/",
+  "authentication": {
+    "business_header": "Authorization: Bearer <floris_access_token>",
+    "conversation_header": "makers-conversation-id: <stable_client_uuid>",
+    "cloudbase_exchange": "POST /auth/mobile/session",
+    "guest_session": "GET /auth/session",
+    "response_languages": ["zh-CN", "zh-TW", "en", "cat-cute", "cat-cold"]
+  },
+  "chat": {
+    "stream": "POST /chat",
+    "bootstrap": "POST /messages",
+    "run_projection": "POST /run",
+    "stop": "POST /stop",
+    "events": [
+      "progress_event",
+      "stage_timing",
+      "ai_response",
+      "ai_response_reset",
+      "search_results",
+      "search_media",
+      "paper_results",
+      "clarification_action",
+      "map_action",
+      "calendar_action",
+      "side_effect_action",
+      "image_action",
+      "experience_hint",
+      "follow_ups",
+      "proactive_update",
+      "usage",
+      "browser_location_request",
+      "error_message",
+      "answer_complete",
+      "ping"
+    ],
+    "unknown_event_policy": "ignore",
+    "terminal_events": ["answer_complete", "error_message"],
+    "durability": "Only a terminal Maker run may become a durable assistant message"
+  },
+  "routes": {
+    "conversations": ["GET /conversations", "POST /conversations", "DELETE /conversations"],
+    "workspace": ["POST /workspace", "POST /places", "POST /routes"],
+    "skills": ["POST /skill_marketplace", "POST /intelligence", "GET /skill-uploads", "POST /skill-uploads"],
+    "reading": ["GET /papers", "POST /papers", "POST /reader", "GET /library", "POST /library", "DELETE /library", "POST /document-text"],
+    "files": ["POST /files", "HEAD /files", "GET /files?key=<key>&part=<n>", "DELETE /files"],
+    "identity": ["GET /profile", "POST /profile", "POST /proactive", "GET /provider_usage"],
+    "reset": ["POST /reset", "POST /reset-files"]
+  },
+  "operations": {
+    "conversation": ["touch_pointer", "rename"],
+    "workspace": ["get", "activate_map", "deactivate_map", "direct_calendar_changes", "confirm_action", "cancel_action", "update_meeting_action", "generate_image", "save_travel_plan", "delete_travel_plan"],
+    "intelligence": ["get", "export", "confirm_memory", "reject_memory", "delete_memory", "rollback_memory", "clear_memories", "confirm_rule", "reject_rule", "update_usage_preferences", "update_memory_preferences", "update_search_preferences", "update_map_preferences", "update_skill_preferences", "configure_skill_connection", "disconnect_skill_connection", "install_user_skill", "set_user_skill_enabled", "remove_user_skill"],
+    "proactive": ["get", "refresh", "page_open", "memory_refresh", "tick", "update_preferences", "ingest_signal", "confirm_workflow", "reject_workflow", "cancel_workflow", "complete_workflow_step", "skip_workflow_step", "fail_workflow_step", "retry_workflow_step", "compensate_workflow_step", "mark_read", "dismiss", "snooze"],
+    "library": ["settings", "create_folder", "rename_folder", "move_item", "touch", "register", "save_assistant_result"]
+  },
+  "media": {
+    "placement": "source-bound",
+    "required": ["vision_reviewed=true", "unique source_id", "media.source_url equals source.url", "answer contains exact Markdown source link"],
+    "fallback": "none"
+  },
+  "maker_parts_v1": {
+    "part_count_header": "X-Floris-Part-Count",
+    "download": "GET /files?key=<storage_key>&part=<zero_based_part>",
+    "http_range": false
+  },
+  "authority": {
+    "server": ["identity", "tenant isolation", "entitlements", "skill access", "chat planning", "retrieval", "media review", "routes", "workspace versions", "memory", "persistence"],
+    "client": ["native UI", "permissions", "file picker", "notifications", "voice recognition adapter", "ephemeral render cache", "waiting-turn FIFO"]
+  }
+}

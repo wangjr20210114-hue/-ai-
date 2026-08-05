@@ -14,6 +14,7 @@ enum class Language(val tag: String, val label: String) {
     ;
 
     val index: Int get() = ordinal
+    val speechTag: String get() = if (this == EN) "en-US" else "zh-CN"
 
     companion object {
         fun fromTag(tag: String): Language = entries.firstOrNull { it.tag == tag } ?: ZH_CN
@@ -28,6 +29,4 @@ fun t(key: StringKey): String = Strings.of(key, LocalLanguage.current)
 
 @Composable
 fun t(key: StringKey, vararg args: Any): String =
-    Strings.of(key, LocalLanguage.current).let { template ->
-        args.foldIndexed(template) { index, acc, value -> acc.replace("{$index}", value.toString()) }
-    }
+    Strings.format(key, LocalLanguage.current, *args)

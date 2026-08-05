@@ -1,5 +1,10 @@
 package com.floris.android.ui.papers
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -24,15 +30,25 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,13 +68,17 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.content.FileProvider
 import com.floris.android.AppContainer
+import com.floris.android.BuildConfig
 import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.network.ReaderChunk
 import com.floris.android.core.model.Paper
 import com.floris.android.ui.components.AnimateIn
 import com.floris.android.ui.components.EmptyState
 import com.floris.android.ui.components.FlorisCard
+import com.floris.android.ui.components.FlorisSwitch
+import com.floris.android.ui.components.IconPill
 import com.floris.android.ui.components.InlineLoading
 import com.floris.android.ui.components.MarkdownText
 import com.floris.android.ui.components.PillButton
@@ -68,6 +89,7 @@ import com.floris.android.ui.components.pressable
 import com.floris.android.ui.prefs.Language
 import com.floris.android.ui.prefs.LocalLanguage
 import com.floris.android.ui.prefs.StringKey
+import com.floris.android.ui.prefs.StringResolver
 import com.floris.android.ui.prefs.t
 import com.floris.android.ui.readingViewModelFactory
 import kotlinx.coroutines.Job
@@ -75,8 +97,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
-class ReadingViewModel(private val repository: FlorisRepository) : ViewModel() {
+class ReadingViewModel(
+    private val repository: FlorisRepository,
+    private val strings: StringResolver,
+) : ViewModel() {
 
     data class ReaderState(
         val title: String = "",
@@ -84,6 +110,9 @@ class ReadingViewModel(private val repository: FlorisRepository) : ViewModel() {
         val content: String = "",
         val streaming: Boolean = false,
         val error: String? = null,
+        val storageKey: String? = null,
+        val sourceText: String = "",
+        val saved: Boolean = false,
     )
 
     data class UiState(
@@ -92,7 +121,11 @@ class ReadingViewModel(private val repository: FlorisRepository) : ViewModel() {
         val searched: Boolean = false,
         val library: FlorisRepository.Library = FlorisRepository.Library(),
         val loadingLibrary: Boolean = true,
+        val uploading: Boolean = false,
+        val savingPaperId: String? = null,
         val reader: ReaderState? = null,
+        val openingItemId: String? = null,
+        val openFilePath: String? = null,
         val error: String? = null,
     )
 
@@ -111,7 +144,13 @@ class ReadingViewModel(private val repository: FlorisRepository) : ViewModel() {
                     _state.update { it.copy(searching = false, results = papers, searched = true) }
                 }
                 .onFailure {
-                    _state.update { it.copy(searching = false, searched = true, error = "论文检索失败") }
+                _state.update {
+                    it.copy(
+                        searching = false,
+                        searched = true,
+                        error = strings.get(StringKey.ReadingSearchFailed),
+                    )
+                }
                 }
         }
     }
@@ -128,6 +167,189 @@ class ReadingViewModel(private val repository: FlorisRepository) : ViewModel() {
                     _state.update { it.copy(library = library, loadingLibrary = false) }
                 }
                 .onFailure { _state.update { it.copy(loadingLibrary = false) } }
+        }
+    }
+
+    fun upload(uri: Uri, filename: String) {
+        if (_state.value.uploading) return
+        _state.update { it.copy(uploading = true, error = null) }
+        viewModelScope.launch {
+            val conversationId = repository.activeConversationId()
+            runCatching {
+                repository.uploadReadingDocument(conversationId, uri, filename)
+            }.onSuccess {
+                _state.update { it.copy(uploading = false) }
+                loadLibrary()
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(uploading = false, error = strings.get(StringKey.ReadingUploadFailed))
+                }
+            }
+        }
+    }
+
+    fun save(paper: Paper) {
+        val id = paper.arxiv_id ?: paper.title
+        _state.update { it.copy(savingPaperId = id, error = null) }
+        viewModelScope.launch {
+            runCatching { repository.savePaper(paper) }
+                .onSuccess {
+                    _state.update { it.copy(savingPaperId = null) }
+                    loadLibrary()
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            savingPaperId = null,
+                            error = strings.get(StringKey.ReadingSaveFailed),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun deleteLibraryItem(id: String) {
+        viewModelScope.launch {
+            runCatching { repository.deleteReadingItem(id) }
+                .onSuccess { loadLibrary() }
+                .onFailure { error ->
+                    _state.update { it.copy(error = strings.get(StringKey.ReadingDeleteFailed)) }
+                }
+        }
+    }
+
+    fun updateAutoOrganize(enabled: Boolean) {
+        val before = _state.value.library
+        _state.update { it.copy(library = it.library.copy(autoOrganize = enabled)) }
+        viewModelScope.launch {
+            runCatching { repository.updateReadingSettings(enabled) }
+                .onFailure {
+                    _state.update {
+                        it.copy(library = before, error = strings.get(StringKey.ReadingOperationFailed))
+                    }
+                }
+        }
+    }
+
+    fun createFolder(name: String) = mutateLibrary { repository.createReadingFolder(name) }
+
+    fun renameFolder(folderId: String, name: String) =
+        mutateLibrary { repository.renameReadingFolder(folderId, name) }
+
+    fun deleteFolder(folderId: String) = mutateLibrary { repository.deleteReadingFolder(folderId) }
+
+    fun moveItem(itemId: String, folderId: String?) =
+        mutateLibrary { repository.moveReadingItem(itemId, folderId) }
+
+    private fun mutateLibrary(operation: suspend () -> Any) {
+        viewModelScope.launch {
+            runCatching { operation() }
+                .onSuccess { loadLibrary() }
+                .onFailure { error ->
+                    _state.update { it.copy(error = strings.get(StringKey.ReadingOperationFailed)) }
+                }
+        }
+    }
+
+    fun openDocument(item: FlorisRepository.LibraryItem) {
+        if (_state.value.openingItemId != null) return
+        _state.update { it.copy(openingItemId = item.id, openFilePath = null) }
+        viewModelScope.launch {
+            runCatching {
+                runCatching { repository.touchReadingItem(item.id) }
+                repository.materializeReadingDocument(item)
+            }.onSuccess { file ->
+                _state.update { it.copy(openingItemId = null, openFilePath = file.absolutePath) }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        openingItemId = null,
+                        error = strings.get(StringKey.ReadingOpenFailed),
+                    )
+                }
+            }
+        }
+    }
+
+    fun consumeOpenFile() = _state.update { it.copy(openFilePath = null) }
+
+    fun runStoredReader(
+        action: String,
+        item: FlorisRepository.LibraryItem,
+        language: Language,
+        question: String? = null,
+    ) {
+        readerJob?.cancel()
+        _state.update {
+            it.copy(reader = ReaderState(
+                title = item.title,
+                action = action,
+                streaming = true,
+                storageKey = item.storageKey,
+                sourceText = item.preview.orEmpty(),
+            ))
+        }
+        readerJob = viewModelScope.launch {
+            val conversationId = repository.activeConversationId()
+            runCatching {
+                repository.streamReader(
+                    conversationId = conversationId,
+                    action = action,
+                    text = "",
+                    responseLanguage = language.tag,
+                    fileId = item.fileId,
+                    question = question,
+                ).collect { chunk ->
+                    when (chunk) {
+                        is ReaderChunk.Delta -> _state.update { state ->
+                            state.copy(reader = state.reader?.copy(
+                                content = state.reader.content + chunk.text,
+                            ))
+                        }
+                        is ReaderChunk.Error -> _state.update { state ->
+                            state.copy(reader = state.reader?.copy(
+                                streaming = false,
+                                error = chunk.message,
+                            ))
+                        }
+                        ReaderChunk.Done, ReaderChunk.Ignored -> Unit
+                    }
+                }
+            }.onFailure { error ->
+                _state.update { state ->
+                    state.copy(reader = state.reader?.copy(
+                        streaming = false,
+                        error = strings.get(StringKey.ReadingRunFailed),
+                    ))
+                }
+            }
+            _state.update { state -> state.copy(reader = state.reader?.copy(streaming = false)) }
+        }
+    }
+
+    fun saveReaderResult() {
+        val reader = _state.value.reader ?: return
+        val storageKey = reader.storageKey ?: return
+        if (reader.streaming || reader.content.isBlank() || reader.saved) return
+        viewModelScope.launch {
+            runCatching {
+                repository.saveAssistantResult(
+                    storageKey = storageKey,
+                    action = reader.action,
+                    title = reader.title,
+                    sourceText = reader.sourceText,
+                    content = reader.content,
+                )
+            }.onSuccess {
+                _state.update { it.copy(reader = it.reader?.copy(saved = true)) }
+                loadLibrary()
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        reader = it.reader?.copy(error = strings.get(StringKey.ReadingSaveFailed)),
+                    )
+                }
+            }
         }
     }
 
@@ -158,7 +380,12 @@ class ReadingViewModel(private val repository: FlorisRepository) : ViewModel() {
                 }
             }.onFailure { error ->
                 _state.update { s ->
-                    s.copy(reader = s.reader?.copy(streaming = false, error = error.message ?: "阅读失败"))
+                    s.copy(
+                        reader = s.reader?.copy(
+                            streaming = false,
+                            error = strings.get(StringKey.ReadingRunFailed),
+                        ),
+                    )
                 }
             }
             _state.update { s -> s.copy(reader = s.reader?.copy(streaming = false)) }
@@ -183,8 +410,134 @@ fun ReadingScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
     )
     val state by viewModel.state.collectAsState()
     val language = LocalLanguage.current
+    val context = LocalContext.current
     var query by remember { mutableStateOf("") }
     var selectedFolder by remember { mutableStateOf<String?>(null) }
+    var folderEditor by remember { mutableStateOf<FlorisRepository.LibraryFolder?>(null) }
+    var creatingFolder by remember { mutableStateOf(false) }
+    var folderName by remember { mutableStateOf("") }
+    var movingItem by remember { mutableStateOf<FlorisRepository.LibraryItem?>(null) }
+    var questionItem by remember { mutableStateOf<FlorisRepository.LibraryItem?>(null) }
+    var question by remember { mutableStateOf("") }
+    val pickDocument = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        uri?.let {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    it,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+            viewModel.upload(it, displayName(context, it))
+        }
+    }
+
+    LaunchedEffect(state.openFilePath) {
+        val path = state.openFilePath ?: return@LaunchedEffect
+        runCatching {
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${BuildConfig.APPLICATION_ID}.files",
+                File(path),
+            )
+            context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/pdf")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        }
+        viewModel.consumeOpenFile()
+    }
+
+    if (creatingFolder || folderEditor != null) {
+        val editing = folderEditor
+        AlertDialog(
+            onDismissRequest = {
+                creatingFolder = false
+                folderEditor = null
+            },
+            title = {
+                Text(t(if (editing == null) StringKey.ReadingFolderNew else StringKey.ReadingFolderRename))
+            },
+            text = {
+                OutlinedTextField(
+                    value = folderName,
+                    onValueChange = { folderName = it.take(48) },
+                    singleLine = true,
+                    label = { Text(t(StringKey.ReadingFolderNew)) },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = folderName.isNotBlank(),
+                    onClick = {
+                        if (editing == null) viewModel.createFolder(folderName)
+                        else viewModel.renameFolder(editing.id, folderName)
+                        creatingFolder = false
+                        folderEditor = null
+                    },
+                ) { Text(t(StringKey.Confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    creatingFolder = false
+                    folderEditor = null
+                }) { Text(t(StringKey.Cancel)) }
+            },
+        )
+    }
+
+    movingItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { movingItem = null },
+            title = { Text(t(StringKey.ReadingMove)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FolderChoice(t(StringKey.ReadingAll)) {
+                        viewModel.moveItem(item.id, null)
+                        movingItem = null
+                    }
+                    state.library.folders.forEach { folder ->
+                        FolderChoice(folder.name) {
+                            viewModel.moveItem(item.id, folder.id)
+                            movingItem = null
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { movingItem = null }) { Text(t(StringKey.Cancel)) }
+            },
+        )
+    }
+
+    questionItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { questionItem = null },
+            title = { Text(t(StringKey.ReadingAsk)) },
+            text = {
+                OutlinedTextField(
+                    value = question,
+                    onValueChange = { question = it },
+                    label = { Text(t(StringKey.ReadingAskHint)) },
+                    minLines = 2,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = question.isNotBlank(),
+                    onClick = {
+                        viewModel.runStoredReader("qa", item, language, question.trim())
+                        questionItem = null
+                    },
+                ) { Text(t(StringKey.Confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { questionItem = null }) { Text(t(StringKey.Cancel)) }
+            },
+        )
+    }
 
     Column(
         Modifier
@@ -194,7 +547,21 @@ fun ReadingScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
     ) {
         // 标题区
         Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 10.dp)) {
-            Text(t(StringKey.ReadingTitle), style = MaterialTheme.typography.headlineMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    t(StringKey.ReadingTitle),
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                PillButton(
+                    text = if (state.uploading) t(StringKey.ReadingUploading)
+                    else t(StringKey.ReadingUpload),
+                    leadingIcon = Icons.Outlined.CloudUpload,
+                    enabled = !state.uploading,
+                    compact = true,
+                    onClick = { pickDocument.launch(arrayOf("application/pdf")) },
+                )
+            }
             Spacer(Modifier.height(10.dp))
             SearchField(
                 value = query,
@@ -209,16 +576,30 @@ fun ReadingScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            state.error?.let { error ->
+                item(key = "error") {
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                    )
+                }
+            }
             if (state.searching) {
                 item { InlineLoading() }
             }
 
             if (state.results.isNotEmpty()) {
-                item(key = "results-header") { SectionHeader("检索结果 · ${state.results.size}") }
+                item(key = "results-header") {
+                    SectionHeader(t(StringKey.ReadingResults, state.results.size))
+                }
                 items(state.results, key = { it.arxiv_id ?: it.title }) { paper ->
                     AnimateIn(0) {
                         PaperCard(
                             paper = paper,
+                            saving = state.savingPaperId == (paper.arxiv_id ?: paper.title),
+                            onSave = { viewModel.save(paper) },
                             onSummarize = {
                                 viewModel.runReader(
                                     "summarize",
@@ -250,30 +631,77 @@ fun ReadingScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
                 item(key = "library-header") {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         SectionHeader(t(StringKey.ReadingLibrary), Modifier.weight(1f))
-                        if (library.autoOrganize) {
-                            StatusChip("自动整理", MaterialTheme.colorScheme.tertiary)
-                        }
+                        Text(
+                            t(StringKey.ReadingAutoOrganize),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.width(5.dp))
+                        FlorisSwitch(
+                            checked = library.autoOrganize,
+                            onCheckedChange = viewModel::updateAutoOrganize,
+                        )
+                        IconPill(
+                            icon = Icons.Default.Add,
+                            contentDescription = t(StringKey.ReadingFolderNew),
+                            onClick = {
+                                folderName = ""
+                                creatingFolder = true
+                            },
+                            size = 34.dp,
+                            iconSize = 18.dp,
+                        )
                     }
                 }
                 if (library.folders.isNotEmpty()) {
                     item(key = "folders") {
-                        Row(
+                        LazyRow(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            FolderChip(
-                                name = "全部",
-                                selected = selectedFolder == null,
-                                onClick = { selectedFolder = null },
-                            )
-                            library.folders.take(3).forEach { folder ->
+                            item {
+                                FolderChip(
+                                    name = t(StringKey.ReadingAll),
+                                    selected = selectedFolder == null,
+                                    onClick = { selectedFolder = null },
+                                )
+                            }
+                            items(library.folders, key = { it.id }) { folder ->
                                 FolderChip(
                                     name = folder.name,
                                     selected = selectedFolder == folder.id,
-                                    onClick = {
-                                        selectedFolder = if (selectedFolder == folder.id) null else folder.id
-                                    },
+                                    onClick = { selectedFolder = folder.id },
                                 )
+                            }
+                        }
+                    }
+                    selectedFolder?.let { folderId ->
+                        library.folders.firstOrNull { it.id == folderId }?.let { folder ->
+                            item(key = "folder-actions-$folderId") {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    PillButton(
+                                        text = t(StringKey.ReadingFolderRename),
+                                        leadingIcon = Icons.Default.Edit,
+                                        compact = true,
+                                        style = PillStyle.Ghost,
+                                        onClick = {
+                                            folderEditor = folder
+                                            folderName = folder.name
+                                        },
+                                    )
+                                    if (!folder.automatic) {
+                                        PillButton(
+                                            text = t(StringKey.ReadingFolderDelete),
+                                            leadingIcon = Icons.Outlined.DeleteOutline,
+                                            compact = true,
+                                            style = PillStyle.Ghost,
+                                            onClick = {
+                                                viewModel.deleteFolder(folder.id)
+                                                selectedFolder = null
+                                            },
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -310,7 +738,50 @@ fun ReadingScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
                                     }
                                 }
                                 if (item.isPaper) {
-                                    StatusChip("论文", MaterialTheme.colorScheme.secondary)
+                                    StatusChip(t(StringKey.ReadingPaper), MaterialTheme.colorScheme.secondary)
+                                }
+                            }
+                            LazyRow(
+                                Modifier.padding(start = 42.dp, end = 10.dp, bottom = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                item {
+                                    PillButton(
+                                        text = if (state.openingItemId == item.id) t(StringKey.ReadingOpening)
+                                        else t(StringKey.ReadingOpen),
+                                        leadingIcon = Icons.AutoMirrored.Filled.OpenInNew,
+                                        enabled = state.openingItemId == null,
+                                        compact = true,
+                                        style = PillStyle.Tonal,
+                                        onClick = { viewModel.openDocument(item) },
+                                    )
+                                }
+                                item { ReaderAction(t(StringKey.ReadingSummarize)) { viewModel.runStoredReader("summarize", item, language) } }
+                                item { ReaderAction(t(StringKey.ReadingTranslate)) { viewModel.runStoredReader("translate", item, language) } }
+                                item { ReaderAction(t(StringKey.ReadingAnalyze)) { viewModel.runStoredReader("analyze", item, language) } }
+                                item {
+                                    ReaderAction(t(StringKey.ReadingAsk)) {
+                                        question = ""
+                                        questionItem = item
+                                    }
+                                }
+                                item {
+                                    PillButton(
+                                        text = t(StringKey.ReadingMove),
+                                        leadingIcon = Icons.AutoMirrored.Filled.DriveFileMove,
+                                        compact = true,
+                                        style = PillStyle.Ghost,
+                                        onClick = { movingItem = item },
+                                    )
+                                }
+                                item {
+                                    PillButton(
+                                        text = t(StringKey.ReadingDelete),
+                                        leadingIcon = Icons.Outlined.DeleteOutline,
+                                        compact = true,
+                                        style = PillStyle.Ghost,
+                                        onClick = { viewModel.deleteLibraryItem(item.id) },
+                                    )
                                 }
                             }
                         }
@@ -341,8 +812,12 @@ fun ReadingScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StatusChip(
-                        if (reader.action == "translate") t(StringKey.ReadingTranslate)
-                        else t(StringKey.ReadingSummarize),
+                        when (reader.action) {
+                            "translate", "full-translate" -> t(StringKey.ReadingTranslate)
+                            "analyze" -> t(StringKey.ReadingAnalyze)
+                            "qa" -> t(StringKey.ReadingAsk)
+                            else -> t(StringKey.ReadingSummarize)
+                        },
                         MaterialTheme.colorScheme.primary,
                     )
                     Spacer(Modifier.width(8.dp))
@@ -364,8 +839,43 @@ fun ReadingScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
                     Spacer(Modifier.height(10.dp))
                     Text(it, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error)
                 }
+                if (!reader.streaming && reader.content.isNotBlank() && reader.storageKey != null) {
+                    Spacer(Modifier.height(12.dp))
+                    PillButton(
+                        text = if (reader.saved) t(StringKey.ReadingSaved)
+                        else t(StringKey.ReadingSaveResult),
+                        enabled = !reader.saved,
+                        onClick = viewModel::saveReaderResult,
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun ReaderAction(text: String, onClick: () -> Unit) {
+    PillButton(
+        text = text,
+        compact = true,
+        style = PillStyle.Ghost,
+        onClick = onClick,
+    )
+}
+
+@Composable
+private fun FolderChoice(name: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .pressable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Default.Folder, null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(9.dp))
+        Text(name, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -407,7 +917,13 @@ private fun FolderChip(name: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PaperCard(paper: Paper, onSummarize: () -> Unit, onTranslate: () -> Unit) {
+private fun PaperCard(
+    paper: Paper,
+    saving: Boolean,
+    onSave: () -> Unit,
+    onSummarize: () -> Unit,
+    onTranslate: () -> Unit,
+) {
     val uriHandler = LocalUriHandler.current
     FlorisCard {
         Column(Modifier.padding(14.dp)) {
@@ -422,7 +938,7 @@ private fun PaperCard(paper: Paper, onSummarize: () -> Unit, onTranslate: () -> 
                 listOfNotNull(
                     paper.authors?.split(",")?.take(2)?.joinToString(", "),
                     paper.year?.toString(),
-                    paper.citations?.let { "被引 $it" },
+                    paper.citations?.let { t(StringKey.PaperCited, it) },
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -448,6 +964,13 @@ private fun PaperCard(paper: Paper, onSummarize: () -> Unit, onTranslate: () -> 
                     compact = true,
                 )
                 PillButton(
+                    text = if (saving) t(StringKey.Loading) else t(StringKey.ReadingSave),
+                    onClick = onSave,
+                    enabled = !saving,
+                    style = PillStyle.Ghost,
+                    compact = true,
+                )
+                PillButton(
                     text = t(StringKey.ReadingTranslate),
                     onClick = onTranslate,
                     style = PillStyle.Ghost,
@@ -465,6 +988,20 @@ private fun PaperCard(paper: Paper, onSummarize: () -> Unit, onTranslate: () -> 
             }
         }
     }
+}
+
+private fun displayName(context: android.content.Context, uri: Uri): String {
+    val queried = context.contentResolver.query(
+        uri,
+        arrayOf(OpenableColumns.DISPLAY_NAME),
+        null,
+        null,
+        null,
+    )?.use { cursor ->
+        val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+    }
+    return queried?.takeIf { it.isNotBlank() } ?: "document.pdf"
 }
 
 /** 统一的搜索输入（无边框、药丸底衬，避免突兀文本框）。 */

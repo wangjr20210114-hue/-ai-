@@ -42,6 +42,7 @@ class AuthManager(
     private val json: Json,
     private val exchange: suspend (cloudBaseAccessToken: String) -> MobileSession,
     private val guestExchange: (suspend () -> GuestSession)? = null,
+    private val onSignedOut: suspend () -> Unit = {},
 ) {
     private val _state = MutableStateFlow<AuthState>(AuthState.Loading)
     val state: StateFlow<AuthState> = _state.asStateFlow()
@@ -297,6 +298,7 @@ class AuthManager(
         cloudBaseExpiresAt = 0
         guestMode = false
         tokenStore.clear()
+        onSignedOut()
         _state.value = AuthState.SignedOut
     }
 }

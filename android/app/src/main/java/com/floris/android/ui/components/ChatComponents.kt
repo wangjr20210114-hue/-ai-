@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
@@ -58,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,6 +72,7 @@ import com.floris.android.core.model.Paper
 import com.floris.android.core.model.ProgressComponent
 import com.floris.android.core.model.SearchMeta
 import com.floris.android.core.model.WorkspaceAction
+import com.floris.android.core.chat.sourceBoundSegments
 import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.t
 import java.net.URI
@@ -79,12 +83,30 @@ import java.util.Locale
 // ---------- Search results ----------
 
 @Composable
+fun SourceBoundAnswer(
+    content: String,
+    searchMeta: SearchMeta?,
+    streaming: Boolean,
+) {
+    val segments = remember(content, searchMeta) { sourceBoundSegments(content, searchMeta) }
+    segments.forEachIndexed { index, segment ->
+        if (segment.markdown.isNotEmpty()) {
+            MarkdownText(
+                markdown = segment.markdown,
+                streaming = streaming && index == segments.lastIndex,
+            )
+        }
+        if (segment.media.isNotEmpty()) MediaGrid(segment.media)
+    }
+}
+
+@Composable
 fun SearchSourcesRow(meta: SearchMeta, modifier: Modifier = Modifier) {
     if (meta.results.isEmpty()) return
     val uriHandler = LocalUriHandler.current
     Column(modifier) {
         Text(
-            "来源 · ${meta.total.coerceAtLeast(meta.results.size)}",
+            t(StringKey.ChatSourceCount, meta.total.coerceAtLeast(meta.results.size)),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 6.dp),
@@ -182,7 +204,7 @@ fun PaperListCard(papers: List<Paper>, modifier: Modifier = Modifier) {
                         val meta = listOfNotNull(
                             paper.authors?.split(",")?.take(2)?.joinToString(", "),
                             paper.year?.toString(),
-                            paper.citations?.let { "被引 $it" },
+                            paper.citations?.let { t(StringKey.PaperCited, it) },
                         ).joinToString(" · ")
                         Text(
                             meta,
@@ -217,6 +239,7 @@ fun WorkspaceActionCard(
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
     onShowMap: () -> Unit,
+    onEditImage: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (!action.isKnownKind) {
@@ -287,7 +310,7 @@ fun WorkspaceActionCard(
                 "map_recommendation" -> MapActionBody(action)
                 "calendar_changes" -> CalendarActionBody(action)
                 "meeting_create" -> MeetingActionBody(action)
-                "image_generate" -> ImageActionBody(action)
+                "image_generate" -> ImageActionBody(action, busy, onEditImage)
             }
 
             action.error?.let {
@@ -334,12 +357,13 @@ fun WorkspaceActionCard(
     }
 }
 
+@Composable
 private fun kindLabel(kind: String) = when (kind) {
-    "map_recommendation" -> "地图推荐"
-    "calendar_changes" -> "日程变更"
-    "meeting_create" -> "会议"
-    "image_generate" -> "图片生成"
-    else -> "工作区操作"
+    "map_recommendation" -> t(StringKey.ActionMapTitle)
+    "calendar_changes" -> t(StringKey.ActionCalendarTitle)
+    "meeting_create" -> t(StringKey.ActionMeetingTitle)
+    "image_generate" -> t(StringKey.ActionImageTitle)
+    else -> t(StringKey.ActionWorkspaceTitle)
 }
 
 @Composable
@@ -364,7 +388,7 @@ private fun MapActionBody(action: WorkspaceAction) {
     }
     action.payload.route_mode?.let {
         Text(
-            "路线方式：" + routeModeLabel(it),
+            t(StringKey.ActionRouteMode, routeModeLabel(it)),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp),
@@ -372,11 +396,12 @@ private fun MapActionBody(action: WorkspaceAction) {
     }
 }
 
+@Composable
 fun routeModeLabel(mode: String) = when (mode) {
-    "driving" -> "驾车"
-    "transit" -> "公交"
-    "walking" -> "步行"
-    "bicycling" -> "骑行"
+    "driving" -> t(StringKey.RouteDriving)
+    "transit" -> t(StringKey.RouteTransit)
+    "walking" -> t(StringKey.RouteWalking)
+    "bicycling" -> t(StringKey.RouteBicycling)
     else -> mode
 }
 
@@ -389,13 +414,13 @@ private fun CalendarActionBody(action: WorkspaceAction) {
             ?.get("title")?.toString()?.trim('"')
             ?: change["title"]?.toString()?.trim('"')
             ?: change["operation"]?.toString()?.trim('"')
-            ?: "日程变更"
+            ?: t(StringKey.ActionCalendarTitle)
         val operation = change["operation"]?.toString()?.trim('"') ?: "create"
         Row(Modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             val (label, color) = when (operation) {
-                "delete" -> "删除" to MaterialTheme.colorScheme.error
-                "update" -> "更新" to MaterialTheme.colorScheme.secondary
-                else -> "新增" to MaterialTheme.colorScheme.tertiary
+                "delete" -> t(StringKey.Delete) to MaterialTheme.colorScheme.error
+                "update" -> t(StringKey.CalendarChangeUpdate) to MaterialTheme.colorScheme.secondary
+                else -> t(StringKey.CalendarChangeAdd) to MaterialTheme.colorScheme.tertiary
             }
             StatusChip(label, color)
             Spacer(Modifier.width(8.dp))
@@ -409,10 +434,16 @@ private fun MeetingActionBody(action: WorkspaceAction) {
     val payload = action.payload
     if (payload.subject == null && payload.start_time == null) return
     Spacer(Modifier.height(8.dp))
-    payload.subject?.let { Text("主题：$it", style = MaterialTheme.typography.labelLarge) }
+    payload.subject?.let {
+        Text(t(StringKey.MeetingSubject, it), style = MaterialTheme.typography.labelLarge)
+    }
     if (payload.start_time != null) {
         Text(
-            "时间：${payload.start_time} ~ ${payload.end_time ?: "未定"}",
+            t(
+                StringKey.MeetingTime,
+                payload.start_time,
+                payload.end_time ?: t(StringKey.Unscheduled),
+            ),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -420,11 +451,15 @@ private fun MeetingActionBody(action: WorkspaceAction) {
 }
 
 @Composable
-private fun ImageActionBody(action: WorkspaceAction) {
+private fun ImageActionBody(
+    action: WorkspaceAction,
+    busy: Boolean,
+    onEditImage: (String) -> Unit,
+) {
     action.payload.prompt?.let {
         Spacer(Modifier.height(6.dp))
         Text(
-            "提示词：$it",
+            t(StringKey.ImagePrompt, it),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -447,14 +482,14 @@ private fun ImageActionBody(action: WorkspaceAction) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CompareImage(
                     url = previous,
-                    label = "原图",
+                    label = t(StringKey.ImageOriginal),
                     highlighted = !showNew,
                     modifier = Modifier.weight(1f),
                     onClick = { showNew = false },
                 )
                 CompareImage(
                     url = current,
-                    label = "新图",
+                    label = t(StringKey.ImageUpdated),
                     highlighted = showNew,
                     modifier = Modifier.weight(1f),
                     onClick = { showNew = true },
@@ -484,6 +519,55 @@ private fun ImageActionBody(action: WorkspaceAction) {
                 .clip(RoundedCornerShape(14.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         )
+    }
+
+    if (current != null) {
+        var editPrompt by remember(action.id) { mutableStateOf("") }
+        Spacer(Modifier.height(10.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(start = 12.dp, end = 5.dp, top = 5.dp, bottom = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier.weight(1f).heightIn(min = 38.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (editPrompt.isBlank()) {
+                    Text(
+                        t(StringKey.ImageEditHint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                BasicTextField(
+                    value = editPrompt,
+                    onValueChange = { editPrompt = it },
+                    textStyle = MaterialTheme.typography.bodySmall.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            PillButton(
+                text = if (busy) t(StringKey.Loading) else t(StringKey.ImageEditAction),
+                onClick = {
+                    val value = editPrompt.trim()
+                    if (value.isNotEmpty()) {
+                        onEditImage(value)
+                        editPrompt = ""
+                    }
+                },
+                enabled = !busy && editPrompt.isNotBlank(),
+                compact = true,
+            )
+        }
     }
 }
 
@@ -581,14 +665,17 @@ fun ClarificationForm(
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            if (answers[field.id] as? Boolean == true) "是" else "否",
+                            if (answers[field.id] as? Boolean == true) {
+                                t(StringKey.Yes)
+                            } else t(StringKey.No),
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     "date", "time", "datetime" -> {
                         PillButton(
-                            text = answers[field.id] as? String ?: "选择${field.label}",
+                            text = answers[field.id] as? String
+                                ?: t(StringKey.SelectValue, field.label),
                             onClick = {
                                 if (field.type == "time") timePickerFor = field.id
                                 else datePickerFor = field.id
@@ -610,7 +697,7 @@ fun ClarificationForm(
                         ) {
                             if (text.isEmpty()) {
                                 Text(
-                                    field.placeholder ?: "请输入",
+                                    field.placeholder ?: t(StringKey.InputPlaceholder),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -654,9 +741,11 @@ fun ClarificationForm(
                         answers[fieldId] = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(Date(it))
                     }
                     datePickerFor = null
-                }) { Text("确定") }
+                }) { Text(t(StringKey.Confirm)) }
             },
-            dismissButton = { TextButton(onClick = { datePickerFor = null }) { Text("取消") } },
+            dismissButton = {
+                TextButton(onClick = { datePickerFor = null }) { Text(t(StringKey.Cancel)) }
+            },
         ) { DatePicker(state = state) }
     }
     timePickerFor?.let { fieldId ->
@@ -667,9 +756,11 @@ fun ClarificationForm(
                 TextButton(onClick = {
                     answers[fieldId] = String.format(Locale.ROOT, "%02d:%02d", state.hour, state.minute)
                     timePickerFor = null
-                }) { Text("确定") }
+                }) { Text(t(StringKey.Confirm)) }
             },
-            dismissButton = { TextButton(onClick = { timePickerFor = null }) { Text("取消") } },
+            dismissButton = {
+                TextButton(onClick = { timePickerFor = null }) { Text(t(StringKey.Cancel)) }
+            },
             text = { TimePicker(state = state) },
         )
     }
