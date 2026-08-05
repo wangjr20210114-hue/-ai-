@@ -194,7 +194,7 @@ describe('mergeMessages', () => {
       .toEqual(['checkpoint-user', 'live-ai']);
   });
 
-  it('preserves queued user turns behind a recovered Maker run', () => {
+  it('migrates legacy queued chat rows back into the composer-only queue boundary', () => {
     const remote: ChatMessage[] = [
       { id: 'checkpoint-user', role: 'user', content: '第一个问题', ts: 1 },
     ];
@@ -204,7 +204,23 @@ describe('mergeMessages', () => {
       { id: 'queued-user', role: 'user', content: '第二个问题', ts: 12, queued: true },
     ];
     expect(mergeMessages(remote, local, { preserveStreaming: true }).map((item) => item.id))
-      .toEqual(['checkpoint-user', 'live-ai', 'queued-user']);
+      .toEqual(['checkpoint-user', 'live-ai']);
+  });
+
+  it('reconciles identical answer text by stable turn ownership instead of row position', () => {
+    const remote: ChatMessage[] = [
+      { id: 'remote-u2', client_message_id: 'turn-2', role: 'user', content: '同一个问题', ts: 1 },
+      { id: 'remote-a2', client_message_id: 'turn-2', role: 'ai', content: '同一个回答', ts: 2 },
+    ];
+    const local: ChatMessage[] = [
+      { id: 'local-u1', client_message_id: 'turn-1', role: 'user', content: '同一个问题', ts: 10 },
+      { id: 'local-a1', client_message_id: 'turn-1', role: 'ai', content: '同一个回答', ts: 11 },
+      { id: 'local-u2', client_message_id: 'turn-2', role: 'user', content: '同一个问题', ts: 12 },
+      { id: 'local-a2', client_message_id: 'turn-2', role: 'ai', content: '同一个回答', ts: 13 },
+    ];
+    const merged = mergeMessages(remote, local);
+    expect(merged.map((item) => item.client_message_id)).toEqual(['turn-2', 'turn-2']);
+    expect(merged.map((item) => item.id)).toEqual(['remote-u2', 'remote-a2']);
   });
 
   it('restores a Makers-persisted clarification card without requiring prose', () => {

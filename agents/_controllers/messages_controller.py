@@ -193,6 +193,7 @@ async def handler(ctx):
         latest_extras = None
     suppress_turn_output = False
     current_turn_projection = "legacy"
+    client_message_id = ""
     for index, message in enumerate(stored_messages):
         message_type = str(_value(message, "type", _value(message, "role", "")))
         content = _text(_value(message, "content", ""))
@@ -322,6 +323,11 @@ async def handler(ctx):
             restored["stopped"] = True
         if role == "user" and client_message_id:
             restored["client_message_id"] = client_message_id
+        if role == "ai" and client_message_id:
+            # Every public answer is owned by the user turn that produced it.
+            # Clients can therefore reconcile exact pairs across cache restore,
+            # conversation switches and interrupted FIFO successors.
+            restored["client_message_id"] = client_message_id
         if role == "ai" and pending_actions:
             restored["workspaceActions"] = pending_actions
             pending_actions = []
@@ -337,21 +343,27 @@ async def handler(ctx):
         result.append(restored)
 
     if pending_actions:
-        result.append({
+        pending_action_message = {
             "id": f"checkpoint-action-{len(result)}",
             "role": "ai",
             "content": action_fallback_content(pending_actions),
             "ts": len(result),
             "workspaceActions": pending_actions,
-        })
+        }
+        if client_message_id:
+            pending_action_message["client_message_id"] = client_message_id
+        result.append(pending_action_message)
     if pending_clarification:
-        result.append({
+        pending_clarification_message = {
             "id": f"checkpoint-clarification-{len(result)}",
             "role": "ai",
             "content": "",
             "ts": len(result),
             "clarification": pending_clarification,
-        })
+        }
+        if client_message_id:
+            pending_clarification_message["client_message_id"] = client_message_id
+        result.append(pending_clarification_message)
 
     # Older builds persisted the user prompt before the Agent call, so several
     # failed attempts could appear as consecutive user-only rows after a later

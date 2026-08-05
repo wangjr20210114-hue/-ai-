@@ -122,6 +122,12 @@ export interface ChatMessage {
   experienceHints?: ExperienceHint[];
 }
 
+export interface ChatQueueItem {
+  id: string;
+  content: string;
+  enqueuedAt: number;
+}
+
 export interface WSPayload {
   id?: string;
   session_id?: string;

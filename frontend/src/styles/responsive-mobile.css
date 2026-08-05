@@ -74,7 +74,8 @@
     gap: 4px;
   }
 
-  .input-submit-button {
+  .input-submit-button,
+  .input-voice-button {
     min-width: 40px;
   }
 

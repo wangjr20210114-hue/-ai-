@@ -5,7 +5,7 @@ import { proactiveOperation } from '../../settings/model/client';
 import { presentableChatError } from '../../../services/chatError';
 import { discardStreamingAnswer, discardTurnAnswer, durableMessageCount, isDurableChatMessage, mergeMessages, normalizeMessages, reconcileCompletedMessage, settleStoppedMessages } from '../../../services/conversation';
 import { useAppDispatch, useAppState } from '../../../store/appState';
-import type { BootstrapData, ChatMessage, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, StructuredProgressStep, WorkspaceAction } from '../model';
+import type { BootstrapData, ChatMessage, ChatQueueItem, ClarificationPrompt, PaperInfo, ProactiveState, ScheduleItem, SearchMeta, StructuredProgressStep, WorkspaceAction } from '../model';
 import { translate } from '../../../i18n';
 import {
   initialPlanningProgress,
@@ -148,6 +148,37 @@ export function useChatRuntime() {
           publish(id, current.some((item) => item.id === message.id)
             ? current.map((item) => item.id === message.id ? { ...item, ...message } : item)
             : [...current, message]);
+          if (activeConversationRef.current === id) {
+            window.dispatchEvent(new CustomEvent('floris:question-sent', {
+              detail: { conversationId: id, messageId: message.id },
+            }));
+          }
+          const previous = conversationsRef.current.find((item) => item.id === id);
+          const title = message.content.trim();
+          const summary = {
+            id,
+            title: previous?.pending
+              ? (title.length > 32 ? `${title.slice(0, 32)}…` : title)
+              : (previous?.title || title.slice(0, 32)),
+            createdAt: previous?.createdAt || Date.now(),
+            updatedAt: Date.now(),
+            messageCount: Math.max(1, Number(previous?.messageCount || 0) + 1),
+            pending: false,
+            activityStatus: 'running' as const,
+          };
+          conversationsRef.current = [summary, ...conversationsRef.current.filter((item) => item.id !== id)];
+          dispatch({ type: 'UPSERT_CONVERSATION', payload: summary });
+          break;
+        }
+        case 'queue_changed': {
+          if (activeConversationRef.current === id) {
+            dispatch({
+              type: 'SET_TURN_QUEUE',
+              payload: Array.isArray(event.payload.items)
+                ? event.payload.items as ChatQueueItem[]
+                : [],
+            });
+          }
           break;
         }
         case 'turn_started': {
@@ -168,12 +199,14 @@ export function useChatRuntime() {
           break;
         }
         case 'stream_start': {
+          const ownerClientMessageId = String(event.payload.client_message_id || '');
           const turnStartedAt = pendingTurnStartedAtRef.current.get(id)
             || Date.now();
           pendingTurnStartedAtRef.current.delete(id);
           const streamMessage: ChatMessage = {
             id: streamId || `ai-stream-${Date.now()}`, role: 'ai', content: '', ts: Date.now(), streaming: true,
             turnStartedAt,
+            client_message_id: ownerClientMessageId || undefined,
             skill: { intent: 'chat', mode: 'immediate', content: '', icon: '✨', action_label: '', params: {}, data: { status: 'thinking', statusText: translate('understandingRequest') } },
             progress: [initialPlanningProgress()],
           };
@@ -536,6 +569,7 @@ export function useChatRuntime() {
     const client = ensureClient(conversationId);
     clientRef.current = client;
     const local = cached(conversationId);
+    dispatch({ type: 'SET_TURN_QUEUE', payload: client.queuedTurns() });
     dispatch({ type: 'HYDRATE_MESSAGES', payload: local });
     void bootstrapApp(conversationId).then((data) => {
       if (disposed) return;
@@ -555,14 +589,20 @@ export function useChatRuntime() {
       let visibleMessages = liveTransport ? safelyMerged : settleStoppedMessages(safelyMerged);
       let restoredStreamId = '';
       if (!liveTransport && runActive) {
-        const queuedIndex = visibleMessages.findIndex((item) => item.role === 'user' && item.queued);
-        const boundary = queuedIndex < 0 ? visibleMessages.length : queuedIndex;
-        let activeAiIndex = -1;
-        for (let index = boundary - 1; index >= 0; index -= 1) {
-          if (visibleMessages[index].role === 'user') break;
-          if (visibleMessages[index].role === 'ai') {
-            activeAiIndex = index;
-            break;
+        const activeClientMessageId = String(data.run?.client_message_id || '');
+        const boundary = visibleMessages.length;
+        let activeAiIndex = visibleMessages.findIndex((item) => (
+          item.role === 'ai'
+          && activeClientMessageId
+          && item.client_message_id === activeClientMessageId
+        ));
+        if (activeAiIndex < 0) {
+          for (let index = boundary - 1; index >= 0; index -= 1) {
+            if (visibleMessages[index].role === 'user') break;
+            if (visibleMessages[index].role === 'ai') {
+              activeAiIndex = index;
+              break;
+            }
           }
         }
         if (activeAiIndex >= 0) {
@@ -578,6 +618,7 @@ export function useChatRuntime() {
             content: '',
             ts: Date.now(),
             streaming: true,
+            client_message_id: activeClientMessageId || undefined,
             skill: {
               intent: 'chat',
               mode: 'immediate',

@@ -117,6 +117,42 @@ describe('chat transport FIFO durability', () => {
     restoredClient.close();
   });
 
+  it('keeps waiting turns out of chat events and exposes an editable five-item drawer queue', async () => {
+    clientMocks.openChatTurn.mockImplementation((_conversationId, _payload, signal) => (
+      pendingUntilAbort(signal)
+    ));
+    const client = new SSEChatClient('conversation-drawer');
+    const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    client.on((event) => events.push(event));
+    client.connect(null);
+
+    expect(await client.send(turn('active'))).toBe('started');
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 1);
+    for (let index = 1; index <= 5; index += 1) {
+      expect(await client.send(turn(`waiting-${index}`))).toBe('queued');
+    }
+    expect(await client.send(turn('waiting-overflow'))).toBe('queue_full');
+    expect(client.queuedTurns().map((item) => item.id)).toEqual([
+      'waiting-1', 'waiting-2', 'waiting-3', 'waiting-4', 'waiting-5',
+    ]);
+    expect(events.filter((event) => event.type === 'optimistic_user'))
+      .toHaveLength(1);
+
+    expect(client.updateQueuedTurn('waiting-2', '编辑后的问题')).toBe(true);
+    expect(client.queuedTurns()[1].content).toBe('编辑后的问题');
+    expect(client.removeQueuedTurn('waiting-3')).toBe(true);
+    expect(client.queuedTurns().map((item) => item.id)).not.toContain('waiting-3');
+    client.close();
+  });
+
+  it('shows every local waiting turn when the active Maker run came from another transport', async () => {
+    const client = new SSEChatClient('conversation-external-run');
+    (client as unknown as { activeClientMessageId: string }).activeClientMessageId = 'external-client-message';
+    await client.send(turn('local-waiting'));
+    expect(client.queuedTurns().map((item) => item.id)).toEqual(['local-waiting']);
+    client.close();
+  });
+
   it('dequeues an explicitly stopped head only after confirmation and runs the queued successor', async () => {
     clientMocks.openChatTurn
       .mockImplementationOnce((_conversationId, _payload, signal) => (
@@ -143,6 +179,29 @@ describe('chat transport FIFO durability', () => {
     );
     expect(clientMocks.openChatTurn.mock.calls[1][1].client_message_id)
       .toBe('client-after-stop');
+    client.close();
+  });
+
+  it('moves a selected waiting turn to the front and interrupts the active turn', async () => {
+    clientMocks.openChatTurn
+      .mockImplementationOnce((_conversationId, _payload, signal) => pendingUntilAbort(signal))
+      .mockResolvedValueOnce(completedResponse())
+      .mockResolvedValueOnce(completedResponse());
+    clientMocks.requestConversationStop.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ client_message_id: 'client-active' }),
+    });
+    const client = new SSEChatClient('conversation-priority');
+    client.connect(null);
+    await client.send(turn('client-active'));
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 1);
+    await client.send(turn('client-normal-next'));
+    await client.send(turn('client-priority'));
+
+    expect(await client.interruptWithQueuedTurn('client-priority')).toBe('confirmed');
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 3);
+    expect(clientMocks.openChatTurn.mock.calls[1][1].client_message_id).toBe('client-priority');
+    expect(clientMocks.openChatTurn.mock.calls[2][1].client_message_id).toBe('client-normal-next');
     client.close();
   });
 

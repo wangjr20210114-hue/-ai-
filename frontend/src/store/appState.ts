@@ -2,6 +2,7 @@ import { createContext, useContext, type Dispatch } from 'react';
 import type { ThemeMode } from '../app/types';
 import type {
   ChatMessage,
+  ChatQueueItem,
   ConversationSummary,
   DocumentContext,
 } from '../features/chat/model';
@@ -38,6 +39,7 @@ export interface AppState {
   draft: string;
   documentContext: DocumentContext | null;
   messages: ChatMessage[];
+  turnQueue: ChatQueueItem[];
   schedules: ScheduleItem[];
   mapPlaces: MakersMapPlace[];
   mapTitle: string;
@@ -63,6 +65,7 @@ export type Action =
   | { type: 'SET_DOCUMENT_CONTEXT'; payload: DocumentContext | null }
   | { type: 'ADD_MESSAGE'; payload: ChatMessage }
   | { type: 'HYDRATE_MESSAGES'; payload: ChatMessage[] }
+  | { type: 'SET_TURN_QUEUE'; payload: ChatQueueItem[] }
   | { type: 'UPDATE_MESSAGE'; payload: { id: string; patch: Partial<ChatMessage>; delta?: string } }
   | { type: 'SET_SCHEDULES'; payload: ScheduleItem[] }
   | { type: 'MERGE_SCHEDULES'; payload: ScheduleItem[] }
@@ -87,6 +90,7 @@ export const initialState: AppState = {
   draft: '',
   documentContext: null,
   messages: [],
+  turnQueue: [],
   schedules: [],
   mapPlaces: [],
   mapTitle: translate('relatedPlaces'),
@@ -128,6 +132,7 @@ export function reducer(state: AppState, action: Action): AppState {
         draft: '',
         documentContext: null,
         messages: [],
+        turnQueue: [],
         scheduleViewDate: null,
       };
     case 'SET_CONVERSATIONS': return { ...state, conversations: action.payload };
@@ -144,6 +149,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'SET_DOCUMENT_CONTEXT': return { ...state, documentContext: action.payload };
     case 'ADD_MESSAGE': return { ...state, messages: [...state.messages, action.payload] };
     case 'HYDRATE_MESSAGES': return { ...state, messages: action.payload };
+    case 'SET_TURN_QUEUE': return { ...state, turnQueue: action.payload };
     case 'UPDATE_MESSAGE':
       return {
         ...state,

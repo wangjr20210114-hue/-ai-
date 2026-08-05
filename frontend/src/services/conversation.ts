@@ -75,7 +75,7 @@ export function hasDurableAssistantPayload(message?: ChatMessage): boolean {
 }
 
 export function isDurableChatMessage(message: ChatMessage): boolean {
-  return !message.failed && (
+  return !message.failed && !message.queued && (
     message.role === 'user' || hasDurableAssistantPayload(message)
   );
 }
@@ -335,6 +335,9 @@ export function reconcileConversationSummary(
 }
 
 function messageFingerprint(message: ChatMessage): string {
+  if (message.client_message_id) {
+    return `${message.role}\u0000turn:${message.client_message_id}`;
+  }
   if (message.role === 'ai' && message.clarification?.id) {
     return `${message.role}\u0000clarification:${message.clarification.id}`;
   }
@@ -402,7 +405,6 @@ export function mergeMessages(
       && (
         index <= lastRemoteMatch + 1 + lastCompletedLocalOffset
         || isLiveTail
-        || (message.role === 'user' && message.queued)
       )) {
       output.push({ ...message, streaming: isLiveTail });
     }

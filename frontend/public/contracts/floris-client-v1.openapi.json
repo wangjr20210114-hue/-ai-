@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Floris Client API",
-    "version": "1.6.0",
+    "version": "1.7.0",
     "description": "The complete, platform-neutral client boundary shared by Web, Android, HarmonyOS and iOS. Every server-owned value displayed by a Floris client is delivered through an operation below or through the versioned SSE/component contracts. Authentication, tenant scoping, orchestration, provider calls and persistence remain server responsibilities."
   },
   "servers": [
@@ -17,6 +17,10 @@
   ],
   "x-floris-turn-control": {
     "queue": "per_conversation_fifo",
+    "queue_limit": 5,
+    "queued_visibility": "composer_drawer_only_until_turn_started",
+    "queued_mutations": "edit_delete_or_interrupt_current_then_promote",
+    "answer_ownership": "every user and assistant row carries the producing client_message_id",
     "queue_dequeue_boundary": "same client_message_id reaches a Maker terminal state or exact stop acknowledgement",
     "runtime_buffer": "maker_checkpoint_private_until_completed",
     "commit_boundary": "run.status=completed",
@@ -1290,7 +1294,7 @@
         "required": ["message"],
         "properties": {
           "message": { "type": "string" },
-          "client_message_id": { "type": "string" },
+          "client_message_id": { "type": "string", "description": "Stable turn owner. The user request and its assistant answer share this exact value." },
           "reference_images": { "type": "array", "maxItems": 3, "items": { "type": "string" } },
           "clarification_response": { "type": "object", "additionalProperties": true },
           "current_location": { "type": "object", "additionalProperties": true }
@@ -1936,7 +1940,8 @@
     "system_location": "Obtain a consented, short-lived OS location and pass it to /chat or /routes; the server remains authoritative for place resolution and route planning.",
     "map_renderer": "Render server-issued place and route geometry with the platform map SDK; do not ask the map SDK to replace /places or /routes.",
     "local_files": "File picking, PDF rendering/text extraction, ZIP construction and cache storage are replaceable client adapters; persistence and model operations still use Floris APIs.",
-    "presigned_upload": "PUT is allowed only to the short-lived URL returned by /files, /profile or /skill-uploads; clients never construct storage keys or upload origins."
+    "presigned_upload": "PUT is allowed only to the short-lived URL returned by /files, /profile or /skill-uploads; clients never construct storage keys or upload origins.",
+    "speech_input": "Speech capture and recognition are replaceable client adapters. Web uses the browser speech service; native clients use an OS or official speech SDK, then place finalized text in the same composer before /chat."
   },
   "x-floris-compatibility": {
     "component_schema": "/contracts/floris-components-v1.schema.json",

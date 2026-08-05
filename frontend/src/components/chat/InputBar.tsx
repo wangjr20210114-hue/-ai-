@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, MessagePlugin, Textarea, Upload } from 'tdesign-react';
-import { SendIcon, AttachIcon, StopIcon } from 'tdesign-icons-react';
+import { SendIcon, AttachIcon, StopIcon, MicrophoneIcon } from 'tdesign-icons-react';
 import type { UploadFile } from 'tdesign-react';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ChatMessage, WSMessage } from '../../features/chat/model';
@@ -13,6 +13,8 @@ import { proactiveOperation } from '../../features/settings/model/client';
 import { registerReadingItem } from '../../features/papers/model/api';
 import { getStoredLanguage, translate, useLanguage } from '../../i18n';
 import { isConversationGenerationActive } from '../../features/chat/controller/chatRuntimeModel';
+import TurnQueueDrawer from '../../features/chat/view/TurnQueueDrawer';
+import { useSpeechInput } from '../../features/chat/controller/useSpeechInput';
 
 interface Props {
   client: React.RefObject<ChatClient | null>;
@@ -43,7 +45,7 @@ async function imageReferenceDataUrl(file: File): Promise<string> {
 
 /** 底部输入栏：文本输入 + 文档上传 + 发送（场景由后端自动推断）。 */
 export default function InputBar({ client }: Props) {
-  const { draft, documentContext, conversationId, conversations, messages } = useAppState();
+  const { draft, documentContext, conversationId, turnQueue, messages } = useAppState();
   const { t } = useLanguage();
   const dispatch = useAppDispatch();
   const [text, setText] = useState('');
@@ -53,6 +55,12 @@ export default function InputBar({ client }: Props) {
   const [stopping, setStopping] = useState(false);
   const [referenceImage, setReferenceImage] = useState<{ name: string; dataUrl: string } | null>(null);
   const activeStreaming = isConversationGenerationActive(messages);
+  const speech = useSpeechInput({
+    language: getStoredLanguage(),
+    onTranscript: (transcript) => setText((current) => (
+      current.trim() ? `${current.trimEnd()} ${transcript}` : transcript
+    )),
+  });
 
   // 点击空态引导词 → 回填输入框
   useEffect(() => {
@@ -62,6 +70,10 @@ export default function InputBar({ client }: Props) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
+
+  useEffect(() => {
+    if (speech.failed) MessagePlugin.error(t('voiceInputFailed'));
+  }, [speech.failed, t]);
 
   const sendActivity = async (message: ChatMessage, activity: string, referenceImages: string[] = []) => {
     const msg: WSMessage = {
@@ -80,7 +92,7 @@ export default function InputBar({ client }: Props) {
         response_language: getStoredLanguage(),
       },
     };
-    await Promise.resolve(client.current?.send(msg));
+    return Promise.resolve(client.current?.send(msg));
   };
 
   const handleSend = async () => {
@@ -94,27 +106,13 @@ export default function InputBar({ client }: Props) {
     };
     sendLockRef.current = true;
     setSending(true);
-    // Optimistically render and seed the SSE cache before any network await;
-    // otherwise stream_start can hydrate from an older cache and hide this row.
-    dispatch({ type: 'ADD_MESSAGE', payload: message });
-    window.dispatchEvent(new CustomEvent('floris:question-sent', {
-      detail: { conversationId, messageId: message.id },
-    }));
-    const previous = conversations.find((item) => item.id === conversationId);
-    dispatch({
-      type: 'UPSERT_CONVERSATION',
-      payload: {
-        id: conversationId,
-        title: previous?.pending ? (content.length > 32 ? `${content.slice(0, 32)}…` : content) : (previous?.title || content.slice(0, 32)),
-        createdAt: previous?.createdAt || Date.now(),
-        updatedAt: Date.now(),
-        messageCount: Math.max(1, Number(previous?.messageCount || 0) + 1),
-        pending: false,
-      },
-    });
-    setText('');
     try {
-      await sendActivity(message, 'asked', referenceImage ? [referenceImage.dataUrl] : []);
+      const result = await sendActivity(message, 'asked', referenceImage ? [referenceImage.dataUrl] : []);
+      if (result === 'queue_full') {
+        MessagePlugin.warning(t('queueLimitReached'));
+        return;
+      }
+      setText('');
       setReferenceImage(null);
       dispatch({ type: 'SET_DOCUMENT_CONTEXT', payload: null });
     } finally {
@@ -216,6 +214,7 @@ export default function InputBar({ client }: Props) {
 
   return (
     <div className="input-wrap">
+      <TurnQueueDrawer client={client} items={turnQueue} />
       <div className="input-box" onPaste={(event) => {
         const image = Array.from(event.clipboardData.files).find((file) => file.type.startsWith('image/'));
         if (!image) return;
@@ -261,6 +260,19 @@ export default function InputBar({ client }: Props) {
             </Upload>
           </div>
           <div className="input-turn-actions">
+            <Button
+              className={`input-icon-button input-voice-button${speech.listening ? ' is-listening' : ''}`}
+              variant="text"
+              shape="circle"
+              icon={<MicrophoneIcon />}
+              onClick={speech.toggle}
+              disabled={!speech.supported || speech.processing}
+              loading={speech.processing}
+              aria-label={speech.listening ? t('stopVoiceInput') : t('startVoiceInput')}
+              title={speech.supported
+                ? (speech.listening ? t('stopVoiceInput') : t('startVoiceInput'))
+                : t('voiceInputUnavailable')}
+            />
             {(activeStreaming || stopping) && <Button
               className="input-submit-button input-icon-button input-stop-button"
               theme="danger"

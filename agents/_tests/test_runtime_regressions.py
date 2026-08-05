@@ -379,6 +379,8 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
                 ("ai", "下一个回答"),
             ],
         )
+        self.assertEqual(restored[1]["client_message_id"], "client-next")
+        self.assertEqual(restored[2]["client_message_id"], "client-next")
         self.assertTrue(restored[0]["stopped"])
         self.assertNotIn("clarification", restored[0])
 

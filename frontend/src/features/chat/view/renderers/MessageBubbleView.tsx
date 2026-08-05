@@ -95,7 +95,6 @@ export function MessageBubbleView({
         {isUser
           ? <>
             {message.content}
-            {message.queued && <small className="queued-message-status">{t('queuedMessage')}</small>}
           </>
           : <MessagePrimaryRenderer
             message={message}

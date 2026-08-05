@@ -3,6 +3,8 @@ import {
   touchConversationIndex,
 } from '../model/client';
 import type { MakersChatRun } from '../model';
+import type { ChatQueueItem } from '../model';
+import type { ChatSendResult } from '../../../services/chatClient';
 import { splitSseFrames } from '../../../shared/transport/sseClient';
 import { translate, type TranslationKey } from '../../../i18n';
 import {
@@ -20,6 +22,7 @@ export const CLIENT_EVENT_TYPES = [
   'optimistic_user', 'clarification_submitted', 'stream_start', 'stream_delta',
   'stream_reset', 'stream_end', 'answer_complete', 'experience_hint',
   'turn_started', 'stop_requested', 'transport_recovering', 'recovery_snapshot',
+  'queue_changed',
   'search_status', 'progress_event', 'search_results',
   'search_media', 'paper_results', 'follow_ups', 'proactive_update',
   'map_action', 'calendar_action', 'side_effect_action',
@@ -37,6 +40,7 @@ export type ClientEvent = {
 const STREAM_IDLE_TIMEOUT_MS = 20_000;
 export const CHAT_INITIAL_RESPONSE_TIMEOUT_MS = 55_000;
 const TURN_QUEUE_PREFIX = 'floris:turn-queue:';
+export const MAX_WAITING_TURNS = 5;
 
 type TurnMessage = { type?: string; payload?: Record<string, unknown> };
 type TurnQueueDisposition = 'consume' | 'retry' | 'retain';
@@ -48,6 +52,14 @@ function clientMessageId(message: TurnMessage): string {
   return clientMessage && typeof clientMessage === 'object'
     ? String((clientMessage as Record<string, unknown>).id || '')
     : '';
+}
+
+function clientMessageContent(message: TurnMessage): string {
+  const value = message.payload?.client_message;
+  if (value && typeof value === 'object') {
+    return String((value as Record<string, unknown>).content || message.payload?.text || '');
+  }
+  return String(message.payload?.text || '');
 }
 
 function queueStorageKey(conversationId: string): string {
@@ -141,6 +153,7 @@ export class SSEChatClient {
   private explicitlyStoppedTurns = new Set<string>();
   private activeClientMessageId = '';
   private activeStreamId = '';
+  private startedTurns = new Set<string>();
 
   constructor(private readonly conversationId: string) {
     this.turnControl = new TurnControlClient(conversationId);
@@ -165,6 +178,34 @@ export class SSEChatClient {
         // Storage is entirely unavailable; keep only the in-memory queue.
       }
     }
+    this.emitQueue();
+  }
+
+  private waitingMessages(): TurnMessage[] {
+    if (!this.pending.length) return [];
+    if (this.activeClientMessageId) {
+      const activeIndex = this.pending.findIndex(
+        (message) => clientMessageId(message) === this.activeClientMessageId,
+      );
+      return activeIndex < 0
+        ? [...this.pending]
+        : this.pending.filter((_message, index) => index !== activeIndex);
+    }
+    return this.pending.slice(1);
+  }
+
+  queuedTurns(): ChatQueueItem[] {
+    return this.waitingMessages().map((message) => ({
+      id: clientMessageId(message),
+      content: clientMessageContent(message),
+      enqueuedAt: Number(message.payload?.client_message && typeof message.payload.client_message === 'object'
+        ? (message.payload.client_message as Record<string, unknown>).ts
+        : 0) || Date.now(),
+    })).filter((item) => item.id && item.content);
+  }
+
+  private emitQueue() {
+    this.emit({ type: 'queue_changed', payload: { items: this.queuedTurns() } });
   }
 
   private consumeQueuedTurn(clientId: string): boolean {
@@ -185,7 +226,55 @@ export class SSEChatClient {
 
   on(listener: (message: ClientEvent) => void) {
     this.listeners.add(listener);
+    listener({ type: 'queue_changed', payload: { items: this.queuedTurns() } });
     return () => this.listeners.delete(listener);
+  }
+
+  updateQueuedTurn(clientId: string, content: string): boolean {
+    const normalized = content.trim();
+    const waiting = new Set(this.waitingMessages());
+    const message = this.pending.find((item) => (
+      clientMessageId(item) === clientId && waiting.has(item)
+    ));
+    if (!message || !normalized) return false;
+    const clientMessage = message.payload?.client_message;
+    message.payload = {
+      ...(message.payload || {}),
+      text: normalized,
+      ...(clientMessage && typeof clientMessage === 'object'
+        ? { client_message: { ...clientMessage, content: normalized } }
+        : {}),
+    };
+    this.persistQueue();
+    return true;
+  }
+
+  removeQueuedTurn(clientId: string): boolean {
+    const waiting = new Set(this.waitingMessages());
+    const index = this.pending.findIndex((item) => (
+      clientMessageId(item) === clientId && waiting.has(item)
+    ));
+    if (index < 0) return false;
+    this.pending.splice(index, 1);
+    this.persistQueue();
+    return true;
+  }
+
+  async interruptWithQueuedTurn(clientId: string): Promise<'confirmed' | 'local' | 'started'> {
+    const waiting = new Set(this.waitingMessages());
+    const index = this.pending.findIndex((item) => (
+      clientMessageId(item) === clientId && waiting.has(item)
+    ));
+    if (index < 0) return 'local';
+    const [selected] = this.pending.splice(index, 1);
+    const activeIndex = this.activeClientMessageId
+      ? this.pending.findIndex((item) => clientMessageId(item) === this.activeClientMessageId)
+      : -1;
+    this.pending.splice(activeIndex >= 0 ? activeIndex + 1 : 0, 0, selected);
+    this.persistQueue();
+    if (this.activeClientMessageId) return this.stop();
+    void this.drain();
+    return 'started';
   }
 
   connect(run?: MakersChatRun | null, restoredStreamId = '') {
@@ -283,23 +372,16 @@ export class SSEChatClient {
     return this.cancelMakerRun(this.activeClientMessageId);
   }
 
-  async send(rawMessage: unknown) {
-    if (this.closed) return;
+  async send(rawMessage: unknown): Promise<ChatSendResult> {
+    if (this.closed) return 'ignored';
     const message = rawMessage as TurnMessage;
-    if (message.type === 'ping') return;
+    if (message.type === 'ping') return 'ignored';
     const queued = Boolean(this.controller || this.draining || this.pending.length);
-    const clientMessage = message.payload?.client_message;
-    if (clientMessage && typeof clientMessage === 'object') {
-      this.emit({
-        type: 'optimistic_user',
-        payload: {
-          message: { ...clientMessage, queued },
-        },
-      });
-    }
+    if (queued && this.queuedTurns().length >= MAX_WAITING_TURNS) return 'queue_full';
     this.pending.push(message);
     this.persistQueue();
     void this.drain();
+    return queued ? 'queued' : 'started';
   }
 
   private async drain() {
@@ -400,6 +482,20 @@ export class SSEChatClient {
       && typeof (clientMessage as Record<string, unknown>).content === 'string'
       ? String((clientMessage as Record<string, unknown>).content)
       : '';
+    if (clientMessage && typeof clientMessage === 'object' && !this.startedTurns.has(currentClientMessageId)) {
+      this.startedTurns.add(currentClientMessageId);
+      this.emit({
+        type: 'optimistic_user',
+        payload: {
+          message: {
+            ...clientMessage,
+            id: currentClientMessageId || String((clientMessage as Record<string, unknown>).id || ''),
+            client_message_id: currentClientMessageId,
+            queued: false,
+          },
+        },
+      });
+    }
     this.emit({
       type: 'turn_started',
       payload: { client_message_id: currentClientMessageId },
@@ -423,7 +519,10 @@ export class SSEChatClient {
       this.emit({ type: 'stream_end', payload: { id: streamId } });
     };
 
-    this.emit({ type: 'stream_start', payload: { id: streamId, intent: 'chat' } });
+    this.emit({
+      type: 'stream_start',
+      payload: { id: streamId, intent: 'chat', client_message_id: currentClientMessageId },
+    });
 
     try {
       // Semantic planning and the runtime Skill gate run before the HTTP body
@@ -456,12 +555,6 @@ export class SSEChatClient {
 
       if (!response.ok) {
         if (response.status === 409) {
-          if (clientMessage && typeof clientMessage === 'object') {
-            this.emit({
-              type: 'optimistic_user',
-              payload: { message: { ...clientMessage, queued: true } },
-            });
-          }
           finish();
           await turnControlDelay(2_000, signal);
           return 'retry';
@@ -682,12 +775,6 @@ export class SSEChatClient {
       } else if (!explicitlyStopped && recoverableTransportError(error, watchdogTriggered)) {
         const outcome = await this.recoverActiveRun(currentClientMessageId, streamId);
         if (outcome === 'not_admitted') {
-          if (clientMessage && typeof clientMessage === 'object') {
-            this.emit({
-              type: 'optimistic_user',
-              payload: { message: { ...clientMessage, queued: true } },
-            });
-          }
           disposition = 'retry';
           await turnControlDelay(2_000, signal);
         }
