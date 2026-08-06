@@ -11,10 +11,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -164,6 +166,7 @@ import com.floris.android.ui.prefs.t
 import com.floris.android.ui.theme.LocalDarkTheme
 import com.floris.android.ui.theme.userBubbleBrush
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.io.File
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -337,8 +340,11 @@ fun ChatScreen(
                 last.offset + last.size <= info.viewportEndOffset + 96
         }
     }
-    // 用户上滑离开底部就交还控制权，滑回底部立刻恢复跟随。
-    LaunchedEffect(atBottom) { followTail = atBottom }
+    // 用户上滑离开底部就交还控制权，滑回底部立刻恢复跟随；
+    // 键盘弹起/收起的动画期间不改变跟随状态，避免误判。
+    LaunchedEffect(atBottom, imeVisible) {
+        if (!imeVisible) followTail = atBottom
+    }
 
     // 等待列表完成新视口布局后，把最后一条消息的底部推到视口底部。
     suspend fun anchorToBottom() {
@@ -372,12 +378,20 @@ fun ChatScreen(
             anchorToBottom()
         }
     }
-    // 首次加载完成 / 切换对话 / 键盘弹起：无论之前在哪个位置，都强制定位到文末，
-    // 让最新消息始终显示在输入框上方（“正文被整体顶起”的视觉效果）。
-    LaunchedEffect(state.bootstrapping, state.conversationId, imeVisible) {
+    // 首次加载完成 / 切换对话：无论之前在哪个位置，都定位到文末。
+    LaunchedEffect(state.bootstrapping, state.conversationId) {
         if (state.bootstrapping || state.messages.isEmpty()) return@LaunchedEffect
         followTail = true
         anchorToBottom()
+    }
+    // 键盘弹起：如果用户本来就在底部（正在跟随），在键盘动画期间持续贴底，
+    // 让最新消息跟着输入框一起被托起；否则保持原滚动位置，只托起输入框。
+    LaunchedEffect(imeVisible) {
+        if (!imeVisible || state.messages.isEmpty() || !followTail) return@LaunchedEffect
+        repeat(12) {
+            if (state.messages.isNotEmpty()) anchorToBottom()
+            delay(40)
+        }
     }
     LaunchedEffect(state.transientError) {
         state.transientError?.let { snackbar.showSnackbar(it); viewModel.consumeError() }
@@ -573,13 +587,14 @@ fun ChatScreen(
                     },
                     onStop = viewModel::stop,
                 )
-                // 键盘收起时让出约一个系统导航栏的高度（三大金刚键上方）。
-                if (!imeVisible) {
-                    Spacer(
-                        Modifier
-                            .height(closedBottomSpace),
-                    )
-                }
+                // 键盘收起时平滑让出约一个系统导航栏的高度（三大金刚键上方），
+                // 用动画过渡，输入框自然回位，不会“卡一下”。
+                val closedSpace by animateDpAsState(
+                    targetValue = if (imeVisible) 0.dp else closedBottomSpace,
+                    animationSpec = tween(260),
+                    label = "imeClosedSpace",
+                )
+                Spacer(Modifier.height(closedSpace))
             }
         }
         SnackbarHost(
