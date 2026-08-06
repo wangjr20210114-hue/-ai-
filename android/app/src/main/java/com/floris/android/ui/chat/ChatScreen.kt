@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -106,6 +107,7 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
@@ -183,6 +185,10 @@ fun ChatScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val imeVisible = WindowInsets.isImeVisible
+    val density = LocalDensity.current
+    val closedBottomSpace = with(density) {
+        maxOf(48.dp, WindowInsets.navigationBars.getBottom(density).toDp())
+    }
 
     var draft by remember { mutableStateOf("") }
     var images by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -336,8 +342,8 @@ fun ChatScreen(
             if (overflow > 0) listState.scrollBy(overflow.toFloat())
         }
     }
-    // 新消息（自己发出的那条）始终滚到底，无论此前是否在翻阅历史。
-    LaunchedEffect(state.messages.size) {
+    // 新消息 / 切换对话后始终定位到文末，无论此前是否在翻阅历史。
+    LaunchedEffect(state.conversationId, state.messages.size) {
         if (state.messages.isNotEmpty()) {
             followTail = true
             listState.scrollToItem(state.messages.lastIndex)
@@ -539,12 +545,11 @@ fun ChatScreen(
                     },
                     onStop = viewModel::stop,
                 )
-                // 键盘收起时补固定留白 + 导航栏内边距，输入框不会贴到屏幕最底边。
+                // 键盘收起时让出约一个系统导航栏的高度（三大金刚键上方）。
                 if (!imeVisible) {
                     Spacer(
                         Modifier
-                            .height(20.dp)
-                            .navigationBarsPadding(),
+                            .height(closedBottomSpace),
                     )
                 }
             }
@@ -703,7 +708,7 @@ private fun ChatTopBar(
             contentDescription = t(StringKey.SidebarOpen),
             onClick = onOpenSidebar,
             size = 40.dp,
-            iconSize = 26.dp,
+            iconSize = 24.dp,
             modifier = Modifier.align(Alignment.CenterStart),
         )
         // 中间：对话名 + AI 提示小字（品牌与 logo 已移除）。
@@ -733,7 +738,7 @@ private fun ChatTopBar(
             contentDescription = t(StringKey.SettingsTheme),
             onClick = onToggleTheme,
             size = 40.dp,
-            iconSize = 26.dp,
+            iconSize = 24.dp,
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .onboardingTarget(TourStepKey.THEME),
@@ -1138,7 +1143,7 @@ private fun InputBar(
                 contentDescription = t(StringKey.ChatCamera),
                 onClick = onPickCamera,
                 size = 40.dp,
-                iconSize = 26.dp,
+                iconSize = 24.dp,
             )
             // 输入框本体：提示“发消息”。
             Box(
@@ -1178,7 +1183,7 @@ private fun InputBar(
                 ),
                 onClick = onVoice,
                 size = 40.dp,
-                iconSize = 26.dp,
+                iconSize = 24.dp,
                 tint = if (voiceListening) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1190,7 +1195,7 @@ private fun InputBar(
                     if (!uploadingDocument) onPickMixed()
                 },
                 size = 40.dp,
-                iconSize = 26.dp,
+                iconSize = 24.dp,
                 tint = if (uploadingDocument) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             )

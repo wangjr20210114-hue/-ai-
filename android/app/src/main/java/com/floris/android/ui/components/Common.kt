@@ -302,7 +302,7 @@ fun PrimaryIconButtonImage(
     ) {
         CatIconImage(
             resId = resId,
-            size = size * 0.55f,
+            size = size * 0.6f,
             tint = Color.White,
             contentDescription = contentDescription,
         )

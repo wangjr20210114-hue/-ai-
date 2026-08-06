@@ -287,21 +287,21 @@ fun FlorisSidebar(
                         contentDescription = t(StringKey.TabSkills),
                         onClick = onOpenSkills,
                         size = 34.dp,
-                        iconSize = 22.dp,
+                        iconSize = 24.dp,
                     )
                     CatIconPill(
                         resId = R.drawable.ic_notifications,
                         contentDescription = t(StringKey.Reminders),
                         onClick = onOpenReminders,
                         size = 34.dp,
-                        iconSize = 22.dp,
+                        iconSize = 24.dp,
                     )
                     CatIconPill(
                         resId = R.drawable.ic_settings,
                         contentDescription = t(StringKey.SettingsTitle),
                         onClick = onOpenSettings,
                         size = 34.dp,
-                        iconSize = 22.dp,
+                        iconSize = 24.dp,
                     )
                 }
             }
@@ -324,7 +324,7 @@ private fun SidebarNavRow(
     ) {
         CatIconImage(
             resId = resId,
-            size = 30.dp,
+            size = 24.dp,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.width(14.dp))
