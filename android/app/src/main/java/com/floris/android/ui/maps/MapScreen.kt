@@ -59,6 +59,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.floris.android.AppContainer
+import com.floris.android.R
+import com.floris.android.ui.components.CatIconPill
 import com.floris.android.BuildConfig
 import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.model.Place
@@ -183,8 +185,8 @@ fun MapScreen(
                 Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                com.floris.android.ui.components.IconPill(
-                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                CatIconPill(
+                    resId = R.drawable.ic_back,
                     contentDescription = t(StringKey.Back),
                     onClick = onBack,
                 )
@@ -216,8 +218,8 @@ fun MapScreen(
             Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            com.floris.android.ui.components.IconPill(
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
+            CatIconPill(
+                resId = R.drawable.ic_back,
                 contentDescription = t(StringKey.Back),
                 onClick = onBack,
             )

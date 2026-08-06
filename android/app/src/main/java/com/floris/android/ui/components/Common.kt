@@ -58,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -222,6 +223,89 @@ fun PrimaryIconButton(
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription, tint = Color.White, modifier = Modifier.size(size * 0.44f))
+    }
+}
+
+/** 位图猫系图标：统一用主题色染色，与矢量图标观感一致。 */
+@Composable
+fun CatIconImage(
+    resId: Int,
+    size: Dp,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    contentDescription: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    Image(
+        painter = painterResource(resId),
+        contentDescription = contentDescription,
+        colorFilter = ColorFilter.tint(tint),
+        modifier = modifier.size(size),
+    )
+}
+
+/** 与 [IconPill] 同款的位图图标药丸按钮（GPT 生成的猫系 PNG 图标）。 */
+@Composable
+fun CatIconPill(
+    resId: Int,
+    contentDescription: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    size: Dp = 38.dp,
+    iconSize: Dp = 20.dp,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    background: Color = Color.Transparent,
+    enabled: Boolean = true,
+) {
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(background)
+            .pressable(enabled = enabled, scaleDown = 0.9f, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        CatIconImage(
+            resId = resId,
+            size = iconSize,
+            tint = tint,
+            contentDescription = contentDescription,
+        )
+    }
+}
+
+/** 主操作圆形按钮的位图版本（发送按钮使用猫系图标）。 */
+@Composable
+fun PrimaryIconButtonImage(
+    resId: Int,
+    contentDescription: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    danger: Boolean = false,
+    size: Dp = 40.dp,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val brush = when {
+        danger -> Brush.horizontalGradient(listOf(scheme.error, scheme.error))
+        enabled -> Brush.horizontalGradient(listOf(scheme.primary, scheme.secondary))
+        else -> Brush.horizontalGradient(
+            listOf(scheme.primary.copy(alpha = 0.35f), scheme.secondary.copy(alpha = 0.35f)),
+        )
+    }
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(brush)
+            .pressable(enabled = enabled, scaleDown = 0.9f, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        CatIconImage(
+            resId = resId,
+            size = size * 0.44f,
+            tint = Color.White,
+            contentDescription = contentDescription,
+        )
     }
 }
 

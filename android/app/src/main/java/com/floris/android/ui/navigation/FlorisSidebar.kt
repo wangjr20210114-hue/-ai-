@@ -58,8 +58,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.floris.android.R
 import com.floris.android.BuildConfig
 import com.floris.android.core.model.ConversationSummary
+import com.floris.android.ui.components.CatIconImage
+import com.floris.android.ui.components.CatIconPill
 import com.floris.android.ui.components.CatAvatar
 import com.floris.android.ui.components.IconPill
 import com.floris.android.ui.components.InlineLoading
@@ -69,7 +72,6 @@ import com.floris.android.ui.onboarding.TourStepKey
 import com.floris.android.ui.onboarding.onboardingTarget
 import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.t
-import com.floris.android.ui.theme.CatIcons
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -149,11 +151,11 @@ fun FlorisSidebar(
                         .padding(horizontal = 12.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(
-                        Icons.Outlined.Search,
-                        contentDescription = null,
+                    CatIconImage(
+                        resId = R.drawable.ic_search,
+                        size = 18.dp,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
+                        contentDescription = null,
                     )
                     Spacer(Modifier.width(8.dp))
                     Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
@@ -196,9 +198,9 @@ fun FlorisSidebar(
                 HorizontalDivider(Modifier.padding(horizontal = 12.dp))
 
                 // 3. 地点 / 日程 / 阅读。
-                SidebarNavRow(CatIcons.PawPin, t(StringKey.SidebarPlace), onOpenPlace)
-                SidebarNavRow(CatIcons.CatCalendar, t(StringKey.CalendarTitle), onOpenCalendar)
-                SidebarNavRow(CatIcons.CatBook, t(StringKey.ReadingTitle), onOpenReading)
+                SidebarNavRow(R.drawable.ic_places, t(StringKey.SidebarPlace), onOpenPlace)
+                SidebarNavRow(R.drawable.ic_calendar, t(StringKey.CalendarTitle), onOpenCalendar)
+                SidebarNavRow(R.drawable.ic_reading, t(StringKey.ReadingTitle), onOpenReading)
                 HorizontalDivider(Modifier.padding(horizontal = 12.dp))
 
                 // 4. 历史对话列表（不显示标题，直接可滑动）。
@@ -274,26 +276,26 @@ fun FlorisSidebar(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    IconPill(
-                        icon = Icons.Outlined.Star,
+                    CatIconPill(
+                        resId = R.drawable.ic_skills,
                         contentDescription = t(StringKey.TabSkills),
                         onClick = onOpenSkills,
                         size = 34.dp,
-                        iconSize = 17.dp,
+                        iconSize = 18.dp,
                     )
-                    IconPill(
-                        icon = CatIcons.CatBell,
+                    CatIconPill(
+                        resId = R.drawable.ic_notifications,
                         contentDescription = t(StringKey.Reminders),
                         onClick = onOpenReminders,
                         size = 34.dp,
-                        iconSize = 17.dp,
+                        iconSize = 18.dp,
                     )
-                    IconPill(
-                        icon = Icons.Outlined.Settings,
+                    CatIconPill(
+                        resId = R.drawable.ic_settings,
                         contentDescription = t(StringKey.SettingsTitle),
                         onClick = onOpenSettings,
                         size = 34.dp,
-                        iconSize = 17.dp,
+                        iconSize = 18.dp,
                     )
                 }
             }
@@ -303,7 +305,7 @@ fun FlorisSidebar(
 
 @Composable
 private fun SidebarNavRow(
-    icon: ImageVector,
+    resId: Int,
     label: String,
     onClick: () -> Unit,
 ) {
@@ -314,11 +316,10 @@ private fun SidebarNavRow(
             .padding(horizontal = 18.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
+        CatIconImage(
+            resId = resId,
+            size = 22.dp,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(22.dp),
         )
         Spacer(Modifier.width(14.dp))
         Text(label, style = MaterialTheme.typography.bodyLarge)

@@ -128,6 +128,7 @@ import com.floris.android.core.share.MarkdownPlainText
 import com.floris.android.ui.chatViewModelFactory
 import com.floris.android.ui.components.AnimateIn
 import com.floris.android.ui.components.CatAvatar
+import com.floris.android.ui.components.CatIconPill
 import com.floris.android.ui.components.ClarificationForm
 import com.floris.android.ui.components.ExperienceHints
 import com.floris.android.ui.components.FollowUpChips
@@ -138,6 +139,7 @@ import com.floris.android.ui.components.MediaGrid
 import com.floris.android.ui.components.PaperListCard
 import com.floris.android.ui.components.ProactiveChatCard
 import com.floris.android.ui.components.PrimaryIconButton
+import com.floris.android.ui.components.PrimaryIconButtonImage
 import com.floris.android.ui.components.QuotePill
 import com.floris.android.ui.components.SearchCompleteMeta
 import com.floris.android.ui.components.SearchProgress
@@ -155,7 +157,6 @@ import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.LocalLanguage
 import com.floris.android.ui.prefs.t
 import com.floris.android.ui.theme.LocalDarkTheme
-import com.floris.android.ui.theme.CatIcons
 import com.floris.android.ui.theme.userBubbleBrush
 import kotlinx.coroutines.launch
 import java.io.File
@@ -664,12 +665,12 @@ private fun ChatTopBar(
             .padding(start = 8.dp, end = 8.dp, top = 0.dp, bottom = 2.dp),
     ) {
         // 左侧：三横杠打开侧边栏。
-        IconPill(
-            icon = Icons.Outlined.Menu,
+        CatIconPill(
+            resId = R.drawable.ic_menu,
             contentDescription = t(StringKey.SidebarOpen),
             onClick = onOpenSidebar,
             size = 40.dp,
-            iconSize = 22.dp,
+            iconSize = 21.dp,
             modifier = Modifier.align(Alignment.CenterStart),
         )
         // 中间：对话名 + AI 提示小字（品牌与 logo 已移除）。
@@ -694,10 +695,12 @@ private fun ChatTopBar(
             )
         }
         // 右侧：白天 / 黑夜切换。
-        IconPill(
-            icon = if (dark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+        CatIconPill(
+            resId = if (dark) R.drawable.ic_theme_sun else R.drawable.ic_theme_moon,
             contentDescription = t(StringKey.SettingsTheme),
             onClick = onToggleTheme,
+            size = 40.dp,
+            iconSize = 21.dp,
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .onboardingTarget(TourStepKey.THEME),
@@ -1098,12 +1101,12 @@ private fun InputBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 最左侧：相机（拍照作为参考图）。
-            IconPill(
-                icon = Icons.Filled.PhotoCamera,
+            CatIconPill(
+                resId = R.drawable.ic_camera,
                 contentDescription = t(StringKey.ChatCamera),
                 onClick = onPickCamera,
                 size = 40.dp,
-                iconSize = 20.dp,
+                iconSize = 21.dp,
             )
             // 输入框本体：提示“发消息”。
             Box(
@@ -1136,26 +1139,26 @@ private fun InputBar(
                 )
             }
             // 麦克风：语音输入。
-            IconPill(
-                icon = if (voiceListening) Icons.Default.MicOff else Icons.Default.Mic,
+            CatIconPill(
+                resId = R.drawable.ic_microphone,
                 contentDescription = t(
                     if (voiceListening) StringKey.ChatVoiceStop else StringKey.ChatVoiceStart,
                 ),
                 onClick = onVoice,
                 size = 40.dp,
-                iconSize = 20.dp,
+                iconSize = 21.dp,
                 tint = if (voiceListening) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             )
             // 加号：相册 + 文件选择器（PDF 等），上传时置灰防重复。
-            IconPill(
-                icon = CatIcons.CatPlus,
+            CatIconPill(
+                resId = R.drawable.ic_add_chat,
                 contentDescription = t(StringKey.ChatAddDocument),
                 onClick = {
                     if (!uploadingDocument) onPickMixed()
                 },
                 size = 40.dp,
-                iconSize = 22.dp,
+                iconSize = 21.dp,
                 tint = if (uploadingDocument) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1169,8 +1172,8 @@ private fun InputBar(
                 )
                 Spacer(Modifier.width(4.dp))
             }
-            PrimaryIconButton(
-                icon = Icons.AutoMirrored.Filled.Send,
+            PrimaryIconButtonImage(
+                resId = R.drawable.ic_send,
                 contentDescription = t(StringKey.Send),
                 onClick = { if (draft.isNotBlank()) onSend() },
                 enabled = draft.isNotBlank(),
