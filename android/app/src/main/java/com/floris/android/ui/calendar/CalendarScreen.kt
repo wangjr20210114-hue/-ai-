@@ -60,11 +60,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.floris.android.AppContainer
 import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.model.Schedule
+import com.floris.android.core.model.SkillAccess
+import com.floris.android.core.model.SkillAccessStatus
 import com.floris.android.ui.components.AnimateIn
 import com.floris.android.ui.components.EmptyState
 import com.floris.android.ui.components.FlorisCard
 import com.floris.android.ui.components.InlineLoading
 import com.floris.android.ui.components.SectionHeader
+import com.floris.android.ui.components.SkillAccessNotice
 import com.floris.android.ui.components.StatusChip
 import com.floris.android.ui.components.pressable
 import com.floris.android.ui.calendarViewModelFactory
@@ -93,6 +96,7 @@ class CalendarViewModel(
         /** 后台静默刷新中（已有缓存时不遮挡界面）。 */
         val refreshing: Boolean = false,
         val saving: Boolean = false,
+        val access: SkillAccess = SkillAccess(CALENDAR_SKILL_ID, SkillAccessStatus.Loading),
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -101,9 +105,26 @@ class CalendarViewModel(
     /** Schedules stream shared with chat confirmations — always backend-confirmed. */
     val schedules = repository.schedulesFlow
 
-    init { refresh() }
+    init {
+        viewModelScope.launch {
+            repository.skillAccessFlow.collect { projection ->
+                val access = projection.access(CALENDAR_SKILL_ID)
+                val becameAvailable = access.available && !_state.value.access.available
+                _state.value = _state.value.copy(
+                    access = access,
+                    loading = if (access.available) _state.value.loading else false,
+                    refreshing = if (access.available) _state.value.refreshing else false,
+                )
+                if (becameAvailable) refresh()
+            }
+        }
+        viewModelScope.launch {
+            runCatching { repository.ensureSkillAccess(repository.activeConversationId()) }
+        }
+    }
 
     fun refresh() {
+        if (!_state.value.access.available) return
         // 已有后端确认过的日程时不再空屏转圈：先展示旧数据，
         // 新数据到了再无声替换（云函数冷启动可能要好几秒）。
         val hasCache = repository.schedulesFlow.value.isNotEmpty()
@@ -112,10 +133,14 @@ class CalendarViewModel(
             runCatching { repository.loadSchedules(repository.activeConversationId()) }
                 .onSuccess {
                     repository.schedulesFlow.value = it
-                    _state.value = UiState(loading = false, refreshing = false)
+                    _state.value = _state.value.copy(
+                        loading = false,
+                        refreshing = false,
+                        error = null,
+                    )
                 }
                 .onFailure {
-                    _state.value = UiState(
+                    _state.value = _state.value.copy(
                         loading = false,
                         refreshing = false,
                         // 有缓存时失败不必打扰用户，继续看旧数据即可。
@@ -132,7 +157,7 @@ class CalendarViewModel(
         durationMinutes: Int,
         location: String,
     ) {
-        if (title.isBlank() || _state.value.saving) return
+        if (title.isBlank() || _state.value.saving || !_state.value.access.available) return
         _state.value = _state.value.copy(saving = true, error = null)
         viewModelScope.launch {
             runCatching {
@@ -164,7 +189,7 @@ class CalendarViewModel(
     }
 
     fun deleteSchedule(schedule: Schedule) {
-        if (_state.value.saving) return
+        if (_state.value.saving || !_state.value.access.available) return
         _state.value = _state.value.copy(saving = true, error = null)
         viewModelScope.launch {
             runCatching {
@@ -190,7 +215,12 @@ class CalendarViewModel(
 }
 
 @Composable
-fun CalendarScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
+fun CalendarScreen(
+    container: AppContainer,
+    owner: ViewModelStoreOwner? = null,
+    onRequestLogin: () -> Unit = {},
+    onOpenSkills: () -> Unit = {},
+) {
     val viewModel: CalendarViewModel = viewModel(
         viewModelStoreOwner = owner ?: checkNotNull(LocalViewModelStoreOwner.current),
         key = "calendar",
@@ -198,6 +228,22 @@ fun CalendarScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) 
     )
     val state by viewModel.state.collectAsState()
     val schedules by viewModel.schedules.collectAsState()
+
+    if (!state.access.available) {
+        Column(
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding(),
+        ) {
+            Text(
+                t(StringKey.CalendarTitle),
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 12.dp),
+            )
+            Box(Modifier.padding(horizontal = 16.dp)) {
+                SkillAccessNotice(state.access, onRequestLogin, onOpenSkills)
+            }
+        }
+        return
+    }
 
     val today = remember { Calendar.getInstance() }
     var year by remember { mutableIntStateOf(today.get(Calendar.YEAR)) }
@@ -306,6 +352,8 @@ fun CalendarScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) 
         )
     }
 }
+
+private const val CALENDAR_SKILL_ID = "calendar"
 
 @Composable
 private fun MonthCard(

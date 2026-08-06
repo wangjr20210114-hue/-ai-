@@ -54,8 +54,9 @@ class ChatRuntimeStore(context: Context, private val json: Json) {
     fun stoppedClientMessageId(conversationId: String): String =
         preferences.getString(stopKey(conversationId), "").orEmpty()
 
+    @SuppressLint("ApplySharedPref") // Must survive an immediate process kill after tapping stop.
     fun markStopIntent(conversationId: String, clientMessageId: String) {
-        preferences.edit().putString(stopKey(conversationId), clientMessageId).apply()
+        preferences.edit().putString(stopKey(conversationId), clientMessageId).commit()
     }
 
     fun clearStopIntent(conversationId: String, clientMessageId: String = "") {

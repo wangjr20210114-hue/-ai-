@@ -3,6 +3,8 @@ package com.floris.android
 import com.floris.android.core.network.sse.ChatEvent
 import com.floris.android.core.network.sse.ChatEventDispatcher
 import com.floris.android.core.network.sse.SseParser
+import com.floris.android.core.chat.stopIsDurablyConfirmed
+import com.floris.android.core.model.ChatRun
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -201,6 +203,35 @@ class BackendContractTest {
         assertFalse(
             "只有后端明确 confirmed 才算成功",
             body["status"]?.jsonPrimitive?.content == "confirmed",
+        )
+    }
+
+    @Test
+    fun `stop acknowledgement waits for Maker durable run projection`() {
+        val requested = "client-stop-1"
+        assertFalse(
+            "A pre-admission 200 can race conversation creation and is not durable by itself",
+            stopIsDurablyConfirmed(requested, requested, "discarded", null),
+        )
+        assertFalse(
+            "The same turn completing after stop must be tombstoned again",
+            stopIsDurablyConfirmed(
+                requested, requested, "discarded",
+                ChatRun(client_message_id = requested, status = "completed"),
+            ),
+        )
+        assertTrue(
+            stopIsDurablyConfirmed(
+                requested, null, null,
+                ChatRun(client_message_id = requested, status = "cancelled"),
+            ),
+        )
+        assertTrue(
+            "A newer run plus explicit old-id acknowledgement proves the old tombstone was stored",
+            stopIsDurablyConfirmed(
+                requested, requested, "discarded",
+                ChatRun(client_message_id = "client-next", status = "running"),
+            ),
         )
     }
 

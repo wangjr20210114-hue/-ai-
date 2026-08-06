@@ -90,4 +90,48 @@ class CrossPlatformProjectionTest {
         assertEquals(listOf("changes"), action.required)
         assertEquals("calendar-change[]", action.input["changes"])
     }
+
+    @Test
+    fun `feature access is projected from Maker eligibility and preferences`() {
+        val guest = json.decodeFromString(
+            SkillMarketplaceState.serializer(),
+            """
+            {
+              "identity":{"auth_type":"guest","membership":"guest"},
+              "preferences":{"maps":false},
+              "skills":[
+                {"id":"core","locked":true,"eligible":true},
+                {"id":"calendar","eligible":false,"eligibility_reason":"login_required"},
+                {"id":"maps","eligible":true},
+                {"id":"paper-reading","eligible":false,"eligibility_reason":"login_required"}
+              ]
+            }
+            """.trimIndent(),
+        ).toSkillAccessProjection()
+
+        assertEquals(SkillAccessStatus.Available, guest.access("core").status)
+        assertEquals(SkillAccessStatus.LoginRequired, guest.access("calendar").status)
+        assertEquals(SkillAccessStatus.Disabled, guest.access("maps").status)
+        assertEquals(SkillAccessStatus.LoginRequired, guest.access("paper-reading").status)
+        assertEquals(SkillAccessStatus.Unavailable, guest.access("unknown").status)
+    }
+
+    @Test
+    fun `client preference update cannot override Maker denial`() {
+        val denied = SkillAccessProjection(
+            ready = true,
+            skills = mapOf(
+                "maps" to SkillAccess(
+                    "maps",
+                    SkillAccessStatus.LoginRequired,
+                    "login_required",
+                ),
+            ),
+        )
+
+        assertEquals(
+            SkillAccessStatus.LoginRequired,
+            denied.withEnabled("maps", true).access("maps").status,
+        )
+    }
 }

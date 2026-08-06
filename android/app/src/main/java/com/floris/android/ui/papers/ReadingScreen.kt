@@ -74,6 +74,8 @@ import com.floris.android.BuildConfig
 import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.network.ReaderChunk
 import com.floris.android.core.model.Paper
+import com.floris.android.core.model.SkillAccess
+import com.floris.android.core.model.SkillAccessStatus
 import com.floris.android.ui.components.AnimateIn
 import com.floris.android.ui.components.EmptyState
 import com.floris.android.ui.components.FlorisCard
@@ -85,6 +87,7 @@ import com.floris.android.ui.components.PillButton
 import com.floris.android.ui.components.PillStyle
 import com.floris.android.ui.components.SectionHeader
 import com.floris.android.ui.components.StatusChip
+import com.floris.android.ui.components.SkillAccessNotice
 import com.floris.android.ui.components.pressable
 import com.floris.android.ui.prefs.Language
 import com.floris.android.ui.prefs.LocalLanguage
@@ -127,16 +130,34 @@ class ReadingViewModel(
         val openingItemId: String? = null,
         val openFilePath: String? = null,
         val error: String? = null,
+        val access: SkillAccess = SkillAccess(READING_SKILL_ID, SkillAccessStatus.Loading),
     )
 
     private val _state = MutableStateFlow(UiState())
     val state = _state.asStateFlow()
     private var readerJob: Job? = null
 
-    init { loadLibrary() }
+    init {
+        viewModelScope.launch {
+            repository.skillAccessFlow.collect { projection ->
+                val access = projection.access(READING_SKILL_ID)
+                val becameAvailable = access.available && !_state.value.access.available
+                _state.update {
+                    it.copy(
+                        access = access,
+                        loadingLibrary = if (access.available) it.loadingLibrary else false,
+                    )
+                }
+                if (becameAvailable) loadLibrary()
+            }
+        }
+        viewModelScope.launch {
+            runCatching { repository.ensureSkillAccess(repository.activeConversationId()) }
+        }
+    }
 
     fun search(topic: String) {
-        if (topic.isBlank()) return
+        if (topic.isBlank() || !_state.value.access.available) return
         _state.update { it.copy(searching = true, error = null) }
         viewModelScope.launch {
             runCatching { repository.searchPapers(topic) }
@@ -156,6 +177,7 @@ class ReadingViewModel(
     }
 
     fun loadLibrary() {
+        if (!_state.value.access.available) return
         // 已有书架数据时不再显示加载态：后端云函数可能要几秒才回，
         // 先让用户看到上次的内容，新数据到了再替换。
         if (!_state.value.library.isEmpty) {
@@ -171,7 +193,7 @@ class ReadingViewModel(
     }
 
     fun upload(uri: Uri, filename: String) {
-        if (_state.value.uploading) return
+        if (_state.value.uploading || !_state.value.access.available) return
         _state.update { it.copy(uploading = true, error = null) }
         viewModelScope.launch {
             val conversationId = repository.activeConversationId()
@@ -189,6 +211,7 @@ class ReadingViewModel(
     }
 
     fun save(paper: Paper) {
+        if (!_state.value.access.available) return
         val id = paper.arxiv_id ?: paper.title
         _state.update { it.copy(savingPaperId = id, error = null) }
         viewModelScope.launch {
@@ -405,13 +428,34 @@ class ReadingViewModel(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReadingScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
+fun ReadingScreen(
+    container: AppContainer,
+    owner: ViewModelStoreOwner? = null,
+    onRequestLogin: () -> Unit = {},
+    onOpenSkills: () -> Unit = {},
+) {
     val viewModel: ReadingViewModel = viewModel(
         viewModelStoreOwner = owner ?: checkNotNull(LocalViewModelStoreOwner.current),
         key = "reading",
         factory = container.readingViewModelFactory(),
     )
     val state by viewModel.state.collectAsState()
+
+    if (!state.access.available) {
+        Column(
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding(),
+        ) {
+            Text(
+                t(StringKey.ReadingTitle),
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 12.dp),
+            )
+            Box(Modifier.padding(horizontal = 16.dp)) {
+                SkillAccessNotice(state.access, onRequestLogin, onOpenSkills)
+            }
+        }
+        return
+    }
     val language = LocalLanguage.current
     val context = LocalContext.current
     var query by remember { mutableStateOf("") }
@@ -855,6 +899,8 @@ fun ReadingScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
         }
     }
 }
+
+private const val READING_SKILL_ID = "paper-reading"
 
 @Composable
 private fun ReaderAction(text: String, onClick: () -> Unit) {

@@ -7,6 +7,7 @@ import com.floris.android.core.model.Paper
 import com.floris.android.core.model.ProgressComponent
 import com.floris.android.core.model.SearchMeta
 import com.floris.android.core.model.WorkspaceAction
+import com.floris.android.core.model.ChatRun
 import com.floris.android.core.network.sse.ChatEvent
 
 /** UI-level chat message, reduced from the SSE event stream. */
@@ -101,6 +102,35 @@ fun ChatMessageUi.reduce(event: ChatEvent): ChatMessageUi = when (event) {
     is ChatEvent.Error -> copy(streaming = false, failed = true, error = event.content)
     // ping / location request / proactive / ignored / malformed: no UI impact here.
     else -> this
+}
+
+/**
+ * A /stop HTTP 200 is only an acknowledgement, not proof that the tombstone
+ * survived the race with first-turn conversation creation.  Confirmation is
+ * durable only when Maker's public /run projection can also observe it, or a
+ * newer run proves the acknowledged old-turn tombstone was written alongside
+ * an existing conversation.
+ */
+internal fun stopIsDurablyConfirmed(
+    requestedClientMessageId: String,
+    acknowledgementClientMessageId: String?,
+    acknowledgementStatus: String?,
+    run: ChatRun?,
+): Boolean {
+    val requested = requestedClientMessageId.trim()
+    if (requested.isEmpty() || run == null) return false
+    val runClientId = run.client_message_id.trim()
+    if (runClientId == requested) return run.status == "cancelled"
+
+    val acknowledged = acknowledgementClientMessageId == requested &&
+        acknowledgementStatus in setOf("aborted", "discarded")
+    if (!acknowledged) return false
+
+    // A blank-id cancelled marker is the valid pre-admission tombstone shape.
+    if (runClientId.isEmpty()) return run.status == "cancelled"
+    // A different visible run means Maker already advanced the queue; the
+    // explicit old-id acknowledgement can only have appended its tombstone.
+    return true
 }
 
 /**

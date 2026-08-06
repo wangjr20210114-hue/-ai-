@@ -49,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -184,6 +185,19 @@ private fun MainShell(
     // 回到旧页时数据与滚动位置立即就在，不再有"等一下界面才出来"。
     val tabOwner = rememberSessionViewModelStoreOwner(sessionKey)
     val dark = LocalDarkTheme.current
+    val scope = rememberCoroutineScope()
+    val requestLogin = {
+        scope.launch { container.authManager.signOut() }
+        Unit
+    }
+
+    // Warm Maker's shared entitlement projection without blocking chat startup.
+    // Calendar, maps and reading then consume the same server-owned decision.
+    LaunchedEffect(sessionKey) {
+        runCatching {
+            container.repository.ensureSkillAccess(container.repository.activeConversationId())
+        }
+    }
 
     // 背景铺在最外层：之前画在聊天页内部，Tab 栏与状态栏区域露白，
     // 现在整屏（含底栏后面）都是同一张皮肤，滚动时也不会出现割裂。
@@ -231,8 +245,22 @@ private fun MainShell(
                         )
                     }
                     composable(Routes.SKILLS) { SkillsScreen(container = container, owner = tabOwner) }
-                    composable(Routes.CALENDAR) { CalendarScreen(container = container, owner = tabOwner) }
-                    composable(Routes.READING) { ReadingScreen(container = container, owner = tabOwner) }
+                    composable(Routes.CALENDAR) {
+                        CalendarScreen(
+                            container = container,
+                            owner = tabOwner,
+                            onRequestLogin = requestLogin,
+                            onOpenSkills = { navController.switchTab(Routes.SKILLS) },
+                        )
+                    }
+                    composable(Routes.READING) {
+                        ReadingScreen(
+                            container = container,
+                            owner = tabOwner,
+                            onRequestLogin = requestLogin,
+                            onOpenSkills = { navController.switchTab(Routes.SKILLS) },
+                        )
+                    }
                     composable(Routes.PROFILE) {
                         ProfileScreen(
                             container = container,
@@ -267,7 +295,12 @@ private fun MainShell(
                         )
                     }
                     composable(Routes.MAP) {
-                        MapScreen(container = container, onBack = { navController.popBackStack() })
+                        MapScreen(
+                            container = container,
+                            onBack = { navController.popBackStack() },
+                            onRequestLogin = requestLogin,
+                            onOpenSkills = { navController.switchTab(Routes.SKILLS) },
+                        )
                     }
                     composable(Routes.SETTINGS) {
                         SettingsScreen(

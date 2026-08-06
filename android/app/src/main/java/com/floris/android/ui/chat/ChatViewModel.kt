@@ -8,6 +8,7 @@ import com.floris.android.core.chat.PendingChatTurn
 import com.floris.android.core.chat.mergeProjection
 import com.floris.android.core.chat.StreamTypewriter
 import com.floris.android.core.chat.reduce
+import com.floris.android.core.chat.stopIsDurablyConfirmed
 import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.data.arr
 import com.floris.android.core.data.asString
@@ -730,18 +731,16 @@ class ChatViewModel(
             val backoff = ExponentialBackoff(RECOVERY_POLL_MS, STOP_RETRY_MAX_MS)
             try {
                 while (runtimeStore.stoppedClientMessageId(conversationId) == clientMessageId) {
-                    val acknowledged = runCatching {
+                    val acknowledgement = runCatching {
                         repository.stop(conversationId, clientMessageId)
-                    }.getOrNull()?.str("client_message_id") == clientMessageId
-                    if (acknowledged) {
-                        runtimeStore.clearStopIntent(conversationId, clientMessageId)
-                        runtimeStore.clearActiveTurn(conversationId, clientMessageId)
-                        break
-                    }
+                    }.getOrNull()
                     run = runCatching { repository.chatRun(conversationId).run }.getOrNull()
-                    if (
-                        run?.client_message_id == clientMessageId &&
-                        run?.status == "cancelled"
+                    if (stopIsDurablyConfirmed(
+                            requestedClientMessageId = clientMessageId,
+                            acknowledgementClientMessageId = acknowledgement?.str("client_message_id"),
+                            acknowledgementStatus = acknowledgement?.str("status"),
+                            run = run,
+                        )
                     ) {
                         runtimeStore.clearStopIntent(conversationId, clientMessageId)
                         runtimeStore.clearActiveTurn(conversationId, clientMessageId)

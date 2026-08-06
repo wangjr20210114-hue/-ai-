@@ -69,6 +69,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.floris.android.R
+import com.floris.android.core.model.SkillAccess
+import com.floris.android.core.model.SkillAccessStatus
 import com.floris.android.ui.theme.LocalDarkTheme
 import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.t
@@ -445,6 +447,33 @@ fun GuestNotice(
             Spacer(Modifier.width(8.dp))
             PillButton(text = actionText, onClick = onAction, compact = true)
         }
+    }
+}
+
+/** A single user-facing renderer for Maker-owned feature access decisions. */
+@Composable
+fun SkillAccessNotice(
+    access: SkillAccess,
+    onRequestLogin: () -> Unit,
+    onOpenSkills: () -> Unit,
+) {
+    when (access.status) {
+        SkillAccessStatus.Loading -> Box(
+            Modifier.fillMaxWidth().padding(vertical = 20.dp),
+            contentAlignment = Alignment.Center,
+        ) { InlineLoading() }
+        SkillAccessStatus.LoginRequired -> GuestNotice(
+            text = t(StringKey.FeatureSignInRequired),
+            actionText = t(StringKey.GuestSignInCta),
+            onAction = onRequestLogin,
+        )
+        SkillAccessStatus.Disabled -> GuestNotice(
+            text = t(StringKey.FeatureSkillDisabled),
+            actionText = t(StringKey.FeatureOpenSkills),
+            onAction = onOpenSkills,
+        )
+        SkillAccessStatus.Unavailable -> GuestNotice(t(StringKey.FeatureUnavailable))
+        SkillAccessStatus.Available -> Unit
     }
 }
 

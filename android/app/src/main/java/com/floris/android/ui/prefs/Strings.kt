@@ -20,6 +20,7 @@ enum class StringKey {
     // 游客与退出
     LoginAsGuest, GuestBadge, GuestUpgradeHint, ExitConfirmToast,
     LoginOr, GuestSignInCta, GuestProfileNotice,
+    FeatureSignInRequired, FeatureSkillDisabled, FeatureUnavailable, FeatureOpenSkills,
     // 回答操作
     CopyPlainText, CopiedToClipboard, SaveAsImage, Saving, SaveImageFailed, SavedToGallery,
     // 个人信息
@@ -290,6 +291,35 @@ object Strings {
         )
 
         // ---- 回答操作 ----
+        put(
+            StringKey.FeatureSignInRequired,
+            "登录后即可使用这里的完整功能",
+            "登入後即可使用這裡的完整功能",
+            "Sign in to use this feature.",
+            "登录后就能用这个功能啦喵",
+            "登录后可使用此功能。",
+        )
+        put(
+            StringKey.FeatureSkillDisabled,
+            "这个功能尚未开启，可在 Skills 中启用",
+            "這個功能尚未啟用，可在 Skills 中開啟",
+            "This feature is off. Enable it in Skills.",
+            "这个功能还没打开喵，可以去 Skills 开启",
+            "此功能尚未启用，请在 Skills 中开启。",
+        )
+        put(
+            StringKey.FeatureUnavailable,
+            "这个功能暂时不可用，请稍后再试",
+            "這個功能暫時無法使用，請稍後再試",
+            "This feature is temporarily unavailable. Try again later.",
+            "这个功能暂时用不了喵，稍后再试",
+            "此功能暂不可用，请稍后再试。",
+        )
+        put(
+            StringKey.FeatureOpenSkills,
+            "去开启", "去開啟", "Enable", "去打开", "去开启",
+        )
+
         put(
             StringKey.CopyPlainText,
             "复制纯文字", "複製純文字", "Copy text", "把字带走喵", "复制纯文字",

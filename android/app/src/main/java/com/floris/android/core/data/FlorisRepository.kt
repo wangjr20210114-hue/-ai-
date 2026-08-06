@@ -21,8 +21,13 @@ import com.floris.android.core.model.Schedule
 import com.floris.android.core.model.Skill
 import com.floris.android.core.model.SkillUploadRecord
 import com.floris.android.core.model.SkillMarketplaceState
+import com.floris.android.core.model.SkillAccessProjection
+import com.floris.android.core.model.toSkillAccessProjection
 import com.floris.android.core.network.FlorisClient
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -55,6 +60,8 @@ data class MapWorkspaceState(
     val revision: Long = 0,
 )
 
+private const val SKILL_ACCESS_TTL_MS = 5 * 60 * 1000L
+
 /**
  * Thin data layer over the Floris Maker backend. Contains zero business
  * logic — every operation is forwarded to the backend verbatim.
@@ -70,6 +77,10 @@ class FlorisRepository(
     /** Backend-confirmed workspace projections shared across screens. */
     val schedulesFlow = kotlinx.coroutines.flow.MutableStateFlow<List<Schedule>>(emptyList())
     val mapWorkspaceFlow = kotlinx.coroutines.flow.MutableStateFlow(MapWorkspaceState())
+    private val _skillAccessFlow = kotlinx.coroutines.flow.MutableStateFlow(SkillAccessProjection())
+    val skillAccessFlow = _skillAccessFlow.asStateFlow()
+    private val skillAccessMutex = Mutex()
+    private var skillAccessFetchedAt = 0L
 
     /**
      * 待填入聊天输入框的草稿。主动提醒点"去处理"时写入，
@@ -82,6 +93,8 @@ class FlorisRepository(
     fun clearLocalIdentityProjection() {
         schedulesFlow.value = emptyList()
         mapWorkspaceFlow.value = MapWorkspaceState()
+        _skillAccessFlow.value = SkillAccessProjection()
+        skillAccessFetchedAt = 0L
         pendingDraftFlow.value = null
         localAvatarFlow.value = null
     }
@@ -240,6 +253,34 @@ class FlorisRepository(
 
     suspend fun skillCatalog(conversationId: String): SkillMarketplaceState =
         api.skillMarketplace(conversationId, buildJsonObject { put("operation", "catalog") })
+            .also { publishSkillAccess(it) }
+
+    /**
+     * Fetch Maker's entitlement/catalog projection once for all feature pages.
+     * Concurrent tab initializations share one request; no client-side plan or
+     * guest policy is inferred here.
+     */
+    suspend fun ensureSkillAccess(
+        conversationId: String,
+        force: Boolean = false,
+    ): SkillAccessProjection = skillAccessMutex.withLock {
+        val cached = _skillAccessFlow.value
+        val fresh = cached.ready &&
+            System.currentTimeMillis() - skillAccessFetchedAt < SKILL_ACCESS_TTL_MS
+        if (!force && fresh) return@withLock cached
+        try {
+            skillCatalog(conversationId)
+            _skillAccessFlow.value
+        } catch (error: Throwable) {
+            _skillAccessFlow.value = SkillAccessProjection.failed(cached)
+            throw error
+        }
+    }
+
+    private fun publishSkillAccess(catalog: SkillMarketplaceState) {
+        _skillAccessFlow.value = catalog.toSkillAccessProjection()
+        skillAccessFetchedAt = System.currentTimeMillis()
+    }
 
     suspend fun intelligencePreferences(conversationId: String): JsonObject =
         api.intelligenceOperation(conversationId, buildJsonObject { put("operation", "get") })
@@ -309,6 +350,7 @@ class FlorisRepository(
                 putJsonObject("preferences") { put(skillId, enabled) }
             },
         )
+        _skillAccessFlow.value = _skillAccessFlow.value.withEnabled(skillId, enabled)
     }
 
     // ---------- Maps ----------

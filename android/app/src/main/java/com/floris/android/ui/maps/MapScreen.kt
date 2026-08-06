@@ -63,11 +63,14 @@ import com.floris.android.BuildConfig
 import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.model.Place
 import com.floris.android.core.model.RoutePlan
+import com.floris.android.core.model.SkillAccess
+import com.floris.android.core.model.SkillAccessStatus
 import com.floris.android.ui.components.EmptyState
 import com.floris.android.ui.components.FlorisCard
 import com.floris.android.ui.components.InlineLoading
 import com.floris.android.ui.components.SectionHeader
 import com.floris.android.ui.components.StatusChip
+import com.floris.android.ui.components.SkillAccessNotice
 import com.floris.android.ui.components.routeModeLabel
 import com.floris.android.ui.mapViewModelFactory
 import com.floris.android.ui.prefs.StringKey
@@ -89,6 +92,7 @@ class MapViewModel(
         val route: RoutePlan? = null,
         val routeMode: String = "driving",
         val error: String? = null,
+        val access: SkillAccess = SkillAccess(MAPS_SKILL_ID, SkillAccessStatus.Loading),
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -97,8 +101,24 @@ class MapViewModel(
     /** Backend-confirmed map workspace (from chat map actions). */
     val workspace = repository.mapWorkspaceFlow
 
+    init {
+        viewModelScope.launch {
+            repository.skillAccessFlow.collect { projection ->
+                val access = projection.access(MAPS_SKILL_ID)
+                _state.value = _state.value.copy(
+                    access = access,
+                    searching = if (access.available) _state.value.searching else false,
+                    planningRoute = if (access.available) _state.value.planningRoute else false,
+                )
+            }
+        }
+        viewModelScope.launch {
+            runCatching { repository.ensureSkillAccess(repository.activeConversationId()) }
+        }
+    }
+
     fun searchPlaces(query: String) {
-        if (query.isBlank()) return
+        if (query.isBlank() || !_state.value.access.available) return
         _state.value = _state.value.copy(searching = true, error = null)
         viewModelScope.launch {
             runCatching {
@@ -115,6 +135,7 @@ class MapViewModel(
     }
 
     fun planRoute(places: List<Place>, mode: String) {
+        if (!_state.value.access.available) return
         if (places.size < 2) {
             _state.value = _state.value.copy(error = strings.get(StringKey.MapNeedTwoPlaces))
             return
@@ -144,10 +165,38 @@ class MapViewModel(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MapScreen(container: AppContainer, onBack: () -> Unit) {
+fun MapScreen(
+    container: AppContainer,
+    onBack: () -> Unit,
+    onRequestLogin: () -> Unit = {},
+    onOpenSkills: () -> Unit = {},
+) {
     val viewModel: MapViewModel = viewModel(factory = container.mapViewModelFactory())
     val state by viewModel.state.collectAsState()
     val workspace by viewModel.workspace.collectAsState()
+
+    if (!state.access.available) {
+        Column(
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding(),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                com.floris.android.ui.components.IconPill(
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = t(StringKey.Back),
+                    onClick = onBack,
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(t(StringKey.MapTitle), style = MaterialTheme.typography.headlineMedium)
+            }
+            Box(Modifier.padding(horizontal = 16.dp)) {
+                SkillAccessNotice(state.access, onRequestLogin, onOpenSkills)
+            }
+        }
+        return
+    }
     var query by remember { mutableStateOf("") }
     val snackbar = androidx.compose.material3.SnackbarHostState()
     androidx.compose.runtime.LaunchedEffect(state.error) {
@@ -377,6 +426,8 @@ private fun RouteCard(route: RoutePlan, planning: Boolean) {
         }
     }
 }
+
+private const val MAPS_SKILL_ID = "maps"
 
 @Composable
 private fun routeModeColor(mode: String): Color = when (mode) {
