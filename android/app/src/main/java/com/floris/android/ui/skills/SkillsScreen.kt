@@ -401,6 +401,7 @@ fun SkillsScreen(
     container: AppContainer,
     owner: ViewModelStoreOwner? = null,
     onBack: () -> Unit = {},
+    onRequestLogin: () -> Unit = {},
 ) {
     val viewModel: SkillsViewModel = viewModel(
         viewModelStoreOwner = owner ?: checkNotNull(LocalViewModelStoreOwner.current),
@@ -412,7 +413,6 @@ fun SkillsScreen(
     val language = LocalLanguage.current
     var query by remember { mutableStateOf("") }
     var showImport by remember { mutableStateOf(false) }
-    var showComponentApi by remember { mutableStateOf(false) }
     val pickSkill = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -452,16 +452,6 @@ fun SkillsScreen(
                     style = MaterialTheme.typography.headlineMedium,
                     modifier = Modifier.weight(1f),
                 )
-                state.componentApi?.takeIf { it.actions.isNotEmpty() }?.let {
-                    PillButton(
-                        text = t(StringKey.SkillsComponentApi),
-                        leadingIcon = Icons.Default.Code,
-                        compact = true,
-                        style = PillStyle.Ghost,
-                        onClick = { showComponentApi = true },
-                    )
-                    Spacer(Modifier.width(6.dp))
-                }
                 if (!state.isGuest) {
                     PillButton(
                         text = t(StringKey.SkillsAdd),
@@ -488,7 +478,12 @@ fun SkillsScreen(
             }
             if (state.isGuest) {
                 Spacer(Modifier.height(10.dp))
-                GuestNotice(t(StringKey.SkillsGuestNotice))
+                // 游客：直接给登录入口（和日程/地点一致），不再放“游客可使用”说明。
+                GuestNotice(
+                    text = t(StringKey.SkillsLoginHint),
+                    actionText = t(StringKey.GuestSignInCta),
+                    onAction = onRequestLogin,
+                )
             }
             Spacer(Modifier.height(12.dp))
             SearchField(
@@ -590,11 +585,6 @@ fun SkillsScreen(
                 showImport = false
             },
         )
-    }
-    if (showComponentApi) {
-        state.componentApi?.let { api ->
-            ComponentApiDialog(api = api, onDismiss = { showComponentApi = false })
-        }
     }
 }
 

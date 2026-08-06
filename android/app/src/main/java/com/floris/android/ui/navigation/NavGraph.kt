@@ -171,6 +171,7 @@ fun FlorisNavHost(
                         },
                         onFinish = { scope.launch { container.preferences.setOnboardingDone(true) } },
                         onRevealSidebar = { sidebarOpen = true },
+                        onHideSidebar = { sidebarOpen = false },
                     )
                 }
             }
@@ -191,6 +192,10 @@ private fun MainShell(
     val tabOwner = rememberSessionViewModelStoreOwner(sessionKey)
     val dark = LocalDarkTheme.current
     val scope = rememberCoroutineScope()
+    val backStack by navController.currentBackStackEntryAsState()
+    val currentRoute = backStack?.destination?.route
+    // “从哪里进回哪里去”：从侧边栏进入的页面，返回时自动重新打开侧边栏。
+    var returnToSidebar by remember { mutableStateOf(false) }
     val requestLogin = {
         scope.launch { container.authManager.signOut() }
         Unit
@@ -227,6 +232,18 @@ private fun MainShell(
         label = "drawerPush",
     )
 
+    // 回到聊天页时，如果是侧边栏发起的导航，则把侧边栏带回来。
+    LaunchedEffect(currentRoute) {
+        if (currentRoute == Routes.CHAT && returnToSidebar) {
+            returnToSidebar = false
+            onSidebarOpenChange(true)
+        }
+    }
+    // 每次打开侧边栏都刷新会话列表（游客的新对话也会出现）。
+    LaunchedEffect(sidebarOpen) {
+        if (sidebarOpen) sidebarViewModel.refresh()
+    }
+
     // Warm Maker's shared entitlement projection without blocking chat startup.
     // Calendar, maps and reading then consume the same server-owned decision.
     LaunchedEffect(sessionKey) {
@@ -248,7 +265,8 @@ private fun MainShell(
         // 皮肤随主题交叉淡入淡出，与配色插值同步，切换白天/黑夜时不跳变。
         Crossfade(
             targetState = dark,
-            animationSpec = tween(420, easing = FastOutSlowInEasing),
+            // 主题切换零延迟：不再渐变，避免“一卡一卡”。
+            animationSpec = tween(0),
             label = "skin",
         ) { isDark ->
             Box(Modifier.fillMaxSize()) {
@@ -295,6 +313,7 @@ private fun MainShell(
                             container = container,
                             owner = tabOwner,
                             onBack = { navController.popBackStack() },
+                            onRequestLogin = requestLogin,
                         )
                     }
                     composable(Routes.CALENDAR) {
@@ -385,6 +404,7 @@ private fun MainShell(
             open = sidebarOpen,
             onClose = { onSidebarOpenChange(false) },
             state = sidebarState,
+            isGuest = container.authManager.isGuest,
             onNewChat = {
                 onSidebarOpenChange(false)
                 chatViewModel.newConversation()
@@ -395,30 +415,42 @@ private fun MainShell(
             },
             onOpenPlace = {
                 onSidebarOpenChange(false)
+                returnToSidebar = true
                 navController.navigate(Routes.MAP)
             },
             onOpenCalendar = {
                 onSidebarOpenChange(false)
+                returnToSidebar = true
                 openSection(Routes.CALENDAR)
             },
             onOpenReading = {
                 onSidebarOpenChange(false)
+                returnToSidebar = true
                 openSection(Routes.READING)
             },
             onOpenAccount = {
                 onSidebarOpenChange(false)
-                navController.navigate(Routes.ACCOUNT)
+                returnToSidebar = true
+                // 游客没有个人信息页，点击登录区进入“我的”看登录入口。
+                if (container.authManager.isGuest) {
+                    openSection(Routes.PROFILE)
+                } else {
+                    navController.navigate(Routes.ACCOUNT)
+                }
             },
             onOpenSkills = {
                 onSidebarOpenChange(false)
+                returnToSidebar = true
                 openSection(Routes.SKILLS)
             },
             onOpenReminders = {
                 onSidebarOpenChange(false)
+                returnToSidebar = true
                 openSection(Routes.PROFILE)
             },
             onOpenSettings = {
                 onSidebarOpenChange(false)
+                returnToSidebar = true
                 navController.navigate(Routes.SETTINGS)
             },
         )

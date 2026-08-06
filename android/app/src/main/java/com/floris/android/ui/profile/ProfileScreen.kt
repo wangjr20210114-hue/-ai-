@@ -327,7 +327,8 @@ fun ProfileScreen(
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
-                                state.profile?.display_name
+                                if (isGuest) t(StringKey.GuestBadge)
+                                else state.profile?.display_name
                                     ?: identity.display_name
                                     ?: t(StringKey.ProfileDefaultUser),
                                 style = MaterialTheme.typography.headlineSmall,

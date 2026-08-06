@@ -538,7 +538,11 @@ fun ChatScreen(
 
                 TurnQueueDrawer(
                     turns = state.queuedTurns,
-                    onUpdate = viewModel::updateQueuedTurn,
+                    onEdit = { turn ->
+                        viewModel.removeQueuedTurn(turn.id)
+                        draft = ""
+                        draft = turn.text
+                    },
                     onDelete = viewModel::removeQueuedTurn,
                     onRunNow = viewModel::interruptWithQueuedTurn,
                 )
@@ -647,7 +651,7 @@ private fun FeatureTipDialog(
 @Composable
 private fun TurnQueueDrawer(
     turns: List<PendingChatTurn>,
-    onUpdate: (String, String) -> Unit,
+    onEdit: (PendingChatTurn) -> Unit,
     onDelete: (String) -> Unit,
     onRunNow: (String) -> Unit,
 ) {
@@ -693,7 +697,7 @@ private fun TurnQueueDrawer(
             ) {
                 Column(Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp)) {
                     turns.forEach { turn ->
-                        QueueTurnRow(turn, onUpdate, onDelete, onRunNow)
+                        QueueTurnRow(turn, onEdit, onDelete, onRunNow)
                         if (turn != turns.last()) Spacer(Modifier.height(6.dp))
                     }
                 }
@@ -705,12 +709,10 @@ private fun TurnQueueDrawer(
 @Composable
 private fun QueueTurnRow(
     turn: PendingChatTurn,
-    onUpdate: (String, String) -> Unit,
+    onEdit: (PendingChatTurn) -> Unit,
     onDelete: (String) -> Unit,
     onRunNow: (String) -> Unit,
 ) {
-    var editing by remember(turn.id) { mutableStateOf(false) }
-    var value by remember(turn.id, turn.text) { mutableStateOf(turn.text) }
     Row(
         Modifier
             .fillMaxWidth()
@@ -719,33 +721,19 @@ private fun QueueTurnRow(
             .padding(start = 12.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (editing) {
-            BasicTextField(
-                value = value,
-                onValueChange = { value = it },
-                textStyle = MaterialTheme.typography.bodySmall.copy(
-                    color = MaterialTheme.colorScheme.onSurface,
-                ),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                modifier = Modifier.weight(1f),
-            )
-        } else {
-            Text(
-                turn.text,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-        }
+        Text(
+            turn.text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
         IconPill(
             icon = Icons.Default.Edit,
             contentDescription = t(StringKey.ChatQueueEdit),
-            onClick = {
-                if (editing) onUpdate(turn.id, value)
-                editing = !editing
-            },
+            // 编辑 = 退出等待队列，文字覆盖到输入框（先清空再填入）。
+            onClick = { onEdit(turn) },
             size = 30.dp,
             iconSize = 15.dp,
         )

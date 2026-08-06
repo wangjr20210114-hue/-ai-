@@ -93,6 +93,7 @@ fun FlorisSidebar(
     open: Boolean,
     onClose: () -> Unit,
     state: SidebarViewModel.UiState,
+    isGuest: Boolean,
     onNewChat: () -> Unit,
     onOpenConversation: (String) -> Unit,
     onOpenPlace: () -> Unit,
@@ -275,7 +276,8 @@ fun FlorisSidebar(
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
-                            state.profile?.display_name?.takeIf { it.isNotBlank() }
+                            if (isGuest) t(StringKey.GuestBadge)
+                            else state.profile?.display_name?.takeIf { it.isNotBlank() }
                                 ?: t(StringKey.ProfileDefaultUser),
                             style = MaterialTheme.typography.labelLarge,
                             maxLines = 1,

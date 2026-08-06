@@ -191,6 +191,8 @@ fun AccountScreen(container: AppContainer, onBack: () -> Unit) {
     val state by viewModel.state.collectAsState()
     val authState by viewModel.authState.collectAsState()
     val identity = (authState as? AuthState.SignedIn)?.identity ?: Identity()
+    // 游客不可进入个人信息页，这里做防御：显示“游客”，禁用头像/昵称编辑。
+    val isGuest = identity.auth_type == "guest"
     val uriHandler = LocalUriHandler.current
     val snackbar = remember { SnackbarHostState() }
     val localAvatar by container.repository.localAvatarFlow.collectAsState()
@@ -277,7 +279,7 @@ fun AccountScreen(container: AppContainer, onBack: () -> Unit) {
                                 Modifier
                                     .size(58.dp)
                                     .clip(CircleShape)
-                                    .pressable(enabled = !state.updatingProfile) {
+                                    .pressable(enabled = !state.updatingProfile && !isGuest) {
                                         pickAvatar.launch("image/*")
                                     },
                                 contentAlignment = Alignment.Center,
@@ -296,7 +298,8 @@ fun AccountScreen(container: AppContainer, onBack: () -> Unit) {
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    state.profile?.display_name
+                                    if (isGuest) t(StringKey.GuestBadge)
+                                    else state.profile?.display_name
                                         ?: identity.display_name
                                         ?: t(StringKey.SettingsNotSet),
                                     style = MaterialTheme.typography.headlineSmall,
@@ -320,19 +323,21 @@ fun AccountScreen(container: AppContainer, onBack: () -> Unit) {
                 }
 
                 item { SectionHeader(t(StringKey.ProfileAccount)) }
-                item {
-                    SettingRow(
-                        title = t(StringKey.SettingsNickname),
-                        subtitle = (state.profile?.display_name ?: identity.display_name)
-                            ?.takeIf { it.isNotBlank() } ?: t(StringKey.SettingsNotSet),
-                        icon = Icons.Default.Badge,
-                        onClick = {
-                            nameDraft = state.profile?.display_name
-                                ?: identity.display_name.orEmpty()
-                            editingName = true
-                        },
-                        trailing = { Chevron() },
-                    )
+                if (!isGuest) {
+                    item {
+                        SettingRow(
+                            title = t(StringKey.SettingsNickname),
+                            subtitle = (state.profile?.display_name ?: identity.display_name)
+                                ?.takeIf { it.isNotBlank() } ?: t(StringKey.SettingsNotSet),
+                            icon = Icons.Default.Badge,
+                            onClick = {
+                                nameDraft = state.profile?.display_name
+                                    ?: identity.display_name.orEmpty()
+                                editingName = true
+                            },
+                            trailing = { Chevron() },
+                        )
+                    }
                 }
                 item {
                     SettingRow(

@@ -2,6 +2,7 @@ package com.floris.android
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -10,6 +11,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
@@ -39,6 +41,11 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission(),
     ) { /* 用户拒绝也不影响主流程，提醒仍会在"我的"页内展示 */ }
 
+    // 拍照与语音输入需要的权限：启动时主动请求，避免使用时才发现没授权。
+    private val mediaPermission = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { /* 拒绝时点击相机/麦克风会再次单独请求并给出提示 */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -55,6 +62,17 @@ class MainActivity : ComponentActivity() {
             !ProactiveNotifier.hasPermission(this)
         ) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val missingMedia = listOfNotNull(
+            Manifest.permission.CAMERA.takeIf {
+                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            },
+            Manifest.permission.RECORD_AUDIO.takeIf {
+                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            },
+        )
+        if (missingMedia.isNotEmpty()) {
+            mediaPermission.launch(missingMedia.toTypedArray())
         }
 
         // 从通知点进来时，把后端给的处理话术填进聊天输入框。

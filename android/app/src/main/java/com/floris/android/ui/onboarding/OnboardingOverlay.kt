@@ -158,6 +158,8 @@ fun OnboardingOverlay(
     onFinish: () -> Unit,
     /** 侧边栏步骤（新对话/历史）需要先打开抽屉，目标锚点才可见。 */
     onRevealSidebar: () -> Unit = {},
+    /** 非侧边栏步骤（如输入框/主题）先收起侧边栏，让聊天页回到正常布局。 */
+    onHideSidebar: () -> Unit = {},
 ) {
     var phase by remember { mutableStateOf(Phase.WELCOME) }
     var index by remember { mutableIntStateOf(0) }
@@ -170,7 +172,7 @@ fun OnboardingOverlay(
             val needsSidebar = step.anchors.any {
                 it == TourStepKey.NEW_CONVERSATION || it == TourStepKey.HISTORY
             }
-            if (needsSidebar) onRevealSidebar()
+            if (needsSidebar) onRevealSidebar() else onHideSidebar()
         }
     }
 

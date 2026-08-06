@@ -174,7 +174,7 @@ object Strings {
         put(StringKey.QuoteFive, "今天也要像大橘一样，稳稳地晒太阳。", "今天也要像大橘一樣，穩穩地曬太陽。", "Take in today's sunshine like a content orange cat.", "今天也像大橘一样稳稳晒太阳喵。", "今天也稳稳地晒太阳。")
 
         // ---- 处理进度（逐字对齐网页端 i18n）----
-        put(StringKey.UnderstandingRequest, "我先看一下", "我先看一下", "Let me take a look", "我先看一下喵", "我先看一下")
+        put(StringKey.UnderstandingRequest, "先理清问题", "先釐清問題", "Let me sort this out", "先理清问题喵", "先理清问题")
         put(StringKey.ProgressPlanning, "先理清问题", "先理清問題", "Understanding the question", "先理清问题喵", "先理清问题")
         put(StringKey.ProgressRetrieval, "正在找资料", "正在找資料", "Finding information", "正在找资料喵", "正在找资料")
         put(StringKey.ProgressVerification, "核对一下结果", "核對一下結果", "Checking the results", "核对一下结果喵", "核对结果")
@@ -507,8 +507,8 @@ object Strings {
         put(StringKey.RouteCalendarRequest, "把刚规划好的路线添加到日程", "把剛規劃好的路線新增到日程", "Add the route I just planned to my calendar", "把刚规划好的路线加进日程喵", "把刚规划好的路线添加到日程")
         put(StringKey.HintFreshness, "回答基于近期公开信息", "回答基於近期公開資訊", "Based on recent public information", "这是最近的信息整理喵", "回答基于近期公开信息")
         put(StringKey.HintFreshnessLogin, "登录后可获取更新的信息", "登入後可取得更新的資訊", "Sign in for fresher information", "登录后信息会更新鲜喵", "登录后可获取更新的信息")
-        put(StringKey.HintSkill, "已使用技能：{0}", "已使用技能：{0}", "Skills used: {0}", "用到了：{0}", "已使用技能：{0}")
-        put(StringKey.HintSkillLogin, "登录后可解锁更多技能：{0}", "登入後可解鎖更多技能：{0}", "Sign in for more skills: {0}", "登录后能解锁：{0}", "登录后可解锁更多技能：{0}")
+        put(StringKey.HintSkill, "本次回答使用了技能：{0}", "本次回答使用了技能：{0}", "This answer used: {0}", "这次用到了：{0}", "本次回答使用了技能：{0}")
+        put(StringKey.HintSkillLogin, "登录后可解锁并使用更多技能：{0}", "登入後可解鎖並使用更多技能：{0}", "Sign in to unlock more skills: {0}", "登录后能解锁更多：{0}", "登录后可解锁并使用更多技能：{0}")
         put(StringKey.ChatRestoreFailed, "对话恢复失败，请重试", "對話恢復失敗，請重試", "Couldn't restore this chat. Try again.", "没找回这段对话，再试一次喵", "对话恢复失败，请重试")
         put(StringKey.ChatConnectionInterrupted, "连接中断，请重试", "連線中斷，請重試", "Connection interrupted. Try again.", "连接断了一下，再试试喵", "连接中断，请重试")
         put(StringKey.ChatGenerationFailed, "生成失败，请重试", "生成失敗，請重試", "Generation failed. Try again.", "这次没写完，再试一次喵", "生成失败，请重试")
