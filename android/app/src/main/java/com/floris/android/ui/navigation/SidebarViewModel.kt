@@ -29,10 +29,17 @@ class SidebarViewModel(
 
     init { refresh() }
 
-    fun refresh() {
-        _state.value = _state.value.copy(loading = true, error = null)
+    /**
+     * @param force true 时总是请求后台；false 时优先使用本地缓存（游客侧边栏用）。
+     */
+    fun refresh(force: Boolean = true) {
+        val fromCache = !force && repository.conversationCache.value != null
+        if (!fromCache) _state.value = _state.value.copy(loading = true, error = null)
         viewModelScope.launch {
-            val conversations = runCatching { repository.listConversations() }
+            val conversations = runCatching {
+                if (force) repository.listConversations()
+                else repository.listConversationsCached()
+            }
             val profile = runCatching { repository.getProfile() }
             _state.value = UiState(
                 loading = false,

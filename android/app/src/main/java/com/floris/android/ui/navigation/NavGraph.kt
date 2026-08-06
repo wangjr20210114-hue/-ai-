@@ -241,7 +241,9 @@ private fun MainShell(
     }
     // 每次打开侧边栏都刷新会话列表（游客的新对话也会出现）。
     LaunchedEffect(sidebarOpen) {
-        if (sidebarOpen) sidebarViewModel.refresh()
+        // 游客直接读本地缓存，不再每次打开都请求后台，避免每次都要等很久；
+        // 正式用户仍保持每次打开拉取最新列表。
+        if (sidebarOpen) sidebarViewModel.refresh(force = !container.authManager.isGuest)
     }
 
     // Warm Maker's shared entitlement projection without blocking chat startup.
@@ -265,8 +267,8 @@ private fun MainShell(
         // 皮肤随主题交叉淡入淡出，与配色插值同步，切换白天/黑夜时不跳变。
         Crossfade(
             targetState = dark,
-            // 主题切换零延迟：不再渐变，避免“一卡一卡”。
-            animationSpec = tween(0),
+            // 与配色插值同速渐变，边框和内容一起过渡，避免"边框先变、内容后变"。
+            animationSpec = tween(420),
             label = "skin",
         ) { isDark ->
             Box(Modifier.fillMaxSize()) {
@@ -344,6 +346,10 @@ private fun MainShell(
                             onOpenMap = { navController.navigate(Routes.MAP) },
                             // 游客点头像不跳转，由 ProfileScreen 自己判断后再回调。
                             onOpenAccount = { navController.navigate(Routes.ACCOUNT) },
+                            onReplayTour = {
+                                scope.launch { container.preferences.setOnboardingDone(false) }
+                                navController.popBackStack()
+                            },
                             onHandleReminder = { prompt ->
                                 // 把后端给的处理话术带到聊天输入框，由用户自己决定是否发送。
                                 container.repository.pendingDraftFlow.value = prompt

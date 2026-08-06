@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -430,7 +431,8 @@ fun SkillsScreen(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding(),
+            .statusBarsPadding()
+            .navigationBarsPadding(),
     ) {
         Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 10.dp)) {
             Text(
@@ -462,20 +464,7 @@ fun SkillsScreen(
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    t(StringKey.SkillsSubtitle),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(8.dp))
-                StatusChip(
-                    t(StringKey.SkillsEnabledCount, state.enabledIds.size, state.skills.size),
-                    MaterialTheme.colorScheme.primary,
-                )
-            }
+            Spacer(Modifier.height(10.dp))
             if (state.isGuest) {
                 Spacer(Modifier.height(10.dp))
                 // 游客：直接给登录入口（和日程/地点一致），不再放“游客可使用”说明。

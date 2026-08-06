@@ -969,77 +969,85 @@ private fun AssistantRow(
                 .clip(answerShape)
                 .background(MaterialTheme.colorScheme.surface)
                 .border(1.dp, panelBorderColor(), answerShape)
-                .drawWithContent {
-                    graphicsLayer.record { this@drawWithContent.drawContent() }
-                    drawLayer(graphicsLayer)
-                }
                 .padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
-            // 流式期间展示过程动画：生图走画布节奏，其余走搜索阶段时间线。
-            if (message.streaming) {
-                if (message.isImageIntent) ImageCreationProgress(message)
-                else SearchProgress(message)
-            }
-            if (message.content.isNotBlank() || message.streaming) {
-                SourceBoundAnswer(
-                    content = message.content,
-                    searchMeta = message.searchResults,
-                    streaming = message.streaming && message.content.isNotBlank(),
-                )
-            }
-            if (!message.streaming) {
-                SearchCompleteMeta(message)
-            }
-            if (!message.streaming) {
-                ExperienceHints(message.hints, isGuest)
-            }
-            message.searchResults?.let { meta ->
-                if (meta.results.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
-                    SearchSourcesRow(meta)
+            // 用 graphicsLayer 只录制回答正文，"保存图片"不会把操作图标一起存进去。
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .drawWithContent {
+                        graphicsLayer.record { this@drawWithContent.drawContent() }
+                        drawLayer(graphicsLayer)
+                    },
+            ) {
+                // 流式期间展示过程动画：生图走画布节奏，其余走搜索阶段时间线。
+                if (message.streaming) {
+                    if (message.isImageIntent) ImageCreationProgress(message)
+                    else SearchProgress(message)
                 }
-            }
-            PaperListCard(message.papers)
+                if (message.content.isNotBlank() || message.streaming) {
+                    SourceBoundAnswer(
+                        content = message.content,
+                        searchMeta = message.searchResults,
+                        streaming = message.streaming && message.content.isNotBlank(),
+                    )
+                }
+                if (!message.streaming) {
+                    SearchCompleteMeta(message)
+                }
+                if (!message.streaming) {
+                    ExperienceHints(message.hints, isGuest)
+                }
+                message.searchResults?.let { meta ->
+                    if (meta.results.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        SearchSourcesRow(meta)
+                    }
+                }
+                PaperListCard(message.papers)
             }
 
-        // 操作栏：复制纯文字 / 保存图片到相册（对齐网页端）。
-        if (!message.streaming && message.content.isNotBlank()) {
-            // 文案先取好：t() 是 @Composable，不能在点击回调里调用。
-            val copiedText = t(StringKey.CopiedToClipboard)
-            val saveFailedText = t(StringKey.SaveImageFailed)
-            val savedText = t(StringKey.SavedToGallery)
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                GhostAction(
-                    icon = Icons.Default.ContentCopy,
-                    label = t(StringKey.CopyPlainText),
-                    onClick = {
-                        clipboard.setText(
-                            AnnotatedString(MarkdownPlainText.convert(message.content)),
-                        )
-                        onNotify(copiedText)
-                    },
-                )
-                Spacer(Modifier.width(4.dp))
-                GhostAction(
-                    icon = Icons.Default.SaveAlt,
-                    label = if (saving) t(StringKey.Saving) else t(StringKey.SaveAsImage),
-                    enabled = !saving,
-                    onClick = {
-                        saving = true
-                        scope.launch {
-                            val result = runCatching { graphicsLayer.toImageBitmap() }
-                                .fold(
-                                    onSuccess = { ImageSaver.saveToGallery(context, it) },
-                                    onFailure = { Result.failure(it) },
-                                )
-                            onNotify(if (result.isSuccess) savedText else saveFailedText)
-                            saving = false
-                        }
-                    },
-                )
+            // 操作栏：复制纯文字 / 保存图片到相册，放进气泡内右下角，只显示图标。
+            if (!message.streaming && message.content.isNotBlank()) {
+                // 文案先取好：t() 是 @Composable，不能在点击回调里调用。
+                val copiedText = t(StringKey.CopiedToClipboard)
+                val saveFailedText = t(StringKey.SaveImageFailed)
+                val savedText = t(StringKey.SavedToGallery)
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    GhostAction(
+                        icon = Icons.Default.ContentCopy,
+                        label = t(StringKey.CopyPlainText),
+                        onClick = {
+                            clipboard.setText(
+                                AnnotatedString(MarkdownPlainText.convert(message.content)),
+                            )
+                            onNotify(copiedText)
+                        },
+                    )
+                    GhostAction(
+                        icon = Icons.Default.SaveAlt,
+                        label = if (saving) t(StringKey.Saving) else t(StringKey.SaveAsImage),
+                        enabled = !saving,
+                        onClick = {
+                            saving = true
+                            scope.launch {
+                                val result = runCatching { graphicsLayer.toImageBitmap() }
+                                    .fold(
+                                        onSuccess = { ImageSaver.saveToGallery(context, it) },
+                                        onFailure = { Result.failure(it) },
+                                    )
+                                onNotify(if (result.isSuccess) savedText else saveFailedText)
+                                saving = false
+                            }
+                        },
+                    )
+                }
             }
-        }
 
         if (!message.streaming) {
             message.actions.forEach { action ->
@@ -1118,9 +1126,10 @@ private fun AssistantRow(
             )
         }
     }
+    }
 }
 
-/** 回答下方的低调操作按钮：小图标 + 文字，按下有细微缩放。 */
+/** 气泡内的低调操作按钮：只显示小图标，按下有细微缩放。 */
 @Composable
 private fun GhostAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -1128,25 +1137,18 @@ private fun GhostAction(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    Row(
-        Modifier
+    Box(
+        modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .pressable(enabled = enabled, scaleDown = 0.94f, onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center,
     ) {
         androidx.compose.material3.Icon(
             icon, contentDescription = label,
             tint = MaterialTheme.colorScheme.onSurfaceVariant
                 .copy(alpha = if (enabled) 0.85f else 0.4f),
-            modifier = Modifier.size(13.dp),
-        )
-        Spacer(Modifier.width(5.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-                .copy(alpha = if (enabled) 0.85f else 0.4f),
+            modifier = Modifier.size(16.dp),
         )
     }
 }

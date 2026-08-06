@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -233,9 +234,18 @@ fun CalendarScreen(
     val state by viewModel.state.collectAsState()
     val schedules by viewModel.schedules.collectAsState()
 
+    val today = remember { Calendar.getInstance() }
+    var year by remember { mutableIntStateOf(today.get(Calendar.YEAR)) }
+    var month by remember { mutableIntStateOf(today.get(Calendar.MONTH)) } // 0-based
+    var selectedDay by remember { mutableStateOf(dayKeyOf(today)) }
+
     if (!state.access.available) {
         Column(
-            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding(),
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
         ) {
             Row(
                 Modifier.padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
@@ -252,17 +262,35 @@ fun CalendarScreen(
                     style = MaterialTheme.typography.headlineMedium,
                 )
             }
-            Box(Modifier.padding(horizontal = 16.dp)) {
-                SkillAccessNotice(state.access, onRequestLogin, onOpenSkills)
+            // 能力未开启时也先展示日历组件本身，给用户完整的前端体验。
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item(key = "month-preview") {
+                    MonthCard(
+                        year = year,
+                        month = month,
+                        schedules = schedules,
+                        selectedDay = selectedDay,
+                        onSelectDay = { selectedDay = it },
+                        onPrevMonth = {
+                            if (month == 0) { year--; month = 11 } else month--
+                        },
+                        onNextMonth = {
+                            if (month == 11) { year++; month = 0 } else month++
+                        },
+                    )
+                }
+                item(key = "access-notice") {
+                    SkillAccessNotice(state.access, onRequestLogin, onOpenSkills)
+                }
             }
         }
         return
     }
 
-    val today = remember { Calendar.getInstance() }
-    var year by remember { mutableIntStateOf(today.get(Calendar.YEAR)) }
-    var month by remember { mutableIntStateOf(today.get(Calendar.MONTH)) } // 0-based
-    var selectedDay by remember { mutableStateOf(dayKeyOf(today)) }
     var editorOpen by remember { mutableStateOf(false) }
     var editingSchedule by remember { mutableStateOf<Schedule?>(null) }
 
@@ -275,7 +303,8 @@ fun CalendarScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .statusBarsPadding(),
+                .statusBarsPadding()
+                .navigationBarsPadding(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {

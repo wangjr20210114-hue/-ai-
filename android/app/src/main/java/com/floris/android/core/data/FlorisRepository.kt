@@ -83,6 +83,9 @@ class FlorisRepository(
     val skillAccessFlow = _skillAccessFlow.asStateFlow()
     private val skillAccessMutex = Mutex()
     private var skillAccessFetchedAt = 0L
+    /** 最近一次从后台拉到的会话列表；游客打开侧边栏时直接复用，不再重复请求。 */
+    private val _conversationCache = kotlinx.coroutines.flow.MutableStateFlow<List<ConversationSummary>?>(null)
+    val conversationCache = _conversationCache.asStateFlow()
 
     /**
      * 待填入聊天输入框的草稿。主动提醒点"去处理"时写入，
@@ -97,6 +100,7 @@ class FlorisRepository(
         mapWorkspaceFlow.value = MapWorkspaceState()
         _proactiveStateFlow.value = null
         _skillAccessFlow.value = SkillAccessProjection()
+        _conversationCache.value = null
         skillAccessFetchedAt = 0L
         pendingDraftFlow.value = null
         localAvatarFlow.value = null
@@ -200,8 +204,12 @@ class FlorisRepository(
 
     suspend fun listConversations(): List<ConversationSummary> {
         val response = api.listConversations()
-        val items = response["conversations"] as? JsonArray ?: return emptyList()
-        return items.mapNotNull { item ->
+        val items = response["conversations"] as? JsonArray
+        if (items == null) {
+            _conversationCache.value = emptyList()
+            return emptyList()
+        }
+        val result = items.mapNotNull { item ->
             val obj = item as? JsonObject ?: return@mapNotNull null
             val id = obj.str("conversationId") ?: obj.str("id") ?: return@mapNotNull null
             val metadata = obj["metadata"] as? JsonObject
@@ -225,7 +233,13 @@ class FlorisRepository(
                 },
             )
         }.sortedByDescending { it.updatedAt }
+        _conversationCache.value = result
+        return result
     }
+
+    /** 游客侧边栏：有本地缓存就直接用，没有才请求一次后台。 */
+    suspend fun listConversationsCached(): List<ConversationSummary> =
+        _conversationCache.value ?: listConversations()
 
     suspend fun deleteConversation(conversationId: String) {
         api.deleteConversation(conversationId)

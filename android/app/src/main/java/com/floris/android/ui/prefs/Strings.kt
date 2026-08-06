@@ -303,11 +303,11 @@ object Strings {
         )
         put(
             StringKey.GuestProfileNotice,
-            "你正在以游客身份使用，登录后可解锁全部技能并云端保存记录",
-            "你正在以訪客身分使用，登入後可解鎖全部技能並雲端保存記錄",
-            "You're browsing as a guest. Sign in to unlock all skills and sync your history.",
-            "现在是游客喵，登录之后全部技能都能玩，记录也存得住",
-            "当前为游客身份。登录后解锁全部技能并同步记录。",
+            "登录后可解锁全部技能并云端保存记录",
+            "登入後可解鎖全部技能並雲端保存紀錄",
+            "Sign in to unlock all skills and sync your history.",
+            "登录之后全部技能都能玩，记录也存得住喵",
+            "登录后解锁全部技能并同步记录。",
         )
 
         // ---- 回答操作 ----

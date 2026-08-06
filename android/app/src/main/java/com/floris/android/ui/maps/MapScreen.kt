@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -179,7 +180,11 @@ fun MapScreen(
 
     if (!state.access.available) {
         Column(
-            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding(),
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
         ) {
             Row(
                 Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
@@ -193,7 +198,23 @@ fun MapScreen(
                 Spacer(Modifier.width(4.dp))
                 Text(t(StringKey.MapTitle), style = MaterialTheme.typography.headlineMedium)
             }
-            Box(Modifier.padding(horizontal = 16.dp)) {
+            // 能力未开启时也先展示地图组件本身，给用户完整的前端体验。
+            if (BuildConfig.TENCENT_MAP_KEY.isNotEmpty()) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .height(260.dp)
+                        .clip(RoundedCornerShape(18.dp)),
+                ) {
+                    TencentMapView(
+                        places = workspace.places,
+                        route = null,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 SkillAccessNotice(state.access, onRequestLogin, onOpenSkills)
             }
         }
@@ -212,7 +233,8 @@ fun MapScreen(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding(),
+            .statusBarsPadding()
+            .navigationBarsPadding(),
     ) {
         Row(
             Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),

@@ -37,14 +37,11 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
-    private val notificationPermission = registerForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { /* 用户拒绝也不影响主流程，提醒仍会在"我的"页内展示 */ }
-
-    // 拍照与语音输入需要的权限：启动时主动请求，避免使用时才发现没授权。
+    // 相机、麦克风与通知权限：启动时主动请求，避免使用时才发现没授权。
     private val mediaPermission = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { /* 拒绝时点击相机/麦克风会再次单独请求并给出提示 */ }
+    private var mediaPermissionsRequested = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,29 +49,12 @@ class MainActivity : ComponentActivity() {
         val app = application as FlorisApp
         lifecycleScope.launch { app.container.authManager.restore() }
 
-        // 主动提醒要走系统通知栏，先建好渠道并按需申请权限。
+        // 主动提醒要走系统通知栏，先建好渠道；权限统一在 onStart 申请。
         ProactiveNotifier.ensureChannel(
             this,
             app.container.strings.get(StringKey.NotificationChannelName),
             app.container.strings.get(StringKey.NotificationChannelDescription),
         )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            !ProactiveNotifier.hasPermission(this)
-        ) {
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        val missingMedia = listOfNotNull(
-            Manifest.permission.CAMERA.takeIf {
-                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-            },
-            Manifest.permission.RECORD_AUDIO.takeIf {
-                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-            },
-        )
-        if (missingMedia.isNotEmpty()) {
-            mediaPermission.launch(missingMedia.toTypedArray())
-        }
-
         // 从通知点进来时，把后端给的处理话术填进聊天输入框。
         consumeNotificationIntent(app, intent)
 
@@ -102,6 +82,30 @@ class MainActivity : ComponentActivity() {
                         DoubleBackToExit(onExit = { finish() })
                     }
                 }
+            }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // ActivityResultLauncher.launch() 必须在生命周期至少 STARTED 后调用，
+        // 在 onCreate 里调用会导致授权弹窗不出现。这里启动时主动请求相机/麦克风。
+        if (!mediaPermissionsRequested) {
+            mediaPermissionsRequested = true
+            val missingMedia = listOfNotNull(
+                Manifest.permission.POST_NOTIFICATIONS.takeIf {
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+                },
+                Manifest.permission.CAMERA.takeIf {
+                    ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+                },
+                Manifest.permission.RECORD_AUDIO.takeIf {
+                    ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+                },
+            )
+            if (missingMedia.isNotEmpty()) {
+                mediaPermission.launch(missingMedia.toTypedArray())
             }
         }
     }

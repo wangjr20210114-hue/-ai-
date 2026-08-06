@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -227,6 +228,8 @@ fun ProfileScreen(
     onBack: () -> Unit = {},
     /** 点头像进入个人信息（游客不跳转）。 */
     onOpenAccount: () -> Unit = {},
+    /** 重播新人介绍：从"我的"回到聊天并重新展示引导。 */
+    onReplayTour: () -> Unit = {},
     /** 点"去处理"：把后端给的话术带回聊天输入框。 */
     onHandleReminder: (String) -> Unit = {},
 ) {
@@ -247,7 +250,8 @@ fun ProfileScreen(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding(),
+            .statusBarsPadding()
+            .navigationBarsPadding(),
     ) {
         Row(
             Modifier.padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
@@ -436,6 +440,15 @@ fun ProfileScreen(
                     icon = Icons.Default.Settings,
                     onClick = onOpenSettings,
                     modifier = Modifier.onboardingTarget(TourStepKey.SETTINGS),
+                    trailing = { Chevron() },
+                )
+            }
+            item(key = "tour") {
+                SettingRow(
+                    title = t(StringKey.SettingsReplayTour),
+                    subtitle = t(StringKey.SettingsReplayTourDesc),
+                    icon = Icons.Default.AutoAwesome,
+                    onClick = onReplayTour,
                     trailing = { Chevron() },
                 )
             }
