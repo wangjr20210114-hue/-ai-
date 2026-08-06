@@ -12,6 +12,7 @@ import com.floris.android.ui.calendar.CalendarViewModel
 import com.floris.android.ui.chat.ChatViewModel
 import com.floris.android.ui.history.HistoryViewModel
 import com.floris.android.ui.maps.MapViewModel
+import com.floris.android.ui.navigation.SidebarViewModel
 import com.floris.android.ui.papers.ReadingViewModel
 import com.floris.android.ui.profile.ProfileViewModel
 import com.floris.android.ui.settings.SettingsViewModel
@@ -29,6 +30,7 @@ fun AppContainer.chatViewModelFactory() = factory {
     ChatViewModel(repository, chatRuntimeStore, json, strings)
 }
 fun AppContainer.historyViewModelFactory() = factory { HistoryViewModel(repository, strings) }
+fun AppContainer.sidebarViewModelFactory() = factory { SidebarViewModel(repository, strings) }
 fun AppContainer.skillsViewModelFactory() = factory {
     SkillsViewModel(repository, authManager, strings)
 }

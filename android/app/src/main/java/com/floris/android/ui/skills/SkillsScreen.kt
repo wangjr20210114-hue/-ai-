@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Code
@@ -84,6 +85,7 @@ import com.floris.android.ui.components.FlorisCard
 import com.floris.android.ui.components.FlorisSwitch
 import com.floris.android.ui.components.GuestNotice
 import com.floris.android.ui.components.InlineLoading
+import com.floris.android.ui.components.IconPill
 import com.floris.android.ui.components.PillButton
 import com.floris.android.ui.components.PillStyle
 import com.floris.android.ui.components.SectionHeader
@@ -393,7 +395,11 @@ private fun skillIcon(category: String?): ImageVector = when (category) {
 }
 
 @Composable
-fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
+fun SkillsScreen(
+    container: AppContainer,
+    owner: ViewModelStoreOwner? = null,
+    onBack: () -> Unit = {},
+) {
     val viewModel: SkillsViewModel = viewModel(
         viewModelStoreOwner = owner ?: checkNotNull(LocalViewModelStoreOwner.current),
         key = "skills",
@@ -433,6 +439,12 @@ fun SkillsScreen(container: AppContainer, owner: ViewModelStoreOwner? = null) {
             )
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
+                IconPill(
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = t(StringKey.Back),
+                    onClick = onBack,
+                )
+                Spacer(Modifier.width(2.dp))
                 Text(
                     t(StringKey.SkillsTitle),
                     style = MaterialTheme.typography.headlineMedium,

@@ -48,6 +48,7 @@ enum class StringKey {
     TimeHoursAgo, TimeDaysAgo, ChatAddImage, ChatAddDocument, ChatUploadedDocument,
     ChatPaperOpened, ChatUploadFailed,
     ChatVoiceStart, ChatVoiceStop, ChatVoiceUnavailable,
+    ChatCamera, SidebarOpen, SidebarNewChat, SidebarPlace,
     ImageEditHint, ImageEditAction, ImageOriginal, ImageUpdated, ImagePrompt,
     ImageSaveToGallery, ChatAddSchedule, RouteCalendarRequest,
     HintFreshness, HintFreshnessLogin, HintSkill, HintSkillLogin,
@@ -400,10 +401,14 @@ object Strings {
             "和我说说话就好啦。旅行、会议、新闻、翻译、论文、画画，我都能帮你喵~",
             "直接对话即可。支持行程、会议、搜索、翻译、论文与生图。",
         )
-        put(StringKey.ChatInputHint, "输入消息…", "輸入訊息…", "Message Floris…", "想说点什么喵…", "输入消息。")
+        put(StringKey.ChatInputHint, "发消息…", "發訊息…", "Message Floris…", "发消息喵…", "发消息。")
         put(StringKey.ChatStop, "停止", "停止", "Stop", "先停一下", "停止")
         put(StringKey.ChatNew, "新对话", "新對話", "New chat", "新的一页", "新对话")
         put(StringKey.ChatHistory, "历史记录", "歷史紀錄", "History", "旧纸页", "历史记录")
+        put(StringKey.ChatCamera, "拍照", "拍照", "Camera", "拍一张喵", "拍照")
+        put(StringKey.SidebarOpen, "打开侧边栏", "開啟側邊欄", "Open sidebar", "打开抽屉喵", "打开侧边栏")
+        put(StringKey.SidebarNewChat, "开启一个新对话", "開啟一個新對話", "Start a new chat", "开一页新的喵", "开启一个新对话")
+        put(StringKey.SidebarPlace, "地点", "地點", "Places", "去哪儿", "地点")
         put(
             StringKey.SuggestNews,
             "最近 AI 有什么新进展", "最近 AI 有什麼新進展", "What's new in AI lately",

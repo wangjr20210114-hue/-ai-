@@ -29,6 +29,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
@@ -431,6 +432,7 @@ class ReadingViewModel(
 fun ReadingScreen(
     container: AppContainer,
     owner: ViewModelStoreOwner? = null,
+    onBack: () -> Unit = {},
     onRequestLogin: () -> Unit = {},
     onOpenSkills: () -> Unit = {},
 ) {
@@ -445,11 +447,21 @@ fun ReadingScreen(
         Column(
             Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding(),
         ) {
-            Text(
-                t(StringKey.ReadingTitle),
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 12.dp),
-            )
+            Row(
+                Modifier.padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconPill(
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = t(StringKey.Back),
+                    onClick = onBack,
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    t(StringKey.ReadingTitle),
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+            }
             Box(Modifier.padding(horizontal = 16.dp)) {
                 SkillAccessNotice(state.access, onRequestLogin, onOpenSkills)
             }
@@ -595,6 +607,12 @@ fun ReadingScreen(
         // 标题区
         Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                IconPill(
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = t(StringKey.Back),
+                    onClick = onBack,
+                )
+                Spacer(Modifier.width(4.dp))
                 Text(
                     t(StringKey.ReadingTitle),
                     style = MaterialTheme.typography.headlineMedium,

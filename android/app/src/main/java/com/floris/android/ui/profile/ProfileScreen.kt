@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Info
@@ -220,6 +221,8 @@ fun ProfileScreen(
     onOpenSettings: () -> Unit,
     onOpenReading: () -> Unit,
     onOpenMap: () -> Unit,
+    /** 返回聊天（底部导航移除后由侧边栏进入本页）。 */
+    onBack: () -> Unit = {},
     /** 点头像进入个人信息（游客不跳转）。 */
     onOpenAccount: () -> Unit = {},
     /** 点"去处理"：把后端给的话术带回聊天输入框。 */
@@ -244,11 +247,21 @@ fun ProfileScreen(
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding(),
     ) {
-        Text(
-            t(StringKey.ProfileTitle),
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 6.dp),
-        )
+        Row(
+            Modifier.padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconPill(
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = t(StringKey.Back),
+                onClick = onBack,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                t(StringKey.ProfileTitle),
+                style = MaterialTheme.typography.headlineMedium,
+            )
+        }
 
         LazyColumn(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 28.dp),

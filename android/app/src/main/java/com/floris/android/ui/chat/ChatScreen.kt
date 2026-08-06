@@ -6,6 +6,7 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.location.LocationManager
 import android.provider.OpenableColumns
+import androidx.core.content.FileProvider
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -54,6 +56,9 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
@@ -151,12 +156,13 @@ import com.floris.android.ui.prefs.t
 import com.floris.android.ui.theme.LocalDarkTheme
 import com.floris.android.ui.theme.userBubbleBrush
 import kotlinx.coroutines.launch
+import java.io.File
 
 @Composable
 fun ChatScreen(
     container: AppContainer,
     owner: ViewModelStoreOwner? = null,
-    onOpenHistory: () -> Unit,
+    onOpenSidebar: () -> Unit,
     onOpenMap: () -> Unit,
 ) {
     val viewModel: ChatViewModel = viewModel(
@@ -197,22 +203,38 @@ fun ChatScreen(
         else scope.launch { snackbar.showSnackbar(voiceUnavailableText) }
     }
 
-    val pickImages = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(3),
-    ) { uris ->
-        uris.take(3).forEach { uri ->
-            scope.launch {
-                container.repository.imageToDataUrl(uri)?.let { dataUrl ->
-                    images = (images + dataUrl).take(3)
+    // 相机：拍照后作为参考图加入本轮（最多 3 张）。
+    var cameraPhotoUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val takeCameraPhoto = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture(),
+    ) { success ->
+        if (success) {
+            cameraPhotoUri?.let { uri ->
+                scope.launch {
+                    container.repository.imageToDataUrl(uri)?.let { dataUrl ->
+                        images = (images + dataUrl).take(3)
+                    }
                 }
             }
         }
     }
+    val launchCamera: () -> Unit = {
+        val photo = File.createTempFile("floris-camera-", ".jpg", context.cacheDir)
+        cameraPhotoUri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.files",
+            photo,
+        )
+        cameraPhotoUri?.let(takeCameraPhoto::launch)
+        Unit
+    }
 
+    // 加号：相册图片与文件（PDF 等）合并在同一个系统选择器里，由用户选择。
     val pickDocument = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
         uri?.let { picked ->
+            val mime = context.contentResolver.getType(picked).orEmpty()
             val name = runCatching {
                 context.contentResolver.query(
                     picked,
@@ -226,7 +248,15 @@ fun ChatScreen(
                     } else null
                 }
             }.getOrNull()?.takeIf { it.isNotBlank() } ?: "document.pdf"
-            viewModel.uploadDocument(picked, name)
+            if (mime.startsWith("image/")) {
+                scope.launch {
+                    container.repository.imageToDataUrl(picked)?.let { dataUrl ->
+                        images = (images + dataUrl).take(3)
+                    }
+                }
+            } else {
+                viewModel.uploadDocument(picked, name)
+            }
         }
     }
 
@@ -365,8 +395,7 @@ fun ChatScreen(
                     .imePadding(),
             ) {
                 ChatTopBar(
-                    onNewChat = viewModel::newConversation,
-                    onOpenHistory = onOpenHistory,
+                    onOpenSidebar = onOpenSidebar,
                     onToggleTheme = {
                         scope.launch { container.preferences.toggleTheme(dark) }
                     },
@@ -453,13 +482,9 @@ fun ChatScreen(
                     imageCount = images.size,
                     streaming = state.streaming,
                     uploadingDocument = state.uploadingDocument,
-                    onPickImages = {
-                        pickImages.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
-                    },
-                    onPickDocument = {
-                        pickDocument.launch(arrayOf("application/pdf"))
+                    onPickCamera = launchCamera,
+                    onPickMixed = {
+                        pickDocument.launch(arrayOf("image/*", "application/pdf"))
                     },
                     onClearImages = { images = emptyList() },
                     voiceListening = voiceListening,
@@ -625,53 +650,45 @@ private fun QueueTurnRow(
 
 @Composable
 private fun ChatTopBar(
-    onNewChat: () -> Unit,
-    onOpenHistory: () -> Unit,
+    onOpenSidebar: () -> Unit,
     onToggleTheme: () -> Unit,
 ) {
     val dark = LocalDarkTheme.current
-    Row(
-        modifier = Modifier
+    Box(
+        Modifier
             .fillMaxWidth()
-            // logo 紧贴状态栏，不再留额外上边距。
-            .padding(start = 16.dp, end = 8.dp, top = 0.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(start = 8.dp, end = 8.dp, top = 0.dp, bottom = 2.dp),
     ) {
-        CatAvatar(size = 32.dp)
-        Spacer(Modifier.width(9.dp))
-        Column(Modifier.weight(1f)) {
+        // 左侧：三横杠打开侧边栏。
+        IconPill(
+            icon = Icons.Default.Menu,
+            contentDescription = t(StringKey.SidebarOpen),
+            onClick = onOpenSidebar,
+            size = 40.dp,
+            iconSize = 22.dp,
+            modifier = Modifier.align(Alignment.CenterStart),
+        )
+        // 中间：大橘 logo。
+        Row(
+            Modifier.align(Alignment.Center),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CatAvatar(size = 34.dp)
+            Spacer(Modifier.width(8.dp))
             Text(
                 "FLORIS",
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onBackground,
             )
-            Text(
-                t(StringKey.AppTagline),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
         }
-        // 白天 / 黑夜切换：网页端在顶栏，之前 Android 只藏在设置里，
-        // 导致新手引导那一步指不到任何控件。
+        // 右侧：白天 / 黑夜切换。
         IconPill(
             icon = if (dark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
             contentDescription = t(StringKey.SettingsTheme),
             onClick = onToggleTheme,
-            modifier = Modifier.onboardingTarget(TourStepKey.THEME),
-        )
-        IconPill(
-            icon = Icons.Default.History,
-            contentDescription = t(StringKey.ChatHistory),
-            onClick = onOpenHistory,
-            modifier = Modifier.onboardingTarget(TourStepKey.HISTORY),
-        )
-        IconPill(
-            icon = Icons.Outlined.AddCircle,
-            contentDescription = t(StringKey.ChatNew),
-            onClick = onNewChat,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.onboardingTarget(TourStepKey.NEW_CONVERSATION),
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .onboardingTarget(TourStepKey.THEME),
         )
     }
 }
@@ -1023,8 +1040,8 @@ private fun InputBar(
     imageCount: Int,
     streaming: Boolean,
     uploadingDocument: Boolean,
-    onPickImages: () -> Unit,
-    onPickDocument: () -> Unit,
+    onPickCamera: () -> Unit,
+    onPickMixed: () -> Unit,
     onClearImages: () -> Unit,
     voiceListening: Boolean,
     onVoice: () -> Unit,
@@ -1034,8 +1051,8 @@ private fun InputBar(
     Column(
         Modifier
             .fillMaxWidth()
-            // 与 Tab 栏留 6dp 呼吸：0 会和底栏挤在一起看着像重叠。
-            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 6.dp),
+            .navigationBarsPadding()
+            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp),
     ) {
         AnimatedVisibility(visible = imageCount > 0, enter = fadeIn(), exit = fadeOut()) {
             Row(
@@ -1055,53 +1072,33 @@ private fun InputBar(
                 )
             }
         }
-        val inputShape = RoundedCornerShape(24.dp)
+        // 圆角矩形 + 柔和阴影（高级感），与网页端 composer 同风格。
+        val inputShape = RoundedCornerShape(26.dp)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                // 描边 + 投影：纯色底衬压在背景图上分不清边界（对齐网页端 composer）。
-                .shadow(8.dp, inputShape, ambientColor = panelShadowColor(), spotColor = panelShadowColor())
+                .shadow(10.dp, inputShape, ambientColor = panelShadowColor(), spotColor = panelShadowColor())
                 .clip(inputShape)
                 .background(MaterialTheme.colorScheme.surface)
                 .border(1.dp, panelBorderColor(), inputShape)
                 .onboardingTarget(TourStepKey.INPUT)
                 .padding(4.dp),
-            verticalAlignment = Alignment.Bottom,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            // 最左侧：相机（拍照作为参考图）。
             IconPill(
-                icon = Icons.Outlined.Image,
-                contentDescription = t(StringKey.ChatAddImage),
-                onClick = onPickImages,
+                icon = Icons.Filled.PhotoCamera,
+                contentDescription = t(StringKey.ChatCamera),
+                onClick = onPickCamera,
                 size = 40.dp,
-                iconSize = 19.dp,
+                iconSize = 20.dp,
             )
-            IconPill(
-                icon = Icons.Outlined.Description,
-                contentDescription = t(StringKey.ChatAddDocument),
-                onClick = {
-                    if (!uploadingDocument) onPickDocument()
-                },
-                size = 40.dp,
-                iconSize = 19.dp,
-                tint = if (uploadingDocument) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            IconPill(
-                icon = if (voiceListening) Icons.Default.MicOff else Icons.Default.Mic,
-                contentDescription = t(
-                    if (voiceListening) StringKey.ChatVoiceStop else StringKey.ChatVoiceStart,
-                ),
-                onClick = onVoice,
-                size = 40.dp,
-                iconSize = 19.dp,
-                tint = if (voiceListening) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            // 输入框本体：提示“发消息”。
             Box(
                 Modifier
                     .weight(1f)
-                    .heightIn(min = 40.dp)
-                    .padding(vertical = 10.dp),
+                    .heightIn(min = 42.dp)
+                    .padding(horizontal = 2.dp, vertical = 11.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 if (draft.isEmpty()) {
@@ -1126,7 +1123,30 @@ private fun InputBar(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            Spacer(Modifier.width(4.dp))
+            // 麦克风：语音输入。
+            IconPill(
+                icon = if (voiceListening) Icons.Default.MicOff else Icons.Default.Mic,
+                contentDescription = t(
+                    if (voiceListening) StringKey.ChatVoiceStop else StringKey.ChatVoiceStart,
+                ),
+                onClick = onVoice,
+                size = 40.dp,
+                iconSize = 20.dp,
+                tint = if (voiceListening) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // 加号：相册 + 文件选择器（PDF 等），上传时置灰防重复。
+            IconPill(
+                icon = Icons.Default.Add,
+                contentDescription = t(StringKey.ChatAddDocument),
+                onClick = {
+                    if (!uploadingDocument) onPickMixed()
+                },
+                size = 40.dp,
+                iconSize = 22.dp,
+                tint = if (uploadingDocument) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             if (streaming) {
                 PrimaryIconButton(
                     icon = Icons.Default.Close,

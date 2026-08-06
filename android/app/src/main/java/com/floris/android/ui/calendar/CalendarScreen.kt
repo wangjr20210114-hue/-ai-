@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.LocationOn
@@ -218,6 +219,7 @@ class CalendarViewModel(
 fun CalendarScreen(
     container: AppContainer,
     owner: ViewModelStoreOwner? = null,
+    onBack: () -> Unit = {},
     onRequestLogin: () -> Unit = {},
     onOpenSkills: () -> Unit = {},
 ) {
@@ -233,11 +235,21 @@ fun CalendarScreen(
         Column(
             Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding(),
         ) {
-            Text(
-                t(StringKey.CalendarTitle),
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 12.dp),
-            )
+            Row(
+                Modifier.padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                com.floris.android.ui.components.IconPill(
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = t(StringKey.Back),
+                    onClick = onBack,
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    t(StringKey.CalendarTitle),
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+            }
             Box(Modifier.padding(horizontal = 16.dp)) {
                 SkillAccessNotice(state.access, onRequestLogin, onOpenSkills)
             }
@@ -267,10 +279,16 @@ fun CalendarScreen(
         ) {
             item(key = "header") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    com.floris.android.ui.components.IconPill(
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = t(StringKey.Back),
+                        onClick = onBack,
+                    )
+                    Spacer(Modifier.width(2.dp))
                     Text(
                         t(StringKey.CalendarTitle),
                         style = MaterialTheme.typography.headlineMedium,
-                        modifier = Modifier.weight(1f).padding(start = 4.dp, top = 6.dp, bottom = 6.dp),
+                        modifier = Modifier.weight(1f).padding(top = 6.dp, bottom = 6.dp),
                     )
                     com.floris.android.ui.components.IconPill(
                         icon = Icons.Default.Add,

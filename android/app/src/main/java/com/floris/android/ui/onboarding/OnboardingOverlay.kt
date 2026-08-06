@@ -156,6 +156,8 @@ private enum class Phase { WELCOME, TOUR, SKIP_HINT }
 fun OnboardingOverlay(
     onNavigate: (TourTarget) -> Unit,
     onFinish: () -> Unit,
+    /** 侧边栏步骤（新对话/历史）需要先打开抽屉，目标锚点才可见。 */
+    onRevealSidebar: () -> Unit = {},
 ) {
     var phase by remember { mutableStateOf(Phase.WELCOME) }
     var index by remember { mutableIntStateOf(0) }
@@ -163,7 +165,13 @@ fun OnboardingOverlay(
     val step = steps[index]
 
     LaunchedEffect(phase, index) {
-        if (phase == Phase.TOUR) onNavigate(step.target)
+        if (phase == Phase.TOUR) {
+            onNavigate(step.target)
+            val needsSidebar = step.anchors.any {
+                it == TourStepKey.NEW_CONVERSATION || it == TourStepKey.HISTORY
+            }
+            if (needsSidebar) onRevealSidebar()
+        }
     }
 
     // 目标区域：切页后组件需要一帧完成布局，取不到时退化为居中卡片。
