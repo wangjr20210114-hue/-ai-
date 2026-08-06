@@ -38,7 +38,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -101,6 +101,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -194,15 +195,12 @@ fun ChatScreen(
     val closedBottomSpace = with(density) {
         maxOf(48.dp, WindowInsets.navigationBars.getBottom(density).toDp())
     }
-    // 键盘高度（随动画逐帧变化）+ 收起时的底部留白取较大值，再整体做一次平滑动画：
-    // 弹起时输入框紧贴键盘，收起时不会“下沉到底再弹回”。
-    val imeBottomDp = with(density) { WindowInsets.ime.getBottom(density).toDp() }
-    val bottomTarget = maxOf(imeBottomDp, closedBottomSpace)
-    val animatedBottom by animateDpAsState(
-        targetValue = bottomTarget,
-        animationSpec = tween(180),
-        label = "chatBottom",
-    )
+    // 直接读取系统键盘高度（随键盘动画逐帧变化）：
+    // body 像侧边栏一样整体刚性上移“键盘高度 - 收起时留白”，
+    // 不套额外动画、不滚动列表，因此弹出/收起都与系统动画完全同步、不卡顿。
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    val closedBottomPx = with(density) { closedBottomSpace.toPx() }
+    val liftDp = with(density) { (imeBottomPx - closedBottomPx).coerceAtLeast(0f).toDp() }
 
     var draft by remember { mutableStateOf("") }
     var images by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -398,16 +396,6 @@ fun ChatScreen(
         followTail = true
         anchorToBottom()
     }
-    // 键盘弹起：如果用户本来就在底部（正在跟随），在键盘动画期间持续贴底，
-    // 让最新消息跟着输入框一起被托起；否则保持原滚动位置，只托起输入框。
-    LaunchedEffect(imeVisible) {
-        if (!imeVisible || state.messages.isEmpty() || !followTail) return@LaunchedEffect
-        // 只在键盘动画接近稳定时贴底一两次，避免反复滚动造成内容区卡顿。
-        delay(280)
-        anchorToBottom()
-        delay(160)
-        anchorToBottom()
-    }
     LaunchedEffect(state.transientError) {
         state.transientError?.let { snackbar.showSnackbar(it); viewModel.consumeError() }
     }
@@ -466,13 +454,19 @@ fun ChatScreen(
                 },
             )
 
-            // header 固定不动；键盘弹起时 body（消息区 + 输入框）整体让出键盘高度并紧贴键盘。
-            Column(
+            // header 固定不动；body 像侧边栏一样整体刚性上移，范围不含 header。
+            Box(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(bottom = animatedBottom),
+                    .clipToBounds(),
             ) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(bottom = closedBottomSpace)
+                        .offset(y = -liftDp),
+                ) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when {
                         state.bootstrapping -> CircularProgressIndicator(
@@ -602,6 +596,7 @@ fun ChatScreen(
                     },
                     onStop = viewModel::stop,
                 )
+                }
             }
         }
         SnackbarHost(
