@@ -138,6 +138,12 @@ fun FlorisSidebar(
                 Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.surface)
+                    // 抽屉自身拦截点击：只有暗的 1/6 遮罩区域能触发返回。
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                    )
                     .statusBarsPadding()
                     .navigationBarsPadding(),
             ) {
@@ -153,7 +159,7 @@ fun FlorisSidebar(
                 ) {
                     CatIconImage(
                         resId = R.drawable.ic_search,
-                        size = 22.dp,
+                        size = 24.dp,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         contentDescription = null,
                     )
@@ -281,21 +287,21 @@ fun FlorisSidebar(
                         contentDescription = t(StringKey.TabSkills),
                         onClick = onOpenSkills,
                         size = 34.dp,
-                        iconSize = 20.dp,
+                        iconSize = 22.dp,
                     )
                     CatIconPill(
                         resId = R.drawable.ic_notifications,
                         contentDescription = t(StringKey.Reminders),
                         onClick = onOpenReminders,
                         size = 34.dp,
-                        iconSize = 20.dp,
+                        iconSize = 22.dp,
                     )
                     CatIconPill(
                         resId = R.drawable.ic_settings,
                         contentDescription = t(StringKey.SettingsTitle),
                         onClick = onOpenSettings,
                         size = 34.dp,
-                        iconSize = 20.dp,
+                        iconSize = 22.dp,
                     )
                 }
             }
@@ -318,7 +324,7 @@ private fun SidebarNavRow(
     ) {
         CatIconImage(
             resId = resId,
-            size = 26.dp,
+            size = 30.dp,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.width(14.dp))

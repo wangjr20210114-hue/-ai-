@@ -670,7 +670,7 @@ private fun ChatTopBar(
             contentDescription = t(StringKey.SidebarOpen),
             onClick = onOpenSidebar,
             size = 40.dp,
-            iconSize = 24.dp,
+            iconSize = 26.dp,
             modifier = Modifier.align(Alignment.CenterStart),
         )
         // 中间：对话名 + AI 提示小字（品牌与 logo 已移除）。
@@ -700,7 +700,7 @@ private fun ChatTopBar(
             contentDescription = t(StringKey.SettingsTheme),
             onClick = onToggleTheme,
             size = 40.dp,
-            iconSize = 24.dp,
+            iconSize = 26.dp,
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .onboardingTarget(TourStepKey.THEME),
@@ -1066,7 +1066,6 @@ private fun InputBar(
     Column(
         Modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
             .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp),
     ) {
         AnimatedVisibility(visible = imageCount > 0, enter = fadeIn(), exit = fadeOut()) {
@@ -1106,7 +1105,7 @@ private fun InputBar(
                 contentDescription = t(StringKey.ChatCamera),
                 onClick = onPickCamera,
                 size = 40.dp,
-                iconSize = 24.dp,
+                iconSize = 26.dp,
             )
             // 输入框本体：提示“发消息”。
             Box(
@@ -1146,7 +1145,7 @@ private fun InputBar(
                 ),
                 onClick = onVoice,
                 size = 40.dp,
-                iconSize = 24.dp,
+                iconSize = 26.dp,
                 tint = if (voiceListening) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1158,7 +1157,7 @@ private fun InputBar(
                     if (!uploadingDocument) onPickMixed()
                 },
                 size = 40.dp,
-                iconSize = 24.dp,
+                iconSize = 26.dp,
                 tint = if (uploadingDocument) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             )

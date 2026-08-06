@@ -251,7 +251,7 @@ fun CatIconPill(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     size: Dp = 38.dp,
-    iconSize: Dp = 22.dp,
+    iconSize: Dp = 24.dp,
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     background: Color = Color.Transparent,
     enabled: Boolean = true,
@@ -302,7 +302,7 @@ fun PrimaryIconButtonImage(
     ) {
         CatIconImage(
             resId = resId,
-            size = size * 0.5f,
+            size = size * 0.55f,
             tint = Color.White,
             contentDescription = contentDescription,
         )
