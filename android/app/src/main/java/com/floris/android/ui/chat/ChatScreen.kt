@@ -29,12 +29,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -192,6 +194,15 @@ fun ChatScreen(
     val closedBottomSpace = with(density) {
         maxOf(48.dp, WindowInsets.navigationBars.getBottom(density).toDp())
     }
+    // 键盘高度（随动画逐帧变化）+ 收起时的底部留白取较大值，再整体做一次平滑动画：
+    // 弹起时输入框紧贴键盘，收起时不会“下沉到底再弹回”。
+    val imeBottomDp = with(density) { WindowInsets.ime.getBottom(density).toDp() }
+    val bottomTarget = maxOf(imeBottomDp, closedBottomSpace)
+    val animatedBottom by animateDpAsState(
+        targetValue = bottomTarget,
+        animationSpec = tween(180),
+        label = "chatBottom",
+    )
 
     var draft by remember { mutableStateOf("") }
     var images by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -340,7 +351,7 @@ fun ChatScreen(
             val info = listState.layoutInfo
             val last = info.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
             last.index >= info.totalItemsCount - 1 &&
-                last.offset + last.size >= info.viewportEndOffset - nearBottomTolerancePx
+                last.offset + last.size <= info.viewportEndOffset + nearBottomTolerancePx
         }
     }
     // 用户上滑离开底部就交还控制权，滑回底部立刻恢复跟随；
@@ -391,10 +402,11 @@ fun ChatScreen(
     // 让最新消息跟着输入框一起被托起；否则保持原滚动位置，只托起输入框。
     LaunchedEffect(imeVisible) {
         if (!imeVisible || state.messages.isEmpty() || !followTail) return@LaunchedEffect
-        repeat(12) {
-            if (state.messages.isNotEmpty()) anchorToBottom()
-            delay(40)
-        }
+        // 只在键盘动画接近稳定时贴底一两次，避免反复滚动造成内容区卡顿。
+        delay(280)
+        anchorToBottom()
+        delay(160)
+        anchorToBottom()
     }
     LaunchedEffect(state.transientError) {
         state.transientError?.let { snackbar.showSnackbar(it); viewModel.consumeError() }
@@ -459,7 +471,7 @@ fun ChatScreen(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .imePadding(),
+                    .padding(bottom = animatedBottom),
             ) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when {
@@ -590,14 +602,6 @@ fun ChatScreen(
                     },
                     onStop = viewModel::stop,
                 )
-                // 键盘收起时平滑让出约一个系统导航栏的高度（三大金刚键上方），
-                // 用动画过渡，输入框自然回位，不会“卡一下”。
-                val closedSpace by animateDpAsState(
-                    targetValue = if (imeVisible) 0.dp else closedBottomSpace,
-                    animationSpec = tween(260),
-                    label = "imeClosedSpace",
-                )
-                Spacer(Modifier.height(closedSpace))
             }
         }
         SnackbarHost(
