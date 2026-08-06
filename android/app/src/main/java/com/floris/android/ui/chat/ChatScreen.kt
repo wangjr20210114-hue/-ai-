@@ -26,19 +26,16 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -389,9 +386,8 @@ fun ChatScreen(
             Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                // 键盘弹起时把 header 之下的内容整体顶起、输入框紧贴键盘；
-                // 键盘收起时仅给底部导航栏留位，输入框不会掉到屏幕最底下。
-                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
+                // 配合 manifest 的 adjustResize：键盘弹起时整体顶起、输入框紧贴键盘。
+                .imePadding(),
         ) {
                 ChatTopBar(
                     title = state.conversationTitle,
@@ -524,7 +520,7 @@ fun ChatScreen(
             hostState = snackbar,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
+                .imePadding(),
         )
     }
 }
