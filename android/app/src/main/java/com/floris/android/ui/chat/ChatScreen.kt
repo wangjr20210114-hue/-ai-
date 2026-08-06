@@ -22,6 +22,7 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -31,6 +32,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -160,6 +163,7 @@ import com.floris.android.ui.theme.userBubbleBrush
 import kotlinx.coroutines.launch
 import java.io.File
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ChatScreen(
     container: AppContainer,
@@ -385,18 +389,28 @@ fun ChatScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                // 配合 manifest 的 adjustResize：键盘弹起时整体顶起、输入框紧贴键盘。
-                .imePadding(),
+                .statusBarsPadding(),
         ) {
-                ChatTopBar(
-                    title = state.conversationTitle,
-                    onOpenSidebar = onOpenSidebar,
-                    onToggleTheme = {
-                        scope.launch { container.preferences.toggleTheme(dark) }
-                    },
-                )
+            ChatTopBar(
+                title = state.conversationTitle,
+                onOpenSidebar = onOpenSidebar,
+                onToggleTheme = {
+                    scope.launch { container.preferences.toggleTheme(dark) }
+                },
+            )
 
+            // header 固定不动；键盘弹起时 body（消息区 + 输入框）整体顶起并紧贴键盘，
+            // 键盘收起时 body 底部仅让出导航栏高度，输入框不会贴到屏幕最底边。
+            val imeVisible = WindowInsets.isImeVisible
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .then(
+                        if (imeVisible) Modifier.imePadding()
+                        else Modifier.navigationBarsPadding(),
+                    ),
+            ) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when {
                         state.bootstrapping -> CircularProgressIndicator(
@@ -515,12 +529,16 @@ fun ChatScreen(
                     },
                     onStop = viewModel::stop,
                 )
+            }
         }
         SnackbarHost(
             hostState = snackbar,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .imePadding(),
+                .then(
+                    if (WindowInsets.isImeVisible) Modifier.imePadding()
+                    else Modifier.navigationBarsPadding(),
+                ),
         )
     }
 }
