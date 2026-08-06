@@ -5,6 +5,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -64,6 +66,8 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -213,6 +217,16 @@ private fun MainShell(
         }
     }
 
+    // 侧边栏打开时，主界面整体被“挤”到右侧 5/6，只露出最右侧 1/6。
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val screenWidth = with(density) { configuration.screenWidthDp.dp }
+    val mainOffset by animateDpAsState(
+        targetValue = if (sidebarOpen) screenWidth * 5f / 6f else 0.dp,
+        animationSpec = tween(300),
+        label = "drawerPush",
+    )
+
     // Warm Maker's shared entitlement projection without blocking chat startup.
     // Calendar, maps and reading then consume the same server-owned decision.
     LaunchedEffect(sessionKey) {
@@ -254,7 +268,11 @@ private fun MainShell(
             }
         }
 
-        Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .offset(x = mainOffset),
+        ) {
             Box(Modifier.weight(1f)) {
                 NavHost(
                     navController = navController,

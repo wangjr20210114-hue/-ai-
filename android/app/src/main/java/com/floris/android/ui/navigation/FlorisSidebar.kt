@@ -62,6 +62,7 @@ import com.floris.android.core.model.ConversationSummary
 import com.floris.android.ui.components.CatAvatar
 import com.floris.android.ui.components.IconPill
 import com.floris.android.ui.components.InlineLoading
+import com.floris.android.ui.components.UserAvatar
 import com.floris.android.ui.components.pressable
 import com.floris.android.ui.onboarding.TourStepKey
 import com.floris.android.ui.onboarding.onboardingTarget
@@ -123,8 +124,8 @@ fun FlorisSidebar(
         // 抽屉本体：从左向右滑入，占整屏宽度的 5/6。
         AnimatedVisibility(
             visible = open,
-            enter = slideInHorizontally(tween(300)) { it } + fadeIn(tween(300)),
-            exit = slideOutHorizontally(tween(260)) { it } + fadeOut(tween(220)),
+            enter = slideInHorizontally(tween(300)) { -it } + fadeIn(tween(300)),
+            exit = slideOutHorizontally(tween(260)) { -it } + fadeOut(tween(220)),
             modifier = Modifier
                 .fillMaxWidth(5f / 6f)
                 .fillMaxHeight(),
@@ -258,7 +259,7 @@ fun FlorisSidebar(
                                 modifier = Modifier.fillMaxSize().clip(CircleShape),
                             )
                         } else {
-                            CatAvatar(size = 34.dp)
+                            UserAvatar(size = 34.dp)
                         }
                     }
                     Spacer(Modifier.width(12.dp))
