@@ -332,18 +332,21 @@ fun ChatScreen(
     // 现在改成：用户在底部附近时用 scrollBy 无动画贴住底部（不打断手势），
     // 一旦用户主动向上翻阅就停止跟随，直到他自己滑回底部。
     var followTail by remember { mutableStateOf(true) }
-    val atBottom by remember {
+    // “接近底部”容差：手滑只往上移一点（约 120dp）仍视为跟随状态，
+    // 这样键盘弹起时内容区会连同输入框一起被托起。
+    val nearBottomTolerancePx = with(density) { 120.dp.toPx() }
+    val nearBottom by remember {
         derivedStateOf {
             val info = listState.layoutInfo
             val last = info.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
             last.index >= info.totalItemsCount - 1 &&
-                last.offset + last.size <= info.viewportEndOffset + 96
+                last.offset + last.size >= info.viewportEndOffset - nearBottomTolerancePx
         }
     }
     // 用户上滑离开底部就交还控制权，滑回底部立刻恢复跟随；
     // 键盘弹起/收起的动画期间不改变跟随状态，避免误判。
-    LaunchedEffect(atBottom, imeVisible) {
-        if (!imeVisible) followTail = atBottom
+    LaunchedEffect(nearBottom, imeVisible) {
+        if (!imeVisible) followTail = nearBottom
     }
 
     // 等待列表完成新视口布局后，把最后一条消息的底部推到视口底部。
