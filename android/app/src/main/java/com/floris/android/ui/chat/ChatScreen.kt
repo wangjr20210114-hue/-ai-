@@ -194,16 +194,21 @@ fun ChatScreen(
     var images by remember { mutableStateOf<List<String>>(emptyList()) }
     var voiceListening by remember { mutableStateOf(false) }
     var voicePrefix by remember { mutableStateOf("") }
+    // 软件风格的功能提示弹窗（语音/相机不可用或权限被拒时使用）。
+    var featureTip by remember { mutableStateOf<Pair<String, String>?>(null) }
     val language = LocalLanguage.current
-    val voiceUnavailableText = t(StringKey.ChatVoiceUnavailable)
-    val voiceController = remember(context, voiceUnavailableText) {
+    val voiceUnavailableTitle = t(StringKey.ChatVoiceUnavailable)
+    val voiceUnavailableBody = t(StringKey.VoiceUnavailableBody)
+    val cameraTitle = t(StringKey.ChatCamera)
+    val cameraUnavailableBody = t(StringKey.CameraUnavailableBody)
+    val voiceController = remember(context, voiceUnavailableTitle, voiceUnavailableBody) {
         VoiceInputController(
             context = context,
             onText = { recognized ->
                 draft = if (voicePrefix.isBlank()) recognized else "$voicePrefix $recognized"
             },
             onListeningChanged = { voiceListening = it },
-            onUnavailable = { scope.launch { snackbar.showSnackbar(voiceUnavailableText) } },
+            onUnavailable = { featureTip = voiceUnavailableTitle to voiceUnavailableBody },
         )
     }
     DisposableEffect(voiceController) {
@@ -214,7 +219,7 @@ fun ChatScreen(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) voiceController.start(language.speechTag)
-        else scope.launch { snackbar.showSnackbar(voiceUnavailableText) }
+        else featureTip = voiceUnavailableTitle to voiceUnavailableBody
     }
 
     // 相机：拍照后作为参考图加入本轮（最多 3 张）。
@@ -241,6 +246,11 @@ fun ChatScreen(
         )
         cameraPhotoUri?.let(takeCameraPhoto::launch)
         Unit
+    }
+    val cameraPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) launchCamera() else featureTip = cameraTitle to cameraUnavailableBody
     }
 
     // 加号：相册图片与文件（PDF 等）合并在同一个系统选择器里，由用户选择。
@@ -330,6 +340,19 @@ fun ChatScreen(
     // 用户上滑离开底部就交还控制权，滑回底部立刻恢复跟随。
     LaunchedEffect(atBottom) { followTail = atBottom }
 
+    // 等待列表完成新视口布局后，把最后一条消息的底部推到视口底部。
+    suspend fun anchorToBottom() {
+        if (state.messages.isEmpty()) return
+        withFrameNanos { }
+        withFrameNanos { }
+        listState.scrollToItem(state.messages.lastIndex)
+        val info = listState.layoutInfo
+        info.visibleItemsInfo.lastOrNull()?.let { item ->
+            val overflow = item.offset + item.size - info.viewportEndOffset
+            if (overflow > 0) listState.scrollBy(overflow.toFloat())
+        }
+    }
+
     val lastMessage = state.messages.lastOrNull()
     LaunchedEffect(lastMessage?.id, lastMessage?.content?.length, state.streaming) {
         if (state.messages.isEmpty() || !followTail) return@LaunchedEffect
@@ -346,21 +369,15 @@ fun ChatScreen(
     LaunchedEffect(state.conversationId, state.messages.size) {
         if (state.messages.isNotEmpty()) {
             followTail = true
-            listState.scrollToItem(state.messages.lastIndex)
+            anchorToBottom()
         }
     }
-    // 键盘弹起、可视区变矮时，若正在贴底跟随则重新滚到底，
+    // 首次加载完成 / 切换对话 / 键盘弹起：无论之前在哪个位置，都强制定位到文末，
     // 让最新消息始终显示在输入框上方（“正文被整体顶起”的视觉效果）。
-    LaunchedEffect(imeVisible) {
-        if (imeVisible && followTail && state.messages.isNotEmpty()) {
-            withFrameNanos { }
-            listState.scrollToItem(state.messages.lastIndex)
-            val info = listState.layoutInfo
-            info.visibleItemsInfo.lastOrNull()?.let { item ->
-                val overflow = item.offset + item.size - info.viewportEndOffset
-                if (overflow > 0) listState.scrollBy(overflow.toFloat())
-            }
-        }
+    LaunchedEffect(state.bootstrapping, state.conversationId, imeVisible) {
+        if (state.bootstrapping || state.messages.isEmpty()) return@LaunchedEffect
+        followTail = true
+        anchorToBottom()
     }
     LaunchedEffect(state.transientError) {
         state.transientError?.let { snackbar.showSnackbar(it); viewModel.consumeError() }
@@ -508,7 +525,18 @@ fun ChatScreen(
                     imageCount = images.size,
                     streaming = state.streaming,
                     uploadingDocument = state.uploadingDocument,
-                    onPickCamera = launchCamera,
+                    onPickCamera = {
+                        if (ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.CAMERA,
+                            ) == PermissionChecker.PERMISSION_GRANTED
+                        ) {
+                            runCatching { launchCamera() }
+                                .onFailure { featureTip = cameraTitle to cameraUnavailableBody }
+                        } else {
+                            cameraPermission.launch(Manifest.permission.CAMERA)
+                        }
+                    },
                     onPickMixed = {
                         pickDocument.launch(arrayOf("image/*", "application/pdf"))
                     },
@@ -518,7 +546,7 @@ fun ChatScreen(
                         if (voiceListening) {
                             voiceController.stop()
                         } else if (!voiceController.available) {
-                            scope.launch { snackbar.showSnackbar(voiceUnavailableText) }
+                            featureTip = voiceUnavailableTitle to voiceUnavailableBody
                         } else {
                             voicePrefix = draft.trimEnd()
                             if (ContextCompat.checkSelfPermission(
@@ -563,7 +591,39 @@ fun ChatScreen(
                     else Modifier.navigationBarsPadding(),
                 ),
         )
+        featureTip?.let { (title, message) ->
+            FeatureTipDialog(
+                title = title,
+                message = message,
+                onDismiss = { featureTip = null },
+            )
+        }
     }
+}
+
+/** 软件风格的轻提示弹窗：猫头像 + 标题 + 说明，统一走应用主题。 */
+@Composable
+private fun FeatureTipDialog(
+    title: String,
+    message: String,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(t(StringKey.Confirm)) }
+        },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CatAvatar(size = 30.dp)
+                Spacer(Modifier.width(10.dp))
+                Text(title, style = MaterialTheme.typography.titleMedium)
+            }
+        },
+        text = {
+            Text(message, style = MaterialTheme.typography.bodyMedium)
+        },
+    )
 }
 
 /** Compact Codex-style drawer for turns waiting behind the active Maker run. */
@@ -1185,7 +1245,7 @@ private fun InputBar(
                 size = 40.dp,
                 iconSize = 24.dp,
                 tint = if (voiceListening) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.onSurfaceVariant,
+                else MaterialTheme.colorScheme.onSurface,
             )
             // 加号：相册 + 文件选择器（PDF 等），上传时置灰防重复。
             CatIconPill(
@@ -1196,8 +1256,8 @@ private fun InputBar(
                 },
                 size = 40.dp,
                 iconSize = 24.dp,
-                tint = if (uploadingDocument) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (uploadingDocument) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                else MaterialTheme.colorScheme.onSurface,
             )
             if (streaming) {
                 PrimaryIconButton(

@@ -50,6 +50,7 @@ enum class StringKey {
     ChatPaperOpened, ChatUploadFailed,
     ChatVoiceStart, ChatVoiceStop, ChatVoiceUnavailable,
     ChatCamera, SidebarOpen, SidebarNewChat, SidebarPlace,
+    VoiceUnavailableBody, CameraUnavailableBody,
     ImageEditHint, ImageEditAction, ImageOriginal, ImageUpdated, ImagePrompt,
     ImageSaveToGallery, ChatAddSchedule, RouteCalendarRequest,
     HintFreshness, HintFreshnessLogin, HintSkill, HintSkillLogin,
@@ -408,6 +409,8 @@ object Strings {
         put(StringKey.ChatNew, "新对话", "新對話", "New chat", "新的一页", "新对话")
         put(StringKey.ChatHistory, "历史记录", "歷史紀錄", "History", "旧纸页", "历史记录")
         put(StringKey.ChatCamera, "拍照", "拍照", "Camera", "拍一张喵", "拍照")
+        put(StringKey.VoiceUnavailableBody, "当前设备没有可用的语音识别服务，或麦克风权限未开启。请检查权限后重试。", "目前裝置沒有可用的語音辨識服務，或麥克風權限未開啟。請檢查權限後重試。", "No speech recognition service is available, or the microphone permission is off. Check permissions and try again.", "这台设备还没接上语音服务，检查下麦克风权限再试试喵。", "当前设备没有可用的语音识别服务，或麦克风权限未开启。")
+        put(StringKey.CameraUnavailableBody, "无法启动相机，请检查相机权限或系统相机应用后重试。", "無法啟動相機，請檢查相機權限或系統相機應用後重試。", "Couldn't open the camera. Check the camera permission or your system camera app.", "相机打不开，检查下权限再试试喵。", "无法启动相机，请检查相机权限。")
         put(StringKey.SidebarOpen, "打开侧边栏", "開啟側邊欄", "Open sidebar", "打开抽屉喵", "打开侧边栏")
         put(StringKey.SidebarNewChat, "开启一个新对话", "開啟一個新對話", "Start a new chat", "开一页新的喵", "开启一个新对话")
         put(StringKey.SidebarPlace, "地点", "地點", "Places", "去哪儿", "地点")

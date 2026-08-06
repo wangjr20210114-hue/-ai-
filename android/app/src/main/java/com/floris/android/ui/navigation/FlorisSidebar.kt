@@ -160,7 +160,7 @@ fun FlorisSidebar(
                     CatIconImage(
                         resId = R.drawable.ic_search,
                         size = 24.dp,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         contentDescription = null,
                     )
                     Spacer(Modifier.width(8.dp))
@@ -325,7 +325,7 @@ private fun SidebarNavRow(
         CatIconImage(
             resId = resId,
             size = 24.dp,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.width(14.dp))
         Text(label, style = MaterialTheme.typography.bodyLarge)
