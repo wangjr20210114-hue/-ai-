@@ -1,5 +1,6 @@
 package com.floris.android.ui.chat
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.floris.android.core.chat.ChatMessageUi
@@ -18,6 +19,10 @@ import com.floris.android.core.data.str
 import com.floris.android.core.model.Clarification
 import com.floris.android.core.model.ChatRun
 import com.floris.android.core.model.Paper
+import com.floris.android.core.model.ProactiveNotification
+import com.floris.android.core.model.ProactiveState
+import com.floris.android.core.model.ProactiveWorkflow
+import com.floris.android.core.model.ProactiveWorkflowStep
 import com.floris.android.core.model.ProgressComponent
 import com.floris.android.core.model.RunPresentation
 import com.floris.android.core.model.SearchMeta
@@ -39,10 +44,13 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import java.time.LocalDate
+import java.util.Locale
 import java.util.UUID
 
 data class ChatUiState(
@@ -51,11 +59,16 @@ data class ChatUiState(
     val streaming: Boolean = false,
     val bootstrapping: Boolean = true,
     val busyActionId: String? = null,
+    /** 会话内 proactive 卡片的忙碌键（通知/工作流操作）。 */
+    val busyProactiveKey: String? = null,
     val submittingClarification: Boolean = false,
+    val uploadingDocument: Boolean = false,
     val locationRequestReason: String? = null,
     val transientError: String? = null,
     val queuedTurns: List<PendingChatTurn> = emptyList(),
     val recovering: Boolean = false,
+    /** Maker 主动提醒投影：通知 + 工作流（服务端状态机决定内容）。 */
+    val proactive: ProactiveState? = null,
 )
 
 enum class ChatSendDisposition { STARTED, QUEUED, QUEUE_FULL, IGNORED }
@@ -86,6 +99,11 @@ class ChatViewModel(
                 it.copy(conversationId = id, queuedTurns = runtimeStore.loadQueue(id))
             }
             restore(id)
+        }
+        viewModelScope.launch {
+            repository.proactiveStateFlow.collect { projection ->
+                _state.update { it.copy(proactive = projection) }
+            }
         }
     }
 
@@ -338,6 +356,148 @@ class ChatViewModel(
         return ChatSendDisposition.STARTED
     }
 
+    // ---------- Chat document upload ----------
+
+    /**
+     * 聊天内 PDF 上传：走 Maker 预签名上传 → 注册阅读库 → 发送 file_uploaded 信号，
+     * 并在会话内追加“已上传文档 / 已打开”提示消息（对齐网页端输入栏）。
+     */
+    fun uploadDocument(uri: Uri, filename: String) {
+        val conversationId = _state.value.conversationId
+        if (conversationId.isBlank() || _state.value.uploadingDocument) return
+        _state.update { it.copy(uploadingDocument = true) }
+        viewModelScope.launch {
+            runCatching {
+                repository.uploadReadingDocument(conversationId, uri, filename)
+            }.onSuccess {
+                appendUploadMessages(filename)
+            }.onFailure {
+                _state.update { s ->
+                    s.copy(transientError = strings.get(StringKey.ChatUploadFailed))
+                }
+            }
+            _state.update { it.copy(uploadingDocument = false) }
+        }
+    }
+
+    private fun appendUploadMessages(filename: String) {
+        val now = System.currentTimeMillis()
+        val userMessage = ChatMessageUi(
+            id = "upload-$now",
+            role = ChatMessageUi.Role.USER,
+            clientMessageId = "upload-$now",
+            content = strings.get(StringKey.ChatUploadedDocument, filename),
+            turnStartedAt = now,
+        )
+        val aiMessage = ChatMessageUi(
+            id = "file-${now + 1}",
+            role = ChatMessageUi.Role.AI,
+            clientMessageId = "upload-$now",
+            content = strings.get(StringKey.ChatPaperOpened),
+            turnStartedAt = now + 1,
+        )
+        _state.update { it.copy(messages = it.messages + userMessage + aiMessage) }
+    }
+
+    // ---------- Proactive in-chat actions ----------
+
+    /** 网页端同款“帮我处理”：把建议话术填入输入框并标记已读。 */
+    fun applyProactiveSuggestion(item: ProactiveNotification) {
+        repository.pendingDraftFlow.value = item.actionPrompt
+            ?.takeIf { it.isNotBlank() }
+            ?: strings.get(StringKey.HelpMeHandle, item.title)
+        runProactive("read:${item.id}", "mark_read") {
+            put("notification_id", item.id)
+        }
+    }
+
+    fun snoozeNotification(notificationId: String) = runProactive(
+        "snooze:$notificationId",
+        "snooze",
+    ) {
+        put("notification_id", notificationId)
+        put("until", System.currentTimeMillis() / 1000 + 3600)
+    }
+
+    fun dismissNotification(notificationId: String) = runProactive(
+        "dismiss:$notificationId",
+        "dismiss",
+    ) {
+        put("notification_id", notificationId)
+    }
+
+    fun confirmWorkflow(workflow: ProactiveWorkflow) = runProactive(
+        "workflow:${workflow.id}",
+        "confirm_workflow",
+    ) {
+        put("workflow_id", workflow.id)
+        put("version", workflow.version)
+    }
+
+    fun rejectWorkflow(workflow: ProactiveWorkflow) = runProactive(
+        "reject:${workflow.id}",
+        "reject_workflow",
+    ) {
+        put("workflow_id", workflow.id)
+        put("version", workflow.version)
+    }
+
+    fun cancelWorkflow(workflow: ProactiveWorkflow) = runProactive(
+        "cancel:${workflow.id}",
+        "cancel_workflow",
+    ) {
+        put("workflow_id", workflow.id)
+        put("version", workflow.version)
+    }
+
+    fun workflowStep(
+        workflow: ProactiveWorkflow,
+        step: ProactiveWorkflowStep,
+        operation: String,
+    ) = runProactive("$operation:${step.id}", operation) {
+        put("workflow_id", workflow.id)
+        put("step_id", step.id)
+    }
+
+    private fun runProactive(
+        busyKey: String,
+        operation: String,
+        input: JsonObjectBuilder.() -> Unit = {},
+    ) {
+        val conversationId = _state.value.conversationId
+        if (conversationId.isBlank()) return
+        _state.update { it.copy(busyProactiveKey = busyKey) }
+        viewModelScope.launch {
+            runCatching {
+                repository.proactive(conversationId, operation, buildJsonObject(input))
+            }
+                .onFailure {
+                    _state.update { s ->
+                        s.copy(transientError = strings.get(StringKey.OperationFailed))
+                    }
+                }
+            _state.update { it.copy(busyProactiveKey = null) }
+        }
+    }
+
+    // ---------- Route -> calendar offer ----------
+
+    /** 网页端同款“添加到日程”：以 route_calendar_offer_accepted 活动发送一轮。 */
+    fun requestRouteCalendarProposal(action: WorkspaceAction) {
+        val routePlanId = action.payload.route_plan_id ?: return
+        val turn = PendingChatTurn(
+            id = UUID.randomUUID().toString(),
+            text = strings.get(StringKey.RouteCalendarRequest),
+            activity = "route_calendar_offer_accepted",
+            routePlanId = routePlanId,
+        )
+        if (_state.value.streaming || streamJob?.isActive == true) {
+            enqueue(turn, first = true)
+            return
+        }
+        executeTurn(turn)
+    }
+
     private fun executeTurn(turn: PendingChatTurn) {
         val conversationId = _state.value.conversationId
         if (conversationId.isBlank()) return
@@ -398,6 +558,8 @@ class ChatViewModel(
         val body = buildJsonObject {
             put("message", turn.text)
             put("client_message_id", turn.id)
+            turn.activity?.let { put("activity", it) }
+            turn.routePlanId?.let { put("route_plan_id", it) }
             if (turn.referenceImages.isNotEmpty()) {
                 putJsonArray("reference_images") {
                     turn.referenceImages.forEach { add(JsonPrimitive(it)) }
@@ -483,6 +645,8 @@ class ChatViewModel(
                     when (event) {
                         is ChatEvent.LocationRequest ->
                             _state.update { it.copy(locationRequestReason = event.reason) }
+                        is ChatEvent.ProactiveUpdate ->
+                            repository.publishProactiveUpdate(event.payload)
                         // 正文交给打字机排队，其余事件立即生效。
                         is ChatEvent.AiResponse -> typewriter.offer(event.content)
                         ChatEvent.AiResponseReset -> {
@@ -779,6 +943,24 @@ class ChatViewModel(
 
     fun provideLocation(latitude: Double, longitude: Double) {
         _state.update { it.copy(locationRequestReason = null) }
+        val roundedLatitude = String.format(Locale.ROOT, "%.2f", latitude)
+        val roundedLongitude = String.format(Locale.ROOT, "%.2f", longitude)
+        viewModelScope.launch {
+            runCatching {
+                repository.proactive(
+                    _state.value.conversationId,
+                    "ingest_signal",
+                    buildJsonObject {
+                        put("signal_type", "browser_location_weather")
+                        put("dedup_key", "${LocalDate.now()}:$roundedLatitude:$roundedLongitude")
+                        put("payload", buildJsonObject {
+                            put("latitude", roundedLatitude.toDouble())
+                            put("longitude", roundedLongitude.toDouble())
+                        })
+                    },
+                )
+            }
+        }
         val message = lastUserMessage ?: return
         enqueue(
             PendingChatTurn(
@@ -853,6 +1035,20 @@ class ChatViewModel(
 
     fun confirmAction(action: WorkspaceAction) = workspaceAction(action, "confirm_action")
     fun cancelAction(action: WorkspaceAction) = workspaceAction(action, "cancel_action")
+    fun updateMeetingAction(
+        action: WorkspaceAction,
+        subject: String,
+        startTime: String,
+        endTime: String,
+    ) = workspaceAction(
+        action,
+        "update_meeting_action",
+        buildJsonObject {
+            put("subject", subject)
+            put("start_time", startTime)
+            put("end_time", endTime)
+        },
+    )
 
     fun activateMap(action: WorkspaceAction) {
         val conversationId = _state.value.conversationId
@@ -890,8 +1086,14 @@ class ChatViewModel(
             runCatching {
                 repository.streamImageEdit(conversationId, instruction, action.id).collect { event ->
                     when (event) {
-                        is ChatEvent.ImageAction -> replaceAction(event.action)
-                        is ChatEvent.WorkspaceActionEvent -> replaceAction(event.action)
+                        is ChatEvent.ImageAction -> {
+                            replaceAction(event.action)
+                            ingestGeneratedImage(event.action)
+                        }
+                        is ChatEvent.WorkspaceActionEvent -> {
+                            replaceAction(event.action)
+                            ingestGeneratedImage(event.action)
+                        }
                         is ChatEvent.Error -> error(event.content)
                         else -> Unit
                     }
@@ -907,7 +1109,11 @@ class ChatViewModel(
         }
     }
 
-    private fun workspaceAction(action: WorkspaceAction, operation: String) {
+    private fun workspaceAction(
+        action: WorkspaceAction,
+        operation: String,
+        input: JsonObject = JsonObject(emptyMap()),
+    ) {
         val conversationId = _state.value.conversationId
         _state.update { it.copy(busyActionId = action.id) }
         viewModelScope.launch {
@@ -917,6 +1123,7 @@ class ChatViewModel(
                     buildJsonObject {
                         put("action_id", action.id)
                         put("version", action.version)
+                        input.forEach { (key, value) -> put(key, value) }
                     },
                 )
             }.onSuccess { response ->
@@ -924,7 +1131,10 @@ class ChatViewModel(
                 response.obj("action")?.let { element ->
                     runCatching {
                         json.decodeFromJsonElement(WorkspaceAction.serializer(), element)
-                    }.getOrNull()?.let(::replaceAction)
+                    }.getOrNull()?.let { next ->
+                        replaceAction(next)
+                        ingestGeneratedImage(next)
+                    }
                 }
                 response.arr("schedules")?.let {
                     repository.schedulesFlow.value = repository.parseSchedules(it)
@@ -935,6 +1145,30 @@ class ChatViewModel(
                 }
             }
             _state.update { it.copy(busyActionId = null) }
+        }
+    }
+
+    private suspend fun ingestGeneratedImage(action: WorkspaceAction) {
+        val prompt = action.payload.prompt
+            ?: action.result?.str("prompt")
+            ?: return
+        if (action.kind != "image_generate" || action.status != "succeeded" || prompt.isBlank()) return
+        val hasPrevious = !action.payload.parent_action_id.isNullOrBlank()
+        runCatching {
+            repository.proactive(
+                _state.value.conversationId,
+                "ingest_signal",
+                buildJsonObject {
+                    put("signal_type", "image_generated")
+                    put("dedup_key", action.id)
+                    put("payload", buildJsonObject {
+                        put("action_id", action.id)
+                        put("prompt", prompt)
+                        put("has_reference_image", hasPrevious)
+                        put("has_previous_version", hasPrevious)
+                    })
+                },
+            )
         }
     }
 

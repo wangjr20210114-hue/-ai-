@@ -55,5 +55,15 @@ class SearchProjectionTest {
         assertFalse(message.searchResults?.media_pending ?: true)
     }
 
+    @Test
+    fun `standalone stage timing supplies final search duration`() {
+        val message = assistant().reduce(
+            ChatEvent.StageTiming(mapOf("planning" to 12.0, "search" to 1_450.0)),
+        )
+
+        assertEquals(1_450.0, message.stageTimingsMs["search"])
+        assertEquals("1.5", message.searchDurationSeconds)
+    }
+
     private fun assistant() = ChatMessageUi(id = "a1", role = ChatMessageUi.Role.AI)
 }

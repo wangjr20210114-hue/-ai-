@@ -8,6 +8,7 @@ import com.floris.android.core.model.SearchMeta
 import com.floris.android.core.model.WorkspaceAction
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -20,6 +21,7 @@ sealed interface ChatEvent {
     data object AiResponseReset : ChatEvent
     data class ToolActivity(val isCall: Boolean, val name: String, val content: String?) : ChatEvent
     data class Progress(val payload: ProgressComponent) : ChatEvent
+    data class StageTiming(val timingsMs: Map<String, Double>) : ChatEvent
     data class SearchResults(val payload: SearchMeta) : ChatEvent
     data class SearchMedia(val payload: SearchMeta) : ChatEvent
     data class PaperResultsEvent(val payload: PaperResults) : ChatEvent
@@ -60,6 +62,11 @@ class ChatEventDispatcher(private val json: Json) {
         "tool_result" -> ChatEvent.ToolActivity(false, obj.str("name"), obj.strOrNull("content"))
         "progress_event" -> ChatEvent.Progress(
             json.decodeFromJsonElement(ProgressComponent.serializer(), obj.requiredPayload()),
+        )
+        "stage_timing" -> ChatEvent.StageTiming(
+            (obj["timings_ms"] as? JsonObject).orEmpty().mapNotNull { (stage, value) ->
+                value.jsonPrimitive.doubleOrNull?.let { stage to it }
+            }.toMap(),
         )
         "search_results" -> ChatEvent.SearchResults(
             json.decodeFromJsonElement(SearchMeta.serializer(), obj.requiredPayload()),

@@ -3,7 +3,9 @@ package com.floris.android.ui.chat
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.location.LocationManager
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -58,6 +60,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.outlined.AddCircle
 import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.NorthEast
@@ -88,6 +91,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -109,18 +113,24 @@ import com.floris.android.AppContainer
 import com.floris.android.R
 import com.floris.android.core.chat.ChatMessageUi
 import com.floris.android.core.chat.PendingChatTurn
+import com.floris.android.core.model.ProactiveNotification
+import com.floris.android.core.model.ProactiveState
+import com.floris.android.core.model.ProactiveWorkflow
+import com.floris.android.core.model.ProactiveWorkflowStep
 import com.floris.android.core.share.ImageSaver
 import com.floris.android.core.share.MarkdownPlainText
 import com.floris.android.ui.chatViewModelFactory
 import com.floris.android.ui.components.AnimateIn
 import com.floris.android.ui.components.CatAvatar
 import com.floris.android.ui.components.ClarificationForm
+import com.floris.android.ui.components.ExperienceHints
 import com.floris.android.ui.components.FollowUpChips
 import com.floris.android.ui.components.IconPill
 import com.floris.android.ui.components.ImageCreationProgress
 import com.floris.android.ui.components.MarkdownText
 import com.floris.android.ui.components.MediaGrid
 import com.floris.android.ui.components.PaperListCard
+import com.floris.android.ui.components.ProactiveChatCard
 import com.floris.android.ui.components.PrimaryIconButton
 import com.floris.android.ui.components.QuotePill
 import com.floris.android.ui.components.SearchCompleteMeta
@@ -195,6 +205,55 @@ fun ChatScreen(
                 container.repository.imageToDataUrl(uri)?.let { dataUrl ->
                     images = (images + dataUrl).take(3)
                 }
+            }
+        }
+    }
+
+    val pickDocument = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        uri?.let { picked ->
+            val name = runCatching {
+                context.contentResolver.query(
+                    picked,
+                    arrayOf(OpenableColumns.DISPLAY_NAME),
+                    null,
+                    null,
+                    null,
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        cursor.getString(0)
+                    } else null
+                }
+            }.getOrNull()?.takeIf { it.isNotBlank() } ?: "document.pdf"
+            viewModel.uploadDocument(picked, name)
+        }
+    }
+
+    // 生图卡片“保存到相册”的忙碌状态（按 action id 区分）。
+    var savingGeneratedImageId by remember { mutableStateOf<String?>(null) }
+    val generatedSavedText = t(StringKey.SavedToGallery)
+    val generatedSaveFailedText = t(StringKey.SaveImageFailed)
+    val saveGeneratedImage: (com.floris.android.core.model.WorkspaceAction) -> Unit = { action ->
+        val url = action.result?.let { result ->
+            listOf("image_url", "url", "current_url").firstNotNullOfOrNull { key ->
+                (result[key] as? kotlinx.serialization.json.JsonPrimitive)
+                    ?.content?.takeIf { it.isNotBlank() }
+            }
+        }
+        if (url != null && savingGeneratedImageId == null) {
+            savingGeneratedImageId = action.id
+            scope.launch {
+                val result = runCatching {
+                    val bytes = container.repository.fetchImageBytes(url)
+                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        ?: error("图片解码失败")
+                    ImageSaver.saveToGallery(context, bitmap.asImageBitmap())
+                }.fold(onSuccess = { it }, onFailure = { Result.failure(it) })
+                snackbar.showSnackbar(
+                    if (result.isSuccess) generatedSavedText else generatedSaveFailedText,
+                )
+                savingGeneratedImageId = null
             }
         }
     }
@@ -341,6 +400,10 @@ fun ChatScreen(
                                         ChatMessageUi.Role.USER -> UserRow(message)
                                         ChatMessageUi.Role.AI -> AssistantRow(
                                             message = message,
+                                            isLastAi = index == state.messages.lastIndex,
+                                            proactive = state.proactive,
+                                            busyProactiveKey = state.busyProactiveKey,
+                                            isGuest = container.authManager.isGuest,
                                             busyActionId = state.busyActionId,
                                             submittingClarification = state.submittingClarification,
                                             onConfirm = viewModel::confirmAction,
@@ -350,6 +413,17 @@ fun ChatScreen(
                                                 onOpenMap()
                                             },
                                             onEditImage = viewModel::editImage,
+                                            onUpdateMeeting = viewModel::updateMeetingAction,
+                                            onRouteCalendarProposal = viewModel::requestRouteCalendarProposal,
+                                            onSaveGeneratedImage = saveGeneratedImage,
+                                            savingGeneratedImageId = savingGeneratedImageId,
+                                            onHandleProactive = viewModel::applyProactiveSuggestion,
+                                            onSnoozeProactive = viewModel::snoozeNotification,
+                                            onDismissProactive = viewModel::dismissNotification,
+                                            onConfirmWorkflow = viewModel::confirmWorkflow,
+                                            onRejectWorkflow = viewModel::rejectWorkflow,
+                                            onCancelWorkflow = viewModel::cancelWorkflow,
+                                            onProactiveStep = viewModel::workflowStep,
                                             onClarificationSubmit = { clarification, answers ->
                                                 viewModel.submitClarification(clarification, answers)
                                             },
@@ -378,10 +452,14 @@ fun ChatScreen(
                     onDraftChange = { draft = it },
                     imageCount = images.size,
                     streaming = state.streaming,
+                    uploadingDocument = state.uploadingDocument,
                     onPickImages = {
                         pickImages.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                         )
+                    },
+                    onPickDocument = {
+                        pickDocument.launch(arrayOf("application/pdf"))
                     },
                     onClearImages = { images = emptyList() },
                     voiceListening = voiceListening,
@@ -707,12 +785,32 @@ private fun UserRow(message: ChatMessageUi) {
 @Composable
 private fun AssistantRow(
     message: ChatMessageUi,
+    isLastAi: Boolean,
+    proactive: ProactiveState?,
+    busyProactiveKey: String?,
+    isGuest: Boolean,
     busyActionId: String?,
     submittingClarification: Boolean,
     onConfirm: (com.floris.android.core.model.WorkspaceAction) -> Unit,
     onCancel: (com.floris.android.core.model.WorkspaceAction) -> Unit,
     onShowMap: (com.floris.android.core.model.WorkspaceAction) -> Unit,
     onEditImage: (com.floris.android.core.model.WorkspaceAction, String) -> Unit,
+    onUpdateMeeting: (
+        com.floris.android.core.model.WorkspaceAction,
+        String,
+        String,
+        String,
+    ) -> Unit,
+    onRouteCalendarProposal: (com.floris.android.core.model.WorkspaceAction) -> Unit,
+    onSaveGeneratedImage: (com.floris.android.core.model.WorkspaceAction) -> Unit,
+    savingGeneratedImageId: String?,
+    onHandleProactive: (ProactiveNotification) -> Unit,
+    onSnoozeProactive: (String) -> Unit,
+    onDismissProactive: (String) -> Unit,
+    onConfirmWorkflow: (ProactiveWorkflow) -> Unit,
+    onRejectWorkflow: (ProactiveWorkflow) -> Unit,
+    onCancelWorkflow: (ProactiveWorkflow) -> Unit,
+    onProactiveStep: (ProactiveWorkflow, ProactiveWorkflowStep, String) -> Unit,
     onClarificationSubmit: (com.floris.android.core.model.Clarification, Map<String, Any>) -> Unit,
     onFollowUp: (String) -> Unit,
     onRetry: () -> Unit,
@@ -756,6 +854,9 @@ private fun AssistantRow(
             }
             if (!message.streaming) {
                 SearchCompleteMeta(message)
+            }
+            if (!message.streaming) {
+                ExperienceHints(message.hints, isGuest)
             }
             message.searchResults?.let { meta ->
                 if (meta.results.isNotEmpty()) {
@@ -814,6 +915,13 @@ private fun AssistantRow(
                     onCancel = { onCancel(action) },
                     onShowMap = { onShowMap(action) },
                     onEditImage = { prompt -> onEditImage(action, prompt) },
+                    onUpdateMeeting = { subject, start, end ->
+                        onUpdateMeeting(action, subject, start, end)
+                    },
+                    onRouteCalendarProposal = { onRouteCalendarProposal(action) },
+                    hasCalendarProposal = message.actions.any { it.kind == "calendar_changes" },
+                    onSaveImage = { onSaveGeneratedImage(action) },
+                    savingImage = savingGeneratedImageId == action.id,
                 )
             }
         }
@@ -861,6 +969,19 @@ private fun AssistantRow(
         if (!message.streaming) {
             FollowUpChips(message.followUps, onClick = onFollowUp)
         }
+        if (isLastAi) {
+            ProactiveChatCard(
+                state = proactive,
+                busyKey = busyProactiveKey,
+                onHandle = onHandleProactive,
+                onSnooze = onSnoozeProactive,
+                onDismiss = onDismissProactive,
+                onConfirmWorkflow = onConfirmWorkflow,
+                onRejectWorkflow = onRejectWorkflow,
+                onCancelWorkflow = onCancelWorkflow,
+                onStep = onProactiveStep,
+            )
+        }
     }
 }
 
@@ -901,7 +1022,9 @@ private fun InputBar(
     onDraftChange: (String) -> Unit,
     imageCount: Int,
     streaming: Boolean,
+    uploadingDocument: Boolean,
     onPickImages: () -> Unit,
+    onPickDocument: () -> Unit,
     onClearImages: () -> Unit,
     voiceListening: Boolean,
     onVoice: () -> Unit,
@@ -951,6 +1074,17 @@ private fun InputBar(
                 onClick = onPickImages,
                 size = 40.dp,
                 iconSize = 19.dp,
+            )
+            IconPill(
+                icon = Icons.Outlined.Description,
+                contentDescription = t(StringKey.ChatAddDocument),
+                onClick = {
+                    if (!uploadingDocument) onPickDocument()
+                },
+                size = 40.dp,
+                iconSize = 19.dp,
+                tint = if (uploadingDocument) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                else MaterialTheme.colorScheme.onSurfaceVariant,
             )
             IconPill(
                 icon = if (voiceListening) Icons.Default.MicOff else Icons.Default.Mic,

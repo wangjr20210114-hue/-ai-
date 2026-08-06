@@ -30,6 +30,8 @@ data class ChatMessageUi(
     val progress: ProgressComponent? = null,
     /** 全部已收到的阶段（同一 stage:activity 去重更新），用于绘制时间线。 */
     val progressTrail: List<ProgressComponent> = emptyList(),
+    /** Maker-reported stage timings; retained without exposing technical stage names. */
+    val stageTimingsMs: Map<String, Double> = emptyMap(),
     val toolNames: List<String> = emptyList(),
     val hints: List<ExperienceHintItem> = emptyList(),
     val streaming: Boolean = false,
@@ -60,7 +62,8 @@ data class ChatMessageUi(
             if (start != null && end != null && end > start) {
                 return "%.1f".format((end - start) / 1000.0)
             }
-            return searchResults?.timings_ms?.get("search")?.takeIf { it > 0 }
+            return (searchResults?.timings_ms?.get("search") ?: stageTimingsMs["search"])
+                ?.takeIf { it > 0 }
                 ?.let { "%.1f".format(it / 1000.0) }
         }
 }
@@ -75,6 +78,7 @@ fun ChatMessageUi.reduce(event: ChatEvent): ChatMessageUi = when (event) {
         progress = event.payload,
         progressTrail = progressTrail.mergeProgress(event.payload),
     )
+    is ChatEvent.StageTiming -> copy(stageTimingsMs = stageTimingsMs + event.timingsMs)
     is ChatEvent.SearchResults -> copy(searchResults = searchResults.mergeProjection(event.payload))
     is ChatEvent.SearchMedia -> copy(searchResults = searchResults.mergeProjection(event.payload))
     is ChatEvent.PaperResultsEvent -> copy(papers = event.payload.papers)

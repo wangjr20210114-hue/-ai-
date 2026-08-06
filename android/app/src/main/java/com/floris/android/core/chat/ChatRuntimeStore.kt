@@ -15,6 +15,10 @@ data class PendingChatTurn(
     val createdAt: Long = System.currentTimeMillis(),
     val latitude: Double? = null,
     val longitude: Double? = null,
+    /** Maker 活动类型（如 route_calendar_offer_accepted）；普通提问为 null。 */
+    val activity: String? = null,
+    /** 路线转日程所需的路由计划 ID（仅 route_calendar_offer_accepted 使用）。 */
+    val routePlanId: String? = null,
 )
 
 /**

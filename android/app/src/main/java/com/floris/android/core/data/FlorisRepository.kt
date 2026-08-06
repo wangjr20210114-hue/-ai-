@@ -77,6 +77,8 @@ class FlorisRepository(
     /** Backend-confirmed workspace projections shared across screens. */
     val schedulesFlow = kotlinx.coroutines.flow.MutableStateFlow<List<Schedule>>(emptyList())
     val mapWorkspaceFlow = kotlinx.coroutines.flow.MutableStateFlow(MapWorkspaceState())
+    private val _proactiveStateFlow = kotlinx.coroutines.flow.MutableStateFlow<ProactiveState?>(null)
+    val proactiveStateFlow = _proactiveStateFlow.asStateFlow()
     private val _skillAccessFlow = kotlinx.coroutines.flow.MutableStateFlow(SkillAccessProjection())
     val skillAccessFlow = _skillAccessFlow.asStateFlow()
     private val skillAccessMutex = Mutex()
@@ -93,11 +95,15 @@ class FlorisRepository(
     fun clearLocalIdentityProjection() {
         schedulesFlow.value = emptyList()
         mapWorkspaceFlow.value = MapWorkspaceState()
+        _proactiveStateFlow.value = null
         _skillAccessFlow.value = SkillAccessProjection()
         skillAccessFetchedAt = 0L
         pendingDraftFlow.value = null
         localAvatarFlow.value = null
     }
+
+    /** 下载公开 HTTPS 图片字节（生图结果保存到相册）。 */
+    suspend fun fetchImageBytes(url: String): ByteArray = client.fetchBytes(url)
 
     fun publishMapWorkspace(map: JsonObject, fallbackTitle: String?) {
         val places = (map["places"] as? JsonArray).orEmpty().mapNotNull {
@@ -548,7 +554,28 @@ class FlorisRepository(
                 put("preview", extracted.str("preview") ?: "")
             },
         )
-        registered.obj("item") ?: registered
+        val item = registered.obj("item") ?: registered
+        // Signal only the minimal metadata. Maker owns opportunity detection,
+        // deduplication and reminder policy; upload success never depends on it.
+        runCatching {
+            proactive(
+                conversationId,
+                "ingest_signal",
+                buildJsonObject {
+                    put("signal_type", "file_uploaded")
+                    put("dedup_key", storageKey)
+                    putJsonObject("payload") {
+                        put("file_id", item.str("file_id") ?: storageKey)
+                        put("storage_key", storageKey)
+                        put("filename", filename)
+                        put("mime_type", contentType)
+                        put("is_paper", true)
+                        put("preview", extracted.str("preview") ?: "")
+                    }
+                },
+            )
+        }
+        item
     }
 
     /** 阅读库条目（后端已自动整理为文件夹）。 */
@@ -874,7 +901,7 @@ class FlorisRepository(
                 put("operation", JsonPrimitive(operation))
                 input.forEach { (key, value) -> put(key, value) }
             }),
-        )
+        ).also(::publishProactiveUpdate)
 
     suspend fun proactiveState(conversationId: String): ProactiveState =
         decodeProactive(proactive(conversationId, "get"))
@@ -887,6 +914,12 @@ class FlorisRepository(
 
     private fun decodeProactive(response: JsonObject): ProactiveState =
         json.decodeFromJsonElement(ProactiveState.serializer(), response)
+
+    /** Publish the same Maker projection received by REST or the chat SSE stream. */
+    fun publishProactiveUpdate(response: JsonObject) {
+        runCatching { decodeProactive(response) }
+            .onSuccess { _proactiveStateFlow.value = it }
+    }
 
     fun parseProactiveNotifications(response: JsonObject): List<ProactiveNotification> {
         val raw = response.arr("notifications") ?: response.arr("items") ?: response.arr("briefs")

@@ -12,6 +12,18 @@ class ChatEventDispatcherTest {
     private val dispatcher = ChatEventDispatcher(Json { ignoreUnknownKeys = true })
 
     @Test
+    fun `stage timing is retained as typed Maker telemetry`() {
+        val event = dispatcher.dispatch(
+            """{"type":"stage_timing","timings_ms":{"planning":12,"search":1450.5}}""",
+        )
+
+        assertTrue(event is ChatEvent.StageTiming)
+        event as ChatEvent.StageTiming
+        assertEquals(12.0, event.timingsMs["planning"])
+        assertEquals(1450.5, event.timingsMs["search"])
+    }
+
+    @Test
     fun `ai_response maps to AiResponse`() {
         val event = dispatcher.dispatch("""{"type":"ai_response","content":"你好"}""")
         assertEquals(ChatEvent.AiResponse("你好"), event)

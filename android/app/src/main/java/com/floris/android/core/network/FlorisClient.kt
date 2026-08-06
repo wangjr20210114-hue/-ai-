@@ -189,6 +189,27 @@ class FlorisClient(
     }
 
     /**
+     * 下载公开 HTTPS 资源字节（生图结果保存到相册等）。
+     *
+     * 使用 blobClient 的独立连接池，绝不携带 Floris Bearer；仅接受 HTTPS，
+     * 避免把任意内网/明文地址交给下载器。
+     */
+    suspend fun fetchBytes(url: String): ByteArray = withContext(Dispatchers.IO) {
+        require(url.startsWith("https://")) { "Only HTTPS download URLs are accepted" }
+        val request = Request.Builder()
+            .url(url)
+            .get()
+            .build()
+        blobClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw ApiException(status = response.code, requestPath = "files/blob")
+            }
+            response.body?.bytes()
+                ?: throw ApiException(status = response.code, requestPath = "files/blob")
+        }
+    }
+
+    /**
      * SSE streaming for POST /reader (论文助读：summarize / translate / analyze / qa).
      * Emits incremental `paper_delta` text; falls back to a plain JSON body.
      */

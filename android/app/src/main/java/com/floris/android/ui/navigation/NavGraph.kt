@@ -194,8 +194,15 @@ private fun MainShell(
     // Warm Maker's shared entitlement projection without blocking chat startup.
     // Calendar, maps and reading then consume the same server-owned decision.
     LaunchedEffect(sessionKey) {
-        runCatching {
-            container.repository.ensureSkillAccess(container.repository.activeConversationId())
+        val conversationId = container.repository.activeConversationId()
+        launch {
+            runCatching { container.repository.ensureSkillAccess(conversationId) }
+        }
+        launch {
+            runCatching { container.repository.proactive(conversationId, "page_open") }
+        }
+        launch {
+            runCatching { container.repository.proactive(conversationId, "memory_refresh") }
         }
     }
 

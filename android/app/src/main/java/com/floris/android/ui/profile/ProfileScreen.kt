@@ -53,6 +53,7 @@ import com.floris.android.core.auth.AuthState
 import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.model.Identity
 import com.floris.android.core.model.ProactiveNotification
+import com.floris.android.core.model.ProactiveState
 import com.floris.android.core.model.Profile
 import com.floris.android.ui.components.CatAvatar
 import com.floris.android.ui.components.FlorisCard
@@ -111,7 +112,14 @@ class ProfileViewModel(
     private val _state = MutableStateFlow(UiState())
     val state = _state.asStateFlow()
 
-    init { refresh() }
+    init {
+        viewModelScope.launch {
+            repository.proactiveStateFlow.collect { projection ->
+                projection?.let(::applyProactive)
+            }
+        }
+        refresh()
+    }
 
     fun refresh() {
         if (_state.value.refreshing) return
@@ -166,8 +174,13 @@ class ProfileViewModel(
     }
 
     private fun applyProactive(response: JsonObject) {
-        val parsed = repository.parseProactiveNotifications(response)
-        val active = activeNotifications(parsed)
+        val active = activeNotifications(repository.parseProactiveNotifications(response))
+        _state.update { it.copy(notifications = active) }
+        pushToStatusBar(active)
+    }
+
+    private fun applyProactive(projection: ProactiveState) {
+        val active = activeNotifications(projection.notifications)
         _state.update { it.copy(notifications = active) }
         pushToStatusBar(active)
     }

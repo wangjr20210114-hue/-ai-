@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -87,7 +89,14 @@ class PersonalizationViewModel(
     private val _state = MutableStateFlow(UiState())
     val state = _state.asStateFlow()
 
-    init { refresh() }
+    init {
+        viewModelScope.launch {
+            repository.proactiveStateFlow.collect { projection ->
+                projection?.let { next -> _state.update { it.copy(proactive = next) } }
+            }
+        }
+        refresh()
+    }
 
     fun refresh() = viewModelScope.launch {
         val conversationId = repository.activeConversationId()
@@ -556,6 +565,7 @@ private fun ProactivePreferencesCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WorkflowCard(
     workflow: ProactiveWorkflow,
@@ -591,13 +601,24 @@ private fun WorkflowCard(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        if (workflow.status == "active" && step.status in setOf("pending", "notified", "failed", "attention_required")) {
-                            Row(Modifier.padding(top = 6.dp)) {
+                        if (workflow.status == "active" && step.status in setOf("pending", "notified", "failed", "attention_required", "compensating")) {
+                            FlowRow(
+                                modifier = Modifier.padding(top = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
                                 if (step.status == "failed" || step.status == "attention_required") {
                                     PillButton(
                                         t(StringKey.Retry),
                                         { onStep(workflow, step, "retry_workflow_step") },
                                         style = PillStyle.Tonal,
+                                        compact = true,
+                                        enabled = enabled,
+                                    )
+                                } else if (step.status == "compensating") {
+                                    PillButton(
+                                        t(StringKey.WorkflowCompensationComplete),
+                                        { onStep(workflow, step, "compensate_workflow_step") },
                                         compact = true,
                                         enabled = enabled,
                                     )
@@ -612,6 +633,13 @@ private fun WorkflowCard(
                                     PillButton(
                                         t(StringKey.WorkflowCompleteStep),
                                         { onStep(workflow, step, "complete_workflow_step") },
+                                        compact = true,
+                                        enabled = enabled,
+                                    )
+                                    PillButton(
+                                        t(StringKey.WorkflowMarkFailed),
+                                        { onStep(workflow, step, "fail_workflow_step") },
+                                        style = PillStyle.Ghost,
                                         compact = true,
                                         enabled = enabled,
                                     )

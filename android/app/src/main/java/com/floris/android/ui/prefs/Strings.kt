@@ -17,6 +17,9 @@ enum class StringKey {
     // 主动提醒
     Reminders, NoReminders, RefreshReminders, HandleSuggestion, Later, Ignore,
     RemindLaterAt, ReminderOperationFailed, NotificationChannelName, NotificationChannelDescription,
+    // 会话内主动提醒（与网页端 ProactiveRenderer 对齐）
+    ChatProactiveHandle, ChatProactiveSnooze, HelpMeHandle,
+    ChatProactiveOngoing, ChatProactiveAwaiting, ChatProactiveCurrentStep, ChatProactiveSyncing,
     // 游客与退出
     LoginAsGuest, GuestBadge, GuestUpgradeHint, ExitConfirmToast,
     LoginOr, GuestSignInCta, GuestProfileNotice,
@@ -36,12 +39,18 @@ enum class StringKey {
     ChatSourceCount, PaperCited, LocationPermissionTitle, LocationPermissionBody,
     AttachedImageCount, ActionMapTitle, ActionCalendarTitle, ActionMeetingTitle,
     ActionImageTitle, ActionWorkspaceTitle, ActionRouteMode, CalendarChangeAdd,
-    CalendarChangeUpdate, MeetingSubject, MeetingTime, Unscheduled, Yes, No,
+    CalendarChangeUpdate, MeetingSubject, MeetingTime, MeetingSubjectLabel,
+    MeetingStartTime, MeetingEndTime, MeetingSaveCheck, MeetingAcceptWarning,
+    MeetingJoin, MeetingCode, MeetingStartValue, TraceId, Unscheduled, Yes, No,
     SelectValue, InputPlaceholder,
     ChatQueueTitle, ChatQueueEdit, ChatQueueDelete, ChatQueueRunNow, ChatQueueFull,
     ChatRename, ChatRenameHint, ChatMessageCount, TimeJustNow, TimeMinutesAgo,
-    TimeHoursAgo, TimeDaysAgo, ChatAddImage, ChatVoiceStart, ChatVoiceStop, ChatVoiceUnavailable,
+    TimeHoursAgo, TimeDaysAgo, ChatAddImage, ChatAddDocument, ChatUploadedDocument,
+    ChatPaperOpened, ChatUploadFailed,
+    ChatVoiceStart, ChatVoiceStop, ChatVoiceUnavailable,
     ImageEditHint, ImageEditAction, ImageOriginal, ImageUpdated, ImagePrompt,
+    ImageSaveToGallery, ChatAddSchedule, RouteCalendarRequest,
+    HintFreshness, HintFreshnessLogin, HintSkill, HintSkillLogin,
     ChatRestoreFailed, ChatConnectionInterrupted, ChatGenerationFailed,
     ChatImageFailed, OperationFailed, NetworkUnavailable, SessionExpired,
     LoginRequired, MembershipRequired, TooManyRequests, ServiceUnavailable,
@@ -117,7 +126,8 @@ enum class StringKey {
     ProactiveLookahead, ProactiveWindowLimit, ProactiveProviderLimit,
     ProactiveRouteGap, ProactiveTravelBuffer, WorkflowSection, WorkflowEmpty,
     WorkflowConfirm, WorkflowReject, WorkflowCancel, WorkflowCompleteStep,
-    WorkflowSkipStep, SettingsSaved, SettingsSaveFailed,
+    WorkflowSkipStep, WorkflowMarkFailed, WorkflowCompensationComplete,
+    SettingsSaved, SettingsSaveFailed,
     SettingsResetSucceeded, SettingsResetFailed,
     // 登录
     LoginEmail, LoginSendCode, LoginSending, LoginCode, LoginSignIn, LoginSigningIn,
@@ -252,6 +262,13 @@ object Strings {
         put(StringKey.Later, "稍后", "稍後", "Later", "等一下", "稍后")
         put(StringKey.Ignore, "忽略", "忽略", "Ignore", "不用啦", "忽略")
         put(StringKey.RemindLaterAt, "{0} 再提醒", "{0} 再提醒", "Remind at {0}", "{0} 再喊你喵", "{0} 再提醒")
+        put(StringKey.ChatProactiveHandle, "帮我处理", "幫我處理", "Handle for me", "帮我处理喵", "帮我处理")
+        put(StringKey.ChatProactiveSnooze, "一小时后提醒", "一小時後提醒", "Remind in 1 hour", "一小时后提醒喵", "一小时后提醒")
+        put(StringKey.HelpMeHandle, "帮我处理：{0}", "幫我處理：{0}", "Handle for me: {0}", "帮我处理：{0} 喵", "帮我处理：{0}")
+        put(StringKey.ChatProactiveOngoing, "进行中：{0}", "進行中：{0}", "In progress: {0}", "正在进行：{0}", "进行中：{0}")
+        put(StringKey.ChatProactiveAwaiting, "待确认：{0}", "待確認：{0}", "Awaiting confirmation: {0}", "等你确认：{0}", "待确认：{0}")
+        put(StringKey.ChatProactiveCurrentStep, "当前步骤：{0}", "目前步驟：{0}", "Current step: {0}", "现在这步：{0}", "当前步骤：{0}")
+        put(StringKey.ChatProactiveSyncing, "计划同步中", "計畫同步中", "Syncing plan", "计划同步中喵", "计划同步中")
         put(
             StringKey.ReminderOperationFailed,
             "操作失败，请稍后重试", "操作失敗，請稍後重試", "Action failed. Please try again",
@@ -423,6 +440,15 @@ object Strings {
         put(StringKey.CalendarChangeUpdate, "更新", "更新", "Update", "更新", "更新")
         put(StringKey.MeetingSubject, "主题：{0}", "主題：{0}", "Subject: {0}", "主题：{0}", "主题：{0}")
         put(StringKey.MeetingTime, "时间：{0} ~ {1}", "時間：{0} ~ {1}", "Time: {0} – {1}", "时间：{0} 到 {1}", "时间：{0} ~ {1}")
+        put(StringKey.MeetingSubjectLabel, "会议主题", "會議主題", "Meeting subject", "会议叫什么", "会议主题")
+        put(StringKey.MeetingStartTime, "开始时间", "開始時間", "Start time", "什么时候开始", "开始时间")
+        put(StringKey.MeetingEndTime, "结束时间", "結束時間", "End time", "什么时候结束", "结束时间")
+        put(StringKey.MeetingSaveCheck, "保存并检查", "儲存並檢查", "Save and check", "保存再检查", "保存并校验")
+        put(StringKey.MeetingAcceptWarning, "我已了解：{0}", "我已了解：{0}", "I understand: {0}", "知道啦：{0}", "确认风险：{0}")
+        put(StringKey.MeetingJoin, "加入会议", "加入會議", "Join meeting", "去开会", "加入会议")
+        put(StringKey.MeetingCode, "会议号：{0}", "會議號：{0}", "Meeting code: {0}", "会议号：{0}", "会议号：{0}")
+        put(StringKey.MeetingStartValue, "开始时间：{0}", "開始時間：{0}", "Starts at: {0}", "开始时间：{0}", "开始时间：{0}")
+        put(StringKey.TraceId, "追踪 ID：{0}", "追蹤 ID：{0}", "Trace ID: {0}", "追踪 ID：{0}", "追踪 ID：{0}")
         put(StringKey.Unscheduled, "未定", "未定", "Not set", "还没定", "未定")
         put(StringKey.Yes, "是", "是", "Yes", "是呀", "是")
         put(StringKey.No, "否", "否", "No", "不是", "否")
@@ -454,6 +480,10 @@ object Strings {
         put(StringKey.TimeHoursAgo, "{0} 小时前", "{0} 小時前", "{0} hr ago", "{0} 小时前喵", "{0} 小时前")
         put(StringKey.TimeDaysAgo, "{0} 天前", "{0} 天前", "{0} days ago", "{0} 天前喵", "{0} 天前")
         put(StringKey.ChatAddImage, "添加图片", "新增圖片", "Add image", "加张图片", "添加图片")
+        put(StringKey.ChatAddDocument, "上传文档", "上傳文件", "Upload document", "传个文档", "上传文档")
+        put(StringKey.ChatUploadedDocument, "已上传文档：{0}", "已上傳文件：{0}", "Uploaded document: {0}", "传好啦：{0}", "已上传文档：{0}")
+        put(StringKey.ChatPaperOpened, "已打开 PDF，可在“阅读”标签继续助读", "已開啟 PDF，可在「閱讀」標籤繼續助讀", "PDF opened. Continue reading in the Reading tab.", "PDF 打开啦，去“阅读”继续看喵", "已打开 PDF，可在“阅读”标签继续助读")
+        put(StringKey.ChatUploadFailed, "上传失败，请重试", "上傳失敗，請重試", "Upload failed. Try again.", "没传上去，再试一次喵", "上传失败，请重试")
         put(StringKey.ChatVoiceStart, "语音输入", "語音輸入", "Voice input", "说给我听", "语音输入")
         put(StringKey.ChatVoiceStop, "停止听写", "停止聽寫", "Stop listening", "听好啦", "停止听写")
         put(StringKey.ChatVoiceUnavailable, "此设备暂不支持语音输入", "此裝置暫不支援語音輸入", "Voice input is unavailable on this device", "这台设备还听不了喵", "此设备不支持语音输入")
@@ -462,6 +492,13 @@ object Strings {
         put(StringKey.ImageOriginal, "原图", "原圖", "Original", "原图", "原图")
         put(StringKey.ImageUpdated, "新图", "新圖", "Updated", "新图", "新图")
         put(StringKey.ImagePrompt, "提示词：{0}", "提示詞：{0}", "Prompt: {0}", "提示词：{0}", "提示词：{0}")
+        put(StringKey.ImageSaveToGallery, "保存到相册", "儲存到相簿", "Save to gallery", "存到相册喵", "保存到相册")
+        put(StringKey.ChatAddSchedule, "添加到日程", "新增到日程", "Add to schedule", "加进日程喵", "添加到日程")
+        put(StringKey.RouteCalendarRequest, "把刚规划好的路线添加到日程", "把剛規劃好的路線新增到日程", "Add the route I just planned to my calendar", "把刚规划好的路线加进日程喵", "把刚规划好的路线添加到日程")
+        put(StringKey.HintFreshness, "回答基于近期公开信息", "回答基於近期公開資訊", "Based on recent public information", "这是最近的信息整理喵", "回答基于近期公开信息")
+        put(StringKey.HintFreshnessLogin, "登录后可获取更新的信息", "登入後可取得更新的資訊", "Sign in for fresher information", "登录后信息会更新鲜喵", "登录后可获取更新的信息")
+        put(StringKey.HintSkill, "已使用技能：{0}", "已使用技能：{0}", "Skills used: {0}", "用到了：{0}", "已使用技能：{0}")
+        put(StringKey.HintSkillLogin, "登录后可解锁更多技能：{0}", "登入後可解鎖更多技能：{0}", "Sign in for more skills: {0}", "登录后能解锁：{0}", "登录后可解锁更多技能：{0}")
         put(StringKey.ChatRestoreFailed, "对话恢复失败，请重试", "對話恢復失敗，請重試", "Couldn't restore this chat. Try again.", "没找回这段对话，再试一次喵", "对话恢复失败，请重试")
         put(StringKey.ChatConnectionInterrupted, "连接中断，请重试", "連線中斷，請重試", "Connection interrupted. Try again.", "连接断了一下，再试试喵", "连接中断，请重试")
         put(StringKey.ChatGenerationFailed, "生成失败，请重试", "生成失敗，請重試", "Generation failed. Try again.", "这次没写完，再试一次喵", "生成失败，请重试")
@@ -947,6 +984,8 @@ object Strings {
         put(StringKey.WorkflowCancel, "结束计划", "結束計畫", "End plan", "结束吧", "结束计划")
         put(StringKey.WorkflowCompleteStep, "完成这一步", "完成這一步", "Complete step", "这步做好啦", "完成步骤")
         put(StringKey.WorkflowSkipStep, "跳过", "跳過", "Skip", "先跳过", "跳过")
+        put(StringKey.WorkflowMarkFailed, "遇到问题", "遇到問題", "Report a problem", "这步卡住了", "标记失败")
+        put(StringKey.WorkflowCompensationComplete, "已处理影响", "已處理影響", "Impact resolved", "影响处理好啦", "补偿完成")
         put(StringKey.SettingsSaved, "已保存", "已儲存", "Saved", "记好啦", "已保存")
         put(StringKey.SettingsSaveFailed, "保存失败，请重试", "儲存失敗，請重試", "Couldn't save. Try again.", "没记住，再试一次喵", "保存失败，请重试")
         put(StringKey.SettingsResetSucceeded, "数据已清除", "資料已清除", "Data cleared", "已经收拾干净啦", "数据已清除")

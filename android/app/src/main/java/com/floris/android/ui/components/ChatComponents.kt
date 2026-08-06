@@ -67,15 +67,28 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.floris.android.core.model.Clarification
+import com.floris.android.core.model.ExperienceHintItem
 import com.floris.android.core.model.MediaItem
 import com.floris.android.core.model.Paper
 import com.floris.android.core.model.ProgressComponent
+import com.floris.android.core.model.ProactiveNotification
+import com.floris.android.core.model.ProactiveState
+import com.floris.android.core.model.ProactiveWorkflow
+import com.floris.android.core.model.ProactiveWorkflowStep
 import com.floris.android.core.model.SearchMeta
 import com.floris.android.core.model.WorkspaceAction
 import com.floris.android.core.chat.sourceBoundSegments
+import com.floris.android.core.data.str
 import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.t
 import java.net.URI
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -240,6 +253,11 @@ fun WorkspaceActionCard(
     onCancel: () -> Unit,
     onShowMap: () -> Unit,
     onEditImage: (String) -> Unit,
+    onUpdateMeeting: (String, String, String) -> Unit,
+    onRouteCalendarProposal: () -> Unit,
+    hasCalendarProposal: Boolean,
+    onSaveImage: () -> Unit,
+    savingImage: Boolean,
     modifier: Modifier = Modifier,
 ) {
     if (!action.isKnownKind) {
@@ -306,30 +324,42 @@ fun WorkspaceActionCard(
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
-            when (action.kind) {
-                "map_recommendation" -> MapActionBody(action)
-                "calendar_changes" -> CalendarActionBody(action)
-                "meeting_create" -> MeetingActionBody(action)
-                "image_generate" -> ImageActionBody(action, busy, onEditImage)
+            val canConfirm = if (action.kind == "meeting_create") {
+                meetingActionBody(action, busy, onUpdateMeeting)
+            } else {
+                when (action.kind) {
+                    "map_recommendation" -> MapActionBody(action)
+                    "calendar_changes" -> CalendarActionBody(action)
+                    "image_generate" -> ImageActionBody(
+                        action,
+                        busy,
+                        onEditImage,
+                        onSaveImage,
+                        savingImage,
+                    )
+                }
+                true
             }
 
             action.error?.let {
                 Spacer(Modifier.height(6.dp))
                 Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
             }
-            action.payload.warnings.forEach {
+            if (action.kind != "meeting_create") action.payload.warnings.forEach {
                 Text("⚠ $it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
             }
 
-            // Only awaiting_confirmation actions offer decisions, and success
-            // is rendered exclusively from the backend-confirmed status.
-            AnimatedVisibility(visible = action.status == "awaiting_confirmation") {
+            // 地图推荐在 ready/active/awaiting_confirmation 均可操作（网页端同款），
+            // 其余动作只在等待确认时提供决策；成功只来自后端确认的状态。
+            val mapActionable = action.kind == "map_recommendation" &&
+                action.status in setOf("ready", "active", "awaiting_confirmation")
+            AnimatedVisibility(visible = action.status == "awaiting_confirmation" || mapActionable) {
                 Row(
                     Modifier.padding(top = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (action.kind == "map_recommendation") {
+                    if (mapActionable) {
                         PillButton(
                             text = action.payload.action_text ?: t(StringKey.MapShowOnMap),
                             onClick = onShowMap,
@@ -337,20 +367,31 @@ fun WorkspaceActionCard(
                             enabled = !busy,
                             compact = true,
                         )
+                        if (action.payload.calendar_offer == true && !hasCalendarProposal) {
+                            PillButton(
+                                text = t(StringKey.ChatAddSchedule),
+                                onClick = onRouteCalendarProposal,
+                                style = PillStyle.Tonal,
+                                enabled = !busy,
+                                compact = true,
+                            )
+                        }
                     }
-                    PillButton(
-                        text = if (busy) t(StringKey.Loading) else t(StringKey.Confirm),
-                        onClick = onConfirm,
-                        enabled = !busy,
-                        compact = true,
-                    )
-                    PillButton(
-                        text = t(StringKey.Cancel),
-                        onClick = onCancel,
-                        style = PillStyle.Ghost,
-                        enabled = !busy,
-                        compact = true,
-                    )
+                    if (action.status == "awaiting_confirmation") {
+                        PillButton(
+                            text = if (busy) t(StringKey.Loading) else t(StringKey.Confirm),
+                            onClick = onConfirm,
+                            enabled = !busy && canConfirm,
+                            compact = true,
+                        )
+                        PillButton(
+                            text = t(StringKey.Cancel),
+                            onClick = onCancel,
+                            style = PillStyle.Ghost,
+                            enabled = !busy,
+                            compact = true,
+                        )
+                    }
                 }
             }
         }
@@ -432,25 +473,227 @@ private fun CalendarActionBody(action: WorkspaceAction) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun MeetingActionBody(action: WorkspaceAction) {
+private fun meetingActionBody(
+    action: WorkspaceAction,
+    busy: Boolean,
+    onUpdate: (String, String, String) -> Unit,
+): Boolean {
     val payload = action.payload
-    if (payload.subject == null && payload.start_time == null) return
-    Spacer(Modifier.height(8.dp))
-    payload.subject?.let {
-        Text(t(StringKey.MeetingSubject, it), style = MaterialTheme.typography.labelLarge)
+    val uriHandler = LocalUriHandler.current
+    val result = action.result
+    if (action.status != "awaiting_confirmation") {
+        if (payload.subject == null && payload.start_time == null && result == null) return true
+        Spacer(Modifier.height(8.dp))
+        payload.subject?.let {
+            Text(t(StringKey.MeetingSubject, it), style = MaterialTheme.typography.labelLarge)
+        }
+        if (payload.start_time != null) {
+            Text(
+                t(
+                    StringKey.MeetingTime,
+                    meetingTimeLabel(meetingEpoch(payload.start_time)),
+                    meetingTimeLabel(meetingEpoch(payload.end_time)),
+                ),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        result?.str("join_url")?.takeIf { it.startsWith("https://") }?.let { joinUrl ->
+            Spacer(Modifier.height(8.dp))
+            PillButton(
+                text = t(StringKey.MeetingJoin),
+                onClick = { uriHandler.openUri(joinUrl) },
+                compact = true,
+            )
+        }
+        result?.str("meeting_code")?.takeIf { it.isNotBlank() }?.let { code ->
+            Spacer(Modifier.height(6.dp))
+            Text(
+                t(StringKey.MeetingCode, code),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        result?.str("start_time")?.takeIf { it.isNotBlank() }?.let { start ->
+            Spacer(Modifier.height(4.dp))
+            Text(
+                t(StringKey.MeetingStartValue, start),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        result?.str("trace_id")?.takeIf { it.isNotBlank() }?.let { traceId ->
+            Spacer(Modifier.height(4.dp))
+            Text(
+                t(StringKey.TraceId, traceId),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+            )
+        }
+        return true
     }
-    if (payload.start_time != null) {
-        Text(
-            t(
-                StringKey.MeetingTime,
-                payload.start_time,
-                payload.end_time ?: t(StringKey.Unscheduled),
+
+    var subject by remember(action.id, action.version) { mutableStateOf(payload.subject.orEmpty()) }
+    var startMillis by remember(action.id, action.version) {
+        mutableStateOf(meetingEpoch(payload.start_time))
+    }
+    var endMillis by remember(action.id, action.version) {
+        mutableStateOf(meetingEpoch(payload.end_time))
+    }
+    var pickerTarget by remember(action.id, action.version) { mutableStateOf<String?>(null) }
+    var pendingDate by remember(action.id, action.version) { mutableStateOf<LocalDate?>(null) }
+    val acknowledged = remember(action.id, action.version) { mutableStateMapOf<String, Boolean>() }
+
+    Spacer(Modifier.height(8.dp))
+    Text(t(StringKey.MeetingSubjectLabel), style = MaterialTheme.typography.labelMedium)
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 5.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+    ) {
+        if (subject.isBlank()) {
+            Text(
+                t(StringKey.MeetingSubjectLabel),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        BasicTextField(
+            value = subject,
+            onValueChange = { subject = it.take(120) },
+            textStyle = MaterialTheme.typography.bodySmall.copy(
+                color = MaterialTheme.colorScheme.onSurface,
             ),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            modifier = Modifier.fillMaxWidth(),
         )
     }
+
+    FlowRow(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        PillButton(
+            text = "${t(StringKey.MeetingStartTime)} · ${meetingTimeLabel(startMillis)}",
+            onClick = { pickerTarget = "start"; pendingDate = null },
+            style = PillStyle.Tonal,
+            compact = true,
+            enabled = !busy,
+        )
+        PillButton(
+            text = "${t(StringKey.MeetingEndTime)} · ${meetingTimeLabel(endMillis)}",
+            onClick = { pickerTarget = "end"; pendingDate = null },
+            style = PillStyle.Tonal,
+            compact = true,
+            enabled = !busy,
+        )
+    }
+
+    payload.validation_errors.forEach { message ->
+        Text(message, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+    }
+    payload.warnings.forEach { warning ->
+        SelectRow(
+            label = t(StringKey.MeetingAcceptWarning, warning),
+            selected = acknowledged[warning] == true,
+            multi = true,
+            onClick = { acknowledged[warning] = acknowledged[warning] != true },
+        )
+    }
+
+    val normalizedSubject = subject.trim()
+    val timesComplete = startMillis != null && endMillis != null && endMillis!! > startMillis!!
+    val dirty = normalizedSubject != payload.subject.orEmpty().trim() ||
+        startMillis != meetingEpoch(payload.start_time) || endMillis != meetingEpoch(payload.end_time)
+    val needsCheck = dirty || payload.missing_fields.isNotEmpty() || payload.validation_errors.isNotEmpty()
+    val warningsAccepted = payload.warnings.all { acknowledged[it] == true }
+    if (needsCheck) {
+        Spacer(Modifier.height(8.dp))
+        PillButton(
+            text = t(StringKey.MeetingSaveCheck),
+            onClick = {
+                onUpdate(
+                    normalizedSubject,
+                    Instant.ofEpochMilli(startMillis!!).toString(),
+                    Instant.ofEpochMilli(endMillis!!).toString(),
+                )
+            },
+            enabled = !busy && normalizedSubject.isNotBlank() && timesComplete,
+            compact = true,
+        )
+    }
+
+    val targetMillis = if (pickerTarget == "end") endMillis else startMillis
+    if (pickerTarget != null && pendingDate == null) {
+        val initial = targetMillis ?: nextWholeHourMillis()
+        val localDate = Instant.ofEpochMilli(initial).atZone(ZoneId.systemDefault()).toLocalDate()
+        val initialDateMillis = localDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val picker = rememberDatePickerState(initialSelectedDateMillis = initialDateMillis)
+        DatePickerDialog(
+            onDismissRequest = { pickerTarget = null },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDate = picker.selectedDateMillis?.let {
+                        Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()
+                    } ?: localDate
+                }) { Text(t(StringKey.Confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pickerTarget = null }) { Text(t(StringKey.Cancel)) }
+            },
+        ) { DatePicker(state = picker) }
+    }
+    pendingDate?.let { date ->
+        val initial = Instant.ofEpochMilli(targetMillis ?: nextWholeHourMillis())
+            .atZone(ZoneId.systemDefault())
+        val picker = rememberTimePickerState(initialHour = initial.hour, initialMinute = initial.minute)
+        AlertDialog(
+            onDismissRequest = { pickerTarget = null; pendingDate = null },
+            confirmButton = {
+                TextButton(onClick = {
+                    val selected = date.atTime(picker.hour, picker.minute)
+                        .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                    if (pickerTarget == "end") endMillis = selected else startMillis = selected
+                    pickerTarget = null
+                    pendingDate = null
+                }) { Text(t(StringKey.Confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pickerTarget = null; pendingDate = null }) {
+                    Text(t(StringKey.Cancel))
+                }
+            },
+            text = { TimePicker(state = picker) },
+        )
+    }
+
+    return !needsCheck && timesComplete && warningsAccepted
+}
+
+private fun meetingEpoch(value: String?): Long? {
+    val source = value?.trim()?.takeIf(String::isNotEmpty) ?: return null
+    return runCatching { Instant.parse(source).toEpochMilli() }
+        .recoverCatching { OffsetDateTime.parse(source).toInstant().toEpochMilli() }
+        .recoverCatching {
+            LocalDateTime.parse(source).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        }
+        .getOrNull()
+}
+
+private fun meetingTimeLabel(value: Long?): String = value?.let {
+    Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT))
+} ?: "—"
+
+private fun nextWholeHourMillis(): Long {
+    val now = java.time.ZonedDateTime.now(ZoneId.systemDefault())
+    return now.plusHours(1).withMinute(0).withSecond(0).withNano(0).toInstant().toEpochMilli()
 }
 
 @Composable
@@ -458,6 +701,8 @@ private fun ImageActionBody(
     action: WorkspaceAction,
     busy: Boolean,
     onEditImage: (String) -> Unit,
+    onSaveImage: () -> Unit,
+    savingImage: Boolean,
 ) {
     action.payload.prompt?.let {
         Spacer(Modifier.height(6.dp))
@@ -571,6 +816,14 @@ private fun ImageActionBody(
                 compact = true,
             )
         }
+        Spacer(Modifier.height(8.dp))
+        PillButton(
+            text = if (savingImage) t(StringKey.Loading) else t(StringKey.ImageSaveToGallery),
+            onClick = onSaveImage,
+            style = PillStyle.Tonal,
+            enabled = !busy && !savingImage,
+            compact = true,
+        )
     }
 }
 
@@ -855,6 +1108,253 @@ fun FollowUpChips(items: List<String>, onClick: (String) -> Unit, modifier: Modi
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(13.dp),
                     )
+                }
+            }
+        }
+    }
+}
+
+// ---------- Experience hints ----------
+
+/** 网页端同款“经验提示”：回答后展示时效/技能来源，不包含模型思维链。 */
+@Composable
+fun ExperienceHints(
+    hints: List<ExperienceHintItem>,
+    isGuest: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    if (hints.isEmpty()) return
+    Column(modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        hints.forEach { hint ->
+            val names = hint.skill_ids.joinToString("、")
+            val text = when (hint.kind) {
+                "freshness" -> t(
+                    if (hint.login_required == true && isGuest) {
+                        StringKey.HintFreshnessLogin
+                    } else StringKey.HintFreshness,
+                )
+                "skill" -> t(
+                    if (hint.login_required == true && isGuest) {
+                        StringKey.HintSkillLogin
+                    } else StringKey.HintSkill,
+                    names,
+                )
+                else -> return@forEach
+            }
+            Text(
+                text,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+// ---------- In-chat proactive ----------
+
+/** 会话内展示的主动提醒：前 3 条、非 dismissed（与网页端一致）。 */
+fun chatProactiveNotifications(state: ProactiveState?): List<ProactiveNotification> =
+    state?.notifications.orEmpty()
+        .filter { it.status != "dismissed" }
+        .take(3)
+
+fun chatAwaitingWorkflows(state: ProactiveState?): List<ProactiveWorkflow> =
+    state?.workflows.orEmpty()
+        .filter { it.status == "awaiting_confirmation" }
+
+fun chatActiveWorkflows(state: ProactiveState?): List<ProactiveWorkflow> =
+    state?.workflows.orEmpty()
+        .filter { it.status == "active" }
+
+/** 工作流当前待处理步骤（completed/skipped/compensated 之外的第一个）。 */
+fun chatActiveWorkflowStep(workflow: ProactiveWorkflow): ProactiveWorkflowStep? =
+    workflow.steps.firstOrNull {
+        it.status !in setOf("completed", "skipped", "compensated")
+    }
+
+fun chatProactiveHasItems(state: ProactiveState?): Boolean =
+    chatProactiveNotifications(state).isNotEmpty() ||
+        chatAwaitingWorkflows(state).isNotEmpty() ||
+        chatActiveWorkflows(state).isNotEmpty()
+
+/**
+ * 会话内主动提醒卡（与网页端 ProactiveRenderer 对应）：
+ * 通知（帮我处理 / 一小时后提醒 / 忽略）与长期计划（确认 / 拒绝 / 步骤操作 / 结束）。
+ * Maker 负责状态机，客户端只把用户决定原样转发。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ProactiveChatCard(
+    state: ProactiveState?,
+    busyKey: String?,
+    onHandle: (ProactiveNotification) -> Unit,
+    onSnooze: (String) -> Unit,
+    onDismiss: (String) -> Unit,
+    onConfirmWorkflow: (ProactiveWorkflow) -> Unit,
+    onRejectWorkflow: (ProactiveWorkflow) -> Unit,
+    onCancelWorkflow: (ProactiveWorkflow) -> Unit,
+    onStep: (ProactiveWorkflow, ProactiveWorkflowStep, String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val notifications = chatProactiveNotifications(state)
+    val awaitingWorkflows = chatAwaitingWorkflows(state)
+    val activeWorkflows = chatActiveWorkflows(state)
+    if (!chatProactiveHasItems(state)) return
+
+    FlorisCard(modifier = modifier.padding(top = 8.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            notifications.forEach { item ->
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(item.title, style = MaterialTheme.typography.labelLarge)
+                    item.body?.takeIf { it.isNotBlank() }?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        PillButton(
+                            text = if (busyKey == "read:${item.id}") t(StringKey.Loading)
+                            else t(StringKey.ChatProactiveHandle),
+                            onClick = { onHandle(item) },
+                            compact = true,
+                            enabled = busyKey == null || busyKey == "read:${item.id}",
+                        )
+                        PillButton(
+                            text = if (busyKey == "snooze:${item.id}") t(StringKey.Loading)
+                            else t(StringKey.ChatProactiveSnooze),
+                            onClick = { onSnooze(item.id) },
+                            style = PillStyle.Ghost,
+                            compact = true,
+                            enabled = busyKey == null || busyKey == "snooze:${item.id}",
+                        )
+                        PillButton(
+                            text = if (busyKey == "dismiss:${item.id}") t(StringKey.Loading)
+                            else t(StringKey.Ignore),
+                            onClick = { onDismiss(item.id) },
+                            style = PillStyle.Ghost,
+                            compact = true,
+                            enabled = busyKey == null || busyKey == "dismiss:${item.id}",
+                        )
+                    }
+                }
+            }
+
+            awaitingWorkflows.forEach { workflow ->
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        t(StringKey.ChatProactiveAwaiting, workflow.title),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    workflow.reason.takeIf { it.isNotBlank() }?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        PillButton(
+                            text = if (busyKey == "workflow:${workflow.id}") t(StringKey.Loading)
+                            else t(StringKey.WorkflowConfirm),
+                            onClick = { onConfirmWorkflow(workflow) },
+                            compact = true,
+                            enabled = busyKey == null || busyKey == "workflow:${workflow.id}",
+                        )
+                        PillButton(
+                            text = if (busyKey == "reject:${workflow.id}") t(StringKey.Loading)
+                            else t(StringKey.WorkflowReject),
+                            onClick = { onRejectWorkflow(workflow) },
+                            style = PillStyle.Ghost,
+                            compact = true,
+                            enabled = busyKey == null || busyKey == "reject:${workflow.id}",
+                        )
+                    }
+                }
+            }
+
+            activeWorkflows.forEach { workflow ->
+                val step = chatActiveWorkflowStep(workflow)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        t(StringKey.ChatProactiveOngoing, workflow.title),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    Text(
+                        step?.let { t(StringKey.ChatProactiveCurrentStep, it.title) }
+                            ?: t(StringKey.ChatProactiveSyncing),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        if (step != null) {
+                            when (step.status) {
+                                "pending", "notified" -> {
+                                    PillButton(
+                                        text = if (busyKey == "complete_workflow_step:${step.id}")
+                                            t(StringKey.Loading) else t(StringKey.WorkflowCompleteStep),
+                                        onClick = { onStep(workflow, step, "complete_workflow_step") },
+                                        compact = true,
+                                        enabled = busyKey == null ||
+                                            busyKey == "complete_workflow_step:${step.id}",
+                                    )
+                                    PillButton(
+                                        text = if (busyKey == "skip_workflow_step:${step.id}")
+                                            t(StringKey.Loading) else t(StringKey.WorkflowSkipStep),
+                                        onClick = { onStep(workflow, step, "skip_workflow_step") },
+                                        style = PillStyle.Ghost,
+                                        compact = true,
+                                        enabled = busyKey == null ||
+                                            busyKey == "skip_workflow_step:${step.id}",
+                                    )
+                                    PillButton(
+                                        text = if (busyKey == "fail_workflow_step:${step.id}")
+                                            t(StringKey.Loading) else t(StringKey.WorkflowMarkFailed),
+                                        onClick = { onStep(workflow, step, "fail_workflow_step") },
+                                        style = PillStyle.Ghost,
+                                        compact = true,
+                                        enabled = busyKey == null ||
+                                            busyKey == "fail_workflow_step:${step.id}",
+                                    )
+                                }
+                                "compensating" -> PillButton(
+                                    text = if (busyKey == "compensate_workflow_step:${step.id}")
+                                        t(StringKey.Loading) else t(StringKey.WorkflowCompensationComplete),
+                                    onClick = { onStep(workflow, step, "compensate_workflow_step") },
+                                    compact = true,
+                                    enabled = busyKey == null ||
+                                        busyKey == "compensate_workflow_step:${step.id}",
+                                )
+                                "failed", "attention_required" -> PillButton(
+                                    text = if (busyKey == "retry_workflow_step:${step.id}")
+                                        t(StringKey.Loading) else t(StringKey.Retry),
+                                    onClick = { onStep(workflow, step, "retry_workflow_step") },
+                                    style = PillStyle.Ghost,
+                                    compact = true,
+                                    enabled = busyKey == null ||
+                                        busyKey == "retry_workflow_step:${step.id}",
+                                )
+                            }
+                        }
+                        PillButton(
+                            text = if (busyKey == "cancel:${workflow.id}") t(StringKey.Loading)
+                            else t(StringKey.WorkflowCancel),
+                            onClick = { onCancelWorkflow(workflow) },
+                            style = PillStyle.Ghost,
+                            compact = true,
+                            enabled = busyKey == null || busyKey == "cancel:${workflow.id}",
+                        )
+                    }
                 }
             }
         }
