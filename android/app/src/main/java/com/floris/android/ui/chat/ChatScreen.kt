@@ -92,6 +92,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -181,6 +182,7 @@ fun ChatScreen(
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val imeVisible = WindowInsets.isImeVisible
 
     var draft by remember { mutableStateOf("") }
     var images by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -341,6 +343,19 @@ fun ChatScreen(
             listState.scrollToItem(state.messages.lastIndex)
         }
     }
+    // 键盘弹起、可视区变矮时，若正在贴底跟随则重新滚到底，
+    // 让最新消息始终显示在输入框上方（“正文被整体顶起”的视觉效果）。
+    LaunchedEffect(imeVisible) {
+        if (imeVisible && followTail && state.messages.isNotEmpty()) {
+            withFrameNanos { }
+            listState.scrollToItem(state.messages.lastIndex)
+            val info = listState.layoutInfo
+            info.visibleItemsInfo.lastOrNull()?.let { item ->
+                val overflow = item.offset + item.size - info.viewportEndOffset
+                if (overflow > 0) listState.scrollBy(overflow.toFloat())
+            }
+        }
+    }
     LaunchedEffect(state.transientError) {
         state.transientError?.let { snackbar.showSnackbar(it); viewModel.consumeError() }
     }
@@ -399,17 +414,12 @@ fun ChatScreen(
                 },
             )
 
-            // header 固定不动；键盘弹起时 body（消息区 + 输入框）整体顶起并紧贴键盘，
-            // 键盘收起时 body 底部仅让出导航栏高度，输入框不会贴到屏幕最底边。
-            val imeVisible = WindowInsets.isImeVisible
+            // header 固定不动；键盘弹起时 body（消息区 + 输入框）整体让出键盘高度并紧贴键盘。
             Column(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .then(
-                        if (imeVisible) Modifier.imePadding()
-                        else Modifier.navigationBarsPadding(),
-                    ),
+                    .imePadding(),
             ) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when {
@@ -529,6 +539,14 @@ fun ChatScreen(
                     },
                     onStop = viewModel::stop,
                 )
+                // 键盘收起时补固定留白 + 导航栏内边距，输入框不会贴到屏幕最底边。
+                if (!imeVisible) {
+                    Spacer(
+                        Modifier
+                            .height(20.dp)
+                            .navigationBarsPadding(),
+                    )
+                }
             }
         }
         SnackbarHost(
