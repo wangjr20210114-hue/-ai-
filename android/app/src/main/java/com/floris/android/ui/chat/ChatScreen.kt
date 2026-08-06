@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.History
@@ -154,6 +155,7 @@ import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.LocalLanguage
 import com.floris.android.ui.prefs.t
 import com.floris.android.ui.theme.LocalDarkTheme
+import com.floris.android.ui.theme.CatIcons
 import com.floris.android.ui.theme.userBubbleBrush
 import kotlinx.coroutines.launch
 import java.io.File
@@ -395,6 +397,7 @@ fun ChatScreen(
                     .imePadding(),
             ) {
                 ChatTopBar(
+                    title = state.conversationTitle,
                     onOpenSidebar = onOpenSidebar,
                     onToggleTheme = {
                         scope.launch { container.preferences.toggleTheme(dark) }
@@ -650,6 +653,7 @@ private fun QueueTurnRow(
 
 @Composable
 private fun ChatTopBar(
+    title: String,
     onOpenSidebar: () -> Unit,
     onToggleTheme: () -> Unit,
 ) {
@@ -661,24 +665,32 @@ private fun ChatTopBar(
     ) {
         // 左侧：三横杠打开侧边栏。
         IconPill(
-            icon = Icons.Default.Menu,
+            icon = Icons.Outlined.Menu,
             contentDescription = t(StringKey.SidebarOpen),
             onClick = onOpenSidebar,
             size = 40.dp,
             iconSize = 22.dp,
             modifier = Modifier.align(Alignment.CenterStart),
         )
-        // 中间：大橘 logo。
-        Row(
-            Modifier.align(Alignment.Center),
-            verticalAlignment = Alignment.CenterVertically,
+        // 中间：对话名 + AI 提示小字（品牌与 logo 已移除）。
+        Column(
+            Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth(0.62f),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            CatAvatar(size = 34.dp)
-            Spacer(Modifier.width(8.dp))
             Text(
-                "FLORIS",
-                style = MaterialTheme.typography.titleLarge,
+                title.ifBlank { t(StringKey.ChatNew) },
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                t(StringKey.AiDisclaimer),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
             )
         }
         // 右侧：白天 / 黑夜切换。
@@ -1137,7 +1149,7 @@ private fun InputBar(
             )
             // 加号：相册 + 文件选择器（PDF 等），上传时置灰防重复。
             IconPill(
-                icon = Icons.Default.Add,
+                icon = CatIcons.CatPlus,
                 contentDescription = t(StringKey.ChatAddDocument),
                 onClick = {
                     if (!uploadingDocument) onPickMixed()

@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Settings
@@ -68,6 +69,7 @@ import com.floris.android.ui.onboarding.TourStepKey
 import com.floris.android.ui.onboarding.onboardingTarget
 import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.t
+import com.floris.android.ui.theme.CatIcons
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -148,7 +150,7 @@ fun FlorisSidebar(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        Icons.Default.Search,
+                        Icons.Outlined.Search,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp),
@@ -194,9 +196,9 @@ fun FlorisSidebar(
                 HorizontalDivider(Modifier.padding(horizontal = 12.dp))
 
                 // 3. 地点 / 日程 / 阅读。
-                SidebarNavRow(Icons.Outlined.Public, t(StringKey.SidebarPlace), onOpenPlace)
-                SidebarNavRow(Icons.Outlined.DateRange, t(StringKey.CalendarTitle), onOpenCalendar)
-                SidebarNavRow(Icons.AutoMirrored.Outlined.MenuBook, t(StringKey.ReadingTitle), onOpenReading)
+                SidebarNavRow(CatIcons.PawPin, t(StringKey.SidebarPlace), onOpenPlace)
+                SidebarNavRow(CatIcons.CatCalendar, t(StringKey.CalendarTitle), onOpenCalendar)
+                SidebarNavRow(CatIcons.CatBook, t(StringKey.ReadingTitle), onOpenReading)
                 HorizontalDivider(Modifier.padding(horizontal = 12.dp))
 
                 // 4. 历史对话列表（不显示标题，直接可滑动）。
@@ -280,7 +282,7 @@ fun FlorisSidebar(
                         iconSize = 17.dp,
                     )
                     IconPill(
-                        icon = Icons.Filled.Notifications,
+                        icon = CatIcons.CatBell,
                         contentDescription = t(StringKey.Reminders),
                         onClick = onOpenReminders,
                         size = 34.dp,

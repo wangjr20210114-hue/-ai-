@@ -34,6 +34,7 @@ enum class StringKey {
     TabChat, TabSkills, TabCalendar, TabReading, TabProfile,
     // 聊天
     AppTagline, ChatIntro, ChatInputHint, ChatStop, ChatNew, ChatHistory,
+    AiDisclaimer,
     SuggestNews, SuggestBooks, SuggestPlace, SuggestCode,
     ChatSources, ChatEmptyHistoryTitle, ChatEmptyHistoryBody,
     ChatSourceCount, PaperCited, LocationPermissionTitle, LocationPermissionBody,
@@ -402,6 +403,7 @@ object Strings {
             "直接对话即可。支持行程、会议、搜索、翻译、论文与生图。",
         )
         put(StringKey.ChatInputHint, "发消息…", "發訊息…", "Message Floris…", "发消息喵…", "发消息。")
+        put(StringKey.AiDisclaimer, "AI生成可能有误 注意核实", "AI 生成可能有誤，請注意核實", "AI-generated · verify details", "AI 说的可能有错，自己核实下喵", "AI生成可能有误 注意核实")
         put(StringKey.ChatStop, "停止", "停止", "Stop", "先停一下", "停止")
         put(StringKey.ChatNew, "新对话", "新對話", "New chat", "新的一页", "新对话")
         put(StringKey.ChatHistory, "历史记录", "歷史紀錄", "History", "旧纸页", "历史记录")

@@ -55,6 +55,8 @@ import java.util.UUID
 
 data class ChatUiState(
     val conversationId: String = "",
+    /** 顶栏显示的对话名（来自 Maker 会话索引，新对话用占位名）。 */
+    val conversationTitle: String = "",
     val messages: List<ChatMessageUi> = emptyList(),
     val streaming: Boolean = false,
     val bootstrapping: Boolean = true,
@@ -98,6 +100,7 @@ class ChatViewModel(
             _state.update {
                 it.copy(conversationId = id, queuedTurns = runtimeStore.loadQueue(id))
             }
+            refreshConversationTitle(id)
             restore(id)
         }
         viewModelScope.launch {
@@ -118,6 +121,7 @@ class ChatViewModel(
                 conversationId = id,
                 queuedTurns = runtimeStore.loadQueue(id),
             )
+            refreshConversationTitle(id)
             restore(id)
         }
     }
@@ -135,9 +139,22 @@ class ChatViewModel(
             conversationId = id,
             bootstrapping = false,
             queuedTurns = runtimeStore.loadQueue(id),
+            conversationTitle = strings.get(StringKey.ChatNew),
         )
         activeConversationPending = true
         restored = true
+    }
+
+    /** 从 Maker 会话索引取标题；新对话尚未命名时保持占位名。 */
+    private suspend fun refreshConversationTitle(id: String) {
+        if (id.isBlank()) return
+        runCatching {
+            repository.listConversations()
+                .firstOrNull { it.id == id }
+                ?.title?.takeIf { it.isNotBlank() }
+        }.getOrNull()?.let { title ->
+            _state.update { it.copy(conversationTitle = title) }
+        }
     }
 
     private suspend fun restore(conversationId: String) {
@@ -510,6 +527,9 @@ class ChatViewModel(
         val firstQuestion = activeConversationPending &&
             _state.value.messages.none { it.role == ChatMessageUi.Role.USER }
         activeConversationPending = false
+        if (firstQuestion) {
+            _state.update { it.copy(conversationTitle = turn.text.take(30)) }
+        }
         val userMessage = ChatMessageUi(
             id = turn.id,
             role = ChatMessageUi.Role.USER,
