@@ -750,12 +750,17 @@ def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
     if bool(plan.get("needs_papers")):
         required.append("search_arxiv")
     # Plug-in capabilities do not need new central booleans. Their manifests
-    # map capability ids directly to required adapter tools; built-in tools are
-    # deduplicated against the compatibility chain above.
+    # map capability ids directly to required adapter tools. Fixed built-in
+    # capabilities have already been restored to ``needs_*`` flags by
+    # ``reconcile_capability_contract`` and mapped to the shortest composite
+    # chain above; expanding their manifests again can add a second, different
+    # route/map tool even though simple name de-duplication still passes.
     registered_tools = capability_tools_map()
     for capability in _normalize_preflight_capabilities(
         plan.get("_capabilities") or []
     ):
+        if _PREFLIGHT_CAPABILITY_FLAGS.get(capability):
+            continue
         required.extend(registered_tools.get(capability, ()))
     return tuple(dict.fromkeys(required))
 

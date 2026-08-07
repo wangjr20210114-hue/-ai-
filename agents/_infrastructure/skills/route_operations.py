@@ -86,6 +86,7 @@ def build_route_operation(
         _optimize_recommended_order: bool = False,
         _map_title: str = "",
         _map_action_text: str = "",
+        _verified_recommended_places: list[dict[str, Any]] | None = None,
     ) -> str:
         """Resolve an ordered itinerary and calculate one verified Tencent route.
 
@@ -194,6 +195,20 @@ def build_route_operation(
         explicit_route_mode = strategy_selection.explicit_mode
         explicit_route_strategy = strategy_selection.explicit_strategy
         candidates = state.setdefault("place_candidates", {})
+        # The recommendation Component has already verified these POIs through
+        # the provider Adapter. Hand them to the route Component directly so a
+        # Maker store's normal write-visibility window cannot turn the same
+        # composite operation into a pins-only fallback. This parameter is
+        # internal and deliberately absent from the public RoutePlanInput.
+        for raw_place in list(
+            _verified_recommended_places or []
+        )[:map_route_stop_limit]:
+            if not isinstance(raw_place, dict):
+                continue
+            place = copy.deepcopy(raw_place)
+            place_id = str(place.get("place_id") or "").strip()
+            if place_id:
+                candidates[place_id] = place
         for event in (state.get("schedules") or {}).values():
             extra = event.get("extra") if isinstance(event, dict) and isinstance(event.get("extra"), dict) else {}
             place = extra.get("place") if isinstance(extra, dict) else None

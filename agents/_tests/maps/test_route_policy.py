@@ -12,6 +12,7 @@ from agents._application.workspace.service import load_user_workspace
 from agents._domain.maps.route_order import optimize_open_route_order
 from agents._infrastructure.makers.route_repository import route_cache_key
 from agents._infrastructure.providers.tencent_location import optimize_place_order
+from agents._infrastructure.skills.place_operations import PlaceOperations
 from agents.chat._calendar_context import latest_route_context
 
 
@@ -25,6 +26,7 @@ class RoutePolicyTests(unittest.TestCase):
             "route_mode": "transit",
             "route_strategy": "least_cost",
             "route_stops": [],
+            "capabilities": ["route", "map_action", "places"],
         })
         self.assertEqual(plan["route_order_policy"], "optimize")
         self.assertEqual(
@@ -36,6 +38,7 @@ class RoutePolicyTests(unittest.TestCase):
         plan = parse_capability_plan({
             "needs_route": True,
             "route_order_policy": "preserve",
+            "capabilities": ["route", "map_action", "places"],
             "route_stops": [
                 {"query": "起点"},
                 {"query": "中途地点"},
@@ -231,6 +234,66 @@ class RoutePolicyTests(unittest.TestCase):
 
 
 class RouteModelBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_verified_recommendations_are_handed_to_route_component(self):
+        captured: dict[str, object] = {}
+
+        async def search_places(_map_key, query, *, city, limit):
+            return [{
+                **PLACE,
+                "place_id": f"poi-{query}",
+                "name": query,
+                "city": city,
+            }]
+
+        async def recommended_route_planner(**kwargs):
+            captured.update(kwargs)
+            return json.dumps({
+                "ui_action": "map_action",
+                "action": {"payload": {}},
+                "response_constraint": "route constraint",
+            })
+
+        async def load_state():
+            return {}
+
+        async def save_state(state):
+            return state
+
+        map_runtime = MagicMock()
+        map_runtime.search_places = search_places
+        operations = PlaceOperations(
+            runtime_env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+            conversation_id="verified-handoff",
+            browser_current_location=None,
+            map_runtime=map_runtime,
+            load_state=load_state,
+            save_state=save_state,
+            place_disambiguation_model=None,
+            planned_calendar_place_resolution=False,
+            provider_place_review_enabled=False,
+            place_result_limit=6,
+            route_stop_limit=12,
+            parallelism=3,
+            search_timeout=5,
+            recommended_route_planner=recommended_route_planner,
+        )
+
+        result = json.loads(await operations.recommend_places_on_map(
+            ["景点甲", "景点乙"],
+            "杭州",
+            "推荐路线",
+            "查看路线",
+        ))
+
+        self.assertEqual(result["ui_action"], "map_action")
+        self.assertEqual(
+            [
+                place["place_id"]
+                for place in captured["_verified_recommended_places"]
+            ],
+            ["poi-景点甲", "poi-景点乙"],
+        )
+
     async def test_unordered_recommendation_uses_shared_route_chain(self):
         names = ["景点甲", "景点乙", "景点丙"]
 

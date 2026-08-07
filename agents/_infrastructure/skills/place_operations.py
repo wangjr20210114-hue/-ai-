@@ -464,6 +464,7 @@ class PlaceOperations:
                     _optimize_recommended_order=True,
                     _map_title=title,
                     _map_action_text=action_text,
+                    _verified_recommended_places=selected,
                 ))
                 if route_result.get("ui_action") == "map_action":
                     route_constraint = str(
