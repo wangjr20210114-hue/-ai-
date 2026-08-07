@@ -21,6 +21,7 @@ from agents._infrastructure.skills.route_resolution import (
     _place_choice_field,
     _prioritize_clarification_options_for_city,
     _prioritize_provider_candidates_for_city,
+    _scope_provider_candidates_for_city,
     _provider_city_consensus,
     _rank_verified_workspace_matches,
 )

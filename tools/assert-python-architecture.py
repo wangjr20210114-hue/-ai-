@@ -317,6 +317,20 @@ def main() -> None:
                     f"{path.relative_to(ROOT)} domain import crosses boundary: {module}"
                 )
 
+    route_algorithm_boundaries = (
+        AGENTS / "_domain" / "maps" / "route_place_set.py",
+        AGENTS / "_domain" / "maps" / "route_strategy.py",
+        AGENTS / "_infrastructure" / "skills" / "route_operations.py",
+    )
+    model_invocation_tokens = ("with_structured_output(", ".ainvoke(", "get_model(")
+    for path in route_algorithm_boundaries:
+        source = path.read_text(encoding="utf-8")
+        if any(token in source for token in model_invocation_tokens):
+            failures.append(
+                f"{path.relative_to(ROOT)} route algorithms must not invoke a model; "
+                "only route_resolution.py may reconcile user place language to provider POIs"
+            )
+
     if failures:
         raise SystemExit(
             "Python architecture check failed:\n- " + "\n- ".join(sorted(failures))

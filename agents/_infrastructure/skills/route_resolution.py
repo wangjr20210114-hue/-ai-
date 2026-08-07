@@ -192,6 +192,25 @@ def _prioritize_provider_candidates_for_city(
     ]
 
 
+def _scope_provider_candidates_for_city(
+    places: list[dict[str, Any]],
+    city: str,
+) -> list[dict[str, Any]]:
+    """Keep candidates inside a proven city when the provider confirms some."""
+    ranked = _prioritize_provider_candidates_for_city(places, city)
+    clean_city = _normalized_place_name(city)
+    if not clean_city or clean_city in {"全国", "中国"}:
+        return ranked
+    same_city = [
+        place for place in ranked
+        if (
+            (place_city := _provider_city_name(place))
+            and (clean_city in place_city or place_city in clean_city)
+        )
+    ]
+    return same_city or ranked
+
+
 def _provider_city_consensus(
     places: list[dict[str, Any]],
 ) -> str:
@@ -689,6 +708,7 @@ __all__ = (
     "_normalized_place_name",
     "_provider_city_name",
     "_prioritize_provider_candidates_for_city",
+    "_scope_provider_candidates_for_city",
     "_provider_city_consensus",
     "_prioritize_clarification_options_for_city",
     "_verified_candidate_matches",

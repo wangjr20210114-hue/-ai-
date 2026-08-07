@@ -8,6 +8,7 @@ import {
   routeLegScope,
   routeLegs,
   routeSectionDisplayPaths,
+  routeSectionEndpoints,
   routeSectionPath,
   routeSectionSteps,
   routeZoomLevel,
@@ -105,13 +106,19 @@ describe('MakersMap geolocation recovery', () => {
         distance_meters: 5000, duration_seconds: 1800,
         sections: [
           { mode: 'walking', path: [], distance_meters: 300, duration_seconds: 300 },
-          { mode: 'bus', line: '278路', path: [], distance_meters: 4200, duration_seconds: 1200 },
+          {
+            mode: 'bus', line: '278路', geton: '灵隐寺', getoff: '西湖公交站',
+            path: [], distance_meters: 4200, duration_seconds: 1200,
+          },
           { mode: 'walking', path: [], distance_meters: 500, duration_seconds: 300 },
         ],
       }],
     };
     expect(routeLegs(route)).toHaveLength(1);
     expect(legModeSequence(routeLegs(route)[0])).toEqual(['walking', 'bus', 'walking']);
+    const steps = routeSectionSteps(route);
+    expect(routeSectionEndpoints(steps, 0)).toBeNull();
+    expect(routeSectionEndpoints(steps, 2)).toEqual({ from: '西湖公交站', to: '西湖' });
   });
 
   it('classifies route scope from provider cities without city-specific rules', () => {

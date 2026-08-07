@@ -4,10 +4,24 @@ from agents._application.workspace.service import (
     save_user_workspace,
 )
 from agents._domain.maps.route_place_set import RoutePlaceEdit, apply_route_place_edits
-from agents._domain.maps.route_strategy import select_route_strategy
+from agents._domain.maps.route_strategy import infer_route_preferences, select_route_strategy
 
 
 class RoutePlaceSetPolicyTests(unittest.TestCase):
+    def test_route_preferences_are_extracted_by_domain_policy(self):
+        self.assertEqual(infer_route_preferences("公交优先，想省钱"), ("transit", "least_cost"))
+        self.assertEqual(infer_route_preferences("take the fastest bike route"), ("bicycling", "least_time"))
+        self.assertEqual(infer_route_preferences("不要步行，改坐公交"), ("transit", ""))
+        self.assertEqual(infer_route_preferences("公交加步行接驳"), ("transit", ""))
+
+    def test_proven_city_scopes_provider_candidates(self):
+        places = [
+            {**PLACE, "place_id": "beijing", "city": "北京市"},
+            {**PLACE, "place_id": "haikou", "city": "海口市"},
+        ]
+        scoped = _scope_provider_candidates_for_city(places, "北京")
+        self.assertEqual([place["place_id"] for place in scoped], ["beijing"])
+
     def test_typo_tolerant_remove_is_limited_to_current_route(self):
         result = apply_route_place_edits(
             [

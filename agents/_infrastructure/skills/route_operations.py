@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from ..._application.i18n import normalize_language, text
 from ..._application.workspace.service import new_action, put_action
 from ..._domain.maps.route_place_set import RoutePlaceEdit, apply_route_place_edits
-from ..._domain.maps.route_strategy import select_route_strategy
+from ..._domain.maps.route_strategy import infer_route_preferences, select_route_strategy
 from ..._infrastructure.makers.route_repository import load_route_cache, save_route_cache
 from .route_resolution import (
     _clarification_action,
@@ -25,10 +25,10 @@ from .route_resolution import (
     _place_choice_field,
     _place_resolution_with_provider_review,
     _prioritize_clarification_options_for_city,
-    _prioritize_provider_candidates_for_city,
     _provider_city_consensus,
     _rank_verified_workspace_matches,
     _route_plan_leg_summary,
+    _scope_provider_candidates_for_city,
     _selected_place_candidate,
     preserve_planned_route_stops,
 )
@@ -98,10 +98,26 @@ def build_route_operation(
             or runtime_env.get("VITE_TENCENT_MAP_KEY")
             or ""
         )
-        requested_route_mode = str(route_mode or "default").strip().lower()
-        planner_route_mode = str(planned_route_mode or "default").strip().lower()
-        requested_route_strategy = str(route_strategy or "default").strip().lower()
-        planner_route_strategy = str(planned_route_strategy or "default").strip().lower()
+        explicit_message_mode, explicit_message_strategy = infer_route_preferences(
+            route_user_message,
+        )
+        has_user_language = bool(str(route_user_message or "").strip())
+        requested_route_mode = (
+            explicit_message_mode
+            or (str(route_mode or "default").strip().lower() if not has_user_language else "default")
+        )
+        planner_route_mode = (
+            str(planned_route_mode or "default").strip().lower()
+            if not has_user_language else "default"
+        )
+        requested_route_strategy = (
+            explicit_message_strategy
+            or (str(route_strategy or "default").strip().lower() if not has_user_language else "default")
+        )
+        planner_route_strategy = (
+            str(planned_route_strategy or "default").strip().lower()
+            if not has_user_language else "default"
+        )
         should_use_current_location = bool(
             browser_current_location
             and (use_current_location_as_origin or planned_route_uses_current_location)
@@ -314,7 +330,7 @@ def build_route_operation(
                     clean_query,
                     clean_near,
                 )
-            matches = _prioritize_provider_candidates_for_city(
+            matches = _scope_provider_candidates_for_city(
                 matches,
                 city or "全国",
             )

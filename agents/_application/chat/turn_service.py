@@ -12,6 +12,7 @@ from .turn_finalizer import TurnFinalizer
 from .turn_background import TurnBackgroundWork
 from .turn_io import (
     _document_context,
+    _recent_user_questions,
     _text_content,
     _ui_action,
     _usage_values,

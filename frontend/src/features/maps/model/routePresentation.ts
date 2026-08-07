@@ -16,6 +16,11 @@ export interface RouteSectionStep {
   sectionIndex: number;
 }
 
+export interface RouteSectionEndpoints {
+  from: string;
+  to: string;
+}
+
 export interface RouteMapPoint {
   latitude: number;
   longitude: number;
@@ -102,6 +107,46 @@ export function routeSectionSteps(route: MakersRoutePlan): RouteSectionStep[] {
       sectionIndex,
     }));
   });
+}
+
+/**
+ * Derive a label only from provider-backed stop names around one section.
+ * This avoids presenting an unlabelled transfer walk as the entire route leg.
+ */
+export function routeSectionEndpoints(
+  steps: RouteSectionStep[],
+  index: number,
+): RouteSectionEndpoints | null {
+  const current = steps[index];
+  if (!current) return null;
+  const explicitFrom = String(current.section.geton || '').trim();
+  const explicitTo = String(current.section.getoff || '').trim();
+  if (explicitFrom && explicitTo) return { from: explicitFrom, to: explicitTo };
+
+  let from = String(current.leg.from.name || '').trim();
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const previous = steps[cursor];
+    if (previous.legIndex !== current.legIndex) break;
+    const endpoint = String(
+      previous.section.getoff || previous.section.geton || '',
+    ).trim();
+    if (endpoint) {
+      from = endpoint;
+      break;
+    }
+  }
+
+  let to = String(current.leg.to.name || '').trim();
+  for (let cursor = index + 1; cursor < steps.length; cursor += 1) {
+    const next = steps[cursor];
+    if (next.legIndex !== current.legIndex) break;
+    const endpoint = String(next.section.geton || next.section.getoff || '').trim();
+    if (endpoint) {
+      to = endpoint;
+      break;
+    }
+  }
+  return from && to && from !== to ? { from, to } : null;
 }
 
 /**

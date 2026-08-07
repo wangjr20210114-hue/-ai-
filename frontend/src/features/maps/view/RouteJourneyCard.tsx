@@ -7,6 +7,7 @@ import {
   ROUTE_MODE_COLORS,
   routeHasIntercityLeg,
   routeLegScope,
+  routeSectionEndpoints,
   routeSectionSteps,
 } from '../model/routePresentation';
 
@@ -58,9 +59,10 @@ export default function RouteJourneyCard({ route, activeStep, onSelectStep }: Pr
   const sectionTitle = current
     ? current.section.line || current.section.vehicle || modeName(current.section.mode)
     : '';
-  const sectionStops = current?.section.geton && current.section.getoff
-    ? t('routeStepStops', { from: current.section.geton, to: current.section.getoff })
-    : current?.section.instruction || '';
+  const sectionEndpoints = current ? routeSectionEndpoints(steps, activeIndex) : null;
+  const sectionStops = current?.section.instruction || (sectionEndpoints
+    ? t('routeStepStops', { from: sectionEndpoints.from, to: sectionEndpoints.to })
+    : '');
 
   return (
     <section className="makers-route-journey" aria-label={t('routeWholeTrip')}>
@@ -135,11 +137,10 @@ export default function RouteJourneyCard({ route, activeStep, onSelectStep }: Pr
         <ol>
           {steps.map(({ leg, section }, index) => {
             const title = section.line || section.vehicle || modeName(section.mode);
-            const stops = section.geton && section.getoff
-              ? t('routeStepStops', { from: section.geton, to: section.getoff })
-              : section.instruction || (index === 0 || index === steps.length - 1
-                ? t('routeStepStops', { from: leg.from.name, to: leg.to.name })
-                : '');
+            const endpoints = routeSectionEndpoints(steps, index);
+            const stops = section.instruction || (endpoints
+              ? t('routeStepStops', { from: endpoints.from, to: endpoints.to })
+              : '');
             return <li key={`${leg.from.place_id}-${leg.to.place_id}-${section.mode}-${index}`}>
               <button
                 type="button"
