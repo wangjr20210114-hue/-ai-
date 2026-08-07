@@ -447,6 +447,16 @@ def resume_capability_protocol(
     for tool_name in required_tools:
         for flag in _RESUME_TOOL_PLAN_FLAGS[tool_name]:
             plan[flag] = True
+    linked_route_calendar = (
+        "plan_route_between_places" in required_tools
+        and "propose_calendar_changes" in required_tools
+    )
+    if linked_route_calendar:
+        # A route followed by Calendar is one dependent machine protocol.
+        # Restore that relation from the versioned tool sequence instead of
+        # asking the semantic planner to infer it again after a card answer.
+        plan["calendar_uses_planned_route"] = True
+        plan["reuse_latest_route"] = True
     raw_arguments = resume.get("planned_tool_arguments")
     planned_arguments = (
         copy.deepcopy(raw_arguments)
@@ -480,6 +490,12 @@ def resume_capability_protocol(
         )
     route_arguments = planned_arguments.get("plan_route_between_places")
     if isinstance(route_arguments, dict):
+        explicit_origin_answered = any(
+            str(answer.get("id") or "") == "route_origin"
+            and bool(_clarification_scalar(answer))
+            for answer in (clarification_answers or [])
+            if isinstance(answer, dict)
+        )
         route_arguments = _apply_route_protocol_answers(
             route_arguments,
             clarification_answers or [],
@@ -529,6 +545,8 @@ def resume_capability_protocol(
         plan["route_uses_current_location"] = bool(
             route_arguments.get("use_current_location_as_origin")
         )
+        if explicit_origin_answered:
+            plan["route_origin_is_departure"] = True
     calendar_arguments = planned_arguments.get("propose_calendar_changes")
     if isinstance(calendar_arguments, dict):
         planned_arguments["propose_calendar_changes"] = _apply_calendar_protocol_answers(

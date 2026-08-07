@@ -520,11 +520,18 @@ async def _place_resolution_with_provider_review(
     non-unique review falls back to the provider candidate card.
     """
     decision, selected, reason = _place_resolution(query, places)
+    # The model boundary is narrower than the provider fallback boundary.  A
+    # public fallback may still be offered to the user, but only Tencent-owned
+    # identities may enter semantic reconciliation.
+    semantic_candidates = [
+        place for place in places
+        if str(place.get("provider") or "").strip().lower() == "tencent"
+    ]
     if (
         not enabled
         or model is None
         or decision not in {"auto_use", "choose"}
-        or len(places) < 2
+        or len(semantic_candidates) < 2
     ):
         return decision, selected, reason
 
@@ -536,10 +543,8 @@ async def _place_resolution_with_provider_review(
             "address": str(place.get("address") or "")[:240],
             "city": str(place.get("city") or "")[:80],
             "category": str(place.get("category") or "")[:120],
-            "latitude": place.get("latitude"),
-            "longitude": place.get("longitude"),
         }
-        for index, place in enumerate(places[:8], 1)
+        for index, place in enumerate(semantic_candidates[:8], 1)
         if isinstance(place, dict) and str(place.get("place_id") or "")
     ]
     if len(evidence) < 2:
@@ -575,7 +580,7 @@ async def _place_resolution_with_provider_review(
         )
         reviewed = next(
             (
-                place for place in places
+                place for place in semantic_candidates
                 if str(place.get("place_id") or "") == selected_id
             ),
             None,

@@ -63,6 +63,7 @@ class _Tracer:
 
 class _AnswerGraph:
     last_tool_names: tuple[str, ...] = ()
+    last_planned_tool_arguments: dict = {}
 
     def __init__(self, tools=()) -> None:
         self.tools = list(tools)
@@ -302,7 +303,14 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             patch(
                 "agents._application.chat.turn_service.build_graph",
                 side_effect=(
-                    lambda _model, tools, *_args, **_kwargs: graph_type(tools)
+                    lambda _model, tools, *_args, **_kwargs: (
+                        setattr(
+                            graph_type,
+                            "last_planned_tool_arguments",
+                            copy.deepcopy(_kwargs.get("planned_tool_arguments") or {}),
+                        )
+                        or graph_type(tools)
+                    )
                 ),
             ),
             patch(
@@ -727,6 +735,12 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("plan_route_between_places", _AnswerGraph.last_tool_names)
         self.assertIn("propose_calendar_changes", _AnswerGraph.last_tool_names)
+        self.assertEqual(
+            _AnswerGraph.last_planned_tool_arguments[
+                "propose_calendar_changes"
+            ]["changes"],
+            [],
+        )
 
 
 if __name__ == "__main__":

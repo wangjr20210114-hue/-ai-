@@ -450,21 +450,37 @@ export default function MakersMap({
         },
         geometries: overviewGeometry,
       }) : null;
-      const legGeometries = route ? routeLegs(route)
+      const routeLegItems = route ? routeLegs(route) : [];
+      const legGeometries = routeLegItems
         .filter((leg) => leg.path.length > 1)
-        .map((leg, index) => {
-          const mode = legModeSequence(leg).find((item) => item !== 'walking') || leg.mode;
-          return {
-            id: `makers-route-leg-${index}`,
-            styleId: mode,
-            paths: leg.path.map((point) => new TMap.LatLng(point.latitude, point.longitude)),
-          };
-        }) : [];
+        .map((leg, index) => ({
+          id: `makers-route-leg-${index}`,
+          styleId: 'inactive',
+          paths: leg.path.map((point) => new TMap.LatLng(point.latitude, point.longitude)),
+        }));
       const legPolyline = legGeometries.length ? new TMap.MultiPolyline({
         map: null,
-        styles: routeStyles,
+        styles: {
+          inactive: new TMap.PolylineStyle({
+            color: '#aeb6c2', width: 5, borderWidth: 1,
+            borderColor: 'rgba(255,255,255,.78)', lineCap: 'round',
+          }),
+        },
         geometries: legGeometries,
       }) : null;
+      const focusedLegPolylines = routeLegItems.map((leg, index) => {
+        if (leg.path.length < 2) return null;
+        const mode = legModeSequence(leg).find((item) => item !== 'walking') || leg.mode;
+        return new TMap.MultiPolyline({
+          map: null,
+          styles: routeStyles,
+          geometries: [{
+            id: `makers-route-leg-${index}-focused`,
+            styleId: mode,
+            paths: leg.path.map((point) => new TMap.LatLng(point.latitude, point.longitude)),
+          }],
+        });
+      });
       const sectionSteps = route ? routeSectionSteps(route) : [];
       const sectionPieces = sectionSteps.map((step, sectionIndex) => (
         routeSectionDisplayPaths(step)
@@ -504,6 +520,12 @@ export default function MakersMap({
       let currentRouteLevel: RouteZoomLevel = 'legs';
       const applySectionFocus = (index: number) => {
         const focused = Math.max(0, Math.min(index, Math.max(0, sectionSteps.length - 1)));
+        const focusedLeg = sectionSteps[focused]?.legIndex ?? -1;
+        focusedLegPolylines.forEach((polyline, legIndex) => {
+          polyline?.setMap?.(
+            currentRouteLevel === 'legs' && legIndex === focusedLeg ? map : null,
+          );
+        });
         focusedSectionPolylines.forEach((polyline, sectionIndex) => {
           polyline?.setMap?.(
             currentRouteLevel === 'sections' && sectionIndex === focused ? map : null,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 import time
@@ -13,6 +14,56 @@ from ..i18n import normalize_language, text
 WEEKDAY_LABELS = (
     "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
 )
+
+
+def route_calendar_tool_arguments(
+    capability_plan: dict,
+    message: str,
+    resumed_arguments: object = None,
+) -> dict:
+    """Seed the trusted route-to-calendar chain without model-authored events."""
+    if isinstance(resumed_arguments, dict):
+        return copy.deepcopy(resumed_arguments)
+    if not (
+        capability_plan.get("needs_calendar_action")
+        and capability_plan.get("calendar_uses_planned_route")
+    ):
+        return {}
+    return {
+        "summary": str(message or "").strip()[:500],
+        "changes": [],
+    }
+
+
+def route_tool_arguments_for_plan(
+    capability_plan: dict,
+    resumed_arguments: object = None,
+) -> dict:
+    """Build deterministic route Adapter input from one bounded plan."""
+    if isinstance(resumed_arguments, dict):
+        return copy.deepcopy(resumed_arguments)
+    route_stops = capability_plan.get("route_stops") or []
+    if not capability_plan.get("needs_route") or not (
+        route_stops or capability_plan.get("route_place_edits")
+    ):
+        return {}
+    arguments = {
+        "city": str(capability_plan.get("route_city") or "全国"),
+        "route_mode": str(capability_plan.get("route_mode") or "default"),
+        "route_strategy": str(capability_plan.get("route_strategy") or "default"),
+        "place_edits": capability_plan.get("route_place_edits") or [],
+        "use_current_location_as_origin": bool(
+            capability_plan.get("route_uses_current_location")
+        ),
+    }
+    if capability_plan.get("route_uses_current_location") and len(route_stops) == 1:
+        arguments.update({
+            "destination_query": str(route_stops[0].get("query") or ""),
+            "destination_near_query": str(route_stops[0].get("near_query") or ""),
+        })
+    elif route_stops:
+        arguments["ordered_stops"] = route_stops
+    return arguments
 
 
 def runtime_datetime_context(value: datetime) -> str:
@@ -540,6 +591,8 @@ __all__ = (
     "normalize_browser_current_location",
     "normalize_browser_location_request",
     "run_cancelled",
+    "route_calendar_tool_arguments",
+    "route_tool_arguments_for_plan",
     "runtime_datetime_context",
     "should_buffer_public_answer",
     "tools_for_capability_stage",

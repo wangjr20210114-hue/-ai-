@@ -24,6 +24,8 @@ from .turn_policy import (
     direct_paper_tool_arguments,
     dynamic_system_prompt,
     location_clarification_arguments,
+    route_calendar_tool_arguments,
+    route_tool_arguments_for_plan,
     run_cancelled,
     runtime_datetime_context,
     should_buffer_public_answer,
@@ -453,36 +455,18 @@ async def _handle(ctx):
                 capability_plan.get("nearby_uses_current_location")
             ),
         }
-    resumed_route_arguments = resumed_planned_arguments.get(
-        "plan_route_between_places"
+    route_tool_arguments = route_tool_arguments_for_plan(
+        capability_plan,
+        resumed_planned_arguments.get("plan_route_between_places"),
     )
-    if isinstance(resumed_route_arguments, dict):
-        route_tool_arguments = copy.deepcopy(resumed_route_arguments)
-    elif capability_plan.get("needs_route") and (
-        capability_plan.get("route_stops")
-        or capability_plan.get("route_place_edits")
-    ):
-        route_stops = capability_plan.get("route_stops") or []
-        route_tool_arguments = {
-            "city": str(capability_plan.get("route_city") or "全国"),
-            "route_mode": str(capability_plan.get("route_mode") or "default"),
-            "route_strategy": str(
-                capability_plan.get("route_strategy") or "default"
-            ),
-            "place_edits": capability_plan.get("route_place_edits") or [],
-            "use_current_location_as_origin": bool(
-                capability_plan.get("route_uses_current_location")
-            ),
-        }
-        if capability_plan.get("route_uses_current_location") and len(route_stops) == 1:
-            route_tool_arguments.update({
-                "destination_query": str(route_stops[0].get("query") or ""),
-                "destination_near_query": str(
-                    route_stops[0].get("near_query") or ""
-                ),
-            })
-        elif route_stops:
-            route_tool_arguments["ordered_stops"] = route_stops
+    resumed_calendar_arguments = resumed_planned_arguments.get(
+        "propose_calendar_changes"
+    )
+    calendar_tool_arguments = route_calendar_tool_arguments(
+        capability_plan,
+        message,
+        resumed_calendar_arguments,
+    )
     timeout_fallback_names = (
         fallback_tools_for_prompt_topics(
             capability_plan.get("_prompt_topics") or [],
@@ -523,6 +507,7 @@ async def _handle(ctx):
         capability_plan,
         route_tool_arguments,
         workspace,
+        message,
     )
     if planner_timed_out:
         logging.warning(
@@ -788,6 +773,11 @@ async def _handle(ctx):
                 **(
                     {"plan_route_between_places": route_tool_arguments}
                     if route_tool_arguments
+                    else {}
+                ),
+                **(
+                    {"propose_calendar_changes": calendar_tool_arguments}
+                    if calendar_tool_arguments
                     else {}
                 ),
                 **direct_paper_tool_arguments(capability_plan),

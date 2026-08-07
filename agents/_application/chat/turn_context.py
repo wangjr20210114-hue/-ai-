@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -11,24 +12,49 @@ from ..._domain.entitlements.policy import public_entitlements
 
 
 _VERIFIED_PLACE_PREFIX = "floris-place:"
+_ROUTE_CONTINUATION_PHRASES = (
+    "然后", "然後", "接着", "接著", "之后", "之後", "完后", "完後",
+    "下一站", "再去", "再到", "从那里", "從那裡", "从那", "從那",
+    "from there", "after that", "afterwards", "next stop", "then go",
+)
+
+
+def route_continuation_requested(message: str) -> bool:
+    """Recognize generic continuation language without deciding any place."""
+    normalized = " ".join(str(message or "").lower().split())
+    return any(
+        phrase in normalized
+        if not phrase.isascii()
+        else bool(re.search(
+            rf"(?<![a-z]){re.escape(phrase)}(?![a-z])",
+            normalized,
+        ))
+        for phrase in _ROUTE_CONTINUATION_PHRASES
+    )
 
 
 def bind_latest_route_continuation(
     plan: Mapping[str, Any],
     route_arguments: Mapping[str, Any],
     workspace: Mapping[str, Any],
+    user_message: str = "",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Bind a conversational continuation to the last verified endpoint.
 
-    The semantic planner decides whether the user is continuing a journey.
-    This application policy supplies only provider identity and city from the
-    Makers workspace; it never copies coordinates or guesses from place names.
+    Generic dialogue grammar or the semantic hint may identify continuation.
+    This application policy then makes the decision from Makers-verified state:
+    it supplies only provider identity and city, never coordinates or guessed
+    place names.
     """
     updated_plan = copy.deepcopy(dict(plan or {}))
     updated_arguments = copy.deepcopy(dict(route_arguments or {}))
+    continuation = bool(
+        updated_plan.get("route_continues_latest")
+        or route_continuation_requested(user_message)
+    )
     if not (
         updated_plan.get("needs_route")
-        and updated_plan.get("route_continues_latest")
+        and continuation
         and not updated_plan.get("route_place_edits")
     ):
         return updated_plan, updated_arguments

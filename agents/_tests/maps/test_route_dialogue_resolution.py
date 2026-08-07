@@ -303,6 +303,9 @@ class RouteDialogueResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(selected["place_id"], "poi-main")
         self.assertEqual(reason, "fast_semantic_provider_review")
         reviewer.ainvoke.assert_awaited_once()
+        payload = json.loads(reviewer.ainvoke.await_args.args[0][1]["content"])
+        self.assertNotIn("latitude", payload["tencent_candidates"][0])
+        self.assertNotIn("longitude", payload["tencent_candidates"][0])
 
     async def test_fast_provider_review_keeps_distinct_branches_in_choice_card(self):
         candidates = [

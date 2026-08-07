@@ -288,6 +288,60 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["route_plan_id"])
         self.assertTrue(result["action"]["payload"]["calendar_offer"])
 
+    async def test_new_route_then_calendar_uses_same_fresh_makers_state(self):
+        store = FakeStore()
+        state = empty_workspace()
+        state["place_candidates"] = {
+            PLACE_A["place_id"]: PLACE_A,
+            PLACE_B["place_id"]: PLACE_B,
+        }
+        await save_workspace(store, TEST_USER_ID, state)
+        route = {
+            "provider": "tencent",
+            "mode": "transit",
+            "places": [PLACE_A, PLACE_B],
+            "path": [],
+            "legs": [{"duration_seconds": 1_800}],
+            "distance_meters": 10_000,
+            "duration_seconds": 1_800,
+            "fare": {},
+        }
+        with patch(
+            "agents._infrastructure.skills.builtin_operations.provider_plan_route",
+            new=AsyncMock(return_value=route),
+        ):
+            tools = build_system_skill_tools(
+                None,
+                store=store,
+                conversation_id="route-then-calendar",
+                user_id=TEST_USER_ID,
+                env={},
+                planned_reuse_latest_route=True,
+                planned_route_origin_is_departure=True,
+            )
+            route_tool = next(
+                tool for tool in tools if tool.name == "plan_route_between_places"
+            )
+            calendar_tool = next(
+                tool for tool in tools if tool.name == "propose_calendar_changes"
+            )
+            route_result = json.loads(await route_tool.ainvoke({
+                "origin_query": f"floris-place:{PLACE_A['place_id']}",
+                "destination_query": f"floris-place:{PLACE_B['place_id']}",
+                "route_mode": "transit",
+            }))
+            calendar_result = json.loads(await calendar_tool.ainvoke({
+                "summary": "接人并写入日程",
+                "changes": [],
+            }))
+
+        self.assertEqual(route_result["ui_action"], "map_action")
+        self.assertEqual(calendar_result["ui_action"], "clarification_action")
+        self.assertEqual(
+            [field["id"] for field in calendar_result["clarification"]["fields"]],
+            ["route_calendar_start", "route_calendar_stop_minutes"],
+        )
+
     async def test_route_calendar_offer_is_hidden_when_calendar_skill_is_disabled(self):
         store = FakeStore()
         state = empty_workspace()

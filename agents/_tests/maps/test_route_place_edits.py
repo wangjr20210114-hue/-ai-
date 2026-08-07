@@ -125,6 +125,40 @@ class RoutePlaceEditContractTests(unittest.IsolatedAsyncioTestCase):
             "floris-place:branch-b",
         )
 
+    def test_manual_origin_resume_keeps_dependent_calendar_protocol(self):
+        plan, arguments = resume_capability_protocol(
+            {"needs_route": False},
+            {
+                "version": "1",
+                "required_tools": [
+                    "plan_route_between_places",
+                    "propose_calendar_changes",
+                ],
+                "planned_tool_arguments": {
+                    "plan_route_between_places": {
+                        "destination_query": "北京站",
+                        "use_current_location_as_origin": True,
+                    },
+                    "propose_calendar_changes": {
+                        "summary": "去接朋友并写入日程",
+                        "changes": [],
+                    },
+                },
+            },
+            [{"id": "route_origin", "value": "北京南站"}],
+        )
+        self.assertTrue(plan["calendar_uses_planned_route"])
+        self.assertTrue(plan["reuse_latest_route"])
+        self.assertTrue(plan["route_origin_is_departure"])
+        self.assertEqual(
+            arguments["plan_route_between_places"]["origin_query"],
+            "北京南站",
+        )
+        self.assertEqual(
+            arguments["propose_calendar_changes"]["changes"],
+            [],
+        )
+
     async def test_tool_reuses_cached_pois_and_only_replans_after_typo_remove(self):
         store = FakeStore()
         state = await load_user_workspace(store, user_id=TEST_USER_ID)

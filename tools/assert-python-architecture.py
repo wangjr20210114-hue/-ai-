@@ -331,6 +331,28 @@ def main() -> None:
                 "only route_resolution.py may reconcile user place language to provider POIs"
             )
 
+    route_resolution = AGENTS / "_infrastructure" / "skills" / "route_resolution.py"
+    route_resolution_tree = ast.parse(
+        route_resolution.read_text(encoding="utf-8"), filename=str(route_resolution),
+    )
+    allowed_route_model_function = "_place_resolution_with_provider_review"
+    for function in (
+        node for node in ast.walk(route_resolution_tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ):
+        invokes_model = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"with_structured_output", "ainvoke"}
+            for node in ast.walk(function)
+        )
+        if invokes_model and function.name != allowed_route_model_function:
+            failures.append(
+                "route_resolution.py may invoke a model only while linking one "
+                "user place expression to supplied Tencent POIs; found model use in "
+                f"{function.name}"
+            )
+
     if failures:
         raise SystemExit(
             "Python architecture check failed:\n- " + "\n- ".join(sorted(failures))
