@@ -70,6 +70,24 @@ makers-conversation-id: 6f1b...
 
 同一次用户请求和助手回答共用一个 `client_message_id`。客户端从用户点击发送时开始计时。最多三张参考图；定位只有获得系统授权后才能加入 `current_location`。
 
+定位对象必须包含 `latitude`、`longitude`、真实 `accuracy_meters`、毫秒时间戳 `captured_at` 和 `coordinate_type=wgs84`，且采集时间不得超过十分钟。收到 `browser_location_request` 后，用新的 `client_message_id` 重放原问题并带 `_location_retry=true`；无论成功、拒绝、超时、不可用还是失败，都通过 `location_request={state,attempted_at}` 明确回传，不能静默丢弃问题。
+
+澄清卡提交体固定为：
+
+```json
+{
+  "interaction_mode":"clarification",
+  "activity":"clarification_answered",
+  "clarification_response":{
+    "id":"clarification-id",
+    "source_message_id":"assistant-message-id",
+    "answers":[{"id":"origin","label":"从哪里出发","value":"北京南站"}]
+  }
+}
+```
+
+单选字段的 `allow_custom_input/custom_placeholder` 由服务端决定，客户端只渲染并原样提交。
+
 活动请求的恢复顺序：
 
 1. `POST /messages` 恢复持久消息、工作区与当前 run/presentation。

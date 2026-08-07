@@ -1,6 +1,7 @@
 package com.floris.android.ui.maps
 
 import android.annotation.SuppressLint
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -44,8 +45,10 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -68,6 +71,12 @@ import com.floris.android.core.model.Place
 import com.floris.android.core.model.RoutePlan
 import com.floris.android.core.model.SkillAccess
 import com.floris.android.core.model.SkillAccessStatus
+import com.floris.android.core.maps.routeLegs
+import com.floris.android.core.maps.routeLegScope
+import com.floris.android.core.maps.routeSectionDisplayPaths
+import com.floris.android.core.maps.routeSectionEndpoints
+import com.floris.android.core.maps.routeSectionPath
+import com.floris.android.core.maps.routeSectionSteps
 import com.floris.android.ui.components.EmptyState
 import com.floris.android.ui.components.FlorisCard
 import com.floris.android.ui.components.InlineLoading
@@ -75,6 +84,7 @@ import com.floris.android.ui.components.SectionHeader
 import com.floris.android.ui.components.StatusChip
 import com.floris.android.ui.components.SkillAccessNotice
 import com.floris.android.ui.components.routeModeLabel
+import com.floris.android.ui.components.pressable
 import com.floris.android.ui.mapViewModelFactory
 import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.StringResolver
@@ -228,6 +238,9 @@ fun MapScreen(
 
     val displayPlaces = state.searchResults.ifEmpty { workspace.places }
     val displayRoute = state.route ?: workspace.route
+    var activeRouteStep by remember(displayRoute?.id, workspace.revision) { mutableIntStateOf(0) }
+    var requestedRouteStep by remember(displayRoute?.id, workspace.revision) { mutableStateOf<Int?>(null) }
+    var focusRevision by remember(displayRoute?.id, workspace.revision) { mutableIntStateOf(0) }
 
     Column(
         Modifier
@@ -274,6 +287,9 @@ fun MapScreen(
                     TencentMapView(
                         places = displayPlaces,
                         route = displayRoute,
+                        requestedFocusStep = requestedRouteStep,
+                        focusRevision = focusRevision,
+                        onRouteFocus = { activeRouteStep = it },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(260.dp)
@@ -348,7 +364,16 @@ fun MapScreen(
 
                 displayRoute?.let { route ->
                     item(key = "route") {
-                        RouteCard(route, state.planningRoute)
+                        RouteCard(
+                            route = route,
+                            planning = state.planningRoute,
+                            activeStep = activeRouteStep,
+                            onFocusStep = { index ->
+                                activeRouteStep = index
+                                requestedRouteStep = index
+                                focusRevision += 1
+                            },
+                        )
                     }
                 }
                 } else if (!state.searching) {
@@ -363,10 +388,18 @@ fun MapScreen(
 }
 
 @Composable
-private fun RouteCard(route: RoutePlan, planning: Boolean) {
+private fun RouteCard(
+    route: RoutePlan,
+    planning: Boolean,
+    activeStep: Int,
+    onFocusStep: (Int) -> Unit,
+) {
     FlorisCard {
         Column(Modifier.padding(14.dp)) {
             val places = route.places.ifEmpty { route.ordered_stops }
+            val legs = routeLegs(route)
+            val steps = routeSectionSteps(route)
+            val selectedStep = activeStep.coerceIn(0, (steps.size - 1).coerceAtLeast(0))
             val distance = route.distance_text ?: route.distance_meters.takeIf { it > 0 }?.let(::distanceText)
             val duration = route.duration_text
                 ?: route.duration_seconds.takeIf { it > 0 }?.let { durationText(it) }
@@ -388,9 +421,22 @@ private fun RouteCard(route: RoutePlan, planning: Boolean) {
                 }
                 StatusChip(routeModeLabel(route.mode ?: ""), MaterialTheme.colorScheme.primary)
             }
-            route.legs.forEachIndexed { index, leg ->
+            legs.forEachIndexed { index, leg ->
+                val firstStep = steps.indexOfFirst { it.legIndex == index }.coerceAtLeast(0)
+                val selected = steps.getOrNull(selectedStep)?.legIndex == index
                 Spacer(Modifier.height(if (index == 0) 12.dp else 8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.48f)
+                            else Color.Transparent,
+                        )
+                        .pressable { onFocusStep(firstStep) }
+                        .padding(horizontal = 8.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Box(
                         Modifier.size(22.dp).clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primaryContainer),
@@ -420,7 +466,7 @@ private fun RouteCard(route: RoutePlan, planning: Boolean) {
                 }
                 val sections = leg.sections
                 Row(
-                    Modifier.padding(start = 30.dp, top = 7.dp)
+                    Modifier.padding(start = 38.dp, top = 5.dp)
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -445,6 +491,69 @@ private fun RouteCard(route: RoutePlan, planning: Boolean) {
                             )
                         }
                     }
+                }
+            }
+            steps.getOrNull(selectedStep)?.let { step ->
+                val endpoints = routeSectionEndpoints(steps, selectedStep)
+                Spacer(Modifier.height(12.dp))
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                        .padding(12.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = { onFocusStep((selectedStep - 1).coerceAtLeast(0)) },
+                            enabled = selectedStep > 0,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = t(StringKey.Back))
+                        }
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                endpoints?.let { "${it.from} → ${it.to}" }
+                                    ?: step.section.instruction.orEmpty(),
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 2,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            )
+                            Text(
+                                listOfNotNull(
+                                    step.section.line?.takeIf(String::isNotBlank)
+                                        ?: step.section.vehicle?.takeIf(String::isNotBlank)
+                                        ?: routeModeLabel(step.section.mode),
+                                    step.section.distance_meters.takeIf { it > 0 }?.let(::distanceText),
+                                    step.section.duration_seconds.takeIf { it > 0 }
+                                        ?.let { seconds -> durationText(seconds) },
+                                ).joinToString(" · "),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            )
+                        }
+                        IconButton(
+                            onClick = { onFocusStep((selectedStep + 1).coerceAtMost(steps.lastIndex)) },
+                            enabled = selectedStep < steps.lastIndex,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = t(StringKey.OnboardingNext))
+                        }
+                    }
+                    step.section.instruction?.takeIf(String::isNotBlank)?.let { instruction ->
+                        Text(
+                            instruction,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                    Text(
+                        "${selectedStep + 1} / ${steps.size}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                    )
                 }
             }
         }
@@ -476,9 +585,22 @@ private fun durationText(seconds: Double): String {
 /** Tencent GL JS map inside a locked-down WebView; requires TENCENT_MAP_KEY in local.properties. */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun TencentMapView(places: List<Place>, route: RoutePlan?, modifier: Modifier = Modifier) {
+private fun TencentMapView(
+    places: List<Place>,
+    route: RoutePlan?,
+    modifier: Modifier = Modifier,
+    requestedFocusStep: Int? = null,
+    focusRevision: Int = 0,
+    onRouteFocus: (Int) -> Unit = {},
+) {
     val key = BuildConfig.TENCENT_MAP_KEY
     val html = remember(places, route) { buildMapHtml(key, places, route) }
+    val webViewState = remember { mutableStateOf<WebView?>(null) }
+    LaunchedEffect(focusRevision, requestedFocusStep, route?.id) {
+        requestedFocusStep?.let { index ->
+            webViewState.value?.evaluateJavascript("window.florisFocusRouteStep($index, true)", null)
+        }
+    }
     AndroidView(
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
         factory = { context ->
@@ -491,11 +613,28 @@ private fun TencentMapView(places: List<Place>, route: RoutePlan?, modifier: Mod
                 settings.allowContentAccess = false
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                 settings.safeBrowsingEnabled = true
-                webViewClient = WebViewClient()
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: WebResourceRequest?,
+                    ): Boolean {
+                        val uri = request?.url ?: return false
+                        if (uri.scheme == "floris" && uri.host == "route-focus") {
+                            uri.getQueryParameter("index")?.toIntOrNull()?.let(onRouteFocus)
+                            return true
+                        }
+                        return false
+                    }
+                }
+                webViewState.value = this
             }
         },
         update = { webView ->
-            webView.loadDataWithBaseURL("https://map.qq.com", html, "text/html", "utf-8", null)
+            val signature = html.hashCode()
+            if (webView.tag != signature) {
+                webView.tag = signature
+                webView.loadDataWithBaseURL("https://map.qq.com", html, "text/html", "utf-8", null)
+            }
         },
     )
 }
@@ -512,7 +651,8 @@ private fun buildMapHtml(key: String, places: List<Place>, route: RoutePlan?): S
         )
     }
     val coarse = points(contractPath.ifEmpty { legacyPath })
-    val legs = route?.legs.orEmpty().mapIndexed { index, leg ->
+    val providerLegs = route?.let(::routeLegs).orEmpty()
+    val legs = providerLegs.mapIndexed { index, leg ->
         val path = leg.path.ifEmpty {
             leg.polyline.map { pair ->
                 com.floris.android.core.model.RoutePoint(
@@ -520,13 +660,17 @@ private fun buildMapHtml(key: String, places: List<Place>, route: RoutePlan?): S
                 )
             }
         }
-        "{id:'leg$index',scope:'${(leg.scope ?: "unknown").jsEscape()}',mode:'${(leg.mode ?: "driving").jsEscape()}',points:[${points(path)}]}"
+        "{id:'leg$index',scope:'${routeLegScope(leg).jsEscape()}',mode:'${(leg.mode ?: "driving").jsEscape()}',points:[${points(path)}]}"
     }.orEmpty().joinToString(",")
-    val sections = route?.legs.orEmpty().flatMapIndexed { legIndex, leg ->
-        leg.sections.mapIndexed { sectionIndex, section ->
-            "{id:'section${legIndex}_$sectionIndex',scope:'${(leg.scope ?: "unknown").jsEscape()}',mode:'${section.mode.jsEscape()}',points:[${points(section.path)}]}"
+    val routeSteps = route?.let(::routeSectionSteps).orEmpty()
+    val sections = routeSteps.flatMapIndexed { stepIndex, step ->
+        routeSectionDisplayPaths(step).mapIndexed { pathIndex, path ->
+            "{id:'section${step.legIndex}_${step.sectionIndex}_$pathIndex',step:$stepIndex,scope:'${routeLegScope(step.leg).jsEscape()}',mode:'${step.section.mode.jsEscape()}',points:[${points(path)}]}"
         }
     }.orEmpty().joinToString(",")
+    val focusSteps = routeSteps.mapIndexed { index, step ->
+        "{step:$index,points:[${points(routeSectionPath(step))}]}"
+    }.joinToString(",")
     val center = places.firstOrNull() ?: Place(latitude = 39.9, longitude = 116.4)
     return """
         <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -544,23 +688,34 @@ private fun buildMapHtml(key: String, places: List<Place>, route: RoutePlan?): S
         var coarse = [$coarse];
         var legs = [$legs];
         var sections = [$sections];
+        var focusSteps = [$focusSteps];
+        var activeStep = 0;
         var styles = {
           driving:{color:'#5B72E8',width:7,borderWidth:1,borderColor:'#FFFFFF'},
           transit:{color:'#2E9C76',width:7,borderWidth:1,borderColor:'#FFFFFF'},
           bus:{color:'#2E9C76',width:7,borderWidth:1,borderColor:'#FFFFFF'},
           rail:{color:'#9A63D4',width:8,borderWidth:1,borderColor:'#FFFFFF'},
-          walking:{color:'#8A8178',width:5,dashArray:[5,5]},
-          bicycling:{color:'#E98B45',width:6,borderWidth:1,borderColor:'#FFFFFF'}
+          walking:{color:'#2E9D67',width:5,borderWidth:0},
+          bicycling:{color:'#ED8B2C',width:6,borderWidth:1,borderColor:'#FFFFFF'},
+          inactive:{color:'#B8B3AE',width:4,borderWidth:0}
         };
         var routeLayer = new TMap.MultiPolyline({map:map,styles:styles,geometries:[]});
-        function distanceToCenter(item) {
-          if (!item.points.length) return 999999;
-          var center = map.getCenter(), point = item.points[Math.floor(item.points.length/2)];
-          var dx = point[0] - center.lat, dy = point[1] - center.lng;
-          return dx*dx + dy*dy;
+        function pointSegmentDistance(point, start, end) {
+          var dx=end[1]-start[1], dy=end[0]-start[0], length=dx*dx+dy*dy;
+          var ratio=length ? Math.max(0,Math.min(1,((point[1]-start[1])*dx+(point[0]-start[0])*dy)/length)) : 0;
+          var ox=point[1]-(start[1]+ratio*dx), oy=point[0]-(start[0]+ratio*dy);
+          return ox*ox+oy*oy;
+        }
+        function distanceToPath(point, path) {
+          if (!path.length) return 999999;
+          var best=999999;
+          for(var i=0;i<path.length;i++) best=Math.min(best,pointSegmentDistance(point,path[i],path[i+1]||path[i]));
+          return best;
         }
         function geometry(item) {
-          return {id:item.id,styleId:styles[item.mode] ? item.mode : 'driving',
+          var style = map.getZoom()>12 && item.step !== undefined && item.step !== activeStep
+            ? 'inactive' : (styles[item.mode] ? item.mode : 'driving');
+          return {id:item.id,styleId:style,
             paths:item.points.map(function(p){return new TMap.LatLng(p[0],p[1]);})};
         }
         function renderRoute() {
@@ -571,15 +726,33 @@ private fun buildMapHtml(key: String, places: List<Place>, route: RoutePlan?): S
           } else if (zoom <= 12) {
             visible = legs.length ? legs : [{id:'route',mode:'driving',points:coarse}];
           } else {
-            visible = (sections.length ? sections : legs).slice().sort(function(a,b){
-              return distanceToCenter(a)-distanceToCenter(b);
-            }).slice(0,4);
+            visible = sections.length ? sections : legs;
           }
           routeLayer.setGeometries(visible.filter(function(item){return item.points.length>1;}).map(geometry));
         }
+        function notifyFocus(index) {
+          window.location.href='floris://route-focus?index='+index;
+        }
+        function updateAttentionFocus() {
+          if(map.getZoom()<=12 || !focusSteps.length) return;
+          var center=map.getCenter(), point=[center.lat,center.lng], best=-1, distance=999999;
+          focusSteps.forEach(function(item){var next=distanceToPath(point,item.points);if(next<distance){distance=next;best=item.step;}});
+          if(best>=0 && best!==activeStep){activeStep=best;renderRoute();notifyFocus(best);}
+        }
+        window.florisFocusRouteStep = function(index, fit) {
+          index=Math.max(0,Math.min(Number(index)||0,Math.max(0,focusSteps.length-1)));
+          activeStep=index;
+          var item=focusSteps[index];
+          if(fit && item && item.points.length>1 && TMap.LatLngBounds) {
+            var bounds=new TMap.LatLngBounds();
+            item.points.forEach(function(p){bounds.extend(new TMap.LatLng(p[0],p[1]));});
+            map.fitBounds(bounds,{padding:64});
+          }
+          renderRoute();notifyFocus(index);
+        };
         renderRoute();
         map.on('zoom_changed', renderRoute);
-        map.on('center_changed', function(){ if(map.getZoom()>12) renderRoute(); });
+        map.on('center_changed', updateAttentionFocus);
         </script></body></html>
     """.trimIndent()
 }

@@ -231,9 +231,9 @@ fun PrimaryIconButton(
 fun CatIconImage(
     resId: Int,
     size: Dp,
+    modifier: Modifier = Modifier,
     tint: Color = MaterialTheme.colorScheme.onSurface,
     contentDescription: String? = null,
-    modifier: Modifier = Modifier,
 ) {
     Image(
         painter = painterResource(resId),

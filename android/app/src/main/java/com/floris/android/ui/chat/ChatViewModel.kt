@@ -10,12 +10,17 @@ import com.floris.android.core.chat.mergeProjection
 import com.floris.android.core.chat.StreamTypewriter
 import com.floris.android.core.chat.reduce
 import com.floris.android.core.chat.stopIsDurablyConfirmed
+import com.floris.android.core.chat.toChatRequestBody
+import com.floris.android.core.chat.clarificationAnswerSummary
+import com.floris.android.core.chat.clarificationRequestBody
 import com.floris.android.core.data.FlorisRepository
 import com.floris.android.core.data.arr
 import com.floris.android.core.data.asString
 import com.floris.android.core.data.obj
 import com.floris.android.core.data.num
 import com.floris.android.core.data.str
+import com.floris.android.core.location.ClientLocationFix
+import com.floris.android.core.location.ClientLocationRequest
 import com.floris.android.core.model.Clarification
 import com.floris.android.core.model.ChatRun
 import com.floris.android.core.model.Paper
@@ -33,6 +38,7 @@ import com.floris.android.ui.prefs.StringKey
 import com.floris.android.ui.prefs.StringResolver
 import com.floris.android.ui.prefs.userFacingError
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,10 +51,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
 import java.time.LocalDate
 import java.util.Locale
 import java.util.UUID
@@ -89,6 +93,7 @@ class ChatViewModel(
     private var lastUserMessage: String? = null
     private var lastClientMessageId: String? = null
     private var activeTurn: PendingChatTurn? = null
+    private var cachedLocation: ClientLocationFix? = null
     private val stopConfirmationJobs = mutableMapOf<String, Job>()
     private var lastPresentationRevision = -1L
     private var restored = false
@@ -354,7 +359,6 @@ class ChatViewModel(
     fun send(
         text: String,
         referenceImages: List<String> = emptyList(),
-        location: Pair<Double, Double>? = null,
     ): ChatSendDisposition {
         val message = text.trim()
         if (message.isEmpty() || _state.value.bootstrapping) return ChatSendDisposition.IGNORED
@@ -362,8 +366,15 @@ class ChatViewModel(
             id = UUID.randomUUID().toString(),
             text = message,
             referenceImages = referenceImages.take(3),
-            latitude = location?.first,
-            longitude = location?.second,
+            currentLocation = cachedLocation?.takeIf { it.isFresh() },
+            locationRequest = ClientLocationRequest(
+                state = if (cachedLocation?.isFresh() == true) {
+                    ClientLocationRequest.AVAILABLE
+                } else ClientLocationRequest.IDLE,
+                attemptedAt = if (cachedLocation != null) {
+                    System.currentTimeMillis()
+                } else 0,
+            ),
         )
         if (_state.value.streaming || streamJob?.isActive == true) {
             return if (enqueue(turn)) ChatSendDisposition.QUEUED
@@ -387,7 +398,25 @@ class ChatViewModel(
             runCatching {
                 repository.uploadReadingDocument(conversationId, uri, filename)
             }.onSuccess {
-                appendUploadMessages(filename)
+                val messages = appendUploadMessages(filename)
+                runCatching {
+                    repository.appendConversationMessage(
+                        conversationId,
+                        "user",
+                        messages.first.content,
+                        messages.first.id,
+                    )
+                    repository.appendConversationMessage(
+                        conversationId,
+                        "ai",
+                        messages.second.content,
+                        messages.first.id,
+                    )
+                }.onFailure {
+                    _state.update { state ->
+                        state.copy(transientError = strings.get(StringKey.ChatSaveFailed))
+                    }
+                }
             }.onFailure {
                 _state.update { s ->
                     s.copy(transientError = strings.get(StringKey.ChatUploadFailed))
@@ -397,7 +426,7 @@ class ChatViewModel(
         }
     }
 
-    private fun appendUploadMessages(filename: String) {
+    private fun appendUploadMessages(filename: String): Pair<ChatMessageUi, ChatMessageUi> {
         val now = System.currentTimeMillis()
         val userMessage = ChatMessageUi(
             id = "upload-$now",
@@ -414,6 +443,7 @@ class ChatViewModel(
             turnStartedAt = now + 1,
         )
         _state.update { it.copy(messages = it.messages + userMessage + aiMessage) }
+        return userMessage to aiMessage
     }
 
     // ---------- Proactive in-chat actions ----------
@@ -575,24 +605,7 @@ class ChatViewModel(
             }
         }
 
-        val body = buildJsonObject {
-            put("message", turn.text)
-            put("client_message_id", turn.id)
-            turn.activity?.let { put("activity", it) }
-            turn.routePlanId?.let { put("route_plan_id", it) }
-            if (turn.referenceImages.isNotEmpty()) {
-                putJsonArray("reference_images") {
-                    turn.referenceImages.forEach { add(JsonPrimitive(it)) }
-                }
-            }
-            if (turn.latitude != null && turn.longitude != null) {
-                put("current_location", buildJsonObject {
-                    put("latitude", turn.latitude)
-                    put("longitude", turn.longitude)
-                })
-            }
-        }
-        startStream(assistantId, turn, body)
+        startStream(assistantId, turn, turn.toChatRequestBody())
     }
 
     private fun enqueue(turn: PendingChatTurn, first: Boolean = false): Boolean {
@@ -633,6 +646,26 @@ class ChatViewModel(
     private fun drainQueue() {
         val state = _state.value
         if (state.bootstrapping || state.streaming || streamJob?.isActive == true) return
+        runtimeStore.loadLocationRetry(state.conversationId)?.let { stored ->
+            // In-process, wait for the permission/GPS callback. After process
+            // recreation there is no callback, so resume deterministically as
+            // a failed native lookup and let Maker ask for a manual origin.
+            if (
+                stored.locationRequest.normalizedState == ClientLocationRequest.IDLE &&
+                state.locationRequestReason != null
+            ) return
+            val ready = if (stored.locationRequest.normalizedState == ClientLocationRequest.IDLE) {
+                stored.copy(
+                    locationRequest = ClientLocationRequest(
+                        ClientLocationRequest.FAILED,
+                        System.currentTimeMillis(),
+                    ),
+                )
+            } else stored
+            runtimeStore.clearLocationRetry(state.conversationId)
+            executeTurn(ready)
+            return
+        }
         val next = state.queuedTurns.firstOrNull() ?: return
         val rest = state.queuedTurns.drop(1)
         runtimeStore.saveQueue(state.conversationId, rest)
@@ -663,8 +696,22 @@ class ChatViewModel(
             try {
                 repository.streamChat(conversationId, body).collect { event ->
                     when (event) {
-                        is ChatEvent.LocationRequest ->
+                        is ChatEvent.LocationRequest -> {
+                            val retrySource = activeTurn ?: turn
+                            runtimeStore.saveLocationRetry(
+                                conversationId,
+                                retrySource.copy(
+                                    id = UUID.randomUUID().toString(),
+                                    createdAt = System.currentTimeMillis(),
+                                    currentLocation = null,
+                                    locationRequest = ClientLocationRequest(),
+                                    locationRetry = true,
+                                    latitude = null,
+                                    longitude = null,
+                                ),
+                            )
                             _state.update { it.copy(locationRequestReason = event.reason) }
+                        }
                         is ChatEvent.ProactiveUpdate ->
                             repository.publishProactiveUpdate(event.payload)
                         // 正文交给打字机排队，其余事件立即生效。
@@ -710,6 +757,9 @@ class ChatViewModel(
                         else -> updateAssistant(assistantId) { it.reduce(event) }
                     }
                 }
+            } catch (cancellation: CancellationException) {
+                painter.cancel()
+                throw cancellation
             } catch (error: Throwable) {
                 streamError = error
             }
@@ -899,6 +949,7 @@ class ChatViewModel(
             ?: _state.value.messages.lastOrNull { it.streaming }?.clientMessageId
             ?: return
         runtimeStore.markStopIntent(conversationId, clientMessageId)
+        runtimeStore.clearLocationRetry(conversationId)
         streamJob?.cancel()
         streamJob = null
         discardAssistantTurn(clientMessageId)
@@ -961,10 +1012,15 @@ class ChatViewModel(
 
     // ---------- Location ----------
 
-    fun provideLocation(latitude: Double, longitude: Double) {
+    fun provideLocation(fix: ClientLocationFix) {
+        if (!fix.isFresh()) {
+            resolveLocationRequest(ClientLocationRequest.FAILED, null)
+            return
+        }
+        cachedLocation = fix
         _state.update { it.copy(locationRequestReason = null) }
-        val roundedLatitude = String.format(Locale.ROOT, "%.2f", latitude)
-        val roundedLongitude = String.format(Locale.ROOT, "%.2f", longitude)
+        val roundedLatitude = String.format(Locale.ROOT, "%.2f", fix.latitude)
+        val roundedLongitude = String.format(Locale.ROOT, "%.2f", fix.longitude)
         viewModelScope.launch {
             runCatching {
                 repository.proactive(
@@ -981,33 +1037,50 @@ class ChatViewModel(
                 )
             }
         }
-        val message = lastUserMessage ?: return
-        enqueue(
-            PendingChatTurn(
-                id = UUID.randomUUID().toString(),
-                text = message,
-                latitude = latitude,
-                longitude = longitude,
-            ),
-            first = true,
-        )
+        resolveLocationRequest(ClientLocationRequest.AVAILABLE, fix)
+    }
+
+    fun locationRequestFailed(state: String) {
+        resolveLocationRequest(state, null)
     }
 
     fun dismissLocationRequest() {
+        resolveLocationRequest(ClientLocationRequest.DENIED, null)
+    }
+
+    private fun resolveLocationRequest(state: String, fix: ClientLocationFix?) {
+        val conversationId = _state.value.conversationId
+        val stored = runtimeStore.loadLocationRetry(conversationId)
+        if (stored != null) {
+            runtimeStore.saveLocationRetry(
+                conversationId,
+                stored.copy(
+                    currentLocation = fix,
+                    locationRequest = ClientLocationRequest(state, System.currentTimeMillis()),
+                    locationRetry = true,
+                ),
+            )
+        }
         _state.update { it.copy(locationRequestReason = null) }
+        drainQueue()
     }
 
     // ---------- Clarification ----------
 
-    fun submitClarification(clarification: Clarification, answers: Map<String, Any>) {
+    fun submitClarification(
+        clarification: Clarification,
+        sourceMessageId: String,
+        answers: Map<String, Any>,
+    ) {
         if (_state.value.streaming) return
         _state.update { it.copy(submittingClarification = true) }
-        val summary = answers.entries.joinToString("；") { "${it.key}: ${it.value}" }
+        val summary = clarificationAnswerSummary(clarification, answers)
         val turn = PendingChatTurn(
             id = UUID.randomUUID().toString(),
             text = strings.get(StringKey.ClarificationAnswered, summary),
         )
         activeTurn = turn
+        runtimeStore.saveActiveTurn(_state.value.conversationId, turn)
         lastClientMessageId = turn.id
         lastUserMessage = turn.text
         val assistantId = UUID.randomUUID().toString()
@@ -1033,21 +1106,7 @@ class ChatViewModel(
                 submittingClarification = false,
             )
         }
-        val body = buildJsonObject {
-            put("message", turn.text)
-            put("client_message_id", turn.id)
-            put("clarification_response", buildJsonObject {
-                put("clarification_id", clarification.id)
-                answers.forEach { (key, value) ->
-                    when (value) {
-                        is Boolean -> put(key, value)
-                        is Number -> put(key, value.toDouble())
-                        is List<*> -> putJsonArray(key) { value.forEach { v -> add(JsonPrimitive(v.toString())) } }
-                        else -> put(key, value.toString())
-                    }
-                }
-            })
-        }
+        val body = clarificationRequestBody(turn, clarification, sourceMessageId, answers)
         startStream(assistantId, turn, body)
     }
 

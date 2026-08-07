@@ -344,6 +344,8 @@
             "application/json": {
               "schema": { "$ref": "#/components/schemas/AppendMessageRequest" },
               "example": {
+                "operation": "append_message",
+                "conversation_id": "conversation_01",
                 "role": "user",
                 "content": "帮我规划明天的杭州行程",
                 "metadata": { "id": "msg_01" }
@@ -1333,18 +1335,71 @@
           "message": { "type": "string" },
           "client_message_id": { "type": "string", "description": "Stable turn owner. The user request and its assistant answer share this exact value." },
           "reference_images": { "type": "array", "maxItems": 3, "items": { "type": "string" } },
-          "clarification_response": { "type": "object", "additionalProperties": true },
-          "current_location": { "type": "object", "additionalProperties": true }
+          "interaction_mode": { "enum": ["clarification"] },
+          "activity": { "type": "string" },
+          "clarification_response": { "$ref": "#/components/schemas/ClarificationResponse" },
+          "current_location": { "$ref": "#/components/schemas/CurrentLocation" },
+          "location_request": { "$ref": "#/components/schemas/LocationRequest" },
+          "_location_retry": { "type": "boolean" }
         },
         "additionalProperties": true
       },
+      "CurrentLocation": {
+        "type": "object",
+        "required": ["latitude", "longitude", "accuracy_meters", "captured_at", "coordinate_type"],
+        "properties": {
+          "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+          "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+          "accuracy_meters": { "type": "number", "minimum": 0, "maximum": 5000 },
+          "captured_at": { "type": "integer", "description": "Epoch milliseconds; must be fresh when sent." },
+          "coordinate_type": { "const": "wgs84" }
+        },
+        "additionalProperties": false
+      },
+      "LocationRequest": {
+        "type": "object",
+        "required": ["state", "attempted_at"],
+        "properties": {
+          "state": { "enum": ["idle", "available", "denied", "timed_out", "unavailable", "failed"] },
+          "attempted_at": { "type": "integer", "description": "Epoch milliseconds; 0 when no attempt occurred." }
+        },
+        "additionalProperties": false
+      },
+      "ClarificationAnswer": {
+        "type": "object",
+        "required": ["id", "value"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "value": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClarificationResponse": {
+        "type": "object",
+        "required": ["id", "source_message_id", "answers"],
+        "properties": {
+          "id": { "type": "string" },
+          "source_message_id": { "type": "string" },
+          "answers": { "type": "array", "items": { "$ref": "#/components/schemas/ClarificationAnswer" } }
+        },
+        "additionalProperties": false
+      },
       "AppendMessageRequest": {
         "type": "object",
-        "required": ["role", "content"],
+        "required": ["operation", "conversation_id", "role", "content"],
         "properties": {
+          "operation": { "const": "append_message" },
+          "conversation_id": { "type": "string" },
           "role": { "enum": ["user", "ai", "system"] },
           "content": { "type": "string", "minLength": 1 },
-          "metadata": { "type": "object", "additionalProperties": true }
+          "metadata": { "type": "object", "additionalProperties": true },
+          "response_language": { "type": "string", "enum": ["zh-CN", "zh-TW", "en", "cat-cute", "cat-cold"] }
         },
         "additionalProperties": false
       },

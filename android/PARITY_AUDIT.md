@@ -1,99 +1,69 @@
-# Floris Android 与 dev 网页端功能对齐审计
+# Floris Android 与 dev 功能对齐审计
 
-> 审计日期：2026-08-06
-> 仓库：`wangjr20210114-hue/-ai-`
-> 工作分支：`floris-android`（仅此分支可修改；`dev` 只读，其他分支不动）
-> 对照契约：[`docs/mobile-client-v1.md`](./mobile-client-v1.md)、[`contracts/mobile-client.v1.json`](../contracts/mobile-client.v1.json)
-> 对照实现：`frontend/`（dev 网页端）与 `android/`（原生客户端）
+> 审计日期：2026-08-07
+>
+> Android 分支：`floris-android`
+>
+> 后端：直接复用 `https://floris-dev.jlutx.com`，不复制任何 Maker 业务逻辑
+> 只读对照：`origin/dev`、OpenAPI 1.9.0、组件与 SSE v1 Contract
 
-## 1. 结论摘要
+## 结论
 
-安卓客户端已经实现“一个后台、多个客户端”的接入原则：身份、聊天编排、搜索、媒体审核、路线、日程、Skills、记忆、持久化全部由 dev 后台（Maker）负责，客户端只做界面、系统权限、通知、文件选择与本地缓存；API 面与 `mobile-client.v1.json` 契约基本完整（`/chat`、`/messages`、`/run`、`/stop`、`/conversations`、`/workspace`、`/places`、`/routes`、`/intelligence`、`/skill_marketplace`、`/skill-uploads`、`/papers`、`/library`、`/reader`、`/document-text`、`/files`、`/profile`、`/proactive`、`/provider_usage`、`/reset`、`/reset-files`、`/auth/*`）。
+Android 已采用“原生客户端 + dev 后端”的单后端结构。身份、租户隔离、权益、Skills、聊天规划、富搜索、审图、地点核验、路线链、日程、论文、记忆、主动提醒和持久化全部由 dev/Maker 决定；Android 只实现 Compose 界面、系统鉴权交换、权限、定位、语音、通知、文件选择、相册、地图绘制、短期渲染缓存和每会话等待队列。
 
-逐功能域对照 dev 网页端后，主体能力已对齐；剩余差距集中在**聊天会话内的几个交互投影**和**两处输入/下载能力**：
+代码级功能面已覆盖网页登录态的公开能力。上线前仍需在真机上完成登录、定位、通知、语音、地图 Key、相册和文件选择的设备验收，以及使用 dev 账号执行端到端在线冒烟。
 
-1. 聊天中缺少 proactive 会话内卡片（网页 `ProactiveRenderer`：通知“帮我处理 / 一小时后提醒 / 忽略”，工作流“确认 / 拒绝 / 完成 / 跳过 / 标记失败 / 重试 / 补偿 / 结束”）。
-2. 地图推荐动作卡缺少“添加到日程”（`calendar_offer` → `route_calendar_offer_accepted`）。
-3. 聊天输入栏缺少 PDF/文档上传（网页输入栏支持 PDF 与图片；安卓目前只有参考图）。
-4. 生图卡片缺少“保存到相册”（网页支持下载单张/批量 ZIP，安卓只有整条回答存图）。
-5. `experience_hint` 事件已解析到消息模型，但界面未渲染（网页在回答后展示时效/技能提示）。
-6. 会议结果卡缺少会议号、开始时间等结果详情（网页显示 `meeting_code`、`join_url`、`start_time`）。
+## 公开接口覆盖
 
-以上均为客户端投影/输入能力，不涉及复制后台业务逻辑，符合客户端边界。
+`FlorisApi` 的业务路径由单元测试做精确集合校验，多一个或少一个都会失败：
 
-## 2. 审计方法
+- 身份：`/auth/session`、`/auth/mobile/session`、`/auth/logout`、`/profile`
+- 聊天：`/chat`、`/messages`、`/run`、`/stop`、`/conversation`、`/conversations`
+- 文件与阅读：`/files`、`/document-text`、`/papers`、`/reader`、`/library`
+- 工作区：`/workspace`、`/places`、`/routes`
+- 个性化：`/intelligence`、`/proactive`、`/provider_usage`
+- Skills：`/skill_marketplace`、`/skill-uploads`
+- 数据维护：`/reset`、`/reset-files`
 
-- 枚举 dev 前端功能文件（`frontend/src/features/*`、`frontend/src/components/*`）与安卓页面（`android/app/src/main/java/com/floris/android/ui/*`）。
-- 以 `mobile-client-v1.md` 的 SSE 事件表、功能 API 表与操作表为对照词表。
-- 逐项核对：接口是否存在于 `FlorisApi`/`FlorisRepository`；事件是否被 `ChatEventDispatcher`/`ChatViewModel` 消费；UI 是否渲染。
-- 复查工作区未提交改动（会议确认卡编辑、`stage_timing`、proactive 信号、工作流失败/补偿按钮），确认其为对齐工作的一部分而非半成品。
+CloudBase 登录是唯一直接调用 Provider 的身份 Adapter；腾讯地图 WebView 只绘制后端已核验地点与路线。其他 Feature/View 不允许自行访问业务后端、模型、搜索 Provider、数据库或地图路线 Provider。
 
-## 3. 已对齐清单
+## 功能对齐矩阵
 
-| 功能域 | 网页端 | 安卓端 | 结论 |
-| --- | --- | --- | --- |
-| 身份与会话 | AuthDialog、CloudBase OTP、Guest | LoginScreen、CloudBaseAuthApi、AuthManager、Keystore | 对齐 |
-| SSE 流式聊天 | chatTransport、打字机 | FlorisClient、StreamTypewriter | 对齐 |
-| 等待队列 | TurnQueueDrawer（编辑/删除/打断） | TurnQueueDrawer（编辑/删除/立即发送） | 对齐 |
-| 停止与重试 | stop、retryFailedAnswer | stop、retryLast | 对齐 |
-| 澄清卡 | ClarificationCard（single/multi/boolean/date/time/datetime） | ClarificationForm | 对齐 |
-| 富搜索来源/媒体 | searchResults/searchMedia 增量合并 + source_id 绑定 | SourceBoundAnswer/SearchSourcesRow/MediaGrid | 对齐 |
-| 搜索进度时间线 | ProgressRenderer + stage_timing | SearchProgress + stageTimingsMs（本次工作区） | 对齐 |
-| 论文卡片 | PaperRenderer | PaperListCard | 对齐 |
-| 地图动作 | WorkspaceActionRenderer（查看地图/添加日程） | MapActionBody（查看地图，缺“添加日程”） | 差距见 4.2 |
-| 日历动作 | calendar_changes 预览与确认 | CalendarActionBody | 对齐 |
-| 会议创建 | MeetingConfirmationCard（编辑/校验/警告/加入） | meetingActionBody（本次工作区完成） | 对齐（结果详情差距见 4.6） |
-| 生图工坊 | ImageStudioCard（对比、再编辑、下载） | ImageActionBody（对比、再编辑，缺下载） | 差距见 4.4 |
-| 追问 | followUps 填入输入框 | FollowUpChips | 对齐 |
-| 经验提示 | experienceHints 渲染 | 已解析未渲染 | 差距见 4.5 |
-| 回答操作 | 复制、保存图片 | 复制、保存为图片 | 对齐 |
-| 参考图/语音 | 上传图片、语音输入 | PickMultipleVisualMedia、VoiceInputController | 对齐 |
-| 聊天文档上传 | PDF 上传 + 注册阅读库 + 信号 | 无（阅读页有上传） | 差距见 4.3 |
-| 会话历史 | ConversationSidebar（重命名/删除/状态） | HistoryScreen（重命名/滑动删除/状态） | 对齐 |
-| 日历 | CalendarMonthView + 日程编辑 | CalendarScreen 月视图 + ScheduleEditorDialog | 对齐 |
-| 地图/路线 | MakersMap + RouteJourneyCard | MapScreen（WebView 腾讯地图）+ RouteCard | 对齐 |
-| Skills 广场 | SkillCatalogView、SkillImportView、SkillReferenceView | SkillsScreen（目录、安装、导入、组件 API） | 对齐 |
-| 阅读库 | ReadingLibraryPanel（文件夹/移动/自动整理/删除/助读） | ReadingScreen（同能力 + 系统阅读器打开） | 对齐 |
-| 设置/个性化 | AppSettingsButton（偏好、用量、清除数据） | SettingsScreen + PersonalizationScreen | 对齐 |
-| 主动提醒面板 | ProactiveBriefPanel | ProfileScreen ProactiveCard（mark_read/snooze/dismiss） | 对齐 |
-| 工作流管理 | PersonalizationScreen 工作流卡（confirm/reject/cancel/complete/skip/fail/retry/compensate） | PersonalizationScreen WorkflowCard（本次工作区补齐 fail/compensate） | 对齐 |
-| 后台通知 | 浏览器通知 | WorkManager + ProactiveNotifier | 对齐 |
-| 新手引导 | FlorisOnboarding | OnboardingOverlay 聚光灯 | 对齐 |
-| 会话内 proactive | ProactiveRenderer（通知+工作流） | 无 | 差距见 4.1 |
+| 功能域 | Android 实现 | 权威状态来源 |
+| --- | --- | --- |
+| 游客与 CloudBase 邮箱登录 | OTP、短期 Floris Bearer、Keystore refresh token、单次 401 恢复、退出隔离 | CloudBase + `/auth/mobile/session` |
+| 会话 | 新对话置顶、首问命名、改名、删除、历史恢复、切换对焦最后一次提问 | `/conversations`、`/messages` |
+| 流式聊天 | SSE 正文、进度、来源、媒体、卡片、追问、用量；未知事件忽略 | `/chat` + chat-events-v1 |
+| 中断与恢复 | 最多 5 条等待队列；编辑/删除/打断；停止 tombstone；进程恢复同一 Maker run | `/stop`、`/run` |
+| 富搜索与图片 | 发送即计时；来源/审图乱序增量合并；严格 `source_id/source_url` 段落绑定；无兜底图 | `search_results`、`search_media` |
+| 主动澄清 | 全字段表单、自定义地点、提交后只读摘要、正确 `answers[]` 协议 | `clarification_action` |
+| 地点与路线 | WGS84 新鲜定位、失败回传、手动起点澄清、多交通 Section、缩放分层、当前视口路段聚焦、步行点线 | `/chat`、`/places`、`/routes` |
+| 日程 | 月视图、创建/编辑/删除、路线转日程、确认/取消与版本锁 | `/workspace` |
+| 会议与生图 | 参数编辑、确认、结果详情、加入链接、继续编辑、保存相册 | `/workspace`、`/image` |
+| Skills | 分类、启停、依赖/冲突、连接、私有 Skill 多种导入、审核、组件 API 文档 | `/skill_marketplace`、`/intelligence`、`/skill-uploads` |
+| 阅读与论文 | 搜索、保存、上传、服务端文本提取、助读流、文件夹、移动、自动整理、结果保存 | `/papers`、`/files`、`/document-text`、`/reader`、`/library` |
+| 个人中心 | 昵称、头像上传与本地显示缓存、会员、用量、新手介绍、退出 | `/profile`、`/provider_usage` |
+| 记忆与主动提醒 | 记忆/规则确认、偏好、工作流、系统通知与会话内卡片 | `/intelligence`、`/proactive` |
+| 设置 | 五种语言、主题、本地新手偏好；搜索/地图/主动偏好完全服务端持久化 | 本机 UI 设置 + `/intelligence`、`/proactive` |
+| 清空数据 | 固定确认词 `DELETE`；不清除个人资料 | `/reset`、`/reset-files` |
 
-## 4. 差距与实施项
+## 本轮修复
 
-### 4.1 聊天内 proactive 卡片（P0）
+1. 定位请求补齐精度、采集时间、WGS84、十分钟新鲜度与失败状态；网络/GPS/被动 Provider 并行竞争首个可信结果。
+2. `browser_location_request` 变成可持久恢复的逻辑重试；拒绝、超时或不可用时仍把原问题交给 dev 继续澄清。
+3. 澄清答案改为 `interaction_mode + activity + source_message_id + answers[]`，并支持服务端下发的自定义地点输入。
+4. 路线 UI 复用 dev 的 Section 投影：跨城/市内层级、混合交通颜色、视口焦点、非当前段置灰、步行点线和旧 Provider 快照分段兼容；不重算路线。
+5. 搜索与图片偏好移出全局 DataStore，避免跨账号旧值；只显示 dev 回读的服务端状态。
+6. 切换会话改为对焦最后一次用户提问；显式停止/切换造成的协程取消不会误入自动恢复。
+7. PDF 上传后的客户端提示通过公开 `/conversation` 写入 Maker，会话切换和重启后仍可恢复。
+8. API 集合、定位/澄清协议和路线投影新增单元测试；Android 单测、Lint、Debug APK 加入 CI。
 
-网页在 AI 气泡内渲染：
+## 验收门槛
 
-- 通知（前 3 条、非 dismissed）：“帮我处理”（`mark_read` + 填入 `action_prompt` 草稿）、“一小时后提醒”（`snooze` until=now+3600）、“忽略”（`dismiss`）。
-- 待确认工作流：“确认”（`confirm_workflow`）、“暂不”（`reject_workflow`）。
-- 进行中工作流：当前步骤“完成这一步 / 跳过 / 遇到问题”（`complete/skip/fail_workflow_step`）、补偿中“已处理影响”（`compensate_workflow_step`）、失败“重试”（`retry_workflow_step`）、整体“结束计划”（`cancel_workflow`）。
+- `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug`
+- `node --test cloud-functions/mobile-contract.test.js`
+- `node --test cloud-functions/platform-reuse.test.js`
+- dev 在线冒烟：游客基础聊天、登录富搜索、来源与图片、刷新恢复、停止与队列、定位澄清、跨城混合路线、路线转日程、Skills、PDF 助读、个人资料、偏好和主动提醒。
+- 真机验收：邮箱验证码、Token 恢复、系统权限、语音、定位、腾讯地图、通知、文件、相册与后台恢复。
 
-安卓实现：新增 `ProactiveChatCard`，`ChatViewModel` 订阅 `repository.proactiveStateFlow` 并提供操作转发（含 busy 状态），`ChatScreen` 在 AI 行内渲染。
-
-### 4.2 地图推荐“添加到日程”（P0）
-
-`WorkspaceActionPayload.calendar_offer == true` 且本轮还没有 `calendar_changes` 动作时，在地图动作卡显示“添加到日程”；点击以 `activity=route_calendar_offer_accepted`、`route_plan_id` 发送一条用户消息。
-
-### 4.3 聊天 PDF/文档上传（P1）
-
-输入栏增加文档按钮（`OpenDocument`，`application/pdf` 等），复用 `FlorisRepository.uploadReadingDocument`（上传 → 注册阅读库 → `file_uploaded` 信号），并在会话内追加“已上传文档”用户消息与“已打开 PDF/论文”AI 提示消息。
-
-### 4.4 生图卡片保存到相册（P1）
-
-生图成功后在图片下方提供“保存到相册”：经 HTTPS 下载图片字节 → `ImageSaver` 写入系统相册。
-
-### 4.5 经验提示渲染（P1）
-
-AI 回答正文后渲染 `experience_hints`：`freshness` 与 `skill` 两类；`login_required` 且为游客时显示登录引导文案。
-
-### 4.6 会议结果详情（P2）
-
-非待确认状态的会议卡补充 `meeting_code`、`start_time`、`trace_id`、`join_url` 展示。
-
-## 5. 验收
-
-- `cd android && ./gradlew :app:testDebugUnitTest` 全绿（含新增纯逻辑测试）。
-- 全部改动只发生在 `floris-android` 分支；`dev` 分支不修改、不合并。
+2026-08-07 已完成自动验收：Android 127 个单元测试零失败、Lint 零错误、Debug APK 构建成功；跨端/平台复用 Contract 19 项零失败；`floris-dev.jlutx.com` 游客会话、会话恢复、run、Skills 目录、工作区、个性化与一次完整聊天 SSE 均返回成功且包含 `[DONE]`。登录富搜索和系统能力仍按上面的真机验收项执行。

@@ -869,6 +869,7 @@ fun ClarificationForm(
     modifier: Modifier = Modifier,
 ) {
     val answers = remember(clarification.id) { mutableStateMapOf<String, Any>() }
+    val customInputs = remember(clarification.id) { mutableStateMapOf<String, Boolean>() }
     var datePickerFor by remember { mutableStateOf<String?>(null) }
     var timePickerFor by remember { mutableStateOf<String?>(null) }
 
@@ -892,10 +893,59 @@ fun ClarificationForm(
                             val value = field.option_values[option] ?: option
                             SelectRow(
                                 label = option,
-                                selected = answers[field.id] == value,
+                                selected = customInputs[field.id] != true && answers[field.id] == value,
                                 multi = false,
-                                onClick = { answers[field.id] = value },
+                                onClick = {
+                                    customInputs[field.id] = false
+                                    answers[field.id] = value
+                                },
                             )
+                        }
+                        if (field.allow_custom_input) {
+                            SelectRow(
+                                label = t(StringKey.ClarificationCustomPlace),
+                                selected = customInputs[field.id] == true,
+                                multi = false,
+                                onClick = {
+                                    customInputs[field.id] = true
+                                    answers[field.id] = ""
+                                },
+                            )
+                        }
+                        if (customInputs[field.id] == true) {
+                            var custom by remember(clarification.id + field.id + "-custom") {
+                                mutableStateOf(answers[field.id] as? String ?: "")
+                            }
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                                    .padding(horizontal = 12.dp, vertical = 11.dp),
+                            ) {
+                                if (custom.isEmpty()) {
+                                    Text(
+                                        field.custom_placeholder
+                                            ?: t(StringKey.ClarificationCustomPlaceholder),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                androidx.compose.foundation.text.BasicTextField(
+                                    value = custom,
+                                    onValueChange = { value ->
+                                        custom = value
+                                        answers[field.id] = value
+                                    },
+                                    textStyle = MaterialTheme.typography.bodySmall.copy(
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    ),
+                                    cursorBrush = androidx.compose.ui.graphics.SolidColor(
+                                        MaterialTheme.colorScheme.primary,
+                                    ),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                         }
                     }
                     "multi" -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -980,7 +1030,14 @@ fun ClarificationForm(
                     else t(StringKey.ClarificationSubmit),
                     onClick = { onSubmit(answers.toMap()) },
                     enabled = !submitting &&
-                        clarification.fields.all { !it.required || answers.containsKey(it.id) },
+                        clarification.fields.all { field ->
+                            if (!field.required) true else when (val value = answers[field.id]) {
+                                is String -> value.isNotBlank()
+                                is List<*> -> value.isNotEmpty()
+                                null -> false
+                                else -> true
+                            }
+                        },
                     compact = true,
                 )
             }

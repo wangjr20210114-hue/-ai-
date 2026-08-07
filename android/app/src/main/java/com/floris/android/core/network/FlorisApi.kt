@@ -50,6 +50,14 @@ interface FlorisApi {
         @Body body: JsonObject,
     ): ChatRunState
 
+    /** Persist client-originated durable messages (for example document upload notices). */
+    @Headers("Content-Type: application/json")
+    @POST("conversation")
+    suspend fun appendMessage(
+        @Header("makers-conversation-id") conversationId: String,
+        @Body body: JsonObject,
+    ): JsonObject
+
     @GET("conversations")
     suspend fun listConversations(): JsonObject
 
@@ -68,13 +76,6 @@ interface FlorisApi {
     @Headers("Content-Type: application/json")
     @POST("stop")
     suspend fun stop(
-        @Header("makers-conversation-id") conversationId: String,
-        @Body body: JsonObject,
-    ): JsonObject
-
-    @Headers("Content-Type: application/json")
-    @POST("conversation")
-    suspend fun appendMessage(
         @Header("makers-conversation-id") conversationId: String,
         @Body body: JsonObject,
     ): JsonObject

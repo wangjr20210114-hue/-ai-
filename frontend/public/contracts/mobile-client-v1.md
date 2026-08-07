@@ -1,6 +1,6 @@
 # Floris 跨端客户端 API v1
 
-这份文档是 Web、Android、HarmonyOS 和 iOS 的统一接入说明，对应 OpenAPI `1.5.0`。客户端只负责界面、系统权限、通知、文件选择和本地缓存；聊天编排、搜索、Skills、地图、日程、论文、权益、身份隔离和持久化均由 Floris 后端提供。
+这份文档是 Web、Android、HarmonyOS 和 iOS 的统一接入说明，对应 OpenAPI `1.9.0`。客户端只负责界面、系统权限、通知、文件选择和本地缓存；聊天编排、搜索、Skills、地图、日程、论文、权益、身份隔离和持久化均由 Floris 后端提供。
 
 ## 1. 契约文件
 
@@ -264,7 +264,7 @@ curl -X POST "$BASE/conversation" \
   -H "Authorization: Bearer $TOKEN" \
   -H "makers-conversation-id: $CID" \
   -H "Content-Type: application/json" \
-  -d '{"role":"user","content":"帮我规划杭州一日游","metadata":{"id":"msg_01"}}'
+  -d '{"operation":"append_message","conversation_id":"'$CID'","role":"user","content":"帮我规划杭州一日游","metadata":{"id":"msg_01"}}'
 ```
 
 ### GET /conversations
@@ -958,7 +958,41 @@ curl -N -X POST "$BASE/reader" \
 
 ### 20.3 地图与定位
 
-系统定位必须由用户授权，建议只保存在内存并设置短有效期。客户端可以把新鲜坐标作为 `/chat` 的 `current_location` 或路线起点；服务端负责地点歧义、真实路线、费用与交通方式。地图 SDK 只负责底图、Marker、Polyline、缩放和视口动画。
+系统定位必须由用户授权，只保存在内存并设置短有效期。客户端把新鲜坐标作为 `/chat` 的 `current_location`；服务端负责地点歧义、真实路线、费用与交通方式。地图 SDK 只负责底图、Marker、Polyline、缩放和视口动画。
+
+```json
+{
+  "current_location": {
+    "latitude": 39.90,
+    "longitude": 116.40,
+    "accuracy_meters": 32.5,
+    "captured_at": 1786111200000,
+    "coordinate_type": "wgs84"
+  },
+  "location_request": {"state":"available","attempted_at":1786111200000}
+}
+```
+
+`current_location` 必须同时包含坐标、精度、采集时间和 `wgs84`；不要用零精度、推测坐标或超过十分钟的缓存冒充新鲜定位。收到 `browser_location_request` 后，客户端完成一次系统权限/定位流程，再用原问题的新 `client_message_id`、`_location_retry=true` 重发；结果必须通过 `location_request.state` 明确报告为 `available`、`denied`、`timed_out`、`unavailable` 或 `failed`。拒绝或失败也要回传，让后端生成手动起点澄清，不能静默丢掉原问题。
+
+主动澄清提交统一使用结构化数组，不把字段直接铺在 `clarification_response` 根节点：
+
+```json
+{
+  "interaction_mode": "clarification",
+  "activity": "clarification_answered",
+  "clarification_response": {
+    "id": "clarify-01",
+    "source_message_id": "assistant-message-01",
+    "answers": [
+      {"id":"origin","label":"从哪里出发","value":"北京南站"},
+      {"id":"budget","label":"预算偏好","value":"economy"}
+    ]
+  }
+}
+```
+
+`allow_custom_input=true` 的单选字段要同时提供“其他”输入；提交后销毁可编辑卡片，只保留只读答案摘要。定位请求与澄清卡都属于同一 Maker 对话状态，必须像正在运行的回答一样支持切换会话和进程恢复。
 
 路线展示应读取 `route.legs[].sections[]`：城市概览、推荐地点之间的路段和每段交通方式均来自服务端。客户端可以随缩放级别切换总览、路段和细分 Section，但不能重新计算一条与服务端不同的路线后冒充 Floris 结果。
 

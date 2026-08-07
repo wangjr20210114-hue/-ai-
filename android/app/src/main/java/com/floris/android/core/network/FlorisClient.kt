@@ -32,6 +32,13 @@ import retrofit2.Retrofit
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
+internal object FlorisStreamRoutes {
+    const val CHAT = "chat"
+    const val IMAGE = "image"
+    const val READER = "reader"
+    val all = setOf(CHAT, IMAGE, READER)
+}
+
 class ApiException(
     val status: Int,
     val code: String? = null,
@@ -166,10 +173,10 @@ class FlorisClient(
 
     /** SSE streaming for POST /chat. */
     fun streamChat(conversationId: String, body: JsonObject): Flow<ChatEvent> =
-        streamSse("chat", conversationId, body).map { dispatcher.dispatch(it) }
+        streamSse(FlorisStreamRoutes.CHAT, conversationId, body).map { dispatcher.dispatch(it) }
 
     fun streamImageEdit(conversationId: String, body: JsonObject): Flow<ChatEvent> =
-        streamSse("image", conversationId, body).map { dispatcher.dispatch(it) }
+        streamSse(FlorisStreamRoutes.IMAGE, conversationId, body).map { dispatcher.dispatch(it) }
 
     suspend fun putPresigned(
         url: String,
@@ -214,7 +221,7 @@ class FlorisClient(
      * Emits incremental `paper_delta` text; falls back to a plain JSON body.
      */
     fun streamReader(conversationId: String, body: JsonObject): Flow<ReaderChunk> =
-        streamSse("reader", conversationId, body).map { frame ->
+        streamSse(FlorisStreamRoutes.READER, conversationId, body).map { frame ->
             if (frame == "[DONE]") return@map ReaderChunk.Done
             val obj = runCatching { json.parseToJsonElement(frame) as? JsonObject }.getOrNull()
                 ?: return@map ReaderChunk.Delta(frame)

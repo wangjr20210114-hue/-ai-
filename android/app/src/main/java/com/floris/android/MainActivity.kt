@@ -1,6 +1,7 @@
 package com.floris.android
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -86,6 +87,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @SuppressLint("InlinedApi")
     override fun onStart() {
         super.onStart()
         // ActivityResultLauncher.launch() 必须在生命周期至少 STARTED 后调用，

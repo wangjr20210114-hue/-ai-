@@ -251,6 +251,8 @@ data class ClarificationField(
     val type: String = "text",
     val options: List<String> = emptyList(),
     val option_values: Map<String, String> = emptyMap(),
+    val allow_custom_input: Boolean = false,
+    val custom_placeholder: String? = null,
     val required: Boolean = false,
     val placeholder: String? = null,
 )

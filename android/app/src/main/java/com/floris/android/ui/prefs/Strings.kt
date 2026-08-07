@@ -29,7 +29,7 @@ enum class StringKey {
     // 个人信息
     AccountTitle, AccountMembership, AccountHelp, AccountAboutDesc,
     // 澄清卡
-    ClarificationAnswered,
+    ClarificationAnswered, ClarificationCustomPlace, ClarificationCustomPlaceholder,
     // 底部导航
     TabChat, TabSkills, TabCalendar, TabReading, TabProfile,
     // 聊天
@@ -54,7 +54,7 @@ enum class StringKey {
     ImageEditHint, ImageEditAction, ImageOriginal, ImageUpdated, ImagePrompt,
     ImageSaveToGallery, ChatAddSchedule, RouteCalendarRequest,
     HintFreshness, HintFreshnessLogin, HintSkill, HintSkillLogin,
-    ChatRestoreFailed, ChatConnectionInterrupted, ChatGenerationFailed,
+    ChatRestoreFailed, ChatSaveFailed, ChatConnectionInterrupted, ChatGenerationFailed,
     ChatImageFailed, OperationFailed, NetworkUnavailable, SessionExpired,
     LoginRequired, MembershipRequired, TooManyRequests, ServiceUnavailable,
     // 新手介绍
@@ -358,6 +358,8 @@ object Strings {
             StringKey.ClarificationAnswered,
             "已选择：{0}", "已選擇：{0}", "Answered: {0}", "选好了喵：{0}", "已选择：{0}",
         )
+        put(StringKey.ClarificationCustomPlace, "其他地点", "其他地點", "Another place", "我想去别处", "其他地点")
+        put(StringKey.ClarificationCustomPlaceholder, "输入地点名称", "輸入地點名稱", "Enter a place", "告诉我想去哪里", "输入地点名称")
         put(
             StringKey.AccountTitle,
             "个人信息", "個人資訊", "Account", "我的资料喵", "个人信息",
@@ -510,6 +512,7 @@ object Strings {
         put(StringKey.HintSkill, "本次回答使用了技能：{0}", "本次回答使用了技能：{0}", "This answer used: {0}", "这次用到了：{0}", "本次回答使用了技能：{0}")
         put(StringKey.HintSkillLogin, "登录后可解锁并使用更多技能：{0}", "登入後可解鎖並使用更多技能：{0}", "Sign in to unlock more skills: {0}", "登录后能解锁更多：{0}", "登录后可解锁并使用更多技能：{0}")
         put(StringKey.ChatRestoreFailed, "对话恢复失败，请重试", "對話恢復失敗，請重試", "Couldn't restore this chat. Try again.", "没找回这段对话，再试一次喵", "对话恢复失败，请重试")
+        put(StringKey.ChatSaveFailed, "消息暂未保存，请稍后重试", "訊息暫未儲存，請稍後重試", "Couldn't save the message. Try again later.", "消息还没存好，稍后再试喵", "消息暂未保存，请稍后重试")
         put(StringKey.ChatConnectionInterrupted, "连接中断，请重试", "連線中斷，請重試", "Connection interrupted. Try again.", "连接断了一下，再试试喵", "连接中断，请重试")
         put(StringKey.ChatGenerationFailed, "生成失败，请重试", "生成失敗，請重試", "Generation failed. Try again.", "这次没写完，再试一次喵", "生成失败，请重试")
         put(StringKey.ChatImageFailed, "图片处理失败，请重试", "圖片處理失敗，請重試", "Image edit failed. Try again.", "图片没改好，再试一次喵", "图片处理失败，请重试")

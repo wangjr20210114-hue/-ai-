@@ -73,7 +73,7 @@ class AppContainer(private val context: Context) {
 
     val chatRuntimeStore: ChatRuntimeStore by lazy { ChatRuntimeStore(context, json) }
 
-    /** 客户端本地偏好（主题、语言、新手介绍、富搜索数量）。 */
+    /** 客户端本地偏好（仅主题、语言与新手介绍）。 */
     val preferences: com.floris.android.ui.prefs.AppPreferences by lazy {
         com.floris.android.ui.prefs.AppPreferences(
             context,

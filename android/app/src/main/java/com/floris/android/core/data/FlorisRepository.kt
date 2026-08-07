@@ -158,6 +158,22 @@ class FlorisRepository(
     suspend fun chatRun(conversationId: String): ChatRunState =
         api.chatRun(conversationId, buildJsonObject { put("conversation_id", conversationId) })
 
+    suspend fun appendConversationMessage(
+        conversationId: String,
+        role: String,
+        content: String,
+        messageId: String,
+    ): JsonObject = api.appendMessage(
+        conversationId,
+        buildJsonObject {
+            put("operation", "append_message")
+            put("conversation_id", conversationId)
+            put("role", role)
+            put("content", content)
+            putJsonObject("metadata") { put("id", messageId) }
+        },
+    )
+
     suspend fun stop(conversationId: String, clientMessageId: String): JsonObject =
         api.stop(
             conversationId,

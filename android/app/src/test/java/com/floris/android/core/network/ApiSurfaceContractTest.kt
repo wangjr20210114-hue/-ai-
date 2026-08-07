@@ -9,6 +9,11 @@ import retrofit2.http.POST
 
 class ApiSurfaceContractTest {
     @Test
+    fun `native streaming routes are the published v1 surface`() {
+        assertEquals(setOf("chat", "image", "reader"), FlorisStreamRoutes.all)
+    }
+
+    @Test
     fun `native client exposes the complete v1 backend surface`() {
         val expected = mapOf(
             "exchangeMobileSession" to "POST auth/mobile/session",
@@ -16,11 +21,11 @@ class ApiSurfaceContractTest {
             "guestSession" to "GET auth/session",
             "bootstrap" to "POST messages",
             "chatRun" to "POST run",
+            "appendMessage" to "POST conversation",
             "listConversations" to "GET conversations",
             "touchConversation" to "POST conversations",
             "deleteConversation" to "DELETE conversations",
             "stop" to "POST stop",
-            "appendMessage" to "POST conversation",
             "createFileUpload" to "POST files",
             "downloadFile" to "GET files",
             "inspectFile" to "HEAD files",
@@ -56,7 +61,7 @@ class ApiSurfaceContractTest {
             method.name to route
         }.toMap()
 
-        expected.forEach { (method, route) -> assertEquals(route, actual[method]) }
+        assertEquals(expected, actual)
     }
 
     @Test

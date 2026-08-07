@@ -1,10 +1,7 @@
 package com.floris.android.ui.chat
 
 import android.Manifest
-import android.annotation.SuppressLint
-import android.content.Context
 import android.graphics.BitmapFactory
-import android.location.LocationManager
 import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -129,6 +126,8 @@ import com.floris.android.AppContainer
 import com.floris.android.R
 import com.floris.android.core.chat.ChatMessageUi
 import com.floris.android.core.chat.PendingChatTurn
+import com.floris.android.core.location.AndroidLocationAdapter
+import com.floris.android.core.location.ClientLocationRequest
 import com.floris.android.core.model.ProactiveNotification
 import com.floris.android.core.model.ProactiveState
 import com.floris.android.core.model.ProactiveWorkflow
@@ -324,14 +323,29 @@ fun ChatScreen(
         }
     }
 
+    val requestCurrentLocation: () -> Unit = {
+        scope.launch {
+            when (val outcome = AndroidLocationAdapter.currentFix(context)) {
+                is AndroidLocationAdapter.Outcome.Available ->
+                    viewModel.provideLocation(outcome.fix)
+                AndroidLocationAdapter.Outcome.Denied ->
+                    viewModel.locationRequestFailed(ClientLocationRequest.DENIED)
+                AndroidLocationAdapter.Outcome.TimedOut ->
+                    viewModel.locationRequestFailed(ClientLocationRequest.TIMED_OUT)
+                AndroidLocationAdapter.Outcome.Unavailable ->
+                    viewModel.locationRequestFailed(ClientLocationRequest.UNAVAILABLE)
+                AndroidLocationAdapter.Outcome.Failed ->
+                    viewModel.locationRequestFailed(ClientLocationRequest.FAILED)
+            }
+        }
+    }
     val locationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { grants ->
         if (grants.values.any { it }) {
-            lastKnownLocation(context)?.let { (lat, lng) -> viewModel.provideLocation(lat, lng) }
-                ?: viewModel.dismissLocationRequest()
+            requestCurrentLocation()
         } else {
-            viewModel.dismissLocationRequest()
+            viewModel.locationRequestFailed(ClientLocationRequest.DENIED)
         }
     }
 
@@ -358,19 +372,6 @@ fun ChatScreen(
         if (!imeVisible) followTail = nearBottom
     }
 
-    // 等待列表完成新视口布局后，把最后一条消息的底部推到视口底部。
-    suspend fun anchorToBottom() {
-        if (state.messages.isEmpty()) return
-        withFrameNanos { }
-        withFrameNanos { }
-        listState.scrollToItem(state.messages.lastIndex)
-        val info = listState.layoutInfo
-        info.visibleItemsInfo.lastOrNull()?.let { item ->
-            val overflow = item.offset + item.size - info.viewportEndOffset
-            if (overflow > 0) listState.scrollBy(overflow.toFloat())
-        }
-    }
-
     val lastMessage = state.messages.lastOrNull()
     LaunchedEffect(lastMessage?.id, lastMessage?.content?.length, state.streaming) {
         if (state.messages.isEmpty() || !followTail) return@LaunchedEffect
@@ -383,25 +384,22 @@ fun ChatScreen(
             if (overflow > 0) listState.scrollBy(overflow.toFloat())
         }
     }
-    // 新消息 / 切换对话后始终定位到文末，无论此前是否在翻阅历史。
-    LaunchedEffect(state.conversationId, state.messages.size) {
-        if (state.messages.isNotEmpty()) {
-            followTail = true
-            anchorToBottom()
-        }
-    }
-    // 首次加载完成 / 切换对话：无论之前在哪个位置，都定位到文末。
+    // 首次加载完成 / 切换对话：对焦最后一次提问，避免一进来只看到回答尾部。
+    // 后续只有用户主动发送新问题时才重新开启尾随。
     LaunchedEffect(state.bootstrapping, state.conversationId) {
         if (state.bootstrapping || state.messages.isEmpty()) return@LaunchedEffect
-        followTail = true
-        anchorToBottom()
+        withFrameNanos { }
+        val questionIndex = state.messages.indexOfLast { it.role == ChatMessageUi.Role.USER }
+            .takeIf { it >= 0 } ?: state.messages.lastIndex
+        followTail = false
+        listState.scrollToItem(questionIndex)
     }
     LaunchedEffect(state.transientError) {
         state.transientError?.let { snackbar.showSnackbar(it); viewModel.consumeError() }
     }
     LaunchedEffect(state.locationRequestReason) {
-        if (state.locationRequestReason != null && hasLocationPermission(context)) {
-            lastKnownLocation(context)?.let { (lat, lng) -> viewModel.provideLocation(lat, lng) }
+        if (state.locationRequestReason != null && AndroidLocationAdapter.hasPermission(context)) {
+            requestCurrentLocation()
         }
     }
     // 从主动提醒"去处理"跳转过来时，把话术填进输入框（不自动发送）。
@@ -413,7 +411,7 @@ fun ChatScreen(
         }
     }
 
-    if (state.locationRequestReason != null && !hasLocationPermission(context)) {
+    if (state.locationRequestReason != null && !AndroidLocationAdapter.hasPermission(context)) {
         AlertDialog(
             onDismissRequest = viewModel::dismissLocationRequest,
             title = { Text(t(StringKey.LocationPermissionTitle)) },
@@ -520,7 +518,11 @@ fun ChatScreen(
                                             onCancelWorkflow = viewModel::cancelWorkflow,
                                             onProactiveStep = viewModel::workflowStep,
                                             onClarificationSubmit = { clarification, answers ->
-                                                viewModel.submitClarification(clarification, answers)
+                                                viewModel.submitClarification(
+                                                    clarification,
+                                                    message.id,
+                                                    answers,
+                                                )
                                             },
                                             // 追问同样只填进输入框，用户可以先改再发。
                                             onFollowUp = { draft = it },
@@ -587,7 +589,11 @@ fun ChatScreen(
                     onSend = {
                         voiceController.stop()
                         when (viewModel.send(draft, images)) {
-                            ChatSendDisposition.STARTED,
+                            ChatSendDisposition.STARTED -> {
+                                followTail = true
+                                draft = ""
+                                images = emptyList()
+                            }
                             ChatSendDisposition.QUEUED -> {
                                 draft = ""
                                 images = emptyList()
@@ -621,7 +627,6 @@ fun ChatScreen(
         }
     }
 }
-
 /** 软件风格的轻提示弹窗：猫头像 + 标题 + 说明，统一走应用主题。 */
 @Composable
 private fun FeatureTipDialog(
@@ -946,7 +951,10 @@ private fun AssistantRow(
     onRejectWorkflow: (ProactiveWorkflow) -> Unit,
     onCancelWorkflow: (ProactiveWorkflow) -> Unit,
     onProactiveStep: (ProactiveWorkflow, ProactiveWorkflowStep, String) -> Unit,
-    onClarificationSubmit: (com.floris.android.core.model.Clarification, Map<String, Any>) -> Unit,
+    onClarificationSubmit: (
+        com.floris.android.core.model.Clarification,
+        Map<String, Any>,
+    ) -> Unit,
     onFollowUp: (String) -> Unit,
     onRetry: () -> Unit,
     onNotify: (String) -> Unit,
@@ -1284,20 +1292,4 @@ private fun InputBar(
             )
         }
     }
-}
-
-private fun hasLocationPermission(context: Context): Boolean =
-    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
-        PermissionChecker.PERMISSION_GRANTED ||
-        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
-        PermissionChecker.PERMISSION_GRANTED
-
-@SuppressLint("MissingPermission")
-private fun lastKnownLocation(context: Context): Pair<Double, Double>? {
-    if (!hasLocationPermission(context)) return null
-    val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
-    val location = manager.getProviders(true)
-        .mapNotNull { runCatching { manager.getLastKnownLocation(it) }.getOrNull() }
-        .maxByOrNull { it.time }
-    return location?.let { it.latitude to it.longitude }
 }

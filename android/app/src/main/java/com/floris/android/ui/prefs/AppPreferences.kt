@@ -3,7 +3,6 @@ package com.floris.android.ui.prefs
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.CoroutineScope
@@ -17,15 +16,13 @@ private val Context.uiDataStore by preferencesDataStore(name = "floris_ui_prefs"
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
-/** 客户端本地偏好：主题、语言、新手介绍、富搜索数量。 */
+/** 纯客户端偏好：主题、语言与新手介绍。业务偏好始终由 dev 后端持久化。 */
 class AppPreferences(private val context: Context, scope: CoroutineScope) {
 
     private object Keys {
         val THEME = stringPreferencesKey("theme_mode")
         val LANGUAGE = stringPreferencesKey("language")
         val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
-        val WEB_RESULTS = intPreferencesKey("web_results")
-        val IMAGE_CANDIDATES = intPreferencesKey("image_candidates")
     }
 
     private val _theme = MutableStateFlow(ThemeMode.SYSTEM)
@@ -37,12 +34,6 @@ class AppPreferences(private val context: Context, scope: CoroutineScope) {
     private val _onboardingDone = MutableStateFlow(true)
     val onboardingDone: StateFlow<Boolean> = _onboardingDone.asStateFlow()
 
-    private val _webResults = MutableStateFlow(6)
-    val webResults: StateFlow<Int> = _webResults.asStateFlow()
-
-    private val _imageCandidates = MutableStateFlow(4)
-    val imageCandidates: StateFlow<Int> = _imageCandidates.asStateFlow()
-
     init {
         scope.launch {
             val prefs = context.uiDataStore.data.first()
@@ -50,8 +41,6 @@ class AppPreferences(private val context: Context, scope: CoroutineScope) {
                 ?: ThemeMode.SYSTEM
             _language.value = prefs[Keys.LANGUAGE]?.let { Language.fromTag(it) } ?: Language.ZH_CN
             _onboardingDone.value = prefs[Keys.ONBOARDING_DONE] ?: false
-            _webResults.value = prefs[Keys.WEB_RESULTS] ?: 6
-            _imageCandidates.value = prefs[Keys.IMAGE_CANDIDATES] ?: 4
         }
     }
 
@@ -78,15 +67,4 @@ class AppPreferences(private val context: Context, scope: CoroutineScope) {
         context.uiDataStore.edit { it[Keys.ONBOARDING_DONE] = done }
     }
 
-    suspend fun setWebResults(value: Int) {
-        val clamped = value.coerceIn(3, 18)
-        _webResults.value = clamped
-        context.uiDataStore.edit { it[Keys.WEB_RESULTS] = clamped }
-    }
-
-    suspend fun setImageCandidates(value: Int) {
-        val clamped = value.coerceIn(0, 8)
-        _imageCandidates.value = clamped
-        context.uiDataStore.edit { it[Keys.IMAGE_CANDIDATES] = clamped }
-    }
 }

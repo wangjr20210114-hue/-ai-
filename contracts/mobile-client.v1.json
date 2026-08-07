@@ -38,11 +38,24 @@
     ],
     "unknown_event_policy": "ignore",
     "terminal_events": ["answer_complete", "error_message"],
-    "durability": "Only a terminal Maker run may become a durable assistant message"
+    "durability": "Only a terminal Maker run may become a durable assistant message",
+    "location": {
+      "current_location_required": ["latitude", "longitude", "accuracy_meters", "captured_at", "coordinate_type=wgs84"],
+      "maximum_age_ms": 600000,
+      "request_states": ["idle", "available", "denied", "timed_out", "unavailable", "failed"],
+      "retry_flag": "_location_retry=true"
+    },
+    "clarification": {
+      "interaction_mode": "clarification",
+      "activity": "clarification_answered",
+      "required": ["id", "source_message_id", "answers[]"],
+      "answer_required": ["id", "value"],
+      "answer_optional": ["label"]
+    }
   },
   "routes": {
-    "conversations": ["GET /conversations", "POST /conversations", "DELETE /conversations"],
-    "workspace": ["POST /workspace", "POST /places", "POST /routes"],
+    "conversations": ["POST /conversation", "GET /conversations", "POST /conversations", "DELETE /conversations"],
+    "workspace": ["POST /workspace", "POST /places", "POST /routes", "POST /image"],
     "skills": ["POST /skill_marketplace", "POST /intelligence", "GET /skill-uploads", "POST /skill-uploads"],
     "reading": ["GET /papers", "POST /papers", "POST /reader", "GET /library", "POST /library", "DELETE /library", "POST /document-text"],
     "files": ["POST /files", "HEAD /files", "GET /files?key=<key>&part=<n>", "DELETE /files"],
@@ -50,7 +63,7 @@
     "reset": ["POST /reset", "POST /reset-files"]
   },
   "operations": {
-    "conversation": ["touch_pointer", "rename"],
+    "conversation": ["append_message", "touch_pointer", "rename"],
     "workspace": ["get", "activate_map", "deactivate_map", "direct_calendar_changes", "confirm_action", "cancel_action", "update_meeting_action", "generate_image", "save_travel_plan", "delete_travel_plan"],
     "intelligence": ["get", "export", "confirm_memory", "reject_memory", "delete_memory", "rollback_memory", "clear_memories", "confirm_rule", "reject_rule", "update_usage_preferences", "update_memory_preferences", "update_search_preferences", "update_map_preferences", "update_skill_preferences", "configure_skill_connection", "disconnect_skill_connection", "install_user_skill", "set_user_skill_enabled", "remove_user_skill"],
     "proactive": ["get", "refresh", "page_open", "memory_refresh", "tick", "update_preferences", "ingest_signal", "confirm_workflow", "reject_workflow", "cancel_workflow", "complete_workflow_step", "skip_workflow_step", "fail_workflow_step", "retry_workflow_step", "compensate_workflow_step", "mark_read", "dismiss", "snooze"],

@@ -90,6 +90,8 @@ class SettingsViewModel(
 
     data class UiState(
         val proactiveEnabled: Boolean = true,
+        val webResults: Int = 6,
+        val imageCandidates: Int = 4,
         val parallelImageSearch: Boolean = true,
         val mapPreferences: MapPreferences = MapPreferences(),
         val dailyTokens: Long = 0,
@@ -110,9 +112,9 @@ class SettingsViewModel(
             val conversationId = repository.activeConversationId()
             runCatching { repository.intelligencePreferences(conversationId) }.onSuccess { intelligence ->
                 val search = intelligence.obj("search_preferences")
-                search?.num("result_limit")?.toInt()?.let { preferences.setWebResults(it) }
-                search?.num("image_limit")?.toInt()?.let { preferences.setImageCandidates(it) }
                 _state.value = _state.value.copy(
+                    webResults = search?.num("result_limit")?.toInt()?.coerceIn(3, 18) ?: 6,
+                    imageCandidates = search?.num("image_limit")?.toInt()?.coerceIn(0, 8) ?: 4,
                     parallelImageSearch = search?.bool("parallel_image_search") ?: true,
                     mapPreferences = intelligence.obj("map_preferences")
                         ?.toMapPreferences() ?: MapPreferences(),
@@ -153,38 +155,44 @@ class SettingsViewModel(
     fun setTheme(mode: ThemeMode) = viewModelScope.launch { preferences.setTheme(mode) }
     fun setLanguage(language: Language) = viewModelScope.launch { preferences.setLanguage(language) }
     fun setWebResults(value: Int) = viewModelScope.launch {
-        val before = preferences.webResults.value
-        preferences.setWebResults(value)
+        val before = _state.value.webResults
+        val next = value.coerceIn(3, 18)
+        _state.value = _state.value.copy(webResults = next)
         runCatching {
             preferenceMutationMutex.withLock {
                 repository.updateSearchPreferences(
                     repository.activeConversationId(),
-                    value,
-                    preferences.imageCandidates.value,
+                    next,
+                    _state.value.imageCandidates,
                     _state.value.parallelImageSearch,
                 )
             }
         }.onFailure {
-            preferences.setWebResults(before)
-            _state.value = _state.value.copy(message = strings.get(StringKey.SettingsSaveFailed))
+            _state.value = _state.value.copy(
+                webResults = before,
+                message = strings.get(StringKey.SettingsSaveFailed),
+            )
         }
     }
 
     fun setImageCandidates(value: Int) = viewModelScope.launch {
-        val before = preferences.imageCandidates.value
-        preferences.setImageCandidates(value)
+        val before = _state.value.imageCandidates
+        val next = value.coerceIn(0, 8)
+        _state.value = _state.value.copy(imageCandidates = next)
         runCatching {
             preferenceMutationMutex.withLock {
                 repository.updateSearchPreferences(
                     repository.activeConversationId(),
-                    preferences.webResults.value,
-                    value,
+                    _state.value.webResults,
+                    next,
                     _state.value.parallelImageSearch,
                 )
             }
         }.onFailure {
-            preferences.setImageCandidates(before)
-            _state.value = _state.value.copy(message = strings.get(StringKey.SettingsSaveFailed))
+            _state.value = _state.value.copy(
+                imageCandidates = before,
+                message = strings.get(StringKey.SettingsSaveFailed),
+            )
         }
     }
 
@@ -195,8 +203,8 @@ class SettingsViewModel(
             preferenceMutationMutex.withLock {
                 repository.updateSearchPreferences(
                     repository.activeConversationId(),
-                    preferences.webResults.value,
-                    preferences.imageCandidates.value,
+                    _state.value.webResults,
+                    _state.value.imageCandidates,
                     enabled,
                 )
             }
@@ -275,8 +283,6 @@ fun SettingsScreen(
     val state by viewModel.state.collectAsState()
     val themeMode by viewModel.preferences.theme.collectAsState()
     val language by viewModel.preferences.language.collectAsState()
-    val webResults by viewModel.preferences.webResults.collectAsState()
-    val imageCandidates by viewModel.preferences.imageCandidates.collectAsState()
 
     val snackbar = remember { SnackbarHostState() }
     var confirmReset by remember { mutableStateOf(false) }
@@ -413,7 +419,7 @@ fun SettingsScreen(
                         icon = Icons.Default.TravelExplore,
                         trailing = {
                             Stepper(
-                                value = webResults,
+                                value = state.webResults,
                                 onValueChange = viewModel::setWebResults,
                                 range = 3..12,
                             )
@@ -427,7 +433,7 @@ fun SettingsScreen(
                         icon = Icons.Default.Image,
                         trailing = {
                             Stepper(
-                                value = imageCandidates,
+                                value = state.imageCandidates,
                                 onValueChange = viewModel::setImageCandidates,
                                 range = 0..8,
                             )

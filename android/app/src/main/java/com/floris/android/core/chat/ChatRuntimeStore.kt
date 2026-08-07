@@ -2,6 +2,8 @@ package com.floris.android.core.chat
 
 import android.annotation.SuppressLint
 import android.content.Context
+import com.floris.android.core.location.ClientLocationFix
+import com.floris.android.core.location.ClientLocationRequest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -13,6 +15,10 @@ data class PendingChatTurn(
     val text: String,
     val referenceImages: List<String> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
+    val currentLocation: ClientLocationFix? = null,
+    val locationRequest: ClientLocationRequest = ClientLocationRequest(),
+    val locationRetry: Boolean = false,
+    /** Legacy queue fields retained only so pre-upgrade drafts still decode. */
     val latitude: Double? = null,
     val longitude: Double? = null,
     /** Maker 活动类型（如 route_calendar_offer_accepted）；普通提问为 null。 */
@@ -93,6 +99,23 @@ class ChatRuntimeStore(context: Context, private val json: Json) {
         }
     }
 
+    fun loadLocationRetry(conversationId: String): PendingChatTurn? =
+        preferences.getString(locationRetryKey(conversationId), null)?.let { raw ->
+            runCatching { json.decodeFromString(PendingChatTurn.serializer(), raw) }.getOrNull()
+        }
+
+    @SuppressLint("ApplySharedPref") // The retry must survive process death while permission UI is open.
+    fun saveLocationRetry(conversationId: String, turn: PendingChatTurn) {
+        preferences.edit().putString(
+            locationRetryKey(conversationId),
+            json.encodeToString(PendingChatTurn.serializer(), turn),
+        ).commit()
+    }
+
+    fun clearLocationRetry(conversationId: String) {
+        preferences.edit().remove(locationRetryKey(conversationId)).apply()
+    }
+
     @SuppressLint("ApplySharedPref") // Sign-out must synchronously remove every account-scoped turn.
     @Synchronized
     fun clearAll() {
@@ -102,6 +125,7 @@ class ChatRuntimeStore(context: Context, private val json: Json) {
     private fun queueKey(conversationId: String) = "queue:$conversationId"
     private fun stopKey(conversationId: String) = "stop:$conversationId"
     private fun activeKey(conversationId: String) = "active:$conversationId"
+    private fun locationRetryKey(conversationId: String) = "location-retry:$conversationId"
 
     companion object {
         const val MAX_WAITING_TURNS = 5

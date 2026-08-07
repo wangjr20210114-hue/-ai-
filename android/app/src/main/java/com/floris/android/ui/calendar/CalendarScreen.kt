@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -614,7 +615,7 @@ private fun ScheduleEditorDialog(
     }
     var title by remember(schedule?.id) { mutableStateOf(schedule?.title.orEmpty()) }
     var location by remember(schedule?.id) { mutableStateOf(schedule?.location.orEmpty()) }
-    var start by remember(schedule?.id, selectedDay) { mutableStateOf(initialStart) }
+    var start by remember(schedule?.id, selectedDay) { mutableLongStateOf(initialStart) }
     var duration by remember(schedule?.id) {
         mutableStateOf((schedule?.duration_minutes ?: 60).coerceAtLeast(1).toString())
     }
