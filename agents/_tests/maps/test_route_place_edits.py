@@ -145,7 +145,7 @@ class RoutePlaceEditContractTests(unittest.IsolatedAsyncioTestCase):
                     },
                 },
             },
-            [{"id": "route_origin", "value": "北京南站"}],
+            [{"id": "route_origin_a1b2c3", "value": "北京南站"}],
         )
         self.assertTrue(plan["calendar_uses_planned_route"])
         self.assertTrue(plan["reuse_latest_route"])

@@ -83,6 +83,9 @@ def build_route_operation(
         use_current_location_as_origin: bool = False,
         ordered_stops: list[dict[str, str]] | None = None,
         place_edits: list[dict[str, str]] | None = None,
+        _optimize_recommended_order: bool = False,
+        _map_title: str = "",
+        _map_action_text: str = "",
     ) -> str:
         """Resolve an ordered itinerary and calculate one verified Tencent route.
 
@@ -634,7 +637,10 @@ def build_route_operation(
             ]
             requested_stop_field_ids = ["", ""]
         model_stop_count = len(requested_stops)
-        if not editing_latest_route:
+        optimize_recommended_order = bool(
+            _optimize_recommended_order and not editing_latest_route
+        )
+        if not editing_latest_route and not optimize_recommended_order:
             requested_stops = preserve_planned_route_stops(
                 requested_stops,
                 planned_route_stops,
@@ -790,7 +796,7 @@ def build_route_operation(
             store,
             user_id,
             resolved_stops,
-            False,
+            optimize_recommended_order,
             mode=selected_route_mode,
             strategy=selected_route_strategy,
             near_time_tolerance_minutes=map_near_time_tolerance,
@@ -847,7 +853,7 @@ def build_route_operation(
                     _plan_route_metered(
                         map_key,
                         resolved_stops,
-                        optimize=False,
+                        optimize=optimize_recommended_order,
                         mode=selected_route_mode,
                         strategy=selected_route_strategy,
                         near_time_tolerance_minutes=map_near_time_tolerance,
@@ -864,7 +870,7 @@ def build_route_operation(
                 store,
                 user_id,
                 resolved_stops,
-                False,
+                optimize_recommended_order,
                 route,
                 mode=selected_route_mode,
                 strategy=selected_route_strategy,
@@ -884,8 +890,16 @@ def build_route_operation(
             # current lookup's Tencent-backed correction evidence when cached
             # normalized places replace this turn's resolved candidates.
             if len(resolved_stops) == len(current_resolution):
-                for resolved, current in zip(resolved_stops, current_resolution):
-                    correction = current.get("query_correction")
+                corrections_by_place_id = {
+                    str(current.get("place_id") or ""): current.get(
+                        "query_correction"
+                    )
+                    for current in current_resolution
+                }
+                for resolved in resolved_stops:
+                    correction = corrections_by_place_id.get(
+                        str(resolved.get("place_id") or "")
+                    )
                     if isinstance(correction, dict):
                         resolved["query_correction"] = copy.deepcopy(correction)
                     else:
@@ -894,7 +908,7 @@ def build_route_operation(
                 store,
                 user_id,
                 resolved_stops,
-                False,
+                optimize_recommended_order,
                 route,
                 mode=selected_route_mode,
                 strategy=selected_route_strategy,
@@ -945,6 +959,11 @@ def build_route_operation(
             "duration_seconds": round(duration_seconds),
             "mode": selected_route_mode,
             "strategy": selected_route_strategy,
+            "stop_order_policy": (
+                "tencent_matrix_optimized"
+                if optimize_recommended_order
+                else "preserved"
+            ),
             "selection": copy.deepcopy(route.get("selection") or {}),
             "legs": [
                 _route_plan_leg_summary(leg, selected_route_mode)
@@ -968,11 +987,13 @@ def build_route_operation(
         map_action = new_action(
             "map_recommendation",
             {
-                "title": (
+                "title": str(_map_title or (
                     f"{resolved_stops[0].get('name') or text('route.origin', response_language)}"
                     f" → {resolved_stops[-1].get('name') or text('route.destination', response_language)}"
-                ),
-                "action_text": text("route.action_text", response_language),
+                ))[:120],
+                "action_text": str(
+                    _map_action_text or text("route.action_text", response_language)
+                )[:80],
                 "places": resolved_stops,
                 "route_plan_id": route_plan_id,
                 "route_chain_id": str(route_plan.get("route_chain_id") or ""),
@@ -981,6 +1002,11 @@ def build_route_operation(
                 ),
                 "route_mode": selected_route_mode,
                 "route_strategy": selected_route_strategy,
+                "stop_order_policy": (
+                    "tencent_matrix_optimized"
+                    if optimize_recommended_order
+                    else "preserved"
+                ),
                 # Publish the exact Tencent-verified geometry that grounded
                 # this answer. Clients must reuse this component snapshot
                 # instead of paying for and potentially displaying a
@@ -1067,7 +1093,12 @@ def build_route_operation(
                 ),
             },
             "response_constraint": text(
-                "model.route.response_constraint", response_language,
+                (
+                    "model.route.optimized_response_constraint"
+                    if optimize_recommended_order
+                    else "model.route.response_constraint"
+                ),
+                response_language,
                 count=len(resolved_stops), mode=selected_route_mode,
                 strategy=selected_route_strategy,
                 tolerance=map_near_time_tolerance,

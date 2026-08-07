@@ -171,26 +171,6 @@ def build_system_skill_tools(
     _reverse_geocode_metered = map_runtime.reverse_geocode
     _plan_route_metered = map_runtime.plan_route
 
-    place_operations = PlaceOperations(
-        runtime_env=runtime_env,
-        conversation_id=conversation_id,
-        browser_current_location=browser_current_location,
-        map_runtime=map_runtime,
-        load_state=_load_state,
-        save_state=_save_state,
-        place_disambiguation_model=place_disambiguation_model,
-        planned_calendar_place_resolution=planned_calendar_place_resolution,
-        provider_place_review_enabled=provider_place_review_enabled,
-        place_result_limit=map_place_result_limit,
-        route_stop_limit=map_route_stop_limit,
-        parallelism=map_parallelism,
-        search_timeout=map_search_timeout,
-        response_language=response_language,
-    )
-    get_current_location = place_operations.get_current_location
-    search_places = place_operations.search_places
-    search_places_batch = place_operations.search_places_batch
-
     recommend_nearby_places_on_map = build_nearby_operation(
         _load_state=_load_state,
         _save_state=_save_state,
@@ -238,6 +218,27 @@ def build_system_skill_tools(
         user_id=user_id,
         response_language=response_language,
     )
+
+    place_operations = PlaceOperations(
+        runtime_env=runtime_env,
+        conversation_id=conversation_id,
+        browser_current_location=browser_current_location,
+        map_runtime=map_runtime,
+        load_state=_load_state,
+        save_state=_save_state,
+        place_disambiguation_model=place_disambiguation_model,
+        planned_calendar_place_resolution=planned_calendar_place_resolution,
+        provider_place_review_enabled=provider_place_review_enabled,
+        place_result_limit=map_place_result_limit,
+        route_stop_limit=map_route_stop_limit,
+        parallelism=map_parallelism,
+        search_timeout=map_search_timeout,
+        recommended_route_planner=plan_route_between_places,
+        response_language=response_language,
+    )
+    get_current_location = place_operations.get_current_location
+    search_places = place_operations.search_places
+    search_places_batch = place_operations.search_places_batch
 
     prepare_map_recommendation = (
         place_operations.prepare_map_recommendation

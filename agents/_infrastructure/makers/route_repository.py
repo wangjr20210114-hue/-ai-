@@ -27,6 +27,12 @@ def route_cache_key(
         "latitude": round(float(item.get("latitude") or 0), 6),
         "longitude": round(float(item.get("longitude") or 0), 6),
     } for item in places if isinstance(item, dict)]
+    if optimize:
+        # Optimized recommendations are sets, so equivalent input permutations
+        # share the same Maker-backed Provider result.
+        normalized.sort(key=lambda item: (
+            item["place_id"], item["latitude"], item["longitude"],
+        ))
     value = json.dumps(
         {
             "contract_version": 2,

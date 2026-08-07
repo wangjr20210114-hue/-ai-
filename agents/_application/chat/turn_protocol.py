@@ -491,7 +491,10 @@ def resume_capability_protocol(
     route_arguments = planned_arguments.get("plan_route_between_places")
     if isinstance(route_arguments, dict):
         explicit_origin_answered = any(
-            str(answer.get("id") or "") == "route_origin"
+            bool(re.fullmatch(
+                r"route_origin(?:_[0-9a-f]{6})?",
+                str(answer.get("id") or ""),
+            ))
             and bool(_clarification_scalar(answer))
             for answer in (clarification_answers or [])
             if isinstance(answer, dict)

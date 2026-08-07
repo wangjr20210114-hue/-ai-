@@ -21,7 +21,7 @@ def build_tools(context):
                 "click-to-activate map action."
             ),
             "recommend_places_on_map": (
-                "Verify a non-nearby list of named places and prepare one map action."
+                text("model.tool.recommend_places_on_map.description", "zh-CN")
             ),
             "prepare_map_recommendation": (
                 "Prepare a map action from already verified provider place IDs."

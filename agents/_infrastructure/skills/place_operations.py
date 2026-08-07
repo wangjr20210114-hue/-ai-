@@ -24,6 +24,7 @@ from ..._application.workspace.service import new_action, put_action
 
 StateLoader = Callable[[], Awaitable[dict[str, Any]]]
 StateSaver = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+RecommendedRoutePlanner = Callable[..., Awaitable[str]]
 
 
 class PlaceOperations:
@@ -45,6 +46,7 @@ class PlaceOperations:
         route_stop_limit: int,
         parallelism: int,
         search_timeout: float,
+        recommended_route_planner: RecommendedRoutePlanner | None = None,
         response_language: object = "zh-CN",
     ) -> None:
         self._runtime_env = runtime_env
@@ -62,6 +64,7 @@ class PlaceOperations:
         self._route_stop_limit = route_stop_limit
         self._parallelism = parallelism
         self._search_timeout = search_timeout
+        self._recommended_route_planner = recommended_route_planner
         self._response_language = normalize_language(response_language)
 
     def _map_key(self) -> str:
@@ -439,6 +442,53 @@ class PlaceOperations:
         candidates = state.setdefault("place_candidates", {})
         for place in all_candidates:
             candidates[str(place["place_id"])] = place
+        await self._save_state(state)
+        verified_count = len(selected)
+        requested_count = len(normalized)
+        response_constraint = text(
+            "model.place.map_constraint", self._response_language,
+            verified=verified_count, requested=requested_count,
+            missing=text(
+                "model.place.map_missing", self._response_language,
+                places="、".join(missing),
+            ) if missing else "",
+        )
+        if len(selected) >= 2 and self._recommended_route_planner is not None:
+            try:
+                route_result = json.loads(await self._recommended_route_planner(
+                    city=city or "全国",
+                    ordered_stops=[{
+                        "query": f"floris-place:{place['place_id']}",
+                        "near_query": "",
+                    } for place in selected],
+                    _optimize_recommended_order=True,
+                    _map_title=title,
+                    _map_action_text=action_text,
+                ))
+                if route_result.get("ui_action") == "map_action":
+                    route_constraint = str(
+                        route_result.get("response_constraint") or ""
+                    ).strip()
+                    route_result.update({
+                        "verified_place_count": verified_count,
+                        "requested_place_count": requested_count,
+                        "partial": bool(missing),
+                        "unverified_queries": missing,
+                        "response_constraint": "\n".join(filter(None, (
+                            route_constraint,
+                            response_constraint,
+                        ))),
+                    })
+                    return json.dumps(route_result, ensure_ascii=False)
+            except Exception as exc:
+                # A route is an enhancement to a verified recommendation. Keep
+                # the verified pins useful if Tencent routing is temporarily
+                # unavailable, without inventing geometry or order.
+                logging.warning(
+                    "recommended place route planning failed error=%s",
+                    type(exc).__name__,
+                )
+        state = await self._load_state()
         action = new_action(
             "map_recommendation",
             {
@@ -457,16 +507,6 @@ class PlaceOperations:
         )
         put_action(state, action)
         await self._save_state(state)
-        verified_count = len(selected)
-        requested_count = len(normalized)
-        response_constraint = text(
-            "model.place.map_constraint", self._response_language,
-            verified=verified_count, requested=requested_count,
-            missing=text(
-                "model.place.map_missing", self._response_language,
-                places="、".join(missing),
-            ) if missing else "",
-        )
         return json.dumps({
             "ui_action": "map_action",
             "action": action,

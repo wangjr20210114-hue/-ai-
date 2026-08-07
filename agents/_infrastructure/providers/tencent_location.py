@@ -13,6 +13,7 @@ import urllib.request
 from typing import Any
 
 from ..._application.i18n import text as copy_text
+from ..._domain.maps.route_order import optimize_open_route_order
 from .tencent_route_contract import (
     append_unique as _append_unique,
     normalize_route_contract,
@@ -539,59 +540,56 @@ async def search_verified_places_nearby(
     return sorted(nearby, key=lambda item: float(item["distance_to_anchor_meters"]))[:bounded_limit]
 
 
-async def optimize_place_order(key: str, places: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Find the shortest open path using Tencent driving matrix distances."""
+async def optimize_place_order(
+    key: str,
+    places: list[dict[str, Any]],
+    *,
+    strategy: str = "time_then_cost",
+) -> list[dict[str, Any]]:
+    """Order unordered recommendations from one Tencent road matrix."""
     if len(places) < 3:
         return places
-    if len(places) > 10:
-        # Keep provider calls and DP bounded; deterministic nearest-neighbour is
-        # used only for unusually large recommendation sets.
-        remaining = list(range(1, len(places)))
-        order = [0]
-        while remaining:
-            current = places[order[-1]]
-            next_index = min(
-                remaining,
-                key=lambda index: (current["latitude"] - places[index]["latitude"]) ** 2
-                + (current["longitude"] - places[index]["longitude"]) ** 2,
-            )
-            order.append(next_index)
-            remaining.remove(next_index)
-        return [places[index] for index in order]
     coords = ";".join(f"{float(place['latitude'])},{float(place['longitude'])}" for place in places)
     data = await _get(
         f"{API_ROOT}/distance/v1/matrix",
         {"key": key, "mode": "driving", "from": coords, "to": coords},
     )
     rows = (data.get("result") or {}).get("rows") or []
-    matrix: list[list[float]] = []
+    distance_matrix: list[list[float]] = []
+    duration_matrix: list[list[float]] = []
     for row in rows:
         elements = row.get("elements") or [] if isinstance(row, dict) else []
-        matrix.append([float(item.get("distance") or math.inf) for item in elements if isinstance(item, dict)])
+        distance_matrix.append([
+            float(
+                item.get("distance")
+                if item.get("distance") is not None
+                else math.inf
+            )
+            for item in elements
+            if isinstance(item, dict)
+        ])
+        duration_matrix.append([
+            float(
+                item.get("duration")
+                if item.get("duration") is not None
+                else math.inf
+            )
+            for item in elements
+            if isinstance(item, dict)
+        ])
     count = len(places)
-    if len(matrix) != count or any(len(row) != count for row in matrix):
+    if (
+        len(distance_matrix) != count
+        or len(duration_matrix) != count
+        or any(len(row) != count for row in distance_matrix + duration_matrix)
+    ):
         return places
-    # Held-Karp for an open Hamiltonian path. Every point may be the start/end.
-    dp: dict[tuple[int, int], tuple[float, tuple[int, ...]]] = {
-        (1 << index, index): (0.0, (index,)) for index in range(count)
-    }
-    for mask in range(1, 1 << count):
-        for last in range(count):
-            current = dp.get((mask, last))
-            if current is None:
-                continue
-            distance, path = current
-            for nxt in range(count):
-                if mask & (1 << nxt):
-                    continue
-                candidate = (distance + matrix[last][nxt], path + (nxt,))
-                key_state = (mask | (1 << nxt), nxt)
-                previous = dp.get(key_state)
-                if previous is None or candidate < previous:
-                    dp[key_state] = candidate
-    full = (1 << count) - 1
-    best = min(dp[(full, last)] for last in range(count) if (full, last) in dp)
-    return [places[index] for index in best[1]]
+    order = optimize_open_route_order(
+        distance_matrix,
+        duration_matrix,
+        strategy=strategy,
+    )
+    return [places[index] for index in order]
 
 
 def decode_polyline(values: list[Any]) -> list[dict[str, float]]:
@@ -1045,8 +1043,8 @@ async def plan_route(
     if strategy not in {"time_then_cost", "least_time", "least_cost"}:
         raise ValueError(_copy("maps.route.strategy_invalid"))
     places = await normalize_route_places(key, places)
-    if optimize and mode == "driving":
-        places = await optimize_place_order(key, places)
+    if optimize:
+        places = await optimize_place_order(key, places, strategy=strategy)
     if mode == "driving":
         combined = await _plan_route_leg(
             key,
@@ -1179,13 +1177,21 @@ async def plan_route(
                 "leg_selections": [leg.get("selection") or {} for leg in legs],
             },
         }
-    return normalize_route_contract({
+    normalized = normalize_route_contract({
         "schema_version": 4,
         "provider": "tencent",
         "mode": mode,
         "places": places,
         **combined,
     })
+    selection = normalized.setdefault("selection", {})
+    if isinstance(selection, dict):
+        selection["stop_order_policy"] = (
+            "tencent_matrix_optimized" if optimize else "preserved"
+        )
+        if optimize:
+            selection["stop_order_objective"] = strategy
+    return normalized
 
 
 async def plan_driving_route(

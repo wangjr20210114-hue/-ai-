@@ -8,10 +8,62 @@ from agents._domain.maps.route_chain import (
     record_route_plan,
     route_plan_by_id,
 )
+from agents._application.workspace.service import load_user_workspace
+from agents._domain.maps.route_order import optimize_open_route_order
+from agents._infrastructure.makers.route_repository import route_cache_key
+from agents._infrastructure.providers.tencent_location import optimize_place_order
 from agents.chat._calendar_context import latest_route_context
 
 
 class RoutePolicyTests(unittest.TestCase):
+    def test_unordered_route_uses_provider_time_or_cost_objective(self):
+        distances = (
+            (0, 1, 10),
+            (1, 0, 1),
+            (10, 1, 0),
+        )
+        durations = (
+            (0, 10, 1),
+            (10, 0, 1),
+            (1, 1, 0),
+        )
+        self.assertEqual(
+            optimize_open_route_order(
+                distances, durations, strategy="least_cost",
+            ),
+            (0, 1, 2),
+        )
+        self.assertEqual(
+            optimize_open_route_order(
+                distances, durations, strategy="least_time",
+            ),
+            (0, 2, 1),
+        )
+
+    def test_invalid_provider_matrix_preserves_recommendation_order(self):
+        self.assertEqual(
+            optimize_open_route_order(
+                ((0, 1), (1, 0)),
+                ((0,), (1, 0)),
+            ),
+            (0, 1),
+        )
+
+    def test_optimized_route_cache_treats_recommendations_as_a_set(self):
+        places = [
+            {"place_id": "a", "latitude": 30.1, "longitude": 120.1},
+            {"place_id": "b", "latitude": 30.2, "longitude": 120.2},
+            {"place_id": "c", "latitude": 30.3, "longitude": 120.3},
+        ]
+        self.assertEqual(
+            route_cache_key(places, True),
+            route_cache_key(list(reversed(places)), True),
+        )
+        self.assertNotEqual(
+            route_cache_key(places, False),
+            route_cache_key(list(reversed(places)), False),
+        )
+
     def test_route_chain_is_scoped_and_versioned_per_conversation(self):
         state = {"route_chains": {}, "route_chain_index": {}, "latest_route_plan": {}}
         first = record_route_plan(state, "chat-a", {"id": "plan-a1"}, now=1)
@@ -148,6 +200,117 @@ class RoutePolicyTests(unittest.TestCase):
 
 
 class RouteModelBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unordered_recommendation_uses_shared_route_chain(self):
+        names = ["景点甲", "景点乙", "景点丙"]
+
+        async def place_provider(_map_key, query, *, city, limit):
+            self.assertEqual(city, "杭州")
+            return [{
+                **PLACE,
+                "place_id": f"poi-{query}",
+                "name": query,
+                "city": "杭州市",
+                "address": f"杭州市{query}路",
+            }]
+
+        async def route_provider(_map_key, places, **kwargs):
+            self.assertTrue(kwargs["optimize"])
+            self.assertEqual(kwargs["strategy"], "time_then_cost")
+            ordered = [places[2], places[0], places[1]]
+            return {
+                "provider": "tencent",
+                "mode": "driving",
+                "places": ordered,
+                "legs": [{
+                    "from": ordered[index],
+                    "to": ordered[index + 1],
+                    "mode": "driving",
+                    "distance_meters": 1_000,
+                    "duration_seconds": 600,
+                    "path": [],
+                    "sections": [],
+                } for index in range(2)],
+                "distance_meters": 2_000,
+                "duration_seconds": 1_200,
+                "selection": {
+                    "stop_order_policy": "tencent_matrix_optimized",
+                },
+            }
+
+        store = FakeStore()
+        with patch(
+            "agents._infrastructure.skills.builtin_operations.provider_search_places",
+            new=place_provider,
+        ), patch(
+            "agents._infrastructure.skills.builtin_operations.provider_plan_route",
+            new=route_provider,
+        ):
+            tools = build_system_skill_tools(
+                None,
+                store=store,
+                conversation_id="unordered-recommendation",
+                user_id=TEST_USER_ID,
+                env={"TENCENT_MAP_SERVER_KEY": "map-key"},
+            )
+            tool = next(
+                item for item in tools
+                if item.name == "recommend_places_on_map"
+            )
+            result = json.loads(await tool.ainvoke({
+                "queries": names,
+                "city": "杭州",
+                "title": "杭州景点",
+                "action_text": "查看路线",
+            }))
+
+        self.assertEqual(
+            [place["name"] for place in result["ordered_stops"]],
+            ["景点丙", "景点甲", "景点乙"],
+        )
+        self.assertEqual(
+            result["action"]["payload"]["stop_order_policy"],
+            "tencent_matrix_optimized",
+        )
+        saved = await load_user_workspace(store, user_id=TEST_USER_ID)
+        current = current_route_plan(saved, "unordered-recommendation")
+        self.assertEqual(current["id"], result["route_plan_id"])
+        self.assertEqual(current["stop_order_policy"], "tencent_matrix_optimized")
+
+    async def test_tencent_matrix_duration_drives_time_preference(self):
+        places = [
+            {"place_id": "a", "latitude": 30.1, "longitude": 120.1},
+            {"place_id": "b", "latitude": 30.2, "longitude": 120.2},
+            {"place_id": "c", "latitude": 30.3, "longitude": 120.3},
+        ]
+        matrix_response = {"result": {"rows": [
+            {"elements": [
+                {"distance": 0, "duration": 0},
+                {"distance": 1, "duration": 10},
+                {"distance": 10, "duration": 1},
+            ]},
+            {"elements": [
+                {"distance": 1, "duration": 10},
+                {"distance": 0, "duration": 0},
+                {"distance": 1, "duration": 1},
+            ]},
+            {"elements": [
+                {"distance": 10, "duration": 1},
+                {"distance": 1, "duration": 1},
+                {"distance": 0, "duration": 0},
+            ]},
+        ]}}
+        with patch(
+            "agents._infrastructure.providers.tencent_location._get",
+            new=AsyncMock(return_value=matrix_response),
+        ):
+            optimized = await optimize_place_order(
+                "map-key", places, strategy="least_time",
+            )
+        self.assertEqual(
+            [place["place_id"] for place in optimized],
+            ["a", "c", "b"],
+        )
+
     async def test_public_fallback_candidates_never_enter_model_reconciliation(self):
         model = MagicMock()
         result = await _place_resolution_with_provider_review(model, "目的地", [

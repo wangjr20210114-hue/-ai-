@@ -169,9 +169,9 @@ class MapProviderRuntime:
                 "tencent_route",
                 lambda: asyncio.wait_for(
                     self._plan_route_provider()(map_key, *args, **kwargs),
-                    timeout=min(
+                    timeout=max(
                         18.0,
-                        max(8.0, 58.0 - self._search_timeout),
+                        min(50.0, 58.0 - self._search_timeout),
                     ),
                 ),
             )
