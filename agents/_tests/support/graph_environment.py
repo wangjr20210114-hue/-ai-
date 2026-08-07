@@ -10,6 +10,7 @@ from agents.chat._graph import (
     blocked_capability_response,
     build_graph,
     grounded_route_action_answer,
+    grounded_unavailable_route_answer,
     grounded_route_stream_answer,
     tool_result_fallback,
 )
@@ -133,6 +134,28 @@ def linked_verified_route_action(origin_query: str, destination_query: str) -> s
             "mode": "transit",
             "distance_kilometers": 5.0,
             "duration_minutes": 50,
+        },
+    }, ensure_ascii=False)
+
+
+@tool("recommend_places_on_map")
+def unavailable_recommended_route(
+    queries: list[str], city: str, title: str, action_text: str,
+) -> str:
+    """Return verified pins when Tencent route planning is unavailable."""
+    del city, title, action_text
+    return json.dumps({
+        "ui_action": "map_action",
+        "route_status": "unavailable",
+        "action": {
+            "kind": "map_recommendation",
+            "payload": {
+                "route_status": "unavailable",
+                "places": [
+                    {"place_id": f"place-{index}", "name": name}
+                    for index, name in enumerate(queries, 1)
+                ],
+            },
         },
     }, ensure_ascii=False)
 

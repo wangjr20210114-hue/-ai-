@@ -63,6 +63,7 @@ from ._fallbacks import (
     action_completion_fallback,
     blocked_capability_response,
     grounded_route_action_answer,
+    grounded_unavailable_route_answer,
     grounded_route_stream_answer,
     tool_failure_fallback,
     tool_result_fallback,
@@ -181,6 +182,7 @@ def build_graph(
         clarification_ready = False
         crossed_clarification_answer = False
         route_result_payload = None
+        unavailable_route_payload = None
         calendar_result_payload = None
         required_tool_failed = False
         failed_required_tools: set[str] = set()
@@ -232,6 +234,13 @@ def build_graph(
                     and isinstance(payload.get("route"), dict)
                 ):
                     route_result_payload = payload
+                if (
+                    name in ROUTE_RESULT_TOOLS
+                    and isinstance(payload, dict)
+                    and payload.get("ui_action") == "map_action"
+                    and payload.get("route_status") == "unavailable"
+                ):
+                    unavailable_route_payload = payload
                 if (
                     isinstance(payload, dict)
                     and payload.get("ui_action") == "calendar_action"
@@ -288,6 +297,13 @@ def build_graph(
                     },
                 },
             )]}
+        if unavailable_route_payload is not None:
+            unavailable_answer = grounded_unavailable_route_answer(
+                unavailable_route_payload,
+                response_language,
+            )
+            if unavailable_answer:
+                return {"messages": [AIMessage(content=unavailable_answer)]}
         # Preserve an earlier verified route if only its independent calendar
         # enhancement failed. Never tell the user that nothing ran after a real
         # Tencent map Action was already emitted.

@@ -698,6 +698,35 @@ def grounded_route_action_answer(
     return _route_result_answer(route_payload, response_language)
 
 
+def grounded_unavailable_route_answer(
+    payload: dict,
+    response_language: object = "zh-CN",
+) -> str:
+    """Present verified pins without letting prose invent a failed route."""
+    if not isinstance(payload, dict) or payload.get("route_status") != "unavailable":
+        return ""
+    action = payload.get("action") if isinstance(payload.get("action"), dict) else {}
+    action_payload = (
+        action.get("payload")
+        if isinstance(action.get("payload"), dict)
+        else {}
+    )
+    places = [
+        str(place.get("name") or "").strip()
+        for place in (action_payload.get("places") or [])
+        if isinstance(place, dict) and str(place.get("name") or "").strip()
+    ]
+    if not places:
+        return ""
+    language = normalize_language(response_language)
+    separator = ", " if language == "en" else "、"
+    return text(
+        "chat.fallback.route_unavailable",
+        language,
+        places=separator.join(places),
+    )
+
+
 def grounded_route_stream_answer(
     actions: list[dict],
     *,

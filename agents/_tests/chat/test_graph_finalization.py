@@ -83,6 +83,49 @@ class GraphFinalizationTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
+    def test_unavailable_route_answer_lists_only_verified_pins(self):
+        answer = grounded_unavailable_route_answer({
+            "ui_action": "map_action",
+            "route_status": "unavailable",
+            "action": {
+                "payload": {
+                    "places": [
+                        {"name": "地点甲"},
+                        {"name": "地点乙"},
+                    ],
+                },
+            },
+        })
+        self.assertIn("地点甲、地点乙", answer)
+        self.assertIn("路线没有规划完成", answer)
+        self.assertNotIn("顺路", answer)
+        self.assertNotIn("直达", answer)
+
+    async def test_graph_never_lets_model_invent_an_unavailable_route(self):
+        model = _RecordingModel()
+        graph = build_graph(
+            model,
+            [unavailable_recommended_route],
+            "system",
+            required_tools=["recommend_places_on_map"],
+            planned_tool_arguments={
+                "recommend_places_on_map": {
+                    "queries": ["地点甲", "地点乙"],
+                    "city": "测试城市",
+                    "title": "地点推荐",
+                    "action_text": "查看地点",
+                },
+            },
+        )
+        result = await graph.ainvoke({
+            "messages": [HumanMessage(content="推荐两个地点并规划路线")],
+        })
+        answer = result["messages"][-1].content
+        self.assertIn("地点甲、地点乙", answer)
+        self.assertIn("路线没有规划完成", answer)
+        self.assertEqual(model.bound_calls, 0)
+        self.assertEqual(model.unbound_calls, 0)
+
     def test_calendar_continuation_keeps_the_card_as_the_only_timetable(self):
         answer = grounded_route_stream_answer(
             [{

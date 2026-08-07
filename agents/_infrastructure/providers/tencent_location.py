@@ -544,16 +544,82 @@ async def optimize_place_order(
     key: str,
     places: list[dict[str, Any]],
     *,
+    mode: str = "driving",
     strategy: str = "time_then_cost",
 ) -> list[dict[str, Any]]:
     """Order unordered recommendations from one Tencent road matrix."""
     if len(places) < 3:
         return places
+
+    async def order_from_direction() -> list[dict[str, Any]]:
+        # Matrix is an independently metered Tencent capability and some keys
+        # legitimately expose Direction without Matrix. Keep Tencent as the
+        # sole road-evidence provider: measure each unordered pair through the
+        # same Direction Adapter, mirror the metric for ordering, and let the
+        # normal route pass fetch the exact directed geometry afterwards.
+        semaphore = asyncio.Semaphore(6)
+
+        async def measure_pair(left: int, right: int):
+            async with semaphore:
+                try:
+                    leg = await _plan_route_leg_with_mode_fallback(
+                        key,
+                        places[left],
+                        places[right],
+                        mode=mode,
+                        strategy=strategy,
+                        near_time_tolerance_minutes=10,
+                    )
+                    distance = float(leg.get("distance_meters") or 0)
+                    duration = float(leg.get("duration_seconds") or 0)
+                    if distance <= 0 or duration <= 0:
+                        return left, right, None
+                    return left, right, (distance, duration)
+                except Exception:
+                    return left, right, None
+
+        count = len(places)
+        measured = await asyncio.gather(*(
+            measure_pair(left, right)
+            for left in range(count)
+            for right in range(left + 1, count)
+        ))
+        fallback_distances = [
+            [0.0 if left == right else math.inf for right in range(count)]
+            for left in range(count)
+        ]
+        fallback_durations = [
+            [0.0 if left == right else math.inf for right in range(count)]
+            for left in range(count)
+        ]
+        for left, right, metrics in measured:
+            if metrics is None:
+                continue
+            distance, duration = metrics
+            fallback_distances[left][right] = distance
+            fallback_distances[right][left] = distance
+            fallback_durations[left][right] = duration
+            fallback_durations[right][left] = duration
+        order = optimize_open_route_order(
+            fallback_distances,
+            fallback_durations,
+            strategy=strategy,
+        )
+        return [places[index] for index in order]
+
+    # Tencent Matrix supports road modes but not public transit. Transit order
+    # therefore uses the same bounded Direction measurements as its final
+    # legs, so a public-transport preference is never optimized as driving.
+    if mode == "transit":
+        return await order_from_direction()
     coords = ";".join(f"{float(place['latitude'])},{float(place['longitude'])}" for place in places)
-    data = await _get(
-        f"{API_ROOT}/distance/v1/matrix",
-        {"key": key, "mode": "driving", "from": coords, "to": coords},
-    )
+    try:
+        data = await _get(
+            f"{API_ROOT}/distance/v1/matrix",
+            {"key": key, "mode": mode, "from": coords, "to": coords},
+        )
+    except Exception:
+        return await order_from_direction()
     rows = (data.get("result") or {}).get("rows") or []
     distance_matrix: list[list[float]] = []
     duration_matrix: list[list[float]] = []
@@ -582,8 +648,14 @@ async def optimize_place_order(
         len(distance_matrix) != count
         or len(duration_matrix) != count
         or any(len(row) != count for row in distance_matrix + duration_matrix)
+        or any(
+            value < 0 or not math.isfinite(value)
+            for matrix in (distance_matrix, duration_matrix)
+            for row in matrix
+            for value in row
+        )
     ):
-        return places
+        return await order_from_direction()
     order = optimize_open_route_order(
         distance_matrix,
         duration_matrix,
@@ -1021,6 +1093,53 @@ async def _plan_route_leg(
     }
 
 
+async def _plan_route_leg_with_mode_fallback(
+    key: str,
+    origin: dict[str, Any],
+    destination: dict[str, Any],
+    *,
+    mode: str,
+    strategy: str,
+    near_time_tolerance_minutes: int,
+) -> dict[str, Any]:
+    """Keep requested transport first and use only Tencent-backed alternatives."""
+    fallback_modes = (
+        ("driving", "bicycling", "walking")
+        if mode == "transit" and strategy == "least_time"
+        else ("bicycling", "driving")
+        if mode == "transit"
+        else ("walking",)
+        if mode == "bicycling"
+        else ()
+    )
+    last_error: Exception | None = None
+    for effective_mode in (mode, *fallback_modes):
+        try:
+            leg = await _plan_route_leg(
+                key,
+                origin,
+                destination,
+                mode=effective_mode,
+                strategy=strategy,
+                near_time_tolerance_minutes=near_time_tolerance_minutes,
+            )
+        except Exception as exc:
+            last_error = exc
+            continue
+        selection = leg.setdefault("selection", {})
+        if isinstance(selection, dict):
+            selection.update({
+                "requested_mode": mode,
+                "effective_mode": effective_mode,
+                "mode_fallback": effective_mode != mode,
+            })
+        leg["effective_mode"] = effective_mode
+        return leg
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError(_copy("maps.provider.route_missing", mode=mode))
+
+
 async def plan_route(
     key: str,
     places: list[dict[str, Any]],
@@ -1044,7 +1163,9 @@ async def plan_route(
         raise ValueError(_copy("maps.route.strategy_invalid"))
     places = await normalize_route_places(key, places)
     if optimize:
-        places = await optimize_place_order(key, places, strategy=strategy)
+        places = await optimize_place_order(
+            key, places, mode=mode, strategy=strategy,
+        )
     if mode == "driving":
         combined = await _plan_route_leg(
             key,
@@ -1092,42 +1213,14 @@ async def plan_route(
                 # mode first, then ask the same provider for a bounded,
                 # strategy-aware alternative for only that leg. The result is
                 # a factual mixed-mode chain, never a model-invented route.
-                fallback_modes = (
-                    ("driving", "bicycling", "walking")
-                    if mode == "transit" and strategy == "least_time"
-                    else ("bicycling", "driving")
-                    if mode == "transit"
-                    else ("walking",)
-                    if mode == "bicycling"
-                    else ()
+                return await _plan_route_leg_with_mode_fallback(
+                    key,
+                    places[index],
+                    places[index + 1],
+                    mode=mode,
+                    strategy=strategy,
+                    near_time_tolerance_minutes=near_time_tolerance_minutes,
                 )
-                attempts = (mode, *fallback_modes)
-                last_error: Exception | None = None
-                for effective_mode in attempts:
-                    try:
-                        leg = await _plan_route_leg(
-                            key,
-                            places[index],
-                            places[index + 1],
-                            mode=effective_mode,
-                            strategy=strategy,
-                            near_time_tolerance_minutes=near_time_tolerance_minutes,
-                        )
-                    except Exception as exc:
-                        last_error = exc
-                        continue
-                    selection = leg.setdefault("selection", {})
-                    if isinstance(selection, dict):
-                        selection.update({
-                            "requested_mode": mode,
-                            "effective_mode": effective_mode,
-                            "mode_fallback": effective_mode != mode,
-                        })
-                    leg["effective_mode"] = effective_mode
-                    return leg
-                if last_error is not None:
-                    raise last_error
-                raise RuntimeError(_copy("maps.provider.route_missing", mode=mode))
 
         legs = await asyncio.gather(*(plan_index(index) for index in range(len(places) - 1)))
         path: list[dict[str, float]] = []

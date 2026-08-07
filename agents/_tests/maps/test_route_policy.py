@@ -519,6 +519,87 @@ class RouteModelBoundaryTests(unittest.IsolatedAsyncioTestCase):
             ["a", "c", "b"],
         )
 
+    async def test_direction_adapter_builds_matrix_when_matrix_capability_is_unavailable(self):
+        places = [
+            {"place_id": "a", "latitude": 30.1, "longitude": 120.1},
+            {"place_id": "b", "latitude": 30.2, "longitude": 120.2},
+            {"place_id": "c", "latitude": 30.3, "longitude": 120.3},
+        ]
+        metrics = {
+            ("a", "b"): (10_000, 1_000),
+            ("a", "c"): (1_000, 100),
+            ("b", "c"): (1_000, 100),
+        }
+        calls = []
+
+        async def route_leg(_key, origin, destination, *, mode, **_kwargs):
+            calls.append((origin["place_id"], destination["place_id"], mode))
+            distance, duration = metrics[(origin["place_id"], destination["place_id"])]
+            return {
+                "distance_meters": distance,
+                "duration_seconds": duration,
+            }
+
+        with (
+            patch(
+                "agents._infrastructure.providers.tencent_location._get",
+                new=AsyncMock(side_effect=RuntimeError("matrix not enabled")),
+            ),
+            patch(
+                "agents._infrastructure.providers.tencent_location._plan_route_leg",
+                new=route_leg,
+            ),
+        ):
+            optimized = await optimize_place_order(
+                "map-key", places, strategy="least_time",
+            )
+
+        self.assertEqual(
+            [place["place_id"] for place in optimized],
+            ["a", "c", "b"],
+        )
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(mode == "driving" for *_pair, mode in calls))
+
+    async def test_transit_preference_uses_transit_direction_for_stop_order(self):
+        places = [
+            {"place_id": "a", "latitude": 30.1, "longitude": 120.1},
+            {"place_id": "b", "latitude": 30.2, "longitude": 120.2},
+            {"place_id": "c", "latitude": 30.3, "longitude": 120.3},
+        ]
+        calls = []
+
+        async def route_leg(_key, origin, destination, *, mode, **_kwargs):
+            calls.append((origin["place_id"], destination["place_id"], mode))
+            short = {origin["place_id"], destination["place_id"]} != {"a", "b"}
+            return {
+                "distance_meters": 1_000 if short else 10_000,
+                "duration_seconds": 100 if short else 1_000,
+                "selection": {},
+            }
+
+        matrix = AsyncMock(side_effect=AssertionError("transit has no matrix mode"))
+        with (
+            patch(
+                "agents._infrastructure.providers.tencent_location._get",
+                new=matrix,
+            ),
+            patch(
+                "agents._infrastructure.providers.tencent_location._plan_route_leg",
+                new=route_leg,
+            ),
+        ):
+            optimized = await optimize_place_order(
+                "map-key", places, mode="transit", strategy="least_cost",
+            )
+
+        self.assertEqual(
+            [place["place_id"] for place in optimized],
+            ["a", "c", "b"],
+        )
+        matrix.assert_not_awaited()
+        self.assertTrue(all(mode == "transit" for *_pair, mode in calls))
+
     async def test_public_fallback_candidates_never_enter_model_reconciliation(self):
         model = MagicMock()
         result = await _place_resolution_with_provider_review(model, "目的地", [
