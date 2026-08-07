@@ -317,7 +317,6 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
                 user_id=TEST_USER_ID,
                 env={},
                 planned_reuse_latest_route=True,
-                planned_route_origin_is_departure=True,
             )
             route_tool = next(
                 tool for tool in tools if tool.name == "plan_route_between_places"
@@ -334,12 +333,35 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
                 "summary": "接人并写入日程",
                 "changes": [],
             }))
+            proposal = json.loads(await calendar_tool.ainvoke({
+                "summary": "接人并写入日程",
+                "changes": [],
+                "route_start_time": "2099-08-08T08:00:00+08:00",
+                "route_stop_minutes": 60,
+            }))
 
         self.assertEqual(route_result["ui_action"], "map_action")
+        self.assertEqual(
+            route_result["action"]["payload"]["route_chain_revision"], 1,
+        )
+        self.assertTrue(route_result["action"]["payload"]["route_chain_id"])
         self.assertEqual(calendar_result["ui_action"], "clarification_action")
         self.assertEqual(
             [field["id"] for field in calendar_result["clarification"]["fields"]],
             ["route_calendar_start", "route_calendar_stop_minutes"],
+        )
+        changes = proposal["action"]["payload"]["changes"]
+        self.assertEqual(changes[0]["event"]["duration_minutes"], 1)
+        self.assertEqual(
+            changes[1]["event"]["start_time"] - changes[0]["event"]["start_time"],
+            30 * 60,
+        )
+        saved = await load_workspace(store, TEST_USER_ID)
+        self.assertEqual(
+            saved["route_chains"][saved["route_chain_index"]["route-then-calendar"]][
+                "current_plan"
+            ]["id"],
+            route_result["route_plan_id"],
         )
 
     async def test_route_calendar_offer_is_hidden_when_calendar_skill_is_disabled(self):

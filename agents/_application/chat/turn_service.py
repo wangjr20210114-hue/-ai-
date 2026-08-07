@@ -502,12 +502,13 @@ async def _handle(ctx):
         (time.monotonic() - workspace_started_at) * 1000
     )
     current_calendar_context = calendar_context(workspace)
-    current_route_context = latest_route_context(workspace)
+    current_route_context = latest_route_context(workspace, conversation_id)
     capability_plan, route_tool_arguments = bind_latest_route_continuation(
         capability_plan,
         route_tool_arguments,
         workspace,
         message,
+        conversation_id,
     )
     if planner_timed_out:
         logging.warning(

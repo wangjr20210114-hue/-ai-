@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from ..._application.i18n import normalize_language, text
 from ..._application.workspace.service import new_action, put_action
+from ..._domain.maps.route_chain import current_route_plan, record_route_plan
 from ..._domain.maps.route_place_set import RoutePlaceEdit, apply_route_place_edits
 from ..._domain.maps.route_strategy import infer_route_preferences, select_route_strategy
 from ..._infrastructure.makers.route_repository import load_route_cache, save_route_cache
@@ -168,11 +169,7 @@ def build_route_operation(
             if map_learn_route_preferences
             else ""
         )
-        latest_route = (
-            state.get("latest_route_plan")
-            if isinstance(state.get("latest_route_plan"), dict)
-            else {}
-        )
+        latest_route = current_route_plan(state, conversation_id)
         strategy_selection = select_route_strategy(
             requested_mode=requested_route_mode,
             planned_mode=planner_route_mode,
@@ -402,7 +399,14 @@ def build_route_operation(
         requested_stop_field_ids: list[str] = []
         editing_latest_route = bool(place_edits)
         edited_uses_current_location = False
-        route_origin_is_departure = bool(planned_route_origin_is_departure)
+        route_origin_is_departure = bool(
+            planned_route_origin_is_departure
+            or (
+                str(origin_query or "").strip()
+                and not ordered_stops
+                and not should_use_current_location
+            )
+        )
         if editing_latest_route:
             latest_stops = (
                 latest_route.get("ordered_stops")
@@ -949,7 +953,7 @@ def build_route_operation(
             ][:11],
             "calendar_hint": str(planned_route_calendar_hint or "").strip()[:240],
         }
-        state["latest_route_plan"] = route_plan
+        route_plan = record_route_plan(state, conversation_id, route_plan)
         route_plans = state.setdefault("route_plans", {})
         route_plans[route_plan_id] = copy.deepcopy(route_plan)
         state["route_plans"] = dict(sorted(
@@ -971,6 +975,10 @@ def build_route_operation(
                 "action_text": text("route.action_text", response_language),
                 "places": resolved_stops,
                 "route_plan_id": route_plan_id,
+                "route_chain_id": str(route_plan.get("route_chain_id") or ""),
+                "route_chain_revision": int(
+                    route_plan.get("route_chain_revision") or 1
+                ),
                 "route_mode": selected_route_mode,
                 "route_strategy": selected_route_strategy,
                 # Publish the exact Tencent-verified geometry that grounded

@@ -17,6 +17,7 @@ from ..._application.workspace.service import (
     put_action,
     validate_calendar_change_window,
 )
+from ..._domain.maps.route_chain import current_route_plan, route_plan_by_id
 from ..._infrastructure.makers.route_repository import load_route_cache, save_route_cache
 from .route_resolution import (
     _clarification_action,
@@ -63,8 +64,7 @@ def build_calendar_operation(
         state = await _load_state()
         changes = changes if isinstance(changes, list) else []
         candidates = state.get("place_candidates", {})
-        latest_route = state.get("latest_route_plan")
-        route_plans = state.get("route_plans", {})
+        latest_route = current_route_plan(state, conversation_id)
         route_source_id = str(
             requested_route_plan_id or source_route_plan_id or ""
         ).strip()
@@ -103,19 +103,18 @@ def build_calendar_operation(
                 and len(route_place_ids & submitted_place_ids) >= 2
             ):
                 route_source_id = str(latest_route.get("id") or "")
-        linked_route = (
-            route_plans.get(route_source_id)
-            if route_source_id and isinstance(route_plans, dict)
-            else None
+        linked_route = route_plan_by_id(
+            state, conversation_id, route_source_id,
         )
         if (
-            not isinstance(linked_route, dict)
+            not linked_route
             and route_source_id
             and isinstance(latest_route, dict)
             and route_source_id == str(latest_route.get("id") or "")
         ):
-            # Workspaces created before route history was introduced still
-            # expose one valid route through latest_route_plan.
+            # Workspaces created before route chains were introduced still
+            # expose one valid migration source through the compatibility
+            # view resolved above.
             linked_route = latest_route
         linked_calendar_stops = [
             stop

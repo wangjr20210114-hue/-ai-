@@ -3,10 +3,28 @@ from agents._application.chat.turn_policy import (
     route_calendar_tool_arguments,
     route_tool_arguments_for_plan,
 )
+from agents._domain.maps.route_chain import (
+    current_route_plan,
+    record_route_plan,
+    route_plan_by_id,
+)
 from agents.chat._calendar_context import latest_route_context
 
 
 class RoutePolicyTests(unittest.TestCase):
+    def test_route_chain_is_scoped_and_versioned_per_conversation(self):
+        state = {"route_chains": {}, "route_chain_index": {}, "latest_route_plan": {}}
+        first = record_route_plan(state, "chat-a", {"id": "plan-a1"}, now=1)
+        second = record_route_plan(state, "chat-a", {"id": "plan-a2"}, now=2)
+        record_route_plan(state, "chat-b", {"id": "plan-b1"}, now=3)
+        self.assertEqual(first["route_chain_revision"], 1)
+        self.assertEqual(second["previous_route_plan_id"], "plan-a1")
+        self.assertEqual(current_route_plan(state, "chat-a")["id"], "plan-a2")
+        self.assertEqual(current_route_plan(state, "chat-b")["id"], "plan-b1")
+        self.assertEqual(current_route_plan(state, "chat-c"), {})
+        self.assertEqual(route_plan_by_id(state, "chat-a", "plan-a1")["id"], "plan-a1")
+        self.assertEqual(route_plan_by_id(state, "chat-b", "plan-a1"), {})
+
     def test_route_arguments_preserve_user_order_and_current_origin(self):
         arguments = route_tool_arguments_for_plan({
             "needs_route": True,
@@ -67,6 +85,7 @@ class RoutePolicyTests(unittest.TestCase):
             },
             {
                 "latest_route_plan": {
+                    "id": "routeplan-latest",
                     "ordered_stops": [
                         {"place_id": "origin", "name": "起点", "city": "示例市"},
                         {"place_id": "terminal", "name": "上一段终点", "city": "示例市"},
@@ -94,7 +113,7 @@ class RoutePolicyTests(unittest.TestCase):
                 "city": "全国",
                 "ordered_stops": [{"query": "某品牌门店", "near_query": ""}],
             },
-            {"latest_route_plan": {"ordered_stops": [
+            {"latest_route_plan": {"id": "routeplan-latest", "ordered_stops": [
                 {"place_id": "terminal", "name": "上一段终点", "city": "示例市"},
             ]}},
             "接完朋友后再去下一站",

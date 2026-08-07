@@ -508,7 +508,8 @@ def _decode_capability_plan(
         and raw.get("route_continues_latest")
     )
     if plan.get("route_place_edits"):
-        # Route edits own their base place set through latest_route_plan. They
+        # Route edits own their base place set through the conversation's
+        # current route chain. They
         # are neither a new implicit-current-origin route nor a continuation
         # that should prepend the previous destination a second time.
         plan["route_stops"] = []

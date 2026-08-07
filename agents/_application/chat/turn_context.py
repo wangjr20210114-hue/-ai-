@@ -9,6 +9,7 @@ from typing import Any
 
 from ..search.search_use_case import SearchRequest
 from ..._domain.entitlements.policy import public_entitlements
+from ..._domain.maps.route_chain import current_route_plan
 
 
 _VERIFIED_PLACE_PREFIX = "floris-place:"
@@ -38,6 +39,7 @@ def bind_latest_route_continuation(
     route_arguments: Mapping[str, Any],
     workspace: Mapping[str, Any],
     user_message: str = "",
+    conversation_id: str = "",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Bind a conversational continuation to the last verified endpoint.
 
@@ -59,7 +61,7 @@ def bind_latest_route_continuation(
     ):
         return updated_plan, updated_arguments
 
-    latest = workspace.get("latest_route_plan")
+    latest = current_route_plan(dict(workspace), conversation_id)
     verified_stops = [
         item
         for item in (

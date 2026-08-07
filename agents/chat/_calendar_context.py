@@ -6,6 +6,8 @@ import json
 import time
 from datetime import datetime, timedelta, timezone
 
+from .._domain.maps.route_chain import current_route_plan
+
 
 def calendar_context(workspace: dict, *, now: int | None = None) -> str:
     timezone_beijing = timezone(timedelta(hours=8))
@@ -51,9 +53,9 @@ def calendar_context(workspace: dict, *, now: int | None = None) -> str:
     return json.dumps(public, ensure_ascii=False, separators=(",", ":"))
 
 
-def latest_route_context(workspace: dict) -> str:
+def latest_route_context(workspace: dict, conversation_id: str = "") -> str:
     """Expose one bounded, provider-verified route for calendar continuation."""
-    route = workspace.get("latest_route_plan")
+    route = current_route_plan(workspace, conversation_id)
     if not isinstance(route, dict) or not str(route.get("id") or ""):
         return "[]"
     stops = []
