@@ -216,10 +216,12 @@ export function useSkillMarketplaceController() {
       return;
     }
     const next = { ...preferences, [skill.id]: enabled };
+    const previous = preferences;
     const autoEnabled = enabled
       ? (skill.requires || []).filter((dependency) => next[dependency] === false)
       : [];
     autoEnabled.forEach((dependency) => { next[dependency] = true; });
+    setPreferences(next);
     setSavingId(skill.id);
     try {
       const result = await skillsOperation(conversationId, next);
@@ -228,7 +230,6 @@ export function useSkillMarketplaceController() {
       window.dispatchEvent(new CustomEvent('yuanbao:skills-changed', {
         detail: result.preferences,
       }));
-      await refresh(false);
       MessagePlugin.success(
         autoEnabled.length
           ? t('skillsDependenciesEnabled', {
@@ -238,7 +239,9 @@ export function useSkillMarketplaceController() {
             name: skillText(skill.name, skill.id),
           }),
       );
+      void refresh(false);
     } catch {
+      setPreferences(previous);
       MessagePlugin.error(t('skillsSaveFailed'));
     } finally {
       setSavingId('');

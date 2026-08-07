@@ -42,6 +42,9 @@ export interface ScheduleItem {
     description?: string;
     place_type?: string;
     place?: MakersMapPlace;
+    source_route_plan_id?: string;
+    route_mode?: MakersRouteMode;
+    route_strategy?: MakersRouteStrategy;
     [key: string]: unknown;
   };
   done: boolean;

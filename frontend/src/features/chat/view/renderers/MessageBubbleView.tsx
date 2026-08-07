@@ -98,6 +98,14 @@ export function MessageBubbleView({
       >
         {isUser
           ? <>
+            {message.attachments?.map((attachment, index) => (
+              attachment.kind === 'image' && attachment.url
+                ? <figure className="message-attachment-image" key={`${attachment.storage_key || attachment.url}-${index}`}>
+                  <img src={attachment.url} alt={attachment.name || t('pendingReferenceImage')} />
+                  <figcaption>{attachment.name}</figcaption>
+                </figure>
+                : null
+            ))}
             {message.content}
           </>
           : <MessagePrimaryRenderer

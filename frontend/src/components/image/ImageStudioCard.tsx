@@ -90,10 +90,10 @@ export default function ImageStudioCard({ action, conversationId, onUpdated, dis
     ? downloadCacheRef.current.get(selected.image_url)?.objectUrl || withEdgeOneAuth(selected.image_url)
     : '';
   const imageReady = Boolean(selected && loadedUrls.has(selected.image_url));
-  const originalPrompt = versions[0]?.prompt || selected?.prompt || '';
-  const editHint = originalPrompt
-    ? t('editImageHint', { prompt: `${originalPrompt.slice(0, 36)}${originalPrompt.length > 36 ? '…' : ''}` })
-    : t('describeImageEdit');
+  // Provider prompts are implementation input and may be translated or
+  // expanded internally. The user-facing editor asks only for the desired
+  // change instead of exposing that private working prompt.
+  const editHint = t('describeImageEdit');
 
   useEffect(() => {
     setCurrentAction(action);
@@ -163,10 +163,14 @@ export default function ImageStudioCard({ action, conversationId, onUpdated, dis
 
   const downloadOne = async () => {
     if (disabled || !selected) return;
+    setDownloading(true);
     try {
       saveBlob(await fetchVersionBlob(selected), `Floris-image-${index + 1}.png`);
+      MessagePlugin.success(t('imageDownloadComplete'));
     } catch {
       MessagePlugin.error(t('imageDownloadFailed'));
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -182,6 +186,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated, dis
         }
       }));
       saveBlob(createZip(entries), `Floris-images-${Date.now()}.zip`);
+      MessagePlugin.success(t('batchDownloadComplete'));
     } catch {
       MessagePlugin.error(t('batchDownloadFailed'));
     } finally {
@@ -207,7 +212,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated, dis
       <div className="image-studio-header">
         <div><strong>{t('imageStudio')}</strong><span>{index + 1} / {versions.length}</span></div>
         <div className="image-studio-downloads">
-          <Button size="small" variant="text" icon={<DownloadIcon />} disabled={disabled || generating || downloading} onClick={() => void downloadOne()}>{t('download')}</Button>
+          <Button size="small" variant="text" icon={<DownloadIcon />} loading={downloading} disabled={disabled || generating} onClick={() => void downloadOne()}>{t('download')}</Button>
           <Button size="small" variant="outline" loading={downloading} disabled={disabled || generating} onClick={() => void downloadAll()}>{t('batchDownload')}</Button>
         </div>
       </div>
@@ -215,7 +220,7 @@ export default function ImageStudioCard({ action, conversationId, onUpdated, dis
         {versions.length > 1 && <button className="image-studio-nav previous" type="button" disabled={disabled || generating} aria-label={t('previousImage')} title={t('previousImage')} onClick={() => setIndex((index - 1 + versions.length) % versions.length)}>
           <span className="image-studio-nav-mark" aria-hidden="true" />
         </button>}
-        <img src={selectedSrc} alt={originalPrompt || t('generatedImage')} onLoad={() => {
+        <img src={selectedSrc} alt={t('generatedImage')} onLoad={() => {
           loadedUrlsRef.current.add(selected.image_url);
           setLoadedUrls((current) => new Set(current).add(selected.image_url));
           if (generating) MessagePlugin.success(t('imageLoaded'));
@@ -226,7 +231,6 @@ export default function ImageStudioCard({ action, conversationId, onUpdated, dis
           <span className="image-studio-nav-mark" aria-hidden="true" />
         </button>}
       </div>
-      <div className="image-studio-prompt" title={originalPrompt}>{originalPrompt}</div>
       <div className="image-studio-editor">
         <textarea value={instruction} disabled={disabled || generating} onChange={(event) => setInstruction(event.target.value)} placeholder={editHint} maxLength={2000} />
         <Button theme="primary" loading={generating} disabled={disabled || generating || !instruction.trim()} onClick={() => void generateEdit()}>{t('editFromImage')}</Button>

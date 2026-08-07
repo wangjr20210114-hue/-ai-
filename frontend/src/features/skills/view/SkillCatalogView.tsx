@@ -42,10 +42,11 @@ export function SkillCatalogView({
         <h1>{view === 'enabled' ? t('enabledSkills') : t('composeSkills')}</h1>
         <p>{t('standardSkillsDescription')}</p>
       </div>
-      <div className="skills-page-stat"><CheckCircleIcon />{t('enabledCount', {
-        enabled: enabledCount,
-        total: catalog.length,
-      })}</div>
+      <div className="skills-page-stat"><CheckCircleIcon />{
+        loading && catalog.length === 0
+          ? t('loading')
+          : t('enabledCount', { enabled: enabledCount, total: catalog.length })
+      }</div>
     </section>
     <div className="skills-page-toolbar">
       <label>

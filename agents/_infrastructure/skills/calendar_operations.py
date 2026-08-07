@@ -749,6 +749,22 @@ def build_calendar_operation(
                 raise ValueError(text(
                     "calendar.error.route_order", response_language,
                 ))
+            # Keep the route identity and preference contract on every
+            # generated schedule. Calendar edits merge with the prior record,
+            # so changing a title or time cannot silently turn a verified
+            # public-transit/least-cost journey into the client's default
+            # driving route.
+            for change in normalized:
+                event = change.get("event") if isinstance(change.get("event"), dict) else None
+                if not isinstance(event, dict) or change.get("operation") == "delete":
+                    continue
+                extra = event.setdefault("extra", {})
+                if not isinstance(extra, dict):
+                    extra = {}
+                    event["extra"] = extra
+                extra["source_route_plan_id"] = route_source_id
+                extra["route_mode"] = str(linked_route.get("mode") or "")
+                extra["route_strategy"] = str(linked_route.get("strategy") or "")
 
         validate_calendar_change_window(state, normalized)
         warnings = calendar_change_warnings(state, normalized)

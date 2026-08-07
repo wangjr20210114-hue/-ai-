@@ -102,7 +102,7 @@ function mapCenterPoint(center: TencentMapCoordinate | undefined) {
 }
 
 export default function MakersMap({
-  conversationId, title, places, revision, showRoute = false, routeMode, routeStrategy, routeSnapshot,
+  conversationId, title, places, showRoute = false, routeMode, routeStrategy, routeSnapshot,
 }: Props) {
   const { t } = useLanguage();
   const dispatch = useAppDispatch();
@@ -140,6 +140,27 @@ export default function MakersMap({
     () => places.length ? places : userLocation ? [userLocation] : [],
     [places, userLocation],
   );
+  const displayPlacesKey = useMemo(
+    () => displayPlaces.map((place) => [
+      place.place_id,
+      place.latitude.toFixed(6),
+      place.longitude.toFixed(6),
+    ].join(':')).join('|'),
+    [displayPlaces],
+  );
+  const routeRequestKey = useMemo(() => [
+    showRoute ? '1' : '0',
+    places.map((place) => [
+      place.place_id,
+      place.latitude.toFixed(6),
+      place.longitude.toFixed(6),
+    ].join(':')).join('|'),
+    routeMode || '',
+    routeStrategy || '',
+    routeSnapshot?.cache?.expires_at || '',
+  ].join('::'), [places, routeMode, routeSnapshot, routeStrategy, showRoute]);
+  const routeRequestRef = useRef({ places, routeMode, routeStrategy });
+  routeRequestRef.current = { places, routeMode, routeStrategy };
 
   useEffect(() => {
     const stepCount = route ? routeSectionSteps(route).length : 0;
@@ -331,18 +352,22 @@ export default function MakersMap({
     let disposed = false;
     setRoute(null);
     setRouteError('');
-    void planVerifiedRoute(places, routeMode, routeStrategy)
+    const request = routeRequestRef.current;
+    void planVerifiedRoute(request.places, request.routeMode, request.routeStrategy)
       .then((next) => { if (!disposed) setRoute(next); })
       .catch((error) => { if (!disposed) setRouteError(error instanceof Error ? error.message : t('routePlanningFailed')); });
     return () => { disposed = true; };
-  }, [planVerifiedRoute, revision, places, routeMode, routeStrategy, routeSnapshot, showRoute, t]);
+  // routeRequestKey intentionally captures coordinates and preferences. A
+  // title-only schedule edit changes the workspace revision but must neither
+  // discard the visible route nor request a different provider default.
+  }, [places.length, planVerifiedRoute, routeRequestKey, routeSnapshot, showRoute, t]);
 
   useEffect(() => {
     if (!displayPlaces.length) return;
     setAnimating(true);
     const timer = window.setTimeout(() => setAnimating(false), 900);
     return () => window.clearTimeout(timer);
-  }, [revision, displayPlaces.length, route]);
+  }, [displayPlaces.length, displayPlacesKey, route]);
 
   useEffect(() => {
     const key = import.meta.env.VITE_TENCENT_MAP_KEY?.trim();
@@ -361,6 +386,10 @@ export default function MakersMap({
     let centerListener: (() => void) | null = null;
     let attentionTimer: number | null = null;
     let routeFocusRenderer: ((index: number) => void) | null = null;
+    let mapAttentionUntil = 0;
+    const markMapAttention = () => { mapAttentionUntil = Date.now() + 6_000; };
+    container.addEventListener('pointerdown', markMapAttention, { passive: true });
+    container.addEventListener('wheel', markMapAttention, { passive: true });
     setMapLoading(true);
     void loadTencentMap(key).then((TMap) => {
       if (cancelled || !containerRef.current) return;
@@ -401,7 +430,11 @@ export default function MakersMap({
           id: `makers-label-${place.place_id || index}`,
           styleId: 'label',
           position: new TMap.LatLng(place.latitude, place.longitude),
-          content: place.name === t('currentLocation') ? place.name : `${index + 1}. ${place.name}`,
+          // Full labels overlap rapidly on urban routes. Numbers keep the map
+          // legible; the route card remains the accessible name legend.
+          content: renderedPlaces.length === 1 || place.name === t('currentLocation')
+            ? place.name
+            : String(index + 1),
         })),
       });
       const cityStops = routeCities(renderedPlaces);
@@ -459,7 +492,7 @@ export default function MakersMap({
           paths: leg.path.map((point) => new TMap.LatLng(point.latitude, point.longitude)),
         }));
       const legPolyline = legGeometries.length ? new TMap.MultiPolyline({
-        map: null,
+        map,
         styles: {
           inactive: new TMap.PolylineStyle({
             color: '#aeb6c2', width: 5, borderWidth: 1,
@@ -471,8 +504,8 @@ export default function MakersMap({
       const focusedLegPolylines = routeLegItems.map((leg, index) => {
         if (leg.path.length < 2) return null;
         const mode = legModeSequence(leg).find((item) => item !== 'walking') || leg.mode;
-        return new TMap.MultiPolyline({
-          map: null,
+        const polyline = new TMap.MultiPolyline({
+          map,
           styles: routeStyles,
           geometries: [{
             id: `makers-route-leg-${index}-focused`,
@@ -480,7 +513,10 @@ export default function MakersMap({
             paths: leg.path.map((point) => new TMap.LatLng(point.latitude, point.longitude)),
           }],
         });
+        polyline.setMap?.(null);
+        return polyline;
       });
+      legPolyline?.setMap?.(null);
       const sectionSteps = route ? routeSectionSteps(route) : [];
       const sectionPieces = sectionSteps.map((step, sectionIndex) => (
         routeSectionDisplayPaths(step)
@@ -497,7 +533,7 @@ export default function MakersMap({
         paths: piece.paths,
       }));
       const sectionPolyline = inactiveSectionGeometries.length ? new TMap.MultiPolyline({
-        map: null,
+        map,
         styles: {
           inactive: new TMap.PolylineStyle({
             color: '#aeb6c2', width: 4, borderWidth: 1,
@@ -506,17 +542,21 @@ export default function MakersMap({
         },
         geometries: inactiveSectionGeometries,
       }) : null;
-      const focusedSectionPolylines = sectionPieces.map((pieces) => (
-        pieces.length ? new TMap.MultiPolyline({
-          map: null,
+      sectionPolyline?.setMap?.(null);
+      const focusedSectionPolylines = sectionPieces.map((pieces) => {
+        if (!pieces.length) return null;
+        const polyline = new TMap.MultiPolyline({
+          map,
           styles: routeStyles,
           geometries: pieces.map((piece) => ({
             id: `${piece.id}-focused`,
             styleId: piece.mode,
             paths: piece.paths,
           })),
-        }) : null
-      ));
+        });
+        polyline.setMap?.(null);
+        return polyline;
+      });
       let currentRouteLevel: RouteZoomLevel = 'legs';
       const applySectionFocus = (index: number) => {
         const focused = Math.max(0, Math.min(index, Math.max(0, sectionSteps.length - 1)));
@@ -547,9 +587,10 @@ export default function MakersMap({
         cityMarkers?.setMap?.(cityOverview ? map : null);
         cityLabels?.setMap?.(cityOverview ? map : null);
         placeMarkers.setMap?.(cityOverview ? null : map);
-        placeLabels.setMap?.(cityOverview ? null : map);
+        placeLabels.setMap?.(!cityOverview && level === 'sections' ? map : null);
         const center = mapCenterPoint(map.getCenter?.());
         if (Date.now() < manualRouteFocusUntilRef.current) return;
+        if (Date.now() > mapAttentionUntil) return;
         if (center) {
           const focused = closestRouteSectionIndex(route, center);
           if (focused >= 0) {
@@ -571,6 +612,9 @@ export default function MakersMap({
         const bounds = new TMap.LatLngBounds();
         const fitPoints = route?.path?.length ? route.path : renderedPlaces;
         fitPoints.forEach((point) => bounds.extend(new TMap.LatLng(point.latitude, point.longitude)));
+        // The initial fit is a programmatic camera animation, not user
+        // attention. Keep the first journey leg selected until it settles.
+        manualRouteFocusUntilRef.current = Date.now() + 2_500;
         fitBoundsTimer = window.setTimeout(() => map?.fitBounds?.(bounds, { padding: 56 }), 150);
       }
     }).catch(() => {
@@ -586,6 +630,8 @@ export default function MakersMap({
       resizeObserver?.disconnect();
       if (zoomListener) map?.off?.('zoom_changed', zoomListener);
       if (centerListener) map?.off?.('center_changed', centerListener);
+      container.removeEventListener('pointerdown', markMapAttention);
+      container.removeEventListener('wheel', markMapAttention);
       if (mapRef.current === map) {
         mapRef.current = null;
         mapNamespaceRef.current = null;
@@ -595,7 +641,7 @@ export default function MakersMap({
       }
       map?.destroy?.();
     };
-  }, [displayPlaces, places.length, route, routeError, revision, renderAttempt, t]);
+  }, [displayPlaces, displayPlacesKey, places.length, route, routeError, renderAttempt, t]);
 
   if (!displayPlaces.length) {
     return (

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import type { ChatMessage } from '../../chat/model';
+import { citedSearchSourceCount } from '../../../components/common/richContent';
 
 export function useSearchTiming(message: ChatMessage) {
   const [now, setNow] = useState(() => Date.now());
@@ -29,7 +30,10 @@ export function useSearchTiming(message: ChatMessage) {
     searchCompletedAt,
     searchInProgress,
     searchStartedAt,
-    sourceCount: message.searchResults?.results?.length || 0,
+    sourceCount: citedSearchSourceCount(
+      message.content,
+      message.searchResults?.results || [],
+    ),
     turnInProgress,
     turnStartedAt,
   };

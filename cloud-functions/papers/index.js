@@ -83,7 +83,7 @@ function findReusablePaper(items, { arxivId, sourceUrl, directPdf }) {
   ));
 }
 
-function storedPaperResponse(item, metadata, reused = true) {
+function storedPaperResponse(item, metadata, reused = true, previewOnly = false) {
   const fileSize = Number(
     item.file_size
     || metadata?.size
@@ -104,6 +104,7 @@ function storedPaperResponse(item, metadata, reused = true) {
     content_url: item.content_url || `/files?key=${encodeURIComponent(item.file_id || item.storage_key)}`,
     ...(fileSize > 0 ? { file_size: fileSize, part_size: DOWNLOAD_PART_BYTES } : {}),
     reused,
+    preview_only: previewOnly,
   };
 }
 
@@ -333,12 +334,24 @@ export async function onRequest(context) {
     if (!topic) return json({ error: '论文主题不能为空' }, 400);
     try { return json({ papers: await search(topic), topic }); } catch (error) { return json({ error: `arXiv 搜索失败：${error.message}` }, 502); }
   }
+  if (request.method === 'DELETE') {
+    const key = new URL(request.url).searchParams.get('key') || '';
+    if (!key.startsWith(`${prefix}uploads/`)) return json({ error: '无效文档标识' }, 400);
+    const store = getStore({ name: 'yuanbao-files', consistency: 'strong' });
+    const state = await loadLibraryState(store, keys);
+    if (state.items.some((item) => item.storage_key === key || item.file_id === key)) {
+      return json({ error: '文档已保存到阅读库，不能作为临时预览清理' }, 409);
+    }
+    await store.delete(key);
+    return json({ ok: true });
+  }
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   const body = await request.json();
   const arxivId = String(body.arxiv_id || '').trim();
   const directPdf = String(body.pdf_url || '').trim();
   const sourceUrl = String(body.source_url || '').trim();
   const title = String(body.title || '').trim().slice(0, 240);
+  const previewOnly = body.preview_only === true;
   const isArxiv = !isSyntheticPaperId(arxivId);
   if (isArxiv && (!/^[A-Za-z0-9./-]{3,80}$/.test(arxivId) || arxivId.includes('..'))) return json({ error: '无效 arXiv ID' }, 400);
   try {
@@ -390,8 +403,8 @@ export async function onRequest(context) {
     state.items = items.filter((saved) => (
       resolvedArxivId ? saved.arxiv_id !== resolvedArxivId : saved.source_url !== canonicalSource
     ));
-    await persistLibraryItem(store, keys, item, state);
-    return json(storedPaperResponse(item, { size: data.byteLength }, false));
+    if (!previewOnly) await persistLibraryItem(store, keys, item, state);
+    return json(storedPaperResponse(item, { size: data.byteLength }, false, previewOnly));
   } catch (error) {
     const timeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
     return json({

@@ -313,3 +313,13 @@
   backdrop-filter: blur(12px);
   animation: dialogBackdropIn 180ms ease both;
 }
+.paper-reader-lazy-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.paper-reader-lazy-loading > button {
+  position: fixed;
+  top: max(18px, env(safe-area-inset-top));
+  right: max(18px, env(safe-area-inset-right));
+}

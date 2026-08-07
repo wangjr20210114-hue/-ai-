@@ -16,6 +16,44 @@
   flex-direction: column;
   gap: 12px;
 }
+.workspace-section-tabs {
+  position: sticky;
+  z-index: 8;
+  top: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0 0 -4px;
+  padding: 4px;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--app-panel) 94%, transparent);
+  box-shadow: 0 5px 16px rgba(25, 32, 50, .06);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.workspace-section-tabs button {
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 9px;
+  color: var(--app-text-2);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease, transform var(--motion-fast) var(--motion-ease-out);
+}
+.workspace-section-tabs button:hover { color: var(--app-text); background: var(--app-hover); }
+.workspace-section-tabs button:active { transform: scale(.97); }
+.workspace-section-tabs button.is-active { color: var(--td-brand-color); background: color-mix(in srgb, var(--td-brand-color) 11%, var(--app-panel)); box-shadow: 0 1px 5px rgba(var(--app-accent-rgb), .12); }
+.workspace-section-pane { animation: workspacePaneIn var(--motion-reveal) var(--motion-ease-out) both; }
+@keyframes workspacePaneIn { from { opacity: 0; transform: translateY(5px); } }
 .makers-workspace > .my-panel-card {
   flex: 0 0 auto;
   width: 100%;

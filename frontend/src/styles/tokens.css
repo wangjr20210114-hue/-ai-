@@ -83,8 +83,8 @@
   --app-border: rgba(214, 196, 255, 0.1);
   --app-border-strong: rgba(214, 196, 255, 0.18);
   --app-text: rgba(248, 244, 255, 0.94);
-  --app-text-2: rgba(229, 219, 255, 0.68);
-  --app-text-3: rgba(224, 214, 246, 0.64);
+  --app-text-2: rgba(237, 230, 255, 0.8);
+  --app-text-3: rgba(230, 221, 250, 0.72);
   --app-user-bubble: linear-gradient(135deg, #7c3aed, #a855f7);
   --app-user-text: #ffffff;
   --app-ai-bubble: #241b35;

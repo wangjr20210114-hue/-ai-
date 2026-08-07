@@ -225,6 +225,29 @@ export class SSEChatClient {
     for (const listener of this.listeners) listener(message);
   }
 
+  private emitOptimisticUser(message: TurnMessage): void {
+    const id = clientMessageId(message);
+    const value = message.payload?.client_message;
+    if (
+      !id
+      || !value
+      || typeof value !== 'object'
+      || this.startedTurns.has(id)
+    ) return;
+    this.startedTurns.add(id);
+    this.emit({
+      type: 'optimistic_user',
+      payload: {
+        message: {
+          ...value,
+          id,
+          client_message_id: id,
+          queued: false,
+        },
+      },
+    });
+  }
+
   on(listener: (message: ClientEvent) => void) {
     this.listeners.add(listener);
     listener({ type: 'queue_changed', payload: { items: this.queuedTurns() } });
@@ -381,6 +404,10 @@ export class SSEChatClient {
     if (queued && this.queuedTurns().length >= MAX_WAITING_TURNS) return 'queue_full';
     this.pending.push(message);
     this.persistQueue();
+    // Receipt and execution are separate boundaries. The runnable FIFO head
+    // is visible immediately even while a new conversation is still loading;
+    // later waiting turns remain only in the editable queue drawer.
+    if (!queued) this.emitOptimisticUser(message);
     void this.drain();
     return queued ? 'queued' : 'started';
   }
@@ -506,19 +533,8 @@ export class SSEChatClient {
       && typeof (clientMessage as Record<string, unknown>).content === 'string'
       ? String((clientMessage as Record<string, unknown>).content)
       : '';
-    if (clientMessage && typeof clientMessage === 'object' && !this.startedTurns.has(currentClientMessageId)) {
-      this.startedTurns.add(currentClientMessageId);
-      this.emit({
-        type: 'optimistic_user',
-        payload: {
-          message: {
-            ...clientMessage,
-            id: currentClientMessageId || String((clientMessage as Record<string, unknown>).id || ''),
-            client_message_id: currentClientMessageId,
-            queued: false,
-          },
-        },
-      });
+    if (clientMessage && typeof clientMessage === 'object') {
+      this.emitOptimisticUser(message);
     }
     this.emit({
       type: 'turn_started',

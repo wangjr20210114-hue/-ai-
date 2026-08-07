@@ -60,6 +60,23 @@
   font-weight: 600;
   letter-spacing: 0.04em;
 }
+.conversation-history-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 10px 7px;
+  padding: 7px 9px;
+  border: 1px solid var(--app-border);
+  border-radius: 9px;
+  color: var(--app-text-3);
+  background: var(--app-panel-2);
+  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+}
+.conversation-history-search:focus-within { border-color: var(--td-brand-color); box-shadow: 0 0 0 3px rgba(var(--app-accent-rgb), .08); }
+.conversation-history-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--app-text); background: transparent; font-size: 13px; }
+.conversation-history-group { display: grid; gap: 3px; }
+.conversation-history-group + .conversation-history-group { margin-top: 9px; }
+.conversation-history-group > h3 { margin: 2px 8px 3px; color: var(--app-text-3); font-size: 11px; font-weight: 650; }
 
 .conversation-list {
   flex: 1;

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MessagePlugin } from 'tdesign-react';
 import {
   createNewConversation,
@@ -8,10 +8,10 @@ import {
 import { isPristinePendingConversation, reconcileConversationSummary, setActiveConversationId } from '../../services/conversation';
 import { useAppDispatch, useAppState } from '../../store/appState';
 import type { ConversationSummary } from '../../features/chat/model';
-import { formatConversationTime } from '../../services/time';
+import { formatConversationTime, normalizeTimestamp } from '../../services/time';
 import ProactiveBriefPanel from '../../features/settings/view/ProactiveBriefPanel';
-import { translate, useLanguage } from '../../i18n';
-import { CheckIcon, CloseIcon, EditIcon } from 'tdesign-icons-react';
+import { translate, useLanguage, type TranslationKey } from '../../i18n';
+import { CheckIcon, CloseIcon, EditIcon, SearchIcon } from 'tdesign-icons-react';
 
 const AppSettingsButton = lazy(
   () => import('../../features/settings/view/AppSettingsButton'),
@@ -47,10 +47,28 @@ export default function ConversationSidebar({ open, onClose }: Props) {
   const [loadError, setLoadError] = useState('');
   const [renamingId, setRenamingId] = useState('');
   const [renameValue, setRenameValue] = useState('');
+  const [historyQuery, setHistoryQuery] = useState('');
   const [savingRename, setSavingRename] = useState(false);
   const [toolsLoaded, setToolsLoaded] = useState(
     () => !window.matchMedia(COMPACT_SIDEBAR_QUERY).matches,
   );
+  const groupedConversations = useMemo(() => {
+    const query = historyQuery.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const groups = new Map<TranslationKey, ConversationSummary[]>();
+    conversations.filter((conversation) => (
+      !query || conversation.title.toLocaleLowerCase().includes(query)
+    )).forEach((conversation) => {
+      const age = today - normalizeTimestamp(conversation.updatedAt, 0);
+      const key: TranslationKey = age < 86_400_000 ? 'historyToday'
+        : age < 2 * 86_400_000 ? 'historyYesterday'
+          : age < 7 * 86_400_000 ? 'historyLastSevenDays'
+            : 'historyEarlier';
+      groups.set(key, [...(groups.get(key) || []), conversation]);
+    });
+    return [...groups.entries()];
+  }, [conversations, historyQuery]);
 
   useEffect(() => {
     if (open) setToolsLoaded(true);
@@ -201,6 +219,15 @@ export default function ConversationSidebar({ open, onClose }: Props) {
         </button>
 
         <div className="conversation-history-label">{t('history')}</div>
+        <label className="conversation-history-search">
+          <SearchIcon aria-hidden="true" />
+          <input
+            value={historyQuery}
+            onChange={(event) => setHistoryQuery(event.target.value)}
+            placeholder={t('searchConversations')}
+            aria-label={t('searchConversations')}
+          />
+        </label>
         <div className="conversation-list" data-onboarding="conversation-history">
           {loading && conversations.length === 0 && (
             <div className="skeleton-list" role="status" aria-label={t('loading')}>
@@ -220,7 +247,12 @@ export default function ConversationSidebar({ open, onClose }: Props) {
               {t('clickToRetry', { message: loadError })}
             </button>
           )}
-          {conversations.map((conversation) => (
+          {!loading && groupedConversations.length === 0 && (
+            <div className="conversation-list-empty">{t('noMatchingConversations')}</div>
+          )}
+          {groupedConversations.map(([group, items]) => <section className="conversation-history-group" key={group}>
+            <h3>{t(group)}</h3>
+            {items.map((conversation) => (
             <div
               key={conversation.id}
               className={`conversation-item ${conversation.id === conversationId ? 'is-active' : ''}`}
@@ -268,7 +300,8 @@ export default function ConversationSidebar({ open, onClose }: Props) {
                 <button type="button" className="conversation-rename-button" onClick={() => startRename(conversation)} aria-label={t('renameConversation')} title={t('renameConversation')}><EditIcon /></button>
               )}
             </div>
-          ))}
+            ))}
+          </section>)}
         </div>
         <ProactiveBriefPanel />
         <div className="conversation-sidebar-tools">

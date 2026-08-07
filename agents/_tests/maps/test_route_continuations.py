@@ -2,6 +2,26 @@ from agents._tests.support.workspace_environment import *  # noqa: F401,F403
 
 
 class RouteContinuationTests(unittest.IsolatedAsyncioTestCase):
+    def test_explicit_user_origin_survives_incomplete_planner_handoff(self):
+        self.assertEqual(
+            preserve_planned_route_stops(
+                [("上海虹桥站", ""), ("杭州东站", "")],
+                [{"query": "杭州东站"}],
+                "从上海虹桥站去杭州东站",
+            ),
+            [("上海虹桥站", ""), ("杭州东站", "")],
+        )
+
+    def test_model_cannot_invent_extra_route_stop(self):
+        self.assertEqual(
+            preserve_planned_route_stops(
+                [("上海虹桥站", ""), ("苏州站", ""), ("杭州东站", "")],
+                [{"query": "上海虹桥站"}, {"query": "杭州东站"}],
+                "从上海虹桥站去杭州东站",
+            ),
+            [("上海虹桥站", ""), ("杭州东站", "")],
+        )
+
     async def test_route_continuation_treats_explicit_origin_as_departure(self):
         store = FakeStore()
         state = empty_workspace()
@@ -224,6 +244,12 @@ class RouteContinuationTests(unittest.IsolatedAsyncioTestCase):
             ],
             [stop["place_id"] for stop in stops],
         )
+        self.assertTrue(all(
+            change["event"]["extra"]["source_route_plan_id"]
+            == "routeplan-instant-markers"
+            and change["event"]["extra"]["route_mode"] == "transit"
+            for change in payload["changes"]
+        ))
         self.assertTrue(
             any("最小粒度" in warning for warning in payload["warnings"])
         )

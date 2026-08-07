@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { markdownToPlainText, replaceCitationMarkers } from './richContent';
+import { citedSearchSourceCount, markdownToPlainText, replaceCitationMarkers } from './richContent';
 import type { SearchResultItem } from '../../features/search/model';
 
 const source: SearchResultItem = {
@@ -25,6 +25,13 @@ describe('rich content references', () => {
     expect(result).toBe('结论\n\n这是 重点。');
     expect(result).not.toContain('example.com');
     expect(result).not.toContain('image.jpg');
+  });
+
+  it('counts only distinct sources cited in the answer', () => {
+    expect(citedSearchSourceCount(
+      '事实一。[查看来源](https://example.com/source) 再次引用 https://example.com/source。',
+      [source, { ...source, id: 'duplicate' }, { ...source, id: 'unused', url: 'https://other.example/item' }],
+    )).toBe(1);
   });
 
 });

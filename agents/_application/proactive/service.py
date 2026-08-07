@@ -392,6 +392,9 @@ def _schedule_end(item: dict[str, Any]) -> int:
 
 def collect_schedule_signals(schedules: list[dict[str, Any]], now: int, lookahead_hours: int = 24) -> list[dict[str, Any]]:
     horizon = now + max(1, lookahead_hours) * 3600
+    # The broader horizon is useful for detecting conflicts and tight transfers,
+    # but a routine "upcoming" reminder should stay close enough to be actionable.
+    upcoming_horizon = now + min(max(1, lookahead_hours), 2) * 3600
     future = sorted(
         [
             item for item in schedules
@@ -409,7 +412,7 @@ def collect_schedule_signals(schedules: list[dict[str, Any]], now: int, lookahea
         if not schedule_id:
             continue
         start = int(item.get("start_time") or 0)
-        if start >= now:
+        if now <= start <= upcoming_horizon:
             signals.append({
                 "type": "schedule_upcoming",
                 "dedup_key": f"schedule_upcoming:{schedule_id}:{start}",

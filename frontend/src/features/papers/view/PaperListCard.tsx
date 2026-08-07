@@ -2,7 +2,7 @@
  * Compact scholarly discovery cards. The only actions are entering the in-app
  * paper assistant and opening the canonical source page.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button, MessagePlugin } from 'tdesign-react';
 import { BookOpenIcon, JumpIcon } from 'tdesign-icons-react';
@@ -29,15 +29,24 @@ interface DownloadedPaper {
   arxivId?: string;
   fileSize?: number;
   partSize?: number;
+  sourceUrl?: string;
+  cacheId: string;
+  previewOnly: boolean;
 }
 
 export default function PaperListCard({ message }: Props) {
   const { t } = useLanguage();
-  const { api: { downloadPaper, preloadPaperFile } } = usePapersController();
+  const { api: {
+    discardPaperPreview,
+    downloadPaper,
+    preloadPaperFile,
+    registerReadingItem,
+  } } = usePapersController();
   const papers = dedupePapers(message.papers || []);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloaded, setDownloaded] = useState<Record<string, DownloadedPaper>>({});
   const [fullReader, setFullReader] = useState<DownloadedPaper | null>(null);
+  const previewCommits = useRef(new Map<string, Promise<boolean>>());
 
   const ensureDownloaded = async (paper: PaperInfo): Promise<DownloadedPaper | null> => {
     const downloadId = paperDownloadId(paper);
@@ -50,6 +59,7 @@ export default function PaperListCard({ message }: Props) {
         paper.title,
         paper.pdf_url,
         paper.source_url || paper.arxiv_url,
+        true,
       );
       if (result.error) {
         if (result.code === 'public_pdf_unavailable') {
@@ -72,6 +82,9 @@ export default function PaperListCard({ message }: Props) {
         arxivId: result.arxiv_id || paper.arxiv_id,
         fileSize: result.file_size,
         partSize: result.part_size,
+        sourceUrl: paper.source_url || paper.arxiv_url,
+        cacheId: downloadId,
+        previewOnly: Boolean(result.preview_only),
       };
       setDownloaded((previous) => ({
         ...previous,
@@ -84,6 +97,58 @@ export default function PaperListCard({ message }: Props) {
     } finally {
       setDownloadingId(null);
     }
+  };
+
+  const commitPreview = (paper: DownloadedPaper, pageCount: number): Promise<boolean> => {
+    if (!paper.previewOnly) return Promise.resolve(true);
+    const pending = previewCommits.current.get(paper.fileId);
+    if (pending) return pending;
+    const task = registerReadingItem({
+      storage_key: paper.fileId,
+      filename: paper.fileName,
+      title: paper.title,
+      mime_type: 'application/pdf',
+      is_paper: true,
+      arxiv_id: paper.arxivId,
+      page_count: pageCount,
+      source_url: paper.sourceUrl,
+      file_size: paper.fileSize,
+      part_size: paper.partSize,
+    }).then(() => {
+      setDownloaded((previous) => ({
+        ...previous,
+        [paper.cacheId]: { ...paper, previewOnly: false },
+      }));
+      setFullReader((current) => current?.fileId === paper.fileId
+        ? { ...current, previewOnly: false }
+        : current);
+      return true;
+    }).catch(async () => {
+      await discardPaperPreview(paper.fileId).catch(() => undefined);
+      setDownloaded((previous) => {
+        const next = { ...previous };
+        delete next[paper.cacheId];
+        return next;
+      });
+      setFullReader((current) => current?.fileId === paper.fileId ? null : current);
+      MessagePlugin.error(t('saveToReadingFailed'));
+      return false;
+    }).finally(() => {
+      previewCommits.current.delete(paper.fileId);
+    });
+    previewCommits.current.set(paper.fileId, task);
+    return task;
+  };
+
+  const closeReader = () => {
+    const closing = fullReader;
+    setFullReader(null);
+    if (!closing?.previewOnly) return;
+    const pending = previewCommits.current.get(closing.fileId);
+    void (pending || Promise.resolve(false)).then((committed) => {
+      if (!committed) return discardPaperPreview(closing.fileId).catch(() => undefined);
+      return undefined;
+    });
   };
 
   const openReader = async (paper: PaperInfo) => {
@@ -168,7 +233,8 @@ export default function PaperListCard({ message }: Props) {
           arxivId={fullReader.arxivId}
           fileSize={fullReader.fileSize}
           partSize={fullReader.partSize}
-          onClose={() => setFullReader(null)}
+          onReady={({ pageCount }) => { void commitPreview(fullReader, pageCount); }}
+          onClose={closeReader}
         />,
         document.body,
       )}

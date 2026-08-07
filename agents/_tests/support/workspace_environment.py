@@ -111,6 +111,7 @@ from agents._infrastructure.providers.arxiv import (
     _best_title_match,
     _canonical_arxiv_id,
     _dblp_profile,
+    _paper_matches_topic,
     _search_openalex_sync,
     search_arxiv,
 )

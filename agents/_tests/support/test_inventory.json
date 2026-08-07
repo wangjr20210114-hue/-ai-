@@ -2,7 +2,7 @@
   "schema_version": 1,
   "source": "agents/_tests/test_workspace.py",
   "source_sha256": "55a2e1cad82c63e578ff4089138d03b313fd073aa481f25af1f2ef4e16fb9011",
-  "test_count": 270,
+  "test_count": 275,
   "tests": [
     "test_calendar_compaction_preserves_frozen_timeline_facts",
     "test_route_continuation_treats_explicit_origin_as_departure",
@@ -273,7 +273,12 @@
     "test_cloudflare_img2img_retries_when_schema_error_uses_http_200_envelope",
     "test_stopped_turn_rolls_back_automatic_memory_without_deleting_prior_value",
     "test_stopped_turn_removes_a_new_automatic_memory",
-    "test_stopped_turn_removes_its_semantic_opportunity_projection"
+    "test_stopped_turn_removes_its_semantic_opportunity_projection",
+    "test_explicit_user_origin_survives_incomplete_planner_handoff",
+    "test_model_cannot_invent_extra_route_stop",
+    "test_schedule_collector_keeps_distant_events_for_conflicts_without_noisy_reminders",
+    "test_topic_relevance_accepts_acronym_expansion_and_inflection",
+    "test_topic_search_drops_verified_but_unrelated_candidates"
   ],
   "routing": {
     "test_calendar_compaction_preserves_frozen_timeline_facts": "maps/routes/core",
@@ -545,6 +550,11 @@
     "test_cloudflare_img2img_retries_when_schema_error_uses_http_200_envelope": "search/media",
     "test_stopped_turn_rolls_back_automatic_memory_without_deleting_prior_value": "proactive/memory",
     "test_stopped_turn_removes_a_new_automatic_memory": "proactive/memory",
-    "test_stopped_turn_removes_its_semantic_opportunity_projection": "proactive/memory"
+    "test_stopped_turn_removes_its_semantic_opportunity_projection": "proactive/memory",
+    "test_explicit_user_origin_survives_incomplete_planner_handoff": "maps/routes/continuations",
+    "test_model_cannot_invent_extra_route_stop": "maps/routes/continuations",
+    "test_schedule_collector_keeps_distant_events_for_conflicts_without_noisy_reminders": "workspace/calendar",
+    "test_topic_relevance_accepts_acronym_expansion_and_inflection": "papers/discovery",
+    "test_topic_search_drops_verified_but_unrelated_candidates": "papers/discovery"
   }
 }

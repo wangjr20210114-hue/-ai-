@@ -40,7 +40,7 @@
   .right-workspace-shell.is-closed {
     opacity: 1;
     visibility: hidden;
-    transform: translateX(100%);
+    transform: translateX(calc(100% + 2px));
     pointer-events: none;
   }
 

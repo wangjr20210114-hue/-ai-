@@ -23,6 +23,16 @@ test('paper responses expose one canonical key through both compatibility fields
   assert.equal(response.storage_key, 'owned-key');
   assert.equal(response.folder_id, 'papers');
   assert.equal(response.reused, false);
+  assert.equal(response.preview_only, false);
+});
+
+test('preview responses expose their uncommitted state to every client', () => {
+  const response = storedPaperResponse({
+    file_id: 'preview-key', storage_key: 'preview-key', filename: 'paper.pdf',
+    title: 'Paper',
+  }, { size: 100 }, false, true);
+  assert.equal(response.preview_only, true);
+  assert.equal(response.reused, false);
 });
 
 test('new papers receive an automatic folder before their write completes', async () => {

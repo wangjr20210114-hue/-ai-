@@ -58,6 +58,7 @@ export default function AppSettingsButton() {
   const [providerUsage, setProviderUsage] = useState<ProviderUsageSummary | null>(null);
   const [providerUsageLoading, setProviderUsageLoading] = useState(false);
   const [providerUsageError, setProviderUsageError] = useState(false);
+  const [settingsLevel, setSettingsLevel] = useState<'basic' | 'advanced'>('basic');
 
   useEffect(() => {
     if (!visible) return;
@@ -105,9 +106,9 @@ export default function AppSettingsButton() {
   }, [fetchProviderUsage]);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || settingsLevel !== 'advanced') return;
     void loadProviderUsage();
-  }, [loadProviderUsage, visible]);
+  }, [loadProviderUsage, settingsLevel, visible]);
 
   useEffect(() => {
     if (!visible || proactive) return;
@@ -202,6 +203,7 @@ export default function AppSettingsButton() {
   ).reduce((total, [key, value]) => total + (key.endsWith(`.${metric}`) ? Number(value) || 0 : 0), 0);
   const openSettings = () => {
     setLoading(true);
+    setSettingsLevel('basic');
     setVisible(true);
   };
   const saveMottos = () => void setPreferences({
@@ -249,8 +251,13 @@ export default function AppSettingsButton() {
       footer={false}
       onClose={() => setVisible(false)}
       onCancel={() => setVisible(false)}
+      onCloseBtnClick={() => setVisible(false)}
     >
       <div className={`app-settings-dialog ${loading ? 'is-loading' : ''}`} aria-busy={loading}>
+        <nav className="app-settings-levels" aria-label={t('settingsLevelNavigation')}>
+          <button type="button" className={settingsLevel === 'basic' ? 'is-active' : ''} onClick={() => setSettingsLevel('basic')}>{t('basicSettings')}</button>
+          <button type="button" className={settingsLevel === 'advanced' ? 'is-active' : ''} onClick={() => setSettingsLevel('advanced')}>{t('advancedSettings')}</button>
+        </nav>
         <section className="app-settings-section">
           <h3>{t('language')}</h3>
           <select className="settings-language-select" value={language} onChange={(event) => setLanguage(event.target.value as Language)}>
@@ -259,7 +266,7 @@ export default function AppSettingsButton() {
           <p className="settings-language-hint">{t('languageHint')}</p>
         </section>
 
-        <section className="app-settings-section provider-usage-section">
+        {settingsLevel === 'advanced' && <section className="app-settings-section provider-usage-section">
           <div className="provider-usage-heading">
             <div>
               <h3>{t('providerUsage')}</h3>
@@ -321,9 +328,9 @@ export default function AppSettingsButton() {
           })}</small>}
           {providerUsageError && <p className="provider-usage-error" role="status">{t('providerUsageLoadFailed')}</p>}
           <p className="provider-usage-limit-hint">{t('providerUsageLimitedHint')}</p>
-        </section>
+        </section>}
 
-        {skillEnabled('web_search') && <section className="app-settings-section">
+        {settingsLevel === 'advanced' && skillEnabled('web_search') && <section className="app-settings-section">
           <h3>{t('searchExperience')}</h3>
           <p>{t('searchExperienceHint')}</p>
           <div className="app-settings-grid">
@@ -344,7 +351,7 @@ export default function AppSettingsButton() {
           </div>
         </section>}
 
-        {skillEnabled('places') && <section className="app-settings-section">
+        {settingsLevel === 'advanced' && skillEnabled('places') && <section className="app-settings-section">
           <h3>{t('mapExperience')}</h3>
           <p>{t('mapExperienceHint')}</p>
           <div className="app-settings-grid">
@@ -392,7 +399,7 @@ export default function AppSettingsButton() {
           </div>
         </section>}
 
-        {skillEnabled('workflow_action') && <section className="app-settings-section">
+        {settingsLevel === 'advanced' && skillEnabled('workflow_action') && <section className="app-settings-section">
           <h3>{t('proactive')}</h3>
           <p>{t('proactiveHint')}</p>
           {preferences && <div className="app-settings-grid">
@@ -476,7 +483,7 @@ export default function AppSettingsButton() {
           <label className="app-settings-choice"><input type="radio" checked={!automatic} disabled={busy === 'reading'} onChange={() => void saveReading(false)} /><span><strong>{t('manualOrganize')}</strong><small>{t('manualFilingDescription')}</small></span></label>
         </section>}
 
-        <section className="app-settings-section app-settings-danger-section">
+        {settingsLevel === 'advanced' && <section className="app-settings-section app-settings-danger-section">
           <div>
             <h3>{t('dataManagement')}</h3>
             <p>{t('dataClearHint')}</p>
@@ -491,7 +498,7 @@ export default function AppSettingsButton() {
               setResetVisible(true);
             }}
           >{t('clearDatabase')}</Button>
-        </section>
+        </section>}
       </div>
     </Dialog>
     <Dialog
@@ -503,6 +510,7 @@ export default function AppSettingsButton() {
       footer={false}
       onClose={() => !busy && setResetVisible(false)}
       onCancel={() => !busy && setResetVisible(false)}
+      onCloseBtnClick={() => !busy && setResetVisible(false)}
     >
       <div className="data-clear-content">
         <div className="data-clear-warning">

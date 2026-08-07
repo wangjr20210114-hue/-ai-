@@ -1,4 +1,8 @@
-import { requestJson, requestRaw } from '../../../shared/transport/httpClient';
+import {
+  requestJson,
+  requestRaw,
+  uploadRawWithProgress,
+} from '../../../shared/transport/httpClient';
 import { authorizedFetch, withEdgeOneAuth } from '../../../shared/auth/session';
 import { translate } from '../../../i18n';
 import {
@@ -258,7 +262,9 @@ export async function saveConversationMessage(
 export async function uploadDocument(
   conversationId: string,
   file: File,
+  onProgress?: (percent: number) => void,
 ): Promise<StoredFileInfo> {
+  onProgress?.(0);
   const upload = await requestJson<{
     url?: string;
     key?: string;
@@ -274,12 +280,15 @@ export async function uploadDocument(
     }),
   });
   if (!upload.url || !upload.key) throw new Error(translate('blobUploadUrlFailed'));
-  const stored = await requestRaw(upload.url, {
-    method: 'PUT',
-    headers: { 'Content-Type': file.type || 'application/pdf' },
-    body: file,
-  }, false);
+  onProgress?.(4);
+  const stored = await uploadBlobWithProgress(
+    upload.url,
+    file,
+    file.type || 'application/pdf',
+    onProgress,
+  );
   if (!stored.ok) throw new Error(translate('blobUploadFailed'));
+  onProgress?.(100);
   return {
     id: upload.key,
     original_name: file.name,
@@ -294,4 +303,22 @@ export async function uploadDocument(
       ? withEdgeOneAuth(upload.content_url)
       : undefined,
   };
+}
+
+function uploadBlobWithProgress(
+  url: string,
+  file: File,
+  contentType: string,
+  onProgress?: (percent: number) => void,
+): Promise<Response> {
+  if (!onProgress) {
+    return requestRaw(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': contentType },
+      body: file,
+    }, false);
+  }
+  return uploadRawWithProgress(url, file, contentType, (percent) => {
+    onProgress(Math.min(99, Math.max(4, Math.round(4 + percent * 0.95))));
+  });
 }

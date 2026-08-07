@@ -1,2 +1,2 @@
 export { default as MakersMap } from './MakersMap';
-export { chronologicalSchedulePlaces } from '../model/makersMapRouting';
+export { chronologicalSchedulePlaces, scheduleRoutePreferences } from '../model/makersMapRouting';

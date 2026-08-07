@@ -6,7 +6,7 @@ import copy
 import json
 import math
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ..i18n import normalize_language, text
 
@@ -69,12 +69,22 @@ def route_tool_arguments_for_plan(
 def runtime_datetime_context(value: datetime) -> str:
     """Return an explicit runtime date and weekday; the LLM must not recalculate it."""
     weekday_index = value.weekday()
+    tomorrow = value + timedelta(days=1)
+    day_after_tomorrow = value + timedelta(days=2)
     return text(
         "model.chat.runtime_context",
         "zh-CN",
         timestamp=value.strftime("%Y-%m-%d %H:%M:%S"),
         weekday_en=WEEKDAY_LABELS[weekday_index],
         weekday_local=text(f"model.chat.weekday.{weekday_index}", "zh-CN"),
+        tomorrow=tomorrow.strftime("%Y-%m-%d"),
+        tomorrow_weekday=text(
+            f"model.chat.weekday.{tomorrow.weekday()}", "zh-CN",
+        ),
+        day_after_tomorrow=day_after_tomorrow.strftime("%Y-%m-%d"),
+        day_after_tomorrow_weekday=text(
+            f"model.chat.weekday.{day_after_tomorrow.weekday()}", "zh-CN",
+        ),
     )
 
 

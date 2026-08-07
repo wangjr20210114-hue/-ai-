@@ -27,6 +27,22 @@ function sourceForUrl(url: string, sources: SearchResultItem[]): SearchResultIte
   return sources.find((source) => normalizedUrl(source.url) === normalized);
 }
 
+/** Count evidence actually cited by the answer, not merely fetched candidates. */
+export function citedSearchSourceCount(
+  content: string,
+  sources: SearchResultItem[] = [],
+): number {
+  const citedUrls = new Set(
+    [...String(content || '').matchAll(/https?:\/\/[^\s)\]]+/g)]
+      .map((match) => normalizedUrl(match[0])),
+  );
+  return sources.filter((source, index) => (
+    isSafeRemoteUrl(source.url)
+    && citedUrls.has(normalizedUrl(source.url))
+    && sources.findIndex((candidate) => normalizedUrl(candidate.url) === normalizedUrl(source.url)) === index
+  )).length;
+}
+
 export function sourceLabel(url: string, sources: SearchResultItem[] = []): string {
   const source = sourceForUrl(url, sources);
   if (source?.title?.trim()) return source.title.trim().split(/[\r\n]/).join(' ').split('[').join(' ').split(']').join(' ');

@@ -3,13 +3,11 @@ from agents._tests.support.workspace_environment import *  # noqa: F401,F403
 
 class ChatPlanningTests(unittest.IsolatedAsyncioTestCase):
     def test_runtime_datetime_context_includes_authoritative_weekday(self):
-        value = datetime(
-            2026, 7, 25, 15, 30,
-            tzinfo=timezone(timedelta(hours=8)),
-        )
+        value = datetime(2026, 7, 25, 15, 30, tzinfo=timezone(timedelta(hours=8)))
         context = runtime_datetime_context(value)
         self.assertIn("2026-07-25 15:30:00 UTC+08:00", context)
         self.assertIn("weekday=Saturday（周六）", context)
+        self.assertIn("明天=2026-07-26（周日）；后天=2026-07-27（周一）", context)
         self.assertIn("禁止自行重新推算", SYSTEM_PROMPT)
 
     def test_model_timeout_is_bounded_for_fast_failover(self):

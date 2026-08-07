@@ -23,6 +23,7 @@ export interface PaperFullReaderProps {
   fileSize?: number;
   partSize?: number;
   assistantEnabled?: boolean;
+  onReady?: (details: { pageCount: number }) => void;
   onClose: () => void;
 }
 
@@ -43,7 +44,7 @@ interface PageData {
   rendered: boolean;
 }
 
-export default function PaperFullReader({ fileId, title, fileSize, partSize, assistantEnabled = true, onClose }: PaperFullReaderProps) {
+export default function PaperFullReader({ fileId, title, fileSize, partSize, assistantEnabled = true, onReady, onClose }: PaperFullReaderProps) {
   const { t, language } = useLanguage();
   const { api } = usePapersController();
   const {
@@ -79,6 +80,9 @@ export default function PaperFullReader({ fileId, title, fileSize, partSize, ass
   const [savedTranslations, setSavedTranslations] = useState<PaperAssistantResult[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const streamRef = useRef<{ cancel: () => void } | null>(null);
+  const onReadyRef = useRef(onReady);
+  const readyReportedRef = useRef(false);
+  onReadyRef.current = onReady;
 
   useEffect(() => {
     let cancelled = false;
@@ -169,6 +173,10 @@ export default function PaperFullReader({ fileId, title, fileSize, partSize, ass
           viewport,
           transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
         }).promise;
+        if (!readyReportedRef.current) {
+          readyReportedRef.current = true;
+          onReadyRef.current?.({ pageCount: doc.numPages });
+        }
 
         // 2. 渲染 text layer
         if (textLayerDiv) {

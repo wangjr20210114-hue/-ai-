@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
-import { Loading } from 'tdesign-react';
+import { Button, Loading } from 'tdesign-react';
+import { CloseIcon } from 'tdesign-icons-react';
 
 import { useLanguage } from '../../../i18n';
 import type { PaperFullReaderProps } from './PaperFullReader';
@@ -11,8 +12,18 @@ export default function LazyPaperFullReader(props: PaperFullReaderProps) {
   return (
     <Suspense fallback={(
       <div className="paper-reader-lazy-loading" role="status" aria-label={t('loading')}>
-        <Loading size="small" />
-        <span>{t('openingCompatiblePreview')}</span>
+        <div className="paper-reader-lazy-status">
+          <Loading size="small" />
+          <span>{t('openingCompatiblePreview')}</span>
+        </div>
+        <Button
+          shape="circle"
+          variant="text"
+          icon={<CloseIcon />}
+          aria-label={t('closePaperAssistant')}
+          title={t('closePaperAssistant')}
+          onClick={props.onClose}
+        />
       </div>
     )}>
       <PaperFullReader {...props} />

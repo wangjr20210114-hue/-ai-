@@ -51,6 +51,9 @@
   --message-enter-x: -8px;
   animation: message-arrive var(--motion-enter) var(--motion-ease-out);
 }
+.message-attachment-image { width: min(280px, 100%); margin: 0 0 8px; overflow: hidden; border-radius: 12px; background: color-mix(in srgb, var(--app-panel) 24%, transparent); }
+.message-attachment-image img { display: block; width: 100%; max-height: 260px; object-fit: cover; }
+.message-attachment-image figcaption { overflow: hidden; padding: 6px 8px; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 
 @keyframes message-arrive {
   from {

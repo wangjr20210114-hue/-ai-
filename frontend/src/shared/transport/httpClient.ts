@@ -42,3 +42,38 @@ export function requestRaw(
   if (withSignedSession) return authorizedFetch(input, init);
   return fetch(input, init);
 }
+
+/**
+ * Upload a Blob to a backend-issued URL while reporting transfer progress.
+ * Feature code stays transport-agnostic and never opens its own network path.
+ */
+export function uploadRawWithProgress(
+  input: string,
+  body: Blob,
+  contentType: string,
+  onProgress: (percent: number) => void,
+): Promise<Response> {
+  if (typeof XMLHttpRequest === 'undefined') {
+    return fetch(input, {
+      method: 'PUT',
+      headers: { 'Content-Type': contentType },
+      body,
+    });
+  }
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('PUT', input, true);
+    request.setRequestHeader('Content-Type', contentType);
+    request.upload.onprogress = (event) => {
+      if (!event.lengthComputable || event.total <= 0) return;
+      onProgress(Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100))));
+    };
+    request.onload = () => resolve(new Response(null, {
+      status: request.status,
+      statusText: request.statusText,
+    }));
+    request.onerror = () => reject(new TypeError());
+    request.onabort = () => reject(Object.assign(new Error(), { name: 'AbortError' }));
+    request.send(body);
+  });
+}

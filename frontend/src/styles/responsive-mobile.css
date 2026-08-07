@@ -1,12 +1,18 @@
 @media (max-width: 600px) {
   .app-header {
-    grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand actions"
+      "proactive proactive";
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 6px;
   }
 
   .header-brand-group {
+    grid-area: brand;
     gap: 4px;
   }
+
+  .header-actions { grid-area: actions; }
 
   .header-brand-avatar {
     width: 30px;
@@ -19,6 +25,7 @@
   }
 
   .header-proactive-slot {
+    grid-area: proactive;
     justify-content: stretch;
   }
 

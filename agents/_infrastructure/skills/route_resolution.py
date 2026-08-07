@@ -21,7 +21,7 @@ from ..._application.skills.tool_contracts import ProviderPlaceDecision
 def preserve_planned_route_stops(
     model_stops: list[tuple[str, str]],
     planned_stops: list[dict[str, str]] | None,
-    _user_message: str = "",
+    user_message: str = "",
 ) -> list[tuple[str, str]]:
     """Keep the capability planner's ordered, user-authored stop handoff.
 
@@ -38,13 +38,38 @@ def preserve_planned_route_stops(
         for item in (planned_stops or [])
         if isinstance(item, dict) and str(item.get("query") or "").strip()
     ][:12]
-    if normalized_plan:
-        return normalized_plan
-    return [
+    normalized_model = [
         (str(query or "").strip(), str(near_query or "").strip())
         for query, near_query in model_stops
         if str(query or "").strip()
     ]
+    if not normalized_plan:
+        return normalized_model
+    if len(normalized_model) <= len(normalized_plan):
+        return normalized_plan
+
+    def key(value: str) -> str:
+        return "".join(re.findall(r"[\w\u3400-\u9fff]+", value.lower()))
+
+    plan_keys = [key(query) for query, _near in normalized_plan]
+    model_keys = [key(query) for query, _near in normalized_model]
+    message_key = key(user_message)
+    plan_index = 0
+    merged: list[tuple[str, str]] = []
+    for stop, stop_key in zip(normalized_model, model_keys):
+        if plan_index < len(plan_keys) and stop_key == plan_keys[plan_index]:
+            merged.append(normalized_plan[plan_index])
+            plan_index += 1
+            continue
+        # A resumed tool call may restore an explicit origin that the semantic
+        # planner omitted. Keep that additional stop only when its literal text
+        # came from the user; this restores explicit endpoints without allowing
+        # a response model to invent a place.
+        if stop_key and stop_key in message_key:
+            merged.append(stop)
+            continue
+        return normalized_plan
+    return merged if plan_index == len(normalized_plan) else normalized_plan
 
 
 def _parse_datetime(value: str) -> datetime:

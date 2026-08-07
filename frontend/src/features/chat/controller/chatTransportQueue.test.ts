@@ -147,6 +147,24 @@ describe('chat transport FIFO durability', () => {
     client.close();
   });
 
+  it('echoes the runnable first question before a new conversation finishes bootstrap', async () => {
+    clientMocks.openChatTurn.mockResolvedValue(completedResponse());
+    const client = new SSEChatClient('conversation-not-ready');
+    const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    client.on((event) => events.push(event));
+
+    expect(await client.send(turn('first-visible-question'))).toBe('started');
+    expect(events.filter((event) => event.type === 'optimistic_user'))
+      .toHaveLength(1);
+    expect(clientMocks.openChatTurn).not.toHaveBeenCalled();
+
+    client.connect(null);
+    await waitFor(() => clientMocks.openChatTurn.mock.calls.length === 1);
+    expect(events.filter((event) => event.type === 'optimistic_user'))
+      .toHaveLength(1);
+    client.close();
+  });
+
   it('shows every local waiting turn when the active Maker run came from another transport', async () => {
     const client = new SSEChatClient('conversation-external-run');
     (client as unknown as { activeClientMessageId: string }).activeClientMessageId = 'external-client-message';

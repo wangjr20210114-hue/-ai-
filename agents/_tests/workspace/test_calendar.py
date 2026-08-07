@@ -58,6 +58,16 @@ class CalendarWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([item["type"] for item in signals].count("schedule_conflict"), 1)
         self.assertEqual([item["type"] for item in signals].count("schedule_upcoming"), 1)
 
+    def test_schedule_collector_keeps_distant_events_for_conflicts_without_noisy_reminders(self):
+        now = 1_800_000_000
+        schedules = [
+            {"id": "later-a", "title": "later-a", "start_time": now + 4 * 3600, "duration_minutes": 90},
+            {"id": "later-b", "title": "later-b", "start_time": now + 4 * 3600 + 600, "duration_minutes": 30},
+        ]
+        signals = collect_schedule_signals(schedules, now, lookahead_hours=24)
+        self.assertFalse(any(item["type"] == "schedule_upcoming" for item in signals))
+        self.assertTrue(any(item["type"] == "schedule_conflict" for item in signals))
+
     async def test_scheduled_tick_runs_without_chat_and_persists_inbox(self):
         store = FakeStore()
         now = 1_800_000_000

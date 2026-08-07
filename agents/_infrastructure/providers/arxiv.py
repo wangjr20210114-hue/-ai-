@@ -36,6 +36,75 @@ def _normalized_title(value: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", str(value or "").lower()))
 
 
+_TOPIC_STOPWORDS = frozenset({
+    "a", "an", "and", "article", "articles", "for", "in", "latest",
+    "new", "of", "on", "paper", "papers", "recent", "research", "study",
+    "the", "to", "using", "with",
+})
+
+
+def _topic_terms(topic: str) -> list[str]:
+    """Return portable lexical constraints without assuming a paper domain.
+
+    Non-Latin topics are left to the verified candidate/provider pipeline: an
+    English metadata feed cannot safely prove that a Chinese query is
+    irrelevant. Latin words and acronyms, however, can be checked
+    deterministically and prevent a broad provider query from returning recent
+    but unrelated work.
+    """
+    return list(dict.fromkeys(
+        token.lower()
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9-]*", str(topic or ""))
+        if token.lower() not in _TOPIC_STOPWORDS
+    ))
+
+
+def _lexical_term_matches(term: str, words: list[str], text: str) -> bool:
+    normalized = term.replace("-", "").lower()
+    if not normalized:
+        return False
+    if normalized in words:
+        return True
+    # Match ordinary inflections without pulling in a language-specific
+    # stemmer. Five characters is conservative enough for academic terms such
+    # as evaluation/evaluated while avoiding short-token collisions.
+    if len(normalized) >= 6 and any(
+        len(word) >= 6 and word[:5] == normalized[:5]
+        for word in words
+    ):
+        return True
+    # A short query token may be an established acronym. Accept either its
+    # literal occurrence or the initials of adjacent words in verified
+    # metadata (for example, RAG -> retrieval augmented generation).
+    if 2 <= len(normalized) <= 6:
+        if re.search(rf"\b{re.escape(normalized)}\b", text):
+            return True
+        width = len(normalized)
+        return any(
+            "".join(word[0] for word in words[index:index + width]) == normalized
+            for index in range(max(0, len(words) - width + 1))
+        )
+    return False
+
+
+def _paper_matches_topic(paper: dict[str, Any], topic: str) -> bool:
+    terms = _topic_terms(topic)
+    if not terms:
+        return True
+    haystack = _normalized_title(" ".join((
+        str(paper.get("title") or ""),
+        str(paper.get("abstract_zh") or ""),
+        str(paper.get("key_contribution") or ""),
+    )))
+    words = haystack.split()
+    matched = sum(_lexical_term_matches(term, words, haystack) for term in terms)
+    # Two-term requests usually encode the subject and the user's angle (for
+    # example, "RAG evaluation"), so both must be present. Longer natural
+    # phrases tolerate one modifier while still requiring broad coverage.
+    required = len(terms) if len(terms) <= 2 else max(2, (len(terms) + 1) // 2)
+    return matched >= required
+
+
 def _year_bounds(year: int, year_from: int, year_to: int) -> tuple[int, int]:
     current = datetime.now(timezone.utc).year
     exact = int(year or 0)
@@ -1072,6 +1141,8 @@ async def search_arxiv(
     seen_arxiv_ids: set[str] = set()
     seen_titles: set[str] = set()
     for paper in output:
+        if topic and not _paper_matches_topic(paper, topic):
+            continue
         arxiv_identity = re.sub(
             r"v\d+$",
             "",

@@ -182,6 +182,38 @@ class PaperDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(matched["arxiv_id"], "good")
         self.assertIsNone(_best_title_match("Efficient Rectification of Neuro-Symbolic Reasoning Inconsistencies", candidates))
 
+    def test_topic_relevance_accepts_acronym_expansion_and_inflection(self):
+        self.assertTrue(_paper_matches_topic({
+            "title": "Evaluating Retrieval-Augmented Generation Systems",
+            "abstract_zh": "A benchmark for grounded question answering.",
+        }, "RAG evaluation"))
+        self.assertFalse(_paper_matches_topic({
+            "title": "Vision-Language Action Models for Robot Manipulation",
+            "abstract_zh": "We evaluate a robotic control policy.",
+        }, "RAG evaluation"))
+
+    async def test_topic_search_drops_verified_but_unrelated_candidates(self):
+        unrelated = {
+            "title": "Clinical Decision Support with Language Models",
+            "arxiv_id": "2608.00001",
+            "abstract_zh": "A clinical assistant evaluated by physicians.",
+        }
+        relevant = {
+            "title": "A Benchmark for Retrieval-Augmented Generation",
+            "arxiv_id": "2608.00002",
+            "abstract_zh": "We evaluate RAG pipelines across diverse corpora.",
+        }
+        with patch(
+            "agents._infrastructure.providers.arxiv._lookup_arxiv_ids_sync",
+            return_value=[unrelated, relevant],
+        ):
+            papers = await search_arxiv(
+                "RAG evaluation",
+                2,
+                candidate_ids=["2608.00001", "2608.00002"],
+            )
+        self.assertEqual(papers, [relevant])
+
     async def test_named_author_search_falls_back_to_crossref_with_range(self):
         crossref_paper = {
             "title": "Recent Software Engineering Work",

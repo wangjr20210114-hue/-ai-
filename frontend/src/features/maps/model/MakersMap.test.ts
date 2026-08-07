@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LOCATION_OPTIONS, locationErrorMessage, permissionAfterLocationFailure } from './makersMapLocation';
-import { chronologicalSchedulePlaces, shouldPlanMakersRoute, shouldRequestMakersRoute } from './makersMapRouting';
+import { chronologicalSchedulePlaces, scheduleRoutePreferences, shouldPlanMakersRoute, shouldRequestMakersRoute } from './makersMapRouting';
 import {
   closestRouteSectionIndex,
   legModeSequence,
@@ -74,6 +74,28 @@ describe('MakersMap geolocation recovery', () => {
 
     expect(chronologicalSchedulePlaces(items).map((item) => item.name))
       .toEqual(['早餐店', '北京站', '锦江之星']);
+  });
+
+  it('keeps one adjacent route stop and the persisted route preferences', () => {
+    const place = (name: string): MakersMapPlace => ({
+      place_id: name, name, address: name, latitude: 39.9, longitude: 116.4,
+    });
+    const schedule = (name: string, startTime: number): ScheduleItem => ({
+      id: `${name}-${startTime}`, session_id: 'test', title: name, category: 'travel',
+      start_time: startTime, duration_minutes: 30, duration_days: 0,
+      location: name, description: '', markdown_content: '',
+      extra: { place: place(name) }, done: false, created_at: 0, updated_at: 0,
+    });
+    const repeated = [
+      { ...schedule('北京站', 100), extra: { place: place('北京站'), route_mode: 'transit' as const, route_strategy: 'least_cost' as const } },
+      { ...schedule('北京站', 101), extra: { place: place('北京站'), route_mode: 'transit' as const, route_strategy: 'least_cost' as const } },
+      { ...schedule('故宫', 200), extra: { place: place('故宫'), route_mode: 'transit' as const, route_strategy: 'least_cost' as const } },
+    ];
+    expect(chronologicalSchedulePlaces(repeated).map((item) => item.name))
+      .toEqual(['北京站', '故宫']);
+    expect(scheduleRoutePreferences(repeated)).toEqual({
+      mode: 'transit', strategy: 'least_cost',
+    });
   });
 
   it('reuses a verified action route instead of requesting the provider again', () => {

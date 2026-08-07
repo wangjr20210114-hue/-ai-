@@ -8,7 +8,7 @@ import { useCalendarWorkspaceController } from '../../calendar/controller';
 import { CalendarMonthView } from '../../calendar/view';
 import type { MakersMapPlace } from '../../maps/model';
 import type { InstalledSkill } from '../../skills/model';
-import { MakersMap, chronologicalSchedulePlaces } from '../../maps/view';
+import { MakersMap, chronologicalSchedulePlaces, scheduleRoutePreferences } from '../../maps/view';
 import { ReadingLibraryPanel } from '../../papers/view';
 import { useLanguage } from '../../../i18n';
 import { useWorkspaceController } from '../controller/useWorkspaceController';
@@ -33,6 +33,7 @@ export default function WorkspacePanel() {
     selectedItems, setCurrentMonth, setDayViewOpen, setSelectedDate,
   } = useCalendarWorkspaceController(schedules, calendarPulse, consumeCalendarPulse);
   const [showRecommendation, setShowRecommendation] = useState(true);
+  const [activeWorkspace, setActiveWorkspace] = useState<'map' | 'calendar' | 'reading'>('map');
   const [editingId, setEditingId] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [formTitle, setFormTitle] = useState('');
@@ -52,8 +53,15 @@ export default function WorkspacePanel() {
   const autoDescriptionRef = useRef('');
 
   useEffect(() => {
-    if (mapPlaces.length) setShowRecommendation(true);
+    if (mapPlaces.length) {
+      setShowRecommendation(true);
+      setActiveWorkspace('map');
+    }
   }, [mapRevision, mapPlaces.length]);
+
+  useEffect(() => {
+    if (calendarPulse) setActiveWorkspace('calendar');
+  }, [calendarPulse]);
 
   useEffect(() => {
     let disposed = false;
@@ -73,6 +81,10 @@ export default function WorkspacePanel() {
 
   const schedulePlaces = useMemo(
     () => chronologicalSchedulePlaces(selectedItems),
+    [selectedItems],
+  );
+  const scheduleRoutePreference = useMemo(
+    () => scheduleRoutePreferences(selectedItems),
     [selectedItems],
   );
   const effectivePlaces = useMemo(
@@ -321,7 +333,23 @@ export default function WorkspacePanel() {
 
   return (
     <aside className="my-panel makers-workspace">
-      <div className="my-panel-card makers-map-card" data-onboarding="map">
+      <nav className="workspace-section-tabs" aria-label={t('workspaceSections')}>
+        {(['map', 'calendar', 'reading'] as const).map((section) => (
+          <button
+            type="button"
+            key={section}
+            className={activeWorkspace === section ? 'is-active' : ''}
+            aria-current={activeWorkspace === section ? 'page' : undefined}
+            onClick={() => setActiveWorkspace(section)}
+          >{t(
+            section === 'map' ? 'workspaceMapTab'
+              : section === 'calendar' ? 'workspaceCalendarTab'
+                : 'workspaceReadingTab',
+          )}</button>
+        ))}
+      </nav>
+
+      {activeWorkspace === 'map' && <div className="my-panel-card makers-map-card workspace-section-pane" data-onboarding="map">
         {mapsEnabled
           ? <MakersMap
             conversationId={conversationId}
@@ -329,14 +357,14 @@ export default function WorkspacePanel() {
             places={effectivePlaces}
             revision={mapRevision}
             showRoute={showingScheduleRoute || (showingRecommendation && mapShowRoute)}
-            routeMode={showingRecommendation ? mapRouteMode : undefined}
-            routeStrategy={showingRecommendation ? mapRouteStrategy : undefined}
+            routeMode={showingRecommendation ? mapRouteMode : scheduleRoutePreference.mode}
+            routeStrategy={showingRecommendation ? mapRouteStrategy : scheduleRoutePreference.strategy}
             routeSnapshot={showingRecommendation ? mapRoute : undefined}
           />
           : <div className="workspace-skill-disabled"><span>⌖</span><strong>{t('mapSkillDisabled')}</strong><small>{t('mapSkillDisabledDetail')}</small><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('yuanbao:open-skills'))}>{t('enableInSkills')}</button></div>}
-      </div>
+      </div>}
 
-      <div className={`my-panel-card calendar-panel calendar-workspace-card ${dayViewOpen ? 'is-day-view' : ''}`} data-onboarding="calendar">
+      {activeWorkspace === 'calendar' && <div className={`my-panel-card calendar-panel calendar-workspace-card workspace-section-pane ${dayViewOpen ? 'is-day-view' : ''}`} data-onboarding="calendar">
         {calendarPulse && (
           <div key={calendarPulse.token} className="calendar-write-notice">
             {t('schedulesWritten', { count: calendarPulse.count })}
@@ -405,9 +433,9 @@ export default function WorkspacePanel() {
             </div>
           </section>
         </div>
-      </div>
+      </div>}
 
-      <ReadingLibraryPanel />
+      {activeWorkspace === 'reading' && <ReadingLibraryPanel />}
     </aside>
   );
 }

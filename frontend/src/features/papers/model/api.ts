@@ -9,7 +9,7 @@ import {
  */
 
 /** 下载论文 PDF；后端会解析 arXiv、公开 PDF、DOI 或学术来源页。 */
-export async function downloadPaper(arxivId: string, title: string, pdfUrl = '', sourceUrl = ''): Promise<{
+export async function downloadPaper(arxivId: string, title: string, pdfUrl = '', sourceUrl = '', previewOnly = false): Promise<{
   file_id: string;
   storage_key: string;
   filename: string;
@@ -22,6 +22,7 @@ export async function downloadPaper(arxivId: string, title: string, pdfUrl = '',
   file_size?: number;
   part_size?: number;
   reused?: boolean;
+  preview_only?: boolean;
   error?: string;
   code?: string;
 }> {
@@ -33,14 +34,26 @@ export async function downloadPaper(arxivId: string, title: string, pdfUrl = '',
       title,
       pdf_url: pdfUrl,
       source_url: sourceUrl,
+      preview_only: previewOnly,
     }),
   });
   const data = await resp.json().catch(() => ({
     error: translate('paperInvalidResponse', { status: resp.status }),
     code: 'invalid_response',
   }));
-  if (resp.ok) window.dispatchEvent(new CustomEvent('yuanbao:library-changed'));
+  if (resp.ok && !data.preview_only) window.dispatchEvent(new CustomEvent('yuanbao:library-changed'));
   return data;
+}
+
+/** Remove a tenant-scoped preview that was never committed to the reading library. */
+export async function discardPaperPreview(storageKey: string): Promise<void> {
+  const resp = await authorizedFetch(`/papers?key=${encodeURIComponent(storageKey)}`, {
+    method: 'DELETE',
+  });
+  if (!resp.ok && resp.status !== 404 && resp.status !== 409) {
+    const data = await resp.json().catch(() => ({})) as { error?: string };
+    throw new Error(data.error || translate('readingLibraryUpdateFailed'));
+  }
 }
 
 /** 删除「我的阅读」中的论文 */
@@ -66,6 +79,7 @@ export interface SavedPaper {
   part_size?: number;
   preview?: string;
   folder_id?: string;
+  source_url?: string;
   assistant_results?: PaperAssistantResult[];
 }
 
@@ -147,6 +161,9 @@ export async function registerReadingItem(item: {
   page_count?: number;
   preview?: string;
   folder_id?: string;
+  source_url?: string;
+  file_size?: number;
+  part_size?: number;
 }): Promise<SavedPaper> {
   const resp = await authorizedFetch('/library', {
     method: 'POST',

@@ -50,10 +50,17 @@ export default function InputBar({ client }: Props) {
   const dispatch = useAppDispatch();
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState(0);
   const [sending, setSending] = useState(false);
   const sendLockRef = useRef(false);
   const [stopping, setStopping] = useState(false);
-  const [referenceImage, setReferenceImage] = useState<{ name: string; dataUrl: string } | null>(null);
+  const [referenceImage, setReferenceImage] = useState<{
+    name: string;
+    dataUrl: string;
+    contentUrl?: string;
+    storageKey?: string;
+    mimeType?: string;
+  } | null>(null);
   const activeStreaming = isConversationGenerationActive(messages);
   const speech = useSpeechInput({
     language: getStoredLanguage(),
@@ -103,6 +110,15 @@ export default function InputBar({ client }: Props) {
       role: 'user' as const,
       content: referenceImage ? `${content}\n\n${t('attachedReference', { name: referenceImage.name })}` : content,
       ts: Date.now(),
+      ...(referenceImage ? {
+        attachments: [{
+          kind: 'image' as const,
+          name: referenceImage.name,
+          url: referenceImage.contentUrl || referenceImage.dataUrl,
+          storage_key: referenceImage.storageKey,
+          mime_type: referenceImage.mimeType,
+        }],
+      } : {}),
     };
     sendLockRef.current = true;
     setSending(true);
@@ -133,11 +149,23 @@ export default function InputBar({ client }: Props) {
     const f = files[0];
     if (!f?.raw) return;
     setUploading(true);
+    setUploadPercent(0);
     try {
-      const stored = await uploadDocument(conversationId, f.raw);
+      const imageUpload = f.raw.type.startsWith('image/');
+      const [stored, dataUrl] = imageUpload
+        ? await Promise.all([
+          uploadDocument(conversationId, f.raw, setUploadPercent),
+          imageReferenceDataUrl(f.raw),
+        ])
+        : [await uploadDocument(conversationId, f.raw, setUploadPercent), ''] as const;
       if (f.raw.type.startsWith('image/')) {
-        const dataUrl = await imageReferenceDataUrl(f.raw);
-        setReferenceImage({ name: stored.original_name, dataUrl });
+        setReferenceImage({
+          name: stored.original_name,
+          dataUrl,
+          contentUrl: stored.content_url,
+          storageKey: stored.storage_key,
+          mimeType: stored.mime_type,
+        });
         MessagePlugin.success(t('attachReferenceImage'));
         return;
       }
@@ -209,6 +237,7 @@ export default function InputBar({ client }: Props) {
       MessagePlugin.error(t('uploadFailed'));
     } finally {
       setUploading(false);
+      setUploadPercent(0);
     }
   };
 
@@ -230,6 +259,10 @@ export default function InputBar({ client }: Props) {
           <img src={referenceImage.dataUrl} alt={t('pendingReferenceImage')} />
           <span>{referenceImage.name}<small>{t('referenceImageHint')}</small></span>
           <button type="button" onClick={() => setReferenceImage(null)} aria-label={t('removeReferenceImage')} title={t('removeReferenceImage')}>×</button>
+        </div>}
+        {uploading && <div className="chat-upload-progress" role="status" aria-live="polite">
+          <span>{t('uploadingPercent', { percent: uploadPercent })}</span>
+          <i><b style={{ width: `${uploadPercent}%` }} /></i>
         </div>}
         <Textarea
           value={text}

@@ -122,6 +122,13 @@ export interface ChatMessage {
   clarification?: ClarificationPrompt;
   clarificationAnswered?: boolean;
   experienceHints?: ExperienceHint[];
+  attachments?: Array<{
+    kind: 'image' | 'document';
+    name: string;
+    url?: string;
+    storage_key?: string;
+    mime_type?: string;
+  }>;
 }
 
 export interface ChatQueueItem {

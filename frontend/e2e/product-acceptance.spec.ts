@@ -261,7 +261,10 @@ test('settings open through the feature controller without blocking on optional 
   await page.locator('[data-onboarding="settings"]').click();
   await expect(page.locator('.app-settings-dialog')).toBeVisible();
   await expect(page.locator('.settings-language-select')).toHaveValue('zh-CN');
+  await page.getByRole('button', { name: '高级', exact: true }).click();
   await expect(page.locator('.provider-usage-section')).toBeVisible();
+  await page.locator('.app-settings-modal .t-dialog__close').click();
+  await expect(page.locator('.app-settings-dialog')).toBeHidden();
 });
 
 test('two signed Maker sessions render isolated tenant state', async ({ browser }) => {
@@ -317,6 +320,8 @@ test('calendar, map and paper features consume their owned Maker views', async (
 
   await expect(page.locator('.makers-map-card')).toBeVisible();
   await expect(page.locator('.makers-map-title')).toContainText('Maker architecture route');
+  await page.getByRole('button', { name: '日程', exact: true }).click();
   await expect(page.locator('.calendar-day.has-events')).toHaveCount(1);
+  await page.getByRole('button', { name: '阅读', exact: true }).click();
   await expect(page.locator('.paper-discovery-card')).toContainText('Deterministic Source Binding');
 });

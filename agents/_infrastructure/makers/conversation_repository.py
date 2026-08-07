@@ -25,9 +25,8 @@ DISCARDED_TURN_LIMIT = 120
 
 def conversation_title(content: str, response_language: object = "zh-CN") -> str:
     value = re.sub(r"\s+", " ", str(content or "")).strip().lstrip("#>*`- ")
-    return (value[:32] + "…") if len(value) > 32 else (
-        value or text("conversation.new_title", response_language)
-    )
+    # Store the meaningful text and let each client truncate visually.
+    return value[:64] or text("conversation.new_title", response_language)
 
 
 async def ensure_conversation_title(

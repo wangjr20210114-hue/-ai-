@@ -193,8 +193,8 @@ export function useChatRuntime() {
           const summary = {
             id,
             title: previous?.pending
-              ? (title.length > 32 ? `${title.slice(0, 32)}…` : title)
-              : (previous?.title || title.slice(0, 32)),
+              ? title.slice(0, 64)
+              : (previous?.title || title.slice(0, 64)),
             createdAt: previous?.createdAt || Date.now(),
             updatedAt: Date.now(),
             messageCount: Math.max(1, Number(previous?.messageCount || 0) + 1),
