@@ -64,6 +64,7 @@ def latest_route_context(workspace: dict) -> str:
             "place_id": str(item.get("place_id") or ""),
             "name": str(item.get("name") or "")[:120],
             "address": str(item.get("address") or "")[:180],
+            "city": str(item.get("city") or "")[:80],
         })
     if len(stops) < 2:
         return "[]"

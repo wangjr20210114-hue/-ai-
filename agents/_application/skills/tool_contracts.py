@@ -51,6 +51,35 @@ class RouteStopInput(BaseModel):
     )
 
 
+class RoutePlaceEditInput(BaseModel):
+    """One trusted edit against the latest verified route place set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["add", "remove", "replace"] = Field(
+        description=_schema("field_54"),
+    )
+    target_query: str = Field(
+        default="",
+        max_length=160,
+        description=_schema("field_55"),
+    )
+    new_query: str = Field(
+        default="",
+        max_length=160,
+        description=_schema("field_56"),
+    )
+    new_near_query: str = Field(
+        default="",
+        max_length=160,
+        description=_schema("field_57"),
+    )
+    position: Literal["default", "start", "end", "before", "after"] = Field(
+        default="default",
+        description=_schema("field_58"),
+    )
+
+
 class RoutePlanInput(BaseModel):
     """Validated LangChain input contract for two-point and multi-stop routes."""
 
@@ -94,9 +123,16 @@ class RoutePlanInput(BaseModel):
         max_length=12,
         description=_schema("field_15"),
     )
+    place_edits: list[RoutePlaceEditInput] = Field(
+        default_factory=list,
+        max_length=8,
+        description=_schema("field_59"),
+    )
 
     @model_validator(mode="after")
     def validate_endpoints(self):
+        if self.place_edits:
+            return self
         if self.ordered_stops:
             if len(self.ordered_stops) < 2 and not self.use_current_location_as_origin:
                 raise ValueError(text("route.schema.ordered_stops", "zh-CN"))
@@ -191,6 +227,7 @@ class PaperSearchEvidenceCandidates(BaseModel):
 
 __all__ = (
     "ClarificationFieldInput",
+    "RoutePlaceEditInput",
     "RouteStopInput",
     "RoutePlanInput",
     "ProviderPlaceDecision",

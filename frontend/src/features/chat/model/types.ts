@@ -82,6 +82,8 @@ export interface ClarificationField {
   type: ClarificationFieldType;
   options?: string[];
   option_values?: Record<string, string>;
+  allow_custom_input?: boolean;
+  custom_placeholder?: string;
   required?: boolean;
   placeholder?: string;
 }

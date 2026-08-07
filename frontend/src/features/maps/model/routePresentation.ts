@@ -126,6 +126,125 @@ export function routeSectionPath({ leg, section, sectionIndex }: RouteSectionSte
   return leg.path.slice(start, Math.max(start + 2, end + 1));
 }
 
+function planarMetersSquared(a: RouteMapPoint, b: RouteMapPoint): number {
+  const latitude = ((a.latitude + b.latitude) / 2) * (Math.PI / 180);
+  const dx = (a.longitude - b.longitude) * 111_320 * Math.cos(latitude);
+  const dy = (a.latitude - b.latitude) * 110_540;
+  return (dx * dx) + (dy * dy);
+}
+
+function segmentDistanceSquaredMeters(
+  point: RouteMapPoint,
+  start: RouteMapPoint,
+  end: RouteMapPoint,
+): number {
+  const latitude = point.latitude * (Math.PI / 180);
+  const scaleX = 111_320 * Math.cos(latitude);
+  const scaleY = 110_540;
+  const ax = start.longitude * scaleX;
+  const ay = start.latitude * scaleY;
+  const bx = end.longitude * scaleX;
+  const by = end.latitude * scaleY;
+  const px = point.longitude * scaleX;
+  const py = point.latitude * scaleY;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const length = (dx * dx) + (dy * dy);
+  const ratio = length
+    ? Math.max(0, Math.min(1, (((px - ax) * dx) + ((py - ay) * dy)) / length))
+    : 0;
+  const offsetX = px - (ax + (ratio * dx));
+  const offsetY = py - (ay + (ratio * dy));
+  return (offsetX * offsetX) + (offsetY * offsetY);
+}
+
+function simplifyPresentationPath(
+  path: RouteMapPoint[],
+  toleranceMeters: number,
+): RouteMapPoint[] {
+  if (path.length < 3) return path;
+  const keep = new Set([0, path.length - 1]);
+  const toleranceSquared = toleranceMeters * toleranceMeters;
+  const pending: Array<[number, number]> = [[0, path.length - 1]];
+  while (pending.length) {
+    const [startIndex, endIndex] = pending.pop() as [number, number];
+    let farthestIndex = -1;
+    let farthestDistance = 0;
+    for (let index = startIndex + 1; index < endIndex; index += 1) {
+      const distance = segmentDistanceSquaredMeters(
+        path[index], path[startIndex], path[endIndex],
+      );
+      if (distance > farthestDistance) {
+        farthestDistance = distance;
+        farthestIndex = index;
+      }
+    }
+    if (farthestIndex < 0 || farthestDistance <= toleranceSquared) continue;
+    keep.add(farthestIndex);
+    pending.push([startIndex, farthestIndex], [farthestIndex, endIndex]);
+  }
+  return [...keep].sort((a, b) => a - b).map((index) => path[index]);
+}
+
+function dottedWalkingPaths(path: RouteMapPoint[]): RouteMapPoint[][] {
+  const dots: RouteMapPoint[][] = [];
+  const totalMeters = path.slice(0, -1).reduce(
+    (sum, point, index) => sum + Math.sqrt(planarMetersSquared(point, path[index + 1])),
+    0,
+  );
+  const cycleMeters = Math.max(46, totalMeters / 160);
+  const dashMeters = cycleMeters * 0.61;
+  const gapMeters = cycleMeters - dashMeters;
+  let draw = true;
+  let remaining = dashMeters;
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const start = path[index];
+    const end = path[index + 1];
+    const distance = Math.sqrt(planarMetersSquared(start, end));
+    if (!distance) continue;
+    let offset = 0;
+    while (offset < distance) {
+      const length = Math.min(remaining, distance - offset);
+      const fromRatio = offset / distance;
+      const toRatio = (offset + length) / distance;
+      if (draw && length > 0.5) {
+        dots.push([
+          {
+            latitude: start.latitude + ((end.latitude - start.latitude) * fromRatio),
+            longitude: start.longitude + ((end.longitude - start.longitude) * fromRatio),
+          },
+          {
+            latitude: start.latitude + ((end.latitude - start.latitude) * toRatio),
+            longitude: start.longitude + ((end.longitude - start.longitude) * toRatio),
+          },
+        ]);
+      }
+      offset += length;
+      remaining -= length;
+      if (remaining <= 0.5) {
+        draw = !draw;
+        remaining = draw ? dashMeters : gapMeters;
+      }
+    }
+  }
+  return dots.length ? dots : [path];
+}
+
+/**
+ * Return render-only geometry for one provider section. Walking geometry is
+ * lightly simplified and split into short round-capped strokes so transfer
+ * details stay readable without altering the trusted route or its metrics.
+ */
+export function routeSectionDisplayPaths(step: RouteSectionStep): RouteMapPoint[][] {
+  const path = routeSectionPath(step);
+  if (step.section.mode !== 'walking' || path.length < 2) return [path];
+  const tolerance = Math.max(
+    6,
+    Math.min(18, Number(step.section.distance_meters || 0) / 120),
+  );
+  return dottedWalkingPaths(simplifyPresentationPath(path, tolerance));
+}
+
 function projectedDistanceSquared(
   point: RouteMapPoint,
   path: RouteMapPoint[],

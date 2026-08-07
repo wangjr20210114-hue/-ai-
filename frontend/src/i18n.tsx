@@ -1040,6 +1040,8 @@ const catalog = {
   requiredSingle: ['（必选）', '（必選）', ' (required)', '（必选喵）', '（必选）'],
   requiredMulti: ['（至少选一项）', '（至少選一項）', ' (select at least one)', '（至少选一项喵）', '（至少选一项）'],
   requiredField: ['（必填）', '（必填）', ' (required)', '（必填喵）', '（必填）'],
+  clarificationCustomPlace: ['都不合适，我来填写', '都不合適，我來填寫', 'None fit — enter another place', '都不合适，我来填写喵', '都不合适，手动填写'],
+  clarificationCustomPlacePlaceholder: ['填写城市和地点名称', '填寫城市和地點名稱', 'Enter the city and place name', '填写城市和地点名称喵', '填写城市和地点名称'],
   clarificationAnswerIntro: ['补充必要信息（请直接继续完成上一项任务）：', '補充必要資訊（請直接繼續完成上一項任務）：', 'Additional required information (continue the previous task directly):', '必要信息补好啦，请直接继续上一项任务喵：', '必要信息如下。直接继续上一项任务：'],
   filledInput: ['已提交', '已提交', 'Submitted', '已经提交啦喵', '已提交'],
   completeAndContinue: ['确认并继续', '確認並繼續', 'Confirm and continue', '确认后继续喵', '确认并继续'],

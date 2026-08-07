@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import unittest
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 from agents._application.intelligence.service import normalize_map_preferences
@@ -132,6 +133,55 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
         starts = [change["event"]["start_time"] for change in payload["changes"]]
         self.assertEqual(starts[1] - starts[0], 90 * 60)
         self.assertEqual(starts[2] - starts[1], 95 * 60)
+
+    async def test_current_origin_calendar_blocks_the_verified_journey_not_only_arrival(self):
+        store = FakeStore()
+        state = empty_workspace()
+        browser_origin = {
+            **PLACE_A,
+            "place_id": "browser-current-location",
+            "name": "当前位置",
+            "provider": "browser-tencent",
+            "ephemeral": True,
+        }
+        destination = {**PLACE_B, "place_id": "destination"}
+        state["place_candidates"] = {destination["place_id"]: destination}
+        state["latest_route_plan"] = {
+            "id": "routeplan-current-origin",
+            "created_at": int(time.time()),
+            "ordered_stops": [browser_origin, destination],
+            "implicit_browser_origin": True,
+            "mode": "transit",
+            "legs": [{
+                "mode": "transit",
+                "distance_meters": 8_000,
+                "duration_seconds": 1_200,
+            }],
+        }
+        await save_workspace(store, TEST_USER_ID, state)
+        tools = build_system_skill_tools(
+            None,
+            store=store,
+            conversation_id="current-origin-calendar",
+            user_id=TEST_USER_ID,
+            env={},
+            planned_reuse_latest_route=True,
+        )
+        calendar_tool = next(item for item in tools if item.name == "propose_calendar_changes")
+        requested_start = "2099-08-04T08:00:00+08:00"
+        result = json.loads(await calendar_tool.ainvoke({
+            "summary": "把这段行程加入日程",
+            "changes": [],
+            "route_start_time": requested_start,
+            "route_stop_minutes": 60,
+        }))
+
+        event = result["action"]["payload"]["changes"][0]["event"]
+        expected_start = int(datetime.fromisoformat(requested_start).timestamp())
+        self.assertEqual(event["start_time"], expected_start)
+        self.assertEqual(event["duration_minutes"], 80)
+        self.assertIn("→", event["title"])
+        self.assertNotIn("browser-current-location", json.dumps(event))
 
     def test_map_preferences_are_bounded_and_have_speed_profiles(self):
         self.assertEqual(

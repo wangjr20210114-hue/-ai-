@@ -403,6 +403,11 @@ def _place_choice_field(
         "required": True,
         "options": options,
         "option_values": option_values,
+        "allow_custom_input": True,
+        "custom_placeholder": text(
+            "place.choice.custom_placeholder",
+            response_language,
+        ),
     }
 
 

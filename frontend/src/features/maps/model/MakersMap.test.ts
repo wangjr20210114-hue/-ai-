@@ -7,6 +7,7 @@ import {
   routeHasIntercityLeg,
   routeLegScope,
   routeLegs,
+  routeSectionDisplayPaths,
   routeSectionPath,
   routeSectionSteps,
   routeZoomLevel,
@@ -184,5 +185,55 @@ describe('MakersMap geolocation recovery', () => {
     expect(routeSectionPath(fallbackSteps[0])).toHaveLength(2);
     expect(routeSectionPath(fallbackSteps[1])).toHaveLength(2);
     expect(closestRouteSectionIndex(route, { latitude: 30.4, longitude: 120.3 })).toBe(1);
+  });
+
+  it('renders walking detail as bounded dotted presentation geometry', () => {
+    const origin: MakersMapPlace = {
+      place_id: 'origin', name: 'Origin', address: 'Origin', latitude: 39.9, longitude: 116.3,
+    };
+    const destination: MakersMapPlace = {
+      place_id: 'destination', name: 'Destination', address: 'Destination', latitude: 39.901, longitude: 116.304,
+    };
+    const route: MakersRoutePlan = {
+      schema_version: 4,
+      provider: 'tencent',
+      mode: 'walking',
+      places: [origin, destination],
+      path: [origin, destination],
+      distance_meters: 420,
+      duration_seconds: 360,
+      fare: { currency: 'CNY', basis: '' },
+      legs: [{
+        from: origin,
+        to: destination,
+        mode: 'walking',
+        path: [
+          origin,
+          { latitude: 39.90002, longitude: 116.30002 },
+          { latitude: 39.90001, longitude: 116.30001 },
+          { latitude: 39.9005, longitude: 116.302 },
+          destination,
+        ],
+        distance_meters: 420,
+        duration_seconds: 360,
+        sections: [{
+          mode: 'walking',
+          path: [
+            origin,
+            { latitude: 39.90002, longitude: 116.30002 },
+            { latitude: 39.90001, longitude: 116.30001 },
+            { latitude: 39.9005, longitude: 116.302 },
+            destination,
+          ],
+          distance_meters: 420,
+          duration_seconds: 360,
+        }],
+      }],
+    };
+
+    const paths = routeSectionDisplayPaths(routeSectionSteps(route)[0]);
+    expect(paths.length).toBeGreaterThan(2);
+    expect(paths.length).toBeLessThanOrEqual(161);
+    expect(paths.every((path) => path.length === 2)).toBe(true);
   });
 });

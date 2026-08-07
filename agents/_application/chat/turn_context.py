@@ -2,11 +2,83 @@
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from typing import Any
 
 from ..search.search_use_case import SearchRequest
 from ..._domain.entitlements.policy import public_entitlements
+
+
+_VERIFIED_PLACE_PREFIX = "floris-place:"
+
+
+def bind_latest_route_continuation(
+    plan: Mapping[str, Any],
+    route_arguments: Mapping[str, Any],
+    workspace: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Bind a conversational continuation to the last verified endpoint.
+
+    The semantic planner decides whether the user is continuing a journey.
+    This application policy supplies only provider identity and city from the
+    Makers workspace; it never copies coordinates or guesses from place names.
+    """
+    updated_plan = copy.deepcopy(dict(plan or {}))
+    updated_arguments = copy.deepcopy(dict(route_arguments or {}))
+    if not (
+        updated_plan.get("needs_route")
+        and updated_plan.get("route_continues_latest")
+        and not updated_plan.get("route_place_edits")
+    ):
+        return updated_plan, updated_arguments
+
+    latest = workspace.get("latest_route_plan")
+    verified_stops = [
+        item
+        for item in (
+            latest.get("ordered_stops")
+            if isinstance(latest, Mapping)
+            else []
+        ) or []
+        if isinstance(item, Mapping) and str(item.get("place_id") or "").strip()
+    ]
+    if not verified_stops:
+        # A continuation without durable context becomes an ordinary
+        # current-origin route so the existing browser-location Adapter can
+        # request permission and then fall back to a resumable origin field.
+        updated_plan["route_continues_latest"] = False
+        updated_plan["route_uses_current_location"] = True
+        updated_arguments["use_current_location_as_origin"] = True
+        return updated_plan, updated_arguments
+
+    terminal = verified_stops[-1]
+    terminal_id = str(terminal.get("place_id") or "").strip()
+    terminal_query = f"{_VERIFIED_PLACE_PREFIX}{terminal_id}"[:240]
+    plan_stops = [
+        copy.deepcopy(item)
+        for item in (updated_plan.get("route_stops") or [])
+        if isinstance(item, Mapping) and str(item.get("query") or "").strip()
+    ]
+    if not plan_stops:
+        return updated_plan, updated_arguments
+
+    if str(plan_stops[0].get("query") or "").strip() != terminal_query:
+        plan_stops.insert(0, {"query": terminal_query, "near_query": ""})
+    updated_plan["route_stops"] = plan_stops[:12]
+    updated_plan["route_uses_current_location"] = False
+    updated_plan["route_origin_is_departure"] = True
+
+    current_city = str(updated_plan.get("route_city") or "").strip()
+    terminal_city = str(terminal.get("city") or "").strip()
+    if terminal_city and current_city in {"", "全国", "中国"}:
+        updated_plan["route_city"] = terminal_city[:80]
+        updated_arguments["city"] = terminal_city[:80]
+    updated_arguments["use_current_location_as_origin"] = False
+    updated_arguments.pop("origin_query", None)
+    updated_arguments.pop("destination_query", None)
+    updated_arguments["ordered_stops"] = copy.deepcopy(updated_plan["route_stops"])
+    return updated_plan, updated_arguments
 
 
 def experience_hints_for_plan(

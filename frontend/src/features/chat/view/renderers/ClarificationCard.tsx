@@ -27,6 +27,7 @@ export function ClarificationCard({
 }: Props) {
   const { t } = useLanguage();
   const [values, setValues] = useState<Record<string, string | string[]>>({});
+  const [customInputs, setCustomInputs] = useState<Record<string, boolean>>({});
   const [activeIndex, setActiveIndex] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -54,8 +55,13 @@ export function ClarificationCard({
     setActiveIndex((current) => Math.min(fields.length - 1, current + 1));
   };
   const chooseAndAdvance = (id: string, value: string) => {
+    setCustomInputs((current) => ({ ...current, [id]: false }));
     setValue(id, value);
     if (!lastStep) setActiveIndex((current) => Math.min(fields.length - 1, current + 1));
+  };
+  const chooseCustomInput = (id: string) => {
+    setCustomInputs((current) => ({ ...current, [id]: true }));
+    setValue(id, '');
   };
   const submit = async () => {
     if (!client.current || !complete || isSubmitted || submitting || generationActive) {
@@ -97,11 +103,12 @@ export function ClarificationCard({
     const value = values[field.id];
     if (field.type === 'single' || field.type === 'boolean') {
       const options = field.type === 'boolean' ? [t('yes'), t('no')] : (field.options || []);
+      const customActive = Boolean(customInputs[field.id]);
       return <fieldset className="clarification-field">
         <legend>{field.label}{field.required ? t('requiredSingle') : ''}</legend>
         <div className="clarification-option-list">{options.map((option) => {
           const optionValue = clarificationOptionValue(field, option);
-          const selected = value === optionValue;
+          const selected = !customActive && value === optionValue;
           return <button
             key={option}
             type="button"
@@ -112,7 +119,28 @@ export function ClarificationCard({
           >
             {option}
           </button>;
-        })}</div>
+        })}
+        {field.allow_custom_input && <button
+          type="button"
+          className={`clarification-option${customActive ? ' is-selected' : ''}`}
+          aria-pressed={customActive}
+          disabled={submitting || generationActive}
+          onClick={() => chooseCustomInput(field.id)}
+        >{t('clarificationCustomPlace')}</button>}</div>
+        {customActive && <input
+          autoFocus
+          type="text"
+          value={typeof value === 'string' ? value : ''}
+          placeholder={field.custom_placeholder || t('clarificationCustomPlacePlaceholder')}
+          disabled={submitting || generationActive}
+          onInput={(event) => setValue(field.id, event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || !fieldComplete(field)) return;
+            event.preventDefault();
+            if (lastStep && complete) void submit();
+            else advance();
+          }}
+        />}
       </fieldset>;
     }
     if (field.type === 'multi') {

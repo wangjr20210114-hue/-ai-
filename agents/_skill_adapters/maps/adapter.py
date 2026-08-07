@@ -1,3 +1,4 @@
+from ..._application.i18n import text
 from ..._application.skills.tool_contracts import RoutePlanInput
 from .._tool_factory import build_service_tools
 
@@ -26,8 +27,7 @@ def build_tools(context):
                 "Prepare a map action from already verified provider place IDs."
             ),
             "plan_route_between_places": (
-                "Verify every ordered stop and use Tencent road routing for distance, "
-                "duration, fare, and a click-to-activate route action."
+                text("model.tool.plan_route_between_places.description", "zh-CN")
             ),
         },
         schemas={"plan_route_between_places": RoutePlanInput},

@@ -7,7 +7,7 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from .turn_context import state_requirements_for_plan
+from .turn_context import bind_latest_route_continuation, state_requirements_for_plan
 from .turn_finalizer import TurnFinalizer
 from .turn_background import TurnBackgroundWork
 from .turn_io import (
@@ -414,6 +414,8 @@ async def _handle(ctx):
         not browser_current_location
         and not silent_clarification
         and needs_browser_location
+        and not route_needs_browser_location
+        and not nearby_needs_browser_location
         and not str(capability_plan.get("blocked_skill") or "").strip()
     ):
         for key in list(capability_plan):
@@ -455,7 +457,10 @@ async def _handle(ctx):
     )
     if isinstance(resumed_route_arguments, dict):
         route_tool_arguments = copy.deepcopy(resumed_route_arguments)
-    elif capability_plan.get("needs_route") and capability_plan.get("route_stops"):
+    elif capability_plan.get("needs_route") and (
+        capability_plan.get("route_stops")
+        or capability_plan.get("route_place_edits")
+    ):
         route_stops = capability_plan.get("route_stops") or []
         route_tool_arguments = {
             "city": str(capability_plan.get("route_city") or "全国"),
@@ -463,6 +468,7 @@ async def _handle(ctx):
             "route_strategy": str(
                 capability_plan.get("route_strategy") or "default"
             ),
+            "place_edits": capability_plan.get("route_place_edits") or [],
             "use_current_location_as_origin": bool(
                 capability_plan.get("route_uses_current_location")
             ),
@@ -474,7 +480,7 @@ async def _handle(ctx):
                     route_stops[0].get("near_query") or ""
                 ),
             })
-        else:
+        elif route_stops:
             route_tool_arguments["ordered_stops"] = route_stops
     timeout_fallback_names = (
         fallback_tools_for_prompt_topics(
@@ -512,6 +518,11 @@ async def _handle(ctx):
     )
     current_calendar_context = calendar_context(workspace)
     current_route_context = latest_route_context(workspace)
+    capability_plan, route_tool_arguments = bind_latest_route_continuation(
+        capability_plan,
+        route_tool_arguments,
+        workspace,
+    )
     if planner_timed_out:
         logging.warning(
             "chat capability planning unavailable after %.1fs; continuing with a bounded zero-tool recovery surface",
@@ -621,6 +632,7 @@ async def _handle(ctx):
             ),
             planned_reuse_latest_route=bool(
                 capability_plan.get("reuse_latest_route")
+                or capability_plan.get("calendar_uses_planned_route")
                 or body.get("activity") == "route_calendar_offer_accepted"
             ),
             requested_route_plan_id=str(body.get("route_plan_id") or "")[:80],

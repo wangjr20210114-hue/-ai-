@@ -150,19 +150,67 @@ def build_calendar_operation(
             explicit_origin_is_departure = bool(
                 linked_route.get("explicit_origin_is_departure")
             )
+            all_route_stops = [
+                stop
+                for stop in (linked_route.get("ordered_stops") or [])
+                if isinstance(stop, dict) and str(stop.get("place_id") or "")
+            ]
             generated_changes: list[dict[str, Any]] = []
             current = start
-            # A browser location is an implicit route origin and is never a
-            # calendar stop. Account for its first verified travel leg before
-            # scheduling the first visible destination.
-            if implicit_origin and isinstance(leg_data, list) and leg_data:
-                current += timedelta(
-                    seconds=max(
-                        0,
-                        int(float((leg_data[0] or {}).get("duration_seconds") or 0)),
-                    )
-                )
             for index, stop in enumerate(linked_calendar_stops):
+                if implicit_origin:
+                    incoming_seconds = (
+                        max(
+                            0,
+                            int(float((leg_data[index] or {}).get("duration_seconds") or 0)),
+                        )
+                        if isinstance(leg_data, list) and index < len(leg_data)
+                        else 0
+                    )
+                    arrival = current + timedelta(seconds=incoming_seconds)
+                    end = arrival + timedelta(minutes=stop_minutes)
+                    previous_stop = (
+                        all_route_stops[index]
+                        if index < len(all_route_stops)
+                        else {}
+                    )
+                    generated_changes.append({
+                        "operation": "create",
+                        "event": {
+                            "title": text(
+                                "calendar.route_event.travel_title",
+                                response_language,
+                                origin=str(
+                                    previous_stop.get("name")
+                                    or text(
+                                        "calendar.route_event.current_origin",
+                                        response_language,
+                                    )
+                                )[:100],
+                                place=str(
+                                    stop.get("name")
+                                    or text(
+                                        "calendar.route_event.default_place",
+                                        response_language,
+                                    )
+                                )[:100],
+                            ),
+                            # Block the complete journey from departure through
+                            # the destination stay. The transient browser origin
+                            # remains only a display label; its coordinates and
+                            # address are never copied into Calendar state.
+                            "start_time": current.isoformat(),
+                            "end_time": end.isoformat(),
+                            "place_id": str(stop.get("place_id") or ""),
+                            "location_kind": "physical",
+                            "description": text(
+                                "calendar.route_event.travel_description",
+                                response_language,
+                            ),
+                        },
+                    })
+                    current = end
+                    continue
                 # For an explicit route, the first stop is the departure
                 # point—not a sight to visit for ``route_stop_minutes``. Keep
                 # a one-minute departure marker, then start the first Tencent

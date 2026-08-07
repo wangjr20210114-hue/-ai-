@@ -16,11 +16,11 @@ import {
   ROUTE_MODE_COLORS,
   routeCities,
   routeLegs,
+  routeSectionDisplayPaths,
   routeSectionPath,
   routeSectionSteps,
   routeZoomLevel,
   type RouteZoomLevel,
-  visibleRouteSections,
 } from '../model/routePresentation';
 import { translate, useLanguage } from '../../../i18n';
 import {
@@ -111,6 +111,8 @@ export default function MakersMap({
   const mapRef = useRef<TencentMapInstance | null>(null);
   const mapNamespaceRef = useRef<TencentMapNamespace | null>(null);
   const manualRouteFocusUntilRef = useRef(0);
+  const activeRouteStepRef = useRef(0);
+  const routeFocusRendererRef = useRef<((index: number) => void) | null>(null);
   const [animating, setAnimating] = useState(false);
   const [mapUnavailable, setMapUnavailable] = useState(false);
   const [mapLoading, setMapLoading] = useState(false);
@@ -141,14 +143,20 @@ export default function MakersMap({
 
   useEffect(() => {
     const stepCount = route ? routeSectionSteps(route).length : 0;
-    setActiveRouteStep((current) => Math.max(0, Math.min(current, Math.max(0, stepCount - 1))));
+    setActiveRouteStep((current) => {
+      const next = Math.max(0, Math.min(current, Math.max(0, stepCount - 1)));
+      activeRouteStepRef.current = next;
+      return next;
+    });
   }, [route]);
 
   const focusRouteStep = useCallback((index: number) => {
     if (!route) return;
     const steps = routeSectionSteps(route);
     const nextIndex = Math.max(0, Math.min(index, Math.max(0, steps.length - 1)));
+    activeRouteStepRef.current = nextIndex;
     setActiveRouteStep(nextIndex);
+    routeFocusRendererRef.current?.(nextIndex);
     // Tencent Map animates fitBounds through several centre updates. Keep the
     // explicitly selected navigation step stable until that animation settles;
     // later user map movement resumes the attention-driven selection.
@@ -352,6 +360,7 @@ export default function MakersMap({
     let zoomListener: (() => void) | null = null;
     let centerListener: (() => void) | null = null;
     let attentionTimer: number | null = null;
+    let routeFocusRenderer: ((index: number) => void) | null = null;
     setMapLoading(true);
     void loadTencentMap(key).then((TMap) => {
       if (cancelled || !containerRef.current) return;
@@ -423,7 +432,7 @@ export default function MakersMap({
       const routeStyles = Object.fromEntries(
         (Object.entries(ROUTE_MODE_COLORS) as Array<[MakersRouteSectionMode, string]>).map(
           ([mode, color]) => [mode, new TMap.PolylineStyle({
-            color, width: 6, borderWidth: 2, borderColor: '#ffffff',
+            color, width: 7, borderWidth: 2, borderColor: '#ffffff', lineCap: 'round',
           })],
         ),
       );
@@ -456,25 +465,62 @@ export default function MakersMap({
         styles: routeStyles,
         geometries: legGeometries,
       }) : null;
-      const sectionGeometries = route ? visibleRouteSections(route)
-        .filter((section) => section.path.length > 1)
-        .map((section, index) => ({
-          id: `makers-route-section-${index}`,
-          styleId: section.mode,
-          paths: section.path.map((point) => new TMap.LatLng(point.latitude, point.longitude)),
-        })) : [];
-      const sectionPolyline = sectionGeometries.length ? new TMap.MultiPolyline({
+      const sectionSteps = route ? routeSectionSteps(route) : [];
+      const sectionPieces = sectionSteps.map((step, sectionIndex) => (
+        routeSectionDisplayPaths(step)
+          .filter((path) => path.length > 1)
+          .map((path, pieceIndex) => ({
+            id: `makers-route-section-${sectionIndex}-${pieceIndex}`,
+            mode: step.section.mode,
+            paths: path.map((point) => new TMap.LatLng(point.latitude, point.longitude)),
+          }))
+      ));
+      const inactiveSectionGeometries = sectionPieces.flat().map((piece) => ({
+        id: `${piece.id}-inactive`,
+        styleId: 'inactive',
+        paths: piece.paths,
+      }));
+      const sectionPolyline = inactiveSectionGeometries.length ? new TMap.MultiPolyline({
         map: null,
-        styles: routeStyles,
-        geometries: sectionGeometries,
+        styles: {
+          inactive: new TMap.PolylineStyle({
+            color: '#aeb6c2', width: 4, borderWidth: 1,
+            borderColor: 'rgba(255,255,255,.78)', lineCap: 'round',
+          }),
+        },
+        geometries: inactiveSectionGeometries,
       }) : null;
+      const focusedSectionPolylines = sectionPieces.map((pieces) => (
+        pieces.length ? new TMap.MultiPolyline({
+          map: null,
+          styles: routeStyles,
+          geometries: pieces.map((piece) => ({
+            id: `${piece.id}-focused`,
+            styleId: piece.mode,
+            paths: piece.paths,
+          })),
+        }) : null
+      ));
+      let currentRouteLevel: RouteZoomLevel = 'legs';
+      const applySectionFocus = (index: number) => {
+        const focused = Math.max(0, Math.min(index, Math.max(0, sectionSteps.length - 1)));
+        focusedSectionPolylines.forEach((polyline, sectionIndex) => {
+          polyline?.setMap?.(
+            currentRouteLevel === 'sections' && sectionIndex === focused ? map : null,
+          );
+        });
+      };
+      routeFocusRenderer = applySectionFocus;
+      routeFocusRendererRef.current = applySectionFocus;
       const updateRouteLayers = () => {
         if (!map || !route) return;
         const level = routeZoomLevel(map.getZoom?.() ?? 12);
+        currentRouteLevel = level;
         setVisibleRouteLevel(level);
         overviewPolyline?.setMap?.(level === 'overview' ? map : null);
         legPolyline?.setMap?.(level === 'legs' ? map : null);
         sectionPolyline?.setMap?.(level === 'sections' ? map : null);
+        applySectionFocus(activeRouteStepRef.current);
         const cityOverview = level === 'overview' && cityStops.length > 1;
         cityMarkers?.setMap?.(cityOverview ? map : null);
         cityLabels?.setMap?.(cityOverview ? map : null);
@@ -484,7 +530,11 @@ export default function MakersMap({
         if (Date.now() < manualRouteFocusUntilRef.current) return;
         if (center) {
           const focused = closestRouteSectionIndex(route, center);
-          if (focused >= 0) setActiveRouteStep((current) => current === focused ? current : focused);
+          if (focused >= 0) {
+            activeRouteStepRef.current = focused;
+            applySectionFocus(focused);
+            setActiveRouteStep((current) => current === focused ? current : focused);
+          }
         }
       };
       zoomListener = updateRouteLayers;
@@ -517,6 +567,9 @@ export default function MakersMap({
       if (mapRef.current === map) {
         mapRef.current = null;
         mapNamespaceRef.current = null;
+      }
+      if (routeFocusRendererRef.current === routeFocusRenderer) {
+        routeFocusRendererRef.current = null;
       }
       map?.destroy?.();
     };

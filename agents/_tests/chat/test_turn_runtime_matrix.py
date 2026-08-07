@@ -708,6 +708,26 @@ class ChatTurnRuntimeMatrixTests(unittest.IsolatedAsyncioTestCase):
             "completed",
         )
 
+    async def test_denied_route_location_keeps_the_resumable_route_calendar_chain(self):
+        await self._run(
+            "route-location-denied",
+            _plan(
+                needs_route=True,
+                needs_calendar_context=True,
+                needs_calendar_action=True,
+                calendar_uses_planned_route=True,
+                route_uses_current_location=True,
+                route_stops=[{"query": "Destination", "near_query": ""}],
+            ),
+            body_updates={
+                "message": "Travel to the destination and add the journey to my calendar",
+                "_location_retry": True,
+                "location_request": {"state": "denied"},
+            },
+        )
+        self.assertIn("plan_route_between_places", _AnswerGraph.last_tool_names)
+        self.assertIn("propose_calendar_changes", _AnswerGraph.last_tool_names)
+
 
 if __name__ == "__main__":
     unittest.main()

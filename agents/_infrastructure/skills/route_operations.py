@@ -14,6 +14,8 @@ from pydantic import BaseModel
 
 from ..._application.i18n import normalize_language, text
 from ..._application.workspace.service import new_action, put_action
+from ..._domain.maps.route_place_set import RoutePlaceEdit, apply_route_place_edits
+from ..._domain.maps.route_strategy import select_route_strategy
 from ..._infrastructure.makers.route_repository import load_route_cache, save_route_cache
 from .route_resolution import (
     _clarification_action,
@@ -79,6 +81,7 @@ def build_route_operation(
         route_strategy: str = "default",
         use_current_location_as_origin: bool = False,
         ordered_stops: list[dict[str, str]] | None = None,
+        place_edits: list[dict[str, str]] | None = None,
     ) -> str:
         """Resolve an ordered itinerary and calculate one verified Tencent route.
 
@@ -97,28 +100,8 @@ def build_route_operation(
         )
         requested_route_mode = str(route_mode or "default").strip().lower()
         planner_route_mode = str(planned_route_mode or "default").strip().lower()
-        if requested_route_mode not in {"default", "driving", "transit", "walking", "bicycling"}:
-            requested_route_mode = "default"
-        explicit_route_mode = (
-            requested_route_mode
-            if requested_route_mode != "default"
-            else planner_route_mode
-            if planner_route_mode in {"driving", "transit", "walking", "bicycling"}
-            else ""
-        )
         requested_route_strategy = str(route_strategy or "default").strip().lower()
         planner_route_strategy = str(planned_route_strategy or "default").strip().lower()
-        if requested_route_strategy not in {
-            "default", "time_then_cost", "least_time", "least_cost",
-        }:
-            requested_route_strategy = "default"
-        explicit_route_strategy = (
-            requested_route_strategy
-            if requested_route_strategy != "default"
-            else planner_route_strategy
-            if planner_route_strategy in {"time_then_cost", "least_time", "least_cost"}
-            else ""
-        )
         should_use_current_location = bool(
             browser_current_location
             and (use_current_location_as_origin or planned_route_uses_current_location)
@@ -169,12 +152,31 @@ def build_route_operation(
             if map_learn_route_preferences
             else ""
         )
-        selected_route_mode = (
-            explicit_route_mode or learned_route_mode or map_preferred_route_mode
+        latest_route = (
+            state.get("latest_route_plan")
+            if isinstance(state.get("latest_route_plan"), dict)
+            else {}
         )
-        selected_route_strategy = (
-            explicit_route_strategy or learned_route_strategy or map_route_strategy
+        strategy_selection = select_route_strategy(
+            requested_mode=requested_route_mode,
+            planned_mode=planner_route_mode,
+            context_mode=(
+                str(latest_route.get("mode") or "") if place_edits else ""
+            ),
+            learned_mode=learned_route_mode,
+            default_mode=map_preferred_route_mode,
+            requested_strategy=requested_route_strategy,
+            planned_strategy=planner_route_strategy,
+            context_strategy=(
+                str(latest_route.get("strategy") or "") if place_edits else ""
+            ),
+            learned_strategy=learned_route_strategy,
+            default_strategy=map_route_strategy,
         )
+        selected_route_mode = strategy_selection.mode
+        selected_route_strategy = strategy_selection.strategy
+        explicit_route_mode = strategy_selection.explicit_mode
+        explicit_route_strategy = strategy_selection.explicit_strategy
         candidates = state.setdefault("place_candidates", {})
         for event in (state.get("schedules") or {}).values():
             extra = event.get("extra") if isinstance(event, dict) and isinstance(event.get("extra"), dict) else {}
@@ -381,7 +383,204 @@ def build_route_operation(
             return matches[0], None
 
         requested_stops: list[tuple[str, str]] = []
-        if ordered_stops:
+        requested_stop_field_ids: list[str] = []
+        editing_latest_route = bool(place_edits)
+        edited_uses_current_location = False
+        route_origin_is_departure = bool(planned_route_origin_is_departure)
+        if editing_latest_route:
+            latest_stops = (
+                latest_route.get("ordered_stops")
+                if isinstance(latest_route.get("ordered_stops"), list)
+                else []
+            )
+            latest_stops = [
+                copy.deepcopy(stop)
+                for stop in latest_stops
+                if isinstance(stop, dict)
+            ]
+            if (
+                not latest_stops
+                and str(origin_query or "").strip()
+                and str(destination_query or "").strip()
+            ):
+                # A resumed no-current-route card has now supplied a complete
+                # fresh route, so the obsolete edit intent is safely dropped.
+                editing_latest_route = False
+                place_edits = []
+        if editing_latest_route:
+            if not latest_stops:
+                return _clarification_action(
+                    conversation_id,
+                    title=text("route.edit.no_current.title", response_language),
+                    prompt=text("route.edit.no_current.prompt", response_language),
+                    fields=[
+                        {
+                            "id": "route_origin",
+                            "label": text(
+                                "route.location_required.label", response_language,
+                            ),
+                            "type": "text",
+                            "required": True,
+                            "options": [],
+                            "placeholder": text(
+                                "route.location_required.placeholder", response_language,
+                            ),
+                        },
+                        {
+                            "id": "route_destination",
+                            "label": text(
+                                "route.edit.no_current.label", response_language,
+                            ),
+                            "type": "text",
+                            "required": True,
+                            "options": [],
+                            "placeholder": text(
+                                "route.edit.no_current.placeholder", response_language,
+                            ),
+                        },
+                    ],
+                )
+            for stop in latest_stops:
+                place_id = str(stop.get("place_id") or "").strip()
+                if place_id and not stop.get("ephemeral"):
+                    candidates[place_id] = copy.deepcopy(stop)
+            normalized_edits: list[RoutePlaceEdit] = []
+            for raw_edit in (place_edits or [])[:8]:
+                if isinstance(raw_edit, BaseModel):
+                    raw_edit = raw_edit.model_dump()
+                if not isinstance(raw_edit, dict):
+                    continue
+                operation = str(raw_edit.get("operation") or "").strip().lower()
+                if operation not in {"add", "remove", "replace"}:
+                    continue
+                position = str(raw_edit.get("position") or "default").strip().lower()
+                normalized_edits.append(RoutePlaceEdit(
+                    operation=operation,
+                    target_query=str(raw_edit.get("target_query") or "").strip()[:160],
+                    new_query=str(raw_edit.get("new_query") or "").strip()[:160],
+                    new_near_query=str(
+                        raw_edit.get("new_near_query") or ""
+                    ).strip()[:160],
+                    position=(
+                        position
+                        if position in {"default", "start", "end", "before", "after"}
+                        else "default"
+                    ),
+                ))
+            edit_result = apply_route_place_edits(latest_stops, normalized_edits)
+            if edit_result.issues:
+                issue = edit_result.issues[0]
+                if issue.field == "target":
+                    field = _place_choice_field(
+                        f"route_edit_target_{issue.edit_index}",
+                        text("route.edit.target.label", response_language),
+                        list(issue.candidates),
+                        response_language,
+                    )
+                    field["allow_custom_input"] = False
+                    field.pop("custom_placeholder", None)
+                    await _save_state(state)
+                    return _clarification_action(
+                        conversation_id,
+                        title=text("route.edit.target.title", response_language),
+                        prompt=text(
+                            "route.edit.target.prompt", response_language,
+                            query=issue.query,
+                        ),
+                        fields=[field],
+                    )
+                await _save_state(state)
+                return _clarification_action(
+                    conversation_id,
+                    title=text("route.edit.new.title", response_language),
+                    prompt=text("route.edit.new.prompt", response_language),
+                    fields=[{
+                        "id": f"route_edit_new_{issue.edit_index}",
+                        "label": text("route.edit.new.label", response_language),
+                        "type": "text",
+                        "required": True,
+                        "options": [],
+                        "placeholder": text(
+                            "route.edit.new.placeholder", response_language,
+                        ),
+                    }],
+                )
+            if len(edit_result.stops) < 2:
+                await _save_state(state)
+                return _clarification_action(
+                    conversation_id,
+                    title=text("route.edit.new.title", response_language),
+                    prompt=text("route.edit.too_few", response_language),
+                    fields=[{
+                        "id": f"route_edit_new_{len(normalized_edits)}",
+                        "label": text("route.edit.new.label", response_language),
+                        "type": "text",
+                        "required": True,
+                        "options": [],
+                        "placeholder": text(
+                            "route.edit.new.placeholder", response_language,
+                        ),
+                    }],
+                )
+            for index, stop in enumerate(edit_result.stops):
+                edit_index = edit_result.new_stop_edit_indexes[index]
+                if edit_index is not None:
+                    requested_stops.append((
+                        str(stop.get("query") or "").strip(),
+                        str(stop.get("near_query") or "").strip(),
+                    ))
+                    requested_stop_field_ids.append(f"route_edit_new_{edit_index}")
+                    continue
+                if stop.get("ephemeral"):
+                    if index == 0 and browser_current_location:
+                        requested_stops.append(("__browser_current_location__", ""))
+                        requested_stop_field_ids.append("")
+                        edited_uses_current_location = True
+                        continue
+                    if index == 0 and str(origin_query or "").strip():
+                        requested_stops.append((str(origin_query).strip(), ""))
+                        requested_stop_field_ids.append("route_origin")
+                        continue
+                    return _clarification_action(
+                        conversation_id,
+                        title=text("route.location_required.title", response_language),
+                        prompt=text("route.location_required.prompt", response_language),
+                        fields=[{
+                            "id": "route_origin",
+                            "label": text(
+                                "route.location_required.label", response_language,
+                            ),
+                            "type": "text",
+                            "required": True,
+                            "options": [],
+                            "placeholder": text(
+                                "route.location_required.placeholder", response_language,
+                            ),
+                        }],
+                    )
+                place_id = str(stop.get("place_id") or "").strip()
+                requested_stops.append((
+                    f"floris-place:{place_id}" if place_id else str(stop.get("name") or ""),
+                    "",
+                ))
+                requested_stop_field_ids.append("")
+            route_origin_is_departure = bool(
+                latest_route.get("explicit_origin_is_departure")
+            )
+            if (
+                (not city or city == "全国")
+                and str(next((
+                    stop.get("city")
+                    for stop in latest_stops
+                    if str(stop.get("city") or "").strip()
+                ), "")).strip()
+            ):
+                city = str(next(
+                    stop.get("city")
+                    for stop in latest_stops
+                    if str(stop.get("city") or "").strip()
+                ))[:80]
+        elif ordered_stops:
             minimum_stops = 1 if should_use_current_location else 2
             if (
                 not isinstance(ordered_stops, list)
@@ -407,22 +606,27 @@ def build_route_operation(
                         index=index,
                     ))
                 requested_stops.append((query, near_query))
+                requested_stop_field_ids.append("")
         else:
             requested_stops = [
                 (str(origin_query or "").strip(), str(origin_near_query or "").strip()),
                 (str(destination_query or "").strip(), str(destination_near_query or "").strip()),
             ]
+            requested_stop_field_ids = ["", ""]
         model_stop_count = len(requested_stops)
-        requested_stops = preserve_planned_route_stops(
-            requested_stops,
-            planned_route_stops,
-            route_user_message,
-        )
+        if not editing_latest_route:
+            requested_stops = preserve_planned_route_stops(
+                requested_stops,
+                planned_route_stops,
+                route_user_message,
+            )
+            requested_stop_field_ids = [""] * len(requested_stops)
         if should_use_current_location:
             requested_stops = [
                 ("__browser_current_location__", ""),
                 *[item for item in requested_stops if item[0]],
             ]
+            requested_stop_field_ids = ["", *requested_stop_field_ids]
         if len(requested_stops) > map_route_stop_limit:
             raise ValueError(text(
                 "route.error.stop_limit", response_language,
@@ -449,7 +653,7 @@ def build_route_operation(
         async def resolve_indexed(
             index: int, query: str, near_query: str,
         ) -> tuple[dict[str, Any] | None, str | None]:
-            endpoint_id, endpoint_label = (
+            default_endpoint_id, endpoint_label = (
                 ("route_origin", text("route.origin", response_language))
                 if index == 1
                 else (
@@ -461,6 +665,12 @@ def build_route_operation(
                     f"route_stop_{index}",
                     text("route.stop", response_language, index=index),
                 )
+            )
+            endpoint_id = (
+                requested_stop_field_ids[index - 1]
+                if index - 1 < len(requested_stop_field_ids)
+                and requested_stop_field_ids[index - 1]
+                else default_endpoint_id
             )
 
             async def resolve_with_capacity():
@@ -703,10 +913,12 @@ def build_route_operation(
             "id": route_plan_id,
             "created_at": int(time.time()),
             "ordered_stops": persisted_route_stops,
-            "implicit_browser_origin": should_use_current_location,
+            "implicit_browser_origin": bool(
+                should_use_current_location or edited_uses_current_location
+            ),
             "explicit_origin_is_departure": bool(
-                not should_use_current_location
-                and planned_route_origin_is_departure
+                not (should_use_current_location or edited_uses_current_location)
+                and route_origin_is_departure
             ),
             "query_corrections": query_corrections,
             "distance_meters": round(distance_meters),

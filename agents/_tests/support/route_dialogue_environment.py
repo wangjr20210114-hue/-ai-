@@ -10,6 +10,7 @@ from agents._application.skills.registry import planner_topic_instructions
 from agents._infrastructure.providers.tencent_location import plan_verified_route, search_verified_places_bounded
 from agents.chat._capability_plan import (
     parse_capability_plan,
+    required_tools_for_plan,
 )
 from agents._infrastructure.skills.builtin_operations import build_system_skill_tools
 from agents._application.skills.tool_contracts import RoutePlanInput
@@ -17,11 +18,13 @@ from agents._infrastructure.skills.route_resolution import (
     _learned_route_preference,
     _place_resolution,
     _place_resolution_with_provider_review,
+    _place_choice_field,
     _prioritize_clarification_options_for_city,
     _prioritize_provider_candidates_for_city,
     _provider_city_consensus,
     _rank_verified_workspace_matches,
 )
+from agents._application.chat.turn_context import bind_latest_route_continuation
 from agents._application.chat.turn_policy import (
     location_clarification_copy,
     normalize_browser_current_location,

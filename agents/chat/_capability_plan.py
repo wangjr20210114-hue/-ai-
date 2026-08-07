@@ -68,13 +68,16 @@ DEFAULT_PLAN = {
     "paper_limit": 0,
     "blocked_skill": "",
     "route_stops": [],
+    "route_place_edits": [],
     "route_city": "全国",
     "route_mode": "default",
     "route_strategy": "default",
     "travel_budget_tier": "not_applicable",
     "route_uses_current_location": False,
     "route_origin_is_departure": False,
+    "route_continues_latest": False,
     "reuse_latest_route": False,
+    "calendar_uses_planned_route": False,
     "route_calendar_hint": "",
     "optional_capabilities": [],
     "place_resolution_target": "none",
@@ -107,6 +110,33 @@ class PlannedRouteStop(BaseModel):
     near_query: str = Field(
         default="",
         description=_schema("field_02"),
+    )
+
+
+class PlannedRoutePlaceEdit(BaseModel):
+    """One semantic edit against the latest verified route place set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: str = Field(
+        default="add",
+        description=_schema("field_54"),
+    )
+    target_query: str = Field(
+        default="",
+        description=_schema("field_55"),
+    )
+    new_query: str = Field(
+        default="",
+        description=_schema("field_56"),
+    )
+    new_near_query: str = Field(
+        default="",
+        description=_schema("field_57"),
+    )
+    position: str = Field(
+        default="default",
+        description=_schema("field_58"),
     )
 
 
@@ -261,6 +291,10 @@ class CapabilityPlan(BaseModel):
         default_factory=list,
         description=_schema("field_33"),
     )
+    route_place_edits: list[PlannedRoutePlaceEdit] = Field(
+        default_factory=list,
+        description=_schema("field_59"),
+    )
     route_city: str = Field(
         default="全国",
         description=_schema("field_34"),
@@ -283,11 +317,19 @@ class CapabilityPlan(BaseModel):
     )
     route_origin_is_departure: bool = Field(
         default=False,
-        description=_schema("field_45"),
+        description=_schema("field_51"),
+    )
+    route_continues_latest: bool = Field(
+        default=False,
+        description=_schema("field_52"),
     )
     reuse_latest_route: bool = Field(
         default=False,
         description=_schema("field_39"),
+    )
+    calendar_uses_planned_route: bool = Field(
+        default=False,
+        description=_schema("field_53"),
     )
     route_calendar_hint: str = Field(
         default="",
@@ -393,7 +435,45 @@ def _decode_capability_plan(
             route_stops.append({"query": query, "near_query": near_query})
         if len(route_stops) >= 12:
             break
-    plan["route_stops"] = route_stops if plan.get("needs_route") else []
+    raw_place_resolution_target = str(
+        raw.get("place_resolution_target") or "none"
+    ).strip().lower()
+    route_intent = bool(
+        plan.get("needs_route")
+        or raw_place_resolution_target == "route"
+        or "route" in plan.get("_capabilities", [])
+    )
+    plan["route_stops"] = route_stops if (
+        route_intent
+    ) else []
+    route_place_edits: list[dict[str, str]] = []
+    for item in raw.get("route_place_edits") or []:
+        if isinstance(item, BaseModel):
+            item = item.model_dump()
+        if not isinstance(item, dict):
+            continue
+        operation = str(item.get("operation") or "").strip().lower()
+        position = str(item.get("position") or "default").strip().lower()
+        if operation not in {"add", "remove", "replace"}:
+            continue
+        route_place_edits.append({
+            "operation": operation,
+            "target_query": str(item.get("target_query") or "").strip()[:160],
+            "new_query": str(item.get("new_query") or "").strip()[:160],
+            "new_near_query": str(
+                item.get("new_near_query") or ""
+            ).strip()[:160],
+            "position": (
+                position
+                if position in {"default", "start", "end", "before", "after"}
+                else "default"
+            ),
+        })
+        if len(route_place_edits) >= 8:
+            break
+    plan["route_place_edits"] = (
+        route_place_edits if route_intent else []
+    )
     plan["route_city"] = str(raw.get("route_city") or "全国").strip()[:80] or "全国"
     route_mode = str(raw.get("route_mode") or "default").strip().lower()
     plan["route_mode"] = route_mode if route_mode in {
@@ -415,14 +495,31 @@ def _decode_capability_plan(
         else "unknown" if plan.get("needs_travel_itinerary") else "not_applicable"
     )
     plan["route_uses_current_location"] = bool(
-        plan.get("needs_route") and raw.get("route_uses_current_location")
+        route_intent and raw.get("route_uses_current_location")
     )
     plan["route_origin_is_departure"] = bool(
-        plan.get("needs_route")
+        route_intent
         and not plan["route_uses_current_location"]
         and raw.get("route_origin_is_departure")
     )
+    plan["route_continues_latest"] = bool(
+        route_intent
+        and not plan["route_uses_current_location"]
+        and raw.get("route_continues_latest")
+    )
+    if plan.get("route_place_edits"):
+        # Route edits own their base place set through latest_route_plan. They
+        # are neither a new implicit-current-origin route nor a continuation
+        # that should prepend the previous destination a second time.
+        plan["route_stops"] = []
+        plan["route_uses_current_location"] = False
+        plan["route_continues_latest"] = False
     plan["reuse_latest_route"] = bool(raw.get("reuse_latest_route"))
+    plan["calendar_uses_planned_route"] = bool(
+        plan.get("needs_route")
+        and plan.get("needs_calendar_action")
+        and raw.get("calendar_uses_planned_route")
+    )
     plan["route_calendar_hint"] = str(
         raw.get("route_calendar_hint") or ""
     ).strip()[:240]
@@ -431,17 +528,15 @@ def _decode_capability_plan(
             raw.get("optional_capabilities") or []
         )
     )
-    place_resolution_target = str(
-        raw.get("place_resolution_target") or "none"
-    ).strip().lower()
+    place_resolution_target = raw_place_resolution_target
     plan["place_resolution_target"] = (
         place_resolution_target
-        if place_resolution_target in {"none", "calendar"}
+        if place_resolution_target in {"none", "calendar", "route", "nearby"}
         else "none"
     )
     if plan.get("needs_calendar_action"):
         plan["needs_calendar_context"] = True
-    if not plan.get("needs_nearby_places"):
+    if not plan.get("needs_nearby_places") and place_resolution_target != "nearby":
         plan["nearby_query"] = ""
         plan["nearby_anchor_query"] = ""
         plan["nearby_anchor_queries"] = []
@@ -503,7 +598,18 @@ def _decode_capability_plan(
         plan["needs_clarification"] = False
         plan["needs_places"] = True
         plan["needs_calendar_action"] = True
+    elif plan["place_resolution_target"] == "route" and plan["route_stops"]:
+        plan["needs_clarification"] = False
+        plan["needs_route"] = True
+    elif plan["place_resolution_target"] == "nearby" and plan["nearby_query"]:
+        plan["needs_clarification"] = False
+        plan["needs_nearby_places"] = True
     plan = reconcile_capability_contract(plan)
+    plan["calendar_uses_planned_route"] = bool(
+        raw.get("calendar_uses_planned_route")
+        and plan.get("needs_route")
+        and plan.get("needs_calendar_action")
+    )
     if (
         plan.get("needs_travel_itinerary")
         and plan.get("travel_budget_tier") in {"unknown", "not_applicable"}
@@ -591,7 +697,9 @@ def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
     required: list[str] = []
     if bool(plan.get("needs_web_search")):
         required.append("rich_search")
-    if bool(plan.get("needs_current_location")):
+    if bool(plan.get("needs_current_location")) and not bool(
+        plan.get("needs_route") or plan.get("needs_nearby_places")
+    ):
         required.append("get_current_location")
 
     # The composite map tool verifies every model-selected place and prepares

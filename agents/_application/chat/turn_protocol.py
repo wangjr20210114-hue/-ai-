@@ -284,8 +284,38 @@ def _apply_route_protocol_answers(
         if isinstance(raw_stops, list)
         else []
     )
+    raw_edits = updated.get("place_edits")
+    place_edits = (
+        [copy.deepcopy(item) for item in raw_edits if isinstance(item, dict)]
+        if isinstance(raw_edits, list)
+        else []
+    )
     for answer in answers:
         field_id = str(answer.get("id") or "")
+        edit_match = re.fullmatch(r"route_edit_(target|new)_(\d+)", field_id)
+        if edit_match:
+            value = _clarification_scalar(answer)
+            if not value:
+                continue
+            edit_index = int(edit_match.group(2))
+            if edit_match.group(1) == "new" and edit_index == len(place_edits):
+                place_edits.append({
+                    "operation": "add",
+                    "target_query": "",
+                    "new_query": value,
+                    "new_near_query": "",
+                    "position": "end",
+                })
+            elif 0 <= edit_index < len(place_edits):
+                key = (
+                    "target_query"
+                    if edit_match.group(1) == "target"
+                    else "new_query"
+                )
+                place_edits[edit_index][key] = value
+                if key == "new_query":
+                    place_edits[edit_index]["new_near_query"] = ""
+            continue
         match = re.fullmatch(
             r"(route_origin|route_destination|route_stop_(\d+))(_anchor)?(?:_[0-9a-f]{6})?",
             field_id,
@@ -327,6 +357,8 @@ def _apply_route_protocol_answers(
             updated["destination_near_query"] = ""
     if ordered_stops:
         updated["ordered_stops"] = ordered_stops
+    if place_edits:
+        updated["place_edits"] = place_edits[:8]
     return updated
 
 
