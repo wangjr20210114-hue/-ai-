@@ -1087,14 +1087,47 @@ async def plan_route(
 
         async def plan_index(index: int) -> dict[str, Any]:
             async with semaphore:
-                return await _plan_route_leg(
-                    key,
-                    places[index],
-                    places[index + 1],
-                    mode=mode,
-                    strategy=strategy,
-                    near_time_tolerance_minutes=near_time_tolerance_minutes,
+                # Tencent may have no route for one transport mode at a
+                # specific scenic-area or station anchor. Keep the requested
+                # mode first, then ask the same provider for a bounded,
+                # strategy-aware alternative for only that leg. The result is
+                # a factual mixed-mode chain, never a model-invented route.
+                fallback_modes = (
+                    ("driving", "bicycling", "walking")
+                    if mode == "transit" and strategy == "least_time"
+                    else ("bicycling", "walking")
+                    if mode == "transit"
+                    else ("walking",)
+                    if mode == "bicycling"
+                    else ()
                 )
+                attempts = (mode, *fallback_modes)
+                last_error: Exception | None = None
+                for effective_mode in attempts:
+                    try:
+                        leg = await _plan_route_leg(
+                            key,
+                            places[index],
+                            places[index + 1],
+                            mode=effective_mode,
+                            strategy=strategy,
+                            near_time_tolerance_minutes=near_time_tolerance_minutes,
+                        )
+                    except Exception as exc:
+                        last_error = exc
+                        continue
+                    selection = leg.setdefault("selection", {})
+                    if isinstance(selection, dict):
+                        selection.update({
+                            "requested_mode": mode,
+                            "effective_mode": effective_mode,
+                            "mode_fallback": effective_mode != mode,
+                        })
+                    leg["effective_mode"] = effective_mode
+                    return leg
+                if last_error is not None:
+                    raise last_error
+                raise RuntimeError(_copy("maps.provider.route_missing", mode=mode))
 
         legs = await asyncio.gather(*(plan_index(index) for index in range(len(places) - 1)))
         path: list[dict[str, float]] = []
@@ -1113,13 +1146,18 @@ async def plan_route(
                         leg.get("scope")
                         or _route_leg_scope(places[index], places[index + 1])
                     ),
-                    "mode": mode,
+                    "mode": str(leg.get("effective_mode") or mode),
                     "path": list(leg.get("path") or []),
                     "sections": list(leg.get("sections") or []),
                     "distance_meters": round(float(leg.get("distance_meters") or 0)),
                     "duration_seconds": round(float(leg.get("duration_seconds") or 0)),
+                    "selection": copy.deepcopy(leg.get("selection") or {}),
                     **({"fare": leg.get("fare") or {}} if leg.get("fare") else {}),
-                    **({"transit": leg.get("transit") or {}} if mode == "transit" else {}),
+                    **(
+                        {"transit": leg.get("transit") or {}}
+                        if str(leg.get("effective_mode") or mode) == "transit"
+                        else {}
+                    ),
                 }
                 for index, leg in enumerate(legs)
             ],

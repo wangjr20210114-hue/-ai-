@@ -453,6 +453,7 @@ class PlaceOperations:
                 places="、".join(missing),
             ) if missing else "",
         )
+        route_unavailable = False
         if len(selected) >= 2 and self._recommended_route_planner is not None:
             try:
                 route_result = json.loads(await self._recommended_route_planner(
@@ -481,14 +482,17 @@ class PlaceOperations:
                         ))),
                     })
                     return json.dumps(route_result, ensure_ascii=False)
+                route_unavailable = True
             except Exception as exc:
                 # A route is an enhancement to a verified recommendation. Keep
                 # the verified pins useful if Tencent routing is temporarily
                 # unavailable, without inventing geometry or order.
                 logging.warning(
-                    "recommended place route planning failed error=%s",
+                    "recommended place route planning failed error_type=%s error=%s",
                     type(exc).__name__,
+                    str(exc)[:160],
                 )
+                route_unavailable = True
         state = await self._load_state()
         action = new_action(
             "map_recommendation",
@@ -498,11 +502,18 @@ class PlaceOperations:
                     city=city,
                 ))[:120],
                 "action_text": str(
-                    action_text or text(
+                    (
+                        text(
+                            "place.map.default_action", self._response_language,
+                        )
+                        if route_unavailable
+                        else action_text
+                    ) or text(
                         "place.map.city_action", self._response_language,
                     )
                 )[:80],
                 "places": selected,
+                **({"route_status": "unavailable"} if route_unavailable else {}),
             },
             requires_confirmation=False,
         )
@@ -515,5 +526,12 @@ class PlaceOperations:
             "requested_place_count": requested_count,
             "partial": bool(missing),
             "unverified_queries": missing,
-            "response_constraint": response_constraint,
+            "response_constraint": "\n".join(filter(None, (
+                response_constraint,
+                text(
+                    "model.place.route_unavailable_constraint",
+                    self._response_language,
+                ) if route_unavailable else "",
+            ))),
+            **({"route_status": "unavailable"} if route_unavailable else {}),
         }, ensure_ascii=False)

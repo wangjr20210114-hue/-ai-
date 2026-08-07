@@ -11,7 +11,10 @@ from agents._domain.maps.route_chain import (
 from agents._application.workspace.service import load_user_workspace
 from agents._domain.maps.route_order import optimize_open_route_order
 from agents._infrastructure.makers.route_repository import route_cache_key
-from agents._infrastructure.providers.tencent_location import optimize_place_order
+from agents._infrastructure.providers.tencent_location import (
+    optimize_place_order,
+    plan_route,
+)
 from agents._infrastructure.skills.place_operations import PlaceOperations
 from agents.chat._calendar_context import latest_route_context
 
@@ -234,6 +237,61 @@ class RoutePolicyTests(unittest.TestCase):
 
 
 class RouteModelBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_failed_transit_leg_uses_strategy_aware_provider_fallback(self):
+        places = [
+            {**PLACE, "place_id": "a", "name": "A"},
+            {**PLACE, "place_id": "b", "name": "B", "longitude": 116.4},
+            {**PLACE, "place_id": "c", "name": "C", "longitude": 116.5},
+        ]
+
+        async def route_leg(_key, origin, destination, *, mode, **_kwargs):
+            if origin["place_id"] == "b" and mode == "transit":
+                raise RuntimeError("no transit candidate")
+            return {
+                "path": [
+                    {
+                        "latitude": origin["latitude"],
+                        "longitude": origin["longitude"],
+                    },
+                    {
+                        "latitude": destination["latitude"],
+                        "longitude": destination["longitude"],
+                    },
+                ],
+                "sections": [{
+                    "mode": mode,
+                    "path": [],
+                    "distance_meters": 1_000,
+                    "duration_seconds": 600,
+                }],
+                "distance_meters": 1_000,
+                "duration_seconds": 600,
+                "fare": {"currency": "CNY", "basis": "provider"},
+                "selection": {},
+            }
+
+        with patch(
+            "agents._infrastructure.providers.tencent_location._plan_route_leg",
+            new=route_leg,
+        ):
+            route = await plan_route(
+                "map-key",
+                places,
+                mode="transit",
+                strategy="least_cost",
+            )
+
+        self.assertEqual(
+            [leg["mode"] for leg in route["legs"]],
+            ["transit", "bicycling"],
+        )
+        self.assertFalse(route["legs"][0]["selection"]["mode_fallback"])
+        self.assertTrue(route["legs"][1]["selection"]["mode_fallback"])
+        self.assertEqual(
+            route["legs"][1]["selection"]["requested_mode"],
+            "transit",
+        )
+
     async def test_verified_recommendations_are_handed_to_route_component(self):
         captured: dict[str, object] = {}
 
@@ -292,6 +350,26 @@ class RouteModelBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 for place in captured["_verified_recommended_places"]
             ],
             ["poi-景点甲", "poi-景点乙"],
+        )
+
+        async def failed_route_planner(**_kwargs):
+            raise RuntimeError("provider route unavailable")
+
+        operations._recommended_route_planner = failed_route_planner
+        degraded = json.loads(await operations.recommend_places_on_map(
+            ["景点甲", "景点乙"],
+            "杭州",
+            "推荐路线",
+            "查看路线",
+        ))
+        self.assertEqual(degraded["route_status"], "unavailable")
+        self.assertEqual(
+            degraded["action"]["payload"]["route_status"],
+            "unavailable",
+        )
+        self.assertNotEqual(
+            degraded["action"]["payload"]["action_text"],
+            "查看路线",
         )
 
     async def test_unordered_recommendation_uses_shared_route_chain(self):
