@@ -46,6 +46,10 @@ TURN_SINGLE_USE_TOOLS = {
     "search_arxiv",
     "ask_user_clarification",
 }
+ROUTE_RESULT_TOOLS = {
+    "plan_route_between_places",
+    "recommend_places_on_map",
+}
 # An argument-validation error occurs before an Action is created. Two bounded
 # correction passes are enough to repair dependent fixed-schema payloads (for
 # example, first fixing a time window and then restoring a required route stop)
@@ -222,7 +226,7 @@ def build_graph(
                     and payload.get("ui_action") == "clarification_action"
                 )
                 if (
-                    name == "plan_route_between_places"
+                    name in ROUTE_RESULT_TOOLS
                     and isinstance(payload, dict)
                     and payload.get("ui_action") == "map_action"
                     and isinstance(payload.get("route"), dict)
@@ -424,8 +428,17 @@ def build_graph(
         )
         route_verified_for_calendar = bool(
             required_name == "propose_calendar_changes"
-            and "plan_route_between_places" in used_tool_names
-            and "plan_route_between_places" in required_sequence
+            and (
+                (
+                    "plan_route_between_places" in used_tool_names
+                    and "plan_route_between_places" in required_sequence
+                )
+                or (
+                    "recommend_places_on_map" in used_tool_names
+                    and "recommend_places_on_map" in required_sequence
+                    and route_result_payload
+                )
+            )
             and not required_tool_failed
         )
         allow_stage_clarification = bool(

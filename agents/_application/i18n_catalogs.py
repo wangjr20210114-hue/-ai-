@@ -122,6 +122,7 @@ MODEL_FIXED_COPY: Final[dict[str, str]] = {
     "model.planner.schema.field_57": 'A separate nearby anchor only when the new place is described as near another place; otherwise empty.',
     "model.planner.schema.field_58": 'Insertion position for add: start, end, before, after, or default. Use default when the user did not specify placement.',
     "model.planner.schema.field_59": 'Edits to the most recently verified route place set, in user-requested order. Do not rebuild or copy all existing stops into route_stops. Empty for a brand-new route.',
+    "model.planner.schema.field_60": 'Use optimize only when the user asks for two or more recommended real places but gives no visit order; the trusted map component will verify the model-selected places, use the Tencent road matrix and the route preference to choose an efficient open route, and maintain the resulting route chain. Use preserve for every route whose order is explicit or already established.',
     "model.planner.schema.field_47": "Every prompt topic whose operational details may be needed. Choose only from the installed topic IDs: {topic_ids}.",
     "model.planner.schema.field_48": "Every user-required capability, independently of prompt topics. Choose only from installed capability IDs: {capability_ids}. Include route for every request to calculate, plan, or edit the places in the latest verified travel route, even when it is part of a schedule request. Include calendar_context and calendar_action when the user asks for an editable calendar proposal or card; 'do not write yet' means propose for confirmation, not omit the calendar capability.",
     "model.tool_schema.field_01": "Stable semantic field id derived from the unresolved part of the user's request",
@@ -178,6 +179,7 @@ MODEL_FIXED_COPY: Final[dict[str, str]] = {
 - 现实地点可能有错字、同名或缺城市时，不得在调用地点服务之前设置 needs_clarification。先选择地点/路线能力；地点工具会根据真实腾讯候选决定直接采用、单选或填空。
 - 用户要求“去/前往/接人/送人”等现实移动并直接写入日程时，必须把真实路线视为日程的前置依赖：同时选择 route、calendar_context 与 calendar_action，设置 calendar_uses_planned_route=true。未明确起点时设置 route_uses_current_location=true，无论浏览器本轮是否已经提供坐标；运行时会先请求授权，失败或拒绝后由路线 Adapter 用可恢复卡片收集起点。不得只把终点保存成一个与路程无关的普通日程。
 - 用户在连续对话中从上一段路线的终点继续去另一个现实地点，且没有明确更换起点时，设置 route_continues_latest=true；新的 route_stops 只保留本轮新增地点，运行时会复用最近已核实路线的终点与城市。类似“接完/逛完/然后/再去”的承接关系按语义判断，不依赖固定短语。已有可靠同城上下文时不得先追问城市；仍由腾讯地点候选提供同城优先的具体分店选项，并允许用户自行填写其他地点。
+- 用户要求推荐两个及以上真实地点但没有指定游览先后时，设置 needs_route=true、needs_places=true、needs_map_action=true、route_order_policy=optimize，route_stops 只保留用户明确说出的地点（通常为空）；后续可信地图组件会先核验模型推荐的候选，再按交通与省钱、省时偏好复用腾讯道路矩阵择序并写入统一路程链路。用户已经明确“先/再/最后”等顺序，或是在修改现有路程链路时，route_order_policy=preserve，绝不能擅自重排。
 - 论文作者身份不能按“最热门同名作者”猜测。若用户只给姓名或称谓、上下文没有单位/研究方向等身份线索，且现实中可能存在多个研究者，设置 needs_clarification=true，用一张主动卡只收集能区分身份的最少信息；已有足够身份线索时不得重复询问。
 - 用户要求把上一轮已核实路线写入日程时，设置 reuse_latest_route=true，只选择 calendar_context 和 calendar_action，不得重新选择 route 或抄写历史站点到 route_stops。新路线中用户明确给出的日期、时段、出发时刻或单站停留时长原样压缩到 route_calendar_hint，供后续日程续写；没有则留空。
 - optional_capabilities 只列不影响当前核心目标的增强能力。用户直接要求写入、修改或删除日程时 calendar_context/calendar_action 绝不属于可选；只有路线请求中系统可额外主动附送日程提案时才可标为可选。

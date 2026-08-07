@@ -11,7 +11,7 @@ import asyncio
 import json
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -72,6 +72,7 @@ DEFAULT_PLAN = {
     "route_city": "全国",
     "route_mode": "default",
     "route_strategy": "default",
+    "route_order_policy": "preserve",
     "travel_budget_tier": "not_applicable",
     "route_uses_current_location": False,
     "route_origin_is_departure": False,
@@ -307,6 +308,10 @@ class CapabilityPlan(BaseModel):
         default="default",
         description=_schema("field_36"),
     )
+    route_order_policy: Literal["preserve", "optimize"] = Field(
+        default="preserve",
+        description=_schema("field_60"),
+    )
     travel_budget_tier: str = Field(
         default="not_applicable",
         description=_schema("field_37"),
@@ -483,6 +488,21 @@ def _decode_capability_plan(
     plan["route_strategy"] = route_strategy if route_strategy in {
         "default", "time_then_cost", "least_time", "least_cost",
     } else "default"
+    route_order_policy = str(
+        raw.get("route_order_policy") or "preserve"
+    ).strip().lower()
+    plan["route_order_policy"] = (
+        route_order_policy
+        if route_intent and route_order_policy in {"preserve", "optimize"}
+        else "preserve"
+    )
+    if plan["route_order_policy"] == "optimize":
+        # An unordered recommendation owns place discovery, Tencent-backed
+        # ordering and map publication as one trusted component operation.
+        # The model supplies candidate names only after this plan is accepted;
+        # route_stops continues to contain user-authored ordered stops only.
+        plan["needs_places"] = True
+        plan["needs_map_action"] = True
     travel_budget_tier = str(
         raw.get("travel_budget_tier") or "not_applicable"
     ).strip().lower()
@@ -707,7 +727,11 @@ def required_tools_for_plan(plan: dict[str, Any]) -> tuple[str, ...]:
     # the terminal map Action in one call.  For a single non-map location (most
     # commonly a calendar destination), retain the focused place lookup.
     if bool(plan.get("needs_route")):
-        required.append("plan_route_between_places")
+        required.append(
+            "recommend_places_on_map"
+            if plan.get("route_order_policy") == "optimize"
+            else "plan_route_between_places"
+        )
     elif bool(plan.get("needs_nearby_places")):
         required.append("recommend_nearby_places_on_map")
     elif bool(plan.get("needs_map_action")):

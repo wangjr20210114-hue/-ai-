@@ -3,6 +3,7 @@ from agents._application.workspace.service import (
     load_user_workspace,
     save_user_workspace,
 )
+from agents._application.chat.skill_policy import apply_runtime_skill_policy
 from agents._domain.maps.route_place_set import RoutePlaceEdit, apply_route_place_edits
 from agents._domain.maps.route_strategy import infer_route_preferences, select_route_strategy
 
@@ -148,8 +149,14 @@ class RoutePlaceEditContractTests(unittest.IsolatedAsyncioTestCase):
             [{"id": "route_origin_a1b2c3", "value": "北京南站"}],
         )
         self.assertTrue(plan["calendar_uses_planned_route"])
-        self.assertTrue(plan["reuse_latest_route"])
+        self.assertFalse(plan.get("reuse_latest_route"))
+        self.assertTrue(plan["needs_route"])
         self.assertTrue(plan["route_origin_is_departure"])
+        runtime_plan = apply_runtime_skill_policy(plan, disabled_skills=set())
+        self.assertEqual(
+            required_tools_for_plan(runtime_plan),
+            ("plan_route_between_places", "propose_calendar_changes"),
+        )
         self.assertEqual(
             arguments["plan_route_between_places"]["origin_query"],
             "北京南站",

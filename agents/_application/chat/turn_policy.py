@@ -429,7 +429,10 @@ def dynamic_system_prompt(
         }
 
     uses_maps = bool(selected_tools & MAP_TOOL_NAMES)
-    uses_route = "plan_route_between_places" in selected_tools
+    uses_route = bool(selected_tools & {
+        "plan_route_between_places",
+        "recommend_places_on_map",
+    })
     uses_place_lookup = bool(selected_tools & {
         "search_places",
         "search_places_batch",

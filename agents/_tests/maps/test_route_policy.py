@@ -16,6 +16,37 @@ from agents.chat._calendar_context import latest_route_context
 
 
 class RoutePolicyTests(unittest.TestCase):
+    def test_unordered_recommendations_use_one_trusted_route_component(self):
+        plan = parse_capability_plan({
+            "needs_route": True,
+            "needs_places": True,
+            "needs_map_action": True,
+            "route_order_policy": "optimize",
+            "route_mode": "transit",
+            "route_strategy": "least_cost",
+            "route_stops": [],
+        })
+        self.assertEqual(plan["route_order_policy"], "optimize")
+        self.assertEqual(
+            required_tools_for_plan(plan),
+            ("recommend_places_on_map",),
+        )
+
+    def test_explicit_route_order_cannot_be_optimized_implicitly(self):
+        plan = parse_capability_plan({
+            "needs_route": True,
+            "route_order_policy": "preserve",
+            "route_stops": [
+                {"query": "起点"},
+                {"query": "中途地点"},
+                {"query": "终点"},
+            ],
+        })
+        self.assertEqual(
+            required_tools_for_plan(plan),
+            ("plan_route_between_places",),
+        )
+
     def test_unordered_route_uses_provider_time_or_cost_objective(self):
         distances = (
             (0, 1, 10),

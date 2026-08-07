@@ -448,15 +448,20 @@ def resume_capability_protocol(
         for flag in _RESUME_TOOL_PLAN_FLAGS[tool_name]:
             plan[flag] = True
     linked_route_calendar = (
-        "plan_route_between_places" in required_tools
+        any(name in required_tools for name in (
+            "plan_route_between_places",
+            "recommend_places_on_map",
+        ))
         and "propose_calendar_changes" in required_tools
     )
     if linked_route_calendar:
         # A route followed by Calendar is one dependent machine protocol.
         # Restore that relation from the versioned tool sequence instead of
         # asking the semantic planner to infer it again after a card answer.
+        # Do not mark the route reusable here: the card may have been emitted
+        # by the route operation itself before any route was verified. Only a
+        # later route-calendar timing answer can safely select reuse below.
         plan["calendar_uses_planned_route"] = True
-        plan["reuse_latest_route"] = True
     raw_arguments = resume.get("planned_tool_arguments")
     planned_arguments = (
         copy.deepcopy(raw_arguments)
