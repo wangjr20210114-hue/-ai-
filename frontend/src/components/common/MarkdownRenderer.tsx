@@ -2,7 +2,13 @@ import React, { memo, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { RichMediaAsset, SearchMeta } from '../../features/search/model';
-import { isSafeRemoteUrl, linkBareCitations, replaceCitationMarkers, sourceLabel } from './richContent';
+import {
+  isSafeRemoteUrl,
+  linkBareCitations,
+  replaceCitationMarkers,
+  sourceLabel,
+  sourcePublisherLabel,
+} from './richContent';
 import { useLanguage } from '../../i18n';
 import {
   presentableSourceBoundMedia,
@@ -200,16 +206,14 @@ function MarkdownRenderer({
       const urlOnly = sameUrl(label.replace(/^<|>$/g, ''), url);
       const semanticCitation = /^(?:来源|查看来源|出处|参考|來源|查看來源|出處|參考|source|view source)(?:\s*[:：·-]?\s*.*)?$/i.test(label);
       const compactCitation = urlOnly || semanticCitation;
-      const citationHost = (() => {
-        try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return sourceLabel(url, sources); }
-      })();
+      const citationPublisher = sourcePublisherLabel(url, sources);
       return <a
         href={url}
         target="_blank"
         rel="noopener noreferrer"
         className={compactCitation ? 'md-citation-link' : undefined}
         title={compactCitation ? url : undefined}
-      >{compactCitation ? `${t('viewSource')} · ${citationHost}` : children}</a>;
+      >{compactCitation ? `${t('viewSource')} · ${citationPublisher}` : children}</a>;
     },
     img: ({
       src,

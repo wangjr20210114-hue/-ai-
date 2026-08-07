@@ -85,6 +85,23 @@ describe('MarkdownRenderer', () => {
     expect(html).toContain('>查看来源 · news.example</a>');
   });
 
+  it('shows the real publisher instead of a search relay hostname', () => {
+    const publisherMeta: SearchMeta = {
+      ...searchMeta,
+      results: [{
+        ...searchMeta.results[0],
+        url: 'https://relay.example/result/1',
+        publisher: 'Example Research Lab',
+        publisher_domain: 'relay.example',
+      }],
+    };
+    const html = renderToStaticMarkup(
+      <MarkdownRenderer content={'结论[来源](https://relay.example/result/1)。'} searchMeta={publisherMeta} />,
+    );
+    expect(html).toContain('>查看来源 · Example Research Lab</a>');
+    expect(html).not.toContain('>查看来源 · relay.example</a>');
+  });
+
   it('renders a source label in the active English interface language', () => {
     const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
     Object.defineProperty(globalThis, 'localStorage', {

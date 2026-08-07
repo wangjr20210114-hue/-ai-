@@ -1,5 +1,6 @@
 .conversation-item {
   width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 9px;

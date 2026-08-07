@@ -74,13 +74,14 @@
 }
 .conversation-history-search:focus-within { border-color: var(--td-brand-color); box-shadow: 0 0 0 3px rgba(var(--app-accent-rgb), .08); }
 .conversation-history-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--app-text); background: transparent; font-size: 13px; }
-.conversation-history-group { display: grid; gap: 3px; }
+.conversation-history-group { display: grid; width: 100%; min-width: 0; gap: 3px; }
 .conversation-history-group + .conversation-history-group { margin-top: 9px; }
 .conversation-history-group > h3 { margin: 2px 8px 3px; color: var(--app-text-3); font-size: 11px; font-weight: 650; }
 
 .conversation-list {
-  flex: 1;
+  flex: 1 1 120px;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -99,11 +100,15 @@
   height: 34px;
   border-radius: 10px;
 }
-.sidebar-reminders { flex: 0 0 auto; max-height: 40%; margin-top: 9px; padding-top: 9px; overflow: auto; border-top: 1px solid var(--app-border); }
+.sidebar-reminders { flex: 0 1 auto; min-width: 0; margin-top: 9px; padding-top: 9px; overflow: auto; border-top: 1px solid var(--app-border); }
+.sidebar-reminders.is-expanded { max-height: min(34%, 220px); }
+.sidebar-reminders.is-collapsed { flex: 0 0 auto; overflow: hidden; }
 .sidebar-reminders-heading { display: flex; align-items: center; gap: 6px; padding: 0 5px 6px; color: var(--app-text-2); font-size: 12px; font-weight: 650; }
-.sidebar-reminders-heading > span { display: inline-flex; align-items: center; gap: 5px; }
-.sidebar-reminders-heading b { min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; color: #fff; background: #e34d59; font-size: 9px; line-height: 17px; text-align: center; }
-.sidebar-reminders-heading button { margin-left: auto; border: 0; color: var(--app-text-3); background: transparent; cursor: pointer; }
+.sidebar-reminders-heading button { display: inline-flex; align-items: center; justify-content: center; padding: 2px; border: 0; color: var(--app-text-3); background: transparent; cursor: pointer; }
+.sidebar-reminders-heading > button:last-child { margin-left: auto; }
+.sidebar-reminders-heading .sidebar-reminders-toggle { min-width: 0; justify-content: flex-start; gap: 5px; color: var(--app-text-2); font: inherit; }
+.sidebar-reminders-toggle > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-reminders-toggle b { min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; color: #fff; background: #e34d59; font-size: 9px; line-height: 17px; text-align: center; }
 .sidebar-reminders-empty { padding: 7px 6px 3px; color: var(--app-text-3); font-size: 12px; }
 .sidebar-reminder { margin: 4px 2px; padding: 8px; border: 1px solid rgba(var(--app-accent-rgb), .14); border-radius: 9px; background: rgba(var(--app-accent-rgb), .04); }
 .sidebar-reminder.priority-high { border-color: rgba(227, 77, 89, .28); background: rgba(227, 77, 89, .05); }

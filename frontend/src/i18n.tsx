@@ -857,6 +857,8 @@ const catalog = {
   moveFailed: ['移动失败', '移動失敗', 'Move failed', '移动失败了喵', '移动失败'],
 
   proactiveReminders: ['主动提醒', '主動提醒', 'Proactive reminders', '主动提醒喵', '主动提醒'],
+  expandReminders: ['展开提醒', '展開提醒', 'Expand reminders', '展开提醒喵', '展开提醒'],
+  collapseReminders: ['收起提醒', '收合提醒', 'Collapse reminders', '收起提醒喵', '收起提醒'],
   reminders: ['提醒', '提醒', 'Reminders', '提醒喵', '提醒'],
   refreshReminders: ['刷新提醒', '重新整理提醒', 'Refresh reminders', '刷新提醒喵', '刷新提醒'],
   noReminders: ['暂无需要处理的事项', '暫無需要處理的事項', 'Nothing needs attention', '暂时没有要处理的事喵', '暂无需要处理的事项'],

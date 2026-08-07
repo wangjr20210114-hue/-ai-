@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MessagePlugin } from 'tdesign-react';
-import { NotificationIcon } from 'tdesign-icons-react';
+import { ChevronDownIcon, ChevronUpIcon, NotificationIcon } from 'tdesign-icons-react';
 import { useAppDispatch, useAppState } from '../../../store/appState';
 import type { ProactiveNotification } from '../model';
 import { activeProactiveNotifications } from '../model/proactiveNotifications';
@@ -23,6 +23,7 @@ export default function ProactiveBriefPanel() {
   const dispatch = useAppDispatch();
   const [mutating, setMutating] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const refreshingRef = useRef(false);
   const notifications = useMemo(
     () => activeProactiveNotifications(proactive?.notifications || []),
@@ -88,15 +89,26 @@ export default function ProactiveBriefPanel() {
   };
 
   return (
-    <section className="sidebar-reminders" data-onboarding="reminders" aria-label={t('proactiveReminders')}>
+    <section className={`sidebar-reminders ${expanded ? 'is-expanded' : 'is-collapsed'}`} data-onboarding="reminders" aria-label={t('proactiveReminders')}>
       <div className="sidebar-reminders-heading">
-        <span><NotificationIcon size="15px" /> {t('reminders')}</span>
-        {notifications.length > 0 && <b>{notifications.length}</b>}
+        <button
+          type="button"
+          className="sidebar-reminders-toggle"
+          aria-expanded={expanded}
+          aria-label={t(expanded ? 'collapseReminders' : 'expandReminders')}
+          title={t(expanded ? 'collapseReminders' : 'expandReminders')}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <NotificationIcon size="15px" />
+          <span>{t('reminders')}</span>
+          {notifications.length > 0 && <b>{notifications.length}</b>}
+          {expanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+        </button>
         <button type="button" disabled={refreshing} onClick={() => { void refresh(); }} aria-label={t('refreshReminders')} title={t('refreshReminders')}>
           {refreshing ? '…' : '↻'}
         </button>
       </div>
-      {notifications.length === 0 ? (
+      {expanded && (notifications.length === 0 ? (
         <div className="sidebar-reminders-empty">{t('noReminders')}</div>
       ) : notifications.map((item) => (
         <article key={item.id} className={`sidebar-reminder priority-${item.priority}`}>
@@ -109,7 +121,7 @@ export default function ProactiveBriefPanel() {
             <button type="button" disabled={Boolean(mutating)} onClick={() => { void mutate(`dismiss:${item.id}`, 'dismiss', { notification_id: item.id }); }}>{t('ignore')}</button>
           </div>
         </article>
-      ))}
+      )))}
     </section>
   );
 }

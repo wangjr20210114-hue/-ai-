@@ -27,6 +27,10 @@ function sourceForUrl(url: string, sources: SearchResultItem[]): SearchResultIte
   return sources.find((source) => normalizedUrl(source.url) === normalized);
 }
 
+function cleanLabel(value: string): string {
+  return value.trim().replace(/[\r\n]+/g, ' ').replace(/\s{2,}/g, ' ');
+}
+
 /** Count evidence actually cited by the answer, not merely fetched candidates. */
 export function citedSearchSourceCount(
   content: string,
@@ -45,7 +49,21 @@ export function citedSearchSourceCount(
 
 export function sourceLabel(url: string, sources: SearchResultItem[] = []): string {
   const source = sourceForUrl(url, sources);
-  if (source?.title?.trim()) return source.title.trim().split(/[\r\n]/).join(' ').split('[').join(' ').split(']').join(' ');
+  if (source?.title?.trim()) return cleanLabel(source.title).split('[').join(' ').split(']').join(' ');
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return translate('viewSource');
+  }
+}
+
+/** Prefer the publisher carried by the search contract over a relay hostname. */
+export function sourcePublisherLabel(url: string, sources: SearchResultItem[] = []): string {
+  const source = sourceForUrl(url, sources);
+  const publisher = cleanLabel(source?.publisher || '');
+  if (publisher) return publisher;
+  const publisherDomain = cleanLabel(source?.publisher_domain || '');
+  if (publisherDomain) return publisherDomain.replace(/^www\./, '');
   try {
     return new URL(url).hostname.replace(/^www\./, '');
   } catch {
