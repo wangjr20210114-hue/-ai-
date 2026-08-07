@@ -1095,7 +1095,7 @@ async def plan_route(
                 fallback_modes = (
                     ("driving", "bicycling", "walking")
                     if mode == "transit" and strategy == "least_time"
-                    else ("bicycling", "walking")
+                    else ("bicycling", "driving")
                     if mode == "transit"
                     else ("walking",)
                     if mode == "bicycling"

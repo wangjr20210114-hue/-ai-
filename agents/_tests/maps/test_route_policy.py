@@ -292,6 +292,42 @@ class RouteModelBoundaryTests(unittest.IsolatedAsyncioTestCase):
             "transit",
         )
 
+    async def test_transit_fallback_reaches_tencent_driving_as_last_resort(self):
+        places = [
+            {**PLACE, "place_id": "a", "name": "A"},
+            {**PLACE, "place_id": "b", "name": "B", "longitude": 116.4},
+        ]
+
+        async def route_leg(_key, origin, destination, *, mode, **_kwargs):
+            if mode in {"transit", "bicycling"}:
+                raise RuntimeError(f"no {mode} candidate")
+            return {
+                "path": [],
+                "sections": [{
+                    "mode": mode,
+                    "path": [],
+                    "distance_meters": 1_000,
+                    "duration_seconds": 600,
+                }],
+                "distance_meters": 1_000,
+                "duration_seconds": 600,
+                "selection": {},
+            }
+
+        with patch(
+            "agents._infrastructure.providers.tencent_location._plan_route_leg",
+            new=route_leg,
+        ):
+            route = await plan_route(
+                "map-key",
+                places,
+                mode="transit",
+                strategy="least_cost",
+            )
+
+        self.assertEqual(route["legs"][0]["mode"], "driving")
+        self.assertTrue(route["legs"][0]["selection"]["mode_fallback"])
+
     async def test_verified_recommendations_are_handed_to_route_component(self):
         captured: dict[str, object] = {}
 
