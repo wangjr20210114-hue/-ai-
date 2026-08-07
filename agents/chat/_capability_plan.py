@@ -80,6 +80,8 @@ DEFAULT_PLAN = {
     "reuse_latest_route": False,
     "calendar_uses_planned_route": False,
     "route_calendar_hint": "",
+    "route_calendar_start_time": "",
+    "route_calendar_stop_minutes": 0,
     "optional_capabilities": [],
     "place_resolution_target": "none",
     "clarification_title": "",
@@ -340,6 +342,14 @@ class CapabilityPlan(BaseModel):
         default="",
         description=_schema("field_40"),
     )
+    route_calendar_start_time: str = Field(
+        default="",
+        description=_schema("field_61"),
+    )
+    route_calendar_stop_minutes: int = Field(
+        default=0,
+        description=_schema("field_62"),
+    )
     optional_capabilities: list[str] = Field(
         default_factory=list,
         description=_schema("field_41"),
@@ -544,6 +554,16 @@ def _decode_capability_plan(
     plan["route_calendar_hint"] = str(
         raw.get("route_calendar_hint") or ""
     ).strip()[:240]
+    plan["route_calendar_start_time"] = str(
+        raw.get("route_calendar_start_time") or ""
+    ).strip()[:80]
+    try:
+        plan["route_calendar_stop_minutes"] = max(
+            0,
+            min(720, int(raw.get("route_calendar_stop_minutes") or 0)),
+        )
+    except (TypeError, ValueError):
+        plan["route_calendar_stop_minutes"] = 0
     plan["optional_capabilities"] = list(
         _normalize_preflight_capabilities(
             raw.get("optional_capabilities") or []
@@ -1127,7 +1147,8 @@ async def plan_capabilities(
     prompt_topics: Iterable[Any] | None = None,
     response_language: object = "zh-CN",
 ) -> dict[str, Any]:
-    today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+    runtime_now = datetime.now(timezone(timedelta(hours=8)))
+    today = runtime_now.strftime("%Y-%m-%d")
     language = normalize_language(response_language)
     prompt = text(
         "model.planner.system",
@@ -1136,6 +1157,19 @@ async def plan_capabilities(
         user_copy_instruction=text(
             "model.planner.user_copy_instruction", language,
         ),
+    )
+    tomorrow = runtime_now + timedelta(days=1)
+    day_after_tomorrow = runtime_now + timedelta(days=2)
+    prompt += "\n" + text(
+        "model.chat.runtime_context",
+        language,
+        timestamp=runtime_now.strftime("%Y-%m-%d %H:%M:%S"),
+        weekday_en=runtime_now.strftime("%A"),
+        weekday_local=runtime_now.strftime("%A"),
+        tomorrow=tomorrow.strftime("%Y-%m-%d"),
+        tomorrow_weekday=tomorrow.strftime("%A"),
+        day_after_tomorrow=day_after_tomorrow.strftime("%Y-%m-%d"),
+        day_after_tomorrow_weekday=day_after_tomorrow.strftime("%A"),
     )
     prompt += "\n\n" + text(
         "model.planner.skill_index_header", language,

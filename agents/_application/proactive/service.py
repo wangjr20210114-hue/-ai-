@@ -571,6 +571,7 @@ async def collect_provider_signals(
             route = await plan_verified_route(key, [previous_place, current_place])
             diagnostics["routes_checked"] += 1
             required = int(route.get("duration_seconds") or 0) + travel_buffer_seconds
+            shortfall = max(0, required - available)
             diagnostics["route_facts"].append({
                 "previous_schedule_id": str(previous.get("id") or ""),
                 "current_schedule_id": str(current.get("id") or ""),
@@ -579,14 +580,19 @@ async def collect_provider_signals(
                 "distance_meters": float(route.get("distance_meters") or 0),
                 "provider": str(route.get("provider") or ""),
                 "travel_buffer_seconds": travel_buffer_seconds,
+                "shortfall_seconds": shortfall,
                 "observed_at": now,
             })
-            if required > available:
+            # Avoid a high-priority interruption for rounding noise or a
+            # negligible buffer miss. Five minutes is still conservative for
+            # a calendar assistant, while materially impossible transfers
+            # remain actionable and keep their provider-backed evidence.
+            if shortfall >= 5 * 60:
                 pair = f"{previous.get('id')}:{previous.get('start_time')}:{current.get('id')}:{current.get('start_time')}"
                 signals.append({
                     "type": "route_risk",
                     "dedup_key": f"route_risk:{pair}",
-                    "priority": "high",
+                    "priority": "high" if shortfall >= 10 * 60 else "normal",
                     "subject_ids": [str(previous.get("id") or ""), str(current.get("id") or "")],
                     "title": _copy("proactive.route.title"),
                     "detail": _copy(

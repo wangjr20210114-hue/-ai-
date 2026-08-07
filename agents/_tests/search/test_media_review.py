@@ -115,31 +115,31 @@ class SearchMediaReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pages[0]["provider_images"][0]["caption"], "大会现场")
         self.assertEqual(pages[1]["image"], "https://qqpublic.qpic.cn/embedded.jpg")
 
-    def test_source_ranking_keeps_a_second_domain_when_relevant(self):
+    def test_source_ranking_keeps_a_second_publisher_when_relevant(self):
         self.assertEqual(
             source_domain("https://portal.example.co.uk?view=latest"),
             "example.co.uk",
         )
         ranked = rank_source_results([
             {
-                "url": "https://news.a.gov.cn/news/1",
+                "url": "https://gateway.example/news/1", "publisher": "Publisher A",
                 "title": "AI 进展",
                 "snippet": "AI 进展 官方公告",
             },
             {
-                "url": "https://portal.a.gov.cn/news/2",
+                "url": "https://gateway.example/news/2", "publisher": "Publisher A",
                 "title": "AI 进展补充",
                 "snippet": "AI 进展 官方公告",
             },
             {
-                "url": "https://news.example.com/news/3",
+                "url": "https://gateway.example/news/3", "publisher": "Publisher B",
                 "title": "AI 进展观察",
                 "snippet": "AI 进展",
             },
         ], "AI 进展")
         self.assertEqual(
             [item["url"] for item in ranked[:2]],
-            ["https://news.a.gov.cn/news/1", "https://news.example.com/news/3"],
+            ["https://gateway.example/news/1", "https://gateway.example/news/3"],
         )
         ranked = rank_source_results([{
             "url": "https://feed.example/entry",

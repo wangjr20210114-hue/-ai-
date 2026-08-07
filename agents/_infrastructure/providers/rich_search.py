@@ -33,6 +33,7 @@ from ..._domain.search.source_policy import (
     filter_sources_for_target_date,
     rank_source_results,
     source_domain,
+    source_publisher_identity,
 )
 
 
@@ -875,10 +876,14 @@ async def rich_search(
     visual_results = results
     date_filter["kept"] = len(results)
     source_domains: list[str] = []
+    source_publishers: list[str] = []
     for item in results:
         domain = source_domain(item.get("url"))
         if domain and domain not in source_domains:
             source_domains.append(domain)
+        publisher_identity = source_publisher_identity(item)
+        if publisher_identity and publisher_identity not in source_publishers:
+            source_publishers.append(publisher_identity)
     sources = [{
         "id": f"source-{index}", "source": item["source"], "title": item["title"],
         "snippet": item["snippet"][:240], "url": item["url"], "date": item["date"],
@@ -929,6 +934,7 @@ async def rich_search(
             "provider_timeout_seconds": provider_timeout,
             "source_domain_count": len(source_domains),
             "source_domains": source_domains[:12],
+            "source_publisher_count": len(source_publishers),
             "provider_time_window": provider_time_window,
             "page_fetch_limit": min(6, max(4, image_limit * 2)) if image_limit else 0,
         },

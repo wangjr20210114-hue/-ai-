@@ -89,8 +89,8 @@ class SearchEvidenceTests(unittest.TestCase):
 
         model_evidence = present_search_evidence(evidence)
 
-        self.assertIn("包含 2 个独立发布者域", model_evidence)
-        self.assertIn("必须覆盖至少两个发布者域", model_evidence)
+        self.assertIn("包含 2 个独立发布者", model_evidence)
+        self.assertIn("必须覆盖至少两个发布者", model_evidence)
         self.assertIn("不得把同一发布者的系列文章", model_evidence)
 
     def test_model_evidence_discloses_when_publishers_are_concentrated(self):
@@ -114,7 +114,7 @@ class SearchEvidenceTests(unittest.TestCase):
 
         model_evidence = present_search_evidence(evidence)
 
-        self.assertIn("只有 1 个独立发布者域", model_evidence)
+        self.assertIn("只有 1 个独立发布者", model_evidence)
         self.assertIn("不得声称已经得到多方独立核验", model_evidence)
 
     def test_rejects_empty_source_identity(self):

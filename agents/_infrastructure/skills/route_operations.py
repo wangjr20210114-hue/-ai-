@@ -57,6 +57,8 @@ def build_route_operation(
     map_search_timeout,
     place_disambiguation_model,
     planned_route_calendar_hint,
+    planned_route_calendar_start_time,
+    planned_route_calendar_stop_minutes,
     planned_route_city,
     planned_route_mode,
     planned_route_stops,
@@ -986,6 +988,13 @@ def build_route_operation(
                 if isinstance(leg, dict)
             ][:11],
             "calendar_hint": str(planned_route_calendar_hint or "").strip()[:240],
+            "calendar_start_time": str(
+                planned_route_calendar_start_time or ""
+            ).strip()[:80],
+            "calendar_stop_minutes": max(
+                0,
+                min(720, int(planned_route_calendar_stop_minutes or 0)),
+            ),
         }
         route_plan = record_route_plan(state, conversation_id, route_plan)
         route_plans = state.setdefault("route_plans", {})

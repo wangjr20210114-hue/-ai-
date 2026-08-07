@@ -110,8 +110,10 @@ def build_paper_search_operation(
         async def makers_search_fallback() -> list[dict[str, Any]]:
             if not (
                 paper_discovery_model is not None
-                and clean_author
-                and clean_institution
+                and (
+                    clean_topic
+                    or (clean_author and clean_institution)
+                )
                 and str(runtime_env.get("WSA_API_KEY") or "").strip()
             ):
                 return []
@@ -179,24 +181,54 @@ def build_paper_search_operation(
         )
         try:
             try:
-                academic_rows = await asyncio.wait_for(
-                    academic_lookup(),
-                    timeout=academic_timeout,
+                # English-first academic indexes are unreliable when the
+                # topic itself contains non-Latin wording. In that case reuse
+                # Makers SearchPro concurrently as a source-bound discovery
+                # path instead of waiting for the official index to time out
+                # before trying a second provider. Exact arXiv identities are
+                # still verified by the official adapter whenever available.
+                mixed_language_topic = bool(
+                    clean_topic
+                    and any(ord(character) > 127 for character in clean_topic)
                 )
+                if mixed_language_topic:
+                    academic_result, makers_result = await asyncio.gather(
+                        asyncio.wait_for(
+                            academic_lookup(),
+                            timeout=academic_timeout,
+                        ),
+                        makers_search_fallback(),
+                        return_exceptions=True,
+                    )
+                    academic_rows = (
+                        academic_result
+                        if isinstance(academic_result, list)
+                        else []
+                    )
+                    makers_rows = (
+                        makers_result
+                        if isinstance(makers_result, list)
+                        else []
+                    )
+                else:
+                    academic_rows = await asyncio.wait_for(
+                        academic_lookup(),
+                        timeout=academic_timeout,
+                    )
+                    makers_rows = []
             except Exception as exc:
                 logging.warning(
                     "academic provider cascade failed error_type=%s",
                     type(exc).__name__,
                 )
                 academic_rows = []
+                makers_rows = []
             # SearchPro is recovery, not a parallel default. A successful set
             # of officially verified arXiv IDs must not wait for another
-            # provider or be diluted with cached prose.
-            makers_rows = (
-                []
-                if academic_rows
-                else await makers_search_fallback()
-            )
+            # provider or be diluted with cached prose. Mixed-language topics
+            # are the one compatibility case handled concurrently above.
+            if not academic_rows and not makers_rows:
+                makers_rows = await makers_search_fallback()
             papers: list[dict[str, Any]] = []
             seen_papers: set[str] = set()
             for paper in [*academic_rows, *makers_rows]:

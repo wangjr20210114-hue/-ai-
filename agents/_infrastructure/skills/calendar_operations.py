@@ -141,19 +141,57 @@ def build_calendar_operation(
             and route_source_id
             and (planned_reuse_latest_route or requested_route_plan_id)
         )
-        if route_continuation and linked_calendar_stops and route_start_time:
-            stop_minutes = max(15, min(720, int(route_stop_minutes or 90)))
-            start = _parse_datetime(route_start_time)
+        all_route_stops = [
+            stop
+            for stop in (
+                (linked_route.get("ordered_stops") or [])
+                if isinstance(linked_route, dict)
+                else []
+            )
+            if isinstance(stop, dict) and str(stop.get("place_id") or "")
+        ]
+        direct_route_journey = bool(
+            route_continuation
+            and len(all_route_stops) == 2
+            and (
+                linked_route.get("implicit_browser_origin")
+                or linked_route.get("explicit_origin_is_departure")
+            )
+        )
+        if direct_route_journey:
+            # A direct origin-to-destination request is one journey, not two
+            # artificial station visits. The origin remains in the linked
+            # route chain while the calendar event is anchored at the verified
+            # destination.
+            linked_calendar_stops = all_route_stops[1:]
+        effective_route_start_time = str(
+            route_start_time
+            or (
+                linked_route.get("calendar_start_time")
+                if isinstance(linked_route, dict)
+                else ""
+            )
+            or ""
+        ).strip()
+        linked_stop_minutes = (
+            int(linked_route.get("calendar_stop_minutes") or 0)
+            if isinstance(linked_route, dict)
+            else 0
+        )
+        if route_continuation and linked_calendar_stops and effective_route_start_time:
+            stop_minutes = max(
+                15,
+                min(720, int(linked_stop_minutes or route_stop_minutes or 90)),
+            )
+            start = _parse_datetime(effective_route_start_time)
             leg_data = linked_route.get("legs") if isinstance(linked_route, dict) else []
-            implicit_origin = bool(linked_route.get("implicit_browser_origin"))
+            implicit_origin = bool(
+                linked_route.get("implicit_browser_origin")
+                or direct_route_journey
+            )
             explicit_origin_is_departure = bool(
                 linked_route.get("explicit_origin_is_departure")
             )
-            all_route_stops = [
-                stop
-                for stop in (linked_route.get("ordered_stops") or [])
-                if isinstance(stop, dict) and str(stop.get("place_id") or "")
-            ]
             generated_changes: list[dict[str, Any]] = []
             current = start
             for index, stop in enumerate(linked_calendar_stops):
@@ -167,7 +205,9 @@ def build_calendar_operation(
                         else 0
                     )
                     arrival = current + timedelta(seconds=incoming_seconds)
-                    end = arrival + timedelta(minutes=stop_minutes)
+                    end = arrival + timedelta(
+                        minutes=0 if direct_route_journey else stop_minutes
+                    )
                     previous_stop = (
                         all_route_stops[index]
                         if index < len(all_route_stops)
@@ -269,45 +309,19 @@ def build_calendar_operation(
                 conversation_id,
                 title=text("calendar.route_schedule.title", response_language),
                 prompt=text("calendar.route_schedule.prompt", response_language),
-                fields=[
-                    {
-                        "id": "route_calendar_start",
-                        "label": text(
-                            "calendar.route_schedule.departure", response_language,
-                        ),
-                        "type": "datetime",
-                        "required": True,
-                        "options": [],
-                        "placeholder": text(
-                            "calendar.route_schedule.departure_placeholder",
-                            response_language,
-                        ),
-                    },
-                    {
-                        "id": "route_calendar_stop_minutes",
-                        "label": text(
-                            "calendar.route_schedule.stay", response_language,
-                        ),
-                        "type": "single",
-                        "required": True,
-                        "options": [
-                            text(
-                                "calendar.route_schedule.minutes",
-                                response_language,
-                                minutes=minutes,
-                            )
-                            for minutes in (60, 90, 120)
-                        ],
-                        "option_values": {
-                            text(
-                                "calendar.route_schedule.minutes",
-                                response_language,
-                                minutes=minutes,
-                            ): str(minutes)
-                            for minutes in (60, 90, 120)
-                        },
-                    },
-                ],
+                fields=[{
+                    "id": "route_calendar_start",
+                    "label": text(
+                        "calendar.route_schedule.departure", response_language,
+                    ),
+                    "type": "datetime",
+                    "required": True,
+                    "options": [],
+                    "placeholder": text(
+                        "calendar.route_schedule.departure_placeholder",
+                        response_language,
+                    ),
+                }],
             )
         if not 1 <= len(changes) <= 24:
             raise ValueError(text("calendar.error.change_count", response_language))
@@ -711,7 +725,13 @@ def build_calendar_operation(
             ]
             required_stops = (
                 route_stops[1:]
-                if linked_route.get("implicit_browser_origin") and route_stops
+                if (
+                    route_stops
+                    and (
+                        linked_route.get("implicit_browser_origin")
+                        or direct_route_journey
+                    )
+                )
                 else route_stops
             )
             required_ids = [str(item.get("place_id") or "") for item in required_stops]

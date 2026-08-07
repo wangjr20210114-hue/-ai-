@@ -115,7 +115,7 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(clarification["ui_action"], "clarification_action")
         self.assertEqual(
             [field["id"] for field in clarification["clarification"]["fields"]],
-            ["route_calendar_start", "route_calendar_stop_minutes"],
+            ["route_calendar_start"],
         )
 
         result = json.loads(await calendar_tool.ainvoke({
@@ -179,7 +179,7 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
         event = result["action"]["payload"]["changes"][0]["event"]
         expected_start = int(datetime.fromisoformat(requested_start).timestamp())
         self.assertEqual(event["start_time"], expected_start)
-        self.assertEqual(event["duration_minutes"], 80)
+        self.assertEqual(event["duration_minutes"], 20)
         self.assertIn("→", event["title"])
         self.assertNotIn("browser-current-location", json.dumps(event))
 
@@ -348,20 +348,78 @@ class MapCalendarHardeningTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calendar_result["ui_action"], "clarification_action")
         self.assertEqual(
             [field["id"] for field in calendar_result["clarification"]["fields"]],
-            ["route_calendar_start", "route_calendar_stop_minutes"],
+            ["route_calendar_start"],
         )
         changes = proposal["action"]["payload"]["changes"]
-        self.assertEqual(changes[0]["event"]["duration_minutes"], 1)
-        self.assertEqual(
-            changes[1]["event"]["start_time"] - changes[0]["event"]["start_time"],
-            30 * 60,
-        )
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["event"]["duration_minutes"], 30)
         saved = await load_workspace(store, TEST_USER_ID)
         self.assertEqual(
             saved["route_chains"][saved["route_chain_index"]["route-then-calendar"]][
                 "current_plan"
             ]["id"],
             route_result["route_plan_id"],
+        )
+
+    async def test_direct_route_calendar_reuses_planned_time_as_one_journey(self):
+        store = FakeStore()
+        state = empty_workspace()
+        state["place_candidates"] = {
+            PLACE_A["place_id"]: PLACE_A,
+            PLACE_B["place_id"]: PLACE_B,
+        }
+        await save_workspace(store, TEST_USER_ID, state)
+        route = {
+            "mode": "transit",
+            "places": [PLACE_A, PLACE_B],
+            "path": [],
+            "legs": [{"duration_seconds": 1_800}],
+            "distance_meters": 10_000,
+            "duration_seconds": 1_800,
+            "fare": {},
+        }
+        requested_start = "2099-08-09T15:00:00+08:00"
+        with patch(
+            "agents._infrastructure.skills.builtin_operations.provider_plan_route",
+            new=AsyncMock(return_value=route),
+        ):
+            tools = build_system_skill_tools(
+                None,
+                store=store,
+                conversation_id="direct-route-calendar",
+                user_id=TEST_USER_ID,
+                env={},
+                planned_route_origin_is_departure=True,
+                planned_route_calendar_start_time=requested_start,
+                planned_reuse_latest_route=True,
+            )
+            route_tool = next(
+                tool for tool in tools if tool.name == "plan_route_between_places"
+            )
+            calendar_tool = next(
+                tool for tool in tools if tool.name == "propose_calendar_changes"
+            )
+            await route_tool.ainvoke({
+                "origin_query": f"floris-place:{PLACE_A['place_id']}",
+                "destination_query": f"floris-place:{PLACE_B['place_id']}",
+                "route_mode": "transit",
+            })
+            proposal = json.loads(await calendar_tool.ainvoke({
+                "summary": "direct journey",
+                "changes": [],
+            }))
+
+        self.assertEqual(proposal["ui_action"], "calendar_action")
+        changes = proposal["action"]["payload"]["changes"]
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["event"]["duration_minutes"], 30)
+        self.assertEqual(
+            changes[0]["event"]["start_time"],
+            int(datetime.fromisoformat(requested_start).timestamp()),
+        )
+        self.assertEqual(
+            changes[0]["event"]["place"]["place_id"],
+            PLACE_B["place_id"],
         )
 
     async def test_route_calendar_offer_is_hidden_when_calendar_skill_is_disabled(self):

@@ -617,6 +617,12 @@ async def _handle(ctx):
             planned_route_calendar_hint=str(
                 capability_plan.get("route_calendar_hint") or ""
             ),
+            planned_route_calendar_start_time=str(
+                capability_plan.get("route_calendar_start_time") or ""
+            ),
+            planned_route_calendar_stop_minutes=int(
+                capability_plan.get("route_calendar_stop_minutes") or 0
+            ),
             planned_reuse_latest_route=bool(
                 capability_plan.get("reuse_latest_route")
                 or capability_plan.get("calendar_uses_planned_route")

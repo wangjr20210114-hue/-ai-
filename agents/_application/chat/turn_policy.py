@@ -29,10 +29,25 @@ def route_calendar_tool_arguments(
         and capability_plan.get("calendar_uses_planned_route")
     ):
         return {}
-    return {
+    arguments = {
         "summary": str(message or "").strip()[:500],
         "changes": [],
     }
+    route_start_time = str(
+        capability_plan.get("route_calendar_start_time") or ""
+    ).strip()[:80]
+    if route_start_time:
+        arguments["route_start_time"] = route_start_time
+    try:
+        stop_minutes = max(
+            0,
+            min(720, int(capability_plan.get("route_calendar_stop_minutes") or 0)),
+        )
+    except (TypeError, ValueError):
+        stop_minutes = 0
+    if stop_minutes:
+        arguments["route_stop_minutes"] = stop_minutes
+    return arguments
 
 
 def route_tool_arguments_for_plan(

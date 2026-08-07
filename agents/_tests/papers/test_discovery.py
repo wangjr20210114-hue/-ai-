@@ -490,6 +490,62 @@ class PaperDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["papers"][0]["arxiv_id"], "2604.10767")
         search.assert_awaited_once()
 
+    async def test_mixed_language_topic_reuses_makers_search_concurrently(self):
+        class EvidenceModel:
+            def with_structured_output(self, schema, **_kwargs):
+                self.schema = schema
+                return self
+
+            async def ainvoke(self, _messages):
+                if self.schema.__name__ == "PaperSearchEvidenceCandidates":
+                    return {
+                        "parsed": self.schema(candidates=[{
+                            "source_id": "source-1",
+                            "title": "A Verified RAG Evaluation Benchmark",
+                            "authors": ["Researcher"],
+                            "year": 2025,
+                            "arxiv_id": "2501.01234",
+                        }]),
+                    }
+                return {"parsed": self.schema(candidates=[])}
+
+        tools = build_system_skill_tools(
+            None,
+            store=FakeStore(),
+            conversation_id="paper-mixed-language",
+            user_id=TEST_USER_ID,
+            env={"WSA_API_KEY": "test-key"},
+            paper_discovery_model=EvidenceModel(),
+        )
+        tool = next(item for item in tools if item.name == "search_arxiv")
+        search_metadata = {"results": [{
+            "id": "source-1",
+            "title": "A Verified RAG Evaluation Benchmark arXiv:2501.01234",
+            "snippet": "RAG evaluation benchmark, 2025, arXiv 2501.01234.",
+            "url": "https://arxiv.org/abs/2501.01234",
+            "date": "2025",
+        }]}
+        with patch(
+            "agents._infrastructure.skills.builtin_operations.provider_search_arxiv",
+            new=AsyncMock(return_value=[]),
+        ) as academic, patch(
+            "agents._infrastructure.skills.builtin_operations.provider_rich_search",
+            new=AsyncMock(return_value=search_metadata),
+        ) as search, patch(
+            "agents._infrastructure.skills.builtin_operations.record_provider_usage",
+            new=AsyncMock(),
+        ):
+            result = json.loads(await tool.ainvoke({
+                "topic": "RAG 评测",
+                "year_from": 2024,
+                "limit": 3,
+            }))
+
+        academic.assert_awaited_once()
+        search.assert_awaited_once()
+        self.assertEqual(len(result["papers"]), 1)
+        self.assertEqual(result["papers"][0]["arxiv_id"], "2501.01234")
+
     async def test_verified_model_paper_results_skip_makers_search(self):
         class CandidateModel:
             def with_structured_output(self, schema, **_kwargs):

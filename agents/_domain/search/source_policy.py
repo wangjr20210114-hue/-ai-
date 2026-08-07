@@ -51,6 +51,25 @@ def source_domain(url: object) -> str:
     return ".".join(labels[-2:])
 
 
+def source_publisher_identity(item: dict[str, Any]) -> str:
+    """Return the publisher represented by a provider result.
+
+    Search gateways may expose many independent publishers through one relay
+    host. Prefer the provider's explicit site identity in that case, while
+    retaining the registrable URL domain as the deterministic fallback. This
+    avoids both treating one gateway as many domains and collapsing genuinely
+    independent publications into a single source.
+    """
+    publisher = " ".join(re.findall(
+        r"[\w\u4e00-\u9fff]+",
+        str(item.get("publisher") or item.get("site") or "").casefold(),
+    )).strip()
+    if publisher:
+        return f"publisher:{publisher}"
+    domain = source_domain(item.get("url"))
+    return f"domain:{domain}" if domain else ""
+
+
 def query_match_terms(query: str) -> set[str]:
     """Build lightweight relevance terms without assuming one topic or locale."""
     normalized = str(query or "").lower()
@@ -210,10 +229,10 @@ def rank_source_results(
     if len(ranked) < 2:
         return [item for _, item in ranked]
     chosen: list[tuple[int, dict[str, Any]]] = [ranked[0]]
-    first_domain = source_domain(ranked[0][1].get("url"))
+    first_identity = source_publisher_identity(ranked[0][1])
     for pair in ranked[1:]:
-        candidate_domain = source_domain(pair[1].get("url"))
-        if candidate_domain and candidate_domain != first_domain:
+        candidate_identity = source_publisher_identity(pair[1])
+        if candidate_identity and candidate_identity != first_identity:
             chosen.append(pair)
             break
     chosen.extend(pair for pair in ranked if pair not in chosen)
@@ -267,6 +286,7 @@ __all__ = (
     "rank_source_results",
     "source_domain",
     "source_host",
+    "source_publisher_identity",
     "source_quality_score",
     "source_recency_score",
 )

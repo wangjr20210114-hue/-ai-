@@ -127,8 +127,15 @@ class RoutePolicyTests(unittest.TestCase):
         arguments = route_calendar_tool_arguments({
             "needs_calendar_action": True,
             "calendar_uses_planned_route": True,
+            "route_calendar_start_time": "2099-08-09T15:00:00+08:00",
+            "route_calendar_stop_minutes": 45,
         }, "去接朋友并写入日程")
         self.assertEqual(arguments["changes"], [])
+        self.assertEqual(
+            arguments["route_start_time"],
+            "2099-08-09T15:00:00+08:00",
+        )
+        self.assertEqual(arguments["route_stop_minutes"], 45)
         self.assertEqual(arguments["summary"], "去接朋友并写入日程")
 
     def test_new_route_calendar_plan_preserves_both_required_tools(self):

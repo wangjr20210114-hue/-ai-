@@ -672,5 +672,41 @@ class RuntimeRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(diagnostics["route_facts"][0]["route_duration_seconds"], 1800)
         self.assertTrue(any(item["type"] == "route_risk" for item in signals))
 
+    async def test_provider_collectors_ignore_negligible_route_shortfall(self):
+        now = int(time.time())
+        place_a = {"place_id": "a", "latitude": 39.9, "longitude": 116.3}
+        place_b = {"place_id": "b", "latitude": 39.8, "longitude": 116.4}
+        schedules = [
+            {
+                "id": "a", "title": "A", "start_time": now + 3600,
+                "duration_minutes": 1, "extra": {"place": place_a},
+            },
+            {
+                "id": "b", "title": "B", "start_time": now + 4440,
+                "duration_minutes": 30, "extra": {"place": place_b},
+            },
+        ]
+        route = {
+            "provider": "tencent",
+            "duration_seconds": 60,
+            "distance_meters": 500,
+        }
+        weather = {"weather": "clear", "temperature": 28, "humidity": 55}
+        with (
+            patch(
+                "agents._application.proactive.service.get_current_weather",
+                AsyncMock(return_value=weather),
+            ),
+            patch(
+                "agents._application.proactive.service.plan_verified_route",
+                AsyncMock(return_value=route),
+            ),
+        ):
+            signals, diagnostics = await collect_provider_signals(
+                {"TENCENT_MAP_KEY": "key"}, schedules, now,
+            )
+        self.assertEqual(diagnostics["route_facts"][0]["shortfall_seconds"], 180)
+        self.assertFalse(any(item["type"] == "route_risk" for item in signals))
+
 if __name__ == "__main__":
     unittest.main()

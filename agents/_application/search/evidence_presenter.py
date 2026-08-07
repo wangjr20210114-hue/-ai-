@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from agents._domain.search.evidence import SearchEvidence
-from agents._domain.search.source_policy import source_domain
+from agents._domain.search.source_policy import (
+    source_domain,
+    source_publisher_identity,
+)
 
 from ..i18n import normalize_language, text
 
@@ -88,21 +91,19 @@ def evidence_for_model(
         )
     else:
         temporal_instruction = ""
-    publisher_domains = {
-        str(item.get("publisher_domain") or source_domain(item.get("url")))
+    publisher_identities = {
+        source_publisher_identity(item)
         for item in metadata.get("results", [])
-        if str(
-            item.get("publisher_domain") or source_domain(item.get("url"))
-        ).strip()
+        if source_publisher_identity(item)
     }
     source_diversity = text(
         (
             "model.search.diversity_available"
-            if len(publisher_domains) >= 2
+            if len(publisher_identities) >= 2
             else "model.search.diversity_limited"
         ),
         language,
-        count=len(publisher_domains),
+        count=len(publisher_identities),
     )
     return text(
         "model.search.evidence", language,

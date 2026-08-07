@@ -4,6 +4,7 @@ import { Button } from 'tdesign-react';
 import ImageStudioCard from '../../../../components/image/ImageStudioCard';
 import type { WorkspaceAction } from '../../model';
 import { useLanguage } from '../../../../i18n';
+import { requestRightWorkspaceOpen } from '../../../../services/workspaceEvents';
 
 function eventTimestamp(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value * 1000;
@@ -62,7 +63,10 @@ export function WorkspaceActionRenderer({
             type="button"
             className="workspace-map-action"
             disabled={generationActive || busy}
-            onClick={() => void onAction(action, 'activate_map')}
+            onClick={() => {
+              requestRightWorkspaceOpen(window);
+              void onAction(action, 'activate_map');
+            }}
           >
             {busy ? t('openingMap') : action.payload.action_text || t('viewPlacesOnMap')}
           </button> : <div className={`workspace-action-status status-${action.status}`}>
